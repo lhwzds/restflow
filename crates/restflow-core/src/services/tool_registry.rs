@@ -7,12 +7,12 @@ use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
     BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, Deliverable,
     DeliverableType, DurabilityMode, MemoryConfig, MemoryScope, MemorySearchQuery, NoteQuery,
-    NoteStatus, ResourceLimits, SearchMode, SharedEntry, Skill, TerminalSession, ToolAction,
+    NoteStatus, ResourceLimits, SearchMode, SharedEntry, Skill, TerminalSession,
     TriggerConfig, UnifiedSearchQuery, Visibility, WorkspaceNote,
     WorkspaceNotePatch as CoreWorkspaceNotePatch, WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
 };
 use crate::registry::{
-    GitHubProvider, MarketplaceProvider, SkillProvider as MarketplaceSkillProvider,
+    GitHubProvider, MarketplaceProvider, SkillProvider as _,
     SkillSearchQuery,
 };
 use crate::security::SecurityChecker;
@@ -22,7 +22,6 @@ use crate::storage::{
     SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
     WorkspaceNoteStorage,
 };
-use crate::ops::{ManageOpsOperation, build_response, parse_operation};
 use chrono::Utc;
 use restflow_tools::error::ToolError;
 // Store traits and abstractions from restflow-ai
@@ -33,15 +32,18 @@ use restflow_ai::tools::{
     BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentScratchpadListRequest,
     BackgroundAgentScratchpadReadRequest, BackgroundAgentStore,
-    BackgroundAgentUpdateRequest, DeliverableStore, MemoryClearRequest,
+    BackgroundAgentUpdateRequest, DeliverableStore,
+    MarketplaceStore, MemoryClearRequest,
     MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery,
-    SessionStore, WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery,
+    OpsProvider, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
+    SessionSearchQuery, SessionStore, SharedSpaceStore,
+    TerminalStore, TriggerStore, UnifiedMemorySearch,
+    WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery,
     WorkspaceNoteRecord, WorkspaceNoteSpec, WorkspaceNoteStatus,
 };
 use restflow_ai::{
     SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate,
-    Tool, ToolOutput, ToolRegistry,
+    ToolRegistry,
 };
 // Tool implementations from restflow-tools
 use restflow_tools::{
@@ -53,8 +55,11 @@ use restflow_tools::{
     BashTool, FileTool, HttpTool, EmailTool, TelegramTool, DiscordTool, SlackTool,
     PythonTool, RunPythonTool,
     WebFetchTool, JinaReaderTool,
+    // Migrated inline tools
+    ManageOpsTool, MarketplaceTool, SecurityQueryTool, SharedSpaceTool,
+    TerminalTool, TriggerTool, UnifiedMemorySearchTool,
 };
-use serde::{Deserialize, de::DeserializeOwned};
+use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -1576,6 +1581,889 @@ impl MemoryStore for DbMemoryStoreAdapter {
     }
 }
 
+// ── SecurityQueryProviderAdapter ─────────────────────────────────────
+
+struct SecurityQueryProviderAdapter;
+
+impl SecurityQueryProvider for SecurityQueryProviderAdapter {
+    fn show_policy(&self) -> restflow_tools::Result<Value> {
+        let policy = crate::models::SecurityPolicy::default();
+        Ok(serde_json::to_value(policy)?)
+    }
+
+    fn list_permissions(&self) -> restflow_tools::Result<Value> {
+        let policy = crate::models::SecurityPolicy::default();
+        Ok(json!({
+            "default_action": policy.default_action,
+            "allowlist_count": policy.allowlist.len(),
+            "blocklist_count": policy.blocklist.len(),
+            "approval_required_count": policy.approval_required.len(),
+            "tool_rule_count": policy.tool_rules.len()
+        }))
+    }
+
+    fn check_permission(
+        &self,
+        tool_name: &str,
+        operation_name: &str,
+        target: Option<&str>,
+        summary: Option<&str>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>> {
+        let tool_name = tool_name.to_string();
+        let operation_name = operation_name.to_string();
+        let target = target.map(|s| s.to_string());
+        let summary = summary.map(|s| s.to_string());
+        Box::pin(async move {
+            let checker = SecurityChecker::with_defaults();
+            let target_str = target.unwrap_or_else(|| "*".to_string());
+            let summary_str = summary
+                .unwrap_or_else(|| format!("{}:{}", tool_name, operation_name));
+            let ai_action = restflow_ai::ToolAction {
+                tool_name: tool_name.clone(),
+                operation: operation_name.clone(),
+                target: target_str,
+                summary: summary_str,
+            };
+            let decision = checker
+                .check_tool_action(&ai_action, Some("runtime"), Some("runtime"))
+                .await
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            Ok(json!({
+                "allowed": decision.allowed,
+                "requires_approval": decision.requires_approval,
+                "approval_id": decision.approval_id,
+                "reason": decision.reason
+            }))
+        })
+    }
+}
+
+// ── TriggerStoreAdapter ─────────────────────────────────────────────
+
+struct TriggerStoreAdapter {
+    storage: TriggerStorage,
+}
+
+impl TriggerStoreAdapter {
+    fn new(storage: TriggerStorage) -> Self {
+        Self { storage }
+    }
+}
+
+impl TriggerStore for TriggerStoreAdapter {
+    fn create_trigger(
+        &self,
+        workflow_id: &str,
+        config: Value,
+        id: Option<&str>,
+    ) -> restflow_tools::Result<Value> {
+        let trigger_config: TriggerConfig =
+            serde_json::from_value(config).map_err(|e| ToolError::Tool(e.to_string()))?;
+        let mut trigger =
+            crate::models::ActiveTrigger::new(workflow_id.to_string(), trigger_config);
+        if let Some(id) = id {
+            trigger.id = id.to_string();
+        }
+        self.storage
+            .activate_trigger(&trigger)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        Ok(serde_json::to_value(trigger)?)
+    }
+
+    fn list_triggers(&self) -> restflow_tools::Result<Value> {
+        let triggers = self
+            .storage
+            .list_active_triggers()
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        Ok(serde_json::to_value(triggers)?)
+    }
+
+    fn delete_trigger(&self, id: &str) -> restflow_tools::Result<Value> {
+        self.storage
+            .deactivate_trigger(id)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        Ok(json!({ "id": id, "deleted": true }))
+    }
+}
+
+// ── TerminalStoreAdapter ────────────────────────────────────────────
+
+struct TerminalStoreAdapter {
+    storage: TerminalSessionStorage,
+}
+
+impl TerminalStoreAdapter {
+    fn new(storage: TerminalSessionStorage) -> Self {
+        Self { storage }
+    }
+}
+
+impl TerminalStore for TerminalStoreAdapter {
+    fn create_session(
+        &self,
+        name: Option<&str>,
+        working_dir: Option<&str>,
+        startup_cmd: Option<&str>,
+    ) -> restflow_tools::Result<Value> {
+        let id = format!("terminal-{}", Uuid::new_v4());
+        let default_name = self
+            .storage
+            .get_next_name()
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let mut session =
+            TerminalSession::new(id, name.unwrap_or(&default_name).to_string());
+        session.set_config(
+            working_dir.map(|s| s.to_string()),
+            startup_cmd.map(|s| s.to_string()),
+        );
+        self.storage
+            .create(&session)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        Ok(serde_json::to_value(session)?)
+    }
+
+    fn list_sessions(&self) -> restflow_tools::Result<Value> {
+        let sessions = self
+            .storage
+            .list()
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        Ok(serde_json::to_value(sessions)?)
+    }
+
+    fn send_input(&self, session_id: &str, data: &str) -> restflow_tools::Result<Value> {
+        let mut session = self
+            .storage
+            .get(session_id)
+            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Terminal session not found: {}", session_id))
+            })?;
+
+        let mut history = session.history.clone().unwrap_or_default();
+        history.push_str(&format!("\n$ {}", data));
+        session.update_history(history);
+        self.storage
+            .update(session_id, &session)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+
+        Ok(json!({
+            "session_id": session_id,
+            "accepted": true,
+            "live_runtime": false
+        }))
+    }
+
+    fn read_output(&self, session_id: &str) -> restflow_tools::Result<Value> {
+        let session = self
+            .storage
+            .get(session_id)
+            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Terminal session not found: {}", session_id))
+            })?;
+        Ok(json!({
+            "session_id": session_id,
+            "output": session.history.unwrap_or_default(),
+            "live_runtime": false
+        }))
+    }
+
+    fn close_session(&self, session_id: &str) -> restflow_tools::Result<Value> {
+        let mut session = self
+            .storage
+            .get(session_id)
+            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .ok_or_else(|| {
+                ToolError::Tool(format!("Terminal session not found: {}", session_id))
+            })?;
+        session.status = crate::models::TerminalStatus::Stopped;
+        session.stopped_at = Some(Utc::now().timestamp_millis());
+        self.storage
+            .update(session_id, &session)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        Ok(json!({
+            "session_id": session_id,
+            "closed": true
+        }))
+    }
+}
+
+// ── UnifiedMemorySearchAdapter ──────────────────────────────────────
+
+struct UnifiedMemorySearchAdapter {
+    engine: UnifiedSearchEngine,
+}
+
+impl UnifiedMemorySearchAdapter {
+    fn new(engine: UnifiedSearchEngine) -> Self {
+        Self { engine }
+    }
+}
+
+impl UnifiedMemorySearch for UnifiedMemorySearchAdapter {
+    fn search(
+        &self,
+        agent_id: &str,
+        query: &str,
+        include_sessions: bool,
+        limit: u32,
+        offset: u32,
+    ) -> restflow_tools::Result<Value> {
+        let base = MemorySearchQuery::new(agent_id.to_string())
+            .with_query(query.to_string())
+            .with_mode(SearchMode::Keyword)
+            .paginate(limit, offset);
+        let unified_query = UnifiedSearchQuery::new(base).with_sessions(include_sessions);
+
+        let results = self
+            .engine
+            .search(&unified_query)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+
+        Ok(serde_json::to_value(results)?)
+    }
+}
+
+// ── SharedSpaceStoreAdapter ─────────────────────────────────────────
+
+struct SharedSpaceStoreAdapter {
+    storage: SharedSpaceStorage,
+    accessor_id: Option<String>,
+}
+
+impl SharedSpaceStoreAdapter {
+    fn new(storage: SharedSpaceStorage, accessor_id: Option<String>) -> Self {
+        Self {
+            storage,
+            accessor_id,
+        }
+    }
+}
+
+impl SharedSpaceStore for SharedSpaceStoreAdapter {
+    fn get_entry(&self, key: &str) -> restflow_tools::Result<Value> {
+        let entry = self
+            .storage
+            .get(key, self.accessor_id.as_deref())
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let payload = match entry {
+            Some(entry) => json!({
+                "found": true,
+                "key": entry.key,
+                "value": entry.value,
+                "content_type": entry.content_type,
+                "visibility": entry.visibility,
+                "tags": entry.tags,
+                "updated_at": entry.updated_at
+            }),
+            None => json!({
+                "found": false,
+                "key": key
+            }),
+        };
+        Ok(payload)
+    }
+
+    fn set_entry(
+        &self,
+        key: &str,
+        content: &str,
+        visibility: Option<&str>,
+        content_type: Option<&str>,
+        type_hint: Option<&str>,
+        tags: Option<Vec<String>>,
+        _accessor_id: Option<&str>,
+    ) -> restflow_tools::Result<Value> {
+        let existing = self
+            .storage
+            .get_unchecked(key)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+
+        if let Some(ref entry) = existing
+            && !entry.can_write(self.accessor_id.as_deref())
+        {
+            return Err(ToolError::Tool(
+                "Access denied: cannot write to this entry".to_string(),
+            ));
+        }
+
+        fn parse_visibility(value: &str) -> Visibility {
+            match value {
+                "private" => Visibility::Private,
+                "shared" => Visibility::Shared,
+                _ => Visibility::Public,
+            }
+        }
+
+        let vis = visibility
+            .map(parse_visibility)
+            .or(existing.as_ref().map(|e| e.visibility))
+            .unwrap_or_default();
+
+        let entry = SharedEntry {
+            key: key.to_string(),
+            value: content.to_string(),
+            visibility: vis,
+            owner: existing
+                .as_ref()
+                .and_then(|e| e.owner.clone())
+                .or_else(|| self.accessor_id.clone()),
+            content_type: content_type
+                .map(|s| s.to_string())
+                .or_else(|| existing.as_ref().and_then(|e| e.content_type.clone())),
+            type_hint: type_hint
+                .map(|s| s.to_string())
+                .or_else(|| existing.as_ref().and_then(|e| e.type_hint.clone())),
+            tags: tags
+                .or_else(|| existing.as_ref().map(|e| e.tags.clone()))
+                .unwrap_or_default(),
+            created_at: existing
+                .as_ref()
+                .map(|e| e.created_at)
+                .unwrap_or_else(|| Utc::now().timestamp_millis()),
+            updated_at: Utc::now().timestamp_millis(),
+            last_modified_by: self.accessor_id.clone(),
+        };
+
+        self.storage
+            .set(&entry)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+
+        Ok(json!({
+            "success": true,
+            "key": key,
+            "created": existing.is_none()
+        }))
+    }
+
+    fn delete_entry(&self, key: &str, accessor_id: Option<&str>) -> restflow_tools::Result<Value> {
+        let deleted = self
+            .storage
+            .delete(key, accessor_id)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        Ok(json!({
+            "deleted": deleted,
+            "key": key
+        }))
+    }
+
+    fn list_entries(&self, namespace: Option<&str>) -> restflow_tools::Result<Value> {
+        let prefix = namespace.map(|ns| format!("{}:", ns));
+        let entries = self
+            .storage
+            .list(prefix.as_deref(), self.accessor_id.as_deref())
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let items: Vec<_> = entries
+            .iter()
+            .map(|entry| {
+                let preview = if entry.value.len() > 100 {
+                    format!("{}...", &entry.value[..100])
+                } else {
+                    entry.value.clone()
+                };
+                json!({
+                    "key": entry.key,
+                    "content_type": entry.content_type,
+                    "visibility": entry.visibility,
+                    "tags": entry.tags,
+                    "updated_at": entry.updated_at,
+                    "preview": preview
+                })
+            })
+            .collect();
+        Ok(json!({
+            "count": items.len(),
+            "entries": items
+        }))
+    }
+}
+
+// ── MarketplaceStoreAdapter ─────────────────────────────────────────
+
+struct MarketplaceStoreAdapter {
+    storage: SkillStorage,
+}
+
+impl MarketplaceStoreAdapter {
+    fn new(storage: SkillStorage) -> Self {
+        Self { storage }
+    }
+
+    fn provider_name(source: Option<&str>) -> &str {
+        match source {
+            Some("github") => "github",
+            _ => "marketplace",
+        }
+    }
+
+    async fn search_source(
+        source: &str,
+        query: &SkillSearchQuery,
+    ) -> Result<Vec<crate::registry::SkillSearchResult>, ToolError> {
+        match source {
+            "github" => GitHubProvider::new()
+                .search(query)
+                .await
+                .map_err(|e| ToolError::Tool(e.to_string())),
+            _ => MarketplaceProvider::new()
+                .search(query)
+                .await
+                .map_err(|e| ToolError::Tool(e.to_string())),
+        }
+    }
+
+    async fn get_manifest(
+        source: &str,
+        id: &str,
+    ) -> Result<crate::models::SkillManifest, ToolError> {
+        match source {
+            "github" => GitHubProvider::new()
+                .get_manifest(id)
+                .await
+                .map_err(|e| ToolError::Tool(e.to_string())),
+            _ => MarketplaceProvider::new()
+                .get_manifest(id)
+                .await
+                .map_err(|e| ToolError::Tool(e.to_string())),
+        }
+    }
+
+    async fn get_content(
+        source: &str,
+        id: &str,
+        version: &crate::models::SkillVersion,
+    ) -> Result<String, ToolError> {
+        match source {
+            "github" => GitHubProvider::new()
+                .get_content(id, version)
+                .await
+                .map_err(|e| ToolError::Tool(e.to_string())),
+            _ => MarketplaceProvider::new()
+                .get_content(id, version)
+                .await
+                .map_err(|e| ToolError::Tool(e.to_string())),
+        }
+    }
+
+    fn manifest_to_skill(manifest: crate::models::SkillManifest, content: String) -> Skill {
+        let now = Utc::now().timestamp_millis();
+        Skill {
+            id: manifest.id,
+            name: manifest.name,
+            description: manifest.description,
+            tags: Some(manifest.keywords),
+            triggers: Vec::new(),
+            content,
+            folder_path: None,
+            suggested_tools: Vec::new(),
+            scripts: Vec::new(),
+            references: Vec::new(),
+            gating: None,
+            version: Some(manifest.version.to_string()),
+            author: manifest.author.map(|a| a.name),
+            license: manifest.license,
+            content_hash: None,
+            status: crate::models::SkillStatus::Active,
+            auto_complete: false,
+            storage_mode: crate::models::StorageMode::DatabaseOnly,
+            is_synced: false,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl MarketplaceStore for MarketplaceStoreAdapter {
+    async fn search_skills(
+        &self,
+        query: Option<&str>,
+        category: Option<&str>,
+        tags: Option<Vec<String>>,
+        author: Option<&str>,
+        limit: Option<usize>,
+        offset: Option<usize>,
+        source: Option<&str>,
+    ) -> restflow_tools::Result<Value> {
+        let q = SkillSearchQuery {
+            query: query.map(|s| s.to_string()),
+            category: category.map(|s| s.to_string()),
+            tags: tags.unwrap_or_default(),
+            author: author.map(|s| s.to_string()),
+            limit,
+            offset,
+            sort: None,
+        };
+        let source_name = Self::provider_name(source);
+        let results = Self::search_source(source_name, &q).await?;
+        Ok(serde_json::to_value(results)?)
+    }
+
+    async fn skill_info(&self, id: &str, source: Option<&str>) -> restflow_tools::Result<Value> {
+        let source_name = Self::provider_name(source);
+        let manifest = Self::get_manifest(source_name, id).await?;
+        Ok(serde_json::to_value(manifest)?)
+    }
+
+    async fn install_skill(
+        &self,
+        id: &str,
+        source: Option<&str>,
+        overwrite: bool,
+    ) -> restflow_tools::Result<Value> {
+        let source_name = Self::provider_name(source);
+        let manifest = Self::get_manifest(source_name, id).await?;
+        let content = Self::get_content(source_name, id, &manifest.version).await?;
+        let skill = Self::manifest_to_skill(manifest, content);
+
+        let exists = self
+            .storage
+            .exists(id)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        if exists && !overwrite {
+            return Err(ToolError::Tool(
+                "Skill already installed. Set overwrite=true to replace.".to_string(),
+            ));
+        }
+
+        if exists {
+            self.storage
+                .update(id, &skill)
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
+        } else {
+            self.storage
+                .create(&skill)
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
+        }
+
+        Ok(json!({
+            "id": id,
+            "name": skill.name,
+            "version": skill.version,
+            "installed": true,
+            "updated": exists
+        }))
+    }
+
+    fn uninstall_skill(&self, id: &str) -> restflow_tools::Result<Value> {
+        let exists = self
+            .storage
+            .exists(id)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        if exists {
+            self.storage
+                .delete(id)
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
+        }
+        Ok(json!({
+            "id": id,
+            "deleted": exists
+        }))
+    }
+
+    fn list_installed(&self) -> restflow_tools::Result<Value> {
+        let skills = self
+            .storage
+            .list()
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        Ok(serde_json::to_value(skills)?)
+    }
+}
+
+// ── OpsProviderAdapter ──────────────────────────────────────────────
+
+struct OpsProviderAdapter {
+    background_storage: BackgroundAgentStorage,
+    chat_storage: ChatSessionStorage,
+}
+
+impl OpsProviderAdapter {
+    fn new(
+        background_storage: BackgroundAgentStorage,
+        chat_storage: ChatSessionStorage,
+    ) -> Self {
+        Self {
+            background_storage,
+            chat_storage,
+        }
+    }
+
+    fn parse_status_filter(
+        status: Option<&str>,
+    ) -> restflow_tools::Result<Option<BackgroundAgentStatus>> {
+        let Some(status) = status else {
+            return Ok(None);
+        };
+        let parsed = match status.trim().to_ascii_lowercase().as_str() {
+            "active" => BackgroundAgentStatus::Active,
+            "paused" => BackgroundAgentStatus::Paused,
+            "running" => BackgroundAgentStatus::Running,
+            "completed" => BackgroundAgentStatus::Completed,
+            "failed" => BackgroundAgentStatus::Failed,
+            "interrupted" => BackgroundAgentStatus::Interrupted,
+            value => {
+                return Err(ToolError::Tool(format!(
+                    "Unknown status: {}. Supported: active, paused, running, completed, failed, interrupted",
+                    value
+                )));
+            }
+        };
+        Ok(Some(parsed))
+    }
+
+    fn canonical_existing_ancestor(path: &Path) -> anyhow::Result<PathBuf> {
+        let mut current = if path.exists() {
+            path.to_path_buf()
+        } else {
+            path.parent()
+                .map(Path::to_path_buf)
+                .unwrap_or_else(|| path.to_path_buf())
+        };
+
+        while !current.exists() {
+            if !current.pop() {
+                break;
+            }
+        }
+
+        if !current.exists() {
+            anyhow::bail!(
+                "No existing ancestor found for path: {}",
+                path.display()
+            );
+        }
+
+        Ok(current.canonicalize()?)
+    }
+
+    fn resolve_log_tail_path(path: Option<&str>) -> restflow_tools::Result<PathBuf> {
+        let logs_dir =
+            crate::paths::logs_dir().map_err(|e| ToolError::Tool(e.to_string()))?;
+        let resolved = match path
+            .map(str::trim)
+            .filter(|raw| !raw.is_empty())
+            .map(PathBuf::from)
+        {
+            Some(custom_path) if custom_path.is_absolute() => custom_path,
+            Some(custom_path) => logs_dir.join(custom_path),
+            None => crate::paths::daemon_log_path()
+                .map_err(|e| ToolError::Tool(e.to_string()))?,
+        };
+
+        let logs_root = Self::canonical_existing_ancestor(&logs_dir)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let path_root = Self::canonical_existing_ancestor(&resolved)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        if !path_root.starts_with(&logs_root) {
+            return Err(ToolError::Tool(format!(
+                "log_tail path must stay under {}",
+                logs_dir.display()
+            )));
+        }
+
+        if let Ok(metadata) = std::fs::symlink_metadata(&resolved)
+            && metadata.file_type().is_symlink()
+        {
+            return Err(ToolError::Tool(
+                "log_tail does not allow symlink paths".to_string(),
+            ));
+        }
+
+        Ok(resolved)
+    }
+
+    fn read_log_tail(path: &Path, lines: usize) -> anyhow::Result<(Vec<String>, bool)> {
+        let mut file = std::fs::File::open(path)?;
+        let mut content = String::new();
+        use std::io::Read;
+        file.read_to_string(&mut content)?;
+        let all_lines: Vec<String> = content.lines().map(str::to_string).collect();
+        let total = all_lines.len();
+        let start = total.saturating_sub(lines);
+        let truncated = total > lines;
+        Ok((all_lines[start..].to_vec(), truncated))
+    }
+}
+
+impl OpsProvider for OpsProviderAdapter {
+    fn daemon_status(&self) -> restflow_tools::Result<Value> {
+        let status =
+            check_daemon_status().map_err(|e| ToolError::Tool(e.to_string()))?;
+        let evidence = match status {
+            DaemonStatus::Running { pid } => json!({
+                "status": "running",
+                "pid": pid
+            }),
+            DaemonStatus::NotRunning => json!({
+                "status": "not_running"
+            }),
+            DaemonStatus::Stale { pid } => json!({
+                "status": "stale",
+                "pid": pid
+            }),
+        };
+        let verification = json!({
+            "source": "daemon_pid_file",
+            "checked_at": Utc::now().timestamp_millis()
+        });
+        Ok(crate::ops::build_response(
+            crate::ops::ManageOpsOperation::DaemonStatus,
+            evidence,
+            verification,
+        ))
+    }
+
+    fn daemon_health(
+        &self,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>>
+    {
+        Box::pin(async move {
+            let socket = crate::paths::socket_path()
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            let health = check_health(socket, None)
+                .await
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            let evidence = serde_json::to_value(health).map_err(ToolError::from)?;
+            let verification = json!({
+                "healthy": evidence["healthy"],
+                "ipc_checked": true,
+                "http_checked": false
+            });
+            Ok(crate::ops::build_response(
+                crate::ops::ManageOpsOperation::DaemonHealth,
+                evidence,
+                verification,
+            ))
+        })
+    }
+
+    fn background_summary(
+        &self,
+        status: Option<&str>,
+        limit: usize,
+    ) -> restflow_tools::Result<Value> {
+        let status_filter = Self::parse_status_filter(status)?;
+        let tasks = match status_filter.clone() {
+            Some(s) => self
+                .background_storage
+                .list_tasks_by_status(s)
+                .map_err(|e| ToolError::Tool(e.to_string()))?,
+            None => self
+                .background_storage
+                .list_tasks()
+                .map_err(|e| ToolError::Tool(e.to_string()))?,
+        };
+        let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
+        for task in &tasks {
+            *by_status
+                .entry(task.status.as_str().to_string())
+                .or_default() += 1;
+        }
+        let sample: Vec<Value> = tasks
+            .iter()
+            .take(limit)
+            .map(|task| {
+                json!({
+                    "id": task.id,
+                    "name": task.name,
+                    "agent_id": task.agent_id,
+                    "status": task.status.as_str(),
+                    "updated_at": task.updated_at
+                })
+            })
+            .collect();
+        let evidence = json!({
+            "total": tasks.len(),
+            "by_status": by_status,
+            "sample": sample
+        });
+        let verification = json!({
+            "status_filter": status_filter.as_ref().map(|s| s.as_str()),
+            "sample_limit": limit,
+            "derived_from": "background_agent_storage"
+        });
+        Ok(crate::ops::build_response(
+            crate::ops::ManageOpsOperation::BackgroundSummary,
+            evidence,
+            verification,
+        ))
+    }
+
+    fn session_summary(&self, limit: usize) -> restflow_tools::Result<Value> {
+        let summaries = self
+            .chat_storage
+            .list_summaries()
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let recent: Vec<Value> = summaries
+            .iter()
+            .take(limit)
+            .map(|session| {
+                json!({
+                    "id": session.id,
+                    "name": session.name,
+                    "agent_id": session.agent_id,
+                    "model": session.model,
+                    "message_count": session.message_count,
+                    "updated_at": session.updated_at,
+                    "last_message_preview": session.last_message_preview
+                })
+            })
+            .collect();
+        let evidence = json!({
+            "total": summaries.len(),
+            "recent": recent
+        });
+        let verification = json!({
+            "sorted_by": "updated_at_desc",
+            "sample_limit": limit,
+            "derived_from": "chat_session_storage"
+        });
+        Ok(crate::ops::build_response(
+            crate::ops::ManageOpsOperation::SessionSummary,
+            evidence,
+            verification,
+        ))
+    }
+
+    fn log_tail(&self, lines: usize, path: Option<&str>) -> restflow_tools::Result<Value> {
+        let resolved = Self::resolve_log_tail_path(path)?;
+        if !resolved.exists() {
+            let evidence = json!({
+                "path": resolved.to_string_lossy(),
+                "lines": [],
+                "line_count": 0
+            });
+            let verification = json!({
+                "path_exists": false,
+                "requested_lines": lines
+            });
+            return Ok(crate::ops::build_response(
+                crate::ops::ManageOpsOperation::LogTail,
+                evidence,
+                verification,
+            ));
+        }
+
+        let (tail, truncated) = Self::read_log_tail(&resolved, lines)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let evidence = json!({
+            "path": resolved.to_string_lossy(),
+            "lines": tail,
+            "line_count": tail.len()
+        });
+        let verification = json!({
+            "path_exists": true,
+            "requested_lines": lines,
+            "truncated": truncated
+        });
+        Ok(crate::ops::build_response(
+            crate::ops::ManageOpsOperation::LogTail,
+            evidence,
+            verification,
+        ))
+    }
+}
+
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
 /// This function creates a registry with:
@@ -1663,14 +2551,21 @@ pub fn create_tool_registry(
 
     // Add unified memory search tool
     let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage.clone());
-    registry.register(MemorySearchTool::new(search_engine));
-    registry.register(ManageOpsTool::new(
+    let unified_search: Arc<dyn UnifiedMemorySearch> =
+        Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
+    registry.register(UnifiedMemorySearchTool::new(unified_search));
+
+    // Add manage ops tool
+    let ops_provider: Arc<dyn OpsProvider> = Arc::new(OpsProviderAdapter::new(
         background_agent_storage.clone(),
         chat_storage.clone(),
     ));
+    registry.register(ManageOpsTool::new(ops_provider));
 
     // Add shared space tool
-    registry.register(SharedSpaceTool::new(shared_space_storage, accessor_id));
+    let shared_space_store: Arc<dyn SharedSpaceStore> =
+        Arc::new(SharedSpaceStoreAdapter::new(shared_space_storage, accessor_id));
+    registry.register(SharedSpaceTool::new(shared_space_store, None));
 
     // Add workspace note tool
     let workspace_note_provider = Arc::new(DbWorkspaceNoteAdapter::new(workspace_note_storage));
@@ -1698,10 +2593,25 @@ pub fn create_tool_registry(
         deliverable_storage.clone(),
     ));
     registry.register(BackgroundAgentTool::new(background_agent_store).with_write(true));
-    registry.register(MarketplaceTool::new(skill_storage));
-    registry.register(TriggerTool::new(trigger_storage));
-    registry.register(TerminalTool::new(terminal_storage));
-    registry.register(SecurityQueryTool::new());
+
+    // Marketplace tool
+    let marketplace_store: Arc<dyn MarketplaceStore> =
+        Arc::new(MarketplaceStoreAdapter::new(skill_storage));
+    registry.register(MarketplaceTool::new(marketplace_store));
+
+    // Trigger tool
+    let trigger_store: Arc<dyn TriggerStore> = Arc::new(TriggerStoreAdapter::new(trigger_storage));
+    registry.register(TriggerTool::new(trigger_store));
+
+    // Terminal tool
+    let terminal_store: Arc<dyn TerminalStore> =
+        Arc::new(TerminalStoreAdapter::new(terminal_storage));
+    registry.register(TerminalTool::new(terminal_store));
+
+    // Security query tool
+    let security_provider: Arc<dyn SecurityQueryProvider> =
+        Arc::new(SecurityQueryProviderAdapter);
+    registry.register(SecurityQueryTool::new(security_provider));
     if let Ok(mut known) = known_tools.write() {
         *known = registry
             .list()
@@ -1713,318 +2623,21 @@ pub fn create_tool_registry(
     registry
 }
 
-#[derive(Clone)]
-struct MemorySearchTool {
-    engine: UnifiedSearchEngine,
-}
-
-impl MemorySearchTool {
-    fn new(engine: UnifiedSearchEngine) -> Self {
-        Self { engine }
-    }
-}
-
-#[async_trait::async_trait]
-impl Tool for MemorySearchTool {
-    fn name(&self) -> &str {
-        "memory_search"
-    }
-
-    fn description(&self) -> &str {
-        "Search through long-term memory and chat session history"
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Keywords or phrase to search for"
-                },
-                "agent_id": {
-                    "type": "string",
-                    "description": "Agent ID to search within"
-                },
-                "include_sessions": {
-                    "type": "boolean",
-                    "description": "Whether to search chat sessions",
-                    "default": true
-                },
-                "limit": {
-                    "type": "integer",
-                    "description": "Maximum number of results to return",
-                    "default": 5,
-                    "minimum": 1
-                },
-                "offset": {
-                    "type": "integer",
-                    "description": "Offset for pagination",
-                    "default": 0,
-                    "minimum": 0
-                }
-            },
-            "required": ["query", "agent_id"]
-        })
-    }
-
-    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
-        let query = input
-            .get("query")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| ToolError::Tool("Missing query parameter".to_string()))?;
-        let agent_id = input
-            .get("agent_id")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| ToolError::Tool("Missing agent_id parameter".to_string()))?;
-        let include_sessions = input
-            .get("include_sessions")
-            .and_then(|value| value.as_bool())
-            .unwrap_or(true);
-        let limit = input
-            .get("limit")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(5)
-            .min(u32::MAX as u64) as u32;
-        let offset = input
-            .get("offset")
-            .and_then(|value| value.as_u64())
-            .unwrap_or(0)
-            .min(u32::MAX as u64) as u32;
-
-        let base = MemorySearchQuery::new(agent_id.to_string())
-            .with_query(query.to_string())
-            .with_mode(SearchMode::Keyword)
-            .paginate(limit, offset);
-        let unified_query = UnifiedSearchQuery::new(base).with_sessions(include_sessions);
-
-        let results = self
-            .engine
-            .search(&unified_query)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        Ok(ToolOutput::success(serde_json::to_value(results)?))
-    }
-}
-
-#[derive(Clone)]
-struct ManageOpsTool {
-    background_storage: BackgroundAgentStorage,
-    chat_storage: ChatSessionStorage,
-}
-
-impl ManageOpsTool {
-    fn new(background_storage: BackgroundAgentStorage, chat_storage: ChatSessionStorage) -> Self {
-        Self {
-            background_storage,
-            chat_storage,
-        }
-    }
-
-    fn parse_status_filter(
-        input: &Value,
-    ) -> restflow_tools::Result<Option<BackgroundAgentStatus>> {
-        let Some(status) = input.get("status").and_then(Value::as_str) else {
-            return Ok(None);
-        };
-        let parsed = match status.trim().to_ascii_lowercase().as_str() {
-            "active" => BackgroundAgentStatus::Active,
-            "paused" => BackgroundAgentStatus::Paused,
-            "running" => BackgroundAgentStatus::Running,
-            "completed" => BackgroundAgentStatus::Completed,
-            "failed" => BackgroundAgentStatus::Failed,
-            "interrupted" => BackgroundAgentStatus::Interrupted,
-            value => {
-                return Err(ToolError::Tool(format!(
-                    "Unknown status: {}. Supported: active, paused, running, completed, failed, interrupted",
-                    value
-                )));
-            }
-        };
-        Ok(Some(parsed))
-    }
-
-    fn parse_limit(input: &Value, key: &str, default: usize, max: usize) -> usize {
-        input
-            .get(key)
+// Test helper for log_tail_payload (used by tests that previously called ManageOpsTool::log_tail_payload)
+#[cfg(test)]
+impl OpsProviderAdapter {
+    fn log_tail_payload(input: &serde_json::Value) -> restflow_tools::Result<(Value, Value)> {
+        let lines = input
+            .get("lines")
             .and_then(Value::as_u64)
-            .map(|value| value as usize)
-            .unwrap_or(default)
-            .clamp(1, max)
-    }
-
-    fn canonical_existing_ancestor(path: &Path) -> anyhow::Result<PathBuf> {
-        let mut current = if path.exists() {
-            path.to_path_buf()
-        } else {
-            path.parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| path.to_path_buf())
-        };
-
-        while !current.exists() {
-            if !current.pop() {
-                break;
-            }
-        }
-
-        if !current.exists() {
-            anyhow::bail!("No existing ancestor found for path: {}", path.display());
-        }
-
-        Ok(current.canonicalize()?)
-    }
-
-    fn resolve_log_tail_path(input: &Value) -> restflow_tools::Result<PathBuf> {
-        let logs_dir = crate::paths::logs_dir().map_err(|e| ToolError::Tool(e.to_string()))?;
-        let path = match input
-            .get("path")
-            .and_then(Value::as_str)
-            .map(str::trim)
-            .filter(|raw| !raw.is_empty())
-            .map(PathBuf::from)
-        {
-            Some(custom_path) if custom_path.is_absolute() => custom_path,
-            Some(custom_path) => logs_dir.join(custom_path),
-            None => crate::paths::daemon_log_path().map_err(|e| ToolError::Tool(e.to_string()))?,
-        };
-
-        let logs_root = Self::canonical_existing_ancestor(&logs_dir)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let path_root =
-            Self::canonical_existing_ancestor(&path).map_err(|e| ToolError::Tool(e.to_string()))?;
-        if !path_root.starts_with(&logs_root) {
-            return Err(ToolError::Tool(format!(
-                "log_tail path must stay under {}",
-                logs_dir.display()
-            )));
-        }
-
-        if let Ok(metadata) = std::fs::symlink_metadata(&path)
-            && metadata.file_type().is_symlink()
-        {
-            return Err(ToolError::Tool(
-                "log_tail does not allow symlink paths".to_string(),
-            ));
-        }
-
-        Ok(path)
-    }
-
-    fn read_log_tail(path: &Path, lines: usize) -> anyhow::Result<(Vec<String>, bool)> {
-        let mut file = std::fs::File::open(path)?;
-        let mut content = String::new();
-        use std::io::Read;
-        file.read_to_string(&mut content)?;
-        let all_lines: Vec<String> = content.lines().map(str::to_string).collect();
-        let total = all_lines.len();
-        let start = total.saturating_sub(lines);
-        let truncated = total > lines;
-        Ok((all_lines[start..].to_vec(), truncated))
-    }
-
-    fn daemon_status_payload() -> anyhow::Result<Value> {
-        let status = check_daemon_status()?;
-        let payload = match status {
-            DaemonStatus::Running { pid } => json!({
-                "status": "running",
-                "pid": pid
-            }),
-            DaemonStatus::NotRunning => json!({
-                "status": "not_running"
-            }),
-            DaemonStatus::Stale { pid } => json!({
-                "status": "stale",
-                "pid": pid
-            }),
-        };
-        Ok(payload)
-    }
-
-    fn background_summary_payload(
-        &self,
-        input: &Value,
-    ) -> restflow_tools::Result<(Value, Value)> {
-        let status_filter = Self::parse_status_filter(input)?;
-        let tasks = match status_filter.clone() {
-            Some(status) => self
-                .background_storage
-                .list_tasks_by_status(status)
-                .map_err(|e| ToolError::Tool(e.to_string()))?,
-            None => self
-                .background_storage
-                .list_tasks()
-                .map_err(|e| ToolError::Tool(e.to_string()))?,
-        };
-        let limit = Self::parse_limit(input, "limit", 5, 100);
-        let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
-        for task in &tasks {
-            *by_status
-                .entry(task.status.as_str().to_string())
-                .or_default() += 1;
-        }
-        let sample: Vec<Value> = tasks
-            .iter()
-            .take(limit)
-            .map(|task| {
-                json!({
-                    "id": task.id,
-                    "name": task.name,
-                    "agent_id": task.agent_id,
-                    "status": task.status.as_str(),
-                    "updated_at": task.updated_at
-                })
-            })
-            .collect();
-        let evidence = json!({
-            "total": tasks.len(),
-            "by_status": by_status,
-            "sample": sample
-        });
-        let verification = json!({
-            "status_filter": status_filter.as_ref().map(|status| status.as_str()),
-            "sample_limit": limit,
-            "derived_from": "background_agent_storage"
-        });
-        Ok((evidence, verification))
-    }
-
-    fn session_summary_payload(&self, input: &Value) -> restflow_tools::Result<(Value, Value)> {
-        let limit = Self::parse_limit(input, "limit", 10, 100);
-        let summaries = self
-            .chat_storage
-            .list_summaries()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let recent: Vec<Value> = summaries
-            .iter()
-            .take(limit)
-            .map(|session| {
-                json!({
-                    "id": session.id,
-                    "name": session.name,
-                    "agent_id": session.agent_id,
-                    "model": session.model,
-                    "message_count": session.message_count,
-                    "updated_at": session.updated_at,
-                    "last_message_preview": session.last_message_preview
-                })
-            })
-            .collect();
-        let evidence = json!({
-            "total": summaries.len(),
-            "recent": recent
-        });
-        let verification = json!({
-            "sorted_by": "updated_at_desc",
-            "sample_limit": limit,
-            "derived_from": "chat_session_storage"
-        });
-        Ok((evidence, verification))
-    }
-
-    fn log_tail_payload(input: &Value) -> restflow_tools::Result<(Value, Value)> {
-        let lines = Self::parse_limit(input, "lines", 100, 1000);
-        let path = Self::resolve_log_tail_path(input)?;
+            .map(|v| v as usize)
+            .unwrap_or(100)
+            .clamp(1, 1000);
+        let path = Self::resolve_log_tail_path(
+            input
+                .get("path")
+                .and_then(Value::as_str),
+        )?;
         if !path.exists() {
             let evidence = json!({
                 "path": path.to_string_lossy(),
@@ -2051,958 +2664,6 @@ impl ManageOpsTool {
             "truncated": truncated
         });
         Ok((evidence, verification))
-    }
-}
-
-#[async_trait::async_trait]
-impl Tool for ManageOpsTool {
-    fn name(&self) -> &str {
-        "manage_ops"
-    }
-
-    fn description(&self) -> &str {
-        "Unified operational diagnostics and control entry for daemon status, health snapshot, background-agent summary, session summary, and log tail."
-    }
-
-    fn parameters_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["daemon_status", "daemon_health", "background_summary", "session_summary", "log_tail"],
-                    "description": "Operation to execute."
-                },
-                "status": {
-                    "type": "string",
-                    "description": "Optional status filter for background_summary."
-                },
-                "limit": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Optional row limit for summary operations."
-                },
-                "lines": {
-                    "type": "integer",
-                    "minimum": 1,
-                    "description": "Number of lines for log_tail."
-                },
-                "path": {
-                    "type": "string",
-                    "description": "Optional log file path for log_tail. Must stay under ~/.restflow/logs."
-                }
-            },
-            "required": ["operation"]
-        })
-    }
-
-    async fn execute(&self, input: Value) -> restflow_tools::Result<ToolOutput> {
-        let operation_raw = input
-            .get("operation")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::Tool("Missing operation parameter".to_string()))?;
-        let operation = parse_operation(operation_raw).map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        let payload = match operation {
-            ManageOpsOperation::DaemonStatus => {
-                let evidence =
-                    Self::daemon_status_payload().map_err(|e| ToolError::Tool(e.to_string()))?;
-                let verification = json!({
-                    "source": "daemon_pid_file",
-                    "checked_at": Utc::now().timestamp_millis()
-                });
-                build_response(operation, evidence, verification)
-            }
-            ManageOpsOperation::DaemonHealth => {
-                let socket =
-                    crate::paths::socket_path().map_err(|e| ToolError::Tool(e.to_string()))?;
-                let health = check_health(socket, None)
-                    .await
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                let evidence = serde_json::to_value(health).map_err(ToolError::from)?;
-                let verification = json!({
-                    "healthy": evidence["healthy"],
-                    "ipc_checked": true,
-                    "http_checked": false
-                });
-                build_response(operation, evidence, verification)
-            }
-            ManageOpsOperation::BackgroundSummary => {
-                let (evidence, verification) = self.background_summary_payload(&input)?;
-                build_response(operation, evidence, verification)
-            }
-            ManageOpsOperation::SessionSummary => {
-                let (evidence, verification) = self.session_summary_payload(&input)?;
-                build_response(operation, evidence, verification)
-            }
-            ManageOpsOperation::LogTail => {
-                let (evidence, verification) = Self::log_tail_payload(&input)?;
-                build_response(operation, evidence, verification)
-            }
-        };
-
-        Ok(ToolOutput::success(payload))
-    }
-}
-
-#[derive(Clone)]
-struct SharedSpaceTool {
-    storage: SharedSpaceStorage,
-    accessor_id: Option<String>,
-}
-
-impl SharedSpaceTool {
-    fn new(storage: SharedSpaceStorage, accessor_id: Option<String>) -> Self {
-        Self {
-            storage,
-            accessor_id,
-        }
-    }
-
-    fn parse_visibility(value: &str) -> Visibility {
-        match value {
-            "private" => Visibility::Private,
-            "shared" => Visibility::Shared,
-            _ => Visibility::Public,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl Tool for SharedSpaceTool {
-    fn name(&self) -> &str {
-        "shared_space"
-    }
-
-    fn description(&self) -> &str {
-        "Read and write entries in the shared space storage. Use namespace:name keys."
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "action": {
-                    "type": "string",
-                    "enum": ["get", "set", "delete", "list"],
-                    "description": "The action to perform"
-                },
-                "key": {
-                    "type": "string",
-                    "description": "The key (namespace:name). Required for get/set/delete."
-                },
-                "value": {
-                    "type": "string",
-                    "description": "The value to store. Required for set."
-                },
-                "visibility": {
-                    "type": "string",
-                    "enum": ["public", "shared", "private"],
-                    "description": "Access level for the entry"
-                },
-                "content_type": {
-                    "type": "string",
-                    "description": "Optional content type hint"
-                },
-                "type_hint": {
-                    "type": "string",
-                    "description": "Optional type hint for categorization"
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    },
-                    "description": "Optional tags for filtering"
-                },
-                "namespace": {
-                    "type": "string",
-                    "description": "For list: filter by namespace prefix"
-                }
-            },
-            "required": ["action"]
-        })
-    }
-
-    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
-        let action = input
-            .get("action")
-            .and_then(|value| value.as_str())
-            .ok_or_else(|| ToolError::Tool("Missing action parameter".to_string()))?;
-        let accessor_id = self.accessor_id.as_deref();
-
-        match action {
-            "get" => {
-                let key = input
-                    .get("key")
-                    .and_then(|value| value.as_str())
-                    .ok_or_else(|| ToolError::Tool("Missing key parameter".to_string()))?;
-                let entry = self
-                    .storage
-                    .get(key, accessor_id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                let payload = match entry {
-                    Some(entry) => json!({
-                        "found": true,
-                        "key": entry.key,
-                        "value": entry.value,
-                        "content_type": entry.content_type,
-                        "visibility": entry.visibility,
-                        "tags": entry.tags,
-                        "updated_at": entry.updated_at
-                    }),
-                    None => json!({
-                        "found": false,
-                        "key": key
-                    }),
-                };
-                Ok(ToolOutput::success(payload))
-            }
-            "set" => {
-                let key = input
-                    .get("key")
-                    .and_then(|value| value.as_str())
-                    .ok_or_else(|| ToolError::Tool("Missing key parameter".to_string()))?;
-                let value = input
-                    .get("value")
-                    .and_then(|value| value.as_str())
-                    .ok_or_else(|| ToolError::Tool("Missing value parameter".to_string()))?;
-
-                let existing = self
-                    .storage
-                    .get_unchecked(key)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-                if let Some(ref entry) = existing
-                    && !entry.can_write(accessor_id)
-                {
-                    return Ok(ToolOutput::error(
-                        "Access denied: cannot write to this entry",
-                    ));
-                }
-
-                let visibility = input
-                    .get("visibility")
-                    .and_then(|value| value.as_str())
-                    .map(Self::parse_visibility)
-                    .or(existing.as_ref().map(|e| e.visibility))
-                    .unwrap_or_default();
-
-                let entry = SharedEntry {
-                    key: key.to_string(),
-                    value: value.to_string(),
-                    visibility,
-                    owner: existing
-                        .as_ref()
-                        .and_then(|e| e.owner.clone())
-                        .or_else(|| self.accessor_id.clone()),
-                    content_type: input
-                        .get("content_type")
-                        .and_then(|value| value.as_str())
-                        .map(|value| value.to_string())
-                        .or_else(|| existing.as_ref().and_then(|e| e.content_type.clone())),
-                    type_hint: input
-                        .get("type_hint")
-                        .and_then(|value| value.as_str())
-                        .map(|value| value.to_string())
-                        .or_else(|| existing.as_ref().and_then(|e| e.type_hint.clone())),
-                    tags: input
-                        .get("tags")
-                        .and_then(|value| value.as_array())
-                        .map(|items| {
-                            items
-                                .iter()
-                                .filter_map(|item| item.as_str().map(|s| s.to_string()))
-                                .collect::<Vec<String>>()
-                        })
-                        .or_else(|| existing.as_ref().map(|e| e.tags.clone()))
-                        .unwrap_or_default(),
-                    created_at: existing
-                        .as_ref()
-                        .map(|e| e.created_at)
-                        .unwrap_or_else(|| Utc::now().timestamp_millis()),
-                    updated_at: Utc::now().timestamp_millis(),
-                    last_modified_by: self.accessor_id.clone(),
-                };
-
-                self.storage
-                    .set(&entry)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-                Ok(ToolOutput::success(json!({
-                    "success": true,
-                    "key": key,
-                    "created": existing.is_none()
-                })))
-            }
-            "delete" => {
-                let key = input
-                    .get("key")
-                    .and_then(|value| value.as_str())
-                    .ok_or_else(|| ToolError::Tool("Missing key parameter".to_string()))?;
-                let deleted = self
-                    .storage
-                    .delete(key, accessor_id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(json!({
-                    "deleted": deleted,
-                    "key": key
-                })))
-            }
-            "list" => {
-                let namespace = input.get("namespace").and_then(|value| value.as_str());
-                let prefix = namespace.map(|ns| format!("{}:", ns));
-                let entries = self
-                    .storage
-                    .list(prefix.as_deref(), accessor_id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                let items: Vec<_> = entries
-                    .iter()
-                    .map(|entry| {
-                        let preview = if entry.value.len() > 100 {
-                            format!("{}...", &entry.value[..100])
-                        } else {
-                            entry.value.clone()
-                        };
-                        json!({
-                            "key": entry.key,
-                            "content_type": entry.content_type,
-                            "visibility": entry.visibility,
-                            "tags": entry.tags,
-                            "updated_at": entry.updated_at,
-                            "preview": preview
-                        })
-                    })
-                    .collect();
-                Ok(ToolOutput::success(json!({
-                    "count": items.len(),
-                    "entries": items
-                })))
-            }
-            _ => Ok(ToolOutput::error(format!("Unknown action: {}", action))),
-        }
-    }
-}
-
-#[derive(Clone)]
-struct MarketplaceTool {
-    storage: SkillStorage,
-}
-
-impl MarketplaceTool {
-    fn new(storage: SkillStorage) -> Self {
-        Self { storage }
-    }
-
-    fn provider_name(source: Option<&str>) -> &str {
-        match source {
-            Some("github") => "github",
-            _ => "marketplace",
-        }
-    }
-
-    async fn search_source(
-        source: &str,
-        query: &SkillSearchQuery,
-    ) -> Result<Vec<crate::registry::SkillSearchResult>, ToolError> {
-        match source {
-            "github" => GitHubProvider::new()
-                .search(query)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
-                .search(query)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-        }
-    }
-
-    async fn get_manifest(source: &str, id: &str) -> Result<crate::models::SkillManifest, ToolError> {
-        match source {
-            "github" => GitHubProvider::new()
-                .get_manifest(id)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
-                .get_manifest(id)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-        }
-    }
-
-    async fn get_content(
-        source: &str,
-        id: &str,
-        version: &crate::models::SkillVersion,
-    ) -> Result<String, ToolError> {
-        match source {
-            "github" => GitHubProvider::new()
-                .get_content(id, version)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
-                .get_content(id, version)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-        }
-    }
-
-    fn manifest_to_skill(manifest: crate::models::SkillManifest, content: String) -> Skill {
-        let now = Utc::now().timestamp_millis();
-        Skill {
-            id: manifest.id,
-            name: manifest.name,
-            description: manifest.description,
-            tags: Some(manifest.keywords),
-            triggers: Vec::new(),
-            content,
-            folder_path: None,
-            suggested_tools: Vec::new(),
-            scripts: Vec::new(),
-            references: Vec::new(),
-            gating: None,
-            version: Some(manifest.version.to_string()),
-            author: manifest.author.map(|a| a.name),
-            license: manifest.license,
-            content_hash: None,
-            status: crate::models::SkillStatus::Active,
-            auto_complete: false,
-            storage_mode: crate::models::StorageMode::DatabaseOnly,
-            is_synced: false,
-            created_at: now,
-            updated_at: now,
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
-enum MarketplaceOperation {
-    Search {
-        #[serde(default)]
-        query: Option<String>,
-        #[serde(default)]
-        category: Option<String>,
-        #[serde(default)]
-        tags: Option<Vec<String>>,
-        #[serde(default)]
-        author: Option<String>,
-        #[serde(default)]
-        limit: Option<usize>,
-        #[serde(default)]
-        offset: Option<usize>,
-        #[serde(default)]
-        source: Option<String>,
-    },
-    Info {
-        id: String,
-        #[serde(default)]
-        source: Option<String>,
-    },
-    Install {
-        id: String,
-        #[serde(default)]
-        source: Option<String>,
-        #[serde(default)]
-        overwrite: bool,
-    },
-    Uninstall {
-        id: String,
-    },
-    ListInstalled,
-}
-
-#[async_trait::async_trait]
-impl Tool for MarketplaceTool {
-    fn name(&self) -> &str {
-        "manage_marketplace"
-    }
-
-    fn description(&self) -> &str {
-        "Search marketplace skills and install/uninstall them into local skill storage."
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["search", "info", "install", "uninstall", "list_installed"]
-                },
-                "id": { "type": "string" },
-                "query": { "type": "string" },
-                "category": { "type": "string" },
-                "tags": {
-                    "type": "array",
-                    "items": { "type": "string" }
-                },
-                "author": { "type": "string" },
-                "limit": { "type": "integer", "minimum": 1 },
-                "offset": { "type": "integer", "minimum": 0 },
-                "source": { "type": "string", "enum": ["marketplace", "github"] },
-                "overwrite": { "type": "boolean", "default": false }
-            },
-            "required": ["operation"]
-        })
-    }
-
-    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
-        let operation: MarketplaceOperation = serde_json::from_value(input)?;
-        match operation {
-            MarketplaceOperation::Search {
-                query,
-                category,
-                tags,
-                author,
-                limit,
-                offset,
-                source,
-            } => {
-                let query = SkillSearchQuery {
-                    query,
-                    category,
-                    tags: tags.unwrap_or_default(),
-                    author,
-                    limit,
-                    offset,
-                    sort: None,
-                };
-                let source_name = Self::provider_name(source.as_deref());
-                let results = Self::search_source(source_name, &query).await?;
-                Ok(ToolOutput::success(serde_json::to_value(results)?))
-            }
-            MarketplaceOperation::Info { id, source } => {
-                let source_name = Self::provider_name(source.as_deref());
-                let manifest = Self::get_manifest(source_name, &id).await?;
-                Ok(ToolOutput::success(serde_json::to_value(manifest)?))
-            }
-            MarketplaceOperation::Install {
-                id,
-                source,
-                overwrite,
-            } => {
-                let source_name = Self::provider_name(source.as_deref());
-                let manifest = Self::get_manifest(source_name, &id).await?;
-                let content = Self::get_content(source_name, &id, &manifest.version).await?;
-                let skill = Self::manifest_to_skill(manifest.clone(), content);
-
-                let exists = self
-                    .storage
-                    .exists(&id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                if exists && !overwrite {
-                    return Ok(ToolOutput::error(
-                        "Skill already installed. Set overwrite=true to replace.",
-                    ));
-                }
-
-                if exists {
-                    self.storage
-                        .update(&id, &skill)
-                        .map_err(|e| ToolError::Tool(e.to_string()))?;
-                } else {
-                    self.storage
-                        .create(&skill)
-                        .map_err(|e| ToolError::Tool(e.to_string()))?;
-                }
-
-                Ok(ToolOutput::success(json!({
-                    "id": id,
-                    "name": skill.name,
-                    "version": skill.version,
-                    "installed": true,
-                    "updated": exists
-                })))
-            }
-            MarketplaceOperation::Uninstall { id } => {
-                let exists = self
-                    .storage
-                    .exists(&id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                if exists {
-                    self.storage
-                        .delete(&id)
-                        .map_err(|e| ToolError::Tool(e.to_string()))?;
-                }
-                Ok(ToolOutput::success(json!({
-                    "id": id,
-                    "deleted": exists
-                })))
-            }
-            MarketplaceOperation::ListInstalled => {
-                let skills = self
-                    .storage
-                    .list()
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(serde_json::to_value(skills)?))
-            }
-        }
-    }
-}
-
-struct TriggerTool {
-    storage: TriggerStorage,
-}
-
-impl TriggerTool {
-    fn new(storage: TriggerStorage) -> Self {
-        Self { storage }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
-enum TriggerOperation {
-    Create {
-        workflow_id: String,
-        trigger_config: TriggerConfig,
-        #[serde(default)]
-        id: Option<String>,
-    },
-    List,
-    Delete {
-        id: String,
-    },
-    Enable {
-        workflow_id: String,
-        trigger_config: TriggerConfig,
-        #[serde(default)]
-        id: Option<String>,
-    },
-    Disable {
-        id: String,
-    },
-}
-
-#[async_trait::async_trait]
-impl Tool for TriggerTool {
-    fn name(&self) -> &str {
-        "manage_triggers"
-    }
-
-    fn description(&self) -> &str {
-        "Create/list/enable/disable workflow triggers."
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["create", "list", "delete", "enable", "disable"]
-                },
-                "id": { "type": "string" },
-                "workflow_id": { "type": "string" },
-                "trigger_config": {
-                    "type": "object",
-                    "description": "TriggerConfig payload with a `type` discriminator (manual/webhook/schedule)."
-                }
-            },
-            "required": ["operation"]
-        })
-    }
-
-    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
-        let operation: TriggerOperation = serde_json::from_value(input)?;
-        match operation {
-            TriggerOperation::Create {
-                workflow_id,
-                trigger_config,
-                id,
-            }
-            | TriggerOperation::Enable {
-                workflow_id,
-                trigger_config,
-                id,
-            } => {
-                let mut trigger = crate::models::ActiveTrigger::new(workflow_id, trigger_config);
-                if let Some(id) = id {
-                    trigger.id = id;
-                }
-                self.storage
-                    .activate_trigger(&trigger)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(serde_json::to_value(trigger)?))
-            }
-            TriggerOperation::List => {
-                let triggers = self
-                    .storage
-                    .list_active_triggers()
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(serde_json::to_value(triggers)?))
-            }
-            TriggerOperation::Delete { id } | TriggerOperation::Disable { id } => {
-                self.storage
-                    .deactivate_trigger(&id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(json!({
-                    "id": id,
-                    "deleted": true
-                })))
-            }
-        }
-    }
-}
-
-#[derive(Clone)]
-struct TerminalTool {
-    storage: TerminalSessionStorage,
-}
-
-impl TerminalTool {
-    fn new(storage: TerminalSessionStorage) -> Self {
-        Self { storage }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
-enum TerminalOperation {
-    Create {
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        working_directory: Option<String>,
-        #[serde(default)]
-        startup_command: Option<String>,
-    },
-    List,
-    SendInput {
-        session_id: String,
-        data: String,
-    },
-    ReadOutput {
-        session_id: String,
-    },
-    Close {
-        session_id: String,
-    },
-}
-
-#[async_trait::async_trait]
-impl Tool for TerminalTool {
-    fn name(&self) -> &str {
-        "manage_terminal"
-    }
-
-    fn description(&self) -> &str {
-        "Manage persistent terminal session metadata. Interactive PTY streaming is not available in this runtime."
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["create", "list", "send_input", "read_output", "close"]
-                },
-                "session_id": { "type": "string" },
-                "name": { "type": "string" },
-                "working_directory": { "type": "string" },
-                "startup_command": { "type": "string" },
-                "data": { "type": "string" }
-            },
-            "required": ["operation"]
-        })
-    }
-
-    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
-        let operation: TerminalOperation = serde_json::from_value(input)?;
-        match operation {
-            TerminalOperation::Create {
-                name,
-                working_directory,
-                startup_command,
-            } => {
-                let id = format!("terminal-{}", Uuid::new_v4());
-                let default_name = self
-                    .storage
-                    .get_next_name()
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                let mut session = TerminalSession::new(id, name.unwrap_or(default_name));
-                session.set_config(working_directory, startup_command);
-                self.storage
-                    .create(&session)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(serde_json::to_value(session)?))
-            }
-            TerminalOperation::List => {
-                let sessions = self
-                    .storage
-                    .list()
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(serde_json::to_value(sessions)?))
-            }
-            TerminalOperation::SendInput { session_id, data } => {
-                let mut session = self
-                    .storage
-                    .get(&session_id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?
-                    .ok_or_else(|| {
-                        ToolError::Tool(format!("Terminal session not found: {}", session_id))
-                    })?;
-
-                let mut history = session.history.clone().unwrap_or_default();
-                history.push_str(&format!("\n$ {}", data));
-                session.update_history(history);
-                self.storage
-                    .update(&session_id, &session)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-                Ok(ToolOutput::success(json!({
-                    "session_id": session_id,
-                    "accepted": true,
-                    "live_runtime": false
-                })))
-            }
-            TerminalOperation::ReadOutput { session_id } => {
-                let session = self
-                    .storage
-                    .get(&session_id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?
-                    .ok_or_else(|| {
-                        ToolError::Tool(format!("Terminal session not found: {}", session_id))
-                    })?;
-                Ok(ToolOutput::success(json!({
-                    "session_id": session_id,
-                    "output": session.history.unwrap_or_default(),
-                    "live_runtime": false
-                })))
-            }
-            TerminalOperation::Close { session_id } => {
-                let mut session = self
-                    .storage
-                    .get(&session_id)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?
-                    .ok_or_else(|| {
-                        ToolError::Tool(format!("Terminal session not found: {}", session_id))
-                    })?;
-                session.status = crate::models::TerminalStatus::Stopped;
-                session.stopped_at = Some(Utc::now().timestamp_millis());
-                self.storage
-                    .update(&session_id, &session)
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(json!({
-                    "session_id": session_id,
-                    "closed": true
-                })))
-            }
-        }
-    }
-}
-
-#[derive(Clone, Default)]
-struct SecurityQueryTool;
-
-impl SecurityQueryTool {
-    fn new() -> Self {
-        Self
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
-enum SecurityQueryOperation {
-    CheckPermission {
-        tool_name: String,
-        operation_name: String,
-        #[serde(default)]
-        target: Option<String>,
-        #[serde(default)]
-        summary: Option<String>,
-    },
-    ListPermissions,
-    ShowPolicy,
-    RequestElevation {
-        reason: String,
-    },
-}
-
-#[async_trait::async_trait]
-impl Tool for SecurityQueryTool {
-    fn name(&self) -> &str {
-        "security_query"
-    }
-
-    fn description(&self) -> &str {
-        "Inspect default security policy and evaluate whether an action would require approval."
-    }
-
-    fn parameters_schema(&self) -> serde_json::Value {
-        json!({
-            "type": "object",
-            "properties": {
-                "operation": {
-                    "type": "string",
-                    "enum": ["check_permission", "list_permissions", "show_policy", "request_elevation"]
-                },
-                "tool_name": { "type": "string" },
-                "operation_name": { "type": "string" },
-                "target": { "type": "string" },
-                "summary": { "type": "string" },
-                "reason": { "type": "string" }
-            },
-            "required": ["operation"]
-        })
-    }
-
-    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
-        let operation: SecurityQueryOperation = serde_json::from_value(input)?;
-        match operation {
-            SecurityQueryOperation::ShowPolicy => {
-                let policy = crate::models::SecurityPolicy::default();
-                Ok(ToolOutput::success(serde_json::to_value(policy)?))
-            }
-            SecurityQueryOperation::ListPermissions => {
-                let policy = crate::models::SecurityPolicy::default();
-                Ok(ToolOutput::success(json!({
-                    "default_action": policy.default_action,
-                    "allowlist_count": policy.allowlist.len(),
-                    "blocklist_count": policy.blocklist.len(),
-                    "approval_required_count": policy.approval_required.len(),
-                    "tool_rule_count": policy.tool_rules.len()
-                })))
-            }
-            SecurityQueryOperation::CheckPermission {
-                tool_name,
-                operation_name,
-                target,
-                summary,
-            } => {
-                let checker = SecurityChecker::with_defaults();
-                let action = ToolAction {
-                    tool_name: tool_name.clone(),
-                    operation: operation_name.clone(),
-                    target: target.unwrap_or_else(|| "*".to_string()),
-                    summary: summary.unwrap_or_else(|| {
-                        format!("{}:{}", tool_name.as_str(), operation_name.as_str())
-                    }),
-                };
-                let ai_action = restflow_ai::ToolAction {
-                    tool_name: action.tool_name.clone(),
-                    operation: action.operation.clone(),
-                    target: action.target.clone(),
-                    summary: action.summary.clone(),
-                };
-                let decision = checker
-                    .check_tool_action(&ai_action, Some("runtime"), Some("runtime"))
-                    .await
-                    .map_err(|e| ToolError::Tool(e.to_string()))?;
-                Ok(ToolOutput::success(json!({
-                    "allowed": decision.allowed,
-                    "requires_approval": decision.requires_approval,
-                    "approval_id": decision.approval_id,
-                    "reason": decision.reason
-                })))
-            }
-            SecurityQueryOperation::RequestElevation { reason } => Ok(ToolOutput::error(format!(
-                "Elevation requires human approval outside runtime tools: {}",
-                reason
-            ))),
-        }
     }
 }
 
@@ -3219,7 +2880,7 @@ mod tests {
         let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
         unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
 
-        let result = ManageOpsTool::log_tail_payload(&json!({
+        let result = OpsProviderAdapter::log_tail_payload(&json!({
             "path": outside_log.to_string_lossy(),
             "lines": 10
         }));
@@ -3250,7 +2911,7 @@ mod tests {
         let custom_log = logs_dir.join("custom.log");
         std::fs::write(&custom_log, "line-1\nline-2\nline-3\n").unwrap();
 
-        let result = ManageOpsTool::log_tail_payload(&json!({
+        let result = OpsProviderAdapter::log_tail_payload(&json!({
             "path": "custom.log",
             "lines": 2
         }));
@@ -3291,7 +2952,7 @@ mod tests {
         let symlink_path = logs_dir.join("symlink.log");
         std::os::unix::fs::symlink(&outside_log, &symlink_path).unwrap();
 
-        let result = ManageOpsTool::log_tail_payload(&json!({
+        let result = OpsProviderAdapter::log_tail_payload(&json!({
             "path": "symlink.log",
             "lines": 2
         }));

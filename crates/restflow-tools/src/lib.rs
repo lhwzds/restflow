@@ -39,24 +39,8 @@ pub use restflow_ai::security::network::{
     NetworkAllowlist, NetworkEcosystem, resolve_and_validate_url, validate_url,
 };
 
-// Re-export store traits from restflow-ai
-pub use restflow_ai::tools::store_traits::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest,
-    AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, CredentialInput,
-    BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
-    BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
-    BackgroundAgentStore, BackgroundAgentUpdateRequest,
-    DeliverableStore,
-    DiagnosticsProvider,
-    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
-    ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo,
-    ReplySender,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
-    WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
-    WorkspaceNoteSpec, WorkspaceNoteStatus,
-};
+// Store traits are defined in restflow-ai::tools::store_traits.
+// Consumers should import them directly from restflow-ai.
 
 // Re-export tool implementations (original 7)
 pub use impls::{
@@ -77,6 +61,12 @@ pub use impls::{
     TranscribeConfig, TranscribeTool, VisionTool,
     WebFetchTool, WebSearchTool, WorkspaceNoteTool,
     get_mcp_tools, invalidate_mcp_cache,
+};
+
+// Re-export tool_registry inline migrated tools
+pub use impls::{
+    ManageOpsTool, MarketplaceTool, SecurityQueryTool, SharedSpaceTool,
+    TerminalTool, TriggerTool, UnifiedMemorySearchTool,
 };
 
 // Re-export core-migrated tools

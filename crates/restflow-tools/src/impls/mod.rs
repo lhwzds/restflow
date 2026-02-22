@@ -39,6 +39,15 @@ pub mod web_fetch;
 pub mod web_search;
 pub mod workspace_note;
 
+// Migrated from restflow-core (tool_registry inline tools)
+pub mod manage_ops;
+pub mod marketplace;
+pub mod security_query;
+pub mod shared_space;
+pub mod terminal;
+pub mod trigger;
+pub mod unified_memory_search;
+
 // Migrated from restflow-core
 pub mod list_agents;
 pub mod registry_builder;
@@ -84,6 +93,15 @@ pub use vision::VisionTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search::WebSearchTool;
 pub use workspace_note::WorkspaceNoteTool;
+
+// Re-export tool_registry inline migrated tools
+pub use manage_ops::ManageOpsTool;
+pub use marketplace::MarketplaceTool;
+pub use security_query::SecurityQueryTool;
+pub use shared_space::SharedSpaceTool;
+pub use terminal::TerminalTool;
+pub use trigger::TriggerTool;
+pub use unified_memory_search::UnifiedMemorySearchTool;
 
 // Re-export core-migrated tools
 pub use list_agents::ListAgentsTool;

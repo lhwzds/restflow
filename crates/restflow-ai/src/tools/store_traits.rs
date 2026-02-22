@@ -495,3 +495,121 @@ pub trait DiagnosticsProvider: Send + Sync {
 pub trait ReplySender: Send + Sync {
     fn send(&self, message: String) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>>;
 }
+
+// ── SecurityQueryProvider ───────────────────────────────────────────
+
+pub trait SecurityQueryProvider: Send + Sync {
+    fn show_policy(&self) -> Result<Value>;
+    fn list_permissions(&self) -> Result<Value>;
+    fn check_permission(
+        &self,
+        tool_name: &str,
+        operation_name: &str,
+        target: Option<&str>,
+        summary: Option<&str>,
+    ) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
+}
+
+// ── TriggerStore ────────────────────────────────────────────────────
+
+pub trait TriggerStore: Send + Sync {
+    fn create_trigger(
+        &self,
+        workflow_id: &str,
+        config: Value,
+        id: Option<&str>,
+    ) -> Result<Value>;
+    fn list_triggers(&self) -> Result<Value>;
+    fn delete_trigger(&self, id: &str) -> Result<Value>;
+}
+
+// ── TerminalStore ───────────────────────────────────────────────────
+
+pub trait TerminalStore: Send + Sync {
+    fn create_session(
+        &self,
+        name: Option<&str>,
+        working_dir: Option<&str>,
+        startup_cmd: Option<&str>,
+    ) -> Result<Value>;
+    fn list_sessions(&self) -> Result<Value>;
+    fn send_input(&self, session_id: &str, data: &str) -> Result<Value>;
+    fn read_output(&self, session_id: &str) -> Result<Value>;
+    fn close_session(&self, session_id: &str) -> Result<Value>;
+}
+
+// ── UnifiedMemorySearch ─────────────────────────────────────────────
+
+pub trait UnifiedMemorySearch: Send + Sync {
+    fn search(
+        &self,
+        agent_id: &str,
+        query: &str,
+        include_sessions: bool,
+        limit: u32,
+        offset: u32,
+    ) -> Result<Value>;
+}
+
+// ── SharedSpaceStore ────────────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+pub trait SharedSpaceStore: Send + Sync {
+    fn get_entry(&self, key: &str) -> Result<Value>;
+    #[allow(clippy::too_many_arguments)]
+    fn set_entry(
+        &self,
+        key: &str,
+        content: &str,
+        visibility: Option<&str>,
+        content_type: Option<&str>,
+        type_hint: Option<&str>,
+        tags: Option<Vec<String>>,
+        accessor_id: Option<&str>,
+    ) -> Result<Value>;
+    fn delete_entry(&self, key: &str, accessor_id: Option<&str>) -> Result<Value>;
+    fn list_entries(&self, namespace: Option<&str>) -> Result<Value>;
+}
+
+// ── MarketplaceStore ────────────────────────────────────────────────
+
+#[async_trait]
+#[allow(clippy::too_many_arguments)]
+pub trait MarketplaceStore: Send + Sync {
+    #[allow(clippy::too_many_arguments)]
+    async fn search_skills(
+        &self,
+        query: Option<&str>,
+        category: Option<&str>,
+        tags: Option<Vec<String>>,
+        author: Option<&str>,
+        limit: Option<usize>,
+        offset: Option<usize>,
+        source: Option<&str>,
+    ) -> Result<Value>;
+    async fn skill_info(&self, id: &str, source: Option<&str>) -> Result<Value>;
+    async fn install_skill(
+        &self,
+        id: &str,
+        source: Option<&str>,
+        overwrite: bool,
+    ) -> Result<Value>;
+    fn uninstall_skill(&self, id: &str) -> Result<Value>;
+    fn list_installed(&self) -> Result<Value>;
+}
+
+// ── OpsProvider ─────────────────────────────────────────────────────
+
+pub trait OpsProvider: Send + Sync {
+    fn daemon_status(&self) -> Result<Value>;
+    fn daemon_health(
+        &self,
+    ) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
+    fn background_summary(
+        &self,
+        status: Option<&str>,
+        limit: usize,
+    ) -> Result<Value>;
+    fn session_summary(&self, limit: usize) -> Result<Value>;
+    fn log_tail(&self, lines: usize, path: Option<&str>) -> Result<Value>;
+}
