@@ -9,13 +9,7 @@
 //! Core abstractions (Tool trait, ToolError, ToolRegistry, SecurityGate, etc.)
 //! are defined in `restflow-ai` and re-exported here for convenience.
 
-// Re-export modules (backward compatibility shims that delegate to restflow-ai)
-pub mod error;
 pub mod http_client;
-pub mod registry;
-pub mod tool;
-pub mod toolset;
-pub mod wrapper;
 
 // Implementation modules (owned by this crate)
 pub mod impls;
@@ -51,7 +45,7 @@ pub use impls::telegram::send_telegram_notification;
 // Re-export migrated tool implementations
 pub use impls::{
     AgentCrudTool, AuthProfileTool, BackgroundAgentTool, ConfigTool, DiagnosticsTool,
-    FilteredToolset, JinaReaderTool, McpServerConfig, MemoryManagementTool,
+    JinaReaderTool, McpServerConfig, MemoryManagementTool,
     MemorySearchMatch, MemorySearchTool, SemanticMemory,
     DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
     PythonTool, RunPythonTool, PatchTool, ProcessTool,

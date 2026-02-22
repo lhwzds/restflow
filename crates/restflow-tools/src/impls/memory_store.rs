@@ -10,8 +10,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::Result;
-use crate::tool::{Tool, ToolOutput};
+use crate::Result;
+use crate::{Tool, ToolOutput};
 use restflow_ai::tools::store_traits::MemoryStore;
 
 // ============== Tool Implementations ==============
@@ -334,11 +334,11 @@ mod tests {
             _content: &str,
             _tags: &[String],
         ) -> Result<Value> {
-            Err(crate::error::ToolError::Tool("db down".to_string()))
+            Err(crate::ToolError::Tool("db down".to_string()))
         }
 
         fn read_by_id(&self, _id: &str) -> Result<Option<Value>> {
-            Err(crate::error::ToolError::Tool("db down".to_string()))
+            Err(crate::ToolError::Tool("db down".to_string()))
         }
 
         fn search(
@@ -348,15 +348,15 @@ mod tests {
             _search: Option<&str>,
             _limit: usize,
         ) -> Result<Value> {
-            Err(crate::error::ToolError::Tool("db down".to_string()))
+            Err(crate::ToolError::Tool("db down".to_string()))
         }
 
         fn list(&self, _agent_id: &str, _tag: Option<&str>, _limit: usize) -> Result<Value> {
-            Err(crate::error::ToolError::Tool("db down".to_string()))
+            Err(crate::ToolError::Tool("db down".to_string()))
         }
 
         fn delete(&self, _id: &str) -> Result<Value> {
-            Err(crate::error::ToolError::Tool("db down".to_string()))
+            Err(crate::ToolError::Tool("db down".to_string()))
         }
     }
 

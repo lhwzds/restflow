@@ -8,9 +8,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use restflow_ai::error::AiError;
-use crate::error::Result;
+use crate::Result;
 
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 use restflow_ai::tools::store_traits::DiagnosticsProvider;
 
 /// Tool for querying diagnostics from the provider.
@@ -100,7 +100,7 @@ mod tests {
     impl DiagnosticsProvider for MockDiagnosticsProvider {
         async fn ensure_open(&self, _path: &Path) -> Result<()> {
             if self.fail_open.load(Ordering::Relaxed) {
-                return Err(crate::error::ToolError::Tool("provider open error".to_string()));
+                return Err(crate::ToolError::Tool("provider open error".to_string()));
             }
             Ok(())
         }
@@ -115,7 +115,7 @@ mod tests {
             _timeout: Duration,
         ) -> Result<Vec<Diagnostic>> {
             if self.fail_wait.load(Ordering::Relaxed) {
-                return Err(crate::error::ToolError::Tool("provider wait error".to_string()));
+                return Err(crate::ToolError::Tool("provider wait error".to_string()));
             }
             Ok(Vec::new())
         }

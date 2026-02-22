@@ -6,8 +6,8 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::background_agent::BackgroundAgentTool;
-use crate::tool::{Tool, ToolOutput};
-use crate::error::Result;
+use crate::{Tool, ToolOutput};
+use crate::Result;
 
 /// Simplified request for spawning a subtask
 #[derive(Clone, Debug, Serialize, Deserialize)]

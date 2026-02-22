@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::{Result, ToolError};
-use crate::tool::{Tool, ToolOutput};
+use crate::{Result, ToolError};
+use crate::{Tool, ToolOutput};
 use restflow_ai::agent::SubagentDeps;
 
 /// Parameters for list_agents tool.
@@ -104,7 +104,7 @@ impl Tool for ListAgentsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tool::Tool;
+    use crate::Tool;
     use restflow_ai::agent::{
         SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
         SubagentDefSummary, SubagentTracker, spawn_subagent,

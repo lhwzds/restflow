@@ -5,7 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
 use restflow_ai::tools::store_traits::{
     BackgroundAgentStore, BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
@@ -13,7 +13,7 @@ use restflow_ai::tools::store_traits::{
     BackgroundAgentMessageListRequest, BackgroundAgentDeliverableListRequest,
     BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
 };
-use crate::error::Result;
+use crate::Result;
 
 #[derive(Clone)]
 pub struct BackgroundAgentTool {
@@ -38,7 +38,7 @@ impl BackgroundAgentTool {
         if self.allow_write {
             Ok(())
         } else {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "Write access to background agents is disabled. Available read-only operations: list, get, progress. To modify background agents, the user must grant write permissions.".to_string(),
             ))
         }
@@ -630,7 +630,7 @@ mod tests {
         }
 
         fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
-            Err(crate::error::ToolError::Tool("store offline".to_string()))
+            Err(crate::ToolError::Tool("store offline".to_string()))
         }
 
         fn control_background_agent(

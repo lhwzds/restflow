@@ -5,10 +5,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
 use restflow_ai::tools::store_traits::{SessionStore, SessionCreateRequest, SessionSearchQuery, SessionListFilter};
-use crate::error::Result;
+use crate::Result;
 
 #[derive(Clone)]
 pub struct SessionTool {
@@ -33,7 +33,7 @@ impl SessionTool {
         if self.allow_write {
             Ok(())
         } else {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "Write access to sessions is disabled. Available read-only operations: list, get, history. To modify sessions, the user must grant write permissions.".to_string(),
             ))
         }

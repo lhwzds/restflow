@@ -4,9 +4,9 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::Result;
 use crate::skill::{SkillInfo, SkillProvider};
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 
 /// Wraps a Skill as a Tool so it appears in the LLM's flat tool list.
 ///

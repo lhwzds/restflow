@@ -6,10 +6,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
 use restflow_ai::tools::store_traits::{AuthProfileStore, CredentialInput, AuthProfileCreateRequest, AuthProfileTestRequest};
-use crate::error::Result;
+use crate::Result;
 
 #[derive(Clone)]
 pub struct AuthProfileTool {
@@ -34,7 +34,7 @@ impl AuthProfileTool {
         if self.allow_write {
             Ok(())
         } else {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "Write access to auth profiles is disabled. Available read-only operations: list, get. To modify auth profiles, the user must grant write permissions.".to_string(),
             ))
         }

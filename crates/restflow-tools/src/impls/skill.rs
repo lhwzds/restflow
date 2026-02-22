@@ -5,9 +5,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::Result;
 use restflow_ai::tools::skill_types::{SkillProvider, SkillRecord, SkillUpdate};
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -74,7 +74,7 @@ impl SkillTool {
         if self.allow_write {
             Ok(())
         } else {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "Write access to skills is disabled. Available read-only operations: list, get, search. To modify skills, the user must grant write permissions.".to_string(),
             ))
         }

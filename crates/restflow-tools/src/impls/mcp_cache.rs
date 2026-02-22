@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use once_cell::sync::OnceCell;
 
-use crate::tool::ToolSchema;
+use crate::ToolSchema;
 
 #[derive(Debug, Clone)]
 pub struct McpServerConfig {

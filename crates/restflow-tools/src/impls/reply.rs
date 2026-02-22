@@ -8,8 +8,8 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use crate::error::Result;
-use crate::tool::{Tool, ToolOutput};
+use crate::Result;
+use crate::{Tool, ToolOutput};
 use restflow_ai::tools::store_traits::ReplySender;
 
 #[derive(Debug, Deserialize)]

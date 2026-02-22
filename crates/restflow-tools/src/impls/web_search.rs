@@ -10,9 +10,9 @@ use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::error::Result;
+use crate::Result;
 use crate::http_client::build_http_client;
-use crate::tool::{SecretResolver, Tool, ToolOutput};
+use crate::{SecretResolver, Tool, ToolOutput};
 
 #[derive(Debug, Deserialize)]
 struct WebSearchInput {
@@ -69,7 +69,7 @@ impl WebSearchTool {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(crate::error::ToolError::Tool(format!(
+            return Err(crate::ToolError::Tool(format!(
                 "Brave Search API error ({}): {}",
                 status, body
             )));
@@ -111,7 +111,7 @@ impl WebSearchTool {
         if !response.status().is_success() {
             let status = response.status();
             let body = response.text().await.unwrap_or_default();
-            return Err(crate::error::ToolError::Tool(format!(
+            return Err(crate::ToolError::Tool(format!(
                 "Tavily Search API error ({}): {}",
                 status, body
             )));
@@ -153,7 +153,7 @@ impl WebSearchTool {
             .await?;
 
         if !response.status().is_success() {
-            return Err(crate::error::ToolError::Tool(format!(
+            return Err(crate::ToolError::Tool(format!(
                 "DuckDuckGo returned status {}",
                 response.status()
             )));

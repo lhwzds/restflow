@@ -6,7 +6,7 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::registry::ToolRegistry;
+use crate::ToolRegistry;
 use crate::SecretResolver;
 use crate::impls::{
     BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool,

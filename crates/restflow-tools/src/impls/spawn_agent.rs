@@ -6,8 +6,8 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::time::{Duration, timeout};
 
-use crate::error::{Result, ToolError};
-use crate::tool::{Tool, ToolOutput};
+use crate::{Result, ToolError};
+use crate::{Tool, ToolOutput};
 use restflow_ai::agent::{SubagentDeps, SpawnRequest, spawn_subagent};
 
 /// Parameters for spawn_agent tool.
@@ -152,7 +152,7 @@ impl Tool for SpawnAgentTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tool::Tool;
+    use crate::Tool;
     use restflow_ai::agent::{
         SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
         SubagentTracker,

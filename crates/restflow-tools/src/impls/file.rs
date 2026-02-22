@@ -30,12 +30,12 @@ use tokio::io::AsyncWriteExt;
 
 use restflow_ai::tools::store_traits::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
-use crate::tool::{Tool, ToolErrorCategory, ToolOutput};
+use crate::{Tool, ToolErrorCategory, ToolOutput};
 use crate::ToolAction;
 use restflow_ai::cache::{AgentCacheManager, CachedSearchResult, SearchMatch as CachedSearchMatch};
-use crate::error::Result;
+use crate::Result;
 use crate::security::SecurityGate;
-use crate::tool::check_security;
+use crate::check_security;
 
 /// Maximum file size to read (1MB)
 const DEFAULT_MAX_READ_BYTES: usize = 1_000_000;

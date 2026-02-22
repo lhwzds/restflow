@@ -8,9 +8,9 @@ use std::sync::Arc;
 
 use restflow_storage::{ConfigStorage, SystemConfig};
 
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
-use crate::error::Result;
+use crate::Result;
 
 #[derive(Clone)]
 pub struct ConfigTool {
@@ -41,7 +41,7 @@ impl ConfigTool {
         if self.allow_write {
             Ok(())
         } else {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "Write access to config is disabled. Available read-only operations: get, list. To modify config, the user must grant write permissions.".to_string(),
             ))
         }
@@ -52,7 +52,7 @@ impl ConfigTool {
             .get_config()
             .map_err(Self::storage_error)?
             .ok_or_else(|| {
-                crate::error::ToolError::Tool(
+                crate::ToolError::Tool(
                     "Config not initialized. Use 'reset' operation to create default configuration."
                         .to_string(),
                 )
@@ -189,14 +189,14 @@ impl ConfigTool {
                             })?;
                     }
                     unknown => {
-                        return Err(crate::error::ToolError::Tool(format!(
+                        return Err(crate::ToolError::Tool(format!(
                             "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_tool_calls, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs."
                         )));
                     }
                 }
             }
             _ => {
-                return Err(crate::error::ToolError::Tool(format!(
+                return Err(crate::ToolError::Tool(format!(
                     "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*."
                 )));
             }

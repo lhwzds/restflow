@@ -5,7 +5,7 @@
 
 use super::ToolResult;
 use async_trait::async_trait;
-use restflow_tools::error::{Result, ToolError};
+use restflow_tools::{Result, ToolError};
 use restflow_ai::tools::Tool;
 use serde::Deserialize;
 use serde_json::{Value, json};

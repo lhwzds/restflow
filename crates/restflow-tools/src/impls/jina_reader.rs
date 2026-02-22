@@ -10,9 +10,9 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::error::Result;
+use crate::Result;
 use crate::http_client::build_http_client;
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 
 const MAX_CONTENT_LENGTH: usize = 12000;
 

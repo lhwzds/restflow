@@ -5,9 +5,9 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use restflow_ai::error::AiError;
-use crate::error::Result;
+use crate::Result;
 use restflow_ai::llm::{LlmClientFactory, LlmProvider, SwappableLlm};
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 
 #[derive(Clone)]
 pub struct SwitchModelTool {
@@ -121,7 +121,7 @@ impl SwitchModelTool {
         let available = self.factory.available_models();
 
         if requested_provider.is_none() || requested_model.is_none() {
-            return Err(crate::error::ToolError::Tool(
+            return Err(crate::ToolError::Tool(
                 "Missing parameters: both 'provider' and 'model' are required".to_string(),
             ));
         }
@@ -138,7 +138,7 @@ impl SwitchModelTool {
             Self::split_provider_qualified_model(model_raw)
         {
             if inline_provider != provider {
-                return Err(crate::error::ToolError::Tool(format!(
+                return Err(crate::ToolError::Tool(format!(
                     "Model '{model_raw}' does not belong to provider '{}'",
                     provider.label()
                 )));
@@ -156,7 +156,7 @@ impl SwitchModelTool {
                 ))
             })?;
         if !self.model_matches_provider(model, provider) {
-            return Err(crate::error::ToolError::Tool(format!(
+            return Err(crate::ToolError::Tool(format!(
                 "Model '{model_raw}' does not belong to provider '{}'",
                 provider.label()
             )));
@@ -167,7 +167,7 @@ impl SwitchModelTool {
     fn resolve_provider(&self, model: &str) -> Result<LlmProvider> {
         self.factory
             .provider_for_model(model)
-            .ok_or_else(|| crate::error::ToolError::Tool(format!("Unknown model: {model}")))
+            .ok_or_else(|| crate::ToolError::Tool(format!("Unknown model: {model}")))
     }
 }
 

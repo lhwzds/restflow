@@ -5,10 +5,10 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
 use restflow_ai::tools::store_traits::{AgentStore, AgentCreateRequest, AgentUpdateRequest};
-use crate::error::Result;
+use crate::Result;
 
 #[derive(Clone)]
 pub struct AgentCrudTool {
@@ -33,7 +33,7 @@ impl AgentCrudTool {
         if self.allow_write {
             Ok(())
         } else {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "Write access to agents is disabled. Available read-only operations: list, get. To modify agents, the user must grant write permissions.".to_string(),
             ))
         }
@@ -211,13 +211,13 @@ mod tests {
         }
 
         fn create_agent(&self, _request: AgentCreateRequest) -> Result<Value> {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "{\"type\":\"validation_error\",\"errors\":[{\"field\":\"temperature\",\"message\":\"invalid\"}]}".to_string(),
             ))
         }
 
         fn update_agent(&self, _request: AgentUpdateRequest) -> Result<Value> {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "{\"type\":\"validation_error\",\"errors\":[{\"field\":\"tools\",\"message\":\"unknown\"}]}".to_string(),
             ))
         }
