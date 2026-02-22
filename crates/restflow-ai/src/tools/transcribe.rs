@@ -26,8 +26,11 @@ pub struct TranscribeConfig {
 
 impl Default for TranscribeConfig {
     fn default() -> Self {
+        let mut allowed = vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))];
+        // Always allow the Telegram media download directory
+        allowed.push(PathBuf::from("/tmp/restflow-media"));
         Self {
-            allowed_paths: vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))],
+            allowed_paths: allowed,
             max_file_size: 25 * 1024 * 1024, // 25MB
             allowed_extensions: vec![
                 "mp3".to_string(),
