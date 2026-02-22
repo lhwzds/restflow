@@ -158,3 +158,72 @@ impl SharedSpaceStore for SharedSpaceStoreAdapter {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::SharedSpaceStore;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (SharedSpaceStoreAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let inner = restflow_storage::SharedSpaceStorage::new(db).unwrap();
+        let storage = SharedSpaceStorage::new(inner);
+        (SharedSpaceStoreAdapter::new(storage, Some("test-agent".to_string())), temp_dir)
+    }
+
+    #[test]
+    fn test_set_and_get_entry() {
+        let (adapter, _dir) = setup();
+        adapter
+            .set_entry("key1", "value1", None, None, None, None, None)
+            .unwrap();
+
+        let result = adapter.get_entry("key1").unwrap();
+        assert_eq!(result["found"], true);
+        assert_eq!(result["value"], "value1");
+    }
+
+    #[test]
+    fn test_get_nonexistent_entry() {
+        let (adapter, _dir) = setup();
+        let result = adapter.get_entry("missing").unwrap();
+        assert_eq!(result["found"], false);
+    }
+
+    #[test]
+    fn test_delete_entry() {
+        let (adapter, _dir) = setup();
+        adapter
+            .set_entry("del-key", "val", None, None, None, None, None)
+            .unwrap();
+        let result = adapter.delete_entry("del-key", None).unwrap();
+        assert_eq!(result["deleted"], true);
+
+        let after = adapter.get_entry("del-key").unwrap();
+        assert_eq!(after["found"], false);
+    }
+
+    #[test]
+    fn test_list_entries() {
+        let (adapter, _dir) = setup();
+        adapter.set_entry("a", "1", None, None, None, None, None).unwrap();
+        adapter.set_entry("b", "2", None, None, None, None, None).unwrap();
+
+        let result = adapter.list_entries(None).unwrap();
+        assert_eq!(result["count"], 2);
+    }
+
+    #[test]
+    fn test_update_existing_entry() {
+        let (adapter, _dir) = setup();
+        adapter.set_entry("upd", "old", None, None, None, None, None).unwrap();
+        adapter.set_entry("upd", "new", None, None, None, None, None).unwrap();
+
+        let result = adapter.get_entry("upd").unwrap();
+        assert_eq!(result["value"], "new");
+    }
+}

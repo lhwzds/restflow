@@ -107,3 +107,60 @@ impl TerminalStore for TerminalStoreAdapter {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::TerminalStore;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (TerminalStoreAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let storage = TerminalSessionStorage::new(db).unwrap();
+        (TerminalStoreAdapter::new(storage), temp_dir)
+    }
+
+    #[test]
+    fn test_create_and_list_sessions() {
+        let (adapter, _dir) = setup();
+        adapter.create_session(Some("my-term"), None, None).unwrap();
+
+        let list = adapter.list_sessions().unwrap();
+        let sessions = list.as_array().unwrap();
+        assert_eq!(sessions.len(), 1);
+    }
+
+    #[test]
+    fn test_send_input_and_read_output() {
+        let (adapter, _dir) = setup();
+        let created = adapter.create_session(Some("term"), None, None).unwrap();
+        let session_id = created["id"].as_str().unwrap();
+
+        let result = adapter.send_input(session_id, "echo hello").unwrap();
+        assert_eq!(result["accepted"], true);
+
+        let output = adapter.read_output(session_id).unwrap();
+        let text = output["output"].as_str().unwrap();
+        assert!(text.contains("echo hello"));
+    }
+
+    #[test]
+    fn test_close_session() {
+        let (adapter, _dir) = setup();
+        let created = adapter.create_session(Some("closeable"), None, None).unwrap();
+        let session_id = created["id"].as_str().unwrap();
+
+        let result = adapter.close_session(session_id).unwrap();
+        assert_eq!(result["closed"], true);
+    }
+
+    #[test]
+    fn test_send_input_to_nonexistent_session_fails() {
+        let (adapter, _dir) = setup();
+        let result = adapter.send_input("nonexistent", "data");
+        assert!(result.is_err());
+    }
+}

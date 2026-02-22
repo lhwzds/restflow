@@ -130,3 +130,140 @@ impl WorkspaceNoteProvider for DbWorkspaceNoteAdapter {
         self.storage.list_folders().map_err(|e| e.to_string())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::WorkspaceNoteProvider;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (DbWorkspaceNoteAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let storage = WorkspaceNoteStorage::new(db).unwrap();
+        (DbWorkspaceNoteAdapter::new(storage), temp_dir)
+    }
+
+    #[test]
+    fn test_create_and_get_note() {
+        let (adapter, _dir) = setup();
+        let spec = WorkspaceNoteSpec {
+            folder: "inbox".to_string(),
+            title: "Test Note".to_string(),
+            content: "Hello world".to_string(),
+            priority: None,
+            tags: vec![],
+        };
+        let created = adapter.create(spec).unwrap();
+        assert_eq!(created.title, "Test Note");
+
+        let fetched = adapter.get(&created.id).unwrap().unwrap();
+        assert_eq!(fetched.content, "Hello world");
+    }
+
+    #[test]
+    fn test_update_note() {
+        let (adapter, _dir) = setup();
+        let spec = WorkspaceNoteSpec {
+            folder: "inbox".to_string(),
+            title: "Original".to_string(),
+            content: "content".to_string(),
+            priority: None,
+            tags: vec![],
+        };
+        let created = adapter.create(spec).unwrap();
+
+        let patch = WorkspaceNotePatch {
+            title: Some("Updated".to_string()),
+            content: None,
+            priority: None,
+            status: Some(WorkspaceNoteStatus::InProgress),
+            tags: None,
+            assignee: None,
+            folder: None,
+        };
+        let updated = adapter.update(&created.id, patch).unwrap();
+        assert_eq!(updated.title, "Updated");
+        assert_eq!(updated.status, WorkspaceNoteStatus::InProgress);
+    }
+
+    #[test]
+    fn test_delete_note() {
+        let (adapter, _dir) = setup();
+        let spec = WorkspaceNoteSpec {
+            folder: "inbox".to_string(),
+            title: "Delete Me".to_string(),
+            content: "bye".to_string(),
+            priority: None,
+            tags: vec![],
+        };
+        let created = adapter.create(spec).unwrap();
+        assert!(adapter.delete(&created.id).unwrap());
+        assert!(!adapter.delete(&created.id).unwrap());
+    }
+
+    #[test]
+    fn test_list_notes_with_query() {
+        let (adapter, _dir) = setup();
+        for i in 0..3 {
+            let spec = WorkspaceNoteSpec {
+                folder: "work".to_string(),
+                title: format!("Note {}", i),
+                content: "body".to_string(),
+                priority: None,
+                tags: vec![],
+            };
+            adapter.create(spec).unwrap();
+        }
+
+        let query = WorkspaceNoteQuery {
+            folder: Some("work".to_string()),
+            status: None,
+            priority: None,
+            tag: None,
+            assignee: None,
+            search: None,
+        };
+        let notes = adapter.list(query).unwrap();
+        assert_eq!(notes.len(), 3);
+    }
+
+    #[test]
+    fn test_list_folders() {
+        let (adapter, _dir) = setup();
+        adapter.create(WorkspaceNoteSpec {
+            folder: "inbox".to_string(),
+            title: "A".to_string(),
+            content: "x".to_string(),
+            priority: None,
+            tags: vec![],
+        }).unwrap();
+        adapter.create(WorkspaceNoteSpec {
+            folder: "work".to_string(),
+            title: "B".to_string(),
+            content: "x".to_string(),
+            priority: None,
+            tags: vec![],
+        }).unwrap();
+
+        let folders = adapter.list_folders().unwrap();
+        assert!(folders.contains(&"inbox".to_string()));
+        assert!(folders.contains(&"work".to_string()));
+    }
+
+    #[test]
+    fn test_status_conversion_roundtrip() {
+        for status in [
+            WorkspaceNoteStatus::Open,
+            WorkspaceNoteStatus::InProgress,
+            WorkspaceNoteStatus::Done,
+            WorkspaceNoteStatus::Archived,
+        ] {
+            let core = to_core_note_status(status.clone());
+            let back = to_tool_note_status(core);
+            assert_eq!(back, status);
+        }
+    }
+}
