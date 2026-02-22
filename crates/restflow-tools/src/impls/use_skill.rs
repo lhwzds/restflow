@@ -191,4 +191,47 @@ mod tests {
             .unwrap();
         assert!(!result.success);
     }
+
+    #[tokio::test]
+    async fn test_load_skill_missing_skill_id() {
+        let tool = UseSkillTool::new(Arc::new(MockProvider));
+        // Neither list nor skill_id — should require skill_id
+        let result = tool.execute(json!({})).await;
+        assert!(result.is_err());
+    }
+
+    struct EmptyProvider;
+
+    impl SkillProvider for EmptyProvider {
+        fn list_skills(&self) -> Vec<SkillInfo> {
+            vec![]
+        }
+        fn get_skill(&self, _: &str) -> Option<SkillContent> {
+            None
+        }
+        fn create_skill(&self, _: SkillRecord) -> std::result::Result<SkillRecord, String> {
+            Err("not implemented".to_string())
+        }
+        fn update_skill(&self, _: &str, _: SkillUpdate) -> std::result::Result<SkillRecord, String> {
+            Err("not implemented".to_string())
+        }
+        fn delete_skill(&self, _: &str) -> std::result::Result<bool, String> {
+            Err("not implemented".to_string())
+        }
+        fn export_skill(&self, _: &str) -> std::result::Result<String, String> {
+            Err("not implemented".to_string())
+        }
+        fn import_skill(&self, _: &str, _: &str, _: bool) -> std::result::Result<SkillRecord, String> {
+            Err("not implemented".to_string())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_list_skills_empty() {
+        let tool = UseSkillTool::new(Arc::new(EmptyProvider));
+        let result = tool.execute(json!({"list": true})).await.unwrap();
+        assert!(result.success);
+        assert_eq!(result.result["count"], 0);
+        assert_eq!(result.result["available_skills"].as_array().unwrap().len(), 0);
+    }
 }
