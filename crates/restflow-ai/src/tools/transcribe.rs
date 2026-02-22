@@ -41,6 +41,7 @@ impl Default for TranscribeConfig {
                 "wav".to_string(),
                 "webm".to_string(),
                 "ogg".to_string(),
+                "oga".to_string(),
             ],
         }
     }
@@ -146,7 +147,7 @@ impl Tool for TranscribeTool {
             "properties": {
                 "file_path": {
                     "type": "string",
-                    "description": "Local path to an audio file (ogg, wav, mp3, m4a, flac, webm)."
+                    "description": "Local path to an audio file (ogg, oga, wav, mp3, m4a, flac, webm)."
                 },
                 "language": {
                     "type": "string",
