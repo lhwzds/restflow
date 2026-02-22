@@ -171,25 +171,23 @@ jobs:
       - name: Stress summary
         if: always()
         run: |
-          {
-            echo "## Nightly Stress Medium"
-            echo ""
-            if [ -f "${LOG_DIR}/stress-summary.json" ]; then
-              python3 - <<'PY'
-              import json
-              from pathlib import Path
-              import os
-              summary = json.loads(Path(os.environ["LOG_DIR"]).joinpath("stress-summary.json").read_text(encoding="utf-8"))
-              print(f"- total_runs: {summary.get('total_runs')}")
-              print(f"- success: {summary.get('success')}")
-              print(f"- failure: {summary.get('failure')}")
-              print(f"- warn_count: {summary.get('warn_count', 0)}")
-              print(f"- hard_limit_breaches: {summary.get('hard_limit_breaches', 0)}")
-              PY
-            else
-              echo "- stress-summary.json missing"
-            fi
-          } >> "$GITHUB_STEP_SUMMARY"
+          echo "## Nightly Stress Medium" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "${LOG_DIR}/stress-summary.json" ]; then
+            python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          import os
+          summary = json.loads(Path(os.environ["LOG_DIR"]).joinpath("stress-summary.json").read_text(encoding="utf-8"))
+          print(f"- total_runs: {summary.get('total_runs')}")
+          print(f"- success: {summary.get('success')}")
+          print(f"- failure: {summary.get('failure')}")
+          print(f"- warn_count: {summary.get('warn_count', 0)}")
+          print(f"- hard_limit_breaches: {summary.get('hard_limit_breaches', 0)}")
+          PY
+          else
+            echo "- stress-summary.json missing" >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Upload stress artifacts
         if: always()
