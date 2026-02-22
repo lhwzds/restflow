@@ -198,7 +198,7 @@ enum AnthropicStreamEvent {
         delta: ContentBlockDelta,
     },
     ContentBlockStop {
-        #[allow(dead_code)]
+        #[serde(skip, default)]
         index: usize,
     },
     MessageDelta {
@@ -214,10 +214,10 @@ enum AnthropicStreamEvent {
 
 #[derive(Debug, Deserialize)]
 struct MessageStartPayload {
-    #[allow(dead_code)]
-    id: String,
-    #[allow(dead_code)]
-    model: String,
+    #[serde(skip, default)]
+    id: Option<String>,
+    #[serde(skip, default)]
+    model: Option<String>,
     usage: Option<InputUsage>,
 }
 
