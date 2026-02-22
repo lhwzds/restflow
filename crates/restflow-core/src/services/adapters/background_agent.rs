@@ -385,6 +385,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         Ok(Value::Array(data))
     }
 
+    #[allow(clippy::blocks_in_conditions)]
     fn read_background_agent_scratchpad(
         &self,
         request: BackgroundAgentScratchpadReadRequest,
@@ -437,5 +438,146 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             "line_limit": line_limit,
             "lines": tail,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::BackgroundAgentStore;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (BackgroundAgentStoreAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let bg_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
+        let agent_storage = AgentStorage::new(db.clone()).unwrap();
+        let deliverable_storage = crate::storage::DeliverableStorage::new(db).unwrap();
+
+        // Create a default agent for referencing
+        let agent = crate::models::AgentNode::default();
+        agent_storage
+            .create_agent("test-agent".to_string(), agent)
+            .unwrap();
+
+        (
+            BackgroundAgentStoreAdapter::new(bg_storage, agent_storage, deliverable_storage),
+            temp_dir,
+        )
+    }
+
+    fn get_agent_id(adapter: &BackgroundAgentStoreAdapter) -> String {
+        let agents = adapter.agent_storage.list_agents().unwrap();
+        agents[0].id.clone()
+    }
+
+    #[test]
+    fn test_create_and_list_background_agent() {
+        let (adapter, _dir) = setup();
+        let agent_id = get_agent_id(&adapter);
+        let request = BackgroundAgentCreateRequest {
+            name: "Test BG Task".to_string(),
+            agent_id,
+            input: Some("Do something".to_string()),
+            input_template: None,
+            schedule: None,
+            timeout_secs: None,
+            memory: None,
+            memory_scope: None,
+            durability_mode: None,
+            resource_limits: None,
+        };
+        let created = adapter.create_background_agent(request).unwrap();
+        assert!(created["id"].as_str().is_some());
+
+        let list = adapter.list_background_agents(None).unwrap();
+        let tasks = list.as_array().unwrap();
+        assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_background_agent() {
+        let (adapter, _dir) = setup();
+        let agent_id = get_agent_id(&adapter);
+        let request = BackgroundAgentCreateRequest {
+            name: "Delete Me".to_string(),
+            agent_id,
+            input: Some("task to delete".to_string()),
+            input_template: None,
+            schedule: None,
+            timeout_secs: None,
+            memory: None,
+            memory_scope: None,
+            durability_mode: None,
+            resource_limits: None,
+        };
+        let created = adapter.create_background_agent(request).unwrap();
+        let id = created["id"].as_str().unwrap();
+
+        let result = adapter.delete_background_agent(id).unwrap();
+        assert_eq!(result["deleted"], true);
+    }
+
+    #[test]
+    fn test_send_and_list_messages() {
+        let (adapter, _dir) = setup();
+        let agent_id = get_agent_id(&adapter);
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Messaging".to_string(),
+                agent_id,
+                input: Some("messaging task".to_string()),
+                input_template: None,
+                schedule: None,
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+            })
+            .unwrap();
+        let task_id = created["id"].as_str().unwrap().to_string();
+
+        adapter
+            .send_background_agent_message(BackgroundAgentMessageRequest {
+                id: task_id.clone(),
+                message: "Hello from test".to_string(),
+                source: Some("user".to_string()),
+            })
+            .unwrap();
+
+        let messages = adapter
+            .list_background_agent_messages(BackgroundAgentMessageListRequest {
+                id: task_id,
+                limit: Some(50),
+            })
+            .unwrap();
+        let msgs = messages.as_array().unwrap();
+        assert!(!msgs.is_empty());
+    }
+
+    #[test]
+    fn test_parse_status() {
+        assert!(BackgroundAgentStoreAdapter::parse_status("active").is_ok());
+        assert!(BackgroundAgentStoreAdapter::parse_status("PAUSED").is_ok());
+        assert!(BackgroundAgentStoreAdapter::parse_status("invalid").is_err());
+    }
+
+    #[test]
+    fn test_parse_control_action() {
+        assert!(BackgroundAgentStoreAdapter::parse_control_action("start").is_ok());
+        assert!(BackgroundAgentStoreAdapter::parse_control_action("run_now").is_ok());
+        assert!(BackgroundAgentStoreAdapter::parse_control_action("run-now").is_ok());
+        assert!(BackgroundAgentStoreAdapter::parse_control_action("invalid").is_err());
+    }
+
+    #[test]
+    fn test_validate_scratchpad_name() {
+        assert!(BackgroundAgentStoreAdapter::validate_scratchpad_name("task-123.jsonl").is_ok());
+        assert!(BackgroundAgentStoreAdapter::validate_scratchpad_name("").is_err());
+        assert!(BackgroundAgentStoreAdapter::validate_scratchpad_name("../escape.jsonl").is_err());
+        assert!(BackgroundAgentStoreAdapter::validate_scratchpad_name("bad.txt").is_err());
     }
 }
