@@ -8,7 +8,6 @@ pub mod lsp;
 pub mod mcp;
 pub mod memory;
 pub mod models;
-pub mod output;
 pub mod paths;
 pub mod performance;
 pub mod process;
@@ -20,8 +19,7 @@ pub mod services;
 pub mod skill_files;
 pub mod steer;
 pub mod storage;
-pub mod ops;
-pub mod utils;
+mod template;
 
 pub use models::*;
 pub use steer::SteerRegistry;

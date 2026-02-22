@@ -74,3 +74,77 @@ impl DeliverableStore for DeliverableStoreAdapter {
         serde_json::to_value(deliverable).map_err(ToolError::from)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::DeliverableStore;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (DeliverableStoreAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let storage = crate::storage::DeliverableStorage::new(db).unwrap();
+        (DeliverableStoreAdapter::new(storage), temp_dir)
+    }
+
+    #[test]
+    fn test_save_deliverable_report() {
+        let (adapter, _dir) = setup();
+        let result = adapter
+            .save_deliverable("task-1", "exec-1", "report", "Test Report", "content", None, None, None)
+            .unwrap();
+        assert_eq!(result["title"], "Test Report");
+        assert_eq!(result["task_id"], "task-1");
+        assert_eq!(result["execution_id"], "exec-1");
+        assert!(result["id"].as_str().is_some());
+    }
+
+    #[test]
+    fn test_save_deliverable_with_all_fields() {
+        let (adapter, _dir) = setup();
+        let metadata = serde_json::json!({"key": "value"});
+        let result = adapter
+            .save_deliverable(
+                "task-2",
+                "exec-2",
+                "data",
+                "Data Export",
+                "csv data here",
+                Some("/tmp/data.csv"),
+                Some("text/csv"),
+                Some(metadata),
+            )
+            .unwrap();
+        assert_eq!(result["file_path"], "/tmp/data.csv");
+        assert_eq!(result["content_type"], "text/csv");
+    }
+
+    #[test]
+    fn test_save_deliverable_all_types() {
+        let (adapter, _dir) = setup();
+        for dtype in &["report", "data", "file", "artifact"] {
+            let result = adapter
+                .save_deliverable("t", "e", dtype, "title", "body", None, None, None)
+                .unwrap();
+            assert!(result["id"].as_str().is_some());
+        }
+    }
+
+    #[test]
+    fn test_save_deliverable_unknown_type_fails() {
+        let (adapter, _dir) = setup();
+        let result = adapter.save_deliverable("t", "e", "unknown", "t", "c", None, None, None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_deliverable_invalid_metadata_fails() {
+        let (adapter, _dir) = setup();
+        let bad_metadata = serde_json::json!([1, 2, 3]);
+        let result = adapter.save_deliverable("t", "e", "report", "t", "c", None, None, Some(bad_metadata));
+        assert!(result.is_err());
+    }
+}

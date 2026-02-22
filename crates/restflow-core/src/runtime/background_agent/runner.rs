@@ -13,7 +13,7 @@ use crate::models::{
     BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource, ExecutionMode, HookContext,
     MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource,
 };
-use crate::output::{ensure_success_output, format_error_output};
+use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
@@ -1871,7 +1871,7 @@ impl BackgroundAgentRunner {
             .iter()
             .map(|(key, value)| (*key, value.as_str()))
             .collect();
-        crate::utils::template::render_template_single_pass(template, &replacements)
+        crate::template::render_template_single_pass(template, &replacements)
     }
 
     fn format_optional_timestamp(timestamp: Option<i64>) -> String {

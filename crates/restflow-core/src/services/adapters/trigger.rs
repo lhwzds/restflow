@@ -51,3 +51,53 @@ impl TriggerStore for TriggerStoreAdapter {
         Ok(json!({ "id": id, "deleted": true }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::TriggerStore;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (TriggerStoreAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let storage = TriggerStorage::new(db).unwrap();
+        (TriggerStoreAdapter::new(storage), temp_dir)
+    }
+
+    #[test]
+    fn test_create_and_list_trigger() {
+        let (adapter, _dir) = setup();
+        let config = json!({ "type": "schedule", "cron": "0 * * * *" });
+        let result = adapter.create_trigger("wf-1", config, Some("trig-1")).unwrap();
+        assert_eq!(result["id"], "trig-1");
+
+        let list = adapter.list_triggers().unwrap();
+        let triggers = list.as_array().unwrap();
+        assert_eq!(triggers.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_trigger() {
+        let (adapter, _dir) = setup();
+        let config = json!({ "type": "schedule", "cron": "0 * * * *" });
+        adapter.create_trigger("wf-1", config, Some("trig-del")).unwrap();
+
+        let result = adapter.delete_trigger("trig-del").unwrap();
+        assert_eq!(result["deleted"], true);
+
+        let list = adapter.list_triggers().unwrap();
+        let triggers = list.as_array().unwrap();
+        assert_eq!(triggers.len(), 0);
+    }
+
+    #[test]
+    fn test_list_triggers_empty() {
+        let (adapter, _dir) = setup();
+        let list = adapter.list_triggers().unwrap();
+        let triggers = list.as_array().unwrap();
+        assert!(triggers.is_empty());
+    }
+}

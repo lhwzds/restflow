@@ -254,7 +254,7 @@ impl HookExecutor {
             ("{{duration}}", duration.as_str()),
         ]);
 
-        crate::utils::template::render_template_single_pass(template, &replacements)
+        crate::template::render_template_single_pass(template, &replacements)
     }
 
     /// Truncate and strip control characters from user-controlled values.

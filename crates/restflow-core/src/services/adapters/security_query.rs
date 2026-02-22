@@ -7,6 +7,12 @@ use serde_json::{Value, json};
 
 pub struct SecurityQueryProviderAdapter;
 
+impl SecurityQueryProviderAdapter {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
 impl SecurityQueryProvider for SecurityQueryProviderAdapter {
     fn show_policy(&self) -> restflow_tools::Result<Value> {
         let policy = crate::models::SecurityPolicy::default();
@@ -57,5 +63,50 @@ impl SecurityQueryProvider for SecurityQueryProviderAdapter {
                 "reason": decision.reason
             }))
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_show_policy_returns_valid_json() {
+        let adapter = SecurityQueryProviderAdapter;
+        let result = adapter.show_policy().unwrap();
+        assert!(result.is_object(), "show_policy should return a JSON object");
+        assert!(result.get("default_action").is_some());
+    }
+
+    #[test]
+    fn test_list_permissions_contains_expected_fields() {
+        let adapter = SecurityQueryProviderAdapter;
+        let result = adapter.list_permissions().unwrap();
+        assert!(result.get("default_action").is_some());
+        assert!(result.get("allowlist_count").is_some());
+        assert!(result.get("blocklist_count").is_some());
+        assert!(result.get("approval_required_count").is_some());
+        assert!(result.get("tool_rule_count").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_check_permission_returns_decision() {
+        let adapter = SecurityQueryProviderAdapter;
+        let result = adapter
+            .check_permission("bash", "execute", Some("/bin/ls"), Some("list files"))
+            .await
+            .unwrap();
+        assert!(result.get("allowed").is_some());
+        assert!(result.get("requires_approval").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_check_permission_without_optionals() {
+        let adapter = SecurityQueryProviderAdapter;
+        let result = adapter
+            .check_permission("http", "get", None, None)
+            .await
+            .unwrap();
+        assert!(result.get("allowed").is_some());
     }
 }
