@@ -3,7 +3,6 @@
 mod skills;
 pub mod tools;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 
 use restflow_core::models::AgentNode;
@@ -18,17 +17,10 @@ pub use tools::{
     secret_resolver_from_storage,
 };
 
+/// Build agent system prompt — delegates to the canonical implementation in restflow-core.
 pub fn build_agent_system_prompt(
     storage: Arc<Storage>,
     agent_node: &AgentNode,
 ) -> Result<String, anyhow::Error> {
-    let base = agent_node
-        .prompt
-        .clone()
-        .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
-    let skill_ids = agent_node.skills.clone().unwrap_or_default();
-    let skill_vars: Option<HashMap<String, String>> = agent_node.skill_variables.clone();
-
-    let loader = SkillLoader::new(storage);
-    loader.build_system_prompt(&base, &skill_ids, skill_vars.as_ref())
+    restflow_core::runtime::agent::build_agent_system_prompt(storage, agent_node, None)
 }

@@ -30,14 +30,7 @@ const SUMMARY_TRUNCATE_CHARS: usize = 4000;
 /// If compact doesn't reduce tokens by at least this factor, we enter cooldown.
 const COMPACT_MIN_REDUCTION: f64 = 0.70;
 
-const HANDOFF_PROMPT: &str = "\
-You are being asked to summarize a conversation so that a fresh instance \
-can seamlessly continue the work. Write a concise handoff summary:\n\
-- What the original task/goal was\n\
-- What has been accomplished so far (key decisions, files modified, results)\n\
-- What remains to be done\n\
-- Important context, constraints, or gotchas discovered\n\
-Be specific about file paths, function names, and concrete details.";
+const HANDOFF_PROMPT: &str = include_str!("../../assets/agents/handoff_prompt.md");
 
 // ---------------------------------------------------------------------------
 // Config

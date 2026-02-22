@@ -1,12 +1,14 @@
 //! Sub-agent spawning support for tool-based execution.
 
-use super::definition::{AgentDefinition, AgentDefinitionRegistry};
 use super::tracker::{SubagentResult, SubagentTracker};
 use crate::runtime::agent::ToolRegistry;
 use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use restflow_ai::LlmClient;
-use restflow_ai::agent::{AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor};
+use restflow_ai::agent::{
+    AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, SubagentDefLookup,
+    SubagentDefSnapshot,
+};
 use restflow_ai::tools::{Tool, ToolOutput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -78,7 +80,7 @@ pub struct SpawnHandle {
 /// Spawn a sub-agent with the given request.
 pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
-    definitions: Arc<AgentDefinitionRegistry>,
+    definitions: Arc<dyn SubagentDefLookup>,
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
@@ -93,9 +95,8 @@ pub fn spawn_subagent(
     }
 
     let agent_def = definitions
-        .get(&request.agent_id)
-        .ok_or_else(|| anyhow!("Unknown agent type: {}", request.agent_id))?
-        .clone();
+        .lookup(&request.agent_id)
+        .ok_or_else(|| anyhow!("Unknown agent type: {}", request.agent_id))?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
     let timeout_secs = request.timeout_secs.unwrap_or(config.subagent_timeout_secs);
@@ -105,7 +106,6 @@ pub fn spawn_subagent(
     let task_for_register = request.task.clone();
 
     let task = request.task.clone();
-    let _agent_name = agent_def.name.clone();
     let tracker_clone = tracker.clone();
     let task_id_for_spawn = task_id.clone();
 
@@ -193,7 +193,7 @@ pub fn spawn_subagent(
 async fn execute_subagent(
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<ToolRegistry>,
-    agent_def: AgentDefinition,
+    agent_def: SubagentDefSnapshot,
     task: String,
 ) -> Result<String> {
     let registry = Arc::new(build_registry_for_agent(
@@ -216,7 +216,7 @@ async fn execute_subagent(
     }
 }
 
-fn resolve_max_iterations(agent_def: &AgentDefinition) -> usize {
+fn resolve_max_iterations(agent_def: &SubagentDefSnapshot) -> usize {
     agent_def
         .max_iterations
         .map(|value| value as usize)
@@ -460,29 +460,24 @@ mod tests {
         assert_eq!(registry.list().len(), 3);
     }
 
-    fn test_agent_definition(max_iterations: Option<u32>) -> AgentDefinition {
-        AgentDefinition {
-            id: "test".to_string(),
+    fn test_agent_def_snapshot(max_iterations: Option<u32>) -> SubagentDefSnapshot {
+        SubagentDefSnapshot {
             name: "Test".to_string(),
-            description: "Test agent".to_string(),
             system_prompt: "You are a test agent".to_string(),
             allowed_tools: vec![],
-            model: None,
             max_iterations,
-            callable: true,
-            tags: vec![],
         }
     }
 
     #[test]
     fn test_resolve_max_iterations_uses_agent_override() {
-        let definition = test_agent_definition(Some(42));
+        let definition = test_agent_def_snapshot(Some(42));
         assert_eq!(resolve_max_iterations(&definition), 42);
     }
 
     #[test]
     fn test_resolve_max_iterations_uses_default_when_missing() {
-        let definition = test_agent_definition(None);
+        let definition = test_agent_def_snapshot(None);
         assert_eq!(
             resolve_max_iterations(&definition),
             DEFAULT_SUBAGENT_MAX_ITERATIONS

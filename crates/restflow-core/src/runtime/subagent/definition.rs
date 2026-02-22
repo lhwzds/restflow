@@ -3,6 +3,7 @@
 //! This module defines the available agent types that can be spawned
 //! by the main agent, including their capabilities and system prompts.
 
+use restflow_ai::agent::{SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use ts_rs::TS;
@@ -96,6 +97,29 @@ impl Default for AgentDefinitionRegistry {
     }
 }
 
+impl SubagentDefLookup for AgentDefinitionRegistry {
+    fn lookup(&self, id: &str) -> Option<SubagentDefSnapshot> {
+        self.get(id).map(|def| SubagentDefSnapshot {
+            name: def.name.clone(),
+            system_prompt: def.system_prompt.clone(),
+            allowed_tools: def.allowed_tools.clone(),
+            max_iterations: def.max_iterations,
+        })
+    }
+
+    fn list_callable(&self) -> Vec<SubagentDefSummary> {
+        self.callable()
+            .into_iter()
+            .map(|def| SubagentDefSummary {
+                id: def.id.clone(),
+                name: def.name.clone(),
+                description: def.description.clone(),
+                tags: def.tags.clone(),
+            })
+            .collect()
+    }
+}
+
 /// Built-in agent definitions
 pub fn builtin_agents() -> Vec<AgentDefinition> {
     vec![
@@ -172,121 +196,13 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
     ]
 }
 
-// Agent system prompts
+// Agent system prompts — loaded from .md files at compile time
 
-const RESEARCHER_PROMPT: &str = r#"You are a skilled researcher agent.
-
-Your capabilities:
-- Gather information from various sources
-- Synthesize findings into coherent summaries
-- Identify key insights and patterns
-- Provide well-sourced, accurate information
-
-Guidelines:
-- Be thorough but focused on the specific research question
-- Cite sources when possible
-- Distinguish between facts and opinions
-- Acknowledge uncertainty when information is incomplete
-- Structure your findings clearly
-
-When given a research task, break it down into:
-1. Key questions to answer
-2. Information gathering steps
-3. Synthesis and analysis
-4. Clear conclusions with supporting evidence
-"#;
-
-const CODER_PROMPT: &str = r#"You are an expert coding agent.
-
-Your capabilities:
-- Write clean, efficient, well-documented code
-- Debug and fix issues
-- Refactor and improve existing code
-- Implement features according to specifications
-
-Guidelines:
-- Follow language best practices and conventions
-- Write readable, maintainable code
-- Include appropriate error handling
-- Add comments for complex logic
-- Test your changes when possible
-
-When given a coding task:
-1. Understand the requirements fully
-2. Plan your approach
-3. Implement incrementally
-4. Verify your changes work correctly
-5. Clean up and document
-"#;
-
-const REVIEWER_PROMPT: &str = r#"You are a thorough code/content reviewer agent.
-
-Your capabilities:
-- Identify bugs, issues, and potential problems
-- Suggest improvements for quality and maintainability
-- Check for security vulnerabilities
-- Verify adherence to best practices
-
-Guidelines:
-- Be constructive in your feedback
-- Prioritize issues by severity
-- Explain why something is problematic
-- Suggest specific fixes when possible
-- Acknowledge good practices too
-
-When reviewing:
-1. Understand the context and purpose
-2. Systematically examine the content
-3. Categorize issues (critical, major, minor)
-4. Provide actionable feedback
-5. Summarize overall assessment
-"#;
-
-const WRITER_PROMPT: &str = r#"You are a skilled writing agent.
-
-Your capabilities:
-- Create clear, engaging written content
-- Write technical documentation
-- Draft reports and summaries
-- Adapt tone and style to audience
-
-Guidelines:
-- Write clearly and concisely
-- Structure content logically
-- Use appropriate formatting
-- Maintain consistent style
-- Proofread for errors
-
-When creating content:
-1. Understand the audience and purpose
-2. Outline the structure
-3. Draft the content
-4. Review and refine
-5. Final polish
-"#;
-
-const ANALYST_PROMPT: &str = r#"You are a data analysis agent.
-
-Your capabilities:
-- Analyze datasets and extract insights
-- Create visualizations when helpful
-- Perform statistical analysis
-- Identify trends and patterns
-
-Guidelines:
-- Be rigorous in your analysis
-- Validate data quality
-- Use appropriate methods
-- Present findings clearly
-- Acknowledge limitations
-
-When analyzing data:
-1. Understand the question being asked
-2. Explore and validate the data
-3. Apply appropriate analysis methods
-4. Interpret results in context
-5. Present clear conclusions
-"#;
+const RESEARCHER_PROMPT: &str = include_str!("../../../assets/agents/subagent_researcher.md");
+const CODER_PROMPT: &str = include_str!("../../../assets/agents/subagent_coder.md");
+const REVIEWER_PROMPT: &str = include_str!("../../../assets/agents/subagent_reviewer.md");
+const WRITER_PROMPT: &str = include_str!("../../../assets/agents/subagent_writer.md");
+const ANALYST_PROMPT: &str = include_str!("../../../assets/agents/subagent_analyst.md");
 
 #[cfg(test)]
 mod tests {

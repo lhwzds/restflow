@@ -48,7 +48,8 @@ use crate::runtime::agent::{
     BashConfig, SubagentDeps, ToolRegistry, build_agent_system_prompt,
     effective_main_agent_tool_names, registry_from_allowlist, secret_resolver_from_storage,
 };
-use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
+use crate::runtime::subagent::{SubagentConfig, SubagentTracker};
+use restflow_ai::agent::SubagentDefLookup;
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///
@@ -63,7 +64,7 @@ pub struct AgentRuntimeExecutor {
     process_registry: Arc<ProcessRegistry>,
     auth_manager: Arc<AuthProfileManager>,
     subagent_tracker: Arc<SubagentTracker>,
-    subagent_definitions: Arc<AgentDefinitionRegistry>,
+    subagent_definitions: Arc<dyn SubagentDefLookup>,
     subagent_config: SubagentConfig,
     reply_sender: Option<Arc<dyn ReplySender>>,
 }
@@ -222,7 +223,7 @@ impl AgentRuntimeExecutor {
         process_registry: Arc<ProcessRegistry>,
         auth_manager: Arc<AuthProfileManager>,
         subagent_tracker: Arc<SubagentTracker>,
-        subagent_definitions: Arc<AgentDefinitionRegistry>,
+        subagent_definitions: Arc<dyn SubagentDefLookup>,
         subagent_config: SubagentConfig,
     ) -> Self {
         Self {

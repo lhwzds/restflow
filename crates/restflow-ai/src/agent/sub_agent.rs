@@ -1,6 +1,5 @@
 //! Sub-agent spawning support for tool-based execution.
 
-use crate::agent::definitions::{AgentDefinition, AgentDefinitionRegistry};
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::error::{AiError, Result};
 use crate::llm::LlmClient;
@@ -11,6 +10,50 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::{Duration, timeout};
+
+/// Snapshot of a sub-agent definition with all fields needed for execution.
+///
+/// This is a simple owned data struct that captures the fields from a concrete
+/// agent definition. It decouples the restflow-ai crate from the full
+/// `AgentDefinition` struct (which lives in restflow-core and carries
+/// `#[derive(TS)]` and other derives that restflow-ai doesn't need).
+#[derive(Debug, Clone)]
+pub struct SubagentDefSnapshot {
+    /// Display name
+    pub name: String,
+    /// System prompt for the agent
+    pub system_prompt: String,
+    /// Allowed tool names
+    pub allowed_tools: Vec<String>,
+    /// Maximum ReAct loop iterations
+    pub max_iterations: Option<u32>,
+}
+
+/// Summary info for listing a sub-agent definition.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct SubagentDefSummary {
+    /// Unique identifier
+    pub id: String,
+    /// Display name
+    pub name: String,
+    /// Description of when to use this agent
+    pub description: String,
+    /// Tags for categorization
+    pub tags: Vec<String>,
+}
+
+/// Trait for looking up sub-agent definitions by ID.
+///
+/// Implemented by `AgentDefinitionRegistry` in restflow-core so that
+/// restflow-ai can spawn sub-agents without depending on restflow-core.
+pub trait SubagentDefLookup: Send + Sync {
+    /// Look up a sub-agent definition by ID, returning a snapshot of the
+    /// fields needed for execution.
+    fn lookup(&self, id: &str) -> Option<SubagentDefSnapshot>;
+
+    /// List all callable sub-agent definitions (for display/listing purposes).
+    fn list_callable(&self) -> Vec<SubagentDefSummary>;
+}
 
 /// Configuration for sub-agent execution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -492,7 +535,7 @@ impl SubagentTracker {
 /// Sub-agent manager to spawn ReAct executors.
 pub struct SubAgentManager {
     tracker: Arc<SubagentTracker>,
-    definitions: Arc<AgentDefinitionRegistry>,
+    definitions: Arc<dyn SubagentDefLookup>,
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
@@ -502,7 +545,7 @@ pub struct SubAgentManager {
 impl SubAgentManager {
     pub fn new(
         tracker: Arc<SubagentTracker>,
-        definitions: Arc<AgentDefinitionRegistry>,
+        definitions: Arc<dyn SubagentDefLookup>,
         llm_client: Arc<dyn LlmClient>,
         tool_registry: Arc<ToolRegistry>,
         config: SubagentConfig,
@@ -549,16 +592,15 @@ impl SubAgentManager {
 /// Spawn a sub-agent with the given request.
 pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
-    definitions: Arc<AgentDefinitionRegistry>,
+    definitions: Arc<dyn SubagentDefLookup>,
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
     request: SpawnRequest,
 ) -> Result<SpawnHandle> {
     let agent_def = definitions
-        .get(&request.agent_id)
-        .ok_or_else(|| AiError::Agent(format!("Unknown agent type: {}", request.agent_id)))?
-        .clone();
+        .lookup(&request.agent_id)
+        .ok_or_else(|| AiError::Agent(format!("Unknown agent type: {}", request.agent_id)))?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
     let timeout_secs = request.timeout_secs.unwrap_or(config.subagent_timeout_secs);
@@ -672,7 +714,7 @@ pub fn spawn_subagent(
 async fn execute_subagent(
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<ToolRegistry>,
-    agent_def: AgentDefinition,
+    agent_def: SubagentDefSnapshot,
     task: String,
     config: SubagentConfig,
 ) -> Result<AgentResult> {

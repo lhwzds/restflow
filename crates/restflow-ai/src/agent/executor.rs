@@ -1391,9 +1391,10 @@ impl AgentExecutor {
 
         // Base prompt section (identity, role)
         if flags.include_base {
-            let base = config.system_prompt.as_deref().unwrap_or(
-                "You are a helpful AI assistant that can use tools to accomplish tasks.",
-            );
+            let base = config
+                .system_prompt
+                .as_deref()
+                .unwrap_or(super::DEFAULT_AGENT_PROMPT);
             sections.push(base.to_string());
         }
 

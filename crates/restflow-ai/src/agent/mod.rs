@@ -12,7 +12,6 @@ mod checkpoint;
 mod context;
 pub mod context_manager;
 mod deferred;
-mod definitions;
 mod executor;
 pub mod model_router;
 mod prompt_flags;
@@ -26,13 +25,15 @@ pub mod stuck;
 mod sub_agent;
 mod trace;
 
+/// Default base prompt used when no agent-specific prompt is configured.
+pub const DEFAULT_AGENT_PROMPT: &str = "You are a helpful AI assistant.";
+
 pub use checkpoint::{AgentCheckpoint, checkpoint_restore, checkpoint_save};
 pub use context::{
     AgentContext, ContextDiscoveryConfig, ContextLoader, DiscoveredContext, MemoryContext,
     SkillSummary, WorkspaceContextCache,
 };
 pub use deferred::{DeferredExecutionManager, DeferredStatus, DeferredToolCall};
-pub use definitions::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult, CheckpointDurability};
 pub use model_router::{ModelRoutingConfig, ModelSwitcher, TaskTier, classify_task, select_model};
 pub use prompt_flags::PromptFlags;
@@ -44,6 +45,7 @@ pub use stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator
 pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
 pub use sub_agent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubAgentManager, SubagentCompletion, SubagentConfig,
-    SubagentResult, SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
+    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentResult, SubagentState,
+    SubagentStatus, SubagentTracker, spawn_subagent,
 };
 pub use trace::TraceEvent;

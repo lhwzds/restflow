@@ -3,10 +3,11 @@
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
+use crate::runtime::subagent::{SubagentConfig, SubagentTracker};
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::Storage;
 use restflow_ai::LlmClient;
+use restflow_ai::agent::SubagentDefLookup;
 
 pub use restflow_ai::tools::{
     PythonTool, RunPythonTool, SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool,
@@ -41,7 +42,7 @@ pub type ToolResult = ToolOutput;
 #[derive(Clone)]
 pub struct SubagentDeps {
     pub tracker: Arc<SubagentTracker>,
-    pub definitions: Arc<AgentDefinitionRegistry>,
+    pub definitions: Arc<dyn SubagentDefLookup>,
     pub llm_client: Arc<dyn LlmClient>,
     pub tool_registry: Arc<ToolRegistry>,
     pub config: SubagentConfig,

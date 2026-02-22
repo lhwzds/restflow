@@ -1647,56 +1647,7 @@ fn sample_hook_context(event: &HookEvent) -> HookContext {
 }
 
 fn build_agent_system_prompt(core: &Arc<AppCore>, agent_node: AgentNode) -> Result<String> {
-    let base = agent_node
-        .prompt
-        .clone()
-        .filter(|prompt| !prompt.trim().is_empty())
-        .or_else(|| crate::prompt_files::load_default_main_agent_prompt().ok())
-        .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
-    let skill_ids = agent_node.skills.unwrap_or_default();
-    let skill_vars = agent_node.skill_variables.unwrap_or_default();
-
-    if skill_ids.is_empty() {
-        return Ok(base);
-    }
-
-    let mut skills = Vec::new();
-    for id in skill_ids {
-        match core.storage.skills.get(&id)? {
-            Some(skill) => {
-                let mut content = skill.content.clone();
-                if !skill_vars.is_empty() {
-                    let pattern_map: HashMap<String, &str> = skill_vars
-                        .iter()
-                        .map(|(name, value)| (format!("{{{{{}}}}}", name), value.as_str()))
-                        .collect();
-                    let replacements: HashMap<&str, &str> = pattern_map
-                        .iter()
-                        .map(|(pattern, value)| (pattern.as_str(), *value))
-                        .collect();
-                    content = crate::utils::template::render_template_single_pass(
-                        &content,
-                        &replacements,
-                    );
-                }
-                skills.push((skill.name.clone(), content));
-            }
-            None => {
-                warn!(skill_id = %id, "Skill not found while building system prompt");
-            }
-        }
-    }
-
-    if skills.is_empty() {
-        return Ok(base);
-    }
-
-    let mut prompt = base;
-    prompt.push_str("\n\n---\n\n# Available Skills\n\n");
-    for (name, content) in skills {
-        prompt.push_str(&format!("## Skill: {}\n\n{}\n\n", name, content));
-    }
-    Ok(prompt)
+    crate::runtime::agent::build_agent_system_prompt(core.storage.clone(), &agent_node, None)
 }
 
 #[cfg(test)]

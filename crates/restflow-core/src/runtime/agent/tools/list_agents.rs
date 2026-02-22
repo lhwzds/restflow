@@ -62,7 +62,7 @@ impl Tool for ListAgentsTool {
 
         let definitions = &self.deps.definitions;
         let available: Vec<Value> = definitions
-            .callable()
+            .list_callable()
             .iter()
             .map(|def| {
                 json!({
