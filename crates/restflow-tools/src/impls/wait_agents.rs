@@ -1,17 +1,17 @@
 //! wait_agents tool - Wait for sub-agents to finish and return results.
 
-use super::{SubagentDeps, Tool, ToolResult};
 use async_trait::async_trait;
-use restflow_tools::error::{Result, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::time::{Duration, timeout};
-use ts_rs::TS;
+
+use crate::error::{Result, ToolError};
+use crate::tool::{Tool, ToolOutput};
+use restflow_ai::agent::SubagentDeps;
 
 /// Parameters for wait_agents tool.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WaitAgentsParams {
     /// Task IDs to wait for.
     pub task_ids: Vec<String>,
@@ -26,7 +26,6 @@ pub struct WaitAgentsTool {
 }
 
 impl WaitAgentsTool {
-    /// Create a new wait_agents tool.
     pub fn new(deps: Arc<SubagentDeps>) -> Self {
         Self { deps }
     }
@@ -61,7 +60,7 @@ impl Tool for WaitAgentsTool {
         })
     }
 
-    async fn execute(&self, input: Value) -> Result<ToolResult> {
+    async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: WaitAgentsParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
@@ -79,17 +78,11 @@ impl Tool for WaitAgentsTool {
             {
                 Ok(Some(result)) => result,
                 Ok(None) => {
-                    results.push(json!({
-                        "task_id": task_id,
-                        "status": "not_found"
-                    }));
+                    results.push(json!({"task_id": task_id, "status": "not_found"}));
                     continue;
                 }
                 Err(_) => {
-                    results.push(json!({
-                        "task_id": task_id,
-                        "status": "timeout"
-                    }));
+                    results.push(json!({"task_id": task_id, "status": "timeout"}));
                     continue;
                 }
             };
@@ -109,11 +102,10 @@ impl Tool for WaitAgentsTool {
                     "duration_ms": result.duration_ms
                 })
             };
-
             results.push(entry);
         }
 
-        Ok(ToolResult::success(json!({ "results": results })))
+        Ok(ToolOutput::success(json!({ "results": results })))
     }
 }
 
@@ -123,11 +115,7 @@ mod tests {
 
     #[test]
     fn test_params_deserialization() {
-        let json = r#"{
-            "task_ids": ["task-1", "task-2"],
-            "timeout_secs": 120
-        }"#;
-
+        let json = r#"{"task_ids": ["task-1", "task-2"], "timeout_secs": 120}"#;
         let params: WaitAgentsParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.task_ids.len(), 2);
         assert_eq!(params.timeout_secs, Some(120));

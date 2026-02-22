@@ -532,6 +532,24 @@ impl SubagentTracker {
     }
 }
 
+/// Dependencies needed for sub-agent tools (spawn_agent, wait_agents, list_agents).
+///
+/// This is a lightweight container passed to tool implementations so they can
+/// spawn, wait for, and list sub-agents.
+#[derive(Clone)]
+pub struct SubagentDeps {
+    pub tracker: Arc<SubagentTracker>,
+    pub definitions: Arc<dyn SubagentDefLookup>,
+    pub llm_client: Arc<dyn LlmClient>,
+    pub tool_registry: Arc<ToolRegistry>,
+    pub config: SubagentConfig,
+}
+
+/// Trait for spawning subagents (simple variant used by SpawnTool).
+pub trait SubagentSpawner: Send + Sync {
+    fn spawn(&self, task: String) -> std::result::Result<String, crate::tools::ToolError>;
+}
+
 /// Sub-agent manager to spawn ReAct executors.
 pub struct SubAgentManager {
     tracker: Arc<SubagentTracker>,

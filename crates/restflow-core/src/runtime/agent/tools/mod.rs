@@ -1,127 +1,30 @@
 //! Unified tool registry for agent execution.
+//!
+//! Tool implementations live in `restflow-tools`. This module provides
+//! assembly functions (`registry_from_allowlist`) that combine tools with
+//! storage-backed services from `restflow-core`.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
-use crate::runtime::subagent::{SubagentConfig, SubagentTracker};
-use crate::services::tool_registry::create_tool_registry;
+use crate::services::tool_registry::{SkillStorageProvider, create_tool_registry};
 use crate::storage::Storage;
-use restflow_ai::LlmClient;
-use restflow_ai::agent::SubagentDefLookup;
+use restflow_ai::SkillProvider;
 
-pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
+// Re-export tool types from restflow-tools
+pub use restflow_tools::impls::{
+    BashConfig, BashTool, DiscordTool, EmailTool, FileConfig, FileTool, HttpTool,
+    ListAgentsTool, SlackTool, SpawnAgentTool, SpawnTool, TelegramTool,
+    ToolRegistryBuilder, UseSkillTool, WaitAgentsTool,
+    default_registry,
+};
 pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeTool, VisionTool};
 
-// Shared tools from restflow-tools
-pub use restflow_tools::impls::{
-    BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool,
-};
-
-// Core-specific tools
-mod list_agents;
-mod spawn;
-mod spawn_agent;
-mod use_skill;
-mod wait_agents;
-
-pub use list_agents::ListAgentsTool;
-pub use spawn::{SpawnTool, SubagentSpawner};
-pub use spawn_agent::SpawnAgentTool;
-pub use use_skill::UseSkillTool;
-pub use wait_agents::WaitAgentsTool;
+// Re-export core types from restflow-ai
+pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
+pub use restflow_ai::agent::{SubagentDeps, SubagentSpawner};
 
 pub type ToolResult = ToolOutput;
-
-/// Configuration for bash tool security (compatibility layer).
-///
-/// Converts to [`restflow_tools::impls::BashTool`] via [`BashConfig::into_bash_tool`].
-#[derive(Debug, Clone)]
-pub struct BashConfig {
-    /// Working directory for commands.
-    pub working_dir: Option<String>,
-    /// Command timeout in seconds.
-    pub timeout_secs: u64,
-    /// Blocked commands (security).
-    pub blocked_commands: Vec<String>,
-    /// Whether to allow sudo.
-    pub allow_sudo: bool,
-    /// Maximum total bytes for stdout/stderr output payload.
-    pub max_output_bytes: usize,
-}
-
-impl Default for BashConfig {
-    fn default() -> Self {
-        let security = restflow_tools::BashSecurityConfig::default();
-        Self {
-            working_dir: None,
-            timeout_secs: 300,
-            blocked_commands: security.blocked_commands,
-            allow_sudo: security.allow_sudo,
-            max_output_bytes: 1_000_000,
-        }
-    }
-}
-
-impl BashConfig {
-    /// Convert into a [`BashTool`] from restflow-tools.
-    pub fn into_bash_tool(self) -> BashTool {
-        let mut tool = BashTool::new()
-            .with_timeout(self.timeout_secs)
-            .with_max_output(self.max_output_bytes);
-        if let Some(workdir) = self.working_dir {
-            tool = tool.with_workdir(workdir);
-        }
-        tool
-    }
-}
-
-/// Configuration for file tool (compatibility layer).
-///
-/// Converts to [`restflow_tools::impls::FileTool`] via [`FileConfig::into_file_tool`].
-#[derive(Debug, Clone)]
-pub struct FileConfig {
-    /// Allowed paths (security).
-    pub allowed_paths: Vec<PathBuf>,
-    /// Whether write operations are allowed.
-    pub allow_write: bool,
-    /// Maximum bytes allowed for a single file read.
-    pub max_read_bytes: usize,
-}
-
-impl Default for FileConfig {
-    fn default() -> Self {
-        Self {
-            allowed_paths: vec![
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/nonexistent")),
-            ],
-            allow_write: true,
-            max_read_bytes: 1_000_000,
-        }
-    }
-}
-
-impl FileConfig {
-    /// Convert into a [`FileTool`] from restflow-tools.
-    pub fn into_file_tool(self) -> FileTool {
-        let mut tool = FileTool::new()
-            .with_max_read(self.max_read_bytes);
-        if let Some(base) = self.allowed_paths.into_iter().next() {
-            tool = tool.with_base_dir(base);
-        }
-        tool
-    }
-}
-
-/// Dependencies needed for advanced sub-agent tools.
-#[derive(Clone)]
-pub struct SubagentDeps {
-    pub tracker: Arc<SubagentTracker>,
-    pub definitions: Arc<dyn SubagentDefLookup>,
-    pub llm_client: Arc<dyn LlmClient>,
-    pub tool_registry: Arc<ToolRegistry>,
-    pub config: SubagentConfig,
-}
 
 pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
     let secrets = storage.secrets.clone();
@@ -129,9 +32,6 @@ pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
 }
 
 /// Default tools for main agents.
-///
-/// These defaults are shared by channel chat dispatch and workspace session chat
-/// so both execution paths expose a consistent baseline capability set.
 pub fn main_agent_default_tool_names() -> Vec<String> {
     vec![
         "bash",
@@ -192,131 +92,9 @@ pub fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<Str
     merged
 }
 
-/// Builder for creating a fully configured ToolRegistry.
-pub struct ToolRegistryBuilder {
-    registry: ToolRegistry,
-}
-
-impl Default for ToolRegistryBuilder {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl ToolRegistryBuilder {
-    pub fn new() -> Self {
-        Self {
-            registry: ToolRegistry::new(),
-        }
-    }
-
-    /// Add bash tool with security config.
-    pub fn with_bash(mut self, config: BashConfig) -> Self {
-        self.registry.register(config.into_bash_tool());
-        self
-    }
-
-    /// Add file tool with allowed paths.
-    pub fn with_file(mut self, config: FileConfig) -> Self {
-        self.registry.register(config.into_file_tool());
-        self
-    }
-
-    /// Add HTTP tool.
-    pub fn with_http(mut self) -> Self {
-        self.registry.register(HttpTool::new());
-        self
-    }
-
-    /// Add email tool.
-    pub fn with_email(mut self) -> Self {
-        self.registry.register(EmailTool::new());
-        self
-    }
-
-    /// Add Telegram tool.
-    pub fn with_telegram(mut self) -> Self {
-        self.registry.register(TelegramTool::new());
-        self
-    }
-
-    /// Add Discord tool.
-    pub fn with_discord(mut self) -> Self {
-        self.registry.register(DiscordTool::new());
-        self
-    }
-
-    /// Add Slack tool.
-    pub fn with_slack(mut self) -> Self {
-        self.registry.register(SlackTool::new());
-        self
-    }
-
-    /// Add monty-backed python tools.
-    pub fn with_python(mut self) -> Self {
-        self.registry.register(RunPythonTool::new());
-        self.registry.register(PythonTool::new());
-        self
-    }
-
-    /// Add transcription tool.
-    pub fn with_transcribe(mut self, resolver: SecretResolver) -> Self {
-        self.registry.register(TranscribeTool::new(resolver));
-        self
-    }
-
-    /// Add vision tool.
-    pub fn with_vision(mut self, resolver: SecretResolver) -> Self {
-        self.registry.register(VisionTool::new(resolver));
-        self
-    }
-
-    /// Add spawn tool for subagent creation.
-    pub fn with_spawn(mut self, spawner: Arc<dyn SubagentSpawner>) -> Self {
-        self.registry.register(SpawnTool::new(spawner));
-        self
-    }
-
-    /// Add spawn_agent tool for sub-agent management.
-    pub fn with_spawn_agent(mut self, deps: Arc<SubagentDeps>) -> Self {
-        self.registry.register(SpawnAgentTool::new(deps));
-        self
-    }
-
-    /// Add wait_agents tool for sub-agent management.
-    pub fn with_wait_agents(mut self, deps: Arc<SubagentDeps>) -> Self {
-        self.registry.register(WaitAgentsTool::new(deps));
-        self
-    }
-
-    /// Add list_agents tool for sub-agent management.
-    pub fn with_list_agents(mut self, deps: Arc<SubagentDeps>) -> Self {
-        self.registry.register(ListAgentsTool::new(deps));
-        self
-    }
-
-    /// Add use_skill tool for sub-agent management.
-    pub fn with_use_skill(mut self, deps: Arc<SubagentDeps>) -> Self {
-        self.registry.register(UseSkillTool::new(deps));
-        self
-    }
-
-    /// Build the final registry.
-    pub fn build(self) -> ToolRegistry {
-        self.registry
-    }
-}
-
 /// Build a tool registry filtered by an allowlist.
 ///
 /// When `tool_names` is `None` or empty, returns an empty registry (secure default).
-///
-/// Supported aliases:
-/// - `email` -> `send_email`
-/// - `telegram` -> `telegram_send`
-/// - `http_request` -> `http`
-/// - `read`/`write` -> `file` (write enables file writes)
-/// - `python` <-> `run_python`
 pub fn registry_from_allowlist(
     tool_names: Option<&[String]>,
     subagent_deps: Option<&SubagentDeps>,
@@ -391,10 +169,7 @@ pub fn registry_from_allowlist(
                 if let Some(resolver) = secret_resolver.clone() {
                     builder = builder.with_transcribe(resolver);
                 } else {
-                    warn!(
-                        tool_name = "transcribe",
-                        "Secret resolver missing, skipping"
-                    );
+                    warn!(tool_name = "transcribe", "Secret resolver missing, skipping");
                 }
             }
             "vision" => {
@@ -408,102 +183,53 @@ pub fn registry_from_allowlist(
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_spawn_agent(Arc::new(deps.clone()));
                 } else {
-                    debug!(
-                        tool_name = "spawn_agent",
-                        "Subagent dependencies missing, skipping"
-                    );
+                    debug!(tool_name = "spawn_agent", "Subagent dependencies missing, skipping");
                 }
             }
             "wait_agents" => {
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_wait_agents(Arc::new(deps.clone()));
                 } else {
-                    debug!(
-                        tool_name = "wait_agents",
-                        "Subagent dependencies missing, skipping"
-                    );
+                    debug!(tool_name = "wait_agents", "Subagent dependencies missing, skipping");
                 }
             }
             "list_agents" => {
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_list_agents(Arc::new(deps.clone()));
                 } else {
-                    debug!(
-                        tool_name = "list_agents",
-                        "Subagent dependencies missing, skipping"
-                    );
+                    debug!(tool_name = "list_agents", "Subagent dependencies missing, skipping");
                 }
             }
             "use_skill" => {
-                if let Some(deps) = subagent_deps {
-                    builder = builder.with_use_skill(Arc::new(deps.clone()));
+                if let Some(storage) = storage {
+                    let provider: Arc<dyn SkillProvider> = Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+                    builder = builder.with_use_skill(provider);
                 } else {
-                    debug!(
-                        tool_name = "use_skill",
-                        "Subagent dependencies missing, skipping"
-                    );
+                    debug!(tool_name = "use_skill", "Storage missing, skipping");
                 }
             }
-            "manage_background_agents" => {
-                enable_manage_background_agents = true;
-            }
-            "manage_agents" => {
-                enable_manage_agents = true;
-            }
-            "manage_marketplace" => {
-                enable_manage_marketplace = true;
-            }
-            "manage_triggers" => {
-                enable_manage_triggers = true;
-            }
-            "manage_terminal" => {
-                enable_manage_terminal = true;
-            }
-            "manage_ops" => {
-                enable_manage_ops = true;
-            }
-            "security_query" => {
-                enable_security_query = true;
-            }
-            "skill" => {
-                enable_skill = true;
-            }
-            "memory_search" => {
-                enable_memory_search = true;
-            }
-            "shared_space" => {
-                enable_shared_space = true;
-            }
-            "workspace_notes" => {
-                enable_workspace_notes = true;
-            }
-            "manage_secrets" | "secrets" => {
-                enable_manage_secrets = true;
-            }
-            "manage_config" | "config" => {
-                enable_manage_config = true;
-            }
-            "manage_sessions" | "sessions" => {
-                enable_manage_sessions = true;
-            }
-            "manage_memory" => {
-                enable_manage_memory = true;
-            }
-            "manage_auth_profiles" | "auth_profiles" => {
-                enable_manage_auth_profiles = true;
-            }
-            "patch" => {
-                enable_patch = true;
-            }
-            "diagnostics" => {
-                enable_diagnostics = true;
-            }
+            "manage_background_agents" => enable_manage_background_agents = true,
+            "manage_agents" => enable_manage_agents = true,
+            "manage_marketplace" => enable_manage_marketplace = true,
+            "manage_triggers" => enable_manage_triggers = true,
+            "manage_terminal" => enable_manage_terminal = true,
+            "manage_ops" => enable_manage_ops = true,
+            "security_query" => enable_security_query = true,
+            "skill" => enable_skill = true,
+            "memory_search" => enable_memory_search = true,
+            "shared_space" => enable_shared_space = true,
+            "workspace_notes" => enable_workspace_notes = true,
+            "manage_secrets" | "secrets" => enable_manage_secrets = true,
+            "manage_config" | "config" => enable_manage_config = true,
+            "manage_sessions" | "sessions" => enable_manage_sessions = true,
+            "manage_memory" => enable_manage_memory = true,
+            "manage_auth_profiles" | "auth_profiles" => enable_manage_auth_profiles = true,
+            "patch" => enable_patch = true,
+            "diagnostics" => enable_diagnostics = true,
             "save_to_memory" | "read_memory" | "list_memories" | "delete_memory" => {
                 enable_file_memory = true;
             }
-            "save_deliverable" => {
-                enable_save_deliverable = true;
-            }
+            "save_deliverable" => enable_save_deliverable = true,
             "web_search" => {
                 let mut tool = restflow_tools::WebSearchTool::new();
                 if let Some(resolver) = secret_resolver.clone() {
@@ -512,20 +238,16 @@ pub fn registry_from_allowlist(
                 builder.registry.register(tool);
             }
             "web_fetch" => {
-                builder
-                    .registry
-                    .register(restflow_tools::WebFetchTool::new());
+                builder.registry.register(restflow_tools::WebFetchTool::new());
             }
             "jina_reader" => {
-                builder
-                    .registry
-                    .register(restflow_tools::JinaReaderTool::new());
+                builder.registry.register(restflow_tools::JinaReaderTool::new());
             }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
             }
             "reply" => {
-                // Registered by callers that provide a ReplySender (e.g., ChatDispatcher).
+                // Registered by callers that provide a ReplySender.
             }
             "process" => {
                 // Registered by callers that provide a ProcessRegistry.
@@ -542,6 +264,12 @@ pub fn registry_from_allowlist(
             config.allow_write = true;
         }
         builder = builder.with_file(config);
+    }
+
+    // Register skills as callable tools
+    if let Some(storage) = storage {
+        let provider: Arc<dyn SkillProvider> = Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+        restflow_tools::register_skills(&mut builder.registry, provider);
     }
 
     let any_storage_tool = enable_manage_background_agents
@@ -615,10 +343,7 @@ pub fn registry_from_allowlist(
                 if let Some(tool) = core_registry.get(tool_name) {
                     builder.registry.register_arc(tool);
                 } else {
-                    warn!(
-                        tool_name = tool_name,
-                        "Tool was requested but not found in core registry"
-                    );
+                    warn!(tool_name = tool_name, "Tool was requested but not found in core registry");
                 }
             }
         } else {
@@ -649,30 +374,13 @@ pub fn registry_from_allowlist(
             ];
             for (tool_name, enabled) in storage_backed_tools {
                 if enabled {
-                    warn!(
-                        tool_name = tool_name,
-                        "Storage is unavailable, skipping storage-backed tool"
-                    );
+                    warn!(tool_name = tool_name, "Storage is unavailable, skipping storage-backed tool");
                 }
             }
         }
     }
 
     builder.build()
-}
-
-/// Create a registry with default tools.
-pub fn default_registry() -> ToolRegistry {
-    ToolRegistryBuilder::new()
-        .with_bash(BashConfig::default())
-        .with_file(FileConfig::default())
-        .with_http()
-        .with_email()
-        .with_telegram()
-        .with_discord()
-        .with_slack()
-        .with_python()
-        .build()
 }
 
 #[cfg(test)]
