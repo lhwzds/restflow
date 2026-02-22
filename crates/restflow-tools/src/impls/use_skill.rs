@@ -5,8 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::{Result, ToolError};
-use crate::tool::{Tool, ToolOutput};
+use crate::{Result, ToolError};
+use crate::{Tool, ToolOutput};
 use restflow_ai::tools::skill_types::SkillProvider;
 
 /// Parameters for use_skill tool.

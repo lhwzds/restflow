@@ -7,9 +7,9 @@ use super::python_backend::{
     ProcessPythonBackend, PythonExecutionBackend, PythonExecutionLimits, PythonExecutionRequest,
     PythonRuntime,
 };
-use crate::tool::{Tool, ToolOutput, check_security};
+use crate::{Tool, ToolOutput, check_security};
 use crate::ToolAction;
-use crate::error::Result;
+use crate::Result;
 use crate::security::SecurityGate;
 
 const DEFAULT_TIMEOUT_SECONDS: u64 = 30;

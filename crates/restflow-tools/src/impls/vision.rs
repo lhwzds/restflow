@@ -9,9 +9,9 @@ use serde_json::{Value, json};
 use tokio::fs;
 
 use restflow_ai::error::AiError;
-use crate::error::Result;
+use crate::Result;
 use crate::http_client::build_http_client;
-use crate::tool::{SecretResolver, Tool, ToolOutput};
+use crate::{SecretResolver, Tool, ToolOutput};
 
 #[derive(Debug, Deserialize)]
 struct VisionInput {

@@ -2,7 +2,7 @@
 
 use crate::agent::tools::ToolResult;
 use async_trait::async_trait;
-use restflow_tools::error::{Result, ToolError};
+use restflow_tools::{Result, ToolError};
 use restflow_ai::tools::Tool;
 use serde_json::{Value, json};
 use std::sync::Arc;

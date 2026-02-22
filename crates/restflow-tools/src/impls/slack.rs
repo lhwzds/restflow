@@ -4,9 +4,9 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::error::{Result, ToolError};
+use crate::{Result, ToolError};
 use crate::http_client::build_http_client;
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 
 const SLACK_API_BASE: &str = "https://slack.com/api";
 

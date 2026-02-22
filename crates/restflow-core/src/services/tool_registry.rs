@@ -23,7 +23,7 @@ use crate::storage::{
     WorkspaceNoteStorage,
 };
 use chrono::Utc;
-use restflow_tools::error::ToolError;
+use restflow_tools::ToolError;
 // Store traits and abstractions from restflow-ai
 use restflow_ai::tools::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,

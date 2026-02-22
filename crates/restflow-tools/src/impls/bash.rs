@@ -14,9 +14,9 @@ use nix::sys::signal::{Signal, killpg};
 #[cfg(unix)]
 use nix::unistd::Pid;
 
-use crate::error::Result;
+use crate::Result;
 use crate::security::SecurityGate;
-use crate::tool::{Tool, ToolErrorCategory, ToolOutput};
+use crate::{Tool, ToolErrorCategory, ToolOutput};
 
 /// Default timeout for command execution in seconds.
 const DEFAULT_TIMEOUT_SECS: u64 = 300;
@@ -296,11 +296,11 @@ impl Tool for BashTool {
             let agent_id = self
                 .agent_id
                 .as_deref()
-                .ok_or_else(|| crate::error::ToolError::Tool("Missing agent_id".into()))?;
+                .ok_or_else(|| crate::ToolError::Tool("Missing agent_id".into()))?;
             let task_id = self
                 .task_id
                 .as_deref()
-                .ok_or_else(|| crate::error::ToolError::Tool("Missing task_id".into()))?;
+                .ok_or_else(|| crate::ToolError::Tool("Missing task_id".into()))?;
 
             let decision = security_gate
                 .check_command(&input.command, task_id, agent_id, Some(&workdir))

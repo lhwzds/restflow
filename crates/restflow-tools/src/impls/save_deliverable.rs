@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
 
-use crate::error::Result;
-use crate::tool::{Tool, ToolOutput};
+use crate::Result;
+use crate::{Tool, ToolOutput};
 use restflow_ai::tools::store_traits::DeliverableStore;
 
 #[derive(Clone)]
@@ -186,7 +186,7 @@ mod tests {
             _content_type: Option<&str>,
             _metadata: Option<Value>,
         ) -> Result<Value> {
-            Err(crate::error::ToolError::Tool("store down".to_string()))
+            Err(crate::ToolError::Tool("store down".to_string()))
         }
     }
 

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use crate::registry::ToolRegistry;
+use crate::ToolRegistry;
 use crate::skill::SkillProvider;
 use crate::skill::tool::SkillAsTool;
 

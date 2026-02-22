@@ -6,9 +6,9 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::fs;
 
-use crate::error::Result;
+use crate::Result;
 use super::file_tracker::FileTracker;
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 
 mod apply;
 mod parser;
@@ -362,7 +362,7 @@ fn find_existing_ancestor(path: &Path) -> Option<(PathBuf, PathBuf)> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tool::Tool;
+    use crate::Tool;
 
     #[tokio::test]
     async fn apply_operations_add_update_delete() {

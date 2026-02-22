@@ -5,9 +5,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::Result;
 use crate::security::{SecurityGate, ToolAction};
-use crate::tool::{Tool, ToolOutput, check_security};
+use crate::{Tool, ToolOutput, check_security};
 
 #[derive(Debug, Deserialize)]
 struct EmailInput {

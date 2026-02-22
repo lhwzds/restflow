@@ -5,8 +5,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::tool::{Tool, ToolOutput};
-use crate::error::Result;
+use crate::{Tool, ToolOutput};
+use crate::Result;
 use restflow_ai::tools::store_traits::{
     MemoryManager, MemoryExportRequest, MemoryClearRequest, MemoryCompactRequest,
 };
@@ -34,7 +34,7 @@ impl MemoryManagementTool {
         if self.allow_write {
             Ok(())
         } else {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "Write access to memory is disabled. Available read-only operations: list, search. To modify memory, the user must grant write permissions.".to_string(),
             ))
         }

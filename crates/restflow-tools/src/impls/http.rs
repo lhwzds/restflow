@@ -6,11 +6,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::error::Result;
+use crate::Result;
 use crate::http_client::{build_http_client, build_ssrf_safe_client};
 use crate::security::network::{NetworkAllowlist, resolve_and_validate_url};
 use crate::security::{SecurityGate, ToolAction};
-use crate::tool::{Tool, ToolErrorCategory, ToolOutput, check_security};
+use crate::{Tool, ToolErrorCategory, ToolOutput, check_security};
 
 #[derive(Debug, Deserialize)]
 struct HttpInput {

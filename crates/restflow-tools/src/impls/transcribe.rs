@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use tokio::fs;
 
 use restflow_ai::error::AiError;
-use crate::error::Result;
+use crate::Result;
 use crate::http_client::build_http_client;
-use crate::tool::{SecretResolver, Tool, ToolOutput};
+use crate::{SecretResolver, Tool, ToolOutput};
 
 /// Configuration for transcribe tool security.
 #[derive(Debug, Clone)]
@@ -91,7 +91,7 @@ impl TranscribeTool {
 
         // Check if path is within allowed directories
         if !is_path_allowed(path, &self.config.allowed_paths) {
-            return Err(crate::error::ToolError::Tool(format!(
+            return Err(crate::ToolError::Tool(format!(
                 "Path '{}' is not within allowed directories. Only files in specified directories can be transcribed.",
                 file_path
             )));
@@ -106,7 +106,7 @@ impl TranscribeTool {
         if let Some(ext) = extension
             && !self.config.allowed_extensions.contains(&ext)
         {
-            return Err(crate::error::ToolError::Tool(format!(
+            return Err(crate::ToolError::Tool(format!(
                 "File extension '{}' is not allowed. Only audio files are permitted.",
                 ext
             )));
@@ -188,7 +188,7 @@ impl Tool for TranscribeTool {
 
         // Validate file size before upload
         if audio_bytes.len() > self.config.max_file_size {
-            return Err(crate::error::ToolError::Tool(format!(
+            return Err(crate::ToolError::Tool(format!(
                 "File too large ({} bytes). Maximum size is {} bytes.",
                 audio_bytes.len(),
                 self.config.max_file_size

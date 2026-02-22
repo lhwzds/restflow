@@ -7,9 +7,9 @@ use std::sync::Arc;
 
 use restflow_storage::{Secret, SecretStorage};
 
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
-use crate::error::Result;
+use crate::Result;
 
 #[derive(Clone)]
 pub struct SecretsTool {
@@ -34,7 +34,7 @@ impl SecretsTool {
         if self.allow_write {
             Ok(())
         } else {
-            Err(crate::error::ToolError::Tool(
+            Err(crate::ToolError::Tool(
                 "Write access to secrets is disabled. Available read-only operations: list, has. To modify secrets, the user must grant write permissions.".to_string(),
             ))
         }

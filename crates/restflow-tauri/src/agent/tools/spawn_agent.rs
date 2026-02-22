@@ -3,7 +3,7 @@
 use super::{SubagentDeps, Tool, ToolResult};
 use crate::subagent::{SpawnRequest, spawn_subagent};
 use async_trait::async_trait;
-use restflow_tools::error::{Result, ToolError};
+use restflow_tools::{Result, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;

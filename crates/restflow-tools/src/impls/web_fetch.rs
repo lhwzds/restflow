@@ -8,10 +8,10 @@ use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::error::Result;
+use crate::Result;
 use crate::http_client::build_ssrf_safe_client;
 use crate::security::resolve_and_validate_url;
-use crate::tool::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput};
 
 const MAX_CONTENT_LENGTH: usize = 12000;
 
