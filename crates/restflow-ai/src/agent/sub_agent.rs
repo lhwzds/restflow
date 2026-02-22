@@ -369,63 +369,6 @@ pub struct SubagentDeps {
     pub config: SubagentConfig,
 }
 
-/// Sub-agent manager to spawn ReAct executors.
-pub struct SubAgentManager {
-    tracker: Arc<SubagentTracker>,
-    definitions: Arc<dyn SubagentDefLookup>,
-    llm_client: Arc<dyn LlmClient>,
-    tool_registry: Arc<ToolRegistry>,
-    config: SubagentConfig,
-    current_depth: usize,
-}
-
-impl SubAgentManager {
-    pub fn new(
-        tracker: Arc<SubagentTracker>,
-        definitions: Arc<dyn SubagentDefLookup>,
-        llm_client: Arc<dyn LlmClient>,
-        tool_registry: Arc<ToolRegistry>,
-        config: SubagentConfig,
-    ) -> Self {
-        Self {
-            tracker,
-            definitions,
-            llm_client,
-            tool_registry,
-            config,
-            current_depth: 0,
-        }
-    }
-
-    pub fn with_depth(mut self, depth: usize) -> Self {
-        self.current_depth = depth;
-        self
-    }
-
-    pub fn spawn(&self, request: SpawnRequest) -> Result<SpawnHandle> {
-        if self.current_depth >= self.config.max_depth {
-            return Err(AiError::Agent("Max sub-agent depth reached".to_string()));
-        }
-
-        spawn_subagent(
-            self.tracker.clone(),
-            self.definitions.clone(),
-            self.llm_client.clone(),
-            self.tool_registry.clone(),
-            self.config.clone(),
-            request,
-        )
-    }
-
-    pub async fn wait(&self, task_id: &str) -> Option<SubagentResult> {
-        self.tracker.wait(task_id).await
-    }
-
-    pub fn tracker(&self) -> Arc<SubagentTracker> {
-        self.tracker.clone()
-    }
-}
-
 /// Spawn a sub-agent with the given request.
 pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,

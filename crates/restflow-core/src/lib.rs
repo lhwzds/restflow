@@ -1,6 +1,5 @@
 pub mod auth;
 pub mod channel;
-pub mod context;
 pub mod daemon;
 pub mod features;
 pub mod hooks;

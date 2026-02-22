@@ -1,7 +1,6 @@
 //! Sub-agent data types and trait definitions.
 //!
-//! Runtime implementations (SubagentTracker, SubAgentManager, spawn_subagent)
-//! remain in restflow-ai.
+//! Runtime implementations (SubagentTracker, spawn_subagent) remain in restflow-ai.
 
 use serde::{Deserialize, Serialize};
 
