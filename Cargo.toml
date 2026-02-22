@@ -4,6 +4,7 @@ members = [
     "crates/restflow-core",
     "crates/restflow-cli",
     "crates/restflow-ai",
+    "crates/restflow-tools",
     "crates/restflow-tauri",
     "crates/restflow-sandbox",
 ]
@@ -21,6 +22,7 @@ edition = "2024"
 restflow-storage = { path = "crates/restflow-storage" }
 restflow-core = { path = "crates/restflow-core" }
 restflow-ai = { path = "crates/restflow-ai" }
+restflow-tools = { path = "crates/restflow-tools" }
 restflow-sandbox = { path = "crates/restflow-sandbox" }
 monty = { git = "https://github.com/pydantic/monty", tag = "v0.0.7" }
 anyhow = "1.0.101"

@@ -1,9 +1,9 @@
 //! RestFlow AI - Rust-powered AI Agent Framework
 //!
 //! This crate provides:
+//! - Core tool abstractions (Tool, ToolError, ToolRegistry, SecurityGate, etc.)
 //! - ReAct (Reasoning + Acting) loop for AI agents
 //! - Multi-provider LLM client (OpenAI, Anthropic)
-//! - Tool registry and execution
 //! - Evaluation engine
 //! - Memory system (working memory with sliding window)
 
@@ -12,7 +12,7 @@ pub mod cache;
 pub mod embedding;
 pub mod error;
 pub mod eval;
-mod http_client;
+pub mod http_client;
 pub mod llm;
 pub mod lsp;
 pub mod security;
@@ -41,15 +41,26 @@ pub use security::{
     NetworkAllowlist, NetworkEcosystem, SecurityDecision, SecurityGate, ToolAction,
 };
 pub use steer::{SteerMessage, SteerSource};
+// Core tool abstractions
 pub use tools::{
-    AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
-    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, CredentialInput, DeliverableStore,
-    DiagnosticsProvider, DiagnosticsTool, EmailTool, HttpTool, LoggingWrapper, MemoryClearRequest,
-    MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager,
-    MemorySearchMatch, MemorySearchTool, MemoryStore, ProcessManager, ProcessTool,
-    RateLimitWrapper, ReplySender, ReplyTool, SaveDeliverableTool, SecretResolver, SemanticMemory,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
-    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate, SwitchModelTool,
-    TimeoutWrapper, Tool, ToolOutput, ToolRegistry, ToolSchema, ToolWrapper, TranscribeTool,
-    VisionTool, WrappedTool,
+    // Error types
+    ToolError,
+    // Tool trait and core types
+    SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security,
+    // Registry and toolset
+    ToolRegistry, Toolset, ToolsetContext,
+    // Wrappers
+    LoggingWrapper, RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool,
+    // Skill types
+    SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate,
+    // Store traits
+    AgentCreateRequest, AgentStore, AgentUpdateRequest,
+    AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, CredentialInput,
+    BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
+    BackgroundAgentStore, BackgroundAgentUpdateRequest,
+    DeliverableStore, DiagnosticsProvider,
+    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
+    ProcessManager, ReplySender,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
+    WorkspaceNoteProvider, WorkspaceNoteStatus,
 };

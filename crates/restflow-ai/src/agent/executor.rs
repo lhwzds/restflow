@@ -1239,7 +1239,7 @@ impl AgentExecutor {
         {
             map.insert("yolo_mode".to_string(), Value::Bool(true));
         }
-        self.tools.execute_safe(name, args).await
+        self.tools.execute_safe(name, args).await.map_err(Into::into)
     }
 
     /// Execute a tool with retry logic and timeout.
@@ -1266,7 +1266,7 @@ impl AgentExecutor {
             )
             .await
             .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
-            .and_then(|r| r)?;
+            .and_then(|r| r.map_err(Into::into))?;
 
             if output.success {
                 return Ok(output);
@@ -1563,6 +1563,7 @@ mod tests {
     use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
     use async_trait::async_trait;
     use futures::stream;
+    use crate::tools::error::Result as ToolResult;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex as AsyncMutex;
@@ -1739,7 +1740,7 @@ mod tests {
             })
         }
 
-        async fn execute(&self, input: Value) -> Result<ToolOutput> {
+        async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
             Ok(ToolOutput::success(input))
         }
     }
@@ -1765,7 +1766,7 @@ mod tests {
             })
         }
 
-        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+        async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             Ok(ToolOutput {
                 success: false,
                 result: serde_json::json!({
@@ -1798,7 +1799,7 @@ mod tests {
             serde_json::json!({"type":"object"})
         }
 
-        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+        async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             let current = self.calls.fetch_add(1, Ordering::SeqCst);
             if current == 0 {
                 Ok(ToolOutput::retryable_error(
@@ -1829,7 +1830,7 @@ mod tests {
             serde_json::json!({"type":"object"})
         }
 
-        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+        async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             self.calls.fetch_add(1, Ordering::SeqCst);
             Ok(ToolOutput::non_retryable_error(
                 "missing required config",
@@ -2532,7 +2533,7 @@ mod tests {
             true
         }
 
-        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+        async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
             Ok(ToolOutput::success(
                 serde_json::json!({"tool": self.tool_name}),
@@ -2561,7 +2562,7 @@ mod tests {
             true
         }
 
-        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+        async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             panic!("intentional panic for testing");
         }
     }
@@ -2587,7 +2588,7 @@ mod tests {
             true
         }
 
-        async fn execute(&self, _input: Value) -> Result<ToolOutput> {
+        async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             // Sleep long enough that the timeout will fire
             tokio::time::sleep(Duration::from_secs(3600)).await;
             Ok(ToolOutput::success(serde_json::json!({})))

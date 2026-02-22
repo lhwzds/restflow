@@ -24,24 +24,35 @@ use crate::storage::{
 };
 use crate::ops::{ManageOpsOperation, build_response, parse_operation};
 use chrono::Utc;
-use restflow_ai::error::AiError;
+use restflow_tools::error::ToolError;
+// Store traits and abstractions from restflow-ai
 use restflow_ai::tools::{
-    AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
-    AuthProfileStore, AuthProfileTestRequest, AuthProfileTool, BackgroundAgentControlRequest,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
+    AuthProfileStore, AuthProfileTestRequest, BackgroundAgentControlRequest,
     BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
     BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentScratchpadListRequest,
-    BackgroundAgentScratchpadReadRequest, BackgroundAgentStore, BackgroundAgentTool,
-    BackgroundAgentUpdateRequest, ConfigTool, DeliverableStore, MemoryClearRequest,
-    MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool, MemoryManager, MemoryStore,
-    SaveDeliverableTool, SecretsTool, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
-    SessionStore, SessionTool, WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery,
-    WorkspaceNoteRecord, WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
+    BackgroundAgentScratchpadReadRequest, BackgroundAgentStore,
+    BackgroundAgentUpdateRequest, DeliverableStore, MemoryClearRequest,
+    MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery,
+    SessionStore, WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery,
+    WorkspaceNoteRecord, WorkspaceNoteSpec, WorkspaceNoteStatus,
 };
-use restflow_ai::tools::{DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool};
 use restflow_ai::{
-    SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillTool, SkillUpdate,
-    Tool, ToolOutput, ToolRegistry, TranscribeTool, VisionTool,
+    SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate,
+    Tool, ToolOutput, ToolRegistry,
+};
+// Tool implementations from restflow-tools
+use restflow_tools::{
+    AgentCrudTool, AuthProfileTool, BackgroundAgentTool, ConfigTool,
+    DeleteMemoryTool, DiagnosticsTool, ListMemoryTool, MemoryManagementTool,
+    ReadMemoryTool, SaveDeliverableTool, SaveMemoryTool, SecretsTool,
+    SessionTool, SkillTool, TranscribeTool, VisionTool, WebSearchTool,
+    WorkspaceNoteTool,
+    BashTool, FileTool, HttpTool, EmailTool, TelegramTool, DiscordTool, SlackTool,
+    PythonTool, RunPythonTool,
+    WebFetchTool, JinaReaderTool,
 };
 use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Value, json};
@@ -199,14 +210,14 @@ impl AgentStoreAdapter {
         }
     }
 
-    fn parse_agent_node(value: serde_json::Value) -> Result<crate::models::AgentNode, AiError> {
+    fn parse_agent_node(value: serde_json::Value) -> Result<crate::models::AgentNode, ToolError> {
         serde_json::from_value(value)
-            .map_err(|e| AiError::Tool(format!("Invalid agent payload: {}", e)))
+            .map_err(|e| ToolError::Tool(format!("Invalid agent payload: {}", e)))
     }
 
-    fn validate_agent_node(&self, agent: &crate::models::AgentNode) -> Result<(), AiError> {
+    fn validate_agent_node(&self, agent: &crate::models::AgentNode) -> Result<(), ToolError> {
         if let Err(errors) = agent.validate() {
-            return Err(AiError::Tool(crate::models::encode_validation_error(
+            return Err(ToolError::Tool(crate::models::encode_validation_error(
                 errors,
             )));
         }
@@ -280,7 +291,7 @@ impl AgentStoreAdapter {
         if errors.is_empty() {
             Ok(())
         } else {
-            Err(AiError::Tool(crate::models::encode_validation_error(
+            Err(ToolError::Tool(crate::models::encode_validation_error(
                 errors,
             )))
         }
@@ -288,40 +299,40 @@ impl AgentStoreAdapter {
 }
 
 impl AgentStore for AgentStoreAdapter {
-    fn list_agents(&self) -> restflow_ai::error::Result<serde_json::Value> {
+    fn list_agents(&self) -> restflow_tools::Result<serde_json::Value> {
         let agents = self
             .storage
             .list_agents()
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(agents).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(agents).map_err(ToolError::from)
     }
 
-    fn get_agent(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+    fn get_agent(&self, id: &str) -> restflow_tools::Result<serde_json::Value> {
         let agent = self
             .storage
             .get_agent(id.to_string())
-            .map_err(|e| AiError::Tool(e.to_string()))?
-            .ok_or_else(|| AiError::Tool(format!("Agent {} not found", id)))?;
-        serde_json::to_value(agent).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .ok_or_else(|| ToolError::Tool(format!("Agent {} not found", id)))?;
+        serde_json::to_value(agent).map_err(ToolError::from)
     }
 
     fn create_agent(
         &self,
         request: AgentCreateRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let agent = Self::parse_agent_node(request.agent)?;
         self.validate_agent_node(&agent)?;
         let created = self
             .storage
             .create_agent(request.name, agent)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(created).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(created).map_err(ToolError::from)
     }
 
     fn update_agent(
         &self,
         request: AgentUpdateRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let agent = match request.agent {
             Some(value) => {
                 let node = Self::parse_agent_node(value)?;
@@ -333,22 +344,22 @@ impl AgentStore for AgentStoreAdapter {
         let updated = self
             .storage
             .update_agent(request.id, request.name, agent)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(updated).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(updated).map_err(ToolError::from)
     }
 
-    fn delete_agent(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+    fn delete_agent(&self, id: &str) -> restflow_tools::Result<serde_json::Value> {
         let active_tasks = self
             .background_agent_storage
             .list_active_tasks_by_agent_id(id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
         if !active_tasks.is_empty() {
             let task_names = active_tasks
                 .iter()
                 .map(|task| task.name.clone())
                 .collect::<Vec<_>>()
                 .join(", ");
-            return Err(AiError::Tool(format!(
+            return Err(ToolError::Tool(format!(
                 "Cannot delete agent {}: active background tasks exist ({})",
                 id, task_names
             )));
@@ -356,7 +367,7 @@ impl AgentStore for AgentStoreAdapter {
 
         self.storage
             .delete_agent(id.to_string())
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
         Ok(json!({ "id": id, "deleted": true }))
     }
 }
@@ -381,7 +392,7 @@ impl BackgroundAgentStoreAdapter {
         }
     }
 
-    fn parse_status(status: &str) -> Result<BackgroundAgentStatus, AiError> {
+    fn parse_status(status: &str) -> Result<BackgroundAgentStatus, ToolError> {
         match status.trim().to_lowercase().as_str() {
             "active" => Ok(BackgroundAgentStatus::Active),
             "paused" => Ok(BackgroundAgentStatus::Paused),
@@ -389,45 +400,45 @@ impl BackgroundAgentStoreAdapter {
             "completed" => Ok(BackgroundAgentStatus::Completed),
             "failed" => Ok(BackgroundAgentStatus::Failed),
             "interrupted" => Ok(BackgroundAgentStatus::Interrupted),
-            _ => Err(AiError::Tool(format!("Unknown status: {}", status))),
+            _ => Err(ToolError::Tool(format!("Unknown status: {}", status))),
         }
     }
 
-    fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction, AiError> {
+    fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction, ToolError> {
         match action.trim().to_lowercase().as_str() {
             "start" => Ok(BackgroundAgentControlAction::Start),
             "pause" => Ok(BackgroundAgentControlAction::Pause),
             "resume" => Ok(BackgroundAgentControlAction::Resume),
             "stop" => Ok(BackgroundAgentControlAction::Stop),
             "run_now" | "run-now" | "runnow" => Ok(BackgroundAgentControlAction::RunNow),
-            _ => Err(AiError::Tool(format!("Unknown control action: {}", action))),
+            _ => Err(ToolError::Tool(format!("Unknown control action: {}", action))),
         }
     }
 
-    fn parse_message_source(source: Option<&str>) -> Result<BackgroundMessageSource, AiError> {
+    fn parse_message_source(source: Option<&str>) -> Result<BackgroundMessageSource, ToolError> {
         match source.map(|value| value.trim().to_lowercase()) {
             None => Ok(BackgroundMessageSource::User),
             Some(value) if value.is_empty() => Ok(BackgroundMessageSource::User),
             Some(value) if value == "user" => Ok(BackgroundMessageSource::User),
             Some(value) if value == "agent" => Ok(BackgroundMessageSource::Agent),
             Some(value) if value == "system" => Ok(BackgroundMessageSource::System),
-            Some(value) => Err(AiError::Tool(format!("Unknown message source: {}", value))),
+            Some(value) => Err(ToolError::Tool(format!("Unknown message source: {}", value))),
         }
     }
 
     fn parse_optional_value<T: DeserializeOwned>(
         field: &str,
         value: Option<serde_json::Value>,
-    ) -> Result<Option<T>, AiError> {
+    ) -> Result<Option<T>, ToolError> {
         match value {
             Some(value) => serde_json::from_value(value)
                 .map(Some)
-                .map_err(|e| AiError::Tool(format!("Invalid {}: {}", field, e))),
+                .map_err(|e| ToolError::Tool(format!("Invalid {}: {}", field, e))),
             None => Ok(None),
         }
     }
 
-    fn parse_memory_scope(value: Option<&str>) -> Result<Option<MemoryScope>, AiError> {
+    fn parse_memory_scope(value: Option<&str>) -> Result<Option<MemoryScope>, ToolError> {
         match value.map(|scope| scope.trim().to_lowercase()) {
             None => Ok(None),
             Some(scope) if scope.is_empty() => Ok(None),
@@ -435,25 +446,25 @@ impl BackgroundAgentStoreAdapter {
             Some(scope) if scope == "per_background_agent" => {
                 Ok(Some(MemoryScope::PerBackgroundAgent))
             }
-            Some(scope) => Err(AiError::Tool(format!("Unknown memory_scope: {}", scope))),
+            Some(scope) => Err(ToolError::Tool(format!("Unknown memory_scope: {}", scope))),
         }
     }
 
-    fn parse_durability_mode(value: Option<&str>) -> Result<Option<DurabilityMode>, AiError> {
+    fn parse_durability_mode(value: Option<&str>) -> Result<Option<DurabilityMode>, ToolError> {
         match value.map(|mode| mode.trim().to_lowercase()) {
             None => Ok(None),
             Some(mode) if mode.is_empty() => Ok(None),
             Some(mode) if mode == "sync" => Ok(Some(DurabilityMode::Sync)),
             Some(mode) if mode == "async" => Ok(Some(DurabilityMode::Async)),
             Some(mode) if mode == "exit" => Ok(Some(DurabilityMode::Exit)),
-            Some(mode) => Err(AiError::Tool(format!("Unknown durability_mode: {}", mode))),
+            Some(mode) => Err(ToolError::Tool(format!("Unknown durability_mode: {}", mode))),
         }
     }
 
     fn merge_memory_scope(
         memory: Option<MemoryConfig>,
         memory_scope: Option<String>,
-    ) -> Result<Option<MemoryConfig>, AiError> {
+    ) -> Result<Option<MemoryConfig>, ToolError> {
         let parsed_scope = Self::parse_memory_scope(memory_scope.as_deref())?;
         match (memory, parsed_scope) {
             (Some(mut memory), Some(scope)) => {
@@ -469,38 +480,38 @@ impl BackgroundAgentStoreAdapter {
         }
     }
 
-    fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, AiError> {
+    fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
         self.agent_storage
             .resolve_existing_agent_id(id_or_prefix)
-            .map_err(|e| AiError::Tool(e.to_string()))
+            .map_err(|e| ToolError::Tool(e.to_string()))
     }
 
-    fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, AiError> {
+    fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
         self.storage
             .resolve_existing_task_id(id_or_prefix)
-            .map_err(|e| AiError::Tool(e.to_string()))
+            .map_err(|e| ToolError::Tool(e.to_string()))
     }
 
-    fn scratchpad_dir() -> Result<PathBuf, AiError> {
+    fn scratchpad_dir() -> Result<PathBuf, ToolError> {
         let dir = crate::paths::ensure_restflow_dir()
-            .map_err(|e| AiError::Tool(e.to_string()))?
+            .map_err(|e| ToolError::Tool(e.to_string()))?
             .join("scratchpads");
-        std::fs::create_dir_all(&dir).map_err(|e| AiError::Tool(e.to_string()))?;
+        std::fs::create_dir_all(&dir).map_err(|e| ToolError::Tool(e.to_string()))?;
         Ok(dir)
     }
 
-    fn validate_scratchpad_name(name: &str) -> Result<(), AiError> {
+    fn validate_scratchpad_name(name: &str) -> Result<(), ToolError> {
         let trimmed = name.trim();
         if trimmed.is_empty() {
-            return Err(AiError::Tool(
+            return Err(ToolError::Tool(
                 "scratchpad name must not be empty".to_string(),
             ));
         }
         if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
-            return Err(AiError::Tool("invalid scratchpad name".to_string()));
+            return Err(ToolError::Tool("invalid scratchpad name".to_string()));
         }
         if !trimmed.ends_with(".jsonl") {
-            return Err(AiError::Tool(
+            return Err(ToolError::Tool(
                 "scratchpad must be a .jsonl file".to_string(),
             ));
         }
@@ -512,7 +523,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
     fn create_background_agent(
         &self,
         request: BackgroundAgentCreateRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let resolved_agent_id = self.resolve_agent_id(&request.agent_id)?;
         let schedule =
             Self::parse_optional_value::<BackgroundAgentSchedule>("schedule", request.schedule)?
@@ -540,14 +551,14 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 prerequisites: Vec::new(),
                 continuation: None,
             })
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(task).map_err(ToolError::from)
     }
 
     fn update_background_agent(
         &self,
         request: BackgroundAgentUpdateRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let resolved_agent_id = request
             .agent_id
             .as_deref()
@@ -579,107 +590,107 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let task = self
             .storage
             .update_background_agent(&resolved_id, patch)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(task).map_err(ToolError::from)
     }
 
-    fn delete_background_agent(&self, id: &str) -> restflow_ai::error::Result<serde_json::Value> {
+    fn delete_background_agent(&self, id: &str) -> restflow_tools::Result<serde_json::Value> {
         let resolved_id = self.resolve_task_id(id)?;
         let deleted = self
             .storage
             .delete_task(&resolved_id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
         Ok(json!({ "id": id, "deleted": deleted }))
     }
 
     fn list_background_agents(
         &self,
         status: Option<String>,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let tasks = if let Some(status) = status {
             let status = Self::parse_status(&status)?;
             self.storage
                 .list_tasks_by_status(status)
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         } else {
             self.storage
                 .list_tasks()
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         };
 
-        serde_json::to_value(tasks).map_err(AiError::from)
+        serde_json::to_value(tasks).map_err(ToolError::from)
     }
 
     fn control_background_agent(
         &self,
         request: BackgroundAgentControlRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let action = Self::parse_control_action(&request.action)?;
         let resolved_id = self.resolve_task_id(&request.id)?;
         let task = self
             .storage
             .control_background_agent(&resolved_id, action)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(task).map_err(ToolError::from)
     }
 
     fn get_background_agent_progress(
         &self,
         request: BackgroundAgentProgressRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let progress = self
             .storage
             .get_background_agent_progress(&resolved_id, request.event_limit.unwrap_or(10).max(1))
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(progress).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(progress).map_err(ToolError::from)
     }
 
     fn send_background_agent_message(
         &self,
         request: BackgroundAgentMessageRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let source = Self::parse_message_source(request.source.as_deref())?;
         let resolved_id = self.resolve_task_id(&request.id)?;
         let message = self
             .storage
             .send_background_agent_message(&resolved_id, request.message, source)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(message).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(message).map_err(ToolError::from)
     }
 
     fn list_background_agent_messages(
         &self,
         request: BackgroundAgentMessageListRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let messages = self
             .storage
             .list_background_agent_messages(&resolved_id, request.limit.unwrap_or(50).max(1))
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(messages).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(messages).map_err(ToolError::from)
     }
 
     fn list_background_agent_deliverables(
         &self,
         request: BackgroundAgentDeliverableListRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let items = self
             .deliverable_storage
             .list_by_task(&request.id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(items).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(items).map_err(ToolError::from)
     }
 
     fn list_background_agent_scratchpads(
         &self,
         request: BackgroundAgentScratchpadListRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         let dir = Self::scratchpad_dir()?;
         let prefix = request.id.map(|id| format!("{id}-"));
         let mut entries: Vec<(std::time::SystemTime, Value)> = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|e| AiError::Tool(e.to_string()))? {
-            let entry = entry.map_err(|e| AiError::Tool(e.to_string()))?;
+        for entry in std::fs::read_dir(&dir).map_err(|e| ToolError::Tool(e.to_string()))? {
+            let entry = entry.map_err(|e| ToolError::Tool(e.to_string()))?;
             let path = entry.path();
             if !path.is_file() {
                 continue;
@@ -697,7 +708,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 continue;
             }
 
-            let metadata = entry.metadata().map_err(|e| AiError::Tool(e.to_string()))?;
+            let metadata = entry.metadata().map_err(|e| ToolError::Tool(e.to_string()))?;
             let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
             let modified_at = chrono::DateTime::<Utc>::from(modified).to_rfc3339();
             let task_id = file_name.strip_suffix(".jsonl").and_then(|name| {
@@ -730,7 +741,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
     fn read_background_agent_scratchpad(
         &self,
         request: BackgroundAgentScratchpadReadRequest,
-    ) -> restflow_ai::error::Result<serde_json::Value> {
+    ) -> restflow_tools::Result<serde_json::Value> {
         Self::validate_scratchpad_name(&request.scratchpad)?;
         let dir = Self::scratchpad_dir()?;
         let path = dir.join(&request.scratchpad);
@@ -738,7 +749,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         if let Ok(metadata) = std::fs::symlink_metadata(&path)
             && metadata.file_type().is_symlink()
         {
-            return Err(AiError::Tool(
+            return Err(ToolError::Tool(
                 "scratchpad does not allow symlink paths".to_string(),
             ));
         }
@@ -746,24 +757,24 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         // Canonicalize and verify path stays within scratchpad directory.
         let canonical_dir = dir
             .canonicalize()
-            .map_err(|e| AiError::Tool(format!("failed to resolve scratchpad dir: {}", e)))?;
+            .map_err(|e| ToolError::Tool(format!("failed to resolve scratchpad dir: {}", e)))?;
         let canonical_path = path
             .canonicalize()
-            .map_err(|e| AiError::Tool(format!("failed to resolve scratchpad path: {}", e)))?;
+            .map_err(|e| ToolError::Tool(format!("failed to resolve scratchpad path: {}", e)))?;
         if !canonical_path.starts_with(&canonical_dir) {
-            return Err(AiError::Tool(
+            return Err(ToolError::Tool(
                 "scratchpad path escapes scratchpad directory".to_string(),
             ));
         }
 
         if !path.is_file() {
-            return Err(AiError::Tool(format!(
+            return Err(ToolError::Tool(format!(
                 "scratchpad {} not found",
                 request.scratchpad
             )));
         }
 
-        let content = std::fs::read_to_string(&path).map_err(|e| AiError::Tool(e.to_string()))?;
+        let content = std::fs::read_to_string(&path).map_err(|e| ToolError::Tool(e.to_string()))?;
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
         let line_limit = request.line_limit.unwrap_or(200).max(1);
@@ -792,13 +803,13 @@ impl DeliverableStoreAdapter {
         Self { storage }
     }
 
-    fn parse_deliverable_type(value: &str) -> restflow_ai::error::Result<DeliverableType> {
+    fn parse_deliverable_type(value: &str) -> restflow_tools::Result<DeliverableType> {
         match value.trim().to_lowercase().as_str() {
             "report" => Ok(DeliverableType::Report),
             "data" => Ok(DeliverableType::Data),
             "file" => Ok(DeliverableType::File),
             "artifact" => Ok(DeliverableType::Artifact),
-            other => Err(AiError::Tool(format!(
+            other => Err(ToolError::Tool(format!(
                 "Unknown deliverable type: {}. Supported: report, data, file, artifact",
                 other
             ))),
@@ -817,13 +828,13 @@ impl DeliverableStore for DeliverableStoreAdapter {
         file_path: Option<&str>,
         content_type: Option<&str>,
         metadata: Option<Value>,
-    ) -> restflow_ai::error::Result<Value> {
+    ) -> restflow_tools::Result<Value> {
         let deliverable_type = Self::parse_deliverable_type(deliverable_type)?;
         let now_ms = Utc::now().timestamp_millis();
         let metadata = metadata
             .map(serde_json::from_value::<std::collections::BTreeMap<String, String>>)
             .transpose()
-            .map_err(|e| AiError::Tool(format!("Invalid metadata object: {}", e)))?;
+            .map_err(|e| ToolError::Tool(format!("Invalid metadata object: {}", e)))?;
         let deliverable = Deliverable {
             id: Uuid::new_v4().to_string(),
             task_id: task_id.trim().to_string(),
@@ -845,8 +856,8 @@ impl DeliverableStore for DeliverableStoreAdapter {
         };
         self.storage
             .save(&deliverable)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(deliverable).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(deliverable).map_err(ToolError::from)
     }
 }
 
@@ -868,46 +879,46 @@ impl SessionStorageAdapter {
 }
 
 impl SessionStore for SessionStorageAdapter {
-    fn list_sessions(&self, filter: SessionListFilter) -> restflow_ai::error::Result<Value> {
+    fn list_sessions(&self, filter: SessionListFilter) -> restflow_tools::Result<Value> {
         let sessions = if let Some(agent_id) = &filter.agent_id {
             self.storage
                 .list_by_agent(agent_id)
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         } else if let Some(skill_id) = &filter.skill_id {
             self.storage
                 .list_by_skill(skill_id)
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         } else {
             self.storage
                 .list()
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         };
 
         if filter.include_messages.unwrap_or(false) {
-            serde_json::to_value(sessions).map_err(AiError::from)
+            serde_json::to_value(sessions).map_err(ToolError::from)
         } else {
             let summaries = self
                 .storage
                 .list_summaries()
-                .map_err(|e| AiError::Tool(e.to_string()))?;
-            serde_json::to_value(summaries).map_err(AiError::from)
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            serde_json::to_value(summaries).map_err(ToolError::from)
         }
     }
 
-    fn get_session(&self, id: &str) -> restflow_ai::error::Result<Value> {
+    fn get_session(&self, id: &str) -> restflow_tools::Result<Value> {
         let session = self
             .storage
             .get(id)
-            .map_err(|e| AiError::Tool(e.to_string()))?
-            .ok_or_else(|| AiError::Tool(format!("Session {} not found", id)))?;
-        serde_json::to_value(session).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .ok_or_else(|| ToolError::Tool(format!("Session {} not found", id)))?;
+        serde_json::to_value(session).map_err(ToolError::from)
     }
 
-    fn create_session(&self, request: SessionCreateRequest) -> restflow_ai::error::Result<Value> {
+    fn create_session(&self, request: SessionCreateRequest) -> restflow_tools::Result<Value> {
         let resolved_agent_id = self
             .agent_storage
             .resolve_existing_agent_id(&request.agent_id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
         let mut session = crate::models::ChatSession::new(resolved_agent_id, request.model);
         if let Some(name) = request.name {
             session = session.with_name(name);
@@ -920,28 +931,28 @@ impl SessionStore for SessionStorageAdapter {
         }
         self.storage
             .create(&session)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(session).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(session).map_err(ToolError::from)
     }
 
-    fn delete_session(&self, id: &str) -> restflow_ai::error::Result<Value> {
+    fn delete_session(&self, id: &str) -> restflow_tools::Result<Value> {
         let deleted = self
             .storage
             .delete(id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
         Ok(json!({ "id": id, "deleted": deleted }))
     }
 
-    fn search_sessions(&self, query: SessionSearchQuery) -> restflow_ai::error::Result<Value> {
+    fn search_sessions(&self, query: SessionSearchQuery) -> restflow_tools::Result<Value> {
         // Search by iterating sessions and filtering by query string
         let sessions = if let Some(agent_id) = &query.agent_id {
             self.storage
                 .list_by_agent(agent_id)
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         } else {
             self.storage
                 .list()
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         };
 
         let keyword = query.query.to_lowercase();
@@ -960,16 +971,16 @@ impl SessionStore for SessionStorageAdapter {
             .take(limit)
             .collect();
 
-        serde_json::to_value(matched).map_err(AiError::from)
+        serde_json::to_value(matched).map_err(ToolError::from)
     }
 
-    fn cleanup_sessions(&self) -> restflow_ai::error::Result<Value> {
+    fn cleanup_sessions(&self) -> restflow_tools::Result<Value> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let stats = self
             .storage
             .cleanup_by_session_retention(now_ms)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(stats).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(stats).map_err(ToolError::from)
     }
 }
 
@@ -987,35 +998,35 @@ impl MemoryManagerAdapter {
 }
 
 impl MemoryManager for MemoryManagerAdapter {
-    fn stats(&self, agent_id: &str) -> restflow_ai::error::Result<Value> {
+    fn stats(&self, agent_id: &str) -> restflow_tools::Result<Value> {
         let stats = self
             .storage
             .get_stats(agent_id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
-        serde_json::to_value(stats).map_err(AiError::from)
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        serde_json::to_value(stats).map_err(ToolError::from)
     }
 
-    fn export(&self, request: MemoryExportRequest) -> restflow_ai::error::Result<Value> {
+    fn export(&self, request: MemoryExportRequest) -> restflow_tools::Result<Value> {
         let exporter = MemoryExporter::new(self.storage.clone());
         let result = if let Some(session_id) = &request.session_id {
             exporter
                 .export_session(session_id)
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         } else {
             exporter
                 .export_agent(&request.agent_id)
-                .map_err(|e| AiError::Tool(e.to_string()))?
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         };
-        serde_json::to_value(result).map_err(AiError::from)
+        serde_json::to_value(result).map_err(ToolError::from)
     }
 
-    fn clear(&self, request: MemoryClearRequest) -> restflow_ai::error::Result<Value> {
+    fn clear(&self, request: MemoryClearRequest) -> restflow_tools::Result<Value> {
         if let Some(session_id) = &request.session_id {
             let delete_chunks = request.delete_sessions.unwrap_or(true);
             let deleted = self
                 .storage
                 .delete_session(session_id, delete_chunks)
-                .map_err(|e| AiError::Tool(e.to_string()))?;
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
             Ok(json!({
                 "agent_id": request.agent_id,
                 "session_id": session_id,
@@ -1025,7 +1036,7 @@ impl MemoryManager for MemoryManagerAdapter {
             let deleted = self
                 .storage
                 .delete_chunks_for_agent(&request.agent_id)
-                .map_err(|e| AiError::Tool(e.to_string()))?;
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
             Ok(json!({
                 "agent_id": request.agent_id,
                 "chunks_deleted": deleted
@@ -1033,11 +1044,11 @@ impl MemoryManager for MemoryManagerAdapter {
         }
     }
 
-    fn compact(&self, request: MemoryCompactRequest) -> restflow_ai::error::Result<Value> {
+    fn compact(&self, request: MemoryCompactRequest) -> restflow_tools::Result<Value> {
         let chunks = self
             .storage
             .list_chunks(&request.agent_id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         let keep_recent = request.keep_recent.unwrap_or(10) as usize;
         let before_ms = request.before_ms;
@@ -1065,7 +1076,7 @@ impl MemoryManager for MemoryManagerAdapter {
         for chunk_id in &to_delete {
             self.storage
                 .delete_chunk(chunk_id)
-                .map_err(|e| AiError::Tool(e.to_string()))?;
+                .map_err(|e| ToolError::Tool(e.to_string()))?;
         }
 
         Ok(json!({
@@ -1091,11 +1102,11 @@ impl AuthProfileStorageAdapter {
 }
 
 impl AuthProfileStore for AuthProfileStorageAdapter {
-    fn list_profiles(&self) -> restflow_ai::error::Result<Value> {
+    fn list_profiles(&self) -> restflow_tools::Result<Value> {
         let secrets = self
             .storage
             .list_secrets()
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         let profiles: Vec<Value> = secrets
             .iter()
@@ -1115,7 +1126,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         Ok(json!(profiles))
     }
 
-    fn discover_profiles(&self) -> restflow_ai::error::Result<Value> {
+    fn discover_profiles(&self) -> restflow_tools::Result<Value> {
         let known_vars = [
             "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
@@ -1145,7 +1156,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         }))
     }
 
-    fn add_profile(&self, request: AuthProfileCreateRequest) -> restflow_ai::error::Result<Value> {
+    fn add_profile(&self, request: AuthProfileCreateRequest) -> restflow_tools::Result<Value> {
         let key_name = format!(
             "{}_API_KEY",
             request.provider.to_uppercase().replace('-', "_")
@@ -1161,7 +1172,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
                 &secret_value,
                 Some(format!("Auth profile: {}", request.name)),
             )
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         Ok(json!({
             "id": key_name,
@@ -1171,14 +1182,14 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         }))
     }
 
-    fn remove_profile(&self, id: &str) -> restflow_ai::error::Result<Value> {
+    fn remove_profile(&self, id: &str) -> restflow_tools::Result<Value> {
         self.storage
             .delete_secret(id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
         Ok(json!({ "id": id, "removed": true }))
     }
 
-    fn test_profile(&self, request: AuthProfileTestRequest) -> restflow_ai::error::Result<Value> {
+    fn test_profile(&self, request: AuthProfileTestRequest) -> restflow_tools::Result<Value> {
         if let Some(id) = &request.id {
             let available = self
                 .storage
@@ -1416,7 +1427,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
         title: &str,
         content: &str,
         tags: &[String],
-    ) -> restflow_ai::error::Result<Value> {
+    ) -> restflow_tools::Result<Value> {
         use crate::models::memory::MemorySource;
 
         let db_tags = Self::build_tags(title, tags);
@@ -1430,7 +1441,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
         let stored_id = self
             .storage
             .store_chunk(&chunk)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         // If stored_id differs from chunk.id, content was a duplicate
         let is_dedup = stored_id != chunk.id;
@@ -1448,11 +1459,11 @@ impl MemoryStore for DbMemoryStoreAdapter {
         }))
     }
 
-    fn read_by_id(&self, id: &str) -> restflow_ai::error::Result<Option<Value>> {
+    fn read_by_id(&self, id: &str) -> restflow_tools::Result<Option<Value>> {
         let chunk = self
             .storage
             .get_chunk(id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         match chunk {
             Some(c) => {
@@ -1472,11 +1483,11 @@ impl MemoryStore for DbMemoryStoreAdapter {
         tag: Option<&str>,
         search: Option<&str>,
         limit: usize,
-    ) -> restflow_ai::error::Result<Value> {
+    ) -> restflow_tools::Result<Value> {
         let mut chunks = self
             .storage
             .list_chunks(agent_id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         // Filter by user tag (case-insensitive contains)
         if let Some(tag_filter) = tag {
@@ -1514,11 +1525,11 @@ impl MemoryStore for DbMemoryStoreAdapter {
         agent_id: &str,
         tag: Option<&str>,
         limit: usize,
-    ) -> restflow_ai::error::Result<Value> {
+    ) -> restflow_tools::Result<Value> {
         let chunks = self
             .storage
             .list_chunks(agent_id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         let total = chunks.len();
         let mut filtered = chunks;
@@ -1544,11 +1555,11 @@ impl MemoryStore for DbMemoryStoreAdapter {
         }))
     }
 
-    fn delete(&self, id: &str) -> restflow_ai::error::Result<Value> {
+    fn delete(&self, id: &str) -> restflow_tools::Result<Value> {
         let deleted = self
             .storage
             .delete_chunk(id)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         if deleted {
             Ok(json!({
@@ -1591,7 +1602,21 @@ pub fn create_tool_registry(
 ) -> ToolRegistry {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let lsp_manager = Arc::new(LspManager::new(root));
-    let mut registry = restflow_ai::tools::default_registry_with_diagnostics(lsp_manager);
+    let mut registry = ToolRegistry::new();
+    // Register base tools
+    registry.register(BashTool::new());
+    registry.register(FileTool::new());
+    registry.register(HttpTool::new());
+    registry.register(EmailTool::new());
+    registry.register(TelegramTool::new());
+    registry.register(DiscordTool::new());
+    registry.register(SlackTool::new());
+    registry.register(RunPythonTool::new());
+    registry.register(PythonTool::new());
+    registry.register(WebFetchTool::new());
+    registry.register(JinaReaderTool::new());
+    registry.register(WebSearchTool::new());
+    registry.register(DiagnosticsTool::new(lsp_manager));
 
     let secret_resolver: SecretResolver = {
         let secrets = Arc::new(secret_storage.clone());
@@ -1602,7 +1627,7 @@ pub fn create_tool_registry(
     registry.register(VisionTool::new(secret_resolver.clone()));
     // Re-register WebSearchTool with secret resolver so Brave/Tavily API keys are available
     registry
-        .register(restflow_ai::tools::WebSearchTool::new().with_secret_resolver(secret_resolver));
+        .register(WebSearchTool::new().with_secret_resolver(secret_resolver));
 
     // Add SkillTool with storage access
     let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage.clone()));
@@ -1743,15 +1768,15 @@ impl Tool for MemorySearchTool {
         })
     }
 
-    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
         let query = input
             .get("query")
             .and_then(|value| value.as_str())
-            .ok_or_else(|| AiError::Tool("Missing query parameter".to_string()))?;
+            .ok_or_else(|| ToolError::Tool("Missing query parameter".to_string()))?;
         let agent_id = input
             .get("agent_id")
             .and_then(|value| value.as_str())
-            .ok_or_else(|| AiError::Tool("Missing agent_id parameter".to_string()))?;
+            .ok_or_else(|| ToolError::Tool("Missing agent_id parameter".to_string()))?;
         let include_sessions = input
             .get("include_sessions")
             .and_then(|value| value.as_bool())
@@ -1776,7 +1801,7 @@ impl Tool for MemorySearchTool {
         let results = self
             .engine
             .search(&unified_query)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         Ok(ToolOutput::success(serde_json::to_value(results)?))
     }
@@ -1798,7 +1823,7 @@ impl ManageOpsTool {
 
     fn parse_status_filter(
         input: &Value,
-    ) -> restflow_ai::error::Result<Option<BackgroundAgentStatus>> {
+    ) -> restflow_tools::Result<Option<BackgroundAgentStatus>> {
         let Some(status) = input.get("status").and_then(Value::as_str) else {
             return Ok(None);
         };
@@ -1810,7 +1835,7 @@ impl ManageOpsTool {
             "failed" => BackgroundAgentStatus::Failed,
             "interrupted" => BackgroundAgentStatus::Interrupted,
             value => {
-                return Err(AiError::Tool(format!(
+                return Err(ToolError::Tool(format!(
                     "Unknown status: {}. Supported: active, paused, running, completed, failed, interrupted",
                     value
                 )));
@@ -1850,8 +1875,8 @@ impl ManageOpsTool {
         Ok(current.canonicalize()?)
     }
 
-    fn resolve_log_tail_path(input: &Value) -> restflow_ai::error::Result<PathBuf> {
-        let logs_dir = crate::paths::logs_dir().map_err(|e| AiError::Tool(e.to_string()))?;
+    fn resolve_log_tail_path(input: &Value) -> restflow_tools::Result<PathBuf> {
+        let logs_dir = crate::paths::logs_dir().map_err(|e| ToolError::Tool(e.to_string()))?;
         let path = match input
             .get("path")
             .and_then(Value::as_str)
@@ -1861,15 +1886,15 @@ impl ManageOpsTool {
         {
             Some(custom_path) if custom_path.is_absolute() => custom_path,
             Some(custom_path) => logs_dir.join(custom_path),
-            None => crate::paths::daemon_log_path().map_err(|e| AiError::Tool(e.to_string()))?,
+            None => crate::paths::daemon_log_path().map_err(|e| ToolError::Tool(e.to_string()))?,
         };
 
         let logs_root = Self::canonical_existing_ancestor(&logs_dir)
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
         let path_root =
-            Self::canonical_existing_ancestor(&path).map_err(|e| AiError::Tool(e.to_string()))?;
+            Self::canonical_existing_ancestor(&path).map_err(|e| ToolError::Tool(e.to_string()))?;
         if !path_root.starts_with(&logs_root) {
-            return Err(AiError::Tool(format!(
+            return Err(ToolError::Tool(format!(
                 "log_tail path must stay under {}",
                 logs_dir.display()
             )));
@@ -1878,7 +1903,7 @@ impl ManageOpsTool {
         if let Ok(metadata) = std::fs::symlink_metadata(&path)
             && metadata.file_type().is_symlink()
         {
-            return Err(AiError::Tool(
+            return Err(ToolError::Tool(
                 "log_tail does not allow symlink paths".to_string(),
             ));
         }
@@ -1919,17 +1944,17 @@ impl ManageOpsTool {
     fn background_summary_payload(
         &self,
         input: &Value,
-    ) -> restflow_ai::error::Result<(Value, Value)> {
+    ) -> restflow_tools::Result<(Value, Value)> {
         let status_filter = Self::parse_status_filter(input)?;
         let tasks = match status_filter.clone() {
             Some(status) => self
                 .background_storage
                 .list_tasks_by_status(status)
-                .map_err(|e| AiError::Tool(e.to_string()))?,
+                .map_err(|e| ToolError::Tool(e.to_string()))?,
             None => self
                 .background_storage
                 .list_tasks()
-                .map_err(|e| AiError::Tool(e.to_string()))?,
+                .map_err(|e| ToolError::Tool(e.to_string()))?,
         };
         let limit = Self::parse_limit(input, "limit", 5, 100);
         let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
@@ -1964,12 +1989,12 @@ impl ManageOpsTool {
         Ok((evidence, verification))
     }
 
-    fn session_summary_payload(&self, input: &Value) -> restflow_ai::error::Result<(Value, Value)> {
+    fn session_summary_payload(&self, input: &Value) -> restflow_tools::Result<(Value, Value)> {
         let limit = Self::parse_limit(input, "limit", 10, 100);
         let summaries = self
             .chat_storage
             .list_summaries()
-            .map_err(|e| AiError::Tool(e.to_string()))?;
+            .map_err(|e| ToolError::Tool(e.to_string()))?;
         let recent: Vec<Value> = summaries
             .iter()
             .take(limit)
@@ -1997,7 +2022,7 @@ impl ManageOpsTool {
         Ok((evidence, verification))
     }
 
-    fn log_tail_payload(input: &Value) -> restflow_ai::error::Result<(Value, Value)> {
+    fn log_tail_payload(input: &Value) -> restflow_tools::Result<(Value, Value)> {
         let lines = Self::parse_limit(input, "lines", 100, 1000);
         let path = Self::resolve_log_tail_path(input)?;
         if !path.exists() {
@@ -2014,7 +2039,7 @@ impl ManageOpsTool {
         }
 
         let (tail, truncated) =
-            Self::read_log_tail(&path, lines).map_err(|e| AiError::Tool(e.to_string()))?;
+            Self::read_log_tail(&path, lines).map_err(|e| ToolError::Tool(e.to_string()))?;
         let evidence = json!({
             "path": path.to_string_lossy(),
             "lines": tail,
@@ -2071,17 +2096,17 @@ impl Tool for ManageOpsTool {
         })
     }
 
-    async fn execute(&self, input: Value) -> restflow_ai::error::Result<ToolOutput> {
+    async fn execute(&self, input: Value) -> restflow_tools::Result<ToolOutput> {
         let operation_raw = input
             .get("operation")
             .and_then(Value::as_str)
-            .ok_or_else(|| AiError::Tool("Missing operation parameter".to_string()))?;
-        let operation = parse_operation(operation_raw).map_err(|e| AiError::Tool(e.to_string()))?;
+            .ok_or_else(|| ToolError::Tool("Missing operation parameter".to_string()))?;
+        let operation = parse_operation(operation_raw).map_err(|e| ToolError::Tool(e.to_string()))?;
 
         let payload = match operation {
             ManageOpsOperation::DaemonStatus => {
                 let evidence =
-                    Self::daemon_status_payload().map_err(|e| AiError::Tool(e.to_string()))?;
+                    Self::daemon_status_payload().map_err(|e| ToolError::Tool(e.to_string()))?;
                 let verification = json!({
                     "source": "daemon_pid_file",
                     "checked_at": Utc::now().timestamp_millis()
@@ -2090,11 +2115,11 @@ impl Tool for ManageOpsTool {
             }
             ManageOpsOperation::DaemonHealth => {
                 let socket =
-                    crate::paths::socket_path().map_err(|e| AiError::Tool(e.to_string()))?;
+                    crate::paths::socket_path().map_err(|e| ToolError::Tool(e.to_string()))?;
                 let health = check_health(socket, None)
                     .await
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
-                let evidence = serde_json::to_value(health).map_err(AiError::from)?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
+                let evidence = serde_json::to_value(health).map_err(ToolError::from)?;
                 let verification = json!({
                     "healthy": evidence["healthy"],
                     "ipc_checked": true,
@@ -2199,11 +2224,11 @@ impl Tool for SharedSpaceTool {
         })
     }
 
-    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
         let action = input
             .get("action")
             .and_then(|value| value.as_str())
-            .ok_or_else(|| AiError::Tool("Missing action parameter".to_string()))?;
+            .ok_or_else(|| ToolError::Tool("Missing action parameter".to_string()))?;
         let accessor_id = self.accessor_id.as_deref();
 
         match action {
@@ -2211,11 +2236,11 @@ impl Tool for SharedSpaceTool {
                 let key = input
                     .get("key")
                     .and_then(|value| value.as_str())
-                    .ok_or_else(|| AiError::Tool("Missing key parameter".to_string()))?;
+                    .ok_or_else(|| ToolError::Tool("Missing key parameter".to_string()))?;
                 let entry = self
                     .storage
                     .get(key, accessor_id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 let payload = match entry {
                     Some(entry) => json!({
                         "found": true,
@@ -2237,16 +2262,16 @@ impl Tool for SharedSpaceTool {
                 let key = input
                     .get("key")
                     .and_then(|value| value.as_str())
-                    .ok_or_else(|| AiError::Tool("Missing key parameter".to_string()))?;
+                    .ok_or_else(|| ToolError::Tool("Missing key parameter".to_string()))?;
                 let value = input
                     .get("value")
                     .and_then(|value| value.as_str())
-                    .ok_or_else(|| AiError::Tool("Missing value parameter".to_string()))?;
+                    .ok_or_else(|| ToolError::Tool("Missing value parameter".to_string()))?;
 
                 let existing = self
                     .storage
                     .get_unchecked(key)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
 
                 if let Some(ref entry) = existing
                     && !entry.can_write(accessor_id)
@@ -2302,7 +2327,7 @@ impl Tool for SharedSpaceTool {
 
                 self.storage
                     .set(&entry)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
 
                 Ok(ToolOutput::success(json!({
                     "success": true,
@@ -2314,11 +2339,11 @@ impl Tool for SharedSpaceTool {
                 let key = input
                     .get("key")
                     .and_then(|value| value.as_str())
-                    .ok_or_else(|| AiError::Tool("Missing key parameter".to_string()))?;
+                    .ok_or_else(|| ToolError::Tool("Missing key parameter".to_string()))?;
                 let deleted = self
                     .storage
                     .delete(key, accessor_id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(json!({
                     "deleted": deleted,
                     "key": key
@@ -2330,7 +2355,7 @@ impl Tool for SharedSpaceTool {
                 let entries = self
                     .storage
                     .list(prefix.as_deref(), accessor_id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 let items: Vec<_> = entries
                     .iter()
                     .map(|entry| {
@@ -2379,29 +2404,29 @@ impl MarketplaceTool {
     async fn search_source(
         source: &str,
         query: &SkillSearchQuery,
-    ) -> Result<Vec<crate::registry::SkillSearchResult>, AiError> {
+    ) -> Result<Vec<crate::registry::SkillSearchResult>, ToolError> {
         match source {
             "github" => GitHubProvider::new()
                 .search(query)
                 .await
-                .map_err(|e| AiError::Tool(e.to_string())),
+                .map_err(|e| ToolError::Tool(e.to_string())),
             _ => MarketplaceProvider::new()
                 .search(query)
                 .await
-                .map_err(|e| AiError::Tool(e.to_string())),
+                .map_err(|e| ToolError::Tool(e.to_string())),
         }
     }
 
-    async fn get_manifest(source: &str, id: &str) -> Result<crate::models::SkillManifest, AiError> {
+    async fn get_manifest(source: &str, id: &str) -> Result<crate::models::SkillManifest, ToolError> {
         match source {
             "github" => GitHubProvider::new()
                 .get_manifest(id)
                 .await
-                .map_err(|e| AiError::Tool(e.to_string())),
+                .map_err(|e| ToolError::Tool(e.to_string())),
             _ => MarketplaceProvider::new()
                 .get_manifest(id)
                 .await
-                .map_err(|e| AiError::Tool(e.to_string())),
+                .map_err(|e| ToolError::Tool(e.to_string())),
         }
     }
 
@@ -2409,16 +2434,16 @@ impl MarketplaceTool {
         source: &str,
         id: &str,
         version: &crate::models::SkillVersion,
-    ) -> Result<String, AiError> {
+    ) -> Result<String, ToolError> {
         match source {
             "github" => GitHubProvider::new()
                 .get_content(id, version)
                 .await
-                .map_err(|e| AiError::Tool(e.to_string())),
+                .map_err(|e| ToolError::Tool(e.to_string())),
             _ => MarketplaceProvider::new()
                 .get_content(id, version)
                 .await
-                .map_err(|e| AiError::Tool(e.to_string())),
+                .map_err(|e| ToolError::Tool(e.to_string())),
         }
     }
 
@@ -2522,7 +2547,7 @@ impl Tool for MarketplaceTool {
         })
     }
 
-    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
         let operation: MarketplaceOperation = serde_json::from_value(input)?;
         match operation {
             MarketplaceOperation::Search {
@@ -2565,7 +2590,7 @@ impl Tool for MarketplaceTool {
                 let exists = self
                     .storage
                     .exists(&id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 if exists && !overwrite {
                     return Ok(ToolOutput::error(
                         "Skill already installed. Set overwrite=true to replace.",
@@ -2575,11 +2600,11 @@ impl Tool for MarketplaceTool {
                 if exists {
                     self.storage
                         .update(&id, &skill)
-                        .map_err(|e| AiError::Tool(e.to_string()))?;
+                        .map_err(|e| ToolError::Tool(e.to_string()))?;
                 } else {
                     self.storage
                         .create(&skill)
-                        .map_err(|e| AiError::Tool(e.to_string()))?;
+                        .map_err(|e| ToolError::Tool(e.to_string()))?;
                 }
 
                 Ok(ToolOutput::success(json!({
@@ -2594,11 +2619,11 @@ impl Tool for MarketplaceTool {
                 let exists = self
                     .storage
                     .exists(&id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 if exists {
                     self.storage
                         .delete(&id)
-                        .map_err(|e| AiError::Tool(e.to_string()))?;
+                        .map_err(|e| ToolError::Tool(e.to_string()))?;
                 }
                 Ok(ToolOutput::success(json!({
                     "id": id,
@@ -2609,7 +2634,7 @@ impl Tool for MarketplaceTool {
                 let skills = self
                     .storage
                     .list()
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(serde_json::to_value(skills)?))
             }
         }
@@ -2679,7 +2704,7 @@ impl Tool for TriggerTool {
         })
     }
 
-    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
         let operation: TriggerOperation = serde_json::from_value(input)?;
         match operation {
             TriggerOperation::Create {
@@ -2698,20 +2723,20 @@ impl Tool for TriggerTool {
                 }
                 self.storage
                     .activate_trigger(&trigger)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(serde_json::to_value(trigger)?))
             }
             TriggerOperation::List => {
                 let triggers = self
                     .storage
                     .list_active_triggers()
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(serde_json::to_value(triggers)?))
             }
             TriggerOperation::Delete { id } | TriggerOperation::Disable { id } => {
                 self.storage
                     .deactivate_trigger(&id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(json!({
                     "id": id,
                     "deleted": true
@@ -2784,7 +2809,7 @@ impl Tool for TerminalTool {
         })
     }
 
-    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
         let operation: TerminalOperation = serde_json::from_value(input)?;
         match operation {
             TerminalOperation::Create {
@@ -2796,28 +2821,28 @@ impl Tool for TerminalTool {
                 let default_name = self
                     .storage
                     .get_next_name()
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 let mut session = TerminalSession::new(id, name.unwrap_or(default_name));
                 session.set_config(working_directory, startup_command);
                 self.storage
                     .create(&session)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(serde_json::to_value(session)?))
             }
             TerminalOperation::List => {
                 let sessions = self
                     .storage
                     .list()
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(serde_json::to_value(sessions)?))
             }
             TerminalOperation::SendInput { session_id, data } => {
                 let mut session = self
                     .storage
                     .get(&session_id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?
+                    .map_err(|e| ToolError::Tool(e.to_string()))?
                     .ok_or_else(|| {
-                        AiError::Tool(format!("Terminal session not found: {}", session_id))
+                        ToolError::Tool(format!("Terminal session not found: {}", session_id))
                     })?;
 
                 let mut history = session.history.clone().unwrap_or_default();
@@ -2825,7 +2850,7 @@ impl Tool for TerminalTool {
                 session.update_history(history);
                 self.storage
                     .update(&session_id, &session)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
 
                 Ok(ToolOutput::success(json!({
                     "session_id": session_id,
@@ -2837,9 +2862,9 @@ impl Tool for TerminalTool {
                 let session = self
                     .storage
                     .get(&session_id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?
+                    .map_err(|e| ToolError::Tool(e.to_string()))?
                     .ok_or_else(|| {
-                        AiError::Tool(format!("Terminal session not found: {}", session_id))
+                        ToolError::Tool(format!("Terminal session not found: {}", session_id))
                     })?;
                 Ok(ToolOutput::success(json!({
                     "session_id": session_id,
@@ -2851,15 +2876,15 @@ impl Tool for TerminalTool {
                 let mut session = self
                     .storage
                     .get(&session_id)
-                    .map_err(|e| AiError::Tool(e.to_string()))?
+                    .map_err(|e| ToolError::Tool(e.to_string()))?
                     .ok_or_else(|| {
-                        AiError::Tool(format!("Terminal session not found: {}", session_id))
+                        ToolError::Tool(format!("Terminal session not found: {}", session_id))
                     })?;
                 session.status = crate::models::TerminalStatus::Stopped;
                 session.stopped_at = Some(Utc::now().timestamp_millis());
                 self.storage
                     .update(&session_id, &session)
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(json!({
                     "session_id": session_id,
                     "closed": true
@@ -2924,7 +2949,7 @@ impl Tool for SecurityQueryTool {
         })
     }
 
-    async fn execute(&self, input: serde_json::Value) -> restflow_ai::error::Result<ToolOutput> {
+    async fn execute(&self, input: serde_json::Value) -> restflow_tools::Result<ToolOutput> {
         let operation: SecurityQueryOperation = serde_json::from_value(input)?;
         match operation {
             SecurityQueryOperation::ShowPolicy => {
@@ -2965,7 +2990,7 @@ impl Tool for SecurityQueryTool {
                 let decision = checker
                     .check_tool_action(&ai_action, Some("runtime"), Some("runtime"))
                     .await
-                    .map_err(|e| AiError::Tool(e.to_string()))?;
+                    .map_err(|e| ToolError::Tool(e.to_string()))?;
                 Ok(ToolOutput::success(json!({
                     "allowed": decision.allowed,
                     "requires_approval": decision.requires_approval,

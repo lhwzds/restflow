@@ -1,9 +1,10 @@
+//! Security abstractions for tool execution.
+
 use async_trait::async_trait;
 
-use crate::error::Result;
+use crate::tools::error::Result;
 
-pub mod network;
-
+/// Describes an action a tool is about to take.
 #[derive(Debug, Clone)]
 pub struct ToolAction {
     pub tool_name: String,
@@ -18,6 +19,7 @@ impl ToolAction {
     }
 }
 
+/// Result of a security check.
 #[derive(Debug, Clone)]
 pub struct SecurityDecision {
     pub allowed: bool,
@@ -55,6 +57,7 @@ impl SecurityDecision {
     }
 }
 
+/// Application-level security approval interface.
 #[async_trait]
 pub trait SecurityGate: Send + Sync {
     async fn check_command(
@@ -75,7 +78,9 @@ pub trait SecurityGate: Send + Sync {
     }
 }
 
-// Re-export network types
+// Network security types (defined in restflow-tools, re-exported here for convenience)
+// These will be re-exported from restflow-tools after dependency inversion.
+pub mod network;
 pub use network::{
     NetworkAllowlist, NetworkEcosystem, is_restricted_ip, resolve_and_validate_url, validate_url,
 };

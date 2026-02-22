@@ -19,7 +19,8 @@ use crate::storage::agent::StoredAgent;
 use restflow_ai::llm::{
     CodexClient, DefaultLlmClientFactory, LlmClient, LlmProvider, SwappableLlm,
 };
-use restflow_ai::tools::{SwitchModelTool, Tool as RuntimeTool};
+use restflow_ai::tools::Tool as RuntimeTool;
+use restflow_tools::SwitchModelTool;
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,

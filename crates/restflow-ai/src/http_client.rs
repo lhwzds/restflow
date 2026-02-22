@@ -1,10 +1,13 @@
+//! HTTP client utilities for tool implementations.
+
 use reqwest::Client;
 use reqwest::redirect::Policy;
 use std::net::SocketAddr;
 
 const DISABLE_SYSTEM_PROXY_ENV: &str = "RESTFLOW_DISABLE_SYSTEM_PROXY";
 
-pub(crate) fn build_http_client() -> Client {
+/// Build a standard HTTP client respecting proxy settings.
+pub fn build_http_client() -> Client {
     if should_disable_system_proxy() {
         Client::builder()
             .no_proxy()
@@ -17,7 +20,7 @@ pub(crate) fn build_http_client() -> Client {
 
 /// Build an SSRF-safe HTTP client that pins DNS to a pre-validated IP
 /// and disables automatic redirects (caller must handle redirect loop).
-pub(crate) fn build_ssrf_safe_client(host: &str, addr: SocketAddr) -> Client {
+pub fn build_ssrf_safe_client(host: &str, addr: SocketAddr) -> Client {
     let mut builder = Client::builder()
         .redirect(Policy::none())
         .resolve(host, addr);

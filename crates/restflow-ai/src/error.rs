@@ -41,6 +41,24 @@ pub enum AiError {
     Io(#[from] std::io::Error),
 }
 
+impl From<crate::tools::error::ToolError> for AiError {
+    fn from(e: crate::tools::error::ToolError) -> Self {
+        match e {
+            crate::tools::error::ToolError::Tool(msg) => AiError::Tool(msg),
+            crate::tools::error::ToolError::NotFound(msg) => AiError::ToolNotFound(msg),
+            crate::tools::error::ToolError::Json(e) => AiError::Json(e),
+            crate::tools::error::ToolError::Execution(e) => AiError::Io(e),
+            other => AiError::Tool(other.to_string()),
+        }
+    }
+}
+
+impl From<AiError> for crate::tools::error::ToolError {
+    fn from(e: AiError) -> Self {
+        crate::tools::error::ToolError::Tool(e.to_string())
+    }
+}
+
 impl AiError {
     pub fn is_retryable(&self) -> bool {
         match self {

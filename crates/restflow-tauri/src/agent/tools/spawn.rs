@@ -2,7 +2,7 @@
 
 use crate::agent::tools::ToolResult;
 use async_trait::async_trait;
-use restflow_ai::error::{AiError, Result};
+use restflow_tools::error::{Result, ToolError};
 use restflow_ai::tools::Tool;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -49,7 +49,7 @@ impl Tool for SpawnTool {
         let task = args
             .get("task")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AiError::Tool("Missing 'task' argument".to_string()))?;
+            .ok_or_else(|| ToolError::Tool("Missing 'task' argument".to_string()))?;
 
         let task_id = self.spawner.spawn(task.to_string())?;
         Ok(ToolResult::success(json!(task_id)))

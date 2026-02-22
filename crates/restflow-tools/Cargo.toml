@@ -1,0 +1,62 @@
+[package]
+name = "restflow-tools"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Unified tool and skill system for RestFlow"
+
+[dependencies]
+# Core
+serde = { workspace = true }
+serde_json = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = "2.0"
+anyhow = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+
+# Crate dependencies
+restflow-ai = { workspace = true }
+restflow-storage = { path = "../restflow-storage" }
+
+# Tool implementations
+reqwest = { version = "0.13.2", features = ["json", "stream", "multipart"] }
+regex = "1.11"
+url = "2.5"
+glob-match = "0.2"
+async-recursion = "1.1"
+lsp-types = "0.97"
+scraper = "0.25"
+base64 = "0.22"
+sha2 = "0.10.9"
+hex = "0.4"
+once_cell = "1.20"
+dashmap = "6.1.0"
+urlencoding = "2"
+dirs = "6.0.0"
+postcard = { version = "1.1.3", features = ["use-std"] }
+parking_lot = "0.12"
+futures = "0.3"
+
+# Unix-specific
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["signal", "process"] }
+
+# Sandbox (optional)
+[dependencies.restflow-sandbox]
+workspace = true
+optional = true
+
+[features]
+default = []
+sandbox = ["dep:restflow-sandbox"]
+
+[lints.rust]
+dead_code = "allow"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["full"] }
+redb = "3.1"

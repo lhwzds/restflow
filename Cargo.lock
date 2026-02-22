@@ -226,6 +226,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "async-recursion"
+version = "1.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3b43422f69d8ff38f95f1b2bb76517c91589a924d1559a0e935d7c8ce0274c11"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.114",
+]
+
+[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5227,6 +5238,7 @@ dependencies = [
  "reqwest",
  "restflow-ai",
  "restflow-storage",
+ "restflow-tools",
  "rmcp",
  "schemars 1.2.1",
  "scopeguard",
@@ -5307,6 +5319,7 @@ dependencies = [
  "restflow-ai",
  "restflow-core",
  "restflow-storage",
+ "restflow-tools",
  "serde",
  "serde_json",
  "tauri",
@@ -5322,6 +5335,44 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "ts-rs",
+ "uuid",
+]
+
+[[package]]
+name = "restflow-tools"
+version = "0.3.4"
+dependencies = [
+ "anyhow",
+ "async-recursion",
+ "async-trait",
+ "base64 0.22.1",
+ "chrono",
+ "dashmap",
+ "dirs",
+ "futures",
+ "glob-match",
+ "hex",
+ "lsp-types",
+ "nix 0.31.1",
+ "once_cell",
+ "parking_lot",
+ "postcard",
+ "redb",
+ "regex",
+ "reqwest",
+ "restflow-ai",
+ "restflow-sandbox",
+ "restflow-storage",
+ "scraper",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "url",
+ "urlencoding",
  "uuid",
 ]
 

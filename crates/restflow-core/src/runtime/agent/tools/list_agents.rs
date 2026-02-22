@@ -2,7 +2,7 @@
 
 use super::{SubagentDeps, Tool, ToolResult};
 use async_trait::async_trait;
-use restflow_ai::error::{AiError, Result};
+use restflow_tools::error::{Result, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -58,7 +58,7 @@ impl Tool for ListAgentsTool {
 
     async fn execute(&self, input: Value) -> Result<ToolResult> {
         let params: ListAgentsParams = serde_json::from_value(input)
-            .map_err(|e| AiError::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
         let definitions = &self.deps.definitions;
         let available: Vec<Value> = definitions

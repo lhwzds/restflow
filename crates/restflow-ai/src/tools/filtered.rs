@@ -6,8 +6,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use serde_json::Value;
 
-use crate::error::{AiError, Result};
-use crate::tools::{ToolOutput, ToolSchema, Toolset};
+use crate::tools::error::{Result, ToolError};
+use crate::tools::traits::{ToolOutput, ToolSchema};
+use crate::tools::toolset::Toolset;
 
 type ToolPredicate = Arc<dyn Fn(&ToolSchema) -> bool + Send + Sync>;
 
@@ -60,7 +61,7 @@ impl<T: Toolset> Toolset for FilteredToolset<T> {
             .iter()
             .any(|tool| tool.name.as_str() == name)
         {
-            return Err(AiError::ToolNotFound(name.to_string()));
+            return Err(ToolError::NotFound(name.to_string()));
         }
         self.inner.call_tool(name, args).await
     }
@@ -71,7 +72,7 @@ impl<T: Toolset> Toolset for FilteredToolset<T> {
             .iter()
             .any(|tool| tool.name.as_str() == name)
         {
-            return Err(AiError::ToolNotFound(name.to_string()));
+            return Err(ToolError::NotFound(name.to_string()));
         }
         self.inner.call_tool_safe(name, args).await
     }
@@ -82,7 +83,8 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::tools::{Tool, ToolRegistry};
+    use crate::tools::traits::Tool;
+    use crate::tools::registry::ToolRegistry;
 
     struct EchoTool;
     struct ReverseTool;
@@ -106,7 +108,7 @@ mod tests {
             })
         }
 
-        async fn execute(&self, input: Value) -> crate::error::Result<ToolOutput> {
+        async fn execute(&self, input: Value) -> Result<ToolOutput> {
             Ok(ToolOutput::success(input))
         }
     }
@@ -130,7 +132,7 @@ mod tests {
             })
         }
 
-        async fn execute(&self, input: Value) -> crate::error::Result<ToolOutput> {
+        async fn execute(&self, input: Value) -> Result<ToolOutput> {
             Ok(ToolOutput::success(input))
         }
     }
@@ -163,6 +165,6 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(matches!(err, AiError::ToolNotFound(name) if name == "reverse"));
+        assert!(matches!(err, ToolError::NotFound(ref name) if name == "reverse"));
     }
 }

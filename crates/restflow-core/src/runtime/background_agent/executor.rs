@@ -32,9 +32,10 @@ use restflow_ai::llm::Message;
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    ProcessTool, ReplySender, ReplyTool, ResourceLimits as AgentResourceLimits, Scratchpad,
-    SwappableLlm, SwitchModelTool,
+    ReplySender, ResourceLimits as AgentResourceLimits, Scratchpad,
+    SwappableLlm,
 };
+use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};

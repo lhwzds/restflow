@@ -3,10 +3,8 @@
 //! Most components are canonical in restflow-core. Only platform-specific
 //! tools (show_panel) and Tauri's LLM-only spawn remain local.
 
-pub use restflow_ai::tools::{
-    PythonTool, RunPythonTool, SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool,
-    VisionTool,
-};
+pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
+pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeTool, VisionTool};
 
 // Independent tools from restflow-core (canonical implementations).
 pub use restflow_core::runtime::agent::tools::{
