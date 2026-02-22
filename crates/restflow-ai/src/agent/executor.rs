@@ -34,6 +34,7 @@ use serde_json::Value;
 use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
+use crate::agent::context_manager::{self, ContextManagerConfig, TokenEstimator};
 use crate::agent::deferred::{DeferredExecutionManager, DeferredStatus};
 use crate::agent::model_router::{ModelRoutingConfig, ModelSwitcher, classify_task, select_model};
 use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
@@ -536,6 +537,9 @@ impl AgentExecutor {
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
         let tracker = ResourceTracker::new(config.resource_limits.clone());
+        let context_config = ContextManagerConfig::default()
+            .with_context_window(config.context_window);
+        let mut token_estimator = TokenEstimator::default();
 
         // Initialize stuck detector
         let mut stuck_detector = config.stuck_detection.clone().map(StuckDetector::new);
@@ -614,6 +618,41 @@ impl AgentExecutor {
                 }
             }
 
+            // Context management: compact if approaching context window limit
+            token_estimator.tick_cooldown();
+            let estimated = token_estimator.estimate(&state.messages);
+            if token_estimator.compact_allowed()
+                && context_manager::should_compact(estimated, &context_config)
+            {
+                match context_manager::compact(
+                    &mut state.messages,
+                    &context_config,
+                    self.llm.as_ref(),
+                )
+                .await
+                {
+                    Ok(stats) => {
+                        tracing::info!(
+                            messages_replaced = stats.messages_replaced,
+                            tokens_before = stats.tokens_before,
+                            tokens_after = stats.tokens_after,
+                            "Context compacted"
+                        );
+                        if !context_manager::compact_was_effective(&stats) {
+                            tracing::warn!("Compact was ineffective, entering cooldown");
+                            token_estimator.start_compact_cooldown(5);
+                        }
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            error = %e,
+                            "Context compaction failed, entering cooldown"
+                        );
+                        token_estimator.start_compact_cooldown(3);
+                    }
+                }
+            }
+
             let request_messages = sanitize_tool_call_history(state.messages.clone());
             let mut request =
                 CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
@@ -643,6 +682,11 @@ impl AgentExecutor {
             // Track token usage
             if let Some(usage) = &response.usage {
                 total_tokens += usage.total_tokens;
+                // Calibrate token estimator with actual prompt tokens
+                if usage.prompt_tokens > 0 {
+                    let est = context_manager::estimate_tokens(&state.messages);
+                    token_estimator.calibrate(est, usage.prompt_tokens);
+                }
                 if let Some(cost) = usage.cost_usd {
                     total_cost_usd += cost;
                     tracker.record_cost(cost);
@@ -875,6 +919,16 @@ impl AgentExecutor {
 
         for (_id, content) in streaming_buffer.flush_all() {
             emitter.emit_text_delta(&content).await;
+        }
+
+        // Context management: prune old tool results for checkpoint/resume
+        let prune_stats = context_manager::prune(&mut state.messages, &context_config);
+        if prune_stats.applied {
+            tracing::info!(
+                messages_truncated = prune_stats.messages_truncated,
+                tokens_saved = prune_stats.tokens_saved,
+                "Post-loop context pruned"
+            );
         }
 
         // Build result
