@@ -104,3 +104,98 @@ impl Tool for DiscordTool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::Tool;
+    use serde_json::json;
+
+    #[test]
+    fn test_tool_name() {
+        let tool = DiscordTool::new();
+        assert_eq!(tool.name(), "discord");
+    }
+
+    #[test]
+    fn test_schema_required_fields() {
+        let tool = DiscordTool::new();
+        let schema = tool.parameters_schema();
+        let required = schema["required"].as_array().unwrap();
+        let required_strs: Vec<&str> = required.iter().map(|v| v.as_str().unwrap()).collect();
+        assert!(required_strs.contains(&"bot_token"));
+        assert!(required_strs.contains(&"channel_id"));
+        assert!(required_strs.contains(&"message"));
+    }
+
+    #[test]
+    fn test_supports_parallel_is_false() {
+        let tool = DiscordTool::new();
+        assert!(!tool.supports_parallel());
+    }
+
+    #[tokio::test]
+    async fn test_empty_bot_token_rejected() {
+        let tool = DiscordTool::new();
+        let result = tool
+            .execute(json!({
+                "bot_token": "",
+                "channel_id": "123",
+                "message": "hi"
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("bot_token"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_channel_id_rejected() {
+        let tool = DiscordTool::new();
+        let result = tool
+            .execute(json!({
+                "bot_token": "token",
+                "channel_id": "",
+                "message": "hi"
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("channel_id"));
+    }
+
+    #[tokio::test]
+    async fn test_empty_message_rejected() {
+        let tool = DiscordTool::new();
+        let result = tool
+            .execute(json!({
+                "bot_token": "token",
+                "channel_id": "123",
+                "message": ""
+            }))
+            .await
+            .unwrap();
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("message"));
+    }
+
+    #[tokio::test]
+    async fn test_missing_fields_rejected() {
+        let tool = DiscordTool::new();
+        let result = tool.execute(json!({"bot_token": "token"})).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_input_deserialization() {
+        let input: DiscordInput = serde_json::from_value(json!({
+            "bot_token": "my-token",
+            "channel_id": "ch-123",
+            "message": "hello"
+        }))
+        .unwrap();
+        assert_eq!(input.bot_token, "my-token");
+        assert_eq!(input.channel_id, "ch-123");
+        assert_eq!(input.message, "hello");
+    }
+}

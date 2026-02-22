@@ -337,4 +337,58 @@ mod tests {
         assert_eq!(parts[0], "C123");
         assert_eq!(parts[1], "1234567890.123456");
     }
+
+    #[test]
+    fn test_with_default_channel() {
+        let ch = SlackChannel::with_tokens("bot", "app").with_default_channel("C456".into());
+        assert_eq!(ch.config.default_channel_id, Some("C456".to_string()));
+    }
+
+    #[test]
+    fn test_with_tokens_constructor() {
+        let ch = SlackChannel::with_tokens("xoxb-bot", "xapp-app");
+        assert_eq!(ch.config.bot_token, "xoxb-bot");
+        assert_eq!(ch.config.app_token, "xapp-app");
+        assert!(ch.config.default_channel_id.is_none());
+    }
+
+    #[test]
+    fn test_requires_both_tokens() {
+        assert!(!SlackChannel::with_tokens("bot", "").is_configured());
+        assert!(!SlackChannel::with_tokens("", "app").is_configured());
+        assert!(!SlackChannel::with_tokens("", "").is_configured());
+        assert!(SlackChannel::with_tokens("bot", "app").is_configured());
+    }
+
+    #[test]
+    fn test_max_message_len() {
+        assert_eq!(SLACK_MAX_MESSAGE_LEN, 39000);
+    }
+
+    #[test]
+    fn test_conversation_id_without_thread() {
+        let conv = "C123";
+        let parts: Vec<&str> = conv.splitn(2, ':').collect();
+        assert_eq!(parts[0], "C123");
+        assert_eq!(parts.get(1), None);
+    }
+
+    #[test]
+    fn test_conversation_id_with_colon_in_thread_ts() {
+        // splitn(2, ':') should only split on the first colon
+        let conv = "C123:1234567890.123456";
+        let parts: Vec<&str> = conv.splitn(2, ':').collect();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0], "C123");
+        assert_eq!(parts[1], "1234567890.123456");
+    }
+
+    #[test]
+    fn test_socket_mode_prevents_double_start() {
+        let ch = SlackChannel::with_tokens("bot", "app");
+        // Simulate first start by setting polling to true
+        ch.polling.store(true, Ordering::SeqCst);
+        // Second call should return None
+        assert!(ch.start_socket_mode().is_none());
+    }
 }

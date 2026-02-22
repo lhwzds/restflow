@@ -353,4 +353,53 @@ mod tests {
         let conv_id = format!("{}:{}", channel_id, thread_id);
         assert_eq!(conv_id, "123:456");
     }
+
+    #[test]
+    fn test_with_default_channel() {
+        let ch = DiscordChannel::with_token("t").with_default_channel("ch123".into());
+        assert_eq!(ch.config.default_channel_id, Some("ch123".to_string()));
+    }
+
+    #[test]
+    fn test_with_token_constructor() {
+        let ch = DiscordChannel::with_token("my-bot-token");
+        assert_eq!(ch.config.bot_token, "my-bot-token");
+        assert!(ch.config.default_channel_id.is_none());
+    }
+
+    #[test]
+    fn test_not_configured_with_empty_token() {
+        let ch = DiscordChannel::with_token("");
+        assert!(!ch.is_configured());
+    }
+
+    #[test]
+    fn test_gateway_intents() {
+        // GUILDS=1, GUILD_MESSAGES=512, DIRECT_MESSAGES=4096, MESSAGE_CONTENT=32768
+        assert_eq!(GATEWAY_INTENTS & 1, 1);
+        assert_eq!(GATEWAY_INTENTS & 512, 512);
+        assert_eq!(GATEWAY_INTENTS & 4096, 4096);
+        assert_eq!(GATEWAY_INTENTS & 32768, 32768);
+        assert_eq!(GATEWAY_INTENTS, 1 | 512 | 4096 | 32768);
+    }
+
+    #[test]
+    fn test_max_message_len() {
+        assert_eq!(DISCORD_MAX_MESSAGE_LEN, 2000);
+    }
+
+    #[test]
+    fn test_channel_type_is_discord() {
+        let ch = DiscordChannel::with_token("t");
+        assert_eq!(ch.channel_type(), ChannelType::Discord);
+    }
+
+    #[test]
+    fn test_gateway_prevents_double_start() {
+        let ch = DiscordChannel::with_token("t");
+        // Simulate first start by setting polling to true
+        ch.polling.store(true, Ordering::SeqCst);
+        // Second call should return None
+        assert!(ch.start_gateway().is_none());
+    }
 }
