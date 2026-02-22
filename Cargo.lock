@@ -5140,7 +5140,6 @@ dependencies = [
  "dashmap",
  "dirs",
  "futures",
- "lsp-types",
  "nix 0.31.1",
  "once_cell",
  "parking_lot",
@@ -5156,7 +5155,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tracing",
- "url",
  "uuid",
  "wiremock",
 ]
