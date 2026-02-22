@@ -1,9 +1,8 @@
 //! Sub-agent spawning support for tool-based execution.
 
-use super::{
-    AgentDefinition, AgentDefinitionRegistry, SubagentResult, SubagentTracker,
-};
+use super::{SubagentResult, SubagentTracker};
 use anyhow::{Result, anyhow};
+use restflow_ai::agent::{SubagentDefLookup, SubagentDefSnapshot};
 use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
 use restflow_core::runtime::subagent::SubagentConfig;
@@ -16,7 +15,7 @@ pub use restflow_core::runtime::subagent::{SpawnHandle, SpawnPriority, SpawnRequ
 /// Spawn a sub-agent with the given request.
 pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
-    definitions: Arc<AgentDefinitionRegistry>,
+    definitions: Arc<dyn SubagentDefLookup>,
     llm_client: Arc<dyn LlmClient>,
     config: SubagentConfig,
     request: SpawnRequest,
@@ -30,9 +29,8 @@ pub fn spawn_subagent(
     }
 
     let agent_def = definitions
-        .get(&request.agent_id)
-        .ok_or_else(|| anyhow!("Unknown agent type: {}", request.agent_id))?
-        .clone();
+        .lookup(&request.agent_id)
+        .ok_or_else(|| anyhow!("Unknown agent type: {}", request.agent_id))?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
     let timeout_secs = request.timeout_secs.unwrap_or(config.subagent_timeout_secs);
@@ -42,7 +40,6 @@ pub fn spawn_subagent(
     let task_for_register = request.task.clone();
 
     let task = request.task.clone();
-    let _agent_name = agent_def.name.clone();
     let tracker_clone = tracker.clone();
     let task_id_for_spawn = task_id.clone();
 
@@ -129,7 +126,7 @@ pub fn spawn_subagent(
 
 async fn execute_subagent(
     llm_client: Arc<dyn LlmClient>,
-    agent_def: AgentDefinition,
+    agent_def: SubagentDefSnapshot,
     task: String,
 ) -> Result<String> {
     let system_prompt = format!(

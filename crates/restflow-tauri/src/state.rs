@@ -7,6 +7,7 @@ use crate::commands::background_agent::ActiveBackgroundAgentInfo;
 use crate::daemon_manager::DaemonManager;
 use crate::executor::TauriExecutor;
 use crate::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
+use restflow_ai::agent::SubagentDefLookup;
 use anyhow::Result;
 use async_trait::async_trait;
 use restflow_ai::{LlmClient, SecretResolver};
@@ -36,7 +37,7 @@ pub struct AppState {
     /// Sub-agent tracker for spawned agent tasks
     pub subagent_tracker: Arc<SubagentTracker>,
     /// Registry of available sub-agent definitions
-    pub subagent_definitions: Arc<AgentDefinitionRegistry>,
+    pub subagent_definitions: Arc<dyn SubagentDefLookup>,
     /// Configuration for sub-agent execution
     pub subagent_config: SubagentConfig,
     /// Steer registry for sending messages to running tasks

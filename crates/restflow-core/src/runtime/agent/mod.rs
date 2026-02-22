@@ -10,6 +10,7 @@ use tracing::warn;
 use crate::models::AgentNode;
 use crate::prompt_files;
 use crate::storage::Storage;
+use restflow_ai::agent::DEFAULT_AGENT_PROMPT;
 
 pub use skills::{ProcessedSkill, SkillLoader};
 pub use tools::{
@@ -44,7 +45,7 @@ pub fn build_agent_system_prompt(
                 .filter(|prompt| !prompt.trim().is_empty())
         })
         .or_else(|| prompt_files::load_default_main_agent_prompt().ok())
-        .unwrap_or_else(|| "You are a helpful AI assistant.".to_string());
+        .unwrap_or_else(|| DEFAULT_AGENT_PROMPT.to_string());
     let skill_ids = agent_node.skills.clone().unwrap_or_default();
     let skill_vars: Option<HashMap<String, String>> = agent_node.skill_variables.clone();
 
