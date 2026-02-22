@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::store_traits::MarketplaceStore;
+use restflow_traits::store::MarketplaceStore;
 
 pub struct MarketplaceTool {
     store: Arc<dyn MarketplaceStore>,

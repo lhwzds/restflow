@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
-use restflow_ai::tools::store_traits::{AgentStore, AgentCreateRequest, AgentUpdateRequest};
+use restflow_traits::store::{AgentStore, AgentCreateRequest, AgentUpdateRequest};
 use crate::Result;
 
 #[derive(Clone)]

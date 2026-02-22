@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::store_traits::SecurityQueryProvider;
+use restflow_traits::store::SecurityQueryProvider;
 
 pub struct SecurityQueryTool {
     provider: Arc<dyn SecurityQueryProvider>,

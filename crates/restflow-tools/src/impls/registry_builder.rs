@@ -21,7 +21,7 @@ use crate::impls::list_agents::ListAgentsTool;
 use crate::impls::use_skill::UseSkillTool;
 use crate::security::bash_security::BashSecurityConfig;
 use restflow_ai::agent::{SubagentDeps, SubagentSpawner};
-use restflow_ai::tools::skill_types::SkillProvider;
+use restflow_traits::skill::SkillProvider;
 
 /// Configuration for bash tool security.
 #[derive(Debug, Clone)]

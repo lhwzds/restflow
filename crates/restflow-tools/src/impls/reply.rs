@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::store_traits::ReplySender;
+use restflow_traits::store::ReplySender;
 
 #[derive(Debug, Deserialize)]
 struct ReplyInput {

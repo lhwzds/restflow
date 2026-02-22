@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::skill_types::SkillProvider;
+use restflow_traits::skill::SkillProvider;
 
 /// Parameters for use_skill tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -102,7 +102,7 @@ impl Tool for UseSkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::skill_types::{SkillContent, SkillInfo, SkillRecord, SkillUpdate};
+    use restflow_traits::skill::{SkillContent, SkillInfo, SkillRecord, SkillUpdate};
 
     struct MockProvider;
 

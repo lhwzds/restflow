@@ -28,7 +28,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
-use restflow_ai::tools::store_traits::DiagnosticsProvider;
+use restflow_traits::store::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
 use crate::{Tool, ToolErrorCategory, ToolOutput};
 use crate::ToolAction;

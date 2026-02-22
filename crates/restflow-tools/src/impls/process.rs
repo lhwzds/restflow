@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::store_traits::{ProcessManager, ProcessSessionInfo, ProcessPollResult, ProcessLog};
+use restflow_traits::store::{ProcessManager, ProcessSessionInfo, ProcessPollResult, ProcessLog};
 
 fn missing_session_message(session_id: &str) -> String {
     format!(

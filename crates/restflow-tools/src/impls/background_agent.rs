@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
-use restflow_ai::tools::store_traits::{
+use restflow_traits::store::{
     BackgroundAgentStore, BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
     BackgroundAgentControlRequest, BackgroundAgentProgressRequest, BackgroundAgentMessageRequest,
     BackgroundAgentMessageListRequest, BackgroundAgentDeliverableListRequest,

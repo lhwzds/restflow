@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::Result;
-use restflow_ai::tools::skill_types::{SkillProvider, SkillRecord, SkillUpdate};
+use restflow_traits::skill::{SkillProvider, SkillRecord, SkillUpdate};
 use crate::{Tool, ToolOutput};
 
 #[derive(Debug, Deserialize)]
@@ -234,7 +234,7 @@ impl Tool for SkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::skill_types::{SkillContent, SkillInfo};
+    use restflow_traits::skill::{SkillContent, SkillInfo};
 
     struct MockSkillProvider {
         skills: Vec<SkillRecord>,

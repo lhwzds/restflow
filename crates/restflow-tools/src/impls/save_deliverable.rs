@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::store_traits::DeliverableStore;
+use restflow_traits::store::DeliverableStore;
 
 #[derive(Clone)]
 pub struct SaveDeliverableTool {
