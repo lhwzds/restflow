@@ -14,7 +14,6 @@ pub mod eval;
 pub mod http_client;
 pub mod llm;
 pub mod lsp;
-pub mod security;
 pub mod steer;
 pub mod text_utils;
 pub mod tools;
@@ -34,9 +33,8 @@ pub use llm::{
     LlmClient, LlmClientFactory, LlmProvider, Message, ModelSpec, OpenAIClient, OpenCodeClient,
     Role, SwappableLlm,
 };
-pub use security::{
-    NetworkAllowlist, NetworkEcosystem, SecurityDecision, SecurityGate, ToolAction,
-};
+pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
+pub use restflow_traits::network::{NetworkAllowlist, NetworkEcosystem};
 pub use steer::{SteerMessage, SteerSource};
 // Core tool abstractions
 pub use tools::{

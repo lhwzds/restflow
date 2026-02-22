@@ -1,8 +1,7 @@
-//! Composable tool wrappers (decorators) for policy enforcement.
+//! LoggingWrapper — logs tool execution to agent scratchpad.
 //!
 //! Core wrappers (ToolWrapper, WrappedTool, TimeoutWrapper, RateLimitWrapper)
-//! are defined in restflow-traits and re-exported here.
-//! LoggingWrapper stays here because it depends on Scratchpad (agent runtime).
+//! live in restflow-traits and are re-exported via tools/mod.rs.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -10,13 +9,9 @@ use std::time::Instant;
 use async_trait::async_trait;
 use serde_json::{Value, json};
 
-// Re-export core wrappers from restflow-traits
-pub use restflow_traits::wrapper::{
-    RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool,
-};
-
 use restflow_traits::error::Result;
 use restflow_traits::tool::{Tool, ToolOutput};
+use restflow_traits::wrapper::{ToolWrapper, WrappedTool};
 
 use crate::agent::Scratchpad;
 
