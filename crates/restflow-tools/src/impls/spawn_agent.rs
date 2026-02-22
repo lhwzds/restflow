@@ -157,8 +157,7 @@ mod tests {
         SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
         SubagentTracker,
     };
-    use restflow_ai::llm::MockLlmClient;
-    use restflow_ai::llm::mock_client::MockStep;
+    use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
     use std::collections::HashMap;
     use tokio::sync::mpsc;

@@ -60,3 +60,4 @@ dead_code = "allow"
 tempfile = "3"
 tokio = { workspace = true, features = ["full"] }
 redb = "3.1"
+restflow-ai = { workspace = true, features = ["test-utils"] }
