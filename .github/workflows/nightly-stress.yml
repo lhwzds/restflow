@@ -47,6 +47,9 @@ jobs:
       - name: Run MCP background-agent stress path
         run: cargo test -p restflow-core mcp::server::tests::test_mcp_manage_background_agents_stress_path_emits_latency_summary -- --nocapture
 
+      - name: Run AI context manager stress tests
+        run: cargo test -p restflow-ai --features test-utils --test stress_context_manager -- --nocapture
+
       - name: Validate stress summary threshold
         run: |
           python3 - <<'PY'
@@ -84,6 +87,19 @@ jobs:
               raise SystemExit(f"mcp p95 must be <= 250ms, got {p95}ms")
 
           print(f"Summary validated: panic_count={panic_count}, success_rate={success_rate:.4f}, p95={p95}ms")
+
+          # Context manager stress summary (optional - may not exist on first run)
+          try:
+              ctx_path = resolve_artifact("context-manager-stress-summary.json")
+              ctx = json.loads(ctx_path.read_text(encoding="utf-8"))
+              sections = [k for k in ctx if k != "suite"]
+              print(f"Context manager stress: {len(sections)} sections completed")
+              for section in sections:
+                  test_name = ctx[section].get("test", section)
+                  elapsed = ctx[section].get("elapsed_ms", ctx[section].get("elapsed_us", "N/A"))
+                  print(f"  - {test_name}: elapsed={elapsed}")
+          except SystemExit:
+              print("Context manager stress summary not found, skipping (non-blocking)")
           PY
 
       - name: Smoke summary
@@ -99,6 +115,9 @@ jobs:
             fi
             if [ -f "${LOG_DIR}/mcp-background-agent-stress-summary.json" ]; then
               echo "- mcp-background-agent-stress-summary.json: available"
+            fi
+            if [ -f "${LOG_DIR}/context-manager-stress-summary.json" ] || [ -f "target/stress-artifacts/context-manager-stress-summary.json" ]; then
+              echo "- context-manager-stress-summary.json: available"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
