@@ -1,7 +1,6 @@
 //! Authentication profile management tool.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
