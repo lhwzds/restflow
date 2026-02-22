@@ -1,6 +1,5 @@
 //! Agent execution engine components.
 
-mod skills;
 pub mod tools;
 
 use std::sync::Arc;
@@ -8,7 +7,6 @@ use std::sync::Arc;
 use restflow_core::models::AgentNode;
 use restflow_core::storage::Storage;
 
-pub use skills::{ProcessedSkill, SkillLoader};
 pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool,
     SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner, TelegramTool, Tool, ToolRegistry,

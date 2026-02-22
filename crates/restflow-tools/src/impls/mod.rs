@@ -39,6 +39,14 @@ pub mod web_fetch;
 pub mod web_search;
 pub mod workspace_note;
 
+// Migrated from restflow-core
+pub mod list_agents;
+pub mod registry_builder;
+pub mod spawn;
+pub mod spawn_agent;
+pub mod use_skill;
+pub mod wait_agents;
+
 // Re-export original 7
 pub use bash::{BashInput, BashOutput, BashTool};
 pub use discord::DiscordTool;
@@ -76,3 +84,11 @@ pub use vision::VisionTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search::WebSearchTool;
 pub use workspace_note::WorkspaceNoteTool;
+
+// Re-export core-migrated tools
+pub use list_agents::ListAgentsTool;
+pub use registry_builder::{BashConfig, FileConfig, ToolRegistryBuilder, default_registry};
+pub use spawn::SpawnTool;
+pub use spawn_agent::SpawnAgentTool;
+pub use use_skill::UseSkillTool;
+pub use wait_agents::WaitAgentsTool;

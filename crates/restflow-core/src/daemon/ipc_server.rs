@@ -12,7 +12,8 @@ use crate::models::{
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
-use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
+use crate::runtime::subagent::AgentDefinitionRegistry;
+use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -1657,7 +1658,8 @@ mod tests {
     use tempfile::tempdir;
 
     #[tokio::test]
-    async fn build_agent_system_prompt_injects_skills() {
+    /// Skills are now registered as callable tools, not injected into the system prompt.
+    async fn build_agent_system_prompt_does_not_inject_skills() {
         let temp = tempdir().expect("tempdir");
         let db_path = temp.path().join("ipc-server-test.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
@@ -1681,36 +1683,7 @@ mod tests {
 
         let prompt = build_agent_system_prompt(&core, agent_node).unwrap();
         assert!(prompt.contains("Base prompt"));
-        assert!(prompt.contains("## Skill: Test Skill"));
-        assert!(prompt.contains("Hello World"));
-    }
-
-    #[tokio::test]
-    async fn build_agent_system_prompt_prevents_double_substitution() {
-        let temp = tempdir().expect("tempdir");
-        let db_path = temp.path().join("ipc-server-double-sub.db");
-        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
-
-        let skill = Skill::new(
-            "skill-2".to_string(),
-            "Test Skill 2".to_string(),
-            None,
-            None,
-            "Result: {{output}}".to_string(),
-        );
-        core.storage.skills.create(&skill).unwrap();
-
-        let mut variables = std::collections::HashMap::new();
-        variables.insert("output".to_string(), "raw {{task_id}}".to_string());
-        variables.insert("task_id".to_string(), "real-task-id".to_string());
-
-        let agent_node = AgentNode::new()
-            .with_prompt("Base prompt")
-            .with_skills(vec![skill.id.clone()])
-            .with_skill_variables(variables);
-
-        let prompt = build_agent_system_prompt(&core, agent_node).unwrap();
-        assert!(prompt.contains("Result: raw {{task_id}}"));
-        assert!(!prompt.contains("Result: raw real-task-id"));
+        // Skills are now tools, not injected into prompt
+        assert!(!prompt.contains("## Skill: Test Skill"));
     }
 }

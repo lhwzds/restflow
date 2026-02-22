@@ -49,7 +49,7 @@ use crate::runtime::agent::{
     BashConfig, SubagentDeps, ToolRegistry, build_agent_system_prompt,
     effective_main_agent_tool_names, registry_from_allowlist, secret_resolver_from_storage,
 };
-use crate::runtime::subagent::{SubagentConfig, SubagentTracker};
+use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_ai::agent::SubagentDefLookup;
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
@@ -1902,7 +1902,8 @@ mod tests {
     use super::*;
     use crate::auth::{AuthProvider, Credential, CredentialSource};
     use crate::models::{AgentNode, MemoryConfig, SharedEntry, Skill, Visibility};
-    use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
+    use crate::runtime::subagent::AgentDefinitionRegistry;
+    use restflow_ai::agent::{SubagentConfig, SubagentTracker};
     use restflow_ai::ReplySender;
     use std::future::Future;
     use std::pin::Pin;
@@ -2061,14 +2062,15 @@ mod tests {
         assert!(filtered.iter().any(|name| name == "bash"));
     }
 
+    /// Skills are now registered as callable tools, not injected into the prompt.
+    /// Triggered skills are resolved but do not appear in the system prompt.
     #[test]
-    fn test_build_background_system_prompt_includes_triggered_skill() {
+    fn test_build_background_system_prompt_does_not_inject_triggered_skill() {
         let (storage, _temp_dir) = create_test_storage();
         let executor = create_test_executor(storage.clone());
         let skill = create_trigger_skill("triggered-skill", "code review", "Triggered Content");
         storage.skills.create(&skill).unwrap();
 
-        // SECURITY: Agent must have the skill in its skill list for triggers to work
         let node = AgentNode {
             prompt: Some("Base Prompt".to_string()),
             skills: Some(vec!["triggered-skill".to_string()]),
@@ -2079,7 +2081,8 @@ mod tests {
             .unwrap();
 
         assert!(prompt.contains("Base Prompt"));
-        assert!(prompt.contains("Triggered Content"));
+        // Skills are now tools, not injected into prompt
+        assert!(!prompt.contains("Triggered Content"));
     }
 
     #[test]
@@ -2130,17 +2133,15 @@ mod tests {
         assert!(!prompt.contains("Privileged Content"));
     }
 
-    /// Test that triggered skills that ARE in agent's skill list are included
+    /// Even authorized triggered skills are not injected into prompt (skills are now tools).
     #[test]
-    fn test_build_background_system_prompt_includes_authorized_triggered_skill() {
+    fn test_build_background_system_prompt_does_not_inject_authorized_triggered_skill() {
         let (storage, _temp_dir) = create_test_storage();
         let executor = create_test_executor(storage.clone());
 
-        // Create a skill with trigger
         let skill = create_trigger_skill("authorized-skill", "code review", "Authorized Content");
         storage.skills.create(&skill).unwrap();
 
-        // Agent HAS the skill in its skill list
         let node = AgentNode {
             prompt: Some("Base Prompt".to_string()),
             skills: Some(vec!["authorized-skill".to_string()]),
@@ -2152,7 +2153,8 @@ mod tests {
             .unwrap();
 
         assert!(prompt.contains("Base Prompt"));
-        assert!(prompt.contains("Authorized Content"));
+        // Skills are now tools, not injected into prompt
+        assert!(!prompt.contains("Authorized Content"));
     }
 
     #[tokio::test]

@@ -79,6 +79,12 @@ pub use impls::{
     get_mcp_tools, invalidate_mcp_cache,
 };
 
+// Re-export core-migrated tools
+pub use impls::{
+    BashConfig, FileConfig, ListAgentsTool, SpawnAgentTool, SpawnTool,
+    ToolRegistryBuilder, UseSkillTool, WaitAgentsTool, default_registry,
+};
+
 // Re-export skill types from restflow-ai
 pub use restflow_ai::tools::skill_types::{
     SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate,

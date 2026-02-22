@@ -5,7 +5,7 @@ use anyhow::{Result, anyhow};
 use restflow_ai::agent::{SubagentDefLookup, SubagentDefSnapshot};
 use restflow_ai::llm::CompletionRequest;
 use restflow_ai::{LlmClient, Message};
-use restflow_core::runtime::subagent::SubagentConfig;
+use restflow_ai::agent::SubagentConfig;
 use std::sync::Arc;
 use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};

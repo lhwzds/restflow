@@ -1,9 +1,7 @@
 //! Agent execution engine components.
 
-mod skills;
 pub mod tools;
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -12,7 +10,6 @@ use crate::prompt_files;
 use crate::storage::Storage;
 use restflow_ai::agent::DEFAULT_AGENT_PROMPT;
 
-pub use skills::{ProcessedSkill, SkillLoader};
 pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool,
     SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner, TelegramTool, Tool, ToolRegistry,
@@ -21,8 +18,12 @@ pub use tools::{
     secret_resolver_from_storage,
 };
 
+/// Build the agent system prompt from agent configuration.
+///
+/// Skills are now registered as callable tools (via `registry_from_allowlist`),
+/// so they are no longer injected into the system prompt.
 pub fn build_agent_system_prompt(
-    storage: Arc<Storage>,
+    _storage: Arc<Storage>,
     agent_node: &AgentNode,
     agent_id: Option<&str>,
 ) -> Result<String, anyhow::Error> {
@@ -46,9 +47,5 @@ pub fn build_agent_system_prompt(
         })
         .or_else(|| prompt_files::load_default_main_agent_prompt().ok())
         .unwrap_or_else(|| DEFAULT_AGENT_PROMPT.to_string());
-    let skill_ids = agent_node.skills.clone().unwrap_or_default();
-    let skill_vars: Option<HashMap<String, String>> = agent_node.skill_variables.clone();
-
-    let loader = SkillLoader::new(storage);
-    loader.build_system_prompt(&base, &skill_ids, skill_vars.as_ref())
+    Ok(base)
 }

@@ -6,7 +6,10 @@
 pub mod spawn;
 
 pub use restflow_core::runtime::subagent::{
-    AgentDefinition, AgentDefinitionRegistry, SubagentCompletion, SubagentConfig, SubagentResult,
-    SubagentState, SubagentStatus, SubagentTracker, builtin_agents,
+    AgentDefinition, AgentDefinitionRegistry, builtin_agents,
+};
+pub use restflow_ai::agent::{
+    SubagentCompletion, SubagentConfig, SubagentResult, SubagentState, SubagentStatus,
+    SubagentTracker,
 };
 pub use spawn::{SpawnHandle, SpawnPriority, SpawnRequest, spawn_subagent};

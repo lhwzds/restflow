@@ -3,9 +3,17 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use restflow_ai::embedding::EmbeddingProvider;
 use crate::error::Result;
 use crate::tool::{Tool, ToolOutput};
+
+/// Embedding provider trait for generating text embeddings.
+#[async_trait]
+pub trait EmbeddingProvider: Send + Sync {
+    async fn embed(&self, text: &str) -> anyhow::Result<Vec<f32>>;
+    async fn embed_batch(&self, texts: &[String]) -> anyhow::Result<Vec<Vec<f32>>>;
+    fn dimension(&self) -> usize;
+    fn model_name(&self) -> &str;
+}
 
 pub struct MemorySearchTool {
     memory: Arc<dyn SemanticMemory>,

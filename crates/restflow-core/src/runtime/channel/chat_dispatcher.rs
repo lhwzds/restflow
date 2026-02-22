@@ -18,7 +18,8 @@ use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::storage::Storage;
 
 use super::debounce::MessageDebouncer;
-use crate::runtime::subagent::{AgentDefinitionRegistry, SubagentConfig, SubagentTracker};
+use crate::runtime::subagent::AgentDefinitionRegistry;
+use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]

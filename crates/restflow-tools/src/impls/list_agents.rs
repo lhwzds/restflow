@@ -1,16 +1,16 @@
 //! list_agents tool - List available agent types and running agents.
 
-use super::{SubagentDeps, Tool, ToolResult};
 use async_trait::async_trait;
-use restflow_tools::error::{Result, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
-use ts_rs::TS;
+
+use crate::error::{Result, ToolError};
+use crate::tool::{Tool, ToolOutput};
+use restflow_ai::agent::SubagentDeps;
 
 /// Parameters for list_agents tool.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ListAgentsParams {
     /// Include currently running agents in the response.
     #[serde(default = "default_include_running")]
@@ -27,7 +27,6 @@ pub struct ListAgentsTool {
 }
 
 impl ListAgentsTool {
-    /// Create a new list_agents tool.
     pub fn new(deps: Arc<SubagentDeps>) -> Self {
         Self { deps }
     }
@@ -56,12 +55,13 @@ impl Tool for ListAgentsTool {
         })
     }
 
-    async fn execute(&self, input: Value) -> Result<ToolResult> {
+    async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: ListAgentsParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
-        let definitions = &self.deps.definitions;
-        let available: Vec<Value> = definitions
+        let available: Vec<Value> = self
+            .deps
+            .definitions
             .list_callable()
             .iter()
             .map(|def| {
@@ -74,13 +74,12 @@ impl Tool for ListAgentsTool {
             })
             .collect();
 
-        let mut response = json!({
-            "available_agents": available
-        });
+        let mut response = json!({ "available_agents": available });
 
         if params.include_running {
-            let tracker = &self.deps.tracker;
-            let running: Vec<Value> = tracker
+            let running: Vec<Value> = self
+                .deps
+                .tracker
                 .running()
                 .iter()
                 .map(|state| {
@@ -95,10 +94,10 @@ impl Tool for ListAgentsTool {
                 .collect();
 
             response["running_agents"] = json!(running);
-            response["running_count"] = json!(tracker.running_count());
+            response["running_count"] = json!(self.deps.tracker.running_count());
         }
 
-        Ok(ToolResult::success(response))
+        Ok(ToolOutput::success(response))
     }
 }
 
@@ -108,15 +107,14 @@ mod tests {
 
     #[test]
     fn test_params_default() {
-        let json = r#"{}"#;
-        let params: ListAgentsParams = serde_json::from_str(json).unwrap();
+        let params: ListAgentsParams = serde_json::from_str("{}").unwrap();
         assert!(params.include_running);
     }
 
     #[test]
     fn test_params_no_running() {
-        let json = r#"{"include_running": false}"#;
-        let params: ListAgentsParams = serde_json::from_str(json).unwrap();
+        let params: ListAgentsParams =
+            serde_json::from_str(r#"{"include_running": false}"#).unwrap();
         assert!(!params.include_running);
     }
 }
