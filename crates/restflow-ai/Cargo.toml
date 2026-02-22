@@ -18,6 +18,7 @@ tokio.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 restflow-storage = { path = "../restflow-storage" }
+restflow-sandbox = { workspace = true, optional = true }
 
 # AI-specific dependencies
 async-stream = "0.3"
@@ -43,6 +44,7 @@ parking_lot = "0.12"
 [features]
 default = []
 test-utils = []
+sandbox = ["dep:restflow-sandbox"]
 
 [lints.rust]
 dead_code = "allow"

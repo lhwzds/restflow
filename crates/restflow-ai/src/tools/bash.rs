@@ -77,6 +77,9 @@ pub struct BashTool {
     agent_id: Option<String>,
     /// Task identifier for security checks
     task_id: Option<String>,
+    /// Optional OS-level sandbox policy
+    #[cfg(feature = "sandbox")]
+    sandbox_policy: Option<restflow_sandbox::SandboxPolicy>,
 }
 
 impl Default for BashTool {
@@ -95,6 +98,8 @@ impl BashTool {
             security_gate: None,
             agent_id: None,
             task_id: None,
+            #[cfg(feature = "sandbox")]
+            sandbox_policy: None,
         }
     }
 
@@ -113,6 +118,13 @@ impl BashTool {
     /// Set maximum output size in bytes
     pub fn with_max_output(mut self, bytes: usize) -> Self {
         self.max_output_bytes = bytes;
+        self
+    }
+
+    /// Set OS-level sandbox policy for command execution
+    #[cfg(feature = "sandbox")]
+    pub fn with_sandbox_policy(mut self, policy: restflow_sandbox::SandboxPolicy) -> Self {
+        self.sandbox_policy = Some(policy);
         self
     }
 
@@ -136,9 +148,19 @@ impl BashTool {
         workdir: &str,
         timeout_secs: u64,
     ) -> std::result::Result<(i32, String, String, bool), std::io::Error> {
-        let mut cmd = Command::new("sh");
-        cmd.arg("-c")
-            .arg(command)
+        // Phase 1: Determine program and args (macOS sandbox wraps with sandbox-exec).
+        #[cfg(feature = "sandbox")]
+        let (program, args) = if let Some(ref policy) = self.sandbox_policy {
+            restflow_sandbox::wrap_command(policy, "sh", &["-c", command])
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
+        } else {
+            ("sh".to_string(), vec!["-c".to_string(), command.to_string()])
+        };
+        #[cfg(not(feature = "sandbox"))]
+        let (program, args) = ("sh".to_string(), vec!["-c".to_string(), command.to_string()]);
+
+        let mut cmd = Command::new(&program);
+        cmd.args(&args)
             .current_dir(workdir)
             .kill_on_drop(true)
             .stdout(Stdio::piped())
@@ -148,6 +170,18 @@ impl BashTool {
         {
             // Put the shell into its own process group so timeout/cancel can terminate the full tree.
             cmd.process_group(0);
+        }
+
+        // Phase 2: Install pre_exec hooks (Linux sandbox uses Landlock + seccomp).
+        #[cfg(all(unix, feature = "sandbox"))]
+        if let Some(ref policy) = self.sandbox_policy {
+            let policy = policy.clone();
+            unsafe {
+                cmd.pre_exec(move || {
+                    restflow_sandbox::pre_exec_hook(&policy)
+                        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                });
+            }
         }
 
         let child = cmd.spawn()?;
