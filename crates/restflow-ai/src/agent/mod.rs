@@ -13,7 +13,6 @@ mod context;
 mod deferred;
 mod definitions;
 mod executor;
-mod history;
 pub mod model_router;
 mod prompt_flags;
 mod resource;
@@ -34,7 +33,6 @@ pub use context::{
 pub use deferred::{DeferredExecutionManager, DeferredStatus, DeferredToolCall};
 pub use definitions::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult, CheckpointDurability};
-pub use history::{HistoryPipeline, HistoryProcessor, TrimOldMessagesProcessor};
 pub use model_router::{ModelRoutingConfig, ModelSwitcher, TaskTier, classify_task, select_model};
 pub use prompt_flags::PromptFlags;
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};

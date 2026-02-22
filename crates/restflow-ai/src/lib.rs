@@ -17,7 +17,6 @@ pub mod eval;
 mod http_client;
 pub mod llm;
 pub mod lsp;
-pub mod memory;
 pub mod security;
 pub mod steer;
 pub mod text_utils;
@@ -26,8 +25,7 @@ pub mod tools;
 // Re-export commonly used types
 pub use agent::{
     AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, CheckpointDurability,
-    ExecutionStep, HistoryPipeline, HistoryProcessor, ResourceLimits, ResourceUsage, Scratchpad,
-    TraceEvent, TrimOldMessagesProcessor,
+    ExecutionStep, ResourceLimits, ResourceUsage, Scratchpad, TraceEvent,
 };
 pub use embedding::{
     EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding,
@@ -37,9 +35,6 @@ pub use llm::{
     AnthropicClient, ClaudeCodeClient, CodexClient, DefaultLlmClientFactory, GeminiCliClient,
     LlmClient, LlmClientFactory, LlmProvider, Message, ModelSpec, OpenAIClient, OpenCodeClient,
     Role, SwappableLlm,
-};
-pub use memory::{
-    CompactionConfig, CompactionResult, ContextCompactor, DEFAULT_MAX_MESSAGES, WorkingMemory,
 };
 pub use security::{
     NetworkAllowlist, NetworkEcosystem, SecurityDecision, SecurityGate, ToolAction,
