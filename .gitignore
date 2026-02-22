@@ -22,5 +22,8 @@ __pycache__/
 .playwright-mcp
 .restflow/
 
+# redb database files
+:memory:
+
 # Claude Code
 .claude/
