@@ -27,6 +27,9 @@ pub use agent::{
     AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, CheckpointDurability,
     ExecutionStep, ResourceLimits, ResourceUsage, Scratchpad, TraceEvent,
 };
+pub use agent::context_manager::{
+    CompactStats, ContextManagerConfig, PruneStats, TokenEstimator,
+};
 pub use embedding::{
     EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding,
 };

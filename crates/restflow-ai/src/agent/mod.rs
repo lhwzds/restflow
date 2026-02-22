@@ -10,6 +10,7 @@
 
 mod checkpoint;
 mod context;
+pub mod context_manager;
 mod deferred;
 mod definitions;
 mod executor;

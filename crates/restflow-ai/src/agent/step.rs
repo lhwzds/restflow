@@ -44,6 +44,16 @@ pub enum ExecutionStep {
     ResourceWarning {
         message: String,
     },
+    // Context management
+    ContextPruned {
+        messages_truncated: usize,
+        tokens_saved: usize,
+    },
+    ContextCompacted {
+        messages_replaced: usize,
+        tokens_before: usize,
+        tokens_after: usize,
+    },
 }
 
 #[cfg(test)]
@@ -107,8 +117,17 @@ mod tests {
             ExecutionStep::ResourceWarning {
                 message: "limit near".to_string(),
             },
+            ExecutionStep::ContextPruned {
+                messages_truncated: 3,
+                tokens_saved: 5000,
+            },
+            ExecutionStep::ContextCompacted {
+                messages_replaced: 10,
+                tokens_before: 100000,
+                tokens_after: 30000,
+            },
         ];
 
-        assert_eq!(steps.len(), 10);
+        assert_eq!(steps.len(), 12);
     }
 }
