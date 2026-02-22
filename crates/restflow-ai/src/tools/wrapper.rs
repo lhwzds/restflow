@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use restflow_traits::error::Result;
 use restflow_traits::tool::{Tool, ToolOutput};
-use restflow_traits::wrapper::{ToolWrapper, WrappedTool};
+use restflow_traits::wrapper::ToolWrapper;
 
 use crate::agent::Scratchpad;
 

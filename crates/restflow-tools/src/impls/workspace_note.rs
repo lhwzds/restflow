@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_traits::store::{WorkspaceNoteProvider, WorkspaceNoteStatus, WorkspaceNoteRecord, WorkspaceNoteSpec, WorkspaceNotePatch, WorkspaceNoteQuery};
+use restflow_traits::store::{WorkspaceNoteProvider, WorkspaceNoteStatus, WorkspaceNoteSpec, WorkspaceNotePatch, WorkspaceNoteQuery};
 
 #[derive(Debug, Deserialize)]
 struct WorkspaceNoteInput {

@@ -1,7 +1,6 @@
 //! Diagnostics tool backed by a diagnostics provider (LSP).
 
 use async_trait::async_trait;
-use lsp_types::Diagnostic;
 use serde_json::{Value, json};
 use std::path::Path;
 use std::sync::Arc;
