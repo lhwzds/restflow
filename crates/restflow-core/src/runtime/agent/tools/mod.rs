@@ -4,10 +4,13 @@
 //! assembly functions (`registry_from_allowlist`) that combine tools with
 //! storage-backed services from `restflow-core`.
 
-use std::sync::Arc;
+use std::collections::HashSet;
+use std::sync::{Arc, RwLock};
 use tracing::{debug, warn};
 
-use crate::services::tool_registry::{SkillStorageProvider, create_tool_registry};
+use crate::lsp::LspManager;
+use crate::memory::UnifiedSearchEngine;
+use crate::services::adapters::*;
 use crate::storage::Storage;
 use restflow_ai::SkillProvider;
 
@@ -95,12 +98,14 @@ pub fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<Str
 /// Build a tool registry filtered by an allowlist.
 ///
 /// When `tool_names` is `None` or empty, returns an empty registry (secure default).
+/// Storage-backed tools are created directly via [`ToolRegistryBuilder`] methods,
+/// avoiding the need to build a full core registry and cherry-pick from it.
 pub fn registry_from_allowlist(
     tool_names: Option<&[String]>,
     subagent_deps: Option<&SubagentDeps>,
     secret_resolver: Option<SecretResolver>,
     storage: Option<&Storage>,
-    agent_id: Option<&str>,
+    _agent_id: Option<&str>,
     bash_config: Option<BashConfig>,
 ) -> ToolRegistry {
     let Some(tool_names) = tool_names else {
@@ -114,29 +119,22 @@ pub fn registry_from_allowlist(
     let mut builder = ToolRegistryBuilder::new();
     let mut allow_file = false;
     let mut allow_file_write = false;
-    let mut enable_manage_background_agents = false;
-    let mut enable_manage_agents = false;
-    let mut enable_manage_marketplace = false;
-    let mut enable_manage_triggers = false;
-    let mut enable_manage_terminal = false;
-    let mut enable_manage_ops = false;
-    let mut enable_security_query = false;
-    let mut enable_skill = false;
-    let mut enable_memory_search = false;
-    let mut enable_shared_space = false;
-    let mut enable_workspace_notes = false;
-    let mut enable_manage_secrets = false;
-    let mut enable_manage_config = false;
-    let mut enable_manage_sessions = false;
-    let mut enable_manage_memory = false;
-    let mut enable_manage_auth_profiles = false;
-    let mut enable_patch = false;
-    let mut enable_diagnostics = false;
-    let mut enable_file_memory = false;
-    let mut enable_save_deliverable = false;
+    let known_tools = Arc::new(RwLock::new(HashSet::new()));
+
+    /// Register a storage-backed tool, warning if storage is unavailable.
+    macro_rules! with_storage {
+        ($storage:expr, $tool_name:expr, $builder:ident, |$s:ident| $body:expr) => {
+            if let Some($s) = $storage {
+                $builder = $body;
+            } else {
+                warn!(tool_name = $tool_name, "Storage unavailable, skipping");
+            }
+        };
+    }
 
     for raw_name in tool_names {
         match raw_name.as_str() {
+            // --- Simple tools (no storage required) ---
             "bash" => {
                 builder = builder.with_bash(bash_config.clone().unwrap_or_default());
             }
@@ -179,6 +177,34 @@ pub fn registry_from_allowlist(
                     warn!(tool_name = "vision", "Secret resolver missing, skipping");
                 }
             }
+            "web_search" => {
+                if let Some(resolver) = secret_resolver.clone() {
+                    builder = builder.with_web_search_with_resolver(resolver);
+                } else {
+                    builder = builder.with_web_search();
+                }
+            }
+            "web_fetch" => {
+                builder = builder.with_web_fetch();
+            }
+            "jina_reader" => {
+                builder = builder.with_jina_reader();
+            }
+            "diagnostics" => {
+                let root = std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                builder = builder.with_diagnostics(Arc::new(LspManager::new(root)));
+            }
+            "security_query" => {
+                builder =
+                    builder.with_security_query(Arc::new(SecurityQueryProviderAdapter));
+            }
+            "patch" => {
+                builder = builder
+                    .with_patch(Arc::new(restflow_tools::impls::file_tracker::FileTracker::new()));
+            }
+
+            // --- Subagent tools ---
             "spawn_agent" => {
                 if let Some(deps) = subagent_deps {
                     builder = builder.with_spawn_agent(Arc::new(deps.clone()));
@@ -202,47 +228,150 @@ pub fn registry_from_allowlist(
             }
             "use_skill" => {
                 if let Some(storage) = storage {
-                    let provider: Arc<dyn SkillProvider> = Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+                    let provider: Arc<dyn SkillProvider> =
+                        Arc::new(SkillStorageProvider::new(storage.skills.clone()));
                     builder = builder.with_use_skill(provider);
                 } else {
                     debug!(tool_name = "use_skill", "Storage missing, skipping");
                 }
             }
-            "manage_background_agents" => enable_manage_background_agents = true,
-            "manage_agents" => enable_manage_agents = true,
-            "manage_marketplace" => enable_manage_marketplace = true,
-            "manage_triggers" => enable_manage_triggers = true,
-            "manage_terminal" => enable_manage_terminal = true,
-            "manage_ops" => enable_manage_ops = true,
-            "security_query" => enable_security_query = true,
-            "skill" => enable_skill = true,
-            "memory_search" => enable_memory_search = true,
-            "shared_space" => enable_shared_space = true,
-            "workspace_notes" => enable_workspace_notes = true,
-            "manage_secrets" | "secrets" => enable_manage_secrets = true,
-            "manage_config" | "config" => enable_manage_config = true,
-            "manage_sessions" | "sessions" => enable_manage_sessions = true,
-            "manage_memory" => enable_manage_memory = true,
-            "manage_auth_profiles" | "auth_profiles" => enable_manage_auth_profiles = true,
-            "patch" => enable_patch = true,
-            "diagnostics" => enable_diagnostics = true,
+
+            // --- Storage-backed tools ---
+            "manage_background_agents" => {
+                with_storage!(storage, "manage_background_agents", builder, |s| {
+                    let store = Arc::new(BackgroundAgentStoreAdapter::new(
+                        s.background_agents.clone(),
+                        s.agents.clone(),
+                        s.deliverables.clone(),
+                    ));
+                    builder.with_background_agent(store)
+                });
+            }
+            "manage_agents" => {
+                with_storage!(storage, "manage_agents", builder, |s| {
+                    let store = Arc::new(AgentStoreAdapter::new(
+                        s.agents.clone(),
+                        s.skills.clone(),
+                        s.secrets.clone(),
+                        s.background_agents.clone(),
+                        known_tools.clone(),
+                    ));
+                    builder.with_agent_crud(store)
+                });
+            }
+            "manage_marketplace" => {
+                with_storage!(storage, "manage_marketplace", builder, |s| {
+                    builder.with_marketplace(Arc::new(MarketplaceStoreAdapter::new(
+                        s.skills.clone(),
+                    )))
+                });
+            }
+            "manage_triggers" => {
+                with_storage!(storage, "manage_triggers", builder, |s| {
+                    builder.with_trigger(Arc::new(TriggerStoreAdapter::new(
+                        s.triggers.clone(),
+                    )))
+                });
+            }
+            "manage_terminal" => {
+                with_storage!(storage, "manage_terminal", builder, |s| {
+                    builder.with_terminal(Arc::new(TerminalStoreAdapter::new(
+                        s.terminal_sessions.clone(),
+                    )))
+                });
+            }
+            "manage_ops" => {
+                with_storage!(storage, "manage_ops", builder, |s| {
+                    builder.with_ops(Arc::new(OpsProviderAdapter::new(
+                        s.background_agents.clone(),
+                        s.chat_sessions.clone(),
+                    )))
+                });
+            }
+            "skill" => {
+                with_storage!(storage, "skill", builder, |s| {
+                    builder.with_skill_tool(Arc::new(SkillStorageProvider::new(
+                        s.skills.clone(),
+                    )))
+                });
+            }
+            "memory_search" => {
+                with_storage!(storage, "memory_search", builder, |s| {
+                    let engine = UnifiedSearchEngine::new(
+                        s.memory.clone(),
+                        s.chat_sessions.clone(),
+                    );
+                    builder.with_unified_search(Arc::new(UnifiedMemorySearchAdapter::new(
+                        engine,
+                    )))
+                });
+            }
+            "shared_space" => {
+                with_storage!(storage, "shared_space", builder, |s| {
+                    builder.with_shared_space(Arc::new(SharedSpaceStoreAdapter::new(
+                        s.shared_space.clone(),
+                        None,
+                    )))
+                });
+            }
+            "workspace_notes" => {
+                with_storage!(storage, "workspace_notes", builder, |s| {
+                    builder.with_workspace_notes(Arc::new(DbWorkspaceNoteAdapter::new(
+                        s.workspace_notes.clone(),
+                    )))
+                });
+            }
+            "manage_secrets" | "secrets" => {
+                with_storage!(storage, "manage_secrets", builder, |s| {
+                    builder.with_secrets(Arc::new(s.secrets.clone()))
+                });
+            }
+            "manage_config" | "config" => {
+                with_storage!(storage, "manage_config", builder, |s| {
+                    builder.with_config(Arc::new(s.config.clone()))
+                });
+            }
+            "manage_sessions" | "sessions" => {
+                with_storage!(storage, "manage_sessions", builder, |s| {
+                    builder.with_session(Arc::new(SessionStorageAdapter::new(
+                        s.chat_sessions.clone(),
+                        s.agents.clone(),
+                    )))
+                });
+            }
+            "manage_memory" => {
+                with_storage!(storage, "manage_memory", builder, |s| {
+                    builder.with_memory_management(Arc::new(MemoryManagerAdapter::new(
+                        s.memory.clone(),
+                    )))
+                });
+            }
+            "manage_auth_profiles" | "auth_profiles" => {
+                with_storage!(storage, "manage_auth_profiles", builder, |s| {
+                    builder.with_auth_profile(Arc::new(AuthProfileStorageAdapter::new(
+                        s.secrets.clone(),
+                    )))
+                });
+            }
             "save_to_memory" | "read_memory" | "list_memories" | "delete_memory" => {
-                enable_file_memory = true;
-            }
-            "save_deliverable" => enable_save_deliverable = true,
-            "web_search" => {
-                let mut tool = restflow_tools::WebSearchTool::new();
-                if let Some(resolver) = secret_resolver.clone() {
-                    tool = tool.with_secret_resolver(resolver);
+                // Register all 4 memory CRUD tools at once (idempotent via has() check)
+                if !builder.registry.has("save_to_memory") {
+                    with_storage!(storage, raw_name.as_str(), builder, |s| {
+                        builder.with_memory_store(Arc::new(DbMemoryStoreAdapter::new(
+                            s.memory.clone(),
+                        )))
+                    });
                 }
-                builder.registry.register(tool);
             }
-            "web_fetch" => {
-                builder.registry.register(restflow_tools::WebFetchTool::new());
+            "save_deliverable" => {
+                with_storage!(storage, "save_deliverable", builder, |s| {
+                    builder.with_deliverable(Arc::new(DeliverableStoreAdapter::new(
+                        s.deliverables.clone(),
+                    )))
+                });
             }
-            "jina_reader" => {
-                builder.registry.register(restflow_tools::JinaReaderTool::new());
-            }
+
+            // --- Caller-registered tools (placeholders) ---
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
             }
@@ -268,119 +397,23 @@ pub fn registry_from_allowlist(
 
     // Register skills as callable tools
     if let Some(storage) = storage {
-        let provider: Arc<dyn SkillProvider> = Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+        let provider: Arc<dyn SkillProvider> =
+            Arc::new(SkillStorageProvider::new(storage.skills.clone()));
         restflow_tools::register_skills(&mut builder.registry, provider);
     }
 
-    let any_storage_tool = enable_manage_background_agents
-        || enable_manage_agents
-        || enable_manage_marketplace
-        || enable_manage_triggers
-        || enable_manage_terminal
-        || enable_manage_ops
-        || enable_security_query
-        || enable_skill
-        || enable_memory_search
-        || enable_shared_space
-        || enable_workspace_notes
-        || enable_manage_secrets
-        || enable_manage_config
-        || enable_manage_sessions
-        || enable_manage_memory
-        || enable_manage_auth_profiles
-        || enable_patch
-        || enable_diagnostics
-        || enable_file_memory
-        || enable_save_deliverable;
+    let registry = builder.build();
 
-    if any_storage_tool {
-        if let Some(storage) = storage {
-            let core_registry = create_tool_registry(
-                storage.skills.clone(),
-                storage.memory.clone(),
-                storage.chat_sessions.clone(),
-                storage.shared_space.clone(),
-                storage.workspace_notes.clone(),
-                storage.secrets.clone(),
-                storage.config.clone(),
-                storage.agents.clone(),
-                storage.background_agents.clone(),
-                storage.triggers.clone(),
-                storage.terminal_sessions.clone(),
-                storage.deliverables.clone(),
-                None,
-                agent_id.map(|s| s.to_string()),
-            );
-            let storage_backed_tools = [
-                ("manage_background_agents", enable_manage_background_agents),
-                ("manage_agents", enable_manage_agents),
-                ("manage_marketplace", enable_manage_marketplace),
-                ("manage_triggers", enable_manage_triggers),
-                ("manage_terminal", enable_manage_terminal),
-                ("manage_ops", enable_manage_ops),
-                ("security_query", enable_security_query),
-                ("skill", enable_skill),
-                ("memory_search", enable_memory_search),
-                ("shared_space", enable_shared_space),
-                ("workspace_notes", enable_workspace_notes),
-                ("manage_secrets", enable_manage_secrets),
-                ("manage_config", enable_manage_config),
-                ("manage_sessions", enable_manage_sessions),
-                ("manage_memory", enable_manage_memory),
-                ("manage_auth_profiles", enable_manage_auth_profiles),
-                ("patch", enable_patch),
-                ("diagnostics", enable_diagnostics),
-                ("save_to_memory", enable_file_memory),
-                ("read_memory", enable_file_memory),
-                ("list_memories", enable_file_memory),
-                ("delete_memory", enable_file_memory),
-                ("save_deliverable", enable_save_deliverable),
-            ];
-            for (tool_name, enabled) in storage_backed_tools {
-                if !enabled {
-                    continue;
-                }
-                if let Some(tool) = core_registry.get(tool_name) {
-                    builder.registry.register_arc(tool);
-                } else {
-                    warn!(tool_name = tool_name, "Tool was requested but not found in core registry");
-                }
-            }
-        } else {
-            let storage_backed_tools = [
-                ("manage_background_agents", enable_manage_background_agents),
-                ("manage_agents", enable_manage_agents),
-                ("manage_marketplace", enable_manage_marketplace),
-                ("manage_triggers", enable_manage_triggers),
-                ("manage_terminal", enable_manage_terminal),
-                ("manage_ops", enable_manage_ops),
-                ("security_query", enable_security_query),
-                ("skill", enable_skill),
-                ("memory_search", enable_memory_search),
-                ("shared_space", enable_shared_space),
-                ("workspace_notes", enable_workspace_notes),
-                ("manage_secrets", enable_manage_secrets),
-                ("manage_config", enable_manage_config),
-                ("manage_sessions", enable_manage_sessions),
-                ("manage_memory", enable_manage_memory),
-                ("manage_auth_profiles", enable_manage_auth_profiles),
-                ("patch", enable_patch),
-                ("diagnostics", enable_diagnostics),
-                ("save_to_memory", enable_file_memory),
-                ("read_memory", enable_file_memory),
-                ("list_memories", enable_file_memory),
-                ("delete_memory", enable_file_memory),
-                ("save_deliverable", enable_save_deliverable),
-            ];
-            for (tool_name, enabled) in storage_backed_tools {
-                if enabled {
-                    warn!(tool_name = tool_name, "Storage is unavailable, skipping storage-backed tool");
-                }
-            }
-        }
+    // Populate known_tools for AgentStoreAdapter validation
+    if let Ok(mut known) = known_tools.write() {
+        *known = registry
+            .list()
+            .into_iter()
+            .map(|name| name.to_string())
+            .collect::<HashSet<_>>();
     }
 
-    builder.build()
+    registry
 }
 
 #[cfg(test)]

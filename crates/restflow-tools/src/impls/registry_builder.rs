@@ -23,6 +23,45 @@ use crate::security::bash_security::BashSecurityConfig;
 use restflow_ai::agent::{SubagentDeps, SubagentSpawner};
 use restflow_traits::skill::SkillProvider;
 
+// Web tools
+use crate::impls::web_fetch::WebFetchTool;
+use crate::impls::jina_reader::JinaReaderTool;
+use crate::impls::web_search::WebSearchTool;
+
+// Storage-backed tools
+use crate::impls::diagnostics::DiagnosticsTool;
+use crate::impls::skill::SkillTool;
+use crate::impls::session::SessionTool;
+use crate::impls::memory_mgmt::MemoryManagementTool;
+use crate::impls::memory_store::{SaveMemoryTool, ReadMemoryTool, ListMemoryTool, DeleteMemoryTool};
+use crate::impls::save_deliverable::SaveDeliverableTool;
+use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
+use crate::impls::manage_ops::ManageOpsTool;
+use crate::impls::shared_space::SharedSpaceTool;
+use crate::impls::workspace_note::WorkspaceNoteTool;
+use crate::impls::auth_profile::AuthProfileTool;
+use crate::impls::secrets::SecretsTool;
+use crate::impls::config::ConfigTool;
+use crate::impls::agent_crud::AgentCrudTool;
+use crate::impls::background_agent::BackgroundAgentTool;
+use crate::impls::marketplace::MarketplaceTool;
+use crate::impls::trigger::TriggerTool;
+use crate::impls::terminal::TerminalTool;
+use crate::impls::security_query::SecurityQueryTool;
+use crate::impls::patch::PatchTool;
+use crate::impls::file_tracker::FileTracker;
+
+// Store traits
+use restflow_traits::store::{
+    AgentStore, AuthProfileStore, BackgroundAgentStore, DeliverableStore,
+    DiagnosticsProvider, MarketplaceStore, MemoryManager, MemoryStore,
+    OpsProvider, SecurityQueryProvider, SessionStore, SharedSpaceStore,
+    TerminalStore, TriggerStore, UnifiedMemorySearch, WorkspaceNoteProvider,
+};
+
+// Concrete storage types
+use restflow_storage::{SecretStorage, ConfigStorage};
+
 /// Configuration for bash tool security.
 #[derive(Debug, Clone)]
 pub struct BashConfig {
@@ -189,6 +228,141 @@ impl ToolRegistryBuilder {
 
     pub fn with_use_skill(mut self, provider: Arc<dyn SkillProvider>) -> Self {
         self.registry.register(UseSkillTool::new(provider));
+        self
+    }
+
+    // --- Web tools ---
+
+    pub fn with_web_fetch(mut self) -> Self {
+        self.registry.register(WebFetchTool::new());
+        self
+    }
+
+    pub fn with_jina_reader(mut self) -> Self {
+        self.registry.register(JinaReaderTool::new());
+        self
+    }
+
+    pub fn with_web_search(mut self) -> Self {
+        self.registry.register(WebSearchTool::new());
+        self
+    }
+
+    pub fn with_web_search_with_resolver(mut self, resolver: SecretResolver) -> Self {
+        self.registry
+            .register(WebSearchTool::new().with_secret_resolver(resolver));
+        self
+    }
+
+    // --- Storage-backed tools ---
+
+    pub fn with_diagnostics(mut self, provider: Arc<dyn DiagnosticsProvider>) -> Self {
+        self.registry.register(DiagnosticsTool::new(provider));
+        self
+    }
+
+    pub fn with_skill_tool(mut self, provider: Arc<dyn SkillProvider>) -> Self {
+        self.registry.register(SkillTool::new(provider));
+        self
+    }
+
+    pub fn with_session(mut self, store: Arc<dyn SessionStore>) -> Self {
+        self.registry
+            .register(SessionTool::new(store).with_write(true));
+        self
+    }
+
+    pub fn with_memory_management(mut self, manager: Arc<dyn MemoryManager>) -> Self {
+        self.registry
+            .register(MemoryManagementTool::new(manager).with_write(true));
+        self
+    }
+
+    pub fn with_memory_store(mut self, store: Arc<dyn MemoryStore>) -> Self {
+        self.registry.register(SaveMemoryTool::new(store.clone()));
+        self.registry.register(ReadMemoryTool::new(store.clone()));
+        self.registry.register(ListMemoryTool::new(store.clone()));
+        self.registry.register(DeleteMemoryTool::new(store));
+        self
+    }
+
+    pub fn with_deliverable(mut self, store: Arc<dyn DeliverableStore>) -> Self {
+        self.registry.register(SaveDeliverableTool::new(store));
+        self
+    }
+
+    pub fn with_unified_search(mut self, search: Arc<dyn UnifiedMemorySearch>) -> Self {
+        self.registry
+            .register(UnifiedMemorySearchTool::new(search));
+        self
+    }
+
+    pub fn with_ops(mut self, provider: Arc<dyn OpsProvider>) -> Self {
+        self.registry.register(ManageOpsTool::new(provider));
+        self
+    }
+
+    pub fn with_shared_space(mut self, store: Arc<dyn SharedSpaceStore>) -> Self {
+        self.registry.register(SharedSpaceTool::new(store, None));
+        self
+    }
+
+    pub fn with_workspace_notes(mut self, provider: Arc<dyn WorkspaceNoteProvider>) -> Self {
+        self.registry
+            .register(WorkspaceNoteTool::new(provider).with_write(true));
+        self
+    }
+
+    pub fn with_auth_profile(mut self, store: Arc<dyn AuthProfileStore>) -> Self {
+        self.registry
+            .register(AuthProfileTool::new(store).with_write(true));
+        self
+    }
+
+    pub fn with_secrets(mut self, storage: Arc<SecretStorage>) -> Self {
+        self.registry.register(SecretsTool::new(storage));
+        self
+    }
+
+    pub fn with_config(mut self, storage: Arc<ConfigStorage>) -> Self {
+        self.registry.register(ConfigTool::new(storage));
+        self
+    }
+
+    pub fn with_agent_crud(mut self, store: Arc<dyn AgentStore>) -> Self {
+        self.registry
+            .register(AgentCrudTool::new(store).with_write(true));
+        self
+    }
+
+    pub fn with_background_agent(mut self, store: Arc<dyn BackgroundAgentStore>) -> Self {
+        self.registry
+            .register(BackgroundAgentTool::new(store).with_write(true));
+        self
+    }
+
+    pub fn with_marketplace(mut self, store: Arc<dyn MarketplaceStore>) -> Self {
+        self.registry.register(MarketplaceTool::new(store));
+        self
+    }
+
+    pub fn with_trigger(mut self, store: Arc<dyn TriggerStore>) -> Self {
+        self.registry.register(TriggerTool::new(store));
+        self
+    }
+
+    pub fn with_terminal(mut self, store: Arc<dyn TerminalStore>) -> Self {
+        self.registry.register(TerminalTool::new(store));
+        self
+    }
+
+    pub fn with_security_query(mut self, provider: Arc<dyn SecurityQueryProvider>) -> Self {
+        self.registry.register(SecurityQueryTool::new(provider));
+        self
+    }
+
+    pub fn with_patch(mut self, tracker: Arc<FileTracker>) -> Self {
+        self.registry.register(PatchTool::new(tracker));
         self
     }
 
