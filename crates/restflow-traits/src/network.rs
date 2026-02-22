@@ -397,7 +397,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_and_validate_rejects_localhost() {
-        // Literal IP should be caught by validate_url first pass
         assert!(resolve_and_validate_url("http://127.0.0.1/").await.is_err());
         assert!(resolve_and_validate_url("http://[::1]/").await.is_err());
         assert!(resolve_and_validate_url("http://0.0.0.0/").await.is_err());
@@ -418,7 +417,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_resolve_and_validate_returns_socket_addr() {
-        // Public URL should resolve successfully and return a valid SocketAddr
         let result = resolve_and_validate_url("https://example.com/").await;
         match result {
             Ok((url, addr)) => {

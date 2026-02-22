@@ -1,0 +1,27 @@
+[package]
+name = "restflow-traits"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Shared trait definitions and core abstractions for RestFlow"
+
+[dependencies]
+# Workspace dependencies
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+chrono.workspace = true
+
+# Crate-specific
+thiserror = "2.0"
+url = "2.5"
+lsp-types = "0.97"
+
+[lints.rust]
+dead_code = "allow"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { workspace = true, features = ["full"] }

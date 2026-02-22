@@ -205,7 +205,8 @@ impl Tool for TranscribeTool {
                 "file",
                 Part::bytes(audio_bytes)
                     .file_name(filename.to_string())
-                    .mime_str("application/octet-stream")?,
+                    .mime_str("application/octet-stream")
+                    .map_err(|e| crate::ToolError::Other(e.into()))?,
             )
             .text(
                 "model",

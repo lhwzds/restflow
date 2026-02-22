@@ -5,185 +5,17 @@ use crate::error::{AiError, Result};
 use crate::llm::LlmClient;
 use crate::tools::{FilteredToolset, ToolRegistry, Toolset};
 use dashmap::DashMap;
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::{Duration, timeout};
 
-/// Snapshot of a sub-agent definition with all fields needed for execution.
-///
-/// This is a simple owned data struct that captures the fields from a concrete
-/// agent definition. It decouples the restflow-ai crate from the full
-/// `AgentDefinition` struct (which lives in restflow-core and carries
-/// `#[derive(TS)]` and other derives that restflow-ai doesn't need).
-#[derive(Debug, Clone)]
-pub struct SubagentDefSnapshot {
-    /// Display name
-    pub name: String,
-    /// System prompt for the agent
-    pub system_prompt: String,
-    /// Allowed tool names
-    pub allowed_tools: Vec<String>,
-    /// Maximum ReAct loop iterations
-    pub max_iterations: Option<u32>,
-}
-
-/// Summary info for listing a sub-agent definition.
-#[derive(Debug, Clone, serde::Serialize)]
-pub struct SubagentDefSummary {
-    /// Unique identifier
-    pub id: String,
-    /// Display name
-    pub name: String,
-    /// Description of when to use this agent
-    pub description: String,
-    /// Tags for categorization
-    pub tags: Vec<String>,
-}
-
-/// Trait for looking up sub-agent definitions by ID.
-///
-/// Implemented by `AgentDefinitionRegistry` in restflow-core so that
-/// restflow-ai can spawn sub-agents without depending on restflow-core.
-pub trait SubagentDefLookup: Send + Sync {
-    /// Look up a sub-agent definition by ID, returning a snapshot of the
-    /// fields needed for execution.
-    fn lookup(&self, id: &str) -> Option<SubagentDefSnapshot>;
-
-    /// List all callable sub-agent definitions (for display/listing purposes).
-    fn list_callable(&self) -> Vec<SubagentDefSummary>;
-}
-
-/// Configuration for sub-agent execution.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubagentConfig {
-    /// Maximum number of parallel sub-agents.
-    pub max_parallel_agents: usize,
-    /// Default timeout for sub-agents in seconds.
-    pub subagent_timeout_secs: u64,
-    /// Maximum iterations for sub-agents.
-    pub max_iterations: usize,
-    /// Maximum nesting depth for sub-agents.
-    pub max_depth: usize,
-}
-
-impl Default for SubagentConfig {
-    fn default() -> Self {
-        Self {
-            max_parallel_agents: 5,
-            subagent_timeout_secs: 600,
-            max_iterations: 20,
-            max_depth: 1,
-        }
-    }
-}
-
-/// Request to spawn a sub-agent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpawnRequest {
-    /// Agent type ID (e.g., "researcher", "coder").
-    pub agent_id: String,
-
-    /// Task description for the agent.
-    pub task: String,
-
-    /// Optional timeout in seconds.
-    pub timeout_secs: Option<u64>,
-
-    /// Optional priority level.
-    pub priority: Option<SpawnPriority>,
-}
-
-/// Priority level for sub-agent spawning.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub enum SpawnPriority {
-    Low,
-    #[default]
-    Normal,
-    High,
-}
-
-/// Handle returned after spawning a sub-agent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SpawnHandle {
-    /// Unique task ID.
-    pub id: String,
-
-    /// Agent name.
-    pub agent_name: String,
-}
-
-/// Sub-agent running state
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubagentState {
-    /// Unique task ID
-    pub id: String,
-
-    /// Agent name (e.g., "researcher", "coder")
-    pub agent_name: String,
-
-    /// Task description
-    pub task: String,
-
-    /// Current status
-    pub status: SubagentStatus,
-
-    /// Start timestamp (Unix ms)
-    pub started_at: i64,
-
-    /// Completion timestamp (Unix ms)
-    pub completed_at: Option<i64>,
-
-    /// Result (when completed)
-    pub result: Option<SubagentResult>,
-}
-
-/// Sub-agent status
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub enum SubagentStatus {
-    Pending,
-    Running,
-    Completed,
-    Failed,
-    Cancelled,
-    TimedOut,
-}
-
-/// Result from a sub-agent execution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct SubagentResult {
-    /// Whether execution succeeded
-    pub success: bool,
-
-    /// Output content
-    pub output: String,
-
-    /// Optional summary of the output
-    pub summary: Option<String>,
-
-    /// Duration in milliseconds
-    pub duration_ms: u64,
-
-    /// Tokens used
-    pub tokens_used: Option<u32>,
-
-    /// Cost in USD
-    pub cost_usd: Option<f64>,
-
-    /// Error message (if failed)
-    pub error: Option<String>,
-}
-
-/// Completion notification
-#[derive(Debug, Clone)]
-pub struct SubagentCompletion {
-    /// Task ID
-    pub id: String,
-
-    /// Execution result
-    pub result: SubagentResult,
-}
+// Re-export data types from restflow-traits
+pub use restflow_traits::subagent::{
+    SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
+    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentResult, SubagentSpawner,
+    SubagentState, SubagentStatus,
+};
 
 /// Sub-agent tracker with concurrent access support
 pub struct SubagentTracker {
@@ -423,19 +255,14 @@ impl SubagentTracker {
     /// Mark a sub-agent as completed
     ///
     /// NOTE: This method will NOT overwrite status if the sub-agent was already
-    /// cancelled or timed out. This prevents a race condition where:
-    /// 1. cancel() sets status to Cancelled and aborts the task
-    /// 2. The spawned task completes and calls mark_completed()
-    /// 3. Without this check, mark_completed() would overwrite Cancelled with Failed
+    /// cancelled or timed out.
     pub fn mark_completed(&self, id: &str, result: SubagentResult) {
-        // Check if already cancelled or timed out - don't overwrite the status
         if let Some(state) = self.states.get(id)
             && matches!(
                 state.status,
                 SubagentStatus::Cancelled | SubagentStatus::TimedOut
             )
         {
-            // Already marked as cancelled/timed out, just clean up handles
             self.abort_handles.remove(id);
             self.completion_waiters.remove(id);
             return;
@@ -533,9 +360,6 @@ impl SubagentTracker {
 }
 
 /// Dependencies needed for sub-agent tools (spawn_agent, wait_agents, list_agents).
-///
-/// This is a lightweight container passed to tool implementations so they can
-/// spawn, wait for, and list sub-agents.
 #[derive(Clone)]
 pub struct SubagentDeps {
     pub tracker: Arc<SubagentTracker>,
@@ -543,11 +367,6 @@ pub struct SubagentDeps {
     pub llm_client: Arc<dyn LlmClient>,
     pub tool_registry: Arc<ToolRegistry>,
     pub config: SubagentConfig,
-}
-
-/// Trait for spawning subagents (simple variant used by SpawnTool).
-pub trait SubagentSpawner: Send + Sync {
-    fn spawn(&self, task: String) -> std::result::Result<String, crate::tools::ToolError>;
 }
 
 /// Sub-agent manager to spawn ReAct executors.
@@ -800,12 +619,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_mark_completed_does_not_overwrite_cancelled() {
-        // Create a tracker with channels
         let (tx, _rx) = mpsc::channel(1);
         let (_completion_tx, completion_rx) = mpsc::channel(1);
         let tracker = Arc::new(SubagentTracker::new(tx, completion_rx));
 
-        // Insert a state with Cancelled status
         let state = SubagentState {
             id: "test-id".to_string(),
             agent_name: "test-agent".to_string(),
@@ -817,7 +634,6 @@ mod tests {
         };
         tracker.states.insert("test-id".to_string(), state);
 
-        // Try to mark as completed with success=true (would normally set to Completed)
         let result = SubagentResult {
             success: true,
             output: "should not overwrite".to_string(),
@@ -829,7 +645,6 @@ mod tests {
         };
         tracker.mark_completed("test-id", result);
 
-        // The status should still be Cancelled, not Completed
         let final_state = tracker.states.get("test-id").unwrap();
         assert_eq!(
             final_state.status,
@@ -840,12 +655,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_mark_completed_does_not_overwrite_timed_out() {
-        // Create a tracker with channels
         let (tx, _rx) = mpsc::channel(1);
         let (_completion_tx, completion_rx) = mpsc::channel(1);
         let tracker = Arc::new(SubagentTracker::new(tx, completion_rx));
 
-        // Insert a state with TimedOut status
         let state = SubagentState {
             id: "test-id-2".to_string(),
             agent_name: "test-agent".to_string(),
@@ -857,7 +670,6 @@ mod tests {
         };
         tracker.states.insert("test-id-2".to_string(), state);
 
-        // Try to mark as completed with success=true
         let result = SubagentResult {
             success: true,
             output: "should not overwrite".to_string(),
@@ -869,7 +681,6 @@ mod tests {
         };
         tracker.mark_completed("test-id-2", result);
 
-        // The status should still be TimedOut, not Completed
         let final_state = tracker.states.get("test-id-2").unwrap();
         assert_eq!(
             final_state.status,
@@ -880,23 +691,16 @@ mod tests {
 
     #[tokio::test]
     async fn test_cancel_then_complete_race() {
-        // This test simulates the race condition:
-        // 1. cancel() is called, sets status to Cancelled
-        // 2. The spawned task completes and calls mark_completed()
-        // 3. mark_completed() should NOT overwrite Cancelled with Failed
-
         let (tx, _rx) = mpsc::channel(1);
         let (_completion_tx, completion_rx) = mpsc::channel(1);
         let tracker = Arc::new(SubagentTracker::new(tx, completion_rx));
 
-        // We need a real AbortHandle, so we create a dummy task
         let (abort_tx, abort_rx) = tokio::sync::oneshot::channel();
         let handle = tokio::spawn(async {
             let _ = abort_rx.await;
         });
         let abort_handle = handle.abort_handle();
 
-        // Simulate: task is running
         let state = SubagentState {
             id: "race-test".to_string(),
             agent_name: "test-agent".to_string(),
@@ -911,14 +715,11 @@ mod tests {
             .abort_handles
             .insert("race-test".to_string(), abort_handle);
 
-        // Step 1: cancel() is called
         tracker.cancel("race-test");
 
-        // Verify status is Cancelled
         let state_after_cancel = tracker.states.get("race-test").unwrap();
         assert_eq!(state_after_cancel.status, SubagentStatus::Cancelled);
 
-        // Step 2: Task completes with success=false (as if it was aborted)
         let result = SubagentResult {
             success: false,
             output: String::new(),
@@ -929,10 +730,8 @@ mod tests {
             error: Some("Task aborted".to_string()),
         };
 
-        // Step 3: mark_completed() is called (as in the spawned task)
         tracker.mark_completed("race-test", result);
 
-        // The status should still be Cancelled, NOT Failed
         let final_state = tracker.states.get("race-test").unwrap();
         assert_eq!(
             final_state.status,
@@ -940,7 +739,6 @@ mod tests {
             "Race condition: cancelled task should stay cancelled even when mark_completed is called"
         );
 
-        // Clean up the spawned task
         let _ = abort_tx.send(());
     }
 }

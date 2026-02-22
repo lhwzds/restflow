@@ -5151,6 +5151,7 @@ dependencies = [
  "reqwest",
  "restflow-sandbox",
  "restflow-storage",
+ "restflow-traits",
  "scraper",
  "serde",
  "serde_json",
@@ -5237,6 +5238,7 @@ dependencies = [
  "restflow-ai",
  "restflow-storage",
  "restflow-tools",
+ "restflow-traits",
  "rmcp",
  "schemars 1.2.1",
  "scopeguard",
@@ -5361,6 +5363,7 @@ dependencies = [
  "restflow-ai",
  "restflow-sandbox",
  "restflow-storage",
+ "restflow-traits",
  "scraper",
  "serde",
  "serde_json",
@@ -5372,6 +5375,22 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
+]
+
+[[package]]
+name = "restflow-traits"
+version = "0.3.4"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "lsp-types",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "url",
 ]
 
 [[package]]

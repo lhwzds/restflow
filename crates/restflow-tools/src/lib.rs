@@ -7,7 +7,7 @@
 //! - HTTP client utilities
 //!
 //! Core abstractions (Tool trait, ToolError, ToolRegistry, SecurityGate, etc.)
-//! are defined in `restflow-ai` and re-exported here for convenience.
+//! are defined in `restflow-traits` and re-exported here for convenience.
 
 pub mod http_client;
 
@@ -16,25 +16,25 @@ pub mod impls;
 pub mod security;
 pub mod skill;
 
-// Re-export core types from restflow-ai at crate root
-pub use restflow_ai::tools::error::{Result, ToolError};
-pub use restflow_ai::tools::traits::{
+// Re-export core types from restflow-traits at crate root
+pub use restflow_traits::error::{Result, ToolError};
+pub use restflow_traits::tool::{
     SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security,
 };
-pub use restflow_ai::tools::registry::ToolRegistry;
-pub use restflow_ai::tools::toolset::{Toolset, ToolsetContext};
-pub use restflow_ai::tools::wrapper::{
+pub use restflow_traits::registry::ToolRegistry;
+pub use restflow_traits::toolset::{Toolset, ToolsetContext};
+pub use restflow_traits::wrapper::{
     RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool,
 };
 
-// Re-export security types from restflow-ai
-pub use restflow_ai::security::{SecurityDecision, SecurityGate, ToolAction};
-pub use restflow_ai::security::network::{
+// Re-export security types from restflow-traits
+pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
+pub use restflow_traits::network::{
     NetworkAllowlist, NetworkEcosystem, resolve_and_validate_url, validate_url,
 };
 
-// Store traits are defined in restflow-ai::tools::store_traits.
-// Consumers should import them directly from restflow-ai.
+// Store traits are defined in restflow-traits::store.
+// Consumers should import them directly from restflow-traits.
 
 // Re-export tool implementations (original 7)
 pub use impls::{
@@ -69,8 +69,8 @@ pub use impls::{
     ToolRegistryBuilder, UseSkillTool, WaitAgentsTool, default_registry,
 };
 
-// Re-export skill types from restflow-ai
-pub use restflow_ai::tools::skill_types::{
+// Re-export skill types from restflow-traits
+pub use restflow_traits::skill::{
     SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate,
 };
 pub use skill::tool::SkillAsTool;

@@ -64,7 +64,8 @@ impl WebSearchTool {
             .header("X-Subscription-Token", api_key)
             .header("Accept", "application/json")
             .send()
-            .await?;
+            .await
+            .map_err(|e| crate::ToolError::Other(e.into()))?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -75,7 +76,7 @@ impl WebSearchTool {
             )));
         }
 
-        let data: Value = response.json().await?;
+        let data: Value = response.json().await.map_err(|e| crate::ToolError::Other(e.into()))?;
         let results = data["web"]["results"]
             .as_array()
             .map(|arr| {
@@ -106,7 +107,8 @@ impl WebSearchTool {
             .post("https://api.tavily.com/search")
             .json(&body)
             .send()
-            .await?;
+            .await
+            .map_err(|e| crate::ToolError::Other(e.into()))?;
 
         if !response.status().is_success() {
             let status = response.status();
@@ -117,7 +119,7 @@ impl WebSearchTool {
             )));
         }
 
-        let data: Value = response.json().await?;
+        let data: Value = response.json().await.map_err(|e| crate::ToolError::Other(e.into()))?;
         let results = data["results"]
             .as_array()
             .map(|arr| {
@@ -150,7 +152,8 @@ impl WebSearchTool {
                 "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
             )
             .send()
-            .await?;
+            .await
+            .map_err(|e| crate::ToolError::Other(e.into()))?;
 
         if !response.status().is_success() {
             return Err(crate::ToolError::Tool(format!(
@@ -159,7 +162,7 @@ impl WebSearchTool {
             )));
         }
 
-        let html = response.text().await?;
+        let html = response.text().await.map_err(|e| crate::ToolError::Other(e.into()))?;
         let results = parse_duckduckgo_html(&html, num);
         Ok(json!({ "provider": "duckduckgo", "results": results }))
     }
