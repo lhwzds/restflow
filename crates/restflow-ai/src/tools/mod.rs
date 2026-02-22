@@ -11,6 +11,7 @@ mod background_agent;
 mod bash;
 mod config;
 mod diagnostics;
+mod discord;
 mod email;
 mod file;
 mod file_tracker;
@@ -31,6 +32,7 @@ mod save_deliverable;
 mod secrets;
 mod session;
 mod skill;
+mod slack;
 mod spawn_subtask;
 mod switch_model;
 mod telegram;
@@ -59,6 +61,7 @@ pub use background_agent::{
 };
 pub use bash::{BashInput, BashOutput, BashTool};
 pub use config::ConfigTool;
+pub use discord::DiscordTool;
 pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
@@ -86,6 +89,7 @@ pub use session::{
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
 };
 pub use skill::SkillTool;
+pub use slack::SlackTool;
 pub use spawn_subtask::{SpawnSubtaskRequest, SpawnSubtaskTool};
 pub use switch_model::SwitchModelTool;
 pub use telegram::{TelegramTool, send_telegram_notification};
@@ -115,6 +119,8 @@ pub fn default_registry() -> ToolRegistry {
     registry.register(HttpTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
+    registry.register(DiscordTool::new());
+    registry.register(SlackTool::new());
     registry.register(WebSearchTool::new());
     registry.register(WebFetchTool::new());
     registry.register(JinaReaderTool::new());
@@ -136,6 +142,8 @@ pub fn default_registry_with_diagnostics(provider: Arc<dyn DiagnosticsProvider>)
     registry.register(HttpTool::new());
     registry.register(EmailTool::new());
     registry.register(TelegramTool::new());
+    registry.register(DiscordTool::new());
+    registry.register(SlackTool::new());
     registry.register(DiagnosticsTool::new(provider));
     registry.register(WebSearchTool::new());
     registry.register(WebFetchTool::new());

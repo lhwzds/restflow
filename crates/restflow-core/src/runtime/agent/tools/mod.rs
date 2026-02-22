@@ -15,10 +15,12 @@ pub use restflow_ai::tools::{
 };
 
 mod bash;
+mod discord;
 mod email;
 mod file;
 mod http;
 mod list_agents;
+mod slack;
 mod spawn;
 mod spawn_agent;
 mod telegram;
@@ -26,10 +28,12 @@ mod use_skill;
 mod wait_agents;
 
 pub use bash::{BashConfig, BashTool};
+pub use discord::DiscordTool;
 pub use email::EmailTool;
 pub use file::{FileConfig, FileTool};
 pub use http::HttpTool;
 pub use list_agents::ListAgentsTool;
+pub use slack::SlackTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
 pub use spawn_agent::SpawnAgentTool;
 pub use telegram::TelegramTool;
@@ -64,6 +68,8 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "http",
         "email",
         "telegram",
+        "discord",
+        "slack",
         "run_python",
         "transcribe",
         "vision",
@@ -160,6 +166,18 @@ impl ToolRegistryBuilder {
     /// Add Telegram tool.
     pub fn with_telegram(mut self) -> Self {
         self.registry.register(TelegramTool::new());
+        self
+    }
+
+    /// Add Discord tool.
+    pub fn with_discord(mut self) -> Self {
+        self.registry.register(DiscordTool::new());
+        self
+    }
+
+    /// Add Slack tool.
+    pub fn with_slack(mut self) -> Self {
+        self.registry.register(SlackTool::new());
         self
     }
 
@@ -288,6 +306,12 @@ pub fn registry_from_allowlist(
             }
             "telegram_send" | "telegram" => {
                 builder = builder.with_telegram();
+            }
+            "discord_send" | "discord" => {
+                builder = builder.with_discord();
+            }
+            "slack_send" | "slack" => {
+                builder = builder.with_slack();
             }
             "python" | "run_python" => {
                 builder = builder.with_python();
@@ -574,6 +598,8 @@ pub fn default_registry() -> ToolRegistry {
         .with_http()
         .with_email()
         .with_telegram()
+        .with_discord()
+        .with_slack()
         .with_python()
         .build()
 }

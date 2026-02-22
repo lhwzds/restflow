@@ -1,5 +1,5 @@
 use anyhow::Result;
-use restflow_core::channel::{ChannelRouter, TelegramChannel};
+use restflow_core::channel::TelegramChannel;
 use restflow_core::storage::{DaemonStateStorage, SecretStorage};
 use std::sync::Arc;
 use tracing::warn;
@@ -13,10 +13,11 @@ fn non_empty_secret(secrets: &SecretStorage, key: &str) -> Result<Option<String>
 
 const TELEGRAM_LAST_UPDATE_KEY: &str = "telegram_last_update_id";
 
+/// Set up the Telegram channel, returning the channel and optional default chat ID.
 pub fn setup_telegram_channel(
     secrets: &SecretStorage,
     daemon_state: &DaemonStateStorage,
-) -> Result<Option<Arc<ChannelRouter>>> {
+) -> Result<Option<(TelegramChannel, Option<String>)>> {
     let token = non_empty_secret(secrets, "TELEGRAM_BOT_TOKEN")?;
 
     let Some(token) = token else {
@@ -26,7 +27,6 @@ pub fn setup_telegram_channel(
     let default_chat_id = non_empty_secret(secrets, "TELEGRAM_CHAT_ID")?
         .or(non_empty_secret(secrets, "TELEGRAM_DEFAULT_CHAT_ID")?);
 
-    let mut router = ChannelRouter::new();
     let initial_offset = daemon_state.get_i64(TELEGRAM_LAST_UPDATE_KEY)?;
     let daemon_state = daemon_state.clone();
     let persister: Arc<dyn Fn(i64) + Send + Sync> = Arc::new(move |update_id| {
@@ -41,24 +41,14 @@ pub fn setup_telegram_channel(
     let channel = TelegramChannel::with_token(&token)
         .with_last_update_id(initial_offset)
         .with_offset_persister(persister);
-    if let Some(chat_id) = default_chat_id {
-        router.register_with_default(channel, chat_id);
-    } else {
-        warn!(
-            "Telegram channel registered without default chat ID. Notifications will only work \
-if a user interacts with the bot first. Set TELEGRAM_CHAT_ID for reliable notifications."
-        );
-        router.register(channel);
-    }
 
-    Ok(Some(Arc::new(router)))
+    Ok(Some((channel, default_chat_id)))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use redb::Database;
-    use restflow_core::channel::ChannelType;
     use tempfile::tempdir;
 
     #[test]
@@ -69,8 +59,8 @@ mod tests {
         let secrets = SecretStorage::new(db.clone()).unwrap();
         let daemon_state = DaemonStateStorage::new(db).unwrap();
 
-        let router = setup_telegram_channel(&secrets, &daemon_state).unwrap();
-        assert!(router.is_none());
+        let result = setup_telegram_channel(&secrets, &daemon_state).unwrap();
+        assert!(result.is_none());
     }
 
     #[test]
@@ -88,10 +78,10 @@ mod tests {
             .set_secret("TELEGRAM_CHAT_ID", "12345678", None)
             .unwrap();
 
-        let router = setup_telegram_channel(&secrets, &daemon_state)
+        let (_, default_chat_id) = setup_telegram_channel(&secrets, &daemon_state)
             .unwrap()
             .unwrap();
-        assert!(router.has_default_conversation(ChannelType::Telegram));
+        assert_eq!(default_chat_id, Some("12345678".to_string()));
     }
 
     #[test]
@@ -109,9 +99,9 @@ mod tests {
             .set_secret("TELEGRAM_DEFAULT_CHAT_ID", "87654321", None)
             .unwrap();
 
-        let router = setup_telegram_channel(&secrets, &daemon_state)
+        let (_, default_chat_id) = setup_telegram_channel(&secrets, &daemon_state)
             .unwrap()
             .unwrap();
-        assert!(router.has_default_conversation(ChannelType::Telegram));
+        assert_eq!(default_chat_id, Some("87654321".to_string()));
     }
 }
