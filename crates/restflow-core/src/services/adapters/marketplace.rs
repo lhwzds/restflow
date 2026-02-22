@@ -197,3 +197,58 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
         Ok(serde_json::to_value(skills)?)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::MarketplaceStore;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (MarketplaceStoreAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let storage = SkillStorage::new(db).unwrap();
+        (MarketplaceStoreAdapter::new(storage), temp_dir)
+    }
+
+    #[test]
+    fn test_list_installed_empty() {
+        let (adapter, _dir) = setup();
+        let result = adapter.list_installed().unwrap();
+        let skills = result.as_array().unwrap();
+        assert!(skills.is_empty());
+    }
+
+    #[test]
+    fn test_uninstall_nonexistent_skill() {
+        let (adapter, _dir) = setup();
+        let result = adapter.uninstall_skill("nonexistent").unwrap();
+        assert_eq!(result["deleted"], false);
+    }
+
+    #[test]
+    fn test_uninstall_existing_skill() {
+        let (adapter, _dir) = setup();
+        // Manually create a skill to uninstall
+        let skill = crate::models::Skill::new(
+            "test-skill".to_string(),
+            "Test".to_string(),
+            Some("Description".to_string()),
+            Some(vec!["test".to_string()]),
+            "# Skill content".to_string(),
+        );
+        adapter.storage.create(&skill).unwrap();
+
+        let result = adapter.uninstall_skill("test-skill").unwrap();
+        assert_eq!(result["deleted"], true);
+    }
+
+    #[test]
+    fn test_provider_name() {
+        assert_eq!(MarketplaceStoreAdapter::provider_name(Some("github")), "github");
+        assert_eq!(MarketplaceStoreAdapter::provider_name(None), "marketplace");
+        assert_eq!(MarketplaceStoreAdapter::provider_name(Some("other")), "marketplace");
+    }
+}
