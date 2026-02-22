@@ -39,3 +39,49 @@ impl UnifiedMemorySearch for UnifiedMemorySearchAdapter {
         Ok(serde_json::to_value(results)?)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::UnifiedMemorySearch;
+    use crate::storage::MemoryStorage;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (UnifiedMemorySearchAdapter, MemoryStorage, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let memory_storage = MemoryStorage::new(db.clone()).unwrap();
+        let chat_storage = crate::storage::ChatSessionStorage::new(db).unwrap();
+        let engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage);
+        (UnifiedMemorySearchAdapter::new(engine), memory_storage, temp_dir)
+    }
+
+    #[test]
+    fn test_search_empty_returns_valid_json() {
+        let (adapter, _storage, _dir) = setup();
+        let result = adapter.search("agent-1", "anything", false, 10, 0).unwrap();
+        assert!(result.is_object());
+    }
+
+    #[test]
+    fn test_search_with_data() {
+        let (adapter, storage, _dir) = setup();
+        let chunk = crate::models::memory::MemoryChunk::new(
+            "agent-1".to_string(),
+            "Rust is a systems programming language".to_string(),
+        );
+        storage.store_chunk(&chunk).unwrap();
+
+        let result = adapter.search("agent-1", "rust", false, 10, 0).unwrap();
+        assert!(result.is_object());
+    }
+
+    #[test]
+    fn test_search_with_sessions() {
+        let (adapter, _storage, _dir) = setup();
+        let result = adapter.search("agent-1", "test", true, 10, 0).unwrap();
+        assert!(result.is_object());
+    }
+}
