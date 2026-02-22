@@ -336,3 +336,142 @@ impl MemoryStore for DbMemoryStoreAdapter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::{MemoryManager, MemoryStore};
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (MemoryManagerAdapter, DbMemoryStoreAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let storage = MemoryStorage::new(db).unwrap();
+        let manager = MemoryManagerAdapter::new(storage.clone());
+        let store = DbMemoryStoreAdapter::new(storage);
+        (manager, store, temp_dir)
+    }
+
+    // --- DbMemoryStoreAdapter tests ---
+
+    #[test]
+    fn test_save_and_read_memory() {
+        let (_mgr, store, _dir) = setup();
+        let result = store
+            .save("agent-1", "My Note", "This is content", &["tag1".to_string()])
+            .unwrap();
+        assert_eq!(result["success"], true);
+        let id = result["id"].as_str().unwrap();
+
+        let read = store.read_by_id(id).unwrap().unwrap();
+        assert_eq!(read["found"], true);
+        assert_eq!(read["entry"]["content"], "This is content");
+        assert_eq!(read["entry"]["title"], "My Note");
+    }
+
+    #[test]
+    fn test_read_nonexistent_memory() {
+        let (_mgr, store, _dir) = setup();
+        let result = store.read_by_id("nonexistent").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_list_memories() {
+        let (_mgr, store, _dir) = setup();
+        store.save("agent-1", "A", "content a", &[]).unwrap();
+        store.save("agent-1", "B", "content b", &[]).unwrap();
+
+        let result = store.list("agent-1", None, 100).unwrap();
+        assert_eq!(result["total"], 2);
+        assert_eq!(result["count"], 2);
+    }
+
+    #[test]
+    fn test_search_memories_by_tag() {
+        let (_mgr, store, _dir) = setup();
+        store.save("agent-1", "Tagged", "body", &["important".to_string()]).unwrap();
+        store.save("agent-1", "Not Tagged", "body2", &[]).unwrap();
+
+        let result = store.search("agent-1", Some("important"), None, 100).unwrap();
+        assert_eq!(result["count"], 1);
+    }
+
+    #[test]
+    fn test_delete_memory() {
+        let (_mgr, store, _dir) = setup();
+        let saved = store.save("agent-1", "Del", "body", &[]).unwrap();
+        let id = saved["id"].as_str().unwrap();
+
+        let result = store.delete(id).unwrap();
+        assert_eq!(result["deleted"], true);
+
+        let result2 = store.delete(id).unwrap();
+        assert_eq!(result2["deleted"], false);
+    }
+
+    #[test]
+    fn test_build_and_extract_tags() {
+        let tags = DbMemoryStoreAdapter::build_tags("Title", &["user-tag".to_string()]);
+        assert_eq!(tags.len(), 2);
+        assert_eq!(DbMemoryStoreAdapter::extract_title(&tags), "Title");
+        let user = DbMemoryStoreAdapter::user_tags(&tags);
+        assert_eq!(user, vec!["user-tag".to_string()]);
+    }
+
+    // --- MemoryManagerAdapter tests ---
+
+    #[test]
+    fn test_stats() {
+        let (mgr, store, _dir) = setup();
+        store.save("agent-1", "T", "content", &[]).unwrap();
+        let stats = mgr.stats("agent-1").unwrap();
+        assert!(stats.is_object());
+    }
+
+    #[test]
+    fn test_clear_agent() {
+        let (mgr, store, _dir) = setup();
+        store.save("agent-1", "T", "content", &[]).unwrap();
+        let result = mgr
+            .clear(MemoryClearRequest {
+                agent_id: "agent-1".to_string(),
+                session_id: None,
+                delete_sessions: None,
+            })
+            .unwrap();
+        assert!(result.get("chunks_deleted").is_some());
+    }
+
+    #[test]
+    fn test_compact_keeps_recent() {
+        let (mgr, store, _dir) = setup();
+        // Use different content to avoid deduplication
+        for i in 0..5 {
+            store
+                .save(
+                    "agent-1",
+                    &format!("Mem {}", i),
+                    &format!("unique content {}", i),
+                    &[],
+                )
+                .unwrap();
+        }
+        let before = store.list("agent-1", None, 100).unwrap();
+        let total = before["total"].as_u64().unwrap();
+        assert_eq!(total, 5);
+
+        let result = mgr
+            .compact(MemoryCompactRequest {
+                agent_id: "agent-1".to_string(),
+                keep_recent: Some(3),
+                before_ms: None,
+            })
+            .unwrap();
+        assert_eq!(result["total_chunks"], 5);
+        assert_eq!(result["deleted"], 2);
+        assert_eq!(result["remaining"], 3);
+    }
+}
