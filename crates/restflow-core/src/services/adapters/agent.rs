@@ -195,3 +195,159 @@ impl AgentStore for AgentStoreAdapter {
         Ok(json!({ "id": id, "deleted": true }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::AgentStore;
+    use std::sync::{Arc, Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn setup() -> (AgentStoreAdapter, tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
+        let guard = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let prev_dir = std::env::var_os("RESTFLOW_DIR");
+        let prev_key = std::env::var_os("RESTFLOW_MASTER_KEY");
+        unsafe {
+            std::env::set_var("RESTFLOW_DIR", &state_dir);
+            std::env::remove_var("RESTFLOW_MASTER_KEY");
+        }
+
+        let agent_storage = AgentStorage::new(db.clone()).unwrap();
+        let skill_storage = SkillStorage::new(db.clone()).unwrap();
+        let secret_storage = SecretStorage::with_config(
+            db.clone(),
+            restflow_storage::SecretStorageConfig {
+                allow_insecure_file_permissions: true,
+            },
+        )
+        .unwrap();
+        let bg_storage = BackgroundAgentStorage::new(db).unwrap();
+        let known_tools = Arc::new(RwLock::new(HashSet::from([
+            "bash".to_string(),
+            "http".to_string(),
+        ])));
+
+        // Restore env vars immediately
+        unsafe {
+            match prev_dir {
+                Some(v) => std::env::set_var("RESTFLOW_DIR", v),
+                None => std::env::remove_var("RESTFLOW_DIR"),
+            }
+            match prev_key {
+                Some(v) => std::env::set_var("RESTFLOW_MASTER_KEY", v),
+                None => std::env::remove_var("RESTFLOW_MASTER_KEY"),
+            }
+        }
+
+        (
+            AgentStoreAdapter::new(agent_storage, skill_storage, secret_storage, bg_storage, known_tools),
+            temp_dir,
+            guard,
+        )
+    }
+
+    #[test]
+    fn test_create_and_list_agents() {
+        let (adapter, _dir, _guard) = setup();
+        let agent_json = serde_json::to_value(crate::models::AgentNode::default()).unwrap();
+        let request = AgentCreateRequest {
+            name: "Test Agent".to_string(),
+            agent: agent_json,
+        };
+        adapter.create_agent(request).unwrap();
+
+        let list = adapter.list_agents().unwrap();
+        let agents = list.as_array().unwrap();
+        assert!(!agents.is_empty());
+    }
+
+    #[test]
+    fn test_get_agent() {
+        let (adapter, _dir, _guard) = setup();
+        let agent_json = serde_json::to_value(crate::models::AgentNode::default()).unwrap();
+        let created = adapter
+            .create_agent(AgentCreateRequest {
+                name: "Getter".to_string(),
+                agent: agent_json,
+            })
+            .unwrap();
+        let id = created["id"].as_str().unwrap();
+
+        let fetched = adapter.get_agent(id).unwrap();
+        assert_eq!(fetched["name"], "Getter");
+    }
+
+    #[test]
+    fn test_get_nonexistent_agent_fails() {
+        let (adapter, _dir, _guard) = setup();
+        let result = adapter.get_agent("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_delete_agent() {
+        let (adapter, _dir, _guard) = setup();
+        let agent_json = serde_json::to_value(crate::models::AgentNode::default()).unwrap();
+        let created = adapter
+            .create_agent(AgentCreateRequest {
+                name: "To Delete".to_string(),
+                agent: agent_json,
+            })
+            .unwrap();
+        let id = created["id"].as_str().unwrap();
+
+        let result = adapter.delete_agent(id).unwrap();
+        assert_eq!(result["deleted"], true);
+    }
+
+    #[test]
+    fn test_update_agent_name() {
+        let (adapter, _dir, _guard) = setup();
+        let agent_json = serde_json::to_value(crate::models::AgentNode::default()).unwrap();
+        let created = adapter
+            .create_agent(AgentCreateRequest {
+                name: "Original".to_string(),
+                agent: agent_json,
+            })
+            .unwrap();
+        let id = created["id"].as_str().unwrap().to_string();
+
+        let updated = adapter
+            .update_agent(AgentUpdateRequest {
+                id,
+                name: Some("Renamed".to_string()),
+                agent: None,
+            })
+            .unwrap();
+        assert_eq!(updated["name"], "Renamed");
+    }
+
+    #[test]
+    fn test_validate_unknown_tool_rejected() {
+        let (adapter, _dir, _guard) = setup();
+        let mut agent = crate::models::AgentNode::default();
+        agent.tools = Some(vec!["nonexistent_tool".to_string()]);
+        let agent_json = serde_json::to_value(agent).unwrap();
+
+        let result = adapter.create_agent(AgentCreateRequest {
+            name: "Bad Tools".to_string(),
+            agent: agent_json,
+        });
+        assert!(result.is_err());
+        let err_msg = format!("{:?}", result.unwrap_err());
+        assert!(err_msg.contains("unknown tool"));
+    }
+}
