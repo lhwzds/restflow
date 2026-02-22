@@ -32,7 +32,11 @@ impl AuditStorage {
     /// Create an in-memory audit storage (for testing).
     #[allow(dead_code)]
     pub fn in_memory() -> Result<Self> {
-        let db = Arc::new(Database::create(":memory:").context("Failed to create in-memory database")?);
+        let db = Arc::new(
+            Database::builder()
+                .create_with_backend(redb::backends::InMemoryBackend::new())
+                .context("Failed to create in-memory database")?,
+        );
         
         // Initialize schema
         {
@@ -201,7 +205,7 @@ impl AuditStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::audit::{AuditEventCategory, AuditEventSource, LlmCallAudit};
+    use crate::models::audit::LlmCallAudit;
 
     #[test]
     fn test_audit_storage() {
