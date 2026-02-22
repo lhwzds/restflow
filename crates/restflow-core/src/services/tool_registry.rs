@@ -1,2468 +1,21 @@
 //! Tool registry service for creating tool registries with storage access.
+//!
+//! Adapter implementations live in [`super::adapters`]. This module provides
+//! the [`create_tool_registry`] function that wires adapters into tools.
 
-use crate::daemon::{DaemonStatus, check_daemon_status, check_health};
 use crate::lsp::LspManager;
-use crate::memory::{MemoryExporter, UnifiedSearchEngine};
-use crate::models::{
-    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, Deliverable,
-    DeliverableType, DurabilityMode, MemoryConfig, MemoryScope, MemorySearchQuery, NoteQuery,
-    NoteStatus, ResourceLimits, SearchMode, SharedEntry, Skill, TerminalSession,
-    TriggerConfig, UnifiedSearchQuery, Visibility, WorkspaceNote,
-    WorkspaceNotePatch as CoreWorkspaceNotePatch, WorkspaceNoteSpec as CoreWorkspaceNoteSpec,
-};
-use crate::registry::{
-    GitHubProvider, MarketplaceProvider, SkillProvider as _,
-    SkillSearchQuery,
-};
-use crate::security::SecurityChecker;
+use crate::memory::UnifiedSearchEngine;
+use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChatSessionStorage, ConfigStorage, MemoryStorage,
     SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
     WorkspaceNoteStorage,
 };
-use chrono::Utc;
-use restflow_tools::ToolError;
-// Store traits and abstractions from restflow-ai
-use restflow_ai::tools::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest,
-    AuthProfileStore, AuthProfileTestRequest, BackgroundAgentControlRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
-    BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentProgressRequest, BackgroundAgentScratchpadListRequest,
-    BackgroundAgentScratchpadReadRequest, BackgroundAgentStore,
-    BackgroundAgentUpdateRequest, DeliverableStore,
-    MarketplaceStore, MemoryClearRequest,
-    MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
-    OpsProvider, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
-    SessionSearchQuery, SessionStore, SharedSpaceStore,
-    TerminalStore, TriggerStore, UnifiedMemorySearch,
-    WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery,
-    WorkspaceNoteRecord, WorkspaceNoteSpec, WorkspaceNoteStatus,
-};
-use restflow_ai::{
-    SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate,
-    ToolRegistry,
-};
-// Tool implementations from restflow-tools
-use restflow_tools::{
-    AgentCrudTool, AuthProfileTool, BackgroundAgentTool, ConfigTool,
-    DeleteMemoryTool, DiagnosticsTool, ListMemoryTool, MemoryManagementTool,
-    ReadMemoryTool, SaveDeliverableTool, SaveMemoryTool, SecretsTool,
-    SessionTool, SkillTool, TranscribeTool, VisionTool, WebSearchTool,
-    WorkspaceNoteTool,
-    BashTool, FileTool, HttpTool, EmailTool, TelegramTool, DiscordTool, SlackTool,
-    PythonTool, RunPythonTool,
-    WebFetchTool, JinaReaderTool,
-    // Migrated inline tools
-    ManageOpsTool, MarketplaceTool, SecurityQueryTool, SharedSpaceTool,
-    TerminalTool, TriggerTool, UnifiedMemorySearchTool,
-};
-use serde::de::DeserializeOwned;
-use serde_json::{Value, json};
-use std::collections::{BTreeMap, HashSet};
-use std::path::{Path, PathBuf};
+use restflow_ai::{SecretResolver, ToolRegistry};
+use restflow_tools::ToolRegistryBuilder;
+use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
-use uuid::Uuid;
-
-/// SkillProvider implementation that reads from SkillStorage
-pub struct SkillStorageProvider {
-    storage: SkillStorage,
-}
-
-impl SkillStorageProvider {
-    /// Create a new SkillStorageProvider
-    pub fn new(storage: SkillStorage) -> Self {
-        Self { storage }
-    }
-}
-
-impl SkillProvider for SkillStorageProvider {
-    fn list_skills(&self) -> Vec<SkillInfo> {
-        match self.storage.list() {
-            Ok(skills) => skills
-                .into_iter()
-                .map(|s| SkillInfo {
-                    id: s.id,
-                    name: s.name,
-                    description: s.description,
-                    tags: s.tags,
-                })
-                .collect(),
-            Err(e) => {
-                tracing::error!(error = %e, "Failed to list skills");
-                Vec::new()
-            }
-        }
-    }
-
-    fn get_skill(&self, id: &str) -> Option<SkillContent> {
-        match self.storage.get(id) {
-            Ok(Some(skill)) => Some(SkillContent {
-                id: skill.id,
-                name: skill.name,
-                content: skill.content,
-            }),
-            Ok(None) => None,
-            Err(e) => {
-                tracing::error!(error = %e, skill_id = %id, "Failed to get skill");
-                None
-            }
-        }
-    }
-
-    fn create_skill(&self, skill: SkillRecord) -> Result<SkillRecord, String> {
-        let model = crate::models::Skill::new(
-            skill.id.clone(),
-            skill.name.clone(),
-            skill.description.clone(),
-            skill.tags.clone(),
-            skill.content.clone(),
-        );
-        self.storage.create(&model).map_err(|e| e.to_string())?;
-        Ok(skill)
-    }
-
-    fn update_skill(&self, id: &str, update: SkillUpdate) -> Result<SkillRecord, String> {
-        let mut skill = self
-            .storage
-            .get(id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Skill {} not found", id))?;
-
-        skill.update(update.name, update.description, update.tags, update.content);
-        self.storage.update(id, &skill).map_err(|e| e.to_string())?;
-
-        Ok(SkillRecord {
-            id: skill.id,
-            name: skill.name,
-            description: skill.description,
-            tags: skill.tags,
-            content: skill.content,
-        })
-    }
-
-    fn delete_skill(&self, id: &str) -> Result<bool, String> {
-        if !self.storage.exists(id).map_err(|e| e.to_string())? {
-            return Ok(false);
-        }
-        self.storage.delete(id).map_err(|e| e.to_string())?;
-        Ok(true)
-    }
-
-    fn export_skill(&self, id: &str) -> Result<String, String> {
-        let skill = self
-            .storage
-            .get(id)
-            .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Skill {} not found", id))?;
-        Ok(skill.to_markdown())
-    }
-
-    fn import_skill(
-        &self,
-        id: &str,
-        markdown: &str,
-        overwrite: bool,
-    ) -> Result<SkillRecord, String> {
-        let exists = self.storage.exists(id).map_err(|e| e.to_string())?;
-        if exists && !overwrite {
-            return Err(format!("Skill {} already exists", id));
-        }
-
-        let skill = crate::models::Skill::from_markdown(id, markdown).map_err(|e| e.to_string())?;
-
-        if exists {
-            self.storage.update(id, &skill).map_err(|e| e.to_string())?;
-        } else {
-            self.storage.create(&skill).map_err(|e| e.to_string())?;
-        }
-
-        Ok(SkillRecord {
-            id: skill.id,
-            name: skill.name,
-            description: skill.description,
-            tags: skill.tags,
-            content: skill.content,
-        })
-    }
-}
-
-#[derive(Clone)]
-struct AgentStoreAdapter {
-    storage: AgentStorage,
-    skills: SkillStorage,
-    secrets: SecretStorage,
-    background_agent_storage: BackgroundAgentStorage,
-    known_tools: Arc<RwLock<HashSet<String>>>,
-}
-
-impl AgentStoreAdapter {
-    fn new(
-        storage: AgentStorage,
-        skills: SkillStorage,
-        secrets: SecretStorage,
-        background_agent_storage: BackgroundAgentStorage,
-        known_tools: Arc<RwLock<HashSet<String>>>,
-    ) -> Self {
-        Self {
-            storage,
-            skills,
-            secrets,
-            background_agent_storage,
-            known_tools,
-        }
-    }
-
-    fn parse_agent_node(value: serde_json::Value) -> Result<crate::models::AgentNode, ToolError> {
-        serde_json::from_value(value)
-            .map_err(|e| ToolError::Tool(format!("Invalid agent payload: {}", e)))
-    }
-
-    fn validate_agent_node(&self, agent: &crate::models::AgentNode) -> Result<(), ToolError> {
-        if let Err(errors) = agent.validate() {
-            return Err(ToolError::Tool(crate::models::encode_validation_error(
-                errors,
-            )));
-        }
-
-        let mut errors = Vec::new();
-        if let Some(tools) = &agent.tools {
-            for tool_name in tools {
-                let normalized = tool_name.trim();
-                if normalized.is_empty() {
-                    errors.push(crate::models::ValidationError::new(
-                        "tools",
-                        "tool name must not be empty",
-                    ));
-                    continue;
-                }
-                let is_known = self
-                    .known_tools
-                    .read()
-                    .map(|set| set.contains(normalized))
-                    .unwrap_or(false);
-                if !is_known {
-                    errors.push(crate::models::ValidationError::new(
-                        "tools",
-                        format!("unknown tool: {}", normalized),
-                    ));
-                }
-            }
-        }
-
-        if let Some(skills) = &agent.skills {
-            for skill_id in skills {
-                let normalized = skill_id.trim();
-                if normalized.is_empty() {
-                    errors.push(crate::models::ValidationError::new(
-                        "skills",
-                        "skill ID must not be empty",
-                    ));
-                    continue;
-                }
-                match self.skills.exists(normalized) {
-                    Ok(true) => {}
-                    Ok(false) => errors.push(crate::models::ValidationError::new(
-                        "skills",
-                        format!("unknown skill: {}", normalized),
-                    )),
-                    Err(err) => errors.push(crate::models::ValidationError::new(
-                        "skills",
-                        format!("failed to verify skill '{}': {}", normalized, err),
-                    )),
-                }
-            }
-        }
-
-        if let Some(crate::models::ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
-            let normalized = secret_name.trim();
-            if !normalized.is_empty() {
-                match self.secrets.has_secret(normalized) {
-                    Ok(true) => {}
-                    Ok(false) => errors.push(crate::models::ValidationError::new(
-                        "api_key_config",
-                        format!("secret not found: {}", normalized),
-                    )),
-                    Err(err) => errors.push(crate::models::ValidationError::new(
-                        "api_key_config",
-                        format!("failed to verify secret '{}': {}", normalized, err),
-                    )),
-                }
-            }
-        }
-
-        if errors.is_empty() {
-            Ok(())
-        } else {
-            Err(ToolError::Tool(crate::models::encode_validation_error(
-                errors,
-            )))
-        }
-    }
-}
-
-impl AgentStore for AgentStoreAdapter {
-    fn list_agents(&self) -> restflow_tools::Result<serde_json::Value> {
-        let agents = self
-            .storage
-            .list_agents()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(agents).map_err(ToolError::from)
-    }
-
-    fn get_agent(&self, id: &str) -> restflow_tools::Result<serde_json::Value> {
-        let agent = self
-            .storage
-            .get_agent(id.to_string())
-            .map_err(|e| ToolError::Tool(e.to_string()))?
-            .ok_or_else(|| ToolError::Tool(format!("Agent {} not found", id)))?;
-        serde_json::to_value(agent).map_err(ToolError::from)
-    }
-
-    fn create_agent(
-        &self,
-        request: AgentCreateRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let agent = Self::parse_agent_node(request.agent)?;
-        self.validate_agent_node(&agent)?;
-        let created = self
-            .storage
-            .create_agent(request.name, agent)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(created).map_err(ToolError::from)
-    }
-
-    fn update_agent(
-        &self,
-        request: AgentUpdateRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let agent = match request.agent {
-            Some(value) => {
-                let node = Self::parse_agent_node(value)?;
-                self.validate_agent_node(&node)?;
-                Some(node)
-            }
-            None => None,
-        };
-        let updated = self
-            .storage
-            .update_agent(request.id, request.name, agent)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(updated).map_err(ToolError::from)
-    }
-
-    fn delete_agent(&self, id: &str) -> restflow_tools::Result<serde_json::Value> {
-        let active_tasks = self
-            .background_agent_storage
-            .list_active_tasks_by_agent_id(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        if !active_tasks.is_empty() {
-            let task_names = active_tasks
-                .iter()
-                .map(|task| task.name.clone())
-                .collect::<Vec<_>>()
-                .join(", ");
-            return Err(ToolError::Tool(format!(
-                "Cannot delete agent {}: active background tasks exist ({})",
-                id, task_names
-            )));
-        }
-
-        self.storage
-            .delete_agent(id.to_string())
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(json!({ "id": id, "deleted": true }))
-    }
-}
-
-#[derive(Clone)]
-struct BackgroundAgentStoreAdapter {
-    storage: BackgroundAgentStorage,
-    agent_storage: AgentStorage,
-    deliverable_storage: crate::storage::DeliverableStorage,
-}
-
-impl BackgroundAgentStoreAdapter {
-    fn new(
-        storage: BackgroundAgentStorage,
-        agent_storage: AgentStorage,
-        deliverable_storage: crate::storage::DeliverableStorage,
-    ) -> Self {
-        Self {
-            storage,
-            agent_storage,
-            deliverable_storage,
-        }
-    }
-
-    fn parse_status(status: &str) -> Result<BackgroundAgentStatus, ToolError> {
-        match status.trim().to_lowercase().as_str() {
-            "active" => Ok(BackgroundAgentStatus::Active),
-            "paused" => Ok(BackgroundAgentStatus::Paused),
-            "running" => Ok(BackgroundAgentStatus::Running),
-            "completed" => Ok(BackgroundAgentStatus::Completed),
-            "failed" => Ok(BackgroundAgentStatus::Failed),
-            "interrupted" => Ok(BackgroundAgentStatus::Interrupted),
-            _ => Err(ToolError::Tool(format!("Unknown status: {}", status))),
-        }
-    }
-
-    fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction, ToolError> {
-        match action.trim().to_lowercase().as_str() {
-            "start" => Ok(BackgroundAgentControlAction::Start),
-            "pause" => Ok(BackgroundAgentControlAction::Pause),
-            "resume" => Ok(BackgroundAgentControlAction::Resume),
-            "stop" => Ok(BackgroundAgentControlAction::Stop),
-            "run_now" | "run-now" | "runnow" => Ok(BackgroundAgentControlAction::RunNow),
-            _ => Err(ToolError::Tool(format!("Unknown control action: {}", action))),
-        }
-    }
-
-    fn parse_message_source(source: Option<&str>) -> Result<BackgroundMessageSource, ToolError> {
-        match source.map(|value| value.trim().to_lowercase()) {
-            None => Ok(BackgroundMessageSource::User),
-            Some(value) if value.is_empty() => Ok(BackgroundMessageSource::User),
-            Some(value) if value == "user" => Ok(BackgroundMessageSource::User),
-            Some(value) if value == "agent" => Ok(BackgroundMessageSource::Agent),
-            Some(value) if value == "system" => Ok(BackgroundMessageSource::System),
-            Some(value) => Err(ToolError::Tool(format!("Unknown message source: {}", value))),
-        }
-    }
-
-    fn parse_optional_value<T: DeserializeOwned>(
-        field: &str,
-        value: Option<serde_json::Value>,
-    ) -> Result<Option<T>, ToolError> {
-        match value {
-            Some(value) => serde_json::from_value(value)
-                .map(Some)
-                .map_err(|e| ToolError::Tool(format!("Invalid {}: {}", field, e))),
-            None => Ok(None),
-        }
-    }
-
-    fn parse_memory_scope(value: Option<&str>) -> Result<Option<MemoryScope>, ToolError> {
-        match value.map(|scope| scope.trim().to_lowercase()) {
-            None => Ok(None),
-            Some(scope) if scope.is_empty() => Ok(None),
-            Some(scope) if scope == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
-            Some(scope) if scope == "per_background_agent" => {
-                Ok(Some(MemoryScope::PerBackgroundAgent))
-            }
-            Some(scope) => Err(ToolError::Tool(format!("Unknown memory_scope: {}", scope))),
-        }
-    }
-
-    fn parse_durability_mode(value: Option<&str>) -> Result<Option<DurabilityMode>, ToolError> {
-        match value.map(|mode| mode.trim().to_lowercase()) {
-            None => Ok(None),
-            Some(mode) if mode.is_empty() => Ok(None),
-            Some(mode) if mode == "sync" => Ok(Some(DurabilityMode::Sync)),
-            Some(mode) if mode == "async" => Ok(Some(DurabilityMode::Async)),
-            Some(mode) if mode == "exit" => Ok(Some(DurabilityMode::Exit)),
-            Some(mode) => Err(ToolError::Tool(format!("Unknown durability_mode: {}", mode))),
-        }
-    }
-
-    fn merge_memory_scope(
-        memory: Option<MemoryConfig>,
-        memory_scope: Option<String>,
-    ) -> Result<Option<MemoryConfig>, ToolError> {
-        let parsed_scope = Self::parse_memory_scope(memory_scope.as_deref())?;
-        match (memory, parsed_scope) {
-            (Some(mut memory), Some(scope)) => {
-                memory.memory_scope = scope;
-                Ok(Some(memory))
-            }
-            (Some(memory), None) => Ok(Some(memory)),
-            (None, Some(scope)) => Ok(Some(MemoryConfig {
-                memory_scope: scope,
-                ..MemoryConfig::default()
-            })),
-            (None, None) => Ok(None),
-        }
-    }
-
-    fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
-        self.agent_storage
-            .resolve_existing_agent_id(id_or_prefix)
-            .map_err(|e| ToolError::Tool(e.to_string()))
-    }
-
-    fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
-        self.storage
-            .resolve_existing_task_id(id_or_prefix)
-            .map_err(|e| ToolError::Tool(e.to_string()))
-    }
-
-    fn scratchpad_dir() -> Result<PathBuf, ToolError> {
-        let dir = crate::paths::ensure_restflow_dir()
-            .map_err(|e| ToolError::Tool(e.to_string()))?
-            .join("scratchpads");
-        std::fs::create_dir_all(&dir).map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(dir)
-    }
-
-    fn validate_scratchpad_name(name: &str) -> Result<(), ToolError> {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            return Err(ToolError::Tool(
-                "scratchpad name must not be empty".to_string(),
-            ));
-        }
-        if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
-            return Err(ToolError::Tool("invalid scratchpad name".to_string()));
-        }
-        if !trimmed.ends_with(".jsonl") {
-            return Err(ToolError::Tool(
-                "scratchpad must be a .jsonl file".to_string(),
-            ));
-        }
-        Ok(())
-    }
-}
-
-impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
-    fn create_background_agent(
-        &self,
-        request: BackgroundAgentCreateRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let resolved_agent_id = self.resolve_agent_id(&request.agent_id)?;
-        let schedule =
-            Self::parse_optional_value::<BackgroundAgentSchedule>("schedule", request.schedule)?
-                .unwrap_or_default();
-        let memory = Self::parse_optional_value("memory", request.memory)?;
-        let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
-        let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
-        let resource_limits: Option<ResourceLimits> =
-            Self::parse_optional_value("resource_limits", request.resource_limits)?;
-        let task = self
-            .storage
-            .create_background_agent(BackgroundAgentSpec {
-                name: request.name,
-                agent_id: resolved_agent_id,
-                description: None,
-                input: request.input,
-                input_template: request.input_template,
-                schedule,
-                notification: None,
-                execution_mode: None,
-                timeout_secs: request.timeout_secs,
-                memory,
-                durability_mode,
-                resource_limits,
-                prerequisites: Vec::new(),
-                continuation: None,
-            })
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(ToolError::from)
-    }
-
-    fn update_background_agent(
-        &self,
-        request: BackgroundAgentUpdateRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let resolved_agent_id = request
-            .agent_id
-            .as_deref()
-            .map(|id| self.resolve_agent_id(id))
-            .transpose()?;
-        let memory = Self::parse_optional_value("memory", request.memory)?;
-        let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
-        let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
-        let resource_limits: Option<ResourceLimits> =
-            Self::parse_optional_value("resource_limits", request.resource_limits)?;
-        let patch = BackgroundAgentPatch {
-            name: request.name,
-            description: request.description,
-            agent_id: resolved_agent_id,
-            input: request.input,
-            input_template: request.input_template,
-            schedule: Self::parse_optional_value("schedule", request.schedule)?,
-            notification: Self::parse_optional_value("notification", request.notification)?,
-            execution_mode: Self::parse_optional_value("execution_mode", request.execution_mode)?,
-            timeout_secs: request.timeout_secs,
-            memory,
-            durability_mode,
-            resource_limits,
-            prerequisites: None,
-            continuation: None,
-        };
-
-        let resolved_id = self.resolve_task_id(&request.id)?;
-        let task = self
-            .storage
-            .update_background_agent(&resolved_id, patch)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(ToolError::from)
-    }
-
-    fn delete_background_agent(&self, id: &str) -> restflow_tools::Result<serde_json::Value> {
-        let resolved_id = self.resolve_task_id(id)?;
-        let deleted = self
-            .storage
-            .delete_task(&resolved_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(json!({ "id": id, "deleted": deleted }))
-    }
-
-    fn list_background_agents(
-        &self,
-        status: Option<String>,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let tasks = if let Some(status) = status {
-            let status = Self::parse_status(&status)?;
-            self.storage
-                .list_tasks_by_status(status)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        } else {
-            self.storage
-                .list_tasks()
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        };
-
-        serde_json::to_value(tasks).map_err(ToolError::from)
-    }
-
-    fn control_background_agent(
-        &self,
-        request: BackgroundAgentControlRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let action = Self::parse_control_action(&request.action)?;
-        let resolved_id = self.resolve_task_id(&request.id)?;
-        let task = self
-            .storage
-            .control_background_agent(&resolved_id, action)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(ToolError::from)
-    }
-
-    fn get_background_agent_progress(
-        &self,
-        request: BackgroundAgentProgressRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let resolved_id = self.resolve_task_id(&request.id)?;
-        let progress = self
-            .storage
-            .get_background_agent_progress(&resolved_id, request.event_limit.unwrap_or(10).max(1))
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(progress).map_err(ToolError::from)
-    }
-
-    fn send_background_agent_message(
-        &self,
-        request: BackgroundAgentMessageRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let source = Self::parse_message_source(request.source.as_deref())?;
-        let resolved_id = self.resolve_task_id(&request.id)?;
-        let message = self
-            .storage
-            .send_background_agent_message(&resolved_id, request.message, source)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(message).map_err(ToolError::from)
-    }
-
-    fn list_background_agent_messages(
-        &self,
-        request: BackgroundAgentMessageListRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let resolved_id = self.resolve_task_id(&request.id)?;
-        let messages = self
-            .storage
-            .list_background_agent_messages(&resolved_id, request.limit.unwrap_or(50).max(1))
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(messages).map_err(ToolError::from)
-    }
-
-    fn list_background_agent_deliverables(
-        &self,
-        request: BackgroundAgentDeliverableListRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let items = self
-            .deliverable_storage
-            .list_by_task(&request.id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(items).map_err(ToolError::from)
-    }
-
-    fn list_background_agent_scratchpads(
-        &self,
-        request: BackgroundAgentScratchpadListRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        let dir = Self::scratchpad_dir()?;
-        let prefix = request.id.map(|id| format!("{id}-"));
-        let mut entries: Vec<(std::time::SystemTime, Value)> = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|e| ToolError::Tool(e.to_string()))? {
-            let entry = entry.map_err(|e| ToolError::Tool(e.to_string()))?;
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let file_name = match path.file_name().and_then(|name| name.to_str()) {
-                Some(name) => name.to_string(),
-                None => continue,
-            };
-            if let Some(prefix) = &prefix
-                && !file_name.starts_with(prefix)
-            {
-                continue;
-            }
-
-            let metadata = entry.metadata().map_err(|e| ToolError::Tool(e.to_string()))?;
-            let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
-            let modified_at = chrono::DateTime::<Utc>::from(modified).to_rfc3339();
-            let task_id = file_name.strip_suffix(".jsonl").and_then(|name| {
-                let mut parts = name.rsplitn(3, '-');
-                let _time = parts.next();
-                let _date = parts.next();
-                parts.next().map(ToString::to_string)
-            });
-            entries.push((
-                modified,
-                json!({
-                    "scratchpad": file_name,
-                    "task_id": task_id,
-                    "size_bytes": metadata.len(),
-                    "modified_at": modified_at,
-                }),
-            ));
-        }
-
-        entries.sort_by(|a, b| b.0.cmp(&a.0));
-        let limit = request.limit.unwrap_or(50).max(1);
-        let data: Vec<Value> = entries
-            .into_iter()
-            .take(limit)
-            .map(|(_, value)| value)
-            .collect();
-        Ok(Value::Array(data))
-    }
-
-    fn read_background_agent_scratchpad(
-        &self,
-        request: BackgroundAgentScratchpadReadRequest,
-    ) -> restflow_tools::Result<serde_json::Value> {
-        Self::validate_scratchpad_name(&request.scratchpad)?;
-        let dir = Self::scratchpad_dir()?;
-        let path = dir.join(&request.scratchpad);
-        // Reject symlinks to prevent path traversal attacks.
-        if let Ok(metadata) = std::fs::symlink_metadata(&path)
-            && metadata.file_type().is_symlink()
-        {
-            return Err(ToolError::Tool(
-                "scratchpad does not allow symlink paths".to_string(),
-            ));
-        }
-
-        // Canonicalize and verify path stays within scratchpad directory.
-        let canonical_dir = dir
-            .canonicalize()
-            .map_err(|e| ToolError::Tool(format!("failed to resolve scratchpad dir: {}", e)))?;
-        let canonical_path = path
-            .canonicalize()
-            .map_err(|e| ToolError::Tool(format!("failed to resolve scratchpad path: {}", e)))?;
-        if !canonical_path.starts_with(&canonical_dir) {
-            return Err(ToolError::Tool(
-                "scratchpad path escapes scratchpad directory".to_string(),
-            ));
-        }
-
-        if !path.is_file() {
-            return Err(ToolError::Tool(format!(
-                "scratchpad {} not found",
-                request.scratchpad
-            )));
-        }
-
-        let content = std::fs::read_to_string(&path).map_err(|e| ToolError::Tool(e.to_string()))?;
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-        let line_limit = request.line_limit.unwrap_or(200).max(1);
-        let start = total_lines.saturating_sub(line_limit);
-        let tail: Vec<String> = lines[start..]
-            .iter()
-            .map(|line| (*line).to_string())
-            .collect();
-        Ok(json!({
-            "scratchpad": request.scratchpad,
-            "path": path.to_string_lossy().into_owned(),
-            "total_lines": total_lines,
-            "line_limit": line_limit,
-            "lines": tail,
-        }))
-    }
-}
-
-#[derive(Clone)]
-struct DeliverableStoreAdapter {
-    storage: crate::storage::DeliverableStorage,
-}
-
-impl DeliverableStoreAdapter {
-    fn new(storage: crate::storage::DeliverableStorage) -> Self {
-        Self { storage }
-    }
-
-    fn parse_deliverable_type(value: &str) -> restflow_tools::Result<DeliverableType> {
-        match value.trim().to_lowercase().as_str() {
-            "report" => Ok(DeliverableType::Report),
-            "data" => Ok(DeliverableType::Data),
-            "file" => Ok(DeliverableType::File),
-            "artifact" => Ok(DeliverableType::Artifact),
-            other => Err(ToolError::Tool(format!(
-                "Unknown deliverable type: {}. Supported: report, data, file, artifact",
-                other
-            ))),
-        }
-    }
-}
-
-impl DeliverableStore for DeliverableStoreAdapter {
-    fn save_deliverable(
-        &self,
-        task_id: &str,
-        execution_id: &str,
-        deliverable_type: &str,
-        title: &str,
-        content: &str,
-        file_path: Option<&str>,
-        content_type: Option<&str>,
-        metadata: Option<Value>,
-    ) -> restflow_tools::Result<Value> {
-        let deliverable_type = Self::parse_deliverable_type(deliverable_type)?;
-        let now_ms = Utc::now().timestamp_millis();
-        let metadata = metadata
-            .map(serde_json::from_value::<std::collections::BTreeMap<String, String>>)
-            .transpose()
-            .map_err(|e| ToolError::Tool(format!("Invalid metadata object: {}", e)))?;
-        let deliverable = Deliverable {
-            id: Uuid::new_v4().to_string(),
-            task_id: task_id.trim().to_string(),
-            execution_id: execution_id.trim().to_string(),
-            deliverable_type,
-            title: title.trim().to_string(),
-            content: content.to_string(),
-            file_path: file_path
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
-            content_type: content_type
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string),
-            size_bytes: content.len(),
-            created_at: now_ms,
-            metadata,
-        };
-        self.storage
-            .save(&deliverable)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(deliverable).map_err(ToolError::from)
-    }
-}
-
-// ============== Session Storage Adapter ==============
-
-#[derive(Clone)]
-struct SessionStorageAdapter {
-    storage: ChatSessionStorage,
-    agent_storage: AgentStorage,
-}
-
-impl SessionStorageAdapter {
-    fn new(storage: ChatSessionStorage, agent_storage: AgentStorage) -> Self {
-        Self {
-            storage,
-            agent_storage,
-        }
-    }
-}
-
-impl SessionStore for SessionStorageAdapter {
-    fn list_sessions(&self, filter: SessionListFilter) -> restflow_tools::Result<Value> {
-        let sessions = if let Some(agent_id) = &filter.agent_id {
-            self.storage
-                .list_by_agent(agent_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        } else if let Some(skill_id) = &filter.skill_id {
-            self.storage
-                .list_by_skill(skill_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        } else {
-            self.storage
-                .list()
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        };
-
-        if filter.include_messages.unwrap_or(false) {
-            serde_json::to_value(sessions).map_err(ToolError::from)
-        } else {
-            let summaries = self
-                .storage
-                .list_summaries()
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            serde_json::to_value(summaries).map_err(ToolError::from)
-        }
-    }
-
-    fn get_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let session = self
-            .storage
-            .get(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?
-            .ok_or_else(|| ToolError::Tool(format!("Session {} not found", id)))?;
-        serde_json::to_value(session).map_err(ToolError::from)
-    }
-
-    fn create_session(&self, request: SessionCreateRequest) -> restflow_tools::Result<Value> {
-        let resolved_agent_id = self
-            .agent_storage
-            .resolve_existing_agent_id(&request.agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let mut session = crate::models::ChatSession::new(resolved_agent_id, request.model);
-        if let Some(name) = request.name {
-            session = session.with_name(name);
-        }
-        if let Some(skill_id) = request.skill_id {
-            session = session.with_skill(skill_id);
-        }
-        if let Some(retention) = request.retention {
-            session = session.with_retention(retention);
-        }
-        self.storage
-            .create(&session)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(session).map_err(ToolError::from)
-    }
-
-    fn delete_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let deleted = self
-            .storage
-            .delete(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(json!({ "id": id, "deleted": deleted }))
-    }
-
-    fn search_sessions(&self, query: SessionSearchQuery) -> restflow_tools::Result<Value> {
-        // Search by iterating sessions and filtering by query string
-        let sessions = if let Some(agent_id) = &query.agent_id {
-            self.storage
-                .list_by_agent(agent_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        } else {
-            self.storage
-                .list()
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        };
-
-        let keyword = query.query.to_lowercase();
-        let limit = query.limit.unwrap_or(20) as usize;
-
-        let matched: Vec<_> = sessions
-            .into_iter()
-            .filter(|s| {
-                let name_match = s.name.to_lowercase().contains(&keyword);
-                let msg_match = s
-                    .messages
-                    .iter()
-                    .any(|m| m.content.to_lowercase().contains(&keyword));
-                name_match || msg_match
-            })
-            .take(limit)
-            .collect();
-
-        serde_json::to_value(matched).map_err(ToolError::from)
-    }
-
-    fn cleanup_sessions(&self) -> restflow_tools::Result<Value> {
-        let now_ms = chrono::Utc::now().timestamp_millis();
-        let stats = self
-            .storage
-            .cleanup_by_session_retention(now_ms)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(stats).map_err(ToolError::from)
-    }
-}
-
-// ============== Memory Manager Adapter ==============
-
-#[derive(Clone)]
-struct MemoryManagerAdapter {
-    storage: MemoryStorage,
-}
-
-impl MemoryManagerAdapter {
-    fn new(storage: MemoryStorage) -> Self {
-        Self { storage }
-    }
-}
-
-impl MemoryManager for MemoryManagerAdapter {
-    fn stats(&self, agent_id: &str) -> restflow_tools::Result<Value> {
-        let stats = self
-            .storage
-            .get_stats(agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(stats).map_err(ToolError::from)
-    }
-
-    fn export(&self, request: MemoryExportRequest) -> restflow_tools::Result<Value> {
-        let exporter = MemoryExporter::new(self.storage.clone());
-        let result = if let Some(session_id) = &request.session_id {
-            exporter
-                .export_session(session_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        } else {
-            exporter
-                .export_agent(&request.agent_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
-        };
-        serde_json::to_value(result).map_err(ToolError::from)
-    }
-
-    fn clear(&self, request: MemoryClearRequest) -> restflow_tools::Result<Value> {
-        if let Some(session_id) = &request.session_id {
-            let delete_chunks = request.delete_sessions.unwrap_or(true);
-            let deleted = self
-                .storage
-                .delete_session(session_id, delete_chunks)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            Ok(json!({
-                "agent_id": request.agent_id,
-                "session_id": session_id,
-                "deleted": deleted
-            }))
-        } else {
-            let deleted = self
-                .storage
-                .delete_chunks_for_agent(&request.agent_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            Ok(json!({
-                "agent_id": request.agent_id,
-                "chunks_deleted": deleted
-            }))
-        }
-    }
-
-    fn compact(&self, request: MemoryCompactRequest) -> restflow_tools::Result<Value> {
-        let chunks = self
-            .storage
-            .list_chunks(&request.agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        let keep_recent = request.keep_recent.unwrap_or(10) as usize;
-        let before_ms = request.before_ms;
-
-        let mut to_delete: Vec<String> = Vec::new();
-
-        if chunks.len() > keep_recent {
-            // Sort by created_at ascending, delete oldest first
-            let mut sorted = chunks.clone();
-            sorted.sort_by_key(|c| c.created_at);
-
-            let removable = sorted.len() - keep_recent;
-            for chunk in sorted.into_iter().take(removable) {
-                if let Some(threshold) = before_ms {
-                    if chunk.created_at < threshold {
-                        to_delete.push(chunk.id.clone());
-                    }
-                } else {
-                    to_delete.push(chunk.id.clone());
-                }
-            }
-        }
-
-        let deleted_count = to_delete.len();
-        for chunk_id in &to_delete {
-            self.storage
-                .delete_chunk(chunk_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-        }
-
-        Ok(json!({
-            "agent_id": request.agent_id,
-            "total_chunks": chunks.len(),
-            "deleted": deleted_count,
-            "remaining": chunks.len() - deleted_count
-        }))
-    }
-}
-
-// ============== Auth Profile Storage Adapter ==============
-
-#[derive(Clone)]
-struct AuthProfileStorageAdapter {
-    storage: SecretStorage,
-}
-
-impl AuthProfileStorageAdapter {
-    fn new(storage: SecretStorage) -> Self {
-        Self { storage }
-    }
-}
-
-impl AuthProfileStore for AuthProfileStorageAdapter {
-    fn list_profiles(&self) -> restflow_tools::Result<Value> {
-        let secrets = self
-            .storage
-            .list_secrets()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        let profiles: Vec<Value> = secrets
-            .iter()
-            .filter(|s| s.key.ends_with("_API_KEY") || s.key.ends_with("_TOKEN"))
-            .map(|s| {
-                // list_secrets() clears values for security, use has_secret to check
-                let has_value = self.storage.has_secret(&s.key).unwrap_or(false);
-                json!({
-                    "id": s.key,
-                    "name": s.key,
-                    "has_credential": has_value,
-                    "description": s.description
-                })
-            })
-            .collect();
-
-        Ok(json!(profiles))
-    }
-
-    fn discover_profiles(&self) -> restflow_tools::Result<Value> {
-        let known_vars = [
-            "ANTHROPIC_API_KEY",
-            "OPENAI_API_KEY",
-            "GEMINI_API_KEY",
-            "GROQ_API_KEY",
-            "DEEPSEEK_API_KEY",
-            "OPENROUTER_API_KEY",
-            "XAI_API_KEY",
-            "GITHUB_TOKEN",
-        ];
-
-        let discovered: Vec<Value> = known_vars
-            .iter()
-            .filter_map(|var| {
-                std::env::var(var).ok().map(|_| {
-                    json!({
-                        "env_var": var,
-                        "available": true
-                    })
-                })
-            })
-            .collect();
-
-        Ok(json!({
-            "total": discovered.len(),
-            "profiles": discovered
-        }))
-    }
-
-    fn add_profile(&self, request: AuthProfileCreateRequest) -> restflow_tools::Result<Value> {
-        let key_name = format!(
-            "{}_API_KEY",
-            request.provider.to_uppercase().replace('-', "_")
-        );
-        let secret_value = match &request.credential {
-            restflow_ai::tools::CredentialInput::ApiKey { key, .. } => key.clone(),
-            restflow_ai::tools::CredentialInput::Token { token, .. } => token.clone(),
-            restflow_ai::tools::CredentialInput::OAuth { access_token, .. } => access_token.clone(),
-        };
-        self.storage
-            .set_secret(
-                &key_name,
-                &secret_value,
-                Some(format!("Auth profile: {}", request.name)),
-            )
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        Ok(json!({
-            "id": key_name,
-            "name": request.name,
-            "provider": request.provider,
-            "created": true
-        }))
-    }
-
-    fn remove_profile(&self, id: &str) -> restflow_tools::Result<Value> {
-        self.storage
-            .delete_secret(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(json!({ "id": id, "removed": true }))
-    }
-
-    fn test_profile(&self, request: AuthProfileTestRequest) -> restflow_tools::Result<Value> {
-        if let Some(id) = &request.id {
-            let available = self
-                .storage
-                .get_secret(id)
-                .ok()
-                .flatten()
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            Ok(json!({
-                "id": id,
-                "available": available
-            }))
-        } else if let Some(provider) = &request.provider {
-            let key_name = format!("{}_API_KEY", provider.to_uppercase().replace('-', "_"));
-            let available = self
-                .storage
-                .get_secret(&key_name)
-                .ok()
-                .flatten()
-                .map(|v| !v.is_empty())
-                .unwrap_or(false);
-            Ok(json!({
-                "provider": provider,
-                "key_name": key_name,
-                "available": available
-            }))
-        } else {
-            Ok(json!({ "available": false, "reason": "No id or provider specified" }))
-        }
-    }
-}
-
-#[derive(Clone)]
-struct DbWorkspaceNoteAdapter {
-    storage: WorkspaceNoteStorage,
-}
-
-impl DbWorkspaceNoteAdapter {
-    fn new(storage: WorkspaceNoteStorage) -> Self {
-        Self { storage }
-    }
-}
-
-fn to_tool_note_status(status: NoteStatus) -> WorkspaceNoteStatus {
-    match status {
-        NoteStatus::Open => WorkspaceNoteStatus::Open,
-        NoteStatus::InProgress => WorkspaceNoteStatus::InProgress,
-        NoteStatus::Done => WorkspaceNoteStatus::Done,
-        NoteStatus::Archived => WorkspaceNoteStatus::Archived,
-    }
-}
-
-fn to_core_note_status(status: WorkspaceNoteStatus) -> NoteStatus {
-    match status {
-        WorkspaceNoteStatus::Open => NoteStatus::Open,
-        WorkspaceNoteStatus::InProgress => NoteStatus::InProgress,
-        WorkspaceNoteStatus::Done => NoteStatus::Done,
-        WorkspaceNoteStatus::Archived => NoteStatus::Archived,
-    }
-}
-
-fn to_tool_note(note: WorkspaceNote) -> WorkspaceNoteRecord {
-    WorkspaceNoteRecord {
-        id: note.id,
-        folder: note.folder,
-        title: note.title,
-        content: note.content,
-        priority: note.priority,
-        status: to_tool_note_status(note.status),
-        tags: note.tags,
-        assignee: note.assignee,
-        created_at: note.created_at,
-        updated_at: note.updated_at,
-    }
-}
-
-impl WorkspaceNoteProvider for DbWorkspaceNoteAdapter {
-    fn create(&self, spec: WorkspaceNoteSpec) -> std::result::Result<WorkspaceNoteRecord, String> {
-        self.storage
-            .create_note(CoreWorkspaceNoteSpec {
-                folder: spec.folder,
-                title: spec.title,
-                content: spec.content,
-                priority: spec.priority,
-                tags: spec.tags,
-            })
-            .map(to_tool_note)
-            .map_err(|e| e.to_string())
-    }
-
-    fn get(&self, id: &str) -> std::result::Result<Option<WorkspaceNoteRecord>, String> {
-        self.storage
-            .get_note(id)
-            .map(|note| note.map(to_tool_note))
-            .map_err(|e| e.to_string())
-    }
-
-    fn update(
-        &self,
-        id: &str,
-        patch: WorkspaceNotePatch,
-    ) -> std::result::Result<WorkspaceNoteRecord, String> {
-        self.storage
-            .update_note(
-                id,
-                CoreWorkspaceNotePatch {
-                    title: patch.title,
-                    content: patch.content,
-                    priority: patch.priority,
-                    status: patch.status.map(to_core_note_status),
-                    tags: patch.tags,
-                    assignee: patch.assignee,
-                    folder: patch.folder,
-                },
-            )
-            .map(to_tool_note)
-            .map_err(|e| e.to_string())
-    }
-
-    fn delete(&self, id: &str) -> std::result::Result<bool, String> {
-        match self.storage.get_note(id) {
-            Ok(None) => Ok(false),
-            Ok(Some(_)) => self
-                .storage
-                .delete_note(id)
-                .map(|_| true)
-                .map_err(|e| e.to_string()),
-            Err(err) => Err(err.to_string()),
-        }
-    }
-
-    fn list(
-        &self,
-        query: WorkspaceNoteQuery,
-    ) -> std::result::Result<Vec<WorkspaceNoteRecord>, String> {
-        self.storage
-            .list_notes(NoteQuery {
-                folder: query.folder,
-                status: query.status.map(to_core_note_status),
-                priority: query.priority,
-                tag: query.tag,
-                assignee: query.assignee,
-                search: query.search,
-            })
-            .map(|notes| notes.into_iter().map(to_tool_note).collect())
-            .map_err(|e| e.to_string())
-    }
-
-    fn list_folders(&self) -> std::result::Result<Vec<String>, String> {
-        self.storage.list_folders().map_err(|e| e.to_string())
-    }
-}
-
-// ============== DB Memory Store Adapter ==============
-
-/// Database-backed implementation of MemoryStore.
-///
-/// Stores memories as MemoryChunks in the redb database, enabling interoperability
-/// with memory_search and manage_memory tools. Title is stored as a `__title:{value}` tag.
-#[derive(Clone)]
-struct DbMemoryStoreAdapter {
-    storage: MemoryStorage,
-}
-
-impl DbMemoryStoreAdapter {
-    fn new(storage: MemoryStorage) -> Self {
-        Self { storage }
-    }
-
-    /// Extract title from tags (stored as `__title:{value}`)
-    fn extract_title(tags: &[String]) -> String {
-        tags.iter()
-            .find(|t| t.starts_with("__title:"))
-            .map(|t| t.trim_start_matches("__title:").to_string())
-            .unwrap_or_default()
-    }
-
-    /// Build tags list: prepend __title tag, then user tags
-    fn build_tags(title: &str, user_tags: &[String]) -> Vec<String> {
-        let mut tags = vec![format!("__title:{}", title)];
-        tags.extend(user_tags.iter().cloned());
-        tags
-    }
-
-    /// Filter out internal __title tags from user-visible output
-    fn user_tags(tags: &[String]) -> Vec<String> {
-        tags.iter()
-            .filter(|t| !t.starts_with("__title:"))
-            .cloned()
-            .collect()
-    }
-
-    /// Format a MemoryChunk as a memory entry JSON (matching file memory output)
-    fn chunk_to_entry_json(chunk: &crate::models::memory::MemoryChunk) -> Value {
-        let title = Self::extract_title(&chunk.tags);
-        let user_tags = Self::user_tags(&chunk.tags);
-        json!({
-            "id": chunk.id,
-            "title": title,
-            "content": chunk.content,
-            "tags": user_tags,
-            "created_at": chrono::DateTime::from_timestamp_millis(chunk.created_at)
-                .unwrap_or_default()
-                .to_rfc3339(),
-            "updated_at": chrono::DateTime::from_timestamp_millis(chunk.created_at)
-                .unwrap_or_default()
-                .to_rfc3339(),
-            "agent_id": chunk.agent_id,
-            "session_id": chunk.session_id,
-        })
-    }
-
-    /// Format a MemoryChunk as metadata-only JSON (for list operations)
-    fn chunk_to_meta_json(chunk: &crate::models::memory::MemoryChunk) -> Value {
-        let title = Self::extract_title(&chunk.tags);
-        let user_tags = Self::user_tags(&chunk.tags);
-        json!({
-            "id": chunk.id,
-            "title": title,
-            "tags": user_tags,
-            "created_at": chrono::DateTime::from_timestamp_millis(chunk.created_at)
-                .unwrap_or_default()
-                .to_rfc3339(),
-            "updated_at": chrono::DateTime::from_timestamp_millis(chunk.created_at)
-                .unwrap_or_default()
-                .to_rfc3339(),
-        })
-    }
-}
-
-impl MemoryStore for DbMemoryStoreAdapter {
-    fn save(
-        &self,
-        agent_id: &str,
-        title: &str,
-        content: &str,
-        tags: &[String],
-    ) -> restflow_tools::Result<Value> {
-        use crate::models::memory::MemorySource;
-
-        let db_tags = Self::build_tags(title, tags);
-        let chunk =
-            crate::models::memory::MemoryChunk::new(agent_id.to_string(), content.to_string())
-                .with_tags(db_tags)
-                .with_source(MemorySource::AgentGenerated {
-                    tool_name: "save_to_memory".to_string(),
-                });
-
-        let stored_id = self
-            .storage
-            .store_chunk(&chunk)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        // If stored_id differs from chunk.id, content was a duplicate
-        let is_dedup = stored_id != chunk.id;
-        let message = if is_dedup {
-            "Duplicate content, returning existing memory"
-        } else {
-            "Memory saved successfully"
-        };
-
-        Ok(json!({
-            "success": true,
-            "id": stored_id,
-            "title": title,
-            "message": message
-        }))
-    }
-
-    fn read_by_id(&self, id: &str) -> restflow_tools::Result<Option<Value>> {
-        let chunk = self
-            .storage
-            .get_chunk(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        match chunk {
-            Some(c) => {
-                let entry = Self::chunk_to_entry_json(&c);
-                Ok(Some(json!({
-                    "found": true,
-                    "entry": entry
-                })))
-            }
-            None => Ok(None),
-        }
-    }
-
-    fn search(
-        &self,
-        agent_id: &str,
-        tag: Option<&str>,
-        search: Option<&str>,
-        limit: usize,
-    ) -> restflow_tools::Result<Value> {
-        let mut chunks = self
-            .storage
-            .list_chunks(agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        // Filter by user tag (case-insensitive contains)
-        if let Some(tag_filter) = tag {
-            let tag_lower = tag_filter.to_lowercase();
-            chunks.retain(|c| {
-                Self::user_tags(&c.tags)
-                    .iter()
-                    .any(|t| t.to_lowercase().contains(&tag_lower))
-            });
-        }
-
-        // Filter by title keyword (case-insensitive contains)
-        if let Some(search_text) = search {
-            let search_lower = search_text.to_lowercase();
-            chunks.retain(|c| {
-                Self::extract_title(&c.tags)
-                    .to_lowercase()
-                    .contains(&search_lower)
-            });
-        }
-
-        // Already sorted by created_at desc from list_chunks
-        chunks.truncate(limit);
-
-        let results: Vec<Value> = chunks.iter().map(Self::chunk_to_meta_json).collect();
-
-        Ok(json!({
-            "count": results.len(),
-            "memories": results
-        }))
-    }
-
-    fn list(
-        &self,
-        agent_id: &str,
-        tag: Option<&str>,
-        limit: usize,
-    ) -> restflow_tools::Result<Value> {
-        let chunks = self
-            .storage
-            .list_chunks(agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        let total = chunks.len();
-        let mut filtered = chunks;
-
-        // Filter by user tag (case-insensitive contains)
-        if let Some(tag_filter) = tag {
-            let tag_lower = tag_filter.to_lowercase();
-            filtered.retain(|c| {
-                Self::user_tags(&c.tags)
-                    .iter()
-                    .any(|t| t.to_lowercase().contains(&tag_lower))
-            });
-        }
-
-        filtered.truncate(limit);
-
-        let results: Vec<Value> = filtered.iter().map(Self::chunk_to_meta_json).collect();
-
-        Ok(json!({
-            "total": total,
-            "count": results.len(),
-            "memories": results
-        }))
-    }
-
-    fn delete(&self, id: &str) -> restflow_tools::Result<Value> {
-        let deleted = self
-            .storage
-            .delete_chunk(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        if deleted {
-            Ok(json!({
-                "deleted": true,
-                "id": id,
-                "message": "Memory deleted successfully"
-            }))
-        } else {
-            Ok(json!({
-                "deleted": false,
-                "message": format!("No memory found with ID: {}", id)
-            }))
-        }
-    }
-}
-
-// ── SecurityQueryProviderAdapter ─────────────────────────────────────
-
-struct SecurityQueryProviderAdapter;
-
-impl SecurityQueryProvider for SecurityQueryProviderAdapter {
-    fn show_policy(&self) -> restflow_tools::Result<Value> {
-        let policy = crate::models::SecurityPolicy::default();
-        Ok(serde_json::to_value(policy)?)
-    }
-
-    fn list_permissions(&self) -> restflow_tools::Result<Value> {
-        let policy = crate::models::SecurityPolicy::default();
-        Ok(json!({
-            "default_action": policy.default_action,
-            "allowlist_count": policy.allowlist.len(),
-            "blocklist_count": policy.blocklist.len(),
-            "approval_required_count": policy.approval_required.len(),
-            "tool_rule_count": policy.tool_rules.len()
-        }))
-    }
-
-    fn check_permission(
-        &self,
-        tool_name: &str,
-        operation_name: &str,
-        target: Option<&str>,
-        summary: Option<&str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>> {
-        let tool_name = tool_name.to_string();
-        let operation_name = operation_name.to_string();
-        let target = target.map(|s| s.to_string());
-        let summary = summary.map(|s| s.to_string());
-        Box::pin(async move {
-            let checker = SecurityChecker::with_defaults();
-            let target_str = target.unwrap_or_else(|| "*".to_string());
-            let summary_str = summary
-                .unwrap_or_else(|| format!("{}:{}", tool_name, operation_name));
-            let ai_action = restflow_ai::ToolAction {
-                tool_name: tool_name.clone(),
-                operation: operation_name.clone(),
-                target: target_str,
-                summary: summary_str,
-            };
-            let decision = checker
-                .check_tool_action(&ai_action, Some("runtime"), Some("runtime"))
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            Ok(json!({
-                "allowed": decision.allowed,
-                "requires_approval": decision.requires_approval,
-                "approval_id": decision.approval_id,
-                "reason": decision.reason
-            }))
-        })
-    }
-}
-
-// ── TriggerStoreAdapter ─────────────────────────────────────────────
-
-struct TriggerStoreAdapter {
-    storage: TriggerStorage,
-}
-
-impl TriggerStoreAdapter {
-    fn new(storage: TriggerStorage) -> Self {
-        Self { storage }
-    }
-}
-
-impl TriggerStore for TriggerStoreAdapter {
-    fn create_trigger(
-        &self,
-        workflow_id: &str,
-        config: Value,
-        id: Option<&str>,
-    ) -> restflow_tools::Result<Value> {
-        let trigger_config: TriggerConfig =
-            serde_json::from_value(config).map_err(|e| ToolError::Tool(e.to_string()))?;
-        let mut trigger =
-            crate::models::ActiveTrigger::new(workflow_id.to_string(), trigger_config);
-        if let Some(id) = id {
-            trigger.id = id.to_string();
-        }
-        self.storage
-            .activate_trigger(&trigger)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(serde_json::to_value(trigger)?)
-    }
-
-    fn list_triggers(&self) -> restflow_tools::Result<Value> {
-        let triggers = self
-            .storage
-            .list_active_triggers()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(serde_json::to_value(triggers)?)
-    }
-
-    fn delete_trigger(&self, id: &str) -> restflow_tools::Result<Value> {
-        self.storage
-            .deactivate_trigger(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(json!({ "id": id, "deleted": true }))
-    }
-}
-
-// ── TerminalStoreAdapter ────────────────────────────────────────────
-
-struct TerminalStoreAdapter {
-    storage: TerminalSessionStorage,
-}
-
-impl TerminalStoreAdapter {
-    fn new(storage: TerminalSessionStorage) -> Self {
-        Self { storage }
-    }
-}
-
-impl TerminalStore for TerminalStoreAdapter {
-    fn create_session(
-        &self,
-        name: Option<&str>,
-        working_dir: Option<&str>,
-        startup_cmd: Option<&str>,
-    ) -> restflow_tools::Result<Value> {
-        let id = format!("terminal-{}", Uuid::new_v4());
-        let default_name = self
-            .storage
-            .get_next_name()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let mut session =
-            TerminalSession::new(id, name.unwrap_or(&default_name).to_string());
-        session.set_config(
-            working_dir.map(|s| s.to_string()),
-            startup_cmd.map(|s| s.to_string()),
-        );
-        self.storage
-            .create(&session)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(serde_json::to_value(session)?)
-    }
-
-    fn list_sessions(&self) -> restflow_tools::Result<Value> {
-        let sessions = self
-            .storage
-            .list()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(serde_json::to_value(sessions)?)
-    }
-
-    fn send_input(&self, session_id: &str, data: &str) -> restflow_tools::Result<Value> {
-        let mut session = self
-            .storage
-            .get(session_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?
-            .ok_or_else(|| {
-                ToolError::Tool(format!("Terminal session not found: {}", session_id))
-            })?;
-
-        let mut history = session.history.clone().unwrap_or_default();
-        history.push_str(&format!("\n$ {}", data));
-        session.update_history(history);
-        self.storage
-            .update(session_id, &session)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        Ok(json!({
-            "session_id": session_id,
-            "accepted": true,
-            "live_runtime": false
-        }))
-    }
-
-    fn read_output(&self, session_id: &str) -> restflow_tools::Result<Value> {
-        let session = self
-            .storage
-            .get(session_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?
-            .ok_or_else(|| {
-                ToolError::Tool(format!("Terminal session not found: {}", session_id))
-            })?;
-        Ok(json!({
-            "session_id": session_id,
-            "output": session.history.unwrap_or_default(),
-            "live_runtime": false
-        }))
-    }
-
-    fn close_session(&self, session_id: &str) -> restflow_tools::Result<Value> {
-        let mut session = self
-            .storage
-            .get(session_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?
-            .ok_or_else(|| {
-                ToolError::Tool(format!("Terminal session not found: {}", session_id))
-            })?;
-        session.status = crate::models::TerminalStatus::Stopped;
-        session.stopped_at = Some(Utc::now().timestamp_millis());
-        self.storage
-            .update(session_id, &session)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(json!({
-            "session_id": session_id,
-            "closed": true
-        }))
-    }
-}
-
-// ── UnifiedMemorySearchAdapter ──────────────────────────────────────
-
-struct UnifiedMemorySearchAdapter {
-    engine: UnifiedSearchEngine,
-}
-
-impl UnifiedMemorySearchAdapter {
-    fn new(engine: UnifiedSearchEngine) -> Self {
-        Self { engine }
-    }
-}
-
-impl UnifiedMemorySearch for UnifiedMemorySearchAdapter {
-    fn search(
-        &self,
-        agent_id: &str,
-        query: &str,
-        include_sessions: bool,
-        limit: u32,
-        offset: u32,
-    ) -> restflow_tools::Result<Value> {
-        let base = MemorySearchQuery::new(agent_id.to_string())
-            .with_query(query.to_string())
-            .with_mode(SearchMode::Keyword)
-            .paginate(limit, offset);
-        let unified_query = UnifiedSearchQuery::new(base).with_sessions(include_sessions);
-
-        let results = self
-            .engine
-            .search(&unified_query)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        Ok(serde_json::to_value(results)?)
-    }
-}
-
-// ── SharedSpaceStoreAdapter ─────────────────────────────────────────
-
-struct SharedSpaceStoreAdapter {
-    storage: SharedSpaceStorage,
-    accessor_id: Option<String>,
-}
-
-impl SharedSpaceStoreAdapter {
-    fn new(storage: SharedSpaceStorage, accessor_id: Option<String>) -> Self {
-        Self {
-            storage,
-            accessor_id,
-        }
-    }
-}
-
-impl SharedSpaceStore for SharedSpaceStoreAdapter {
-    fn get_entry(&self, key: &str) -> restflow_tools::Result<Value> {
-        let entry = self
-            .storage
-            .get(key, self.accessor_id.as_deref())
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let payload = match entry {
-            Some(entry) => json!({
-                "found": true,
-                "key": entry.key,
-                "value": entry.value,
-                "content_type": entry.content_type,
-                "visibility": entry.visibility,
-                "tags": entry.tags,
-                "updated_at": entry.updated_at
-            }),
-            None => json!({
-                "found": false,
-                "key": key
-            }),
-        };
-        Ok(payload)
-    }
-
-    fn set_entry(
-        &self,
-        key: &str,
-        content: &str,
-        visibility: Option<&str>,
-        content_type: Option<&str>,
-        type_hint: Option<&str>,
-        tags: Option<Vec<String>>,
-        _accessor_id: Option<&str>,
-    ) -> restflow_tools::Result<Value> {
-        let existing = self
-            .storage
-            .get_unchecked(key)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        if let Some(ref entry) = existing
-            && !entry.can_write(self.accessor_id.as_deref())
-        {
-            return Err(ToolError::Tool(
-                "Access denied: cannot write to this entry".to_string(),
-            ));
-        }
-
-        fn parse_visibility(value: &str) -> Visibility {
-            match value {
-                "private" => Visibility::Private,
-                "shared" => Visibility::Shared,
-                _ => Visibility::Public,
-            }
-        }
-
-        let vis = visibility
-            .map(parse_visibility)
-            .or(existing.as_ref().map(|e| e.visibility))
-            .unwrap_or_default();
-
-        let entry = SharedEntry {
-            key: key.to_string(),
-            value: content.to_string(),
-            visibility: vis,
-            owner: existing
-                .as_ref()
-                .and_then(|e| e.owner.clone())
-                .or_else(|| self.accessor_id.clone()),
-            content_type: content_type
-                .map(|s| s.to_string())
-                .or_else(|| existing.as_ref().and_then(|e| e.content_type.clone())),
-            type_hint: type_hint
-                .map(|s| s.to_string())
-                .or_else(|| existing.as_ref().and_then(|e| e.type_hint.clone())),
-            tags: tags
-                .or_else(|| existing.as_ref().map(|e| e.tags.clone()))
-                .unwrap_or_default(),
-            created_at: existing
-                .as_ref()
-                .map(|e| e.created_at)
-                .unwrap_or_else(|| Utc::now().timestamp_millis()),
-            updated_at: Utc::now().timestamp_millis(),
-            last_modified_by: self.accessor_id.clone(),
-        };
-
-        self.storage
-            .set(&entry)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        Ok(json!({
-            "success": true,
-            "key": key,
-            "created": existing.is_none()
-        }))
-    }
-
-    fn delete_entry(&self, key: &str, accessor_id: Option<&str>) -> restflow_tools::Result<Value> {
-        let deleted = self
-            .storage
-            .delete(key, accessor_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(json!({
-            "deleted": deleted,
-            "key": key
-        }))
-    }
-
-    fn list_entries(&self, namespace: Option<&str>) -> restflow_tools::Result<Value> {
-        let prefix = namespace.map(|ns| format!("{}:", ns));
-        let entries = self
-            .storage
-            .list(prefix.as_deref(), self.accessor_id.as_deref())
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let items: Vec<_> = entries
-            .iter()
-            .map(|entry| {
-                let preview = if entry.value.len() > 100 {
-                    format!("{}...", &entry.value[..100])
-                } else {
-                    entry.value.clone()
-                };
-                json!({
-                    "key": entry.key,
-                    "content_type": entry.content_type,
-                    "visibility": entry.visibility,
-                    "tags": entry.tags,
-                    "updated_at": entry.updated_at,
-                    "preview": preview
-                })
-            })
-            .collect();
-        Ok(json!({
-            "count": items.len(),
-            "entries": items
-        }))
-    }
-}
-
-// ── MarketplaceStoreAdapter ─────────────────────────────────────────
-
-struct MarketplaceStoreAdapter {
-    storage: SkillStorage,
-}
-
-impl MarketplaceStoreAdapter {
-    fn new(storage: SkillStorage) -> Self {
-        Self { storage }
-    }
-
-    fn provider_name(source: Option<&str>) -> &str {
-        match source {
-            Some("github") => "github",
-            _ => "marketplace",
-        }
-    }
-
-    async fn search_source(
-        source: &str,
-        query: &SkillSearchQuery,
-    ) -> Result<Vec<crate::registry::SkillSearchResult>, ToolError> {
-        match source {
-            "github" => GitHubProvider::new()
-                .search(query)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
-                .search(query)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-        }
-    }
-
-    async fn get_manifest(
-        source: &str,
-        id: &str,
-    ) -> Result<crate::models::SkillManifest, ToolError> {
-        match source {
-            "github" => GitHubProvider::new()
-                .get_manifest(id)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
-                .get_manifest(id)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-        }
-    }
-
-    async fn get_content(
-        source: &str,
-        id: &str,
-        version: &crate::models::SkillVersion,
-    ) -> Result<String, ToolError> {
-        match source {
-            "github" => GitHubProvider::new()
-                .get_content(id, version)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
-                .get_content(id, version)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string())),
-        }
-    }
-
-    fn manifest_to_skill(manifest: crate::models::SkillManifest, content: String) -> Skill {
-        let now = Utc::now().timestamp_millis();
-        Skill {
-            id: manifest.id,
-            name: manifest.name,
-            description: manifest.description,
-            tags: Some(manifest.keywords),
-            triggers: Vec::new(),
-            content,
-            folder_path: None,
-            suggested_tools: Vec::new(),
-            scripts: Vec::new(),
-            references: Vec::new(),
-            gating: None,
-            version: Some(manifest.version.to_string()),
-            author: manifest.author.map(|a| a.name),
-            license: manifest.license,
-            content_hash: None,
-            status: crate::models::SkillStatus::Active,
-            auto_complete: false,
-            storage_mode: crate::models::StorageMode::DatabaseOnly,
-            is_synced: false,
-            created_at: now,
-            updated_at: now,
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl MarketplaceStore for MarketplaceStoreAdapter {
-    async fn search_skills(
-        &self,
-        query: Option<&str>,
-        category: Option<&str>,
-        tags: Option<Vec<String>>,
-        author: Option<&str>,
-        limit: Option<usize>,
-        offset: Option<usize>,
-        source: Option<&str>,
-    ) -> restflow_tools::Result<Value> {
-        let q = SkillSearchQuery {
-            query: query.map(|s| s.to_string()),
-            category: category.map(|s| s.to_string()),
-            tags: tags.unwrap_or_default(),
-            author: author.map(|s| s.to_string()),
-            limit,
-            offset,
-            sort: None,
-        };
-        let source_name = Self::provider_name(source);
-        let results = Self::search_source(source_name, &q).await?;
-        Ok(serde_json::to_value(results)?)
-    }
-
-    async fn skill_info(&self, id: &str, source: Option<&str>) -> restflow_tools::Result<Value> {
-        let source_name = Self::provider_name(source);
-        let manifest = Self::get_manifest(source_name, id).await?;
-        Ok(serde_json::to_value(manifest)?)
-    }
-
-    async fn install_skill(
-        &self,
-        id: &str,
-        source: Option<&str>,
-        overwrite: bool,
-    ) -> restflow_tools::Result<Value> {
-        let source_name = Self::provider_name(source);
-        let manifest = Self::get_manifest(source_name, id).await?;
-        let content = Self::get_content(source_name, id, &manifest.version).await?;
-        let skill = Self::manifest_to_skill(manifest, content);
-
-        let exists = self
-            .storage
-            .exists(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        if exists && !overwrite {
-            return Err(ToolError::Tool(
-                "Skill already installed. Set overwrite=true to replace.".to_string(),
-            ));
-        }
-
-        if exists {
-            self.storage
-                .update(id, &skill)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-        } else {
-            self.storage
-                .create(&skill)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-        }
-
-        Ok(json!({
-            "id": id,
-            "name": skill.name,
-            "version": skill.version,
-            "installed": true,
-            "updated": exists
-        }))
-    }
-
-    fn uninstall_skill(&self, id: &str) -> restflow_tools::Result<Value> {
-        let exists = self
-            .storage
-            .exists(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        if exists {
-            self.storage
-                .delete(id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-        }
-        Ok(json!({
-            "id": id,
-            "deleted": exists
-        }))
-    }
-
-    fn list_installed(&self) -> restflow_tools::Result<Value> {
-        let skills = self
-            .storage
-            .list()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        Ok(serde_json::to_value(skills)?)
-    }
-}
-
-// ── OpsProviderAdapter ──────────────────────────────────────────────
-
-struct OpsProviderAdapter {
-    background_storage: BackgroundAgentStorage,
-    chat_storage: ChatSessionStorage,
-}
-
-impl OpsProviderAdapter {
-    fn new(
-        background_storage: BackgroundAgentStorage,
-        chat_storage: ChatSessionStorage,
-    ) -> Self {
-        Self {
-            background_storage,
-            chat_storage,
-        }
-    }
-
-    fn parse_status_filter(
-        status: Option<&str>,
-    ) -> restflow_tools::Result<Option<BackgroundAgentStatus>> {
-        let Some(status) = status else {
-            return Ok(None);
-        };
-        let parsed = match status.trim().to_ascii_lowercase().as_str() {
-            "active" => BackgroundAgentStatus::Active,
-            "paused" => BackgroundAgentStatus::Paused,
-            "running" => BackgroundAgentStatus::Running,
-            "completed" => BackgroundAgentStatus::Completed,
-            "failed" => BackgroundAgentStatus::Failed,
-            "interrupted" => BackgroundAgentStatus::Interrupted,
-            value => {
-                return Err(ToolError::Tool(format!(
-                    "Unknown status: {}. Supported: active, paused, running, completed, failed, interrupted",
-                    value
-                )));
-            }
-        };
-        Ok(Some(parsed))
-    }
-
-    fn canonical_existing_ancestor(path: &Path) -> anyhow::Result<PathBuf> {
-        let mut current = if path.exists() {
-            path.to_path_buf()
-        } else {
-            path.parent()
-                .map(Path::to_path_buf)
-                .unwrap_or_else(|| path.to_path_buf())
-        };
-
-        while !current.exists() {
-            if !current.pop() {
-                break;
-            }
-        }
-
-        if !current.exists() {
-            anyhow::bail!(
-                "No existing ancestor found for path: {}",
-                path.display()
-            );
-        }
-
-        Ok(current.canonicalize()?)
-    }
-
-    fn resolve_log_tail_path(path: Option<&str>) -> restflow_tools::Result<PathBuf> {
-        let logs_dir =
-            crate::paths::logs_dir().map_err(|e| ToolError::Tool(e.to_string()))?;
-        let resolved = match path
-            .map(str::trim)
-            .filter(|raw| !raw.is_empty())
-            .map(PathBuf::from)
-        {
-            Some(custom_path) if custom_path.is_absolute() => custom_path,
-            Some(custom_path) => logs_dir.join(custom_path),
-            None => crate::paths::daemon_log_path()
-                .map_err(|e| ToolError::Tool(e.to_string()))?,
-        };
-
-        let logs_root = Self::canonical_existing_ancestor(&logs_dir)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let path_root = Self::canonical_existing_ancestor(&resolved)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        if !path_root.starts_with(&logs_root) {
-            return Err(ToolError::Tool(format!(
-                "log_tail path must stay under {}",
-                logs_dir.display()
-            )));
-        }
-
-        if let Ok(metadata) = std::fs::symlink_metadata(&resolved)
-            && metadata.file_type().is_symlink()
-        {
-            return Err(ToolError::Tool(
-                "log_tail does not allow symlink paths".to_string(),
-            ));
-        }
-
-        Ok(resolved)
-    }
-
-    fn read_log_tail(path: &Path, lines: usize) -> anyhow::Result<(Vec<String>, bool)> {
-        let mut file = std::fs::File::open(path)?;
-        let mut content = String::new();
-        use std::io::Read;
-        file.read_to_string(&mut content)?;
-        let all_lines: Vec<String> = content.lines().map(str::to_string).collect();
-        let total = all_lines.len();
-        let start = total.saturating_sub(lines);
-        let truncated = total > lines;
-        Ok((all_lines[start..].to_vec(), truncated))
-    }
-}
-
-impl OpsProvider for OpsProviderAdapter {
-    fn daemon_status(&self) -> restflow_tools::Result<Value> {
-        let status =
-            check_daemon_status().map_err(|e| ToolError::Tool(e.to_string()))?;
-        let evidence = match status {
-            DaemonStatus::Running { pid } => json!({
-                "status": "running",
-                "pid": pid
-            }),
-            DaemonStatus::NotRunning => json!({
-                "status": "not_running"
-            }),
-            DaemonStatus::Stale { pid } => json!({
-                "status": "stale",
-                "pid": pid
-            }),
-        };
-        let verification = json!({
-            "source": "daemon_pid_file",
-            "checked_at": Utc::now().timestamp_millis()
-        });
-        Ok(crate::ops::build_response(
-            crate::ops::ManageOpsOperation::DaemonStatus,
-            evidence,
-            verification,
-        ))
-    }
-
-    fn daemon_health(
-        &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>>
-    {
-        Box::pin(async move {
-            let socket = crate::paths::socket_path()
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            let health = check_health(socket, None)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            let evidence = serde_json::to_value(health).map_err(ToolError::from)?;
-            let verification = json!({
-                "healthy": evidence["healthy"],
-                "ipc_checked": true,
-                "http_checked": false
-            });
-            Ok(crate::ops::build_response(
-                crate::ops::ManageOpsOperation::DaemonHealth,
-                evidence,
-                verification,
-            ))
-        })
-    }
-
-    fn background_summary(
-        &self,
-        status: Option<&str>,
-        limit: usize,
-    ) -> restflow_tools::Result<Value> {
-        let status_filter = Self::parse_status_filter(status)?;
-        let tasks = match status_filter.clone() {
-            Some(s) => self
-                .background_storage
-                .list_tasks_by_status(s)
-                .map_err(|e| ToolError::Tool(e.to_string()))?,
-            None => self
-                .background_storage
-                .list_tasks()
-                .map_err(|e| ToolError::Tool(e.to_string()))?,
-        };
-        let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
-        for task in &tasks {
-            *by_status
-                .entry(task.status.as_str().to_string())
-                .or_default() += 1;
-        }
-        let sample: Vec<Value> = tasks
-            .iter()
-            .take(limit)
-            .map(|task| {
-                json!({
-                    "id": task.id,
-                    "name": task.name,
-                    "agent_id": task.agent_id,
-                    "status": task.status.as_str(),
-                    "updated_at": task.updated_at
-                })
-            })
-            .collect();
-        let evidence = json!({
-            "total": tasks.len(),
-            "by_status": by_status,
-            "sample": sample
-        });
-        let verification = json!({
-            "status_filter": status_filter.as_ref().map(|s| s.as_str()),
-            "sample_limit": limit,
-            "derived_from": "background_agent_storage"
-        });
-        Ok(crate::ops::build_response(
-            crate::ops::ManageOpsOperation::BackgroundSummary,
-            evidence,
-            verification,
-        ))
-    }
-
-    fn session_summary(&self, limit: usize) -> restflow_tools::Result<Value> {
-        let summaries = self
-            .chat_storage
-            .list_summaries()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let recent: Vec<Value> = summaries
-            .iter()
-            .take(limit)
-            .map(|session| {
-                json!({
-                    "id": session.id,
-                    "name": session.name,
-                    "agent_id": session.agent_id,
-                    "model": session.model,
-                    "message_count": session.message_count,
-                    "updated_at": session.updated_at,
-                    "last_message_preview": session.last_message_preview
-                })
-            })
-            .collect();
-        let evidence = json!({
-            "total": summaries.len(),
-            "recent": recent
-        });
-        let verification = json!({
-            "sorted_by": "updated_at_desc",
-            "sample_limit": limit,
-            "derived_from": "chat_session_storage"
-        });
-        Ok(crate::ops::build_response(
-            crate::ops::ManageOpsOperation::SessionSummary,
-            evidence,
-            verification,
-        ))
-    }
-
-    fn log_tail(&self, lines: usize, path: Option<&str>) -> restflow_tools::Result<Value> {
-        let resolved = Self::resolve_log_tail_path(path)?;
-        if !resolved.exists() {
-            let evidence = json!({
-                "path": resolved.to_string_lossy(),
-                "lines": [],
-                "line_count": 0
-            });
-            let verification = json!({
-                "path_exists": false,
-                "requested_lines": lines
-            });
-            return Ok(crate::ops::build_response(
-                crate::ops::ManageOpsOperation::LogTail,
-                evidence,
-                verification,
-            ));
-        }
-
-        let (tail, truncated) = Self::read_log_tail(&resolved, lines)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let evidence = json!({
-            "path": resolved.to_string_lossy(),
-            "lines": tail,
-            "line_count": tail.len()
-        });
-        let verification = json!({
-            "path_exists": true,
-            "requested_lines": lines,
-            "truncated": truncated
-        });
-        Ok(crate::ops::build_response(
-            crate::ops::ManageOpsOperation::LogTail,
-            evidence,
-            verification,
-        ))
-    }
-}
 
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
@@ -2490,94 +43,33 @@ pub fn create_tool_registry(
 ) -> ToolRegistry {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let lsp_manager = Arc::new(LspManager::new(root));
-    let mut registry = ToolRegistry::new();
-    // Register base tools
-    registry.register(BashTool::new());
-    registry.register(FileTool::new());
-    registry.register(HttpTool::new());
-    registry.register(EmailTool::new());
-    registry.register(TelegramTool::new());
-    registry.register(DiscordTool::new());
-    registry.register(SlackTool::new());
-    registry.register(RunPythonTool::new());
-    registry.register(PythonTool::new());
-    registry.register(WebFetchTool::new());
-    registry.register(JinaReaderTool::new());
-    registry.register(WebSearchTool::new());
-    registry.register(DiagnosticsTool::new(lsp_manager));
 
     let secret_resolver: SecretResolver = {
         let secrets = Arc::new(secret_storage.clone());
         Arc::new(move |key| secrets.get_secret(key).ok().flatten())
     };
 
-    registry.register(TranscribeTool::new(secret_resolver.clone()));
-    registry.register(VisionTool::new(secret_resolver.clone()));
-    // Re-register WebSearchTool with secret resolver so Brave/Tavily API keys are available
-    registry
-        .register(WebSearchTool::new().with_secret_resolver(secret_resolver));
-
-    // Add SkillTool with storage access
+    // Create adapters
     let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage.clone()));
-    registry.register(SkillTool::new(skill_provider));
-
-    // Session management tool (clone before move)
     let session_store = Arc::new(SessionStorageAdapter::new(
         chat_storage.clone(),
         agent_storage.clone(),
     ));
-    registry.register(SessionTool::new(session_store).with_write(true));
-
-    // Memory management tool (clone before move)
     let memory_manager = Arc::new(MemoryManagerAdapter::new(memory_storage.clone()));
-    registry.register(MemoryManagementTool::new(memory_manager).with_write(true));
-
-    // Agent memory CRUD tools (save_to_memory, read_memory, list_memories, delete_memory)
-    // Always registered — agent_id is provided as a tool input parameter
-    {
-        let mem_store: Arc<dyn MemoryStore> =
-            Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
-        registry.register(SaveMemoryTool::new(mem_store.clone()));
-        registry.register(ReadMemoryTool::new(mem_store.clone()));
-        registry.register(ListMemoryTool::new(mem_store.clone()));
-        registry.register(DeleteMemoryTool::new(mem_store));
-    }
-
-    {
-        let deliverable_store: Arc<dyn DeliverableStore> =
-            Arc::new(DeliverableStoreAdapter::new(deliverable_storage.clone()));
-        registry.register(SaveDeliverableTool::new(deliverable_store));
-    }
-
-    // Add unified memory search tool
+    let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
+    let deliverable_store = Arc::new(DeliverableStoreAdapter::new(deliverable_storage.clone()));
     let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage.clone());
-    let unified_search: Arc<dyn UnifiedMemorySearch> =
-        Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
-    registry.register(UnifiedMemorySearchTool::new(unified_search));
-
-    // Add manage ops tool
-    let ops_provider: Arc<dyn OpsProvider> = Arc::new(OpsProviderAdapter::new(
+    let unified_search = Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
+    let ops_provider = Arc::new(OpsProviderAdapter::new(
         background_agent_storage.clone(),
-        chat_storage.clone(),
+        chat_storage,
     ));
-    registry.register(ManageOpsTool::new(ops_provider));
-
-    // Add shared space tool
-    let shared_space_store: Arc<dyn SharedSpaceStore> =
-        Arc::new(SharedSpaceStoreAdapter::new(shared_space_storage, accessor_id));
-    registry.register(SharedSpaceTool::new(shared_space_store, None));
-
-    // Add workspace note tool
+    let shared_space_store = Arc::new(SharedSpaceStoreAdapter::new(
+        shared_space_storage,
+        accessor_id,
+    ));
     let workspace_note_provider = Arc::new(DbWorkspaceNoteAdapter::new(workspace_note_storage));
-    registry.register(WorkspaceNoteTool::new(workspace_note_provider).with_write(true));
-
-    // Auth profile management tool (clone before move)
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
-    registry.register(AuthProfileTool::new(auth_store).with_write(true));
-
-    // Add system management tools (read-only by default)
-    registry.register(SecretsTool::new(Arc::new(secret_storage.clone())));
-    registry.register(ConfigTool::new(Arc::new(config_storage)));
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let agent_store = Arc::new(AgentStoreAdapter::new(
         agent_storage.clone(),
@@ -2586,32 +78,55 @@ pub fn create_tool_registry(
         background_agent_storage.clone(),
         known_tools.clone(),
     ));
-    registry.register(AgentCrudTool::new(agent_store).with_write(true));
     let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(
         background_agent_storage,
         agent_storage,
-        deliverable_storage.clone(),
+        deliverable_storage,
     ));
-    registry.register(BackgroundAgentTool::new(background_agent_store).with_write(true));
+    let marketplace_store = Arc::new(MarketplaceStoreAdapter::new(skill_storage));
+    let trigger_store = Arc::new(TriggerStoreAdapter::new(trigger_storage));
+    let terminal_store = Arc::new(TerminalStoreAdapter::new(terminal_storage));
+    let security_provider: Arc<_> = Arc::new(SecurityQueryProviderAdapter);
 
-    // Marketplace tool
-    let marketplace_store: Arc<dyn MarketplaceStore> =
-        Arc::new(MarketplaceStoreAdapter::new(skill_storage));
-    registry.register(MarketplaceTool::new(marketplace_store));
+    // Build registry using builder
+    let registry = ToolRegistryBuilder::new()
+        // Base tools
+        .with_bash(restflow_tools::BashConfig::default())
+        .with_file(restflow_tools::FileConfig::default())
+        .with_http()
+        .with_email()
+        .with_telegram()
+        .with_discord()
+        .with_slack()
+        .with_python()
+        .with_web_fetch()
+        .with_jina_reader()
+        .with_web_search_with_resolver(secret_resolver.clone())
+        .with_diagnostics(lsp_manager)
+        .with_transcribe(secret_resolver.clone())
+        .with_vision(secret_resolver)
+        // Storage-backed tools
+        .with_skill_tool(skill_provider)
+        .with_session(session_store)
+        .with_memory_management(memory_manager)
+        .with_memory_store(mem_store)
+        .with_deliverable(deliverable_store)
+        .with_unified_search(unified_search)
+        .with_ops(ops_provider)
+        .with_shared_space(shared_space_store)
+        .with_workspace_notes(workspace_note_provider)
+        .with_auth_profile(auth_store)
+        .with_secrets(Arc::new(secret_storage))
+        .with_config(Arc::new(config_storage))
+        .with_agent_crud(agent_store)
+        .with_background_agent(background_agent_store)
+        .with_marketplace(marketplace_store)
+        .with_trigger(trigger_store)
+        .with_terminal(terminal_store)
+        .with_security_query(security_provider)
+        .build();
 
-    // Trigger tool
-    let trigger_store: Arc<dyn TriggerStore> = Arc::new(TriggerStoreAdapter::new(trigger_storage));
-    registry.register(TriggerTool::new(trigger_store));
-
-    // Terminal tool
-    let terminal_store: Arc<dyn TerminalStore> =
-        Arc::new(TerminalStoreAdapter::new(terminal_storage));
-    registry.register(TerminalTool::new(terminal_store));
-
-    // Security query tool
-    let security_provider: Arc<dyn SecurityQueryProvider> =
-        Arc::new(SecurityQueryProviderAdapter);
-    registry.register(SecurityQueryTool::new(security_provider));
+    // Populate known_tools for AgentStoreAdapter validation
     if let Ok(mut known) = known_tools.write() {
         *known = registry
             .list()
@@ -2623,54 +138,24 @@ pub fn create_tool_registry(
     registry
 }
 
-// Test helper for log_tail_payload (used by tests that previously called ManageOpsTool::log_tail_payload)
-#[cfg(test)]
-impl OpsProviderAdapter {
-    fn log_tail_payload(input: &serde_json::Value) -> restflow_tools::Result<(Value, Value)> {
-        let lines = input
-            .get("lines")
-            .and_then(Value::as_u64)
-            .map(|v| v as usize)
-            .unwrap_or(100)
-            .clamp(1, 1000);
-        let path = Self::resolve_log_tail_path(
-            input
-                .get("path")
-                .and_then(Value::as_str),
-        )?;
-        if !path.exists() {
-            let evidence = json!({
-                "path": path.to_string_lossy(),
-                "lines": [],
-                "line_count": 0
-            });
-            let verification = json!({
-                "path_exists": false,
-                "requested_lines": lines
-            });
-            return Ok((evidence, verification));
-        }
-
-        let (tail, truncated) =
-            Self::read_log_tail(&path, lines).map_err(|e| ToolError::Tool(e.to_string()))?;
-        let evidence = json!({
-            "path": path.to_string_lossy(),
-            "lines": tail,
-            "line_count": tail.len()
-        });
-        let verification = json!({
-            "path_exists": true,
-            "requested_lines": lines,
-            "truncated": truncated
-        });
-        Ok((evidence, verification))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::Skill;
+    use crate::services::adapters::{
+        AgentStoreAdapter, BackgroundAgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter,
+    };
     use redb::Database;
+    use restflow_ai::SkillProvider as _;
+    use restflow_ai::tools::{
+        AgentCreateRequest, AgentStore, AgentUpdateRequest,
+        BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
+        BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
+        BackgroundAgentProgressRequest, BackgroundAgentScratchpadListRequest,
+        BackgroundAgentScratchpadReadRequest, BackgroundAgentStore,
+        BackgroundAgentUpdateRequest, MemoryStore as _,
+    };
+    use serde_json::json;
     use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
@@ -2705,9 +190,6 @@ mod tests {
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
         let previous_master_key = std::env::var_os("RESTFLOW_MASTER_KEY");
-        // SAFETY: env vars are modified in a narrow scope and callers use
-        // #[tokio::test(flavor = "current_thread")] so no worker threads
-        // can race on reads.
         unsafe {
             std::env::set_var("RESTFLOW_DIR", &state_dir);
             std::env::remove_var("RESTFLOW_MASTER_KEY");
@@ -2988,11 +470,9 @@ mod tests {
             .join("scratchpads");
         std::fs::create_dir_all(&scratchpads_dir).unwrap();
 
-        // Create a file outside the scratchpad directory
         let outside_file = temp_dir.path().join("outside.jsonl");
         std::fs::write(&outside_file, "sensitive data").unwrap();
 
-        // Create a symlink inside scratchpad pointing to outside file
         let symlink_path = scratchpads_dir.join("malicious.jsonl");
         std::os::unix::fs::symlink(&outside_file, &symlink_path).unwrap();
 
@@ -3001,9 +481,6 @@ mod tests {
             line_limit: Some(10),
         };
 
-        // Use a dummy adapter - we just need to test the static method
-        // The function is on BackgroundAgentStoreAdapter, which is private
-        // So we'll test through the actual tool implementation
         unsafe {
             if let Some(value) = previous_restflow_dir {
                 std::env::set_var("RESTFLOW_DIR", value);
@@ -3012,8 +489,6 @@ mod tests {
             }
         }
 
-        // Test that validate_scratchpad_name accepts this name
-        // (The symlink check happens in read_background_agent_scratchpad)
         let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("malicious.jsonl");
         assert!(result.is_ok(), "validation should accept the filename");
     }
@@ -3033,14 +508,8 @@ mod tests {
             .join("scratchpads");
         std::fs::create_dir_all(&scratchpads_dir).unwrap();
 
-        // Create a directory that could be used for path traversal
         let attack_dir = scratchpads_dir.join("attack");
         std::fs::create_dir_all(&attack_dir).unwrap();
-
-        // Create a file in the attack directory that should be outside scratchpads
-        // This simulates a case where an attacker creates "../outside.jsonl" as a file
-        // But since we already validate ".." in the name, this is caught earlier
-        // The canonicalize check is a defense-in-depth
 
         unsafe {
             if let Some(value) = previous_restflow_dir {
@@ -3050,7 +519,6 @@ mod tests {
             }
         }
 
-        // Test that validate_scratchpad_name rejects path traversal
         let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("../etc/passwd.jsonl");
         assert!(result.is_err(), "validation should reject path traversal");
         let err_msg = result.unwrap_err().to_string();
@@ -3173,7 +641,6 @@ mod tests {
             _temp_dir,
         ) = setup_storage();
 
-        // Add a skill
         let skill = crate::models::Skill::new(
             "test-skill".to_string(),
             "Test Skill".to_string(),
@@ -3185,17 +652,14 @@ mod tests {
 
         let provider = SkillStorageProvider::new(storage);
 
-        // Test list
         let skills = provider.list_skills();
         assert_eq!(skills.len(), 1);
         assert_eq!(skills[0].id, "test-skill");
 
-        // Test get
         let content = provider.get_skill("test-skill").unwrap();
         assert_eq!(content.id, "test-skill");
         assert!(content.content.contains("Test Content"));
 
-        // Test get nonexistent
         assert!(provider.get_skill("nonexistent").is_none());
     }
 
@@ -3210,7 +674,6 @@ mod tests {
 
         let _cleanup = AgentsDirEnvCleanup;
 
-        // Acquire the shared env lock to avoid racing with prompt_files tests
         let _env_lock = crate::prompt_files::agents_dir_env_lock();
         let agents_temp = tempdir().unwrap();
         unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
@@ -3877,14 +1340,13 @@ mod tests {
             .await
             .unwrap();
         assert!(created.success);
-        let session_id = created.result["id"].as_str().unwrap().to_string();
 
         let sent = registry
             .execute_safe(
                 "manage_terminal",
                 json!({
                     "operation": "send_input",
-                    "session_id": session_id,
+                    "session_id": created.result["id"].as_str().unwrap(),
                     "data": "echo hello"
                 }),
             )
@@ -4001,7 +1463,6 @@ mod tests {
 
         let store = DbMemoryStoreAdapter::new(memory_storage);
 
-        // Test save
         let saved = store
             .save(
                 "test-agent",
@@ -4014,7 +1475,6 @@ mod tests {
         let entry_id = saved["id"].as_str().unwrap().to_string();
         assert_eq!(saved["title"].as_str().unwrap(), "My Note");
 
-        // Test read_by_id
         let read = store.read_by_id(&entry_id).unwrap().unwrap();
         assert!(read["found"].as_bool().unwrap());
         assert_eq!(read["entry"]["title"].as_str().unwrap(), "My Note");
@@ -4030,23 +1490,19 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(tags.contains(&"tag1"));
         assert!(tags.contains(&"tag2"));
-        // __title tag should NOT appear in user tags
         assert!(!tags.iter().any(|t| t.starts_with("__title:")));
 
-        // Test list
         let listed = store.list("test-agent", None, 10).unwrap();
         assert_eq!(listed["total"].as_u64().unwrap(), 1);
         let memories = listed["memories"].as_array().unwrap();
         assert_eq!(memories.len(), 1);
         assert_eq!(memories[0]["title"].as_str().unwrap(), "My Note");
 
-        // Test list by tag
         let listed = store.list("test-agent", Some("tag1"), 10).unwrap();
         assert_eq!(listed["count"].as_u64().unwrap(), 1);
         let listed = store.list("test-agent", Some("nonexistent"), 10).unwrap();
         assert_eq!(listed["count"].as_u64().unwrap(), 0);
 
-        // Test search by title keyword
         let found = store.search("test-agent", None, Some("Note"), 10).unwrap();
         assert!(found["count"].as_u64().unwrap() >= 1);
         let found = store
@@ -4054,11 +1510,9 @@ mod tests {
             .unwrap();
         assert_eq!(found["count"].as_u64().unwrap(), 0);
 
-        // Test search by tag
         let found = store.search("test-agent", Some("tag2"), None, 10).unwrap();
         assert!(found["count"].as_u64().unwrap() >= 1);
 
-        // Test dedup: saving same content again should not create a duplicate
         let saved2 = store
             .save(
                 "test-agent",
@@ -4071,13 +1525,11 @@ mod tests {
         let listed = store.list("test-agent", None, 10).unwrap();
         assert_eq!(listed["total"].as_u64().unwrap(), 1);
 
-        // Test delete
         let deleted = store.delete(&entry_id).unwrap();
         assert!(deleted["deleted"].as_bool().unwrap());
         let listed = store.list("test-agent", None, 10).unwrap();
         assert_eq!(listed["total"].as_u64().unwrap(), 0);
 
-        // Test read_by_id after delete
         let read = store.read_by_id(&entry_id).unwrap();
         assert!(read.is_none());
     }
@@ -4100,7 +1552,6 @@ mod tests {
             _temp_dir,
         ) = setup_storage();
 
-        // Memory tools are always registered even without agent_id
         let registry = create_tool_registry(
             skill_storage,
             memory_storage,
@@ -4124,12 +1575,8 @@ mod tests {
         assert!(registry.has("delete_memory"));
     }
 
-    // Note: Full path escape test requires integration test with actual scratchpad dir
-    // The canonicalize() check in read_background_agent_scratchpad provides the actual protection
-
     #[test]
     fn test_validate_scratchpad_name_accepts_normal_file() {
-        // Test that normal filenames are accepted
         let result =
             BackgroundAgentStoreAdapter::validate_scratchpad_name("task-123-2026-02-18.jsonl");
         assert!(result.is_ok());
@@ -4137,7 +1584,6 @@ mod tests {
 
     #[test]
     fn test_validate_scratchpad_name_rejects_path_traversal() {
-        // Test path traversal attempts
         let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("../etc/passwd.jsonl");
         assert!(result.is_err());
 
