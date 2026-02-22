@@ -35,7 +35,6 @@ use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
 use crate::agent::context::{AgentContext, ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::agent::deferred::{DeferredExecutionManager, DeferredStatus};
-use crate::agent::history::{HistoryPipeline, HistoryProcessor};
 use crate::agent::model_router::{ModelRoutingConfig, ModelSwitcher, classify_task, select_model};
 use crate::agent::resource::{ResourceLimits, ResourceTracker, ResourceUsage};
 use crate::agent::scratchpad::Scratchpad;
@@ -45,7 +44,6 @@ use crate::agent::streaming_buffer::{BufferMode, StreamingBuffer};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
-use crate::memory::{CompactionConfig, CompactionResult, DEFAULT_MAX_MESSAGES, WorkingMemory};
 use crate::steer::SteerMessage;
 use crate::tools::{ToolErrorCategory, ToolRegistry};
 use futures::stream::FuturesOrdered;
@@ -94,17 +92,10 @@ pub struct AgentConfig {
     pub tool_timeout: Duration,
     /// Max length for tool results to prevent context overflow (default: 4000)
     pub max_tool_result_length: usize,
-    /// Maximum messages to retain in working memory (default: 100)
-    /// When this limit is reached, oldest non-system messages are evicted.
-    pub max_memory_messages: usize,
-    /// Context window size for compaction decisions (default: 128000 tokens).
+    /// Context window size in tokens (default: 128000).
     pub context_window: usize,
     /// Optional maximum output tokens for each LLM completion request.
     pub max_output_tokens: Option<u32>,
-    /// Optional compaction configuration for working memory.
-    pub compaction_config: Option<CompactionConfig>,
-    /// Optional history processors applied before each LLM request.
-    pub history_pipeline: HistoryPipeline,
     /// Optional agent context injected into the system prompt.
     pub agent_context: Option<AgentContext>,
     /// Whether to inject agent_context into system prompt (default: true).
@@ -142,11 +133,8 @@ impl AgentConfig {
             context: HashMap::new(),
             tool_timeout: Duration::from_secs(300),
             max_tool_result_length: 4000,
-            max_memory_messages: DEFAULT_MAX_MESSAGES,
             context_window: 128_000,
             max_output_tokens: None,
-            compaction_config: None,
-            history_pipeline: HistoryPipeline::default(),
             agent_context: None,
             inject_agent_context: true,
             resource_limits: ResourceLimits::default(),
@@ -161,13 +149,7 @@ impl AgentConfig {
         }
     }
 
-    /// Set maximum messages in working memory
-    pub fn with_max_memory_messages(mut self, max: usize) -> Self {
-        self.max_memory_messages = max;
-        self
-    }
-
-    /// Set context window size for compaction decisions.
+    /// Set context window size in tokens.
     pub fn with_context_window(mut self, context_window: usize) -> Self {
         self.context_window = context_window;
         self
@@ -176,24 +158,6 @@ impl AgentConfig {
     /// Set max output tokens for each LLM request.
     pub fn with_max_output_tokens(mut self, max_output_tokens: u32) -> Self {
         self.max_output_tokens = Some(max_output_tokens);
-        self
-    }
-
-    /// Enable working memory compaction.
-    pub fn with_compaction_config(mut self, config: CompactionConfig) -> Self {
-        self.compaction_config = Some(config);
-        self
-    }
-
-    /// Register a history processor in the request pipeline.
-    pub fn with_history_processor(mut self, processor: Arc<dyn HistoryProcessor>) -> Self {
-        self.history_pipeline.add(processor);
-        self
-    }
-
-    /// Override the full history pipeline.
-    pub fn with_history_pipeline(mut self, pipeline: HistoryPipeline) -> Self {
-        self.history_pipeline = pipeline;
         self
     }
 
@@ -323,8 +287,6 @@ pub struct AgentResult {
     pub total_tokens: u32,
     pub total_cost_usd: f64,
     pub state: AgentState,
-    /// Compaction operations performed during the run.
-    pub compaction_results: Vec<CompactionResult>,
     /// Resource usage snapshot at end of run.
     pub resource_usage: ResourceUsage,
 }
@@ -333,7 +295,6 @@ pub struct AgentResult {
 pub struct AgentExecutor {
     llm: Arc<dyn LlmClient>,
     tools: Arc<ToolRegistry>,
-    summarizer: Option<Arc<dyn LlmClient>>,
     context_cache: Option<WorkspaceContextCache>,
     steer_rx: Option<Mutex<mpsc::Receiver<SteerMessage>>>,
 }
@@ -348,16 +309,9 @@ impl AgentExecutor {
         Self {
             llm,
             tools,
-            summarizer: None,
             context_cache,
             steer_rx: None,
         }
-    }
-
-    /// Configure a dedicated summarizer LLM.
-    pub fn with_summarizer(mut self, summarizer: Arc<dyn LlmClient>) -> Self {
-        self.summarizer = Some(summarizer);
-        self
     }
 
     /// Attach a steer channel for live instruction updates.
@@ -386,7 +340,6 @@ impl AgentExecutor {
     async fn apply_steer_messages(
         &self,
         state: &mut AgentState,
-        memory: &mut WorkingMemory,
         deferred_manager: &DeferredExecutionManager,
     ) {
         let messages = self.drain_steer_messages().await;
@@ -419,8 +372,7 @@ impl AgentExecutor {
                             )
                         };
                         let msg = Message::system(text);
-                        state.add_message(msg.clone());
-                        memory.add(msg);
+                        state.add_message(msg);
                         continue;
                     }
                     tracing::info!(
@@ -429,8 +381,7 @@ impl AgentExecutor {
                         "Received steer message, injecting into conversation"
                     );
                     let msg = Message::user(format!("[User Update]: {}", instruction));
-                    state.add_message(msg.clone());
-                    memory.add(msg);
+                    state.add_message(msg);
                 }
                 crate::steer::SteerCommand::Interrupt { reason, .. } => {
                     tracing::info!(
@@ -448,7 +399,6 @@ impl AgentExecutor {
         &self,
         deferred_manager: &DeferredExecutionManager,
         state: &mut AgentState,
-        memory: &mut WorkingMemory,
         tool_timeout: Duration,
         max_tool_result_length: usize,
     ) {
@@ -499,24 +449,21 @@ impl AgentExecutor {
                         );
                     }
                     let msg = Message::system(text);
-                    state.add_message(msg.clone());
-                    memory.add(msg);
+                    state.add_message(msg);
                 }
                 DeferredStatus::Denied { reason } => {
                     let msg = Message::system(format!(
                         "Deferred tool call '{}' was denied: {}",
                         deferred.tool_name, reason
                     ));
-                    state.add_message(msg.clone());
-                    memory.add(msg);
+                    state.add_message(msg);
                 }
                 DeferredStatus::TimedOut => {
                     let msg = Message::system(format!(
                         "Approval timed out for deferred tool call '{}'.",
                         deferred.tool_name
                     ));
-                    state.add_message(msg.clone());
-                    memory.add(msg);
+                    state.add_message(msg);
                 }
                 DeferredStatus::Pending => {}
             }
@@ -588,17 +535,7 @@ impl AgentExecutor {
         state.context.extend(config.context.clone());
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
-        let mut compaction_results = Vec::new();
         let tracker = ResourceTracker::new(config.resource_limits.clone());
-
-        // Initialize working memory for context window management
-        let mut memory = WorkingMemory::new(config.max_memory_messages);
-        if let Some(compaction_config) = config.compaction_config.clone() {
-            memory.enable_compaction(compaction_config);
-        }
-        for msg in &state.messages {
-            memory.add(msg.clone());
-        }
 
         // Initialize stuck detector
         let mut stuck_detector = config.stuck_detection.clone().map(StuckDetector::new);
@@ -612,10 +549,8 @@ impl AgentExecutor {
             let system_msg = Message::system(&system_prompt);
             let user_msg = Message::user(&config.goal);
 
-            state.add_message(system_msg.clone());
-            state.add_message(user_msg.clone());
-            memory.add(system_msg);
-            memory.add(user_msg);
+            state.add_message(system_msg);
+            state.add_message(user_msg);
         }
 
         // Core loop (Swarm-inspired simplicity)
@@ -623,21 +558,11 @@ impl AgentExecutor {
             if let Some(scratchpad) = &config.scratchpad {
                 scratchpad.log_iteration_begin(state.iteration + 1);
             }
-            let summarizer = self.summarizer.as_deref().unwrap_or(self.llm.as_ref());
-            if let Some(result) = memory
-                .auto_compact_if_needed(summarizer, config.context_window)
-                .await?
-            {
-                // Compaction affects working memory only; full state history remains intact.
-                compaction_results.push(result);
-            }
-
-            self.apply_steer_messages(&mut state, &mut memory, &deferred_manager)
+            self.apply_steer_messages(&mut state, &deferred_manager)
                 .await;
             self.process_resolved_deferred_calls(
                 &deferred_manager,
                 &mut state,
-                &mut memory,
                 config.tool_timeout,
                 config.max_tool_result_length,
             )
@@ -649,7 +574,7 @@ impl AgentExecutor {
                 break;
             }
 
-            // 1. LLM call - use working memory for context (handles overflow)
+            // 1. LLM call
             if let Some(routing) = config
                 .model_routing
                 .as_ref()
@@ -657,7 +582,7 @@ impl AgentExecutor {
                 && let Some(switcher) = config.model_switcher.as_ref()
             {
                 let tool_names: Vec<&str> = last_tool_names.iter().map(String::as_str).collect();
-                let messages = memory.get_messages();
+                let messages = state.messages.clone();
                 let latest_signal = messages
                     .iter()
                     .rev()
@@ -689,8 +614,7 @@ impl AgentExecutor {
                 }
             }
 
-            let request_messages =
-                sanitize_tool_call_history(config.history_pipeline.apply(memory.get_messages()));
+            let request_messages = sanitize_tool_call_history(state.messages.clone());
             let mut request =
                 CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
 
@@ -738,8 +662,7 @@ impl AgentExecutor {
                     scratchpad.log_text_delta(state.iteration + 1, &answer);
                 }
                 let assistant_msg = Message::assistant(&answer);
-                state.add_message(assistant_msg.clone());
-                memory.add(assistant_msg);
+                state.add_message(assistant_msg);
                 last_tool_names.clear();
 
                 match response.finish_reason {
@@ -779,8 +702,7 @@ impl AgentExecutor {
                 response.content.clone(),
                 response.tool_calls.clone(),
             );
-            state.add_message(tool_call_msg.clone());
-            memory.add(tool_call_msg);
+            state.add_message(tool_call_msg);
 
             // Check all resource limits before tool execution
             if let Err(e) = tracker.check() {
@@ -899,10 +821,9 @@ impl AgentExecutor {
                     );
                 }
 
-                // Add tool result to both state and working memory
+                // Add tool result to state
                 let tool_result_msg = Message::tool_result(tool_call_id.clone(), result_str);
-                state.add_message(tool_result_msg.clone());
-                memory.add(tool_result_msg);
+                state.add_message(tool_result_msg);
             }
             had_failure = tool_failed;
 
@@ -918,8 +839,7 @@ impl AgentExecutor {
                             "Agent stuck detected, injecting nudge message"
                         );
                         let nudge_msg = Message::system(stuck_info.message);
-                        state.add_message(nudge_msg.clone());
-                        memory.add(nudge_msg);
+                        state.add_message(nudge_msg);
                     }
                     StuckAction::Stop => {
                         tracing::warn!(
@@ -977,7 +897,6 @@ impl AgentExecutor {
             total_tokens,
             total_cost_usd,
             state,
-            compaction_results,
             resource_usage,
         })
     }
@@ -1554,7 +1473,6 @@ fn sanitize_tool_call_history(messages: Vec<Message>) -> Vec<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent::TrimOldMessagesProcessor;
     use crate::llm::{
         CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
     };
@@ -1875,18 +1793,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_agent_config_max_memory_messages() {
-        let config = AgentConfig::new("Test goal").with_max_memory_messages(50);
-        assert_eq!(config.max_memory_messages, 50);
-    }
-
-    #[tokio::test]
-    async fn test_agent_config_default_memory_messages() {
-        let config = AgentConfig::new("Test goal");
-        assert_eq!(config.max_memory_messages, DEFAULT_MAX_MESSAGES);
-    }
-
-    #[tokio::test]
     async fn test_executor_simple_completion() {
         let response = CompletionResponse {
             content: Some("Hello, I'm done!".to_string()),
@@ -2006,8 +1912,7 @@ mod tests {
         let executor = AgentExecutor::new(mock_llm.clone(), tools);
 
         let config = AgentConfig::new("Test task")
-            .with_system_prompt("You are a test assistant")
-            .with_max_memory_messages(10);
+            .with_system_prompt("You are a test assistant");
 
         let result = executor.run(config).await.unwrap();
         assert!(result.success);
@@ -2024,49 +1929,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_executor_applies_history_pipeline_before_llm_call() {
-        let responses = vec![
-            CompletionResponse {
-                content: Some("step".to_string()),
-                tool_calls: vec![ToolCall {
-                    id: "call_1".to_string(),
-                    name: "unknown_tool".to_string(),
-                    arguments: serde_json::json!({}),
-                }],
-                finish_reason: FinishReason::ToolCalls,
-                usage: None,
-            },
-            CompletionResponse {
-                content: Some("done".to_string()),
-                tool_calls: vec![],
-                finish_reason: FinishReason::Stop,
-                usage: None,
-            },
-        ];
-
-        let mock_llm = Arc::new(MockLlmClient::new(responses));
-        let tools = Arc::new(ToolRegistry::new());
-        let executor = AgentExecutor::new(mock_llm.clone(), tools);
-
-        let config = AgentConfig::new("Test history pipeline")
-            .with_max_memory_messages(20)
-            .with_history_processor(Arc::new(TrimOldMessagesProcessor::new(1)));
-
-        let result = executor.run(config).await.unwrap();
-        assert!(result.success);
-
-        let requests = mock_llm.captured_requests();
-        let second_request = &requests[1];
-
-        assert!(
-            second_request
-                .iter()
-                .any(|msg| msg.content == "[Earlier conversation trimmed]")
-        );
-    }
-
-    #[tokio::test]
-    async fn test_executor_memory_window_limits_context() {
+    async fn test_executor_multi_turn_with_tool_calls() {
         // Create responses for a multi-turn conversation
         let responses = vec![
             // First response with tool call
@@ -2093,8 +1956,7 @@ mod tests {
         let tools = Arc::new(ToolRegistry::new());
         let executor = AgentExecutor::new(mock_llm.clone(), tools);
 
-        // Set a very small memory limit
-        let config = AgentConfig::new("Multi-turn task").with_max_memory_messages(4); // system + user + assistant + tool_result
+        let config = AgentConfig::new("Multi-turn task");
 
         let result = executor.run(config).await.unwrap();
         assert!(result.success);
@@ -2133,7 +1995,7 @@ mod tests {
         let tools = Arc::new(ToolRegistry::new());
         let executor = AgentExecutor::new(mock_llm, tools);
 
-        let config = AgentConfig::new("Test").with_max_memory_messages(100); // Large enough to hold all
+        let config = AgentConfig::new("Test");
 
         let result = executor.run(config).await.unwrap();
 

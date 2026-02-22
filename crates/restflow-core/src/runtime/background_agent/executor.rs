@@ -31,7 +31,7 @@ use restflow_ai::agent::{
 use restflow_ai::llm::Message;
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
-    CompactionConfig, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
+    DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
     ProcessTool, ReplySender, ReplyTool, ResourceLimits as AgentResourceLimits, Scratchpad,
     SwappableLlm, SwitchModelTool,
 };
@@ -355,18 +355,6 @@ impl AgentRuntimeExecutor {
             | AIModel::GeminiCli => 1_000_000,
             _ => 128_000,
         }
-    }
-
-    fn build_compaction_config(memory: &MemoryConfig) -> Option<CompactionConfig> {
-        if !memory.enable_compaction {
-            return None;
-        }
-
-        Some(CompactionConfig {
-            threshold_ratio: memory.compaction_threshold_ratio,
-            max_summary_tokens: memory.max_summary_tokens,
-            ..CompactionConfig::default()
-        })
     }
 
     fn to_agent_resource_limits(limits: &crate::models::ResourceLimits) -> AgentResourceLimits {
@@ -947,7 +935,6 @@ impl AgentRuntimeExecutor {
             .with_system_prompt(system_prompt.clone())
             .with_tool_timeout(Duration::from_secs(agent_defaults.tool_timeout_secs))
             .with_max_iterations(agent_defaults.max_iterations)
-            .with_max_memory_messages(max_history.max(1))
             .with_context_window(context_window)
             .with_max_tool_result_length(max_tool_result_length);
         if let Some(entry) = model_entry
@@ -1250,7 +1237,7 @@ impl AgentRuntimeExecutor {
         llm_client: Arc<dyn LlmClient>,
         background_task_id: Option<&str>,
         input: Option<&str>,
-        memory_config: &MemoryConfig,
+        _memory_config: &MemoryConfig,
         resource_limits: &crate::models::ResourceLimits,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
@@ -1313,7 +1300,6 @@ impl AgentRuntimeExecutor {
             .with_system_prompt(system_prompt)
             .with_tool_timeout(Duration::from_secs(agent_defaults.tool_timeout_secs))
             .with_max_iterations(agent_defaults.max_iterations)
-            .with_max_memory_messages(memory_config.max_messages)
             .with_context_window(context_window)
             .with_resource_limits(Self::to_agent_resource_limits(resource_limits))
             .with_max_tool_result_length(max_tool_result_length)
@@ -1322,9 +1308,6 @@ impl AgentRuntimeExecutor {
             && !model.is_cli_model()
         {
             config = config.with_max_output_tokens(entry.capabilities.output_limit as u32);
-        }
-        if let Some(compaction) = Self::build_compaction_config(memory_config) {
-            config = config.with_compaction_config(compaction);
         }
         if let Some(task_id) = background_task_id
             && let Ok(scratchpad) = Self::create_scratchpad_for_task(task_id)
@@ -1422,25 +1405,9 @@ impl AgentRuntimeExecutor {
             agent.run(config).await?
         };
         if result.success {
-            let compaction = result.compaction_results.iter().fold(
-                super::runner::CompactionMetrics::default(),
-                |mut acc, item| {
-                    acc.event_count += 1;
-                    acc.tokens_before += item.tokens_before;
-                    acc.tokens_after += item.tokens_after;
-                    acc.messages_compacted += item.compacted_count;
-                    acc
-                },
-            );
             let messages = result.state.messages;
             let output = result.answer.unwrap_or_default();
-            if compaction.event_count > 0 {
-                Ok(ExecutionResult::success_with_compaction(
-                    output, messages, compaction,
-                ))
-            } else {
-                Ok(ExecutionResult::success(output, messages))
-            }
+            Ok(ExecutionResult::success(output, messages))
         } else {
             Err(anyhow!(
                 "Agent execution failed: {}",
@@ -2018,22 +1985,6 @@ mod tests {
             AgentRuntimeExecutor::context_window_for_model(AIModel::Gemini25Pro),
             1_000_000
         );
-    }
-
-    #[test]
-    fn test_build_compaction_config_from_memory_config() {
-        let enabled = MemoryConfig::default();
-        let config = AgentRuntimeExecutor::build_compaction_config(&enabled)
-            .expect("compaction should be enabled by default");
-        assert_eq!(config.threshold_ratio, 0.80);
-        assert_eq!(config.max_summary_tokens, 2_000);
-        assert!(config.auto_compact);
-
-        let disabled = MemoryConfig {
-            enable_compaction: false,
-            ..MemoryConfig::default()
-        };
-        assert!(AgentRuntimeExecutor::build_compaction_config(&disabled).is_none());
     }
 
     #[test]

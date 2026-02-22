@@ -61,7 +61,6 @@ mod tests {
             total_tokens: 0,
             total_cost_usd: 0.0,
             state: AgentState::new("execution-1".to_string(), 1),
-            compaction_results: Vec::new(),
             resource_usage: ResourceUsage {
                 tool_calls: 0,
                 wall_clock: Duration::ZERO,
