@@ -10,10 +10,8 @@
 pub mod agent;
 pub mod cache;
 pub mod error;
-pub mod eval;
 pub mod http_client;
 pub mod llm;
-pub mod lsp;
 pub mod steer;
 pub mod text_utils;
 pub mod tools;
