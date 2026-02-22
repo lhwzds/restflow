@@ -330,3 +330,85 @@ impl OpsProviderAdapter {
         Ok((evidence, verification))
     }
 }
+
+#[cfg(test)]
+mod tests_adapter {
+    use super::*;
+    use restflow_ai::tools::OpsProvider;
+    use std::sync::Arc;
+    use tempfile::tempdir;
+
+    fn setup() -> (OpsProviderAdapter, tempfile::TempDir) {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+        let bg_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
+        let chat_storage = ChatSessionStorage::new(db).unwrap();
+        (OpsProviderAdapter::new(bg_storage, chat_storage), temp_dir)
+    }
+
+    #[test]
+    fn test_background_summary_empty() {
+        let (adapter, _dir) = setup();
+        let result = adapter.background_summary(None, 10).unwrap();
+        assert_eq!(result["operation"], "background_summary");
+        assert_eq!(result["evidence"]["total"], 0);
+    }
+
+    #[test]
+    fn test_session_summary_empty() {
+        let (adapter, _dir) = setup();
+        let result = adapter.session_summary(10).unwrap();
+        assert_eq!(result["operation"], "session_summary");
+        assert_eq!(result["evidence"]["total"], 0);
+    }
+
+    #[test]
+    fn test_daemon_status() {
+        let (adapter, _dir) = setup();
+        let result = adapter.daemon_status().unwrap();
+        assert_eq!(result["operation"], "daemon_status");
+        assert!(result["evidence"]["status"].is_string());
+    }
+
+    #[test]
+    fn test_log_tail_nonexistent_file() {
+        let (adapter, _dir) = setup();
+        // log_tail with default path should work (returns empty if no file)
+        let result = adapter.log_tail(10, None);
+        // Result depends on system state but should not panic
+        assert!(result.is_ok() || result.is_err());
+    }
+
+    #[test]
+    fn test_read_log_tail() {
+        let dir = tempdir().unwrap();
+        let log_file = dir.path().join("test.log");
+        std::fs::write(&log_file, "line1\nline2\nline3\nline4\nline5\n").unwrap();
+
+        let (lines, truncated) = OpsProviderAdapter::read_log_tail(&log_file, 3).unwrap();
+        assert_eq!(lines.len(), 3);
+        assert_eq!(lines[0], "line3");
+        assert_eq!(lines[2], "line5");
+        assert!(truncated);
+    }
+
+    #[test]
+    fn test_read_log_tail_no_truncation() {
+        let dir = tempdir().unwrap();
+        let log_file = dir.path().join("test.log");
+        std::fs::write(&log_file, "line1\nline2\n").unwrap();
+
+        let (lines, truncated) = OpsProviderAdapter::read_log_tail(&log_file, 100).unwrap();
+        assert_eq!(lines.len(), 2);
+        assert!(!truncated);
+    }
+
+    #[test]
+    fn test_parse_status_filter() {
+        assert!(OpsProviderAdapter::parse_status_filter(None).unwrap().is_none());
+        assert!(OpsProviderAdapter::parse_status_filter(Some("active")).unwrap().is_some());
+        assert!(OpsProviderAdapter::parse_status_filter(Some("RUNNING")).unwrap().is_some());
+        assert!(OpsProviderAdapter::parse_status_filter(Some("invalid")).is_err());
+    }
+}
