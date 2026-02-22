@@ -21,9 +21,9 @@ use restflow_core::storage::SecretStorage;
 use restflow_storage::AuthProfileStorage;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
-use super::telegram;
+use super::{discord, slack, telegram};
 
 struct DaemonIpcEventEmitter;
 
@@ -133,10 +133,56 @@ impl CliBackgroundAgentRunner {
             *runner_guard = Some(runner);
         }
 
-        if let Some(router) = telegram::setup_telegram_channel(
+        // Build a shared ChannelRouter from all configured channels
+        let mut channel_router = ChannelRouter::new();
+        let mut any_channel_configured = false;
+
+        // Try Telegram
+        if let Some((tg_channel, default_chat_id)) = telegram::setup_telegram_channel(
             &self.core.storage.secrets,
             &self.core.storage.daemon_state,
         )? {
+            if let Some(chat_id) = default_chat_id {
+                channel_router.register_with_default(tg_channel, chat_id);
+            } else {
+                warn!(
+                    "Telegram channel registered without default chat ID. Set TELEGRAM_CHAT_ID for reliable notifications."
+                );
+                channel_router.register(tg_channel);
+            }
+            any_channel_configured = true;
+            info!("Telegram channel configured");
+        }
+
+        // Try Discord
+        if let Some((dc_channel, default_channel_id)) =
+            discord::setup_discord_channel(&self.core.storage.secrets)?
+        {
+            if let Some(channel_id) = default_channel_id {
+                channel_router.register_with_default(dc_channel, channel_id);
+            } else {
+                channel_router.register(dc_channel);
+            }
+            any_channel_configured = true;
+            info!("Discord channel configured");
+        }
+
+        // Try Slack
+        if let Some((sk_channel, default_channel_id)) =
+            slack::setup_slack_channel(&self.core.storage.secrets)?
+        {
+            if let Some(channel_id) = default_channel_id {
+                channel_router.register_with_default(sk_channel, channel_id);
+            } else {
+                channel_router.register(sk_channel);
+            }
+            any_channel_configured = true;
+            info!("Slack channel configured");
+        }
+
+        if any_channel_configured {
+            let router = Arc::new(channel_router);
+
             let trigger = Arc::new(CliBackgroundAgentTrigger::new(
                 self.core.clone(),
                 self.handle.clone(),
@@ -175,17 +221,13 @@ impl CliBackgroundAgentRunner {
                 },
             );
 
-            // Pass channel router to task runner so notifications are broadcast
-            // through configured channels automatically (no per-task config needed)
             if let Some(ref runner) = *self.runner.read().await {
                 runner.set_channel_router(router.clone()).await;
             }
 
             let mut router_guard = self.router.write().await;
             *router_guard = Some(router);
-            info!(
-                "Telegram channel enabled for CLI daemon with AI chat support and forced pairing access control"
-            );
+            info!("Channel message handler started with pairing access control");
         }
 
         info!("Task runner started");

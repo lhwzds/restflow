@@ -11,7 +11,7 @@ use tokio::time::sleep;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 
-use crate::channel::{ChannelRouter, ChannelType, InboundMessage, OutboundMessage, PairingManager};
+use crate::channel::{ChannelRouter, InboundMessage, OutboundMessage, PairingManager};
 
 use super::chat_dispatcher::ChatDispatcher;
 use super::commands::{handle_command, send_help};
@@ -219,7 +219,7 @@ async fn handle_message_routed(
     // Access control: check if the sender is allowed (for interactive channels)
     if config.pairing_enabled
         && let Some(pm) = pairing_manager
-        && message.channel_type == ChannelType::Telegram
+        && message.channel_type.supports_interaction()
         && !pm.is_allowed(&message.sender_id)?
     {
         if !pm.has_pending_request(&message.sender_id)? {

@@ -89,20 +89,24 @@
 //! ```
 
 pub mod chunk;
+pub mod discord;
 pub mod pairing;
 pub mod plugin;
 mod reply_sender;
 pub mod route_binding;
 mod router;
+pub mod slack;
 pub mod telegram;
 mod traits;
 mod types;
 
+pub use discord::{DiscordChannel, DiscordConfig};
 pub use pairing::{AllowedPeer, PairingManager, PairingRequest};
 pub use plugin::{ChannelPlugin, ChannelRegistry};
 pub use reply_sender::ChannelReplySender;
 pub use route_binding::{MatchedBy, ResolvedRoute, RouteBinding, RouteBindingType, RouteResolver};
 pub use router::ChannelRouter;
+pub use slack::{SlackChannel, SlackConfig};
 pub use telegram::{TelegramChannel, TelegramConfig};
 pub use traits::{Channel, StreamReceiver, WebhookReceiver};
 pub use types::{ChannelType, ConversationContext, InboundMessage, MessageLevel, OutboundMessage};

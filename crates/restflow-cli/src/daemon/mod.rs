@@ -1,4 +1,6 @@
+mod discord;
 mod runner;
+mod slack;
 mod telegram;
 
 use anyhow::Result;
