@@ -135,3 +135,139 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use restflow_ai::tools::{AuthProfileStore, CredentialInput};
+    use std::sync::{Arc, Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    /// Guard to serialize tests that modify RESTFLOW_DIR env var.
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn setup() -> (AuthProfileStorageAdapter, tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
+        let guard = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(redb::Database::create(db_path).unwrap());
+
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let prev_dir = std::env::var_os("RESTFLOW_DIR");
+        let prev_key = std::env::var_os("RESTFLOW_MASTER_KEY");
+        unsafe {
+            std::env::set_var("RESTFLOW_DIR", &state_dir);
+            std::env::remove_var("RESTFLOW_MASTER_KEY");
+        }
+
+        let storage = SecretStorage::with_config(
+            db,
+            restflow_storage::SecretStorageConfig {
+                allow_insecure_file_permissions: true,
+            },
+        )
+        .unwrap();
+
+        // Restore env vars immediately; SecretStorage caches master key at init time
+        unsafe {
+            match prev_dir {
+                Some(v) => std::env::set_var("RESTFLOW_DIR", v),
+                None => std::env::remove_var("RESTFLOW_DIR"),
+            }
+            match prev_key {
+                Some(v) => std::env::set_var("RESTFLOW_MASTER_KEY", v),
+                None => std::env::remove_var("RESTFLOW_MASTER_KEY"),
+            }
+        }
+
+        (AuthProfileStorageAdapter::new(storage), temp_dir, guard)
+    }
+
+    #[test]
+    fn test_add_and_list_profile() {
+        let (adapter, _dir, _guard) = setup();
+        let request = AuthProfileCreateRequest {
+            name: "OpenAI Key".to_string(),
+            provider: "openai".to_string(),
+            source: None,
+            credential: CredentialInput::ApiKey {
+                key: "sk-test-key".to_string(),
+                email: None,
+            },
+        };
+        let result = adapter.add_profile(request).unwrap();
+        assert_eq!(result["created"], true);
+        assert_eq!(result["id"], "OPENAI_API_KEY");
+
+        let list = adapter.list_profiles().unwrap();
+        let profiles = list.as_array().unwrap();
+        assert!(profiles.iter().any(|p| p["id"] == "OPENAI_API_KEY"));
+    }
+
+    #[test]
+    fn test_remove_profile() {
+        let (adapter, _dir, _guard) = setup();
+        let request = AuthProfileCreateRequest {
+            name: "Remove Me".to_string(),
+            provider: "github".to_string(),
+            source: None,
+            credential: CredentialInput::Token {
+                token: "ghp_test".to_string(),
+                expires_at: None,
+                email: None,
+            },
+        };
+        adapter.add_profile(request).unwrap();
+        let result = adapter.remove_profile("GITHUB_API_KEY").unwrap();
+        assert_eq!(result["removed"], true);
+    }
+
+    #[test]
+    fn test_test_profile_by_provider() {
+        let (adapter, _dir, _guard) = setup();
+        let request = AuthProfileCreateRequest {
+            name: "Test".to_string(),
+            provider: "anthropic".to_string(),
+            source: None,
+            credential: CredentialInput::ApiKey {
+                key: "sk-ant-test".to_string(),
+                email: None,
+            },
+        };
+        adapter.add_profile(request).unwrap();
+
+        let result = adapter
+            .test_profile(AuthProfileTestRequest {
+                id: None,
+                provider: Some("anthropic".to_string()),
+            })
+            .unwrap();
+        assert_eq!(result["available"], true);
+    }
+
+    #[test]
+    fn test_test_profile_unavailable() {
+        let (adapter, _dir, _guard) = setup();
+        let result = adapter
+            .test_profile(AuthProfileTestRequest {
+                id: Some("NONEXISTENT_KEY".to_string()),
+                provider: None,
+            })
+            .unwrap();
+        assert_eq!(result["available"], false);
+    }
+
+    #[test]
+    fn test_discover_profiles() {
+        let (adapter, _dir, _guard) = setup();
+        let result = adapter.discover_profiles().unwrap();
+        assert!(result.get("total").is_some());
+        assert!(result.get("profiles").is_some());
+    }
+}
