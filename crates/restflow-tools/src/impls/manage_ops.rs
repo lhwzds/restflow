@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::store_traits::OpsProvider;
+use restflow_traits::store::OpsProvider;
 
 pub struct ManageOpsTool {
     provider: Arc<dyn OpsProvider>,

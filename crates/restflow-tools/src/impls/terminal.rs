@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::store_traits::TerminalStore;
+use restflow_traits::store::TerminalStore;
 
 pub struct TerminalTool {
     store: Arc<dyn TerminalStore>,

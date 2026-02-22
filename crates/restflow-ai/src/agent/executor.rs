@@ -1563,7 +1563,7 @@ mod tests {
     use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
     use async_trait::async_trait;
     use futures::stream;
-    use crate::tools::error::Result as ToolResult;
+    use crate::tools::ToolResult;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::sync::Mutex as AsyncMutex;

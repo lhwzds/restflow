@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::{Tool, ToolOutput};
 use restflow_ai::error::AiError;
-use restflow_ai::tools::store_traits::{SessionStore, SessionCreateRequest, SessionSearchQuery, SessionListFilter};
+use restflow_traits::store::{SessionStore, SessionCreateRequest, SessionSearchQuery, SessionListFilter};
 use crate::Result;
 
 #[derive(Clone)]

@@ -11,7 +11,7 @@ use restflow_ai::error::AiError;
 use crate::Result;
 
 use crate::{Tool, ToolOutput};
-use restflow_ai::tools::store_traits::DiagnosticsProvider;
+use restflow_traits::store::DiagnosticsProvider;
 
 /// Tool for querying diagnostics from the provider.
 #[derive(Clone)]

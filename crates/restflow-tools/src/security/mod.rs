@@ -2,7 +2,7 @@
 
 // Re-export abstractions from restflow-ai
 pub use restflow_ai::security::{SecurityDecision, SecurityGate, ToolAction};
-pub use restflow_ai::tools::error::Result;
+pub use restflow_traits::error::Result;
 
 // Network security (implementation, kept here)
 pub mod network;
