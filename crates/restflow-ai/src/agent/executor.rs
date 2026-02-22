@@ -56,6 +56,43 @@ use tracing::debug;
 
 const MAX_TOOL_RETRIES: usize = 2;
 
+/// Truncate tool output with middle-truncation and optional disk persistence.
+/// Returns the (possibly truncated) string with a retrieval hint if the full output was saved.
+fn truncate_tool_output(
+    content: &str,
+    max_len: usize,
+    scratchpad: Option<&Scratchpad>,
+    call_id: &str,
+    tool_name: &str,
+) -> String {
+    if content.len() <= max_len {
+        return content.to_string();
+    }
+
+    let total_len = content.len();
+
+    // Save full output to disk before truncating
+    let saved_path = scratchpad.and_then(|sp| sp.save_full_output(call_id, tool_name, content));
+
+    // Build the retrieval hint
+    let hint = if let Some(ref path) = saved_path {
+        format!(
+            "\n\n[Full output ({total_len} chars) saved to: {}. \
+             Use file read tool with offset/limit to view specific sections, \
+             or use search to find specific content.]",
+            path.display()
+        )
+    } else {
+        String::new()
+    };
+
+    // Middle-truncate the content, leaving room for the hint
+    let truncate_target = max_len.saturating_sub(hint.len());
+    let mut result = context_manager::middle_truncate(content, truncate_target);
+    result.push_str(&hint);
+    result
+}
+
 /// Persistence frequency for execution checkpoints.
 #[derive(Debug, Clone)]
 pub enum CheckpointDurability {
@@ -402,6 +439,7 @@ impl AgentExecutor {
         state: &mut AgentState,
         tool_timeout: Duration,
         max_tool_result_length: usize,
+        scratchpad: Option<&Scratchpad>,
     ) {
         let resolved_calls = deferred_manager.drain_resolved().await;
         if resolved_calls.is_empty() {
@@ -436,19 +474,13 @@ impl AgentExecutor {
                             deferred.tool_name, error
                         ),
                     };
-                    if text.len() > max_tool_result_length {
-                        let safe_len = text
-                            .char_indices()
-                            .map(|(i, _)| i)
-                            .take_while(|&i| i <= max_tool_result_length)
-                            .last()
-                            .unwrap_or(0);
-                        text = format!(
-                            "{}...[truncated, {} chars total]",
-                            &text[..safe_len],
-                            text.len()
-                        );
-                    }
+                    text = truncate_tool_output(
+                        &text,
+                        max_tool_result_length,
+                        scratchpad,
+                        &deferred.call_id,
+                        &deferred.tool_name,
+                    );
                     let msg = Message::system(text);
                     state.add_message(msg);
                 }
@@ -569,6 +601,7 @@ impl AgentExecutor {
                 &mut state,
                 config.tool_timeout,
                 config.max_tool_result_length,
+                config.scratchpad.as_deref(),
             )
             .await;
 
@@ -827,21 +860,17 @@ impl AgentExecutor {
                     }
                 };
 
-                // Truncate long results to prevent context overflow
-                if result_str.len() > config.max_tool_result_length {
-                    // Find a safe UTF-8 character boundary
-                    let safe_len = result_str
-                        .char_indices()
-                        .map(|(i, _)| i)
-                        .take_while(|&i| i <= config.max_tool_result_length)
-                        .last()
-                        .unwrap_or(0);
-                    result_str = format!(
-                        "{}...[truncated, {} chars total]",
-                        &result_str[..safe_len],
-                        result_str.len()
-                    );
-                }
+                // Truncate long results with middle-truncation and disk persistence
+                let tool_name_for_truncate = tool_call
+                    .map(|tc| tc.name.as_str())
+                    .unwrap_or("unknown");
+                result_str = truncate_tool_output(
+                    &result_str,
+                    config.max_tool_result_length,
+                    config.scratchpad.as_deref(),
+                    &tool_call_id,
+                    tool_name_for_truncate,
+                );
 
                 // Record tool call for stuck detection
                 if let Some(ref mut detector) = stuck_detector {
@@ -2774,5 +2803,49 @@ mod tests {
         assert_eq!(id, "fast_call");
         assert!(result.is_ok());
         assert!(result.as_ref().unwrap().success);
+    }
+
+    #[test]
+    fn test_truncate_tool_output_short_content_unchanged() {
+        let short = "hello world";
+        let result = truncate_tool_output(short, 100, None, "c1", "bash");
+        assert_eq!(result, short);
+    }
+
+    #[test]
+    fn test_truncate_tool_output_middle_truncation_no_scratchpad() {
+        let long = "a".repeat(500);
+        let result = truncate_tool_output(&long, 100, None, "c1", "bash");
+        // Should contain the middle-truncation marker
+        assert!(result.contains("chars truncated"));
+        // Should not contain file hint (no scratchpad)
+        assert!(!result.contains("saved to"));
+        assert!(result.len() <= 100);
+    }
+
+    #[test]
+    fn test_truncate_tool_output_with_scratchpad_saves_and_hints() {
+        let dir = tempfile::tempdir().unwrap();
+        let sp_path = dir.path().join("scratch.jsonl");
+        let scratchpad = Scratchpad::new(sp_path).unwrap();
+
+        let long = "x".repeat(1000);
+        let result = truncate_tool_output(&long, 200, Some(&scratchpad), "call-7", "bash");
+
+        // Should contain the retrieval hint
+        assert!(result.contains("Full output (1000 chars) saved to:"));
+        assert!(result.contains("bash-call-7.txt"));
+
+        // Verify the file was actually created with full content
+        let output_dir = dir.path().join("tool-output");
+        let saved = std::fs::read_to_string(output_dir.join("bash-call-7.txt")).unwrap();
+        assert_eq!(saved.len(), 1000);
+    }
+
+    #[test]
+    fn test_truncate_tool_output_exact_boundary() {
+        let exact = "b".repeat(100);
+        let result = truncate_tool_output(&exact, 100, None, "c1", "test");
+        assert_eq!(result, exact);
     }
 }

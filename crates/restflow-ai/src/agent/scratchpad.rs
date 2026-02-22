@@ -129,6 +129,26 @@ impl Scratchpad {
         );
     }
 
+    /// Save full tool output to a file alongside the scratchpad JSONL.
+    /// Returns the file path on success, None on failure.
+    pub fn save_full_output(&self, call_id: &str, tool_name: &str, content: &str) -> Option<PathBuf> {
+        let dir = self.path.parent()?.join("tool-output");
+        if fs::create_dir_all(&dir).is_err() {
+            return None;
+        }
+        // Sanitize tool_name for filename safety
+        let safe_name: String = tool_name
+            .chars()
+            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .collect();
+        let filename = format!("{safe_name}-{call_id}.txt");
+        let path = dir.join(filename);
+        match fs::write(&path, content) {
+            Ok(()) => Some(path),
+            Err(_) => None,
+        }
+    }
+
     pub fn log_complete(&self, iteration: usize, total_tokens: u32, total_cost_usd: f64) {
         self.append(
             iteration,
@@ -144,6 +164,36 @@ impl Scratchpad {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_save_full_output_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("scratchpad.jsonl");
+        let scratchpad = Scratchpad::new(path).unwrap();
+
+        let content = "Hello, this is the full tool output content.";
+        let result = scratchpad.save_full_output("call-42", "bash", content);
+
+        assert!(result.is_some());
+        let saved_path = result.unwrap();
+        assert!(saved_path.exists());
+        assert_eq!(std::fs::read_to_string(&saved_path).unwrap(), content);
+        assert!(saved_path.to_string_lossy().contains("bash-call-42.txt"));
+    }
+
+    #[test]
+    fn test_save_full_output_sanitizes_tool_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("scratchpad.jsonl");
+        let scratchpad = Scratchpad::new(path).unwrap();
+
+        let result = scratchpad.save_full_output("id1", "web/fetch:v2", "data");
+        assert!(result.is_some());
+        let saved_path = result.unwrap();
+        // Special chars should be replaced with underscores
+        let filename = saved_path.file_name().unwrap().to_string_lossy();
+        assert_eq!(filename, "web_fetch_v2-id1.txt");
+    }
 
     #[test]
     fn test_scratchpad_append_and_jsonl_format() {
