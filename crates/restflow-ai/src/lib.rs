@@ -9,7 +9,6 @@
 
 pub mod agent;
 pub mod cache;
-pub mod embedding;
 pub mod error;
 pub mod eval;
 pub mod http_client;
@@ -23,13 +22,11 @@ pub mod tools;
 // Re-export commonly used types
 pub use agent::{
     AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, CheckpointDurability,
-    ExecutionStep, ResourceLimits, ResourceUsage, Scratchpad, TraceEvent,
+    ExecutionStep, ResourceLimits, ResourceUsage, Scratchpad, SubagentDeps, SubagentSpawner,
+    TraceEvent,
 };
 pub use agent::context_manager::{
     CompactStats, ContextManagerConfig, PruneStats, TokenEstimator,
-};
-pub use embedding::{
-    EmbeddingCache, EmbeddingConfig, EmbeddingProvider, OpenAIEmbedding, VoyageEmbedding,
 };
 pub use error::{AiError, Result};
 pub use llm::{
