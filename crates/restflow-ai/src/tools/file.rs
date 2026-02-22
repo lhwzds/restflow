@@ -1468,25 +1468,6 @@ pub enum FileAction {
     },
 }
 
-/// Output for file read operation (for reference/documentation)
-#[allow(dead_code)]
-#[derive(Debug, Serialize)]
-pub struct FileReadOutput {
-    pub path: String,
-    pub total_lines: usize,
-    pub showing: String,
-    pub content: String,
-}
-
-/// Output for file write operation (for reference/documentation)
-#[allow(dead_code)]
-#[derive(Debug, Serialize)]
-pub struct FileWriteOutput {
-    pub path: String,
-    pub bytes_written: usize,
-    pub action: String,
-}
-
 #[async_trait]
 impl Tool for FileTool {
     fn name(&self) -> &str {

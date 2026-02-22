@@ -7,8 +7,6 @@
 //! - Evaluation engine
 //! - Memory system (working memory with sliding window)
 
-#![allow(dead_code)]
-
 pub mod agent;
 pub mod cache;
 pub mod embedding;
