@@ -329,7 +329,7 @@ impl Tool for RestrictedFileTool {
         schema
     }
 
-    async fn execute(&self, input: Value) -> Result<ToolOutput, restflow_ai::error::AiError> {
+    async fn execute(&self, input: Value) -> restflow_tools::Result<ToolOutput> {
         let allowed = self.allowed_actions_sorted().join(", ");
         let action = match input.get("action") {
             Some(Value::String(action)) => action,
@@ -368,7 +368,7 @@ impl Tool for RestrictedFileTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::error::Result as AiResult;
+    use restflow_tools::Result as ToolResult;
     use restflow_ai::tools::ToolOutput;
     use serde_json::{Value, json};
 
@@ -393,7 +393,7 @@ mod tests {
             })
         }
 
-        async fn execute(&self, _input: Value) -> AiResult<ToolOutput> {
+        async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             Ok(ToolOutput::success(serde_json::json!({"ok": true})))
         }
     }
@@ -509,7 +509,7 @@ mod tests {
             })
         }
 
-        async fn execute(&self, input: Value) -> AiResult<ToolOutput> {
+        async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
             let action = input
                 .get("action")
                 .and_then(Value::as_str)

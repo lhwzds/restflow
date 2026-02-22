@@ -3,7 +3,7 @@
 use super::{SubagentDeps, Tool, ToolResult};
 use crate::runtime::subagent::{SpawnRequest, spawn_subagent};
 use async_trait::async_trait;
-use restflow_ai::error::{AiError, Result};
+use restflow_tools::error::{Result, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -80,7 +80,7 @@ impl Tool for SpawnAgentTool {
 
     async fn execute(&self, input: Value) -> Result<ToolResult> {
         let params: SpawnAgentParams = serde_json::from_value(input)
-            .map_err(|e| AiError::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
         let request = SpawnRequest {
             agent_id: params.agent.clone(),
@@ -97,7 +97,7 @@ impl Tool for SpawnAgentTool {
             self.deps.config.clone(),
             request,
         )
-        .map_err(|e| AiError::Tool(e.to_string()))?;
+        .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         if params.wait {
             let wait_timeout = params

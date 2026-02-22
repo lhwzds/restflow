@@ -588,12 +588,12 @@ impl SecurityGate for SecurityChecker {
         task_id: &str,
         agent_id: &str,
         workdir: Option<&str>,
-    ) -> restflow_ai::Result<SecurityDecision> {
+    ) -> restflow_tools::Result<SecurityDecision> {
         let workdir = workdir.map(|value| value.to_string());
         let result = self
             .check_command_with_workdir(command, task_id, agent_id, workdir)
             .await
-            .map_err(|err| restflow_ai::AiError::Tool(err.to_string()))?;
+            .map_err(|err| restflow_tools::ToolError::Tool(err.to_string()))?;
 
         if result.allowed {
             return Ok(SecurityDecision::allowed(result.reason));
@@ -615,10 +615,10 @@ impl SecurityGate for SecurityChecker {
         action: &restflow_ai::ToolAction,
         agent_id: Option<&str>,
         task_id: Option<&str>,
-    ) -> restflow_ai::Result<SecurityDecision> {
+    ) -> restflow_tools::Result<SecurityDecision> {
         self.check_tool_action(action, agent_id, task_id)
             .await
-            .map_err(|err| restflow_ai::AiError::Tool(err.to_string()))
+            .map_err(|err| restflow_tools::ToolError::Tool(err.to_string()))
     }
 }
 

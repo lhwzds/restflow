@@ -17,6 +17,7 @@ test-utils = []
 keyring = { version = "3.6", optional = true, features = ["apple-native"] }
 # Internal dependencies
 restflow-ai = { path = "../restflow-ai" }
+restflow-tools = { workspace = true }
 restflow-storage = { path = "../restflow-storage" }
 
 # External dependencies

@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 use tokio::sync::Semaphore;
 
 use crate::agent::Scratchpad;
-use crate::error::{AiError, Result};
-use crate::tools::{Tool, ToolOutput};
+use crate::tools::error::{Result, ToolError};
+use crate::tools::traits::{Tool, ToolOutput};
 
 #[async_trait]
 pub trait ToolWrapper: Send + Sync {
@@ -147,11 +147,46 @@ impl ToolWrapper for TimeoutWrapper {
     ) -> Result<ToolOutput> {
         match tokio::time::timeout(self.timeout, next.execute(input)).await {
             Ok(result) => result,
-            Err(_) => Err(AiError::Tool(format!(
+            Err(_) => Err(ToolError::Tool(format!(
                 "Tool '{tool_name}' timed out after {}ms",
                 self.timeout.as_millis()
             ))),
         }
+    }
+}
+
+/// Wrapper that limits concurrent executions of the wrapped tool.
+pub struct RateLimitWrapper {
+    semaphore: Arc<Semaphore>,
+}
+
+impl RateLimitWrapper {
+    pub fn new(max_concurrent: usize) -> Self {
+        let permits = max_concurrent.max(1);
+        Self {
+            semaphore: Arc::new(Semaphore::new(permits)),
+        }
+    }
+}
+
+#[async_trait]
+impl ToolWrapper for RateLimitWrapper {
+    fn wrapper_name(&self) -> &str {
+        "rate_limit"
+    }
+
+    async fn wrap_execute(
+        &self,
+        tool_name: &str,
+        input: Value,
+        next: &dyn Tool,
+    ) -> Result<ToolOutput> {
+        let _permit = self.semaphore.acquire().await.map_err(|_| {
+            ToolError::Tool(format!(
+                "Rate limiter for tool '{tool_name}' is unavailable"
+            ))
+        })?;
+        next.execute(input).await
     }
 }
 
@@ -221,41 +256,6 @@ impl ToolWrapper for LoggingWrapper {
         }
 
         result
-    }
-}
-
-/// Wrapper that limits concurrent executions of the wrapped tool.
-pub struct RateLimitWrapper {
-    semaphore: Arc<Semaphore>,
-}
-
-impl RateLimitWrapper {
-    pub fn new(max_concurrent: usize) -> Self {
-        let permits = max_concurrent.max(1);
-        Self {
-            semaphore: Arc::new(Semaphore::new(permits)),
-        }
-    }
-}
-
-#[async_trait]
-impl ToolWrapper for RateLimitWrapper {
-    fn wrapper_name(&self) -> &str {
-        "rate_limit"
-    }
-
-    async fn wrap_execute(
-        &self,
-        tool_name: &str,
-        input: Value,
-        next: &dyn Tool,
-    ) -> Result<ToolOutput> {
-        let _permit = self.semaphore.acquire().await.map_err(|_| {
-            AiError::Tool(format!(
-                "Rate limiter for tool '{tool_name}' is unavailable"
-            ))
-        })?;
-        next.execute(input).await
     }
 }
 

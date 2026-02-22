@@ -2,7 +2,7 @@
 
 use super::{SubagentDeps, Tool, ToolResult};
 use async_trait::async_trait;
-use restflow_ai::error::{AiError, Result};
+use restflow_tools::error::{Result, ToolError};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -62,7 +62,7 @@ impl Tool for UseSkillTool {
 
     async fn execute(&self, input: Value) -> Result<ToolResult> {
         let params: UseSkillParams = serde_json::from_value(input)
-            .map_err(|e| AiError::Tool(format!("Invalid parameters: {}", e)))?;
+            .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
         let _ = &self.deps;
 
@@ -76,7 +76,7 @@ impl Tool for UseSkillTool {
 
         let skill_id = params
             .skill_id
-            .ok_or_else(|| AiError::Tool("Missing 'skill_id' parameter".to_string()))?;
+            .ok_or_else(|| ToolError::Tool("Missing 'skill_id' parameter".to_string()))?;
 
         let output = json!({
             "loaded": false,

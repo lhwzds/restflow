@@ -6,10 +6,9 @@ use std::sync::Arc;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use crate::error::{AiError, Result};
+use crate::tools::error::{Result, ToolError};
 use crate::tools::traits::{Tool, ToolOutput, ToolSchema};
 use crate::tools::wrapper::{ToolWrapper, WrappedTool};
-use crate::tools::{ProcessManager, ProcessTool};
 
 /// Registry for managing available tools
 pub struct ToolRegistry {
@@ -64,12 +63,6 @@ impl ToolRegistry {
         self.register_wrapped_arc(Arc::new(tool), wrappers);
     }
 
-    /// Register the process tool with a shared process manager
-    pub fn with_process_tool(mut self, manager: Arc<dyn ProcessManager>) -> Self {
-        self.register(ProcessTool::new(manager));
-        self
-    }
-
     /// Get a tool by name
     pub fn get(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools.get(name).cloned()
@@ -94,7 +87,7 @@ impl ToolRegistry {
     pub async fn execute(&self, name: &str, input: Value) -> Result<ToolOutput> {
         let tool = self
             .get(name)
-            .ok_or_else(|| AiError::ToolNotFound(name.to_string()))?;
+            .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
         tool.execute(input).await
     }
 
@@ -104,7 +97,7 @@ impl ToolRegistry {
     pub async fn execute_safe(&self, name: &str, input: Value) -> Result<ToolOutput> {
         let tool = self
             .get(name)
-            .ok_or_else(|| AiError::ToolNotFound(name.to_string()))?;
+            .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
 
         if tool.supports_parallel_for(&input) {
             let _guard = self.parallel_lock.read().await;
@@ -119,38 +112,19 @@ impl ToolRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tools::HttpTool;
-    use crate::tools::wrapper::TimeoutWrapper;
-    use std::time::Duration;
 
     #[test]
-    fn test_tool_registry() {
-        let mut registry = ToolRegistry::new();
-        registry.register(HttpTool::new());
-
-        assert!(registry.has("http_request"));
+    fn test_tool_registry_empty() {
+        let registry = ToolRegistry::new();
         assert!(!registry.has("unknown"));
-        assert_eq!(registry.list().len(), 1);
+        assert_eq!(registry.list().len(), 0);
+        assert_eq!(registry.schemas().len(), 0);
     }
 
-    #[test]
-    fn test_tool_schemas() {
-        let mut registry = ToolRegistry::new();
-        registry.register(HttpTool::new());
-
-        let schemas = registry.schemas();
-        assert_eq!(schemas.len(), 1);
-        assert_eq!(schemas[0].name, "http_request");
-    }
-
-    #[test]
-    fn test_register_wrapped_preserves_tool_name() {
-        let mut registry = ToolRegistry::new();
-        registry.register_wrapped(
-            HttpTool::new(),
-            vec![Arc::new(TimeoutWrapper::new(Duration::from_secs(1)))],
-        );
-
-        assert!(registry.has("http_request"));
+    #[tokio::test]
+    async fn test_execute_not_found() {
+        let registry = ToolRegistry::new();
+        let result = registry.execute("missing", serde_json::json!({})).await;
+        assert!(result.is_err());
     }
 }

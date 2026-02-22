@@ -1,154 +1,46 @@
-//! AI Tools module - Agent tool implementations
+//! AI Tools module
 //!
-//! This module provides tools that can be used by AI agents.
-//! Tools implement the `Tool` trait for integration with the agent executor.
+//! Core abstractions (Tool trait, ToolError, ToolRegistry, SecurityGate, etc.)
+//! are defined here. Tool implementations live in `restflow-tools`.
 
-use std::sync::Arc;
+// Core abstractions (defined here)
+pub mod error;
+pub mod filtered;
+pub mod registry;
+pub mod skill_types;
+pub mod store_traits;
+pub mod toolset;
+pub mod traits;
+pub mod wrapper;
 
-mod agent_crud;
-mod auth_profile;
-mod background_agent;
-mod bash;
-mod config;
-mod diagnostics;
-mod discord;
-mod email;
-mod file;
-mod file_tracker;
-mod filtered;
-mod http;
-mod jina_reader;
-mod mcp_cache;
-mod memory_mgmt;
-mod memory_search;
-mod memory_store;
-mod monty_python;
-mod patch;
-mod process;
-mod python_backend;
-mod registry;
-mod reply;
-mod save_deliverable;
-mod secrets;
-mod session;
-mod skill;
-mod slack;
-mod spawn_subtask;
-mod switch_model;
-mod telegram;
-mod toolset;
-mod traits;
-mod transcribe;
-mod vision;
-mod web_fetch;
-mod web_search;
-mod workspace_note;
-mod wrapper;
-
-use file_tracker::FileTracker;
-
-pub use agent_crud::{AgentCreateRequest, AgentCrudTool, AgentStore, AgentUpdateRequest};
-pub use auth_profile::{
-    AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, AuthProfileTool,
-    CredentialInput,
+// Re-export core abstractions
+pub use error::{Result as ToolResult, ToolError};
+pub use traits::{
+    SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security,
 };
-pub use background_agent::{
+pub use registry::ToolRegistry;
+pub use toolset::{Toolset, ToolsetContext};
+pub use wrapper::{LoggingWrapper, RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool};
+pub use filtered::FilteredToolset;
+
+// Re-export skill types
+pub use skill_types::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate};
+
+// Re-export store traits
+pub use store_traits::{
+    AgentCreateRequest, AgentStore, AgentUpdateRequest,
+    AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, CredentialInput,
     BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
     BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
     BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
-    BackgroundAgentStore, BackgroundAgentTool, BackgroundAgentUpdateRequest,
-};
-pub use bash::{BashInput, BashOutput, BashTool};
-pub use config::ConfigTool;
-pub use discord::DiscordTool;
-pub use diagnostics::{DiagnosticsProvider, DiagnosticsTool};
-pub use email::EmailTool;
-pub use file::{FileAction, FileTool};
-pub use filtered::FilteredToolset;
-pub use http::HttpTool;
-pub use jina_reader::JinaReaderTool;
-pub use mcp_cache::{McpServerConfig, get_mcp_tools, invalidate_mcp_cache};
-pub use memory_mgmt::{
-    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManagementTool,
-    MemoryManager,
-};
-pub use memory_search::{MemorySearchMatch, MemorySearchTool, SemanticMemory};
-pub use memory_store::{
-    DeleteMemoryTool, ListMemoryTool, MemoryStore, ReadMemoryTool, SaveMemoryTool,
-};
-pub use monty_python::{PythonTool, RunPythonTool};
-pub use patch::PatchTool;
-pub use process::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ProcessTool};
-pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits};
-pub use registry::ToolRegistry;
-pub use reply::{ReplySender, ReplyTool};
-pub use save_deliverable::{DeliverableStore, SaveDeliverableTool};
-pub use secrets::SecretsTool;
-pub use session::{
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, SessionTool,
-};
-pub use skill::SkillTool;
-pub use slack::SlackTool;
-pub use spawn_subtask::{SpawnSubtaskRequest, SpawnSubtaskTool};
-pub use switch_model::SwitchModelTool;
-pub use telegram::{TelegramTool, send_telegram_notification};
-pub use toolset::{Toolset, ToolsetContext};
-pub use traits::{
-    SecretResolver, SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate, Tool,
-    ToolErrorCategory, ToolOutput, ToolSchema,
-};
-pub use transcribe::{TranscribeConfig, TranscribeTool};
-pub use vision::VisionTool;
-pub use web_fetch::WebFetchTool;
-pub use web_search::WebSearchTool;
-pub use workspace_note::{
+    BackgroundAgentStore, BackgroundAgentUpdateRequest,
+    DeliverableStore,
+    DiagnosticsProvider,
+    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
+    ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo,
+    ReplySender,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
     WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
-    WorkspaceNoteSpec, WorkspaceNoteStatus, WorkspaceNoteTool,
+    WorkspaceNoteSpec, WorkspaceNoteStatus,
 };
-pub use wrapper::{LoggingWrapper, RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool};
-
-/// Create a registry with default tools
-pub fn default_registry() -> ToolRegistry {
-    let mut registry = ToolRegistry::new();
-    let tracker = Arc::new(FileTracker::new());
-
-    registry.register(BashTool::new());
-    registry.register(FileTool::with_tracker(tracker.clone()));
-    registry.register(PatchTool::new(tracker));
-    registry.register(HttpTool::new());
-    registry.register(EmailTool::new());
-    registry.register(TelegramTool::new());
-    registry.register(DiscordTool::new());
-    registry.register(SlackTool::new());
-    registry.register(WebSearchTool::new());
-    registry.register(WebFetchTool::new());
-    registry.register(JinaReaderTool::new());
-    registry.register(RunPythonTool::new());
-    registry.register(PythonTool::new());
-    registry
-}
-
-/// Create a registry with default tools and diagnostics support.
-pub fn default_registry_with_diagnostics(provider: Arc<dyn DiagnosticsProvider>) -> ToolRegistry {
-    let mut registry = ToolRegistry::new();
-    let tracker = Arc::new(FileTracker::new());
-
-    registry.register(BashTool::new());
-    registry.register(
-        FileTool::with_tracker(tracker.clone()).with_diagnostics_provider(provider.clone()),
-    );
-    registry.register(PatchTool::new(tracker));
-    registry.register(HttpTool::new());
-    registry.register(EmailTool::new());
-    registry.register(TelegramTool::new());
-    registry.register(DiscordTool::new());
-    registry.register(SlackTool::new());
-    registry.register(DiagnosticsTool::new(provider));
-    registry.register(WebSearchTool::new());
-    registry.register(WebFetchTool::new());
-    registry.register(JinaReaderTool::new());
-    registry.register(RunPythonTool::new());
-    registry.register(PythonTool::new());
-    registry
-}

@@ -14,7 +14,7 @@ use crate::{
     storage::SecretStorage,
 };
 use restflow_ai::text_utils::floor_char_boundary;
-use restflow_ai::tools::send_telegram_notification;
+use restflow_tools::send_telegram_notification;
 
 use super::runner::NotificationSender;
 

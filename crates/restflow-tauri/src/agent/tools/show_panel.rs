@@ -5,7 +5,7 @@
 
 use super::ToolResult;
 use async_trait::async_trait;
-use restflow_ai::error::{AiError, Result};
+use restflow_tools::error::{Result, ToolError};
 use restflow_ai::tools::Tool;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -79,7 +79,7 @@ impl Tool for ShowPanelTool {
 
     async fn execute(&self, input: Value) -> Result<ToolResult> {
         let parsed: ShowPanelInput = serde_json::from_value(input)
-            .map_err(|e| AiError::Tool(format!("Invalid show_panel input: {e}")))?;
+            .map_err(|e| ToolError::Tool(format!("Invalid show_panel input: {e}")))?;
 
         if parsed.content.trim().is_empty() {
             return Ok(ToolResult::error("Content cannot be empty"));

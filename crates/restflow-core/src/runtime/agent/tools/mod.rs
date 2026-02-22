@@ -1,5 +1,6 @@
 //! Unified tool registry for agent execution.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 use tracing::{debug, warn};
 
@@ -9,38 +10,108 @@ use crate::storage::Storage;
 use restflow_ai::LlmClient;
 use restflow_ai::agent::SubagentDefLookup;
 
-pub use restflow_ai::tools::{
-    PythonTool, RunPythonTool, SecretResolver, Tool, ToolOutput, ToolRegistry, TranscribeTool,
-    VisionTool,
+pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
+pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeTool, VisionTool};
+
+// Shared tools from restflow-tools
+pub use restflow_tools::impls::{
+    BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool,
 };
 
-mod bash;
-mod discord;
-mod email;
-mod file;
-mod http;
+// Core-specific tools
 mod list_agents;
-mod slack;
 mod spawn;
 mod spawn_agent;
-mod telegram;
 mod use_skill;
 mod wait_agents;
 
-pub use bash::{BashConfig, BashTool};
-pub use discord::DiscordTool;
-pub use email::EmailTool;
-pub use file::{FileConfig, FileTool};
-pub use http::HttpTool;
 pub use list_agents::ListAgentsTool;
-pub use slack::SlackTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
 pub use spawn_agent::SpawnAgentTool;
-pub use telegram::TelegramTool;
 pub use use_skill::UseSkillTool;
 pub use wait_agents::WaitAgentsTool;
 
 pub type ToolResult = ToolOutput;
+
+/// Configuration for bash tool security (compatibility layer).
+///
+/// Converts to [`restflow_tools::impls::BashTool`] via [`BashConfig::into_bash_tool`].
+#[derive(Debug, Clone)]
+pub struct BashConfig {
+    /// Working directory for commands.
+    pub working_dir: Option<String>,
+    /// Command timeout in seconds.
+    pub timeout_secs: u64,
+    /// Blocked commands (security).
+    pub blocked_commands: Vec<String>,
+    /// Whether to allow sudo.
+    pub allow_sudo: bool,
+    /// Maximum total bytes for stdout/stderr output payload.
+    pub max_output_bytes: usize,
+}
+
+impl Default for BashConfig {
+    fn default() -> Self {
+        let security = restflow_tools::BashSecurityConfig::default();
+        Self {
+            working_dir: None,
+            timeout_secs: 300,
+            blocked_commands: security.blocked_commands,
+            allow_sudo: security.allow_sudo,
+            max_output_bytes: 1_000_000,
+        }
+    }
+}
+
+impl BashConfig {
+    /// Convert into a [`BashTool`] from restflow-tools.
+    pub fn into_bash_tool(self) -> BashTool {
+        let mut tool = BashTool::new()
+            .with_timeout(self.timeout_secs)
+            .with_max_output(self.max_output_bytes);
+        if let Some(workdir) = self.working_dir {
+            tool = tool.with_workdir(workdir);
+        }
+        tool
+    }
+}
+
+/// Configuration for file tool (compatibility layer).
+///
+/// Converts to [`restflow_tools::impls::FileTool`] via [`FileConfig::into_file_tool`].
+#[derive(Debug, Clone)]
+pub struct FileConfig {
+    /// Allowed paths (security).
+    pub allowed_paths: Vec<PathBuf>,
+    /// Whether write operations are allowed.
+    pub allow_write: bool,
+    /// Maximum bytes allowed for a single file read.
+    pub max_read_bytes: usize,
+}
+
+impl Default for FileConfig {
+    fn default() -> Self {
+        Self {
+            allowed_paths: vec![
+                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/nonexistent")),
+            ],
+            allow_write: true,
+            max_read_bytes: 1_000_000,
+        }
+    }
+}
+
+impl FileConfig {
+    /// Convert into a [`FileTool`] from restflow-tools.
+    pub fn into_file_tool(self) -> FileTool {
+        let mut tool = FileTool::new()
+            .with_max_read(self.max_read_bytes);
+        if let Some(base) = self.allowed_paths.into_iter().next() {
+            tool = tool.with_base_dir(base);
+        }
+        tool
+    }
+}
 
 /// Dependencies needed for advanced sub-agent tools.
 #[derive(Clone)]
@@ -141,13 +212,13 @@ impl ToolRegistryBuilder {
 
     /// Add bash tool with security config.
     pub fn with_bash(mut self, config: BashConfig) -> Self {
-        self.registry.register(BashTool::new(config));
+        self.registry.register(config.into_bash_tool());
         self
     }
 
     /// Add file tool with allowed paths.
     pub fn with_file(mut self, config: FileConfig) -> Self {
-        self.registry.register(FileTool::new(config));
+        self.registry.register(config.into_file_tool());
         self
     }
 
@@ -434,7 +505,7 @@ pub fn registry_from_allowlist(
                 enable_save_deliverable = true;
             }
             "web_search" => {
-                let mut tool = restflow_ai::tools::WebSearchTool::new();
+                let mut tool = restflow_tools::WebSearchTool::new();
                 if let Some(resolver) = secret_resolver.clone() {
                     tool = tool.with_secret_resolver(resolver);
                 }
@@ -443,12 +514,12 @@ pub fn registry_from_allowlist(
             "web_fetch" => {
                 builder
                     .registry
-                    .register(restflow_ai::tools::WebFetchTool::new());
+                    .register(restflow_tools::WebFetchTool::new());
             }
             "jina_reader" => {
                 builder
                     .registry
-                    .register(restflow_ai::tools::JinaReaderTool::new());
+                    .register(restflow_tools::JinaReaderTool::new());
             }
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.

@@ -185,31 +185,31 @@ impl LspManager {
 
 #[async_trait::async_trait]
 impl DiagnosticsProvider for LspManager {
-    async fn ensure_open(&self, path: &Path) -> restflow_ai::Result<()> {
+    async fn ensure_open(&self, path: &Path) -> restflow_tools::Result<()> {
         self.ensure_open(path)
             .await
-            .map_err(|e| restflow_ai::AiError::Tool(e.to_string()))
+            .map_err(|e| restflow_tools::ToolError::Tool(e.to_string()))
     }
 
-    async fn did_change(&self, path: &Path, content: &str) -> restflow_ai::Result<()> {
+    async fn did_change(&self, path: &Path, content: &str) -> restflow_tools::Result<()> {
         self.did_change(path, content)
             .await
-            .map_err(|e| restflow_ai::AiError::Tool(e.to_string()))
+            .map_err(|e| restflow_tools::ToolError::Tool(e.to_string()))
     }
 
     async fn wait_for_diagnostics(
         &self,
         path: &Path,
         timeout: Duration,
-    ) -> restflow_ai::Result<Vec<Diagnostic>> {
+    ) -> restflow_tools::Result<Vec<Diagnostic>> {
         self.wait_for_diagnostics(path, timeout)
             .await
-            .map_err(|e| restflow_ai::AiError::Tool(e.to_string()))
+            .map_err(|e| restflow_tools::ToolError::Tool(e.to_string()))
     }
 
-    async fn get_diagnostics(&self, path: &Path) -> restflow_ai::Result<Vec<Diagnostic>> {
+    async fn get_diagnostics(&self, path: &Path) -> restflow_tools::Result<Vec<Diagnostic>> {
         self.get_diagnostics(path)
             .await
-            .map_err(|e| restflow_ai::AiError::Tool(e.to_string()))
+            .map_err(|e| restflow_tools::ToolError::Tool(e.to_string()))
     }
 }
