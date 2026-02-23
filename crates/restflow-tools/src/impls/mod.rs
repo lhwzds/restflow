@@ -9,6 +9,9 @@ mod http;
 mod slack;
 pub mod telegram;
 
+pub mod edit;
+pub mod multiedit;
+
 // Migrated from restflow-ai
 pub mod agent_crud;
 pub mod auth_profile;
@@ -53,6 +56,10 @@ pub mod spawn;
 pub mod spawn_agent;
 pub mod use_skill;
 pub mod wait_agents;
+
+// Re-export edit tools
+pub use edit::EditTool;
+pub use multiedit::MultiEditTool;
 
 // Re-export original 7
 pub use bash::{BashInput, BashOutput, BashTool};
