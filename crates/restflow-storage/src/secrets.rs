@@ -200,6 +200,17 @@ impl SecretStorage {
         }
     }
 
+    /// Get a secret value, trimmed and filtered to exclude empty strings.
+    ///
+    /// Returns `Ok(Some(value))` only when the secret exists and is non-empty
+    /// after trimming whitespace. Useful for validating bot tokens, API keys, etc.
+    pub fn get_non_empty(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .get_secret(key)?
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty()))
+    }
+
     /// Delete a secret
     pub fn delete_secret(&self, key: &str) -> Result<()> {
         let write_txn = self.db.begin_write()?;
