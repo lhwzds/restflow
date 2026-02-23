@@ -120,39 +120,8 @@ impl ToolOutput {
         }
     }
 
-    pub fn with_retry_after_ms(mut self, retry_after_ms: Option<u64>) -> Self {
-        self.retry_after_ms = retry_after_ms;
-        self
-    }
-
-    pub fn with_error_metadata(
-        mut self,
-        category: ToolErrorCategory,
-        retryable: bool,
-        retry_after_ms: Option<u64>,
-    ) -> Self {
-        self.error_category = Some(category);
-        self.retryable = Some(retryable);
-        self.retry_after_ms = retry_after_ms;
-        self
-    }
-
     pub fn with_error_message(mut self, message: impl Into<String>) -> Self {
         self.error = Some(message.into());
-        self
-    }
-
-    pub fn with_error_details(
-        mut self,
-        message: impl Into<String>,
-        category: ToolErrorCategory,
-        retryable: bool,
-        retry_after_ms: Option<u64>,
-    ) -> Self {
-        self.error = Some(message.into());
-        self.error_category = Some(category);
-        self.retryable = Some(retryable);
-        self.retry_after_ms = retry_after_ms;
         self
     }
 
