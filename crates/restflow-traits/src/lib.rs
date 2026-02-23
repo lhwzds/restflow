@@ -69,12 +69,12 @@ pub use store::{
     ReplySender,
     SecurityQueryProvider,
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
-    SharedSpaceStore,
+    KvStore,
     TerminalStore,
     TriggerStore,
     UnifiedMemorySearch,
-    WorkspaceNotePatch, WorkspaceNoteProvider, WorkspaceNoteQuery, WorkspaceNoteRecord,
-    WorkspaceNoteSpec, WorkspaceNoteStatus,
+    WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemRecord,
+    WorkItemSpec, WorkItemStatus,
 };
 
 // Sub-agent types
