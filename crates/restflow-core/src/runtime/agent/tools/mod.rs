@@ -25,7 +25,8 @@ pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeTool, VisionTool};
 
 // Re-export core types from restflow-ai
 pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
-pub use restflow_ai::agent::{SubagentDeps, SubagentSpawner};
+pub use restflow_ai::agent::{SubagentDeps, SubagentManagerImpl, SubagentSpawner};
+pub use restflow_traits::SubagentManager;
 
 pub type ToolResult = ToolOutput;
 
@@ -102,7 +103,7 @@ pub fn effective_main_agent_tool_names(tool_names: Option<&[String]>) -> Vec<Str
 /// avoiding the need to build a full core registry and cherry-pick from it.
 pub fn registry_from_allowlist(
     tool_names: Option<&[String]>,
-    subagent_deps: Option<&SubagentDeps>,
+    subagent_manager: Option<Arc<dyn SubagentManager>>,
     secret_resolver: Option<SecretResolver>,
     storage: Option<&Storage>,
     _agent_id: Option<&str>,
@@ -206,24 +207,24 @@ pub fn registry_from_allowlist(
 
             // --- Subagent tools ---
             "spawn_agent" => {
-                if let Some(deps) = subagent_deps {
-                    builder = builder.with_spawn_agent(Arc::new(deps.clone()));
+                if let Some(manager) = &subagent_manager {
+                    builder = builder.with_spawn_agent(manager.clone());
                 } else {
-                    debug!(tool_name = "spawn_agent", "Subagent dependencies missing, skipping");
+                    debug!(tool_name = "spawn_agent", "Subagent manager missing, skipping");
                 }
             }
             "wait_agents" => {
-                if let Some(deps) = subagent_deps {
-                    builder = builder.with_wait_agents(Arc::new(deps.clone()));
+                if let Some(manager) = &subagent_manager {
+                    builder = builder.with_wait_agents(manager.clone());
                 } else {
-                    debug!(tool_name = "wait_agents", "Subagent dependencies missing, skipping");
+                    debug!(tool_name = "wait_agents", "Subagent manager missing, skipping");
                 }
             }
             "list_agents" => {
-                if let Some(deps) = subagent_deps {
-                    builder = builder.with_list_agents(Arc::new(deps.clone()));
+                if let Some(manager) = &subagent_manager {
+                    builder = builder.with_list_agents(manager.clone());
                 } else {
-                    debug!(tool_name = "list_agents", "Subagent dependencies missing, skipping");
+                    debug!(tool_name = "list_agents", "Subagent manager missing, skipping");
                 }
             }
             "use_skill" => {

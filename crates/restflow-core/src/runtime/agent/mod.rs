@@ -12,10 +12,10 @@ use restflow_ai::agent::DEFAULT_AGENT_PROMPT;
 
 pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool,
-    SpawnAgentTool, SpawnTool, SubagentDeps, SubagentSpawner, TelegramTool, Tool, ToolRegistry,
-    ToolRegistryBuilder, ToolResult, UseSkillTool, WaitAgentsTool, default_registry,
-    effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
-    secret_resolver_from_storage,
+    SpawnAgentTool, SpawnTool, SubagentDeps, SubagentManager, SubagentManagerImpl, SubagentSpawner,
+    TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, UseSkillTool,
+    WaitAgentsTool, default_registry, effective_main_agent_tool_names,
+    main_agent_default_tool_names, registry_from_allowlist, secret_resolver_from_storage,
 };
 
 /// Build the agent system prompt from agent configuration.
