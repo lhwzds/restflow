@@ -31,7 +31,7 @@ async fn list_shared(
     namespace: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
-    let entries = executor.list_shared_space(namespace).await?;
+    let entries = executor.list_kv_store(namespace).await?;
 
     if format.is_json() {
         return print_json(&entries);
@@ -62,7 +62,7 @@ async fn get_shared(
     format: OutputFormat,
 ) -> Result<()> {
     let entry = executor
-        .get_shared_space(key)
+        .get_kv_store(key)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Entry not found: {}", key))?;
 
@@ -93,7 +93,7 @@ async fn set_shared(
     visibility: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let entry = executor.set_shared_space(key, value, visibility).await?;
+    let entry = executor.set_kv_store(key, value, visibility).await?;
 
     if format.is_json() {
         return print_json(&entry);
@@ -108,7 +108,7 @@ async fn delete_shared(
     key: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let deleted = executor.delete_shared_space(key).await?;
+    let deleted = executor.delete_kv_store(key).await?;
 
     if format.is_json() {
         return print_json(&serde_json::json!({"deleted": deleted}));

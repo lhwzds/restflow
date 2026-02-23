@@ -9,8 +9,8 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    MemoryChunk, MemorySearchResult, MemoryStats, NoteQuery, Secret, SharedEntry, Skill,
-    WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
+    MemoryChunk, MemorySearchResult, MemoryStats, ItemQuery, Secret, SharedEntry, Skill,
+    WorkItem, WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -232,30 +232,30 @@ impl CommandExecutor for IpcExecutor {
         client.search_sessions(query).await
     }
 
-    async fn list_notes(&self, query: NoteQuery) -> Result<Vec<WorkspaceNote>> {
+    async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>> {
         let response = self
-            .request(IpcRequest::ListWorkspaceNotes { query })
+            .request(IpcRequest::ListWorkItems { query })
             .await?;
         self.decode_response(response)
     }
 
-    async fn get_note(&self, id: &str) -> Result<Option<WorkspaceNote>> {
+    async fn get_note(&self, id: &str) -> Result<Option<WorkItem>> {
         let response = self
-            .request(IpcRequest::GetWorkspaceNote { id: id.to_string() })
+            .request(IpcRequest::GetWorkItem { id: id.to_string() })
             .await?;
         self.decode_response_optional(response)
     }
 
-    async fn create_note(&self, spec: WorkspaceNoteSpec) -> Result<WorkspaceNote> {
+    async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem> {
         let response = self
-            .request(IpcRequest::CreateWorkspaceNote { spec })
+            .request(IpcRequest::CreateWorkItem { spec })
             .await?;
         self.decode_response(response)
     }
 
-    async fn update_note(&self, id: &str, patch: WorkspaceNotePatch) -> Result<WorkspaceNote> {
+    async fn update_note(&self, id: &str, patch: WorkItemPatch) -> Result<WorkItem> {
         let response = self
-            .request(IpcRequest::UpdateWorkspaceNote {
+            .request(IpcRequest::UpdateWorkItem {
                 id: id.to_string(),
                 patch,
             })
@@ -265,14 +265,14 @@ impl CommandExecutor for IpcExecutor {
 
     async fn delete_note(&self, id: &str) -> Result<()> {
         let response = self
-            .request(IpcRequest::DeleteWorkspaceNote { id: id.to_string() })
+            .request(IpcRequest::DeleteWorkItem { id: id.to_string() })
             .await?;
         self.decode_response::<serde_json::Value>(response)
             .map(|_| ())
     }
 
     async fn list_note_folders(&self) -> Result<Vec<String>> {
-        let response = self.request(IpcRequest::ListWorkspaceNoteFolders).await?;
+        let response = self.request(IpcRequest::ListWorkItemFolders).await?;
         self.decode_response(response)
     }
 
@@ -435,15 +435,15 @@ impl CommandExecutor for IpcExecutor {
     }
 
     // Shared Space operations - not yet in IPC protocol
-    async fn list_shared_space(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
+    async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn get_shared_space(&self, _key: &str) -> Result<Option<SharedEntry>> {
+    async fn get_kv_store(&self, _key: &str) -> Result<Option<SharedEntry>> {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn set_shared_space(
+    async fn set_kv_store(
         &self,
         _key: &str,
         _value: &str,
@@ -452,7 +452,7 @@ impl CommandExecutor for IpcExecutor {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn delete_shared_space(&self, _key: &str) -> Result<bool> {
+    async fn delete_kv_store(&self, _key: &str) -> Result<bool> {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
