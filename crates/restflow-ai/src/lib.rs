@@ -19,8 +19,8 @@ pub mod tools;
 // Re-export commonly used types
 pub use agent::{
     AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, CheckpointDurability,
-    ExecutionStep, ResourceLimits, ResourceUsage, Scratchpad, SubagentDeps, SubagentSpawner,
-    TraceEvent,
+    ExecutionStep, ResourceLimits, ResourceUsage, Scratchpad, SubagentDeps, SubagentManagerImpl,
+    SubagentSpawner, TraceEvent,
 };
 pub use agent::context_manager::{
     CompactStats, ContextManagerConfig, PruneStats, TokenEstimator,
@@ -28,8 +28,8 @@ pub use agent::context_manager::{
 pub use error::{AiError, Result};
 pub use llm::{
     AnthropicClient, ClaudeCodeClient, CodexClient, DefaultLlmClientFactory, GeminiCliClient,
-    LlmClient, LlmClientFactory, LlmProvider, Message, ModelSpec, OpenAIClient, OpenCodeClient,
-    Role, SwappableLlm,
+    LlmClient, LlmClientFactory, LlmProvider, LlmSwitcherImpl, Message, ModelSpec, OpenAIClient,
+    OpenCodeClient, Role, SwappableLlm,
 };
 pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
 pub use restflow_traits::network::{NetworkAllowlist, NetworkEcosystem};

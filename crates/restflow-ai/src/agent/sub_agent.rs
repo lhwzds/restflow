@@ -13,9 +13,10 @@ use tokio::time::{Duration, timeout};
 // Re-export data types from restflow-traits
 pub use restflow_traits::subagent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
-    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentResult, SubagentSpawner,
-    SubagentState, SubagentStatus,
+    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentManager, SubagentResult,
+    SubagentSpawner, SubagentState, SubagentStatus,
 };
+use restflow_traits::ToolError;
 
 /// Sub-agent tracker with concurrent access support
 pub struct SubagentTracker {
@@ -527,6 +528,81 @@ fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]
     }
 
     registry
+}
+
+/// Concrete implementation of [`SubagentManager`] that wraps
+/// `SubagentTracker`, `SubagentDefLookup`, and `spawn_subagent`.
+#[derive(Clone)]
+pub struct SubagentManagerImpl {
+    pub tracker: Arc<SubagentTracker>,
+    pub definitions: Arc<dyn SubagentDefLookup>,
+    pub llm_client: Arc<dyn LlmClient>,
+    pub tool_registry: Arc<ToolRegistry>,
+    pub config: SubagentConfig,
+}
+
+impl SubagentManagerImpl {
+    pub fn new(
+        tracker: Arc<SubagentTracker>,
+        definitions: Arc<dyn SubagentDefLookup>,
+        llm_client: Arc<dyn LlmClient>,
+        tool_registry: Arc<ToolRegistry>,
+        config: SubagentConfig,
+    ) -> Self {
+        Self {
+            tracker,
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+        }
+    }
+
+    /// Create from existing [`SubagentDeps`].
+    pub fn from_deps(deps: &SubagentDeps) -> Self {
+        Self {
+            tracker: deps.tracker.clone(),
+            definitions: deps.definitions.clone(),
+            llm_client: deps.llm_client.clone(),
+            tool_registry: deps.tool_registry.clone(),
+            config: deps.config.clone(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SubagentManager for SubagentManagerImpl {
+    fn spawn(&self, request: SpawnRequest) -> std::result::Result<SpawnHandle, ToolError> {
+        spawn_subagent(
+            self.tracker.clone(),
+            self.definitions.clone(),
+            self.llm_client.clone(),
+            self.tool_registry.clone(),
+            self.config.clone(),
+            request,
+        )
+        .map_err(|e| ToolError::Tool(e.to_string()))
+    }
+
+    fn list_callable(&self) -> Vec<SubagentDefSummary> {
+        self.definitions.list_callable()
+    }
+
+    fn list_running(&self) -> Vec<SubagentState> {
+        self.tracker.running()
+    }
+
+    fn running_count(&self) -> usize {
+        self.tracker.running_count()
+    }
+
+    async fn wait(&self, task_id: &str) -> Option<SubagentResult> {
+        self.tracker.wait(task_id).await
+    }
+
+    fn config(&self) -> &SubagentConfig {
+        &self.config
+    }
 }
 
 #[cfg(test)]
