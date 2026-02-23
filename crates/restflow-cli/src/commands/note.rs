@@ -6,7 +6,7 @@ use crate::cli::NoteCommands;
 use crate::commands::utils::{format_timestamp, preview_text};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::models::{NoteQuery, NoteStatus, WorkspaceNotePatch, WorkspaceNoteSpec};
+use restflow_core::models::{ItemQuery, ItemStatus, WorkItemPatch, WorkItemSpec};
 use serde_json::json;
 
 pub async fn run(
@@ -23,7 +23,7 @@ pub async fn run(
             assignee,
             search,
         } => {
-            let query = NoteQuery {
+            let query = ItemQuery {
                 folder,
                 status: parse_status(status)?,
                 priority,
@@ -44,7 +44,7 @@ pub async fn run(
             tags,
         } => {
             let content = load_content(file.as_deref(), content)?;
-            let spec = WorkspaceNoteSpec {
+            let spec = WorkItemSpec {
                 folder,
                 title,
                 content: content.unwrap_or_default(),
@@ -65,7 +65,7 @@ pub async fn run(
             tags,
         } => {
             let content = load_content(file.as_deref(), content)?;
-            let patch = WorkspaceNotePatch {
+            let patch = WorkItemPatch {
                 title,
                 content,
                 priority,
@@ -82,7 +82,7 @@ pub async fn run(
 
 async fn list_notes(
     executor: Arc<dyn CommandExecutor>,
-    query: NoteQuery,
+    query: ItemQuery,
     format: OutputFormat,
 ) -> Result<()> {
     let notes = executor.list_notes(query).await?;
@@ -160,7 +160,7 @@ async fn show_note(
 
 async fn create_note(
     executor: Arc<dyn CommandExecutor>,
-    spec: WorkspaceNoteSpec,
+    spec: WorkItemSpec,
     format: OutputFormat,
 ) -> Result<()> {
     let note = executor.create_note(spec).await?;
@@ -176,7 +176,7 @@ async fn create_note(
 async fn update_note(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
-    patch: WorkspaceNotePatch,
+    patch: WorkItemPatch,
     format: OutputFormat,
 ) -> Result<()> {
     let note = executor.update_note(id, patch).await?;
@@ -212,36 +212,36 @@ fn load_content(file: Option<&str>, content: Option<String>) -> Result<Option<St
     }
 }
 
-fn parse_status(status: Option<String>) -> Result<Option<NoteStatus>> {
+fn parse_status(status: Option<String>) -> Result<Option<ItemStatus>> {
     let Some(value) = status else {
         return Ok(None);
     };
 
     let normalized = value.trim().to_ascii_lowercase();
     let parsed = match normalized.as_str() {
-        "open" => NoteStatus::Open,
-        "in_progress" | "in-progress" | "inprogress" | "in progress" => NoteStatus::InProgress,
-        "done" | "finished" | "complete" | "completed" => NoteStatus::Done,
-        "archived" => NoteStatus::Archived,
+        "open" => ItemStatus::Open,
+        "in_progress" | "in-progress" | "inprogress" | "in progress" => ItemStatus::InProgress,
+        "done" | "finished" | "complete" | "completed" => ItemStatus::Done,
+        "archived" => ItemStatus::Archived,
         _ => return Err(anyhow!("Invalid status: {}", value)),
     };
 
     Ok(Some(parsed))
 }
 
-fn status_label(status: NoteStatus) -> &'static str {
+fn status_label(status: ItemStatus) -> &'static str {
     match status {
-        NoteStatus::Open => "open",
-        NoteStatus::InProgress => "in_progress",
-        NoteStatus::Done => "done",
-        NoteStatus::Archived => "archived",
+        ItemStatus::Open => "open",
+        ItemStatus::InProgress => "in_progress",
+        ItemStatus::Done => "done",
+        ItemStatus::Archived => "archived",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{parse_status, status_label};
-    use restflow_core::models::NoteStatus;
+    use restflow_core::models::ItemStatus;
 
     #[test]
     fn parse_status_accepts_none() {
@@ -252,7 +252,7 @@ mod tests {
     fn parse_status_accepts_in_progress_aliases() {
         for value in ["in_progress", "in-progress", "inprogress", "in progress"] {
             let parsed = parse_status(Some(value.to_string())).unwrap();
-            assert_eq!(parsed, Some(NoteStatus::InProgress));
+            assert_eq!(parsed, Some(ItemStatus::InProgress));
         }
     }
 
@@ -260,7 +260,7 @@ mod tests {
     fn parse_status_accepts_done_aliases() {
         for value in ["done", "finished", "complete", "completed"] {
             let parsed = parse_status(Some(value.to_string())).unwrap();
-            assert_eq!(parsed, Some(NoteStatus::Done));
+            assert_eq!(parsed, Some(ItemStatus::Done));
         }
     }
 
@@ -272,9 +272,9 @@ mod tests {
 
     #[test]
     fn status_label_is_stable() {
-        assert_eq!(status_label(NoteStatus::Open), "open");
-        assert_eq!(status_label(NoteStatus::InProgress), "in_progress");
-        assert_eq!(status_label(NoteStatus::Done), "done");
-        assert_eq!(status_label(NoteStatus::Archived), "archived");
+        assert_eq!(status_label(ItemStatus::Open), "open");
+        assert_eq!(status_label(ItemStatus::InProgress), "in_progress");
+        assert_eq!(status_label(ItemStatus::Done), "done");
+        assert_eq!(status_label(ItemStatus::Archived), "archived");
     }
 }

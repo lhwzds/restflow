@@ -5,8 +5,8 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    MemoryChunk, MemorySearchResult, MemoryStats, NoteQuery, Secret, SharedEntry, Skill,
-    WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
+    MemoryChunk, MemorySearchResult, MemoryStats, ItemQuery, Secret, SharedEntry, Skill,
+    WorkItem, WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -62,10 +62,10 @@ pub trait CommandExecutor: Send + Sync {
     async fn delete_session(&self, id: &str) -> Result<bool>;
     async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>>;
 
-    async fn list_notes(&self, query: NoteQuery) -> Result<Vec<WorkspaceNote>>;
-    async fn get_note(&self, id: &str) -> Result<Option<WorkspaceNote>>;
-    async fn create_note(&self, spec: WorkspaceNoteSpec) -> Result<WorkspaceNote>;
-    async fn update_note(&self, id: &str, patch: WorkspaceNotePatch) -> Result<WorkspaceNote>;
+    async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>>;
+    async fn get_note(&self, id: &str) -> Result<Option<WorkItem>>;
+    async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem>;
+    async fn update_note(&self, id: &str, patch: WorkItemPatch) -> Result<WorkItem>;
     async fn delete_note(&self, id: &str) -> Result<()>;
     async fn list_note_folders(&self) -> Result<Vec<String>>;
 
@@ -114,15 +114,15 @@ pub trait CommandExecutor: Send + Sync {
     async fn send_background_agent_message(&self, id: &str, message: &str) -> Result<()>;
 
     // Shared Space operations
-    async fn list_shared_space(&self, namespace: Option<&str>) -> Result<Vec<SharedEntry>>;
-    async fn get_shared_space(&self, key: &str) -> Result<Option<SharedEntry>>;
-    async fn set_shared_space(
+    async fn list_kv_store(&self, namespace: Option<&str>) -> Result<Vec<SharedEntry>>;
+    async fn get_kv_store(&self, key: &str) -> Result<Option<SharedEntry>>;
+    async fn set_kv_store(
         &self,
         key: &str,
         value: &str,
         visibility: &str,
     ) -> Result<SharedEntry>;
-    async fn delete_shared_space(&self, key: &str) -> Result<bool>;
+    async fn delete_kv_store(&self, key: &str) -> Result<bool>;
 
     // Deliverable operations
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>>;

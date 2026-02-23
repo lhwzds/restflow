@@ -18,8 +18,8 @@ use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
     AppCore,
     models::{
-        ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, NoteQuery,
-        Secret, Skill, WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
+        ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, ItemQuery,
+        Secret, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
     },
 };
 
@@ -188,28 +188,28 @@ impl CommandExecutor for DirectExecutor {
         Ok(matches)
     }
 
-    async fn list_notes(&self, query: NoteQuery) -> Result<Vec<WorkspaceNote>> {
-        self.core.storage.workspace_notes.list_notes(query)
+    async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>> {
+        self.core.storage.work_items.list_notes(query)
     }
 
-    async fn get_note(&self, id: &str) -> Result<Option<WorkspaceNote>> {
-        self.core.storage.workspace_notes.get_note(id)
+    async fn get_note(&self, id: &str) -> Result<Option<WorkItem>> {
+        self.core.storage.work_items.get_note(id)
     }
 
-    async fn create_note(&self, spec: WorkspaceNoteSpec) -> Result<WorkspaceNote> {
-        self.core.storage.workspace_notes.create_note(spec)
+    async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem> {
+        self.core.storage.work_items.create_note(spec)
     }
 
-    async fn update_note(&self, id: &str, patch: WorkspaceNotePatch) -> Result<WorkspaceNote> {
-        self.core.storage.workspace_notes.update_note(id, patch)
+    async fn update_note(&self, id: &str, patch: WorkItemPatch) -> Result<WorkItem> {
+        self.core.storage.work_items.update_note(id, patch)
     }
 
     async fn delete_note(&self, id: &str) -> Result<()> {
-        self.core.storage.workspace_notes.delete_note(id)
+        self.core.storage.work_items.delete_note(id)
     }
 
     async fn list_note_folders(&self) -> Result<Vec<String>> {
-        self.core.storage.workspace_notes.list_folders()
+        self.core.storage.work_items.list_folders()
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {
@@ -305,15 +305,15 @@ impl CommandExecutor for DirectExecutor {
     }
 
     // Shared Space operations - require daemon
-    async fn list_shared_space(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
+    async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn get_shared_space(&self, _key: &str) -> Result<Option<SharedEntry>> {
+    async fn get_kv_store(&self, _key: &str) -> Result<Option<SharedEntry>> {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn set_shared_space(
+    async fn set_kv_store(
         &self,
         _key: &str,
         _value: &str,
@@ -322,7 +322,7 @@ impl CommandExecutor for DirectExecutor {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn delete_shared_space(&self, _key: &str) -> Result<bool> {
+    async fn delete_kv_store(&self, _key: &str) -> Result<bool> {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
