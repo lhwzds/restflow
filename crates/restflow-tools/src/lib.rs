@@ -42,6 +42,9 @@ pub use impls::{
 };
 pub use impls::telegram::send_telegram_notification;
 
+// Re-export edit tools
+pub use impls::{EditTool, MultiEditTool};
+
 // Re-export migrated tool implementations
 pub use impls::{
     AgentCrudTool, AuthProfileTool, BackgroundAgentTool, ConfigTool, DiagnosticsTool,
