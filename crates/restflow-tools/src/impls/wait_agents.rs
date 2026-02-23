@@ -8,7 +8,7 @@ use tokio::time::{Duration, timeout};
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_ai::agent::SubagentDeps;
+use restflow_traits::SubagentManager;
 
 /// Parameters for wait_agents tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -22,12 +22,12 @@ pub struct WaitAgentsParams {
 
 /// wait_agents tool for the shared agent execution engine.
 pub struct WaitAgentsTool {
-    deps: Arc<SubagentDeps>,
+    manager: Arc<dyn SubagentManager>,
 }
 
 impl WaitAgentsTool {
-    pub fn new(deps: Arc<SubagentDeps>) -> Self {
-        Self { deps }
+    pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
+        Self { manager }
     }
 }
 
@@ -66,13 +66,13 @@ impl Tool for WaitAgentsTool {
 
         let wait_timeout = params
             .timeout_secs
-            .unwrap_or(self.deps.config.subagent_timeout_secs);
+            .unwrap_or(self.manager.config().subagent_timeout_secs);
 
         let mut results = Vec::new();
         for task_id in params.task_ids {
             let result = match timeout(
                 Duration::from_secs(wait_timeout),
-                self.deps.tracker.wait(&task_id),
+                self.manager.wait(&task_id),
             )
             .await
             {
@@ -115,10 +115,11 @@ mod tests {
     use crate::Tool;
     use restflow_ai::agent::{
         SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
-        SubagentDefSummary, SubagentTracker, spawn_subagent,
+        SubagentDefSummary, SubagentDeps, SubagentManagerImpl, SubagentTracker, spawn_subagent,
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
+    use restflow_traits::SubagentManager;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
 
@@ -153,7 +154,7 @@ mod tests {
 
     fn make_deps(
         mock_steps: Vec<MockStep>,
-    ) -> (Arc<SubagentDeps>, Arc<SubagentTracker>) {
+    ) -> (Arc<SubagentDeps>, Arc<dyn SubagentManager>) {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
         let definitions: Arc<dyn SubagentDefLookup> =
@@ -173,7 +174,9 @@ mod tests {
             tool_registry,
             config,
         });
-        (deps, tracker)
+        let manager: Arc<dyn SubagentManager> =
+            Arc::new(SubagentManagerImpl::from_deps(&deps));
+        (deps, manager)
     }
 
     /// Spawn a subagent that immediately completes (via MockLlmClient) and return its task_id.
@@ -205,10 +208,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_completed_task() {
-        let (deps, _tracker) = make_deps(vec![MockStep::text("done")]);
+        let (deps, manager) = make_deps(vec![MockStep::text("done")]);
         let task_id = spawn_test_agent(&deps);
 
-        let tool = WaitAgentsTool::new(deps);
+        let tool = WaitAgentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": [task_id], "timeout_secs": 5}))
             .await
@@ -221,8 +224,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_nonexistent_task() {
-        let (deps, _tracker) = make_deps(vec![]);
-        let tool = WaitAgentsTool::new(deps);
+        let (_deps, manager) = make_deps(vec![]);
+        let tool = WaitAgentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": ["no-such-task"], "timeout_secs": 1}))
             .await
@@ -235,11 +238,11 @@ mod tests {
     #[tokio::test]
     async fn test_wait_timeout() {
         // Use a delayed step that exceeds the wait timeout
-        let (deps, _tracker) =
+        let (deps, manager) =
             make_deps(vec![MockStep::text("slow").with_delay(5000)]);
         let task_id = spawn_test_agent(&deps);
 
-        let tool = WaitAgentsTool::new(deps);
+        let tool = WaitAgentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": [task_id], "timeout_secs": 1}))
             .await
@@ -251,14 +254,14 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_multiple_tasks() {
-        let (deps, _tracker) = make_deps(vec![
+        let (deps, manager) = make_deps(vec![
             MockStep::text("result-1"),
             MockStep::text("result-2"),
         ]);
         let id1 = spawn_test_agent(&deps);
         let id2 = spawn_test_agent(&deps);
 
-        let tool = WaitAgentsTool::new(deps);
+        let tool = WaitAgentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": [id1, id2, "missing"], "timeout_secs": 5}))
             .await
@@ -272,10 +275,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_failed_task() {
-        let (deps, _tracker) = make_deps(vec![MockStep::error("LLM error")]);
+        let (deps, manager) = make_deps(vec![MockStep::error("LLM error")]);
         let task_id = spawn_test_agent(&deps);
 
-        let tool = WaitAgentsTool::new(deps);
+        let tool = WaitAgentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": [task_id], "timeout_secs": 5}))
             .await

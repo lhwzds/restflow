@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_ai::agent::SubagentDeps;
+use restflow_traits::SubagentManager;
 
 /// Parameters for list_agents tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,12 +23,12 @@ fn default_include_running() -> bool {
 
 /// list_agents tool for the shared agent execution engine.
 pub struct ListAgentsTool {
-    deps: Arc<SubagentDeps>,
+    manager: Arc<dyn SubagentManager>,
 }
 
 impl ListAgentsTool {
-    pub fn new(deps: Arc<SubagentDeps>) -> Self {
-        Self { deps }
+    pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
+        Self { manager }
     }
 }
 
@@ -60,8 +60,7 @@ impl Tool for ListAgentsTool {
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
         let available: Vec<Value> = self
-            .deps
-            .definitions
+            .manager
             .list_callable()
             .iter()
             .map(|def| {
@@ -78,9 +77,8 @@ impl Tool for ListAgentsTool {
 
         if params.include_running {
             let running: Vec<Value> = self
-                .deps
-                .tracker
-                .running()
+                .manager
+                .list_running()
                 .iter()
                 .map(|state| {
                     json!({
@@ -94,7 +92,7 @@ impl Tool for ListAgentsTool {
                 .collect();
 
             response["running_agents"] = json!(running);
-            response["running_count"] = json!(self.deps.tracker.running_count());
+            response["running_count"] = json!(self.manager.running_count());
         }
 
         Ok(ToolOutput::success(response))
@@ -107,10 +105,11 @@ mod tests {
     use crate::Tool;
     use restflow_ai::agent::{
         SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
-        SubagentDefSummary, SubagentTracker, spawn_subagent,
+        SubagentDefSummary, SubagentDeps, SubagentManagerImpl, SubagentTracker, spawn_subagent,
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
+    use restflow_traits::SubagentManager;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
 
@@ -184,6 +183,10 @@ mod tests {
         })
     }
 
+    fn as_manager(deps: &Arc<SubagentDeps>) -> Arc<dyn SubagentManager> {
+        Arc::new(SubagentManagerImpl::from_deps(deps))
+    }
+
     #[test]
     fn test_params_default() {
         let params: ListAgentsParams = serde_json::from_str("{}").unwrap();
@@ -207,7 +210,7 @@ mod tests {
             ]),
             vec![],
         );
-        let tool = ListAgentsTool::new(deps);
+        let tool = ListAgentsTool::new(as_manager(&deps));
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
         let agents = result.result["available_agents"].as_array().unwrap();
@@ -220,7 +223,7 @@ mod tests {
             MockDefLookup::with_agents(vec![("coder", "Coder")]),
             vec![],
         );
-        let tool = ListAgentsTool::new(deps);
+        let tool = ListAgentsTool::new(as_manager(&deps));
         let result = tool
             .execute(json!({"include_running": false}))
             .await
@@ -256,7 +259,7 @@ mod tests {
         // Small delay to let the agent register
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let tool = ListAgentsTool::new(deps);
+        let tool = ListAgentsTool::new(as_manager(&deps));
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
         assert!(result.result["running_count"].as_u64().unwrap() >= 1);
@@ -265,7 +268,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_empty_definitions() {
         let deps = make_deps(MockDefLookup::empty(), vec![]);
-        let tool = ListAgentsTool::new(deps);
+        let tool = ListAgentsTool::new(as_manager(&deps));
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
         let agents = result.result["available_agents"].as_array().unwrap();

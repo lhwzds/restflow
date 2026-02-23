@@ -20,7 +20,7 @@ use crate::impls::wait_agents::WaitAgentsTool;
 use crate::impls::list_agents::ListAgentsTool;
 use crate::impls::use_skill::UseSkillTool;
 use crate::security::bash_security::BashSecurityConfig;
-use restflow_ai::agent::{SubagentDeps, SubagentSpawner};
+use restflow_traits::{SubagentManager, SubagentSpawner};
 use restflow_traits::skill::SkillProvider;
 
 // Web tools
@@ -211,18 +211,18 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_spawn_agent(mut self, deps: Arc<SubagentDeps>) -> Self {
-        self.registry.register(SpawnAgentTool::new(deps));
+    pub fn with_spawn_agent(mut self, manager: Arc<dyn SubagentManager>) -> Self {
+        self.registry.register(SpawnAgentTool::new(manager));
         self
     }
 
-    pub fn with_wait_agents(mut self, deps: Arc<SubagentDeps>) -> Self {
-        self.registry.register(WaitAgentsTool::new(deps));
+    pub fn with_wait_agents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
+        self.registry.register(WaitAgentsTool::new(manager));
         self
     }
 
-    pub fn with_list_agents(mut self, deps: Arc<SubagentDeps>) -> Self {
-        self.registry.register(ListAgentsTool::new(deps));
+    pub fn with_list_agents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
+        self.registry.register(ListAgentsTool::new(manager));
         self
     }
 

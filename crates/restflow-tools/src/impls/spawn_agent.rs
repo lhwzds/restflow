@@ -8,7 +8,7 @@ use tokio::time::{Duration, timeout};
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_ai::agent::{SubagentDeps, SpawnRequest, spawn_subagent};
+use restflow_traits::{SpawnRequest, SubagentManager};
 
 /// Parameters for spawn_agent tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -29,12 +29,12 @@ pub struct SpawnAgentParams {
 
 /// spawn_agent tool for the shared agent execution engine.
 pub struct SpawnAgentTool {
-    deps: Arc<SubagentDeps>,
+    manager: Arc<dyn SubagentManager>,
 }
 
 impl SpawnAgentTool {
-    pub fn new(deps: Arc<SubagentDeps>) -> Self {
-        Self { deps }
+    pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
+        Self { manager }
     }
 }
 
@@ -87,24 +87,16 @@ impl Tool for SpawnAgentTool {
             priority: None,
         };
 
-        let handle = spawn_subagent(
-            self.deps.tracker.clone(),
-            self.deps.definitions.clone(),
-            self.deps.llm_client.clone(),
-            self.deps.tool_registry.clone(),
-            self.deps.config.clone(),
-            request,
-        )
-        .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let handle = self.manager.spawn(request)?;
 
         if params.wait {
             let wait_timeout = params
                 .timeout_secs
-                .unwrap_or(self.deps.config.subagent_timeout_secs);
+                .unwrap_or(self.manager.config().subagent_timeout_secs);
 
             let result = match timeout(
                 Duration::from_secs(wait_timeout),
-                self.deps.tracker.wait(&handle.id),
+                self.manager.wait(&handle.id),
             )
             .await
             {
@@ -155,10 +147,11 @@ mod tests {
     use crate::Tool;
     use restflow_ai::agent::{
         SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-        SubagentTracker,
+        SubagentManagerImpl, SubagentTracker,
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
+    use restflow_traits::SubagentManager;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
 
@@ -204,7 +197,7 @@ mod tests {
     fn make_test_deps(
         agents: Vec<(&str, &str)>,
         mock_steps: Vec<MockStep>,
-    ) -> Arc<SubagentDeps> {
+    ) -> Arc<dyn SubagentManager> {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
         let definitions: Arc<dyn SubagentDefLookup> =
@@ -217,13 +210,13 @@ mod tests {
             max_iterations: 5,
             max_depth: 1,
         };
-        Arc::new(SubagentDeps {
+        Arc::new(SubagentManagerImpl::new(
             tracker,
             definitions,
             llm_client,
             tool_registry,
             config,
-        })
+        ))
     }
 
     #[test]
