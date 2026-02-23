@@ -8,7 +8,6 @@ pub mod checkpoint;
 pub mod deliverable;
 pub mod hook;
 pub mod memory;
-pub mod pricing;
 pub mod security;
 pub mod shared_space;
 pub mod skill;
@@ -42,7 +41,6 @@ pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
     SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
-pub use pricing::{ModelPricing, calculate_cost};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 pub use workspace_note::{

@@ -35,7 +35,7 @@ pub use models::{
     ExecutionStepInfo, GatingCheckResult, GatingRequirements, Hook, HookAction, HookContext,
     HookEvent, HookFilter, InstallStatus, InstalledSkill, LifecycleAudit, LlmCallAudit,
     MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySession,
-    MemorySource, MemoryStats, MessageAudit, MessageExecution, ModelMetadataDTO, ModelPricing,
+    MemorySource, MemoryStats, MessageAudit, MessageExecution, ModelMetadataDTO,
     ModelRoutingConfig, ModelSwitchAudit, NoteQuery, NoteStatus, NotificationConfig, OsType,
     PendingApproval, Provider, ResourceLimits, ResumePayload, SearchMode, SecurityAction,
     SecurityCheckResult, SecurityMode, SecurityPolicy, SharedEntry, Skill, SkillAuthor,
@@ -46,7 +46,7 @@ pub use models::{
     UnifiedSearchQuery, ValidationError, ValidationErrorResponse, VersionRequirement, Visibility,
     WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse, WorkspaceNote,
     WorkspaceNotePatch, WorkspaceNoteSpec, ActiveTrigger, AuthConfig,
-    TriggerConfig, calculate_cost, encode_validation_error,
+    TriggerConfig, encode_validation_error,
 };
 pub use steer::SteerRegistry;
 
