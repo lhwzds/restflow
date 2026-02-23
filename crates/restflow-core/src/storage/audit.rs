@@ -1,32 +1,24 @@
-//! Audit storage module for persisting audit events.
+//! Typed audit storage wrapper.
 
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::Database;
+use restflow_storage::SimpleStorage;
 
 use crate::models::audit::{AuditEvent, AuditQuery, AuditStats, AuditTimeRange};
 
-const AUDIT_TABLE: TableDefinition<&str, &str> = TableDefinition::new("audit_events");
-
-/// Audit storage for persisting and querying audit events.
+/// Typed audit storage wrapper around restflow-storage::AuditStorageBackend.
 pub struct AuditStorage {
-    db: Arc<Database>,
+    inner: restflow_storage::AuditStorageBackend,
 }
 
 impl AuditStorage {
     /// Create an audit storage with an existing database.
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        // Initialize schema if needed
-        {
-            let write_txn = db.begin_write().context("Failed to begin write transaction")?;
-            write_txn
-                .open_table(AUDIT_TABLE)
-                .context("Failed to open audit table")?;
-            write_txn.commit().context("Failed to commit schema initialization")?;
-        }
-        
-        Ok(Self { db })
+        Ok(Self {
+            inner: restflow_storage::AuditStorageBackend::new(db)?,
+        })
     }
 
     /// Create an in-memory audit storage (for testing).
@@ -37,52 +29,31 @@ impl AuditStorage {
                 .create_with_backend(redb::backends::InMemoryBackend::new())
                 .context("Failed to create in-memory database")?,
         );
-        
-        // Initialize schema
-        {
-            let write_txn = db.begin_write().context("Failed to begin write transaction")?;
-            write_txn
-                .open_table(AUDIT_TABLE)
-                .context("Failed to open audit table")?;
-            write_txn.commit().context("Failed to commit schema initialization")?;
-        }
-        
-        Ok(Self { db })
+        Ok(Self {
+            inner: restflow_storage::AuditStorageBackend::new(db)?,
+        })
     }
 
     /// Store an audit event.
     pub fn store(&self, event: &AuditEvent) -> Result<()> {
-        let write_txn = self.db.begin_write().context("Failed to begin write transaction")?;
-        {
-            let mut table = write_txn
-                .open_table(AUDIT_TABLE)
-                .context("Failed to open audit table")?;
-            
-            let key = format!("{}:{}", event.task_id, event.id);
-            let value = serde_json::to_string(event).context("Failed to serialize audit event")?;
-            table.insert(key.as_str(), value.as_str()).context("Failed to insert audit event")?;
-        }
-        write_txn.commit().context("Failed to commit audit event")?;
-        
+        let key = format!("{}:{}", event.task_id, event.id);
+        let bytes = serde_json::to_vec(event).context("Failed to serialize audit event")?;
+        self.inner
+            .put_raw(&key, &bytes)
+            .context("Failed to store audit event")?;
         Ok(())
     }
 
     /// Query audit events with filters.
     pub fn query(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>> {
-        let read_txn = self.db.begin_read().context("Failed to begin read transaction")?;
-        let table = read_txn
-            .open_table(AUDIT_TABLE)
-            .context("Failed to open audit table")?;
-        
+        let raw_entries = self.inner.list_raw().context("Failed to list audit events")?;
+
         let mut events = Vec::new();
         let offset = query.offset.unwrap_or(0);
         let limit = query.limit.unwrap_or(100);
-        
-        for entry in table.iter()? {
-            let (_, value) = entry.context("Failed to read entry")?;
-            let value_str = value.value();
-            
-            if let Ok(event) = serde_json::from_str::<AuditEvent>(value_str) {
+
+        for (_, bytes) in raw_entries {
+            if let Ok(event) = serde_json::from_slice::<AuditEvent>(&bytes) {
                 // Apply filters
                 if let Some(ref task_id) = query.task_id
                     && event.task_id != *task_id
@@ -109,27 +80,27 @@ impl AuditStorage {
                 {
                     continue;
                 }
-                
+
                 events.push(event);
             }
         }
-        
+
         // Sort by timestamp descending
         events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        
+
         // Apply pagination
         let events: Vec<_> = events.into_iter().skip(offset).take(limit).collect();
-        
+
         Ok(events)
     }
 
     /// Get statistics about audit events.
     pub fn stats(&self, task_id: Option<&str>) -> Result<AuditStats> {
-        let read_txn = self.db.begin_read().context("Failed to begin read transaction")?;
-        let table = read_txn
-            .open_table(AUDIT_TABLE)
-            .context("Failed to open audit table")?;
-        
+        let raw_entries = self
+            .inner
+            .list_raw()
+            .context("Failed to list audit events")?;
+
         let mut total_events = 0u64;
         let mut llm_call_count = 0u64;
         let mut tool_call_count = 0u64;
@@ -140,21 +111,18 @@ impl AuditStorage {
         let mut total_cost_usd = 0.0f64;
         let mut earliest: Option<i64> = None;
         let mut latest: Option<i64> = None;
-        
-        for entry in table.iter()? {
-            let (_, value) = entry.context("Failed to read entry")?;
-            let value_str = value.value();
-            
-            if let Ok(event) = serde_json::from_str::<AuditEvent>(value_str) {
+
+        for (_, bytes) in raw_entries {
+            if let Ok(event) = serde_json::from_slice::<AuditEvent>(&bytes) {
                 // Filter by task_id if specified
                 if let Some(tid) = task_id
                     && event.task_id != tid
                 {
                     continue;
                 }
-                
+
                 total_events += 1;
-                
+
                 match event.category {
                     crate::models::audit::AuditEventCategory::LlmCall => {
                         llm_call_count += 1;
@@ -176,18 +144,21 @@ impl AuditStorage {
                         message_count += 1;
                     }
                 }
-                
+
                 // Update time range
                 earliest = Some(earliest.map_or(event.timestamp, |e| e.min(event.timestamp)));
                 latest = Some(latest.map_or(event.timestamp, |l| l.max(event.timestamp)));
             }
         }
-        
+
         let time_range = match (earliest, latest) {
-            (Some(e), Some(l)) => Some(AuditTimeRange { earliest: e, latest: l }),
+            (Some(e), Some(l)) => Some(AuditTimeRange {
+                earliest: e,
+                latest: l,
+            }),
             _ => None,
         };
-        
+
         Ok(AuditStats {
             total_events,
             llm_call_count,
@@ -210,7 +181,7 @@ mod tests {
     #[test]
     fn test_audit_storage() {
         let storage = AuditStorage::in_memory().unwrap();
-        
+
         // Create and store an event
         let event = AuditEvent::llm_call(
             "task-123",
@@ -226,19 +197,19 @@ mod tests {
                 message_count: Some(10),
             },
         );
-        
+
         storage.store(&event).unwrap();
-        
+
         // Query events
         let query = AuditQuery {
             task_id: Some("task-123".to_string()),
             ..Default::default()
         };
-        
+
         let results = storage.query(&query).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].task_id, "task-123");
-        
+
         // Get stats
         let stats = storage.stats(Some("task-123")).unwrap();
         assert_eq!(stats.total_events, 1);
