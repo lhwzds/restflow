@@ -20,7 +20,7 @@ pub mod tools;
 pub use agent::{
     AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, CheckpointDurability,
     ExecutionStep, ResourceLimits, ResourceUsage, Scratchpad, SubagentDeps, SubagentManagerImpl,
-    SubagentSpawner, TraceEvent,
+    SubagentSpawner,
 };
 pub use agent::context_manager::{
     CompactStats, ContextManagerConfig, PruneStats, TokenEstimator,
