@@ -41,10 +41,7 @@ impl Default for AgentCacheManager {
 
 // ── AgentCache trait implementation ──────────────────────────────────
 
-use restflow_traits::cache::{
-    AgentCache, CachedSearchResult as TraitCachedSearchResult,
-    SearchMatch as TraitSearchMatch,
-};
+use restflow_traits::cache::AgentCache;
 
 #[async_trait::async_trait]
 impl AgentCache for AgentCacheManager {
@@ -74,22 +71,8 @@ impl AgentCache for AgentCacheManager {
         pattern: &str,
         dir: &str,
         file_pattern: Option<&str>,
-    ) -> Option<TraitCachedSearchResult> {
-        self.search.get(pattern, dir, file_pattern).await.map(|r| {
-            TraitCachedSearchResult {
-                matches: r
-                    .matches
-                    .into_iter()
-                    .map(|m| TraitSearchMatch {
-                        file: m.file,
-                        line: m.line,
-                        content: m.content,
-                    })
-                    .collect(),
-                total_files_searched: r.total_files_searched,
-                truncated: r.truncated,
-            }
-        })
+    ) -> Option<CachedSearchResult> {
+        self.search.get(pattern, dir, file_pattern).await
     }
 
     async fn put_search(
@@ -97,22 +80,9 @@ impl AgentCache for AgentCacheManager {
         pattern: &str,
         dir: &str,
         file_pattern: Option<&str>,
-        result: TraitCachedSearchResult,
+        result: CachedSearchResult,
     ) {
-        let internal = CachedSearchResult {
-            matches: result
-                .matches
-                .into_iter()
-                .map(|m| SearchMatch {
-                    file: m.file,
-                    line: m.line,
-                    content: m.content,
-                })
-                .collect(),
-            total_files_searched: result.total_files_searched,
-            truncated: result.truncated,
-        };
-        self.search.put(pattern, dir, file_pattern, internal).await;
+        self.search.put(pattern, dir, file_pattern, result).await;
     }
 
     async fn invalidate_search_dir(&self, dir: &str) {
