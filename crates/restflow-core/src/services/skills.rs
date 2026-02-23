@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use regex::Regex;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 /// List all skills
 pub async fn list_skills(core: &Arc<AppCore>) -> Result<Vec<Skill>> {
@@ -154,8 +154,12 @@ pub fn validate_skill(skill: &Skill) -> Vec<ValidationError> {
         }
     }
 
-    let variable_regex = Regex::new(r"\{\{\s*([^{}]+?)\s*\}\}").expect("valid variable regex");
-    let variable_name_regex = Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").expect("valid name regex");
+    static VARIABLE_REGEX: OnceLock<Regex> = OnceLock::new();
+    static VARIABLE_NAME_REGEX: OnceLock<Regex> = OnceLock::new();
+    let variable_regex =
+        VARIABLE_REGEX.get_or_init(|| Regex::new(r"\{\{\s*([^{}]+?)\s*\}\}").unwrap());
+    let variable_name_regex =
+        VARIABLE_NAME_REGEX.get_or_init(|| Regex::new(r"^[a-zA-Z_][a-zA-Z0-9_]*$").unwrap());
     for captures in variable_regex.captures_iter(&skill.content) {
         let variable_name = captures[1].trim();
         if !variable_name_regex.is_match(variable_name) {
