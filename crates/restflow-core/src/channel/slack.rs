@@ -223,7 +223,7 @@ impl SlackChannel {
                     };
 
                 let inbound = InboundMessage::new(
-                    &format!("sk_{}", ts),
+                    format!("sk_{}", ts),
                     ChannelType::Slack,
                     user_id,
                     &conversation_id,

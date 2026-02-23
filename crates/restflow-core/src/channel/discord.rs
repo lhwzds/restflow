@@ -253,7 +253,7 @@ impl DiscordChannel {
                 };
 
                 let mut inbound = InboundMessage::new(
-                    &format!("dc_{}", message_id),
+                    format!("dc_{}", message_id),
                     ChannelType::Discord,
                     author_id,
                     &conversation_id,

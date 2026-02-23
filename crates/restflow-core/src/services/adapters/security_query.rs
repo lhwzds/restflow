@@ -7,6 +7,12 @@ use serde_json::{Value, json};
 
 pub struct SecurityQueryProviderAdapter;
 
+impl Default for SecurityQueryProviderAdapter {
+    fn default() -> Self {
+        Self
+    }
+}
+
 impl SecurityQueryProviderAdapter {
     pub fn new() -> Self {
         Self
