@@ -1,35 +1,13 @@
 use anyhow::Result;
 use std::path::PathBuf;
 
-const RESTFLOW_DIR: &str = ".restflow";
+// Re-export shared path utilities from restflow-storage (single source of truth)
+pub use restflow_storage::paths::{ensure_restflow_dir, master_key_path, resolve_restflow_dir};
+
 const DB_FILE: &str = "restflow.db";
 const CONFIG_FILE: &str = "config.json";
-const MASTER_KEY_FILE: &str = "master.key";
 const LOGS_DIR: &str = "logs";
 const SKILLS_DIR: &str = "skills";
-
-/// Environment variable to override the RestFlow directory.
-const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
-
-/// Resolve the RestFlow configuration directory.
-/// Priority: RESTFLOW_DIR env var > ~/.restflow/
-pub fn resolve_restflow_dir() -> Result<PathBuf> {
-    if let Ok(dir) = std::env::var(RESTFLOW_DIR_ENV)
-        && !dir.trim().is_empty()
-    {
-        return Ok(PathBuf::from(dir));
-    }
-    dirs::home_dir()
-        .map(|h| h.join(RESTFLOW_DIR))
-        .ok_or_else(|| anyhow::anyhow!("Failed to determine home directory"))
-}
-
-/// Ensure the RestFlow directory exists and return its path.
-pub fn ensure_restflow_dir() -> Result<PathBuf> {
-    let dir = resolve_restflow_dir()?;
-    std::fs::create_dir_all(&dir)?;
-    Ok(dir)
-}
 
 /// Get the database path: ~/.restflow/restflow.db
 pub fn database_path() -> Result<PathBuf> {
@@ -49,11 +27,6 @@ pub fn ensure_database_path_string() -> Result<String> {
 /// Get the config file path: ~/.restflow/config.json
 pub fn config_path() -> Result<PathBuf> {
     Ok(resolve_restflow_dir()?.join(CONFIG_FILE))
-}
-
-/// Get the master key path: ~/.restflow/master.key
-pub fn master_key_path() -> Result<PathBuf> {
-    Ok(resolve_restflow_dir()?.join(MASTER_KEY_FILE))
 }
 
 /// Get the logs directory: ~/.restflow/logs/
@@ -109,35 +82,35 @@ mod tests {
     #[test]
     fn test_default_restflow_dir() {
         let _lock = env_lock();
-        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
         let dir = resolve_restflow_dir().unwrap();
-        assert!(dir.ends_with(RESTFLOW_DIR));
+        assert!(dir.ends_with(".restflow"));
     }
 
     #[test]
     fn test_env_override() {
         let _lock = env_lock();
-        unsafe { std::env::set_var(RESTFLOW_DIR_ENV, "/tmp/test-restflow") };
+        unsafe { std::env::set_var("RESTFLOW_DIR", "/tmp/test-restflow") };
         let dir = resolve_restflow_dir().unwrap();
         assert_eq!(dir, PathBuf::from("/tmp/test-restflow"));
-        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
     }
 
     #[test]
     fn test_database_path() {
         let _lock = env_lock();
-        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
         let path = database_path().unwrap();
         assert!(path.ends_with(DB_FILE));
-        assert!(path.parent().unwrap().ends_with(RESTFLOW_DIR));
+        assert!(path.parent().unwrap().ends_with(".restflow"));
     }
 
     #[test]
     fn test_daemon_lock_path() {
         let _lock = env_lock();
-        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
+        unsafe { std::env::remove_var("RESTFLOW_DIR") };
         let path = daemon_lock_path().unwrap();
         assert!(path.ends_with("daemon.lock"));
-        assert!(path.parent().unwrap().ends_with(RESTFLOW_DIR));
+        assert!(path.parent().unwrap().ends_with(".restflow"));
     }
 }

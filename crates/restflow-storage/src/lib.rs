@@ -20,7 +20,7 @@ pub mod deliverable;
 pub mod memory;
 pub mod memory_index;
 pub mod pairing;
-mod paths;
+pub mod paths;
 pub mod range_utils;
 pub mod secrets;
 pub mod shared_space;
