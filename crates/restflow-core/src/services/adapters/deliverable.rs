@@ -69,8 +69,7 @@ impl DeliverableStore for DeliverableStoreAdapter {
             metadata,
         };
         self.storage
-            .save(&deliverable)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .save(&deliverable)?;
         serde_json::to_value(deliverable).map_err(ToolError::from)
     }
 }

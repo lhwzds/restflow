@@ -128,22 +128,18 @@ impl BackgroundAgentStoreAdapter {
     }
 
     fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
-        self.agent_storage
-            .resolve_existing_agent_id(id_or_prefix)
-            .map_err(|e| ToolError::Tool(e.to_string()))
+        Ok(self
+            .agent_storage
+            .resolve_existing_agent_id(id_or_prefix)?)
     }
 
     fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
-        self.storage
-            .resolve_existing_task_id(id_or_prefix)
-            .map_err(|e| ToolError::Tool(e.to_string()))
+        Ok(self.storage.resolve_existing_task_id(id_or_prefix)?)
     }
 
     fn scratchpad_dir() -> Result<PathBuf, ToolError> {
-        let dir = crate::paths::ensure_restflow_dir()
-            .map_err(|e| ToolError::Tool(e.to_string()))?
-            .join("scratchpads");
-        std::fs::create_dir_all(&dir).map_err(|e| ToolError::Tool(e.to_string()))?;
+        let dir = crate::paths::ensure_restflow_dir()?.join("scratchpads");
+        std::fs::create_dir_all(&dir)?;
         Ok(dir)
     }
 
@@ -197,9 +193,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 resource_limits,
                 prerequisites: Vec::new(),
                 continuation: None,
-            })
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(ToolError::from)
+            })?;
+        Ok(serde_json::to_value(task)?)
     }
 
     fn update_background_agent(
@@ -236,17 +231,13 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let task = self
             .storage
-            .update_background_agent(&resolved_id, patch)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(ToolError::from)
+            .update_background_agent(&resolved_id, patch)?;
+        Ok(serde_json::to_value(task)?)
     }
 
     fn delete_background_agent(&self, id: &str) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(id)?;
-        let deleted = self
-            .storage
-            .delete_task(&resolved_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let deleted = self.storage.delete_task(&resolved_id)?;
         Ok(json!({ "id": id, "deleted": deleted }))
     }
 
@@ -256,16 +247,12 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
     ) -> restflow_tools::Result<Value> {
         let tasks = if let Some(status) = status {
             let status = Self::parse_status(&status)?;
-            self.storage
-                .list_tasks_by_status(status)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+            self.storage.list_tasks_by_status(status)?
         } else {
-            self.storage
-                .list_tasks()
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+            self.storage.list_tasks()?
         };
 
-        serde_json::to_value(tasks).map_err(ToolError::from)
+        Ok(serde_json::to_value(tasks)?)
     }
 
     fn control_background_agent(
@@ -276,9 +263,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let task = self
             .storage
-            .control_background_agent(&resolved_id, action)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(task).map_err(ToolError::from)
+            .control_background_agent(&resolved_id, action)?;
+        Ok(serde_json::to_value(task)?)
     }
 
     fn get_background_agent_progress(
@@ -288,9 +274,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let progress = self
             .storage
-            .get_background_agent_progress(&resolved_id, request.event_limit.unwrap_or(10).max(1))
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(progress).map_err(ToolError::from)
+            .get_background_agent_progress(&resolved_id, request.event_limit.unwrap_or(10).max(1))?;
+        Ok(serde_json::to_value(progress)?)
     }
 
     fn send_background_agent_message(
@@ -301,9 +286,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let message = self
             .storage
-            .send_background_agent_message(&resolved_id, request.message, source)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(message).map_err(ToolError::from)
+            .send_background_agent_message(&resolved_id, request.message, source)?;
+        Ok(serde_json::to_value(message)?)
     }
 
     fn list_background_agent_messages(
@@ -313,20 +297,16 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let messages = self
             .storage
-            .list_background_agent_messages(&resolved_id, request.limit.unwrap_or(50).max(1))
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(messages).map_err(ToolError::from)
+            .list_background_agent_messages(&resolved_id, request.limit.unwrap_or(50).max(1))?;
+        Ok(serde_json::to_value(messages)?)
     }
 
     fn list_background_agent_deliverables(
         &self,
         request: BackgroundAgentDeliverableListRequest,
     ) -> restflow_tools::Result<Value> {
-        let items = self
-            .deliverable_storage
-            .list_by_task(&request.id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(items).map_err(ToolError::from)
+        let items = self.deliverable_storage.list_by_task(&request.id)?;
+        Ok(serde_json::to_value(items)?)
     }
 
     fn list_background_agent_scratchpads(
@@ -336,8 +316,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let dir = Self::scratchpad_dir()?;
         let prefix = request.id.map(|id| format!("{id}-"));
         let mut entries: Vec<(std::time::SystemTime, Value)> = Vec::new();
-        for entry in std::fs::read_dir(&dir).map_err(|e| ToolError::Tool(e.to_string()))? {
-            let entry = entry.map_err(|e| ToolError::Tool(e.to_string()))?;
+        for entry in std::fs::read_dir(&dir)? {
+            let entry = entry?;
             let path = entry.path();
             if !path.is_file() {
                 continue;
@@ -355,7 +335,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
                 continue;
             }
 
-            let metadata = entry.metadata().map_err(|e| ToolError::Tool(e.to_string()))?;
+            let metadata = entry.metadata()?;
             let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
             let modified_at = chrono::DateTime::<Utc>::from(modified).to_rfc3339();
             let task_id = file_name.strip_suffix(".jsonl").and_then(|name| {
@@ -422,7 +402,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             )));
         }
 
-        let content = std::fs::read_to_string(&path).map_err(|e| ToolError::Tool(e.to_string()))?;
+        let content = std::fs::read_to_string(&path)?;
         let lines: Vec<&str> = content.lines().collect();
         let total_lines = lines.len();
         let line_limit = request.line_limit.unwrap_or(200).max(1);

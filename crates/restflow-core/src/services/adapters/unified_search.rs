@@ -3,7 +3,6 @@
 use crate::memory::UnifiedSearchEngine;
 use crate::models::{MemorySearchQuery, SearchMode, UnifiedSearchQuery};
 use restflow_ai::tools::UnifiedMemorySearch;
-use restflow_tools::ToolError;
 use serde_json::Value;
 
 pub struct UnifiedMemorySearchAdapter {
@@ -33,8 +32,7 @@ impl UnifiedMemorySearch for UnifiedMemorySearchAdapter {
 
         let results = self
             .engine
-            .search(&unified_query)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .search(&unified_query)?;
 
         Ok(serde_json::to_value(results)?)
     }

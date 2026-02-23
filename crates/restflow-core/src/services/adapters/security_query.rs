@@ -2,7 +2,6 @@
 
 use crate::security::SecurityChecker;
 use restflow_ai::tools::SecurityQueryProvider;
-use restflow_tools::ToolError;
 use serde_json::{Value, json};
 
 pub struct SecurityQueryProviderAdapter;
@@ -60,8 +59,7 @@ impl SecurityQueryProvider for SecurityQueryProviderAdapter {
             };
             let decision = checker
                 .check_tool_action(&ai_action, Some("runtime"), Some("runtime"))
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
+                .await?;
             Ok(json!({
                 "allowed": decision.allowed,
                 "requires_approval": decision.requires_approval,

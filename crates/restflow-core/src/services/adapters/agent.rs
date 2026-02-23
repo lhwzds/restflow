@@ -126,16 +126,14 @@ impl AgentStore for AgentStoreAdapter {
     fn list_agents(&self) -> restflow_tools::Result<Value> {
         let agents = self
             .storage
-            .list_agents()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .list_agents()?;
         serde_json::to_value(agents).map_err(ToolError::from)
     }
 
     fn get_agent(&self, id: &str) -> restflow_tools::Result<Value> {
         let agent = self
             .storage
-            .get_agent(id.to_string())
-            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .get_agent(id.to_string())?
             .ok_or_else(|| ToolError::Tool(format!("Agent {} not found", id)))?;
         serde_json::to_value(agent).map_err(ToolError::from)
     }
@@ -148,8 +146,7 @@ impl AgentStore for AgentStoreAdapter {
         self.validate_agent_node(&agent)?;
         let created = self
             .storage
-            .create_agent(request.name, agent)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .create_agent(request.name, agent)?;
         serde_json::to_value(created).map_err(ToolError::from)
     }
 
@@ -167,16 +164,14 @@ impl AgentStore for AgentStoreAdapter {
         };
         let updated = self
             .storage
-            .update_agent(request.id, request.name, agent)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .update_agent(request.id, request.name, agent)?;
         serde_json::to_value(updated).map_err(ToolError::from)
     }
 
     fn delete_agent(&self, id: &str) -> restflow_tools::Result<Value> {
         let active_tasks = self
             .background_agent_storage
-            .list_active_tasks_by_agent_id(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .list_active_tasks_by_agent_id(id)?;
         if !active_tasks.is_empty() {
             let task_names = active_tasks
                 .iter()
@@ -190,8 +185,7 @@ impl AgentStore for AgentStoreAdapter {
         }
 
         self.storage
-            .delete_agent(id.to_string())
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .delete_agent(id.to_string())?;
         Ok(json!({ "id": id, "deleted": true }))
     }
 }

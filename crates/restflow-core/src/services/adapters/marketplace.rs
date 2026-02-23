@@ -144,10 +144,7 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
         let content = Self::get_content(source_name, id, &manifest.version).await?;
         let skill = Self::manifest_to_skill(manifest, content);
 
-        let exists = self
-            .storage
-            .exists(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let exists = self.storage.exists(id)?;
         if exists && !overwrite {
             return Err(ToolError::Tool(
                 "Skill already installed. Set overwrite=true to replace.".to_string(),
@@ -155,13 +152,9 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
         }
 
         if exists {
-            self.storage
-                .update(id, &skill)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            self.storage.update(id, &skill)?;
         } else {
-            self.storage
-                .create(&skill)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            self.storage.create(&skill)?;
         }
 
         Ok(json!({
@@ -174,14 +167,9 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
     }
 
     fn uninstall_skill(&self, id: &str) -> restflow_tools::Result<Value> {
-        let exists = self
-            .storage
-            .exists(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let exists = self.storage.exists(id)?;
         if exists {
-            self.storage
-                .delete(id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            self.storage.delete(id)?;
         }
         Ok(json!({
             "id": id,
@@ -190,10 +178,7 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
     }
 
     fn list_installed(&self) -> restflow_tools::Result<Value> {
-        let skills = self
-            .storage
-            .list()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let skills = self.storage.list()?;
         Ok(serde_json::to_value(skills)?)
     }
 }

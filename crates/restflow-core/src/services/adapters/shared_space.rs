@@ -25,8 +25,7 @@ impl SharedSpaceStore for SharedSpaceStoreAdapter {
     fn get_entry(&self, key: &str) -> restflow_tools::Result<Value> {
         let entry = self
             .storage
-            .get(key, self.accessor_id.as_deref())
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .get(key, self.accessor_id.as_deref())?;
         let payload = match entry {
             Some(entry) => json!({
                 "found": true,
@@ -57,8 +56,7 @@ impl SharedSpaceStore for SharedSpaceStoreAdapter {
     ) -> restflow_tools::Result<Value> {
         let existing = self
             .storage
-            .get_unchecked(key)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .get_unchecked(key)?;
 
         if let Some(ref entry) = existing
             && !entry.can_write(self.accessor_id.as_deref())
@@ -107,8 +105,7 @@ impl SharedSpaceStore for SharedSpaceStoreAdapter {
         };
 
         self.storage
-            .set(&entry)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .set(&entry)?;
 
         Ok(json!({
             "success": true,
@@ -120,8 +117,7 @@ impl SharedSpaceStore for SharedSpaceStoreAdapter {
     fn delete_entry(&self, key: &str, accessor_id: Option<&str>) -> restflow_tools::Result<Value> {
         let deleted = self
             .storage
-            .delete(key, accessor_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .delete(key, accessor_id)?;
         Ok(json!({
             "deleted": deleted,
             "key": key
@@ -132,8 +128,7 @@ impl SharedSpaceStore for SharedSpaceStoreAdapter {
         let prefix = namespace.map(|ns| format!("{}:", ns));
         let entries = self
             .storage
-            .list(prefix.as_deref(), self.accessor_id.as_deref())
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .list(prefix.as_deref(), self.accessor_id.as_deref())?;
         let items: Vec<_> = entries
             .iter()
             .map(|entry| {
