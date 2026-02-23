@@ -31,8 +31,7 @@ pub use llm::{
     LlmClient, LlmClientFactory, LlmProvider, LlmSwitcherImpl, Message, ModelSpec, OpenAIClient,
     OpenCodeClient, Role, SwappableLlm,
 };
-pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
-pub use restflow_traits::network::{NetworkAllowlist, NetworkEcosystem};
+pub use restflow_traits::security::ToolAction;
 pub use steer::{SteerMessage, SteerSource};
 // Core tool abstractions
 pub use tools::{
