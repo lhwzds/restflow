@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 use tokio::time::sleep;
+use tokio_util::sync::CancellationToken;
 use tokio_stream::StreamExt;
 use tracing::{debug, error, info, warn};
 
@@ -48,6 +49,22 @@ impl Default for MessageHandlerConfig {
     }
 }
 
+/// Handle for shutting down a running message handler.
+///
+/// When [`shutdown`](MessageHandlerHandle::shutdown) is called, all spawned
+/// listener tasks are cancelled cooperatively via a [`CancellationToken`].
+#[derive(Clone)]
+pub struct MessageHandlerHandle {
+    shutdown_token: CancellationToken,
+}
+
+impl MessageHandlerHandle {
+    /// Signal all message handler tasks to stop.
+    pub fn shutdown(&self) {
+        self.shutdown_token.cancel();
+    }
+}
+
 /// Start the message handler loop (without AI chat support)
 ///
 /// This spawns background tasks to listen for messages on all interactive channels
@@ -56,8 +73,8 @@ pub fn start_message_handler<T: BackgroundAgentTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     config: MessageHandlerConfig,
-) {
-    start_message_handler_internal(router, task_trigger, None, None, config);
+) -> MessageHandlerHandle {
+    start_message_handler_internal(router, task_trigger, None, None, config)
 }
 
 /// Start the message handler loop with AI chat support
@@ -70,8 +87,8 @@ pub fn start_message_handler_with_chat<T: BackgroundAgentTrigger + 'static>(
     task_trigger: Arc<T>,
     chat_dispatcher: Arc<ChatDispatcher>,
     config: MessageHandlerConfig,
-) {
-    start_message_handler_internal(router, task_trigger, Some(chat_dispatcher), None, config);
+) -> MessageHandlerHandle {
+    start_message_handler_internal(router, task_trigger, Some(chat_dispatcher), None, config)
 }
 
 /// Start the message handler loop with AI chat support and pairing access control
@@ -81,14 +98,14 @@ pub fn start_message_handler_with_pairing<T: BackgroundAgentTrigger + 'static>(
     chat_dispatcher: Option<Arc<ChatDispatcher>>,
     pairing_manager: Arc<PairingManager>,
     config: MessageHandlerConfig,
-) {
+) -> MessageHandlerHandle {
     start_message_handler_internal(
         router,
         task_trigger,
         chat_dispatcher,
         Some(pairing_manager),
         config,
-    );
+    )
 }
 
 /// Internal implementation of message handler startup
@@ -98,7 +115,8 @@ fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
     chat_dispatcher: Option<Arc<ChatDispatcher>>,
     pairing_manager: Option<Arc<PairingManager>>,
     config: MessageHandlerConfig,
-) {
+) -> MessageHandlerHandle {
+    let shutdown_token = CancellationToken::new();
     let chat_enabled = chat_dispatcher.is_some();
     info!(
         "Starting channel message handler (chat_enabled={})",
@@ -110,7 +128,7 @@ fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
 
     if interactive_channels.is_empty() {
         info!("No interactive channels configured, message handler idle");
-        return;
+        return MessageHandlerHandle { shutdown_token };
     }
 
     // Create the message router
@@ -126,29 +144,44 @@ fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
         let chat_dispatcher = chat_dispatcher.clone();
         let pairing_manager = pairing_manager.clone();
         let config = config.clone();
+        let token = shutdown_token.clone();
 
         tokio::spawn(async move {
             info!("Listening for messages on {:?}", channel_type);
 
             loop {
                 let Some(mut stream) = channel.start_receiving() else {
+                    tokio::select! {
+                        _ = token.cancelled() => {
+                            info!("Message handler for {:?} shutting down", channel_type);
+                            return;
+                        }
+                        _ = sleep(STREAM_RECONNECT_DELAY) => {}
+                    }
                     warn!(
-                        "Failed to start message stream for {:?}, retrying in {:?}",
-                        channel_type, STREAM_RECONNECT_DELAY
+                        "Failed to start message stream for {:?}, retrying",
+                        channel_type
                     );
-                    sleep(STREAM_RECONNECT_DELAY).await;
                     continue;
                 };
 
                 loop {
-                    let message = match stream.next().await {
-                        Some(msg) => msg,
-                        None => {
-                            warn!(
-                                "Message stream ended for {:?}, restarting in {:?}",
-                                channel_type, STREAM_RECONNECT_DELAY
-                            );
-                            break;
+                    let message = tokio::select! {
+                        _ = token.cancelled() => {
+                            info!("Message handler for {:?} shutting down", channel_type);
+                            return;
+                        }
+                        next = stream.next() => {
+                            match next {
+                                Some(msg) => msg,
+                                None => {
+                                    warn!(
+                                        "Message stream ended for {:?}, restarting in {:?}",
+                                        channel_type, STREAM_RECONNECT_DELAY
+                                    );
+                                    break;
+                                }
+                            }
                         }
                     };
 
@@ -185,10 +218,18 @@ fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
                     // Continue processing next message regardless of error
                 }
 
-                sleep(STREAM_RECONNECT_DELAY).await;
+                tokio::select! {
+                    _ = token.cancelled() => {
+                        info!("Message handler for {:?} shutting down", channel_type);
+                        return;
+                    }
+                    _ = sleep(STREAM_RECONNECT_DELAY) => {}
+                }
             }
         });
     }
+
+    MessageHandlerHandle { shutdown_token }
 }
 
 /// Process a single inbound message using the router

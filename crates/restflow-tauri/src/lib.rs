@@ -23,8 +23,8 @@ pub use agent::{
 };
 pub use channel::{
     BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager,
-    MessageDebouncer, MessageHandlerConfig, MessageRouter, RouteDecision, SystemStatus,
-    start_message_handler, start_message_handler_with_chat,
+    MessageDebouncer, MessageHandlerConfig, MessageHandlerHandle, MessageRouter, RouteDecision,
+    SystemStatus, start_message_handler, start_message_handler_with_chat,
 };
 pub use chat::{
     CHAT_STREAM_EVENT, ChatStreamEvent, ChatStreamKind, ChatStreamState, StepStatus,
