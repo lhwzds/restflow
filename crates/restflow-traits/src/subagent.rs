@@ -117,6 +117,7 @@ pub struct SpawnHandle {
 
 /// Sub-agent running state
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct SubagentState {
     /// Unique task ID
     pub id: String,
@@ -142,6 +143,7 @@ pub struct SubagentState {
 
 /// Sub-agent status
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub enum SubagentStatus {
     Pending,
     Running,
@@ -153,6 +155,7 @@ pub enum SubagentStatus {
 
 /// Result from a sub-agent execution
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
 pub struct SubagentResult {
     /// Whether execution succeeded
     pub success: bool,
