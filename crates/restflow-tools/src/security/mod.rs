@@ -4,9 +4,8 @@
 pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
 pub use restflow_traits::error::Result;
 
-// Network security (implementation, kept here)
-pub mod network;
-pub use network::{
+// Network security types are defined in restflow-traits
+pub use restflow_traits::network::{
     NetworkAllowlist, NetworkEcosystem, is_restricted_ip, resolve_and_validate_url, validate_url,
 };
 
