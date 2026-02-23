@@ -19,7 +19,6 @@ uuid = { workspace = true }
 
 # Crate dependencies
 restflow-traits = { workspace = true }
-restflow-ai = { workspace = true }
 restflow-storage = { path = "../restflow-storage" }
 
 # Tool implementations

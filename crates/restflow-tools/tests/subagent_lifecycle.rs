@@ -8,11 +8,12 @@ use std::sync::Arc;
 
 use restflow_ai::agent::{
     SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-    SubagentDeps, SubagentTracker,
+    SubagentDeps, SubagentManagerImpl, SubagentTracker,
 };
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_tools::{ListAgentsTool, SpawnAgentTool, Tool, WaitAgentsTool};
+use restflow_traits::SubagentManager;
 use serde_json::json;
 use tokio::sync::mpsc;
 
@@ -60,7 +61,7 @@ impl SubagentDefLookup for MockDefLookup {
 fn make_shared_deps(
     agents: Vec<(&str, &str)>,
     mock_steps: Vec<MockStep>,
-) -> Arc<SubagentDeps> {
+) -> Arc<dyn SubagentManager> {
     let (tx, rx) = mpsc::channel(32);
     let tracker = Arc::new(SubagentTracker::new(tx, rx));
     let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agents(agents));
@@ -72,13 +73,14 @@ fn make_shared_deps(
         max_iterations: 5,
         max_depth: 1,
     };
-    Arc::new(SubagentDeps {
+    let deps = Arc::new(SubagentDeps {
         tracker,
         definitions,
         llm_client,
         tool_registry,
         config,
-    })
+    });
+    Arc::new(SubagentManagerImpl::from_deps(&deps))
 }
 
 // ── Integration tests ───────────────────────────────────────────────────────
