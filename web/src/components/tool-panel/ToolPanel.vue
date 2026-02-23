@@ -12,12 +12,14 @@ import NotificationPanel from './panels/NotificationPanel.vue'
 import GenericJsonPanel from './panels/GenericJsonPanel.vue'
 import LegacyCanvasPanel from './panels/LegacyCanvasPanel.vue'
 import type { ToolPanelType } from '@/composables/workspace/useToolPanel'
+import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const props = defineProps<{
   panelType: ToolPanelType
   title: string
   toolName: string
   data: Record<string, unknown>
+  step?: StreamStep
   canNavigatePrev: boolean
   canNavigateNext: boolean
 }>()
@@ -116,7 +118,7 @@ const panelComponent = computed(() => {
     </div>
 
     <div class="flex-1 overflow-auto p-4">
-      <component :is="panelComponent" :data="props.data" />
+      <component :is="panelComponent" :step="props.step" :data="props.data" />
     </div>
   </div>
 </template>

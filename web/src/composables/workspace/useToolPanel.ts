@@ -18,6 +18,7 @@ export interface ToolPanelHistoryEntry {
   panelType: ToolPanelType
   title: string
   data: Record<string, unknown>
+  step: StreamStep
   timestamp: number
   status: 'completed' | 'failed'
 }
@@ -29,6 +30,7 @@ export interface ToolPanelState {
   toolId: string
   title: string
   data: Record<string, unknown>
+  step: StreamStep
   history: ToolPanelHistoryEntry[]
   historyIndex: number
 }
@@ -61,6 +63,7 @@ function createInitialState(): ToolPanelState {
     toolId: '',
     title: '',
     data: {},
+    step: { type: '', name: '', status: 'running' },
     history: [],
     historyIndex: -1,
   }
@@ -119,6 +122,7 @@ export function useToolPanel() {
     state.value.toolId = entry.toolId
     state.value.title = entry.title
     state.value.data = entry.data
+    state.value.step = entry.step
   }
 
   function appendEntry(entry: ToolPanelHistoryEntry) {
@@ -136,16 +140,20 @@ export function useToolPanel() {
   function handleToolResult(step: StreamStep) {
     if (step.type !== 'tool_call' || !step.toolId || !step.name) return
 
-    const parsed = parseResult(step.result)
+    const parsedResult = parseResult(step.result)
+    const parsedArgs = parseResult(step.arguments)
+    // Merge arguments into data so toTitle can access fields like `url`
+    const data = { ...parsedArgs, ...parsedResult }
     const panelType = toPanelType(step.name)
-    const title = toTitle(step.name, panelType, parsed)
+    const title = toTitle(step.name, panelType, data)
 
     appendEntry({
       toolId: step.toolId,
       toolName: step.name,
       panelType,
       title,
-      data: parsed,
+      data,
+      step,
       timestamp: Date.now(),
       status: step.status === 'failed' ? 'failed' : 'completed',
     })
@@ -153,12 +161,14 @@ export function useToolPanel() {
 
   function handleShowPanelResult(resultJson: string) {
     const data = parseResult(resultJson)
+    const toolId = `legacy-show-panel-${Date.now()}`
     appendEntry({
-      toolId: `legacy-show-panel-${Date.now()}`,
+      toolId,
       toolName: 'show_panel',
       panelType: 'canvas',
       title: toTitle('show_panel', 'canvas', data),
       data,
+      step: { type: 'tool_call', name: 'show_panel', status: 'completed', toolId, result: resultJson },
       timestamp: Date.now(),
       status: 'completed',
     })

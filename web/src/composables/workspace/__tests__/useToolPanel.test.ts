@@ -8,6 +8,7 @@ function createStep(overrides: Partial<StreamStep> = {}): StreamStep {
     name: 'web_search',
     status: 'completed',
     toolId: 'tool-1',
+    arguments: '{"query":"test"}',
     result: '{"results":[{"title":"A"}]}',
     ...overrides,
   }
@@ -21,7 +22,8 @@ describe('useToolPanel', () => {
       createStep({
         name: 'http_request',
         toolId: 'tool-http',
-        result: '{"url":"https://example.com"}',
+        arguments: '{"url":"https://example.com","method":"GET"}',
+        result: '{"status":200}',
       }),
     )
 
@@ -91,5 +93,91 @@ describe('useToolPanel', () => {
     expect(panel.state.value.panelType).toBe('canvas')
     expect(panel.state.value.title).toBe('Legacy')
     expect(panel.state.value.history).toHaveLength(1)
+  })
+
+  it('stores step with arguments in history entry', () => {
+    const panel = useToolPanel()
+    const step = createStep({
+      name: 'http',
+      toolId: 'tool-http',
+      arguments: '{"url":"https://api.example.com","method":"POST"}',
+      result: '{"status":200,"body":"ok"}',
+    })
+
+    panel.handleToolResult(step)
+
+    const entry = panel.state.value.history[0]
+    expect(entry).toBeDefined()
+    expect(entry!.step).toStrictEqual(step)
+    expect(entry!.step.arguments).toBe('{"url":"https://api.example.com","method":"POST"}')
+
+    // step should also be synced to state
+    expect(panel.state.value.step).toStrictEqual(step)
+  })
+
+  it('merges parsed arguments into data', () => {
+    const panel = useToolPanel()
+
+    panel.handleToolResult(
+      createStep({
+        name: 'http',
+        toolId: 'tool-http',
+        arguments: '{"url":"https://example.com","method":"GET"}',
+        result: '{"status":200}',
+      }),
+    )
+
+    // arguments fields are merged into data (result fields take precedence)
+    expect(panel.state.value.data.url).toBe('https://example.com')
+    expect(panel.state.value.data.method).toBe('GET')
+    expect(panel.state.value.data.status).toBe(200)
+  })
+
+  it('generates http panel title from merged data with url', () => {
+    const panel = useToolPanel()
+
+    panel.handleToolResult(
+      createStep({
+        name: 'http',
+        toolId: 'tool-http',
+        arguments: '{"url":"https://example.com/api"}',
+        result: '{"status":200}',
+      }),
+    )
+
+    expect(panel.state.value.title).toBe('http: https://example.com/api')
+  })
+
+  it('handles missing arguments gracefully', () => {
+    const panel = useToolPanel()
+
+    panel.handleToolResult(
+      createStep({
+        name: 'bash',
+        toolId: 'tool-bash',
+        arguments: undefined,
+        result: '{"stdout":"hello"}',
+      }),
+    )
+
+    expect(panel.state.value.data.stdout).toBe('hello')
+    expect(panel.state.value.step.arguments).toBeUndefined()
+  })
+
+  it('handles non-json arguments gracefully', () => {
+    const panel = useToolPanel()
+
+    panel.handleToolResult(
+      createStep({
+        name: 'bash',
+        toolId: 'tool-bash',
+        arguments: 'not-json',
+        result: '{"stdout":"hello"}',
+      }),
+    )
+
+    // Non-JSON arguments are parsed as { raw: "not-json" }, merged into data
+    expect(panel.state.value.data.stdout).toBe('hello')
+    expect(panel.state.value.data.raw).toBe('not-json')
   })
 })
