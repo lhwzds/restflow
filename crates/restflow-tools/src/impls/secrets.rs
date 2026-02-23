@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use restflow_storage::{Secret, SecretStorage};
 
-use crate::{Tool, ToolOutput};
-use restflow_ai::error::AiError;
+use crate::{Tool, ToolError, ToolOutput};
 use crate::Result;
 
 #[derive(Clone)]
@@ -106,14 +105,14 @@ impl Tool for SecretsTool {
                 let secrets: Vec<Secret> = self
                     .storage
                     .list_secrets()
-                    .map_err(|e| AiError::Tool(format!("Failed to list secret: {e}")))?;
+                    .map_err(|e| ToolError::Tool(format!("Failed to list secret: {e}")))?;
                 ToolOutput::success(json!({ "count": secrets.len(), "secrets": secrets }))
             }
             SecretsAction::Get { key } => {
                 let value = self
                     .storage
                     .get_secret(&key)
-                    .map_err(|e| AiError::Tool(format!("Failed to get secret: {e}")))?;
+                    .map_err(|e| ToolError::Tool(format!("Failed to get secret: {e}")))?;
                 ToolOutput::success(json!({
                     "key": key,
                     "found": value.is_some(),
@@ -129,10 +128,10 @@ impl Tool for SecretsTool {
                 let existed = self
                     .storage
                     .has_secret(&key)
-                    .map_err(|e| AiError::Tool(format!("Failed to set secret: {e}")))?;
+                    .map_err(|e| ToolError::Tool(format!("Failed to set secret: {e}")))?;
                 self.storage
                     .set_secret(&key, &value, description)
-                    .map_err(|e| AiError::Tool(format!("Failed to set secret: {e}")))?;
+                    .map_err(|e| ToolError::Tool(format!("Failed to set secret: {e}")))?;
                 ToolOutput::success(json!({
                     "key": key,
                     "updated": existed,
@@ -144,11 +143,11 @@ impl Tool for SecretsTool {
                 let existed = self
                     .storage
                     .has_secret(&key)
-                    .map_err(|e| AiError::Tool(format!("Failed to delete secret: {e}")))?;
+                    .map_err(|e| ToolError::Tool(format!("Failed to delete secret: {e}")))?;
                 if existed {
                     self.storage
                         .delete_secret(&key)
-                        .map_err(|e| AiError::Tool(format!("Failed to delete secret: {e}")))?;
+                        .map_err(|e| ToolError::Tool(format!("Failed to delete secret: {e}")))?;
                 }
                 ToolOutput::success(json!({ "key": key, "deleted": existed }))
             }
@@ -156,7 +155,7 @@ impl Tool for SecretsTool {
                 let exists = self
                     .storage
                     .has_secret(&key)
-                    .map_err(|e| AiError::Tool(format!("Failed to check secret: {e}")))?;
+                    .map_err(|e| ToolError::Tool(format!("Failed to check secret: {e}")))?;
                 ToolOutput::success(json!({ "key": key, "exists": exists }))
             }
         };

@@ -5,8 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::{Tool, ToolOutput};
-use restflow_ai::error::AiError;
+use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{AuthProfileStore, CredentialInput, AuthProfileCreateRequest, AuthProfileTestRequest};
 use crate::Result;
 
@@ -115,11 +114,11 @@ impl Tool for AuthProfileTool {
                 AuthProfileAction::List => ToolOutput::success(
                     self.store
                         .list_profiles()
-                        .map_err(|e| AiError::Tool(format!("Failed to list auth profile: {e}")))?,
+                        .map_err(|e| ToolError::Tool(format!("Failed to list auth profile: {e}")))?,
                 ),
                 AuthProfileAction::Discover => {
                     ToolOutput::success(self.store.discover_profiles().map_err(|e| {
-                        AiError::Tool(format!("Failed to discover auth profile: {e}"))
+                        ToolError::Tool(format!("Failed to discover auth profile: {e}"))
                     })?)
                 }
                 AuthProfileAction::Add {
@@ -137,21 +136,21 @@ impl Tool for AuthProfileTool {
                     };
                     ToolOutput::success(
                         self.store.add_profile(request).map_err(|e| {
-                            AiError::Tool(format!("Failed to add auth profile: {e}"))
+                            ToolError::Tool(format!("Failed to add auth profile: {e}"))
                         })?,
                     )
                 }
                 AuthProfileAction::Remove { id } => {
                     self.write_guard()?;
                     ToolOutput::success(self.store.remove_profile(&id).map_err(|e| {
-                        AiError::Tool(format!("Failed to remove auth profile: {e}"))
+                        ToolError::Tool(format!("Failed to remove auth profile: {e}"))
                     })?)
                 }
                 AuthProfileAction::Test { id, provider } => {
                     let request = AuthProfileTestRequest { id, provider };
                     ToolOutput::success(
                         self.store.test_profile(request).map_err(|e| {
-                            AiError::Tool(format!("Failed to test auth profile: {e}"))
+                            ToolError::Tool(format!("Failed to test auth profile: {e}"))
                         })?,
                     )
                 }

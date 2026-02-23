@@ -52,7 +52,7 @@ impl Tool for ReplyTool {
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let parsed: ReplyInput = serde_json::from_value(input)
-            .map_err(|e| restflow_ai::error::AiError::Tool(format!("Invalid reply input: {e}")))?;
+            .map_err(|e| crate::ToolError::Tool(format!("Invalid reply input: {e}")))?;
 
         if parsed.message.trim().is_empty() {
             return Ok(ToolOutput::error("Message cannot be empty"));
@@ -72,6 +72,8 @@ impl Tool for ReplyTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::future::Future;
+    use std::pin::Pin;
     use std::sync::Mutex;
 
     struct MockSender {

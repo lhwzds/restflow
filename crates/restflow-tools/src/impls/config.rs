@@ -8,8 +8,7 @@ use std::sync::Arc;
 
 use restflow_storage::{ConfigStorage, SystemConfig};
 
-use crate::{Tool, ToolOutput};
-use restflow_ai::error::AiError;
+use crate::{Tool, ToolError, ToolOutput};
 use crate::Result;
 
 #[derive(Clone)]
@@ -31,8 +30,8 @@ impl ConfigTool {
         self
     }
 
-    fn storage_error(error: impl Display) -> AiError {
-        AiError::Tool(format!(
+    fn storage_error(error: impl Display) -> ToolError {
+        ToolError::Tool(format!(
             "Config storage error: {error}. The database may be locked or corrupted. Retry the operation."
         ))
     }
@@ -66,65 +65,65 @@ impl ConfigTool {
             "worker_count" => {
                 let count = value
                     .as_u64()
-                    .ok_or_else(|| AiError::Tool("worker_count must be a number".to_string()))?;
+                    .ok_or_else(|| ToolError::Tool("worker_count must be a number".to_string()))?;
                 config.worker_count = count as usize;
             }
             "task_timeout_seconds" => {
                 let timeout = value.as_u64().ok_or_else(|| {
-                    AiError::Tool("task_timeout_seconds must be a number".to_string())
+                    ToolError::Tool("task_timeout_seconds must be a number".to_string())
                 })?;
                 config.task_timeout_seconds = timeout;
             }
             "stall_timeout_seconds" => {
                 let timeout = value.as_u64().ok_or_else(|| {
-                    AiError::Tool("stall_timeout_seconds must be a number".to_string())
+                    ToolError::Tool("stall_timeout_seconds must be a number".to_string())
                 })?;
                 config.stall_timeout_seconds = timeout;
             }
             "background_api_timeout_seconds" => {
                 let timeout = value.as_u64().ok_or_else(|| {
-                    AiError::Tool("background_api_timeout_seconds must be a number".to_string())
+                    ToolError::Tool("background_api_timeout_seconds must be a number".to_string())
                 })?;
                 config.background_api_timeout_seconds = timeout;
             }
             "max_retries" => {
                 let retries = value
                     .as_u64()
-                    .ok_or_else(|| AiError::Tool("max_retries must be a number".to_string()))?;
+                    .ok_or_else(|| ToolError::Tool("max_retries must be a number".to_string()))?;
                 config.max_retries = retries as u32;
             }
             "chat_session_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    AiError::Tool("chat_session_retention_days must be a number".to_string())
+                    ToolError::Tool("chat_session_retention_days must be a number".to_string())
                 })?;
                 config.chat_session_retention_days = days as u32;
             }
             "background_task_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    AiError::Tool("background_task_retention_days must be a number".to_string())
+                    ToolError::Tool("background_task_retention_days must be a number".to_string())
                 })?;
                 config.background_task_retention_days = days as u32;
             }
             "checkpoint_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    AiError::Tool("checkpoint_retention_days must be a number".to_string())
+                    ToolError::Tool("checkpoint_retention_days must be a number".to_string())
                 })?;
                 config.checkpoint_retention_days = days as u32;
             }
             "memory_chunk_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    AiError::Tool("memory_chunk_retention_days must be a number".to_string())
+                    ToolError::Tool("memory_chunk_retention_days must be a number".to_string())
                 })?;
                 config.memory_chunk_retention_days = days as u32;
             }
             "experimental_features" => {
                 let values = value.as_array().ok_or_else(|| {
-                    AiError::Tool("experimental_features must be an array of strings".to_string())
+                    ToolError::Tool("experimental_features must be an array of strings".to_string())
                 })?;
                 let mut features = Vec::with_capacity(values.len());
                 for entry in values {
                     let feature = entry.as_str().ok_or_else(|| {
-                        AiError::Tool(
+                        ToolError::Tool(
                             "experimental_features must be an array of strings".to_string(),
                         )
                     })?;
@@ -137,45 +136,45 @@ impl ConfigTool {
                 match field {
                     "tool_timeout_secs" => {
                         config.agent.tool_timeout_secs = value.as_u64().ok_or_else(|| {
-                            AiError::Tool("agent.tool_timeout_secs must be a number".to_string())
+                            ToolError::Tool("agent.tool_timeout_secs must be a number".to_string())
                         })?;
                     }
                     "bash_timeout_secs" => {
                         config.agent.bash_timeout_secs = value.as_u64().ok_or_else(|| {
-                            AiError::Tool("agent.bash_timeout_secs must be a number".to_string())
+                            ToolError::Tool("agent.bash_timeout_secs must be a number".to_string())
                         })?;
                     }
                     "python_timeout_secs" => {
                         config.agent.python_timeout_secs = value.as_u64().ok_or_else(|| {
-                            AiError::Tool("agent.python_timeout_secs must be a number".to_string())
+                            ToolError::Tool("agent.python_timeout_secs must be a number".to_string())
                         })?;
                     }
                     "max_iterations" => {
                         config.agent.max_iterations = value.as_u64().ok_or_else(|| {
-                            AiError::Tool("agent.max_iterations must be a number".to_string())
+                            ToolError::Tool("agent.max_iterations must be a number".to_string())
                         })? as usize;
                     }
                     "subagent_timeout_secs" => {
                         config.agent.subagent_timeout_secs = value.as_u64().ok_or_else(|| {
-                            AiError::Tool(
+                            ToolError::Tool(
                                 "agent.subagent_timeout_secs must be a number".to_string(),
                             )
                         })?;
                     }
                     "max_tool_calls" => {
                         config.agent.max_tool_calls = value.as_u64().ok_or_else(|| {
-                            AiError::Tool("agent.max_tool_calls must be a number".to_string())
+                            ToolError::Tool("agent.max_tool_calls must be a number".to_string())
                         })? as usize;
                     }
                     "max_wall_clock_secs" => {
                         config.agent.max_wall_clock_secs = value.as_u64().ok_or_else(|| {
-                            AiError::Tool("agent.max_wall_clock_secs must be a number".to_string())
+                            ToolError::Tool("agent.max_wall_clock_secs must be a number".to_string())
                         })?;
                     }
                     "default_task_timeout_secs" => {
                         config.agent.default_task_timeout_secs =
                             value.as_u64().ok_or_else(|| {
-                                AiError::Tool(
+                                ToolError::Tool(
                                     "agent.default_task_timeout_secs must be a number".to_string(),
                                 )
                             })?;
@@ -183,7 +182,7 @@ impl ConfigTool {
                     "default_max_duration_secs" => {
                         config.agent.default_max_duration_secs =
                             value.as_u64().ok_or_else(|| {
-                                AiError::Tool(
+                                ToolError::Tool(
                                     "agent.default_max_duration_secs must be a number".to_string(),
                                 )
                             })?;
