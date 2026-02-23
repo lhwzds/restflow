@@ -45,11 +45,9 @@ pub fn spawn_subagent(
     let task_id = uuid::Uuid::new_v4().to_string();
     let timeout_secs = request.timeout_secs.unwrap_or(config.subagent_timeout_secs);
 
-    let agent_name_for_register = agent_def.name.clone();
-    let agent_name_for_return = agent_def.name.clone();
-    let task_for_register = request.task.clone();
+    let agent_name = agent_def.name.clone();
+    let task_description = request.task.clone();
 
-    let task = request.task.clone();
     let tracker_clone = tracker.clone();
     let task_id_for_spawn = task_id.clone();
 
@@ -63,7 +61,7 @@ pub fn spawn_subagent(
 
         let result = timeout(
             Duration::from_secs(timeout_secs),
-            execute_subagent(llm_client, tool_registry, agent_def, task.clone()),
+            execute_subagent(llm_client, tool_registry, agent_def, request.task),
         )
         .await;
 
@@ -120,8 +118,8 @@ pub fn spawn_subagent(
 
     tracker.register(
         task_id.clone(),
-        agent_name_for_register,
-        task_for_register,
+        agent_name.clone(),
+        task_description,
         handle,
         completion_rx,
     );
@@ -130,7 +128,7 @@ pub fn spawn_subagent(
 
     Ok(SpawnHandle {
         id: task_id,
-        agent_name: agent_name_for_return,
+        agent_name,
     })
 }
 
