@@ -17,7 +17,7 @@ use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
 use crate::storage::agent::StoredAgent;
 use restflow_ai::llm::{
-    CodexClient, DefaultLlmClientFactory, LlmClient, LlmProvider, SwappableLlm,
+    CodexClient, DefaultLlmClientFactory, LlmClient, LlmProvider, LlmSwitcherImpl, SwappableLlm,
 };
 use restflow_ai::tools::Tool as RuntimeTool;
 use restflow_tools::SwitchModelTool;
@@ -187,7 +187,8 @@ fn build_switch_model_tool(secret_storage: Option<&SecretStorage>) -> SwitchMode
     ));
     let initial_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let swappable = Arc::new(SwappableLlm::new(initial_client));
-    SwitchModelTool::new(swappable, factory)
+    let switcher = Arc::new(LlmSwitcherImpl::new(swappable, factory));
+    SwitchModelTool::new(switcher)
 }
 
 struct CoreBackend {

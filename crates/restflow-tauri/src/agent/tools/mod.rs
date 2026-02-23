@@ -13,8 +13,9 @@ pub use restflow_core::runtime::agent::tools::{
 
 // Shared infrastructure from restflow-core.
 pub use restflow_core::runtime::agent::tools::{
-    ListAgentsTool, SubagentDeps, ToolRegistryBuilder, UseSkillTool, WaitAgentsTool,
-    default_registry, registry_from_allowlist, secret_resolver_from_storage,
+    ListAgentsTool, SubagentDeps, SubagentManager, SubagentManagerImpl, ToolRegistryBuilder,
+    UseSkillTool, WaitAgentsTool, default_registry, registry_from_allowlist,
+    secret_resolver_from_storage,
 };
 
 // Local: Tauri-specific tools and LLM-only spawn.

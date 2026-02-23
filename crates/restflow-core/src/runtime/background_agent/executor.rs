@@ -46,11 +46,13 @@ use super::preflight::{PreflightCategory, PreflightIssue, run_preflight};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
 use crate::runtime::agent::{
-    BashConfig, SubagentDeps, ToolRegistry, build_agent_system_prompt,
-    effective_main_agent_tool_names, registry_from_allowlist, secret_resolver_from_storage,
+    BashConfig, SubagentDeps, SubagentManager, SubagentManagerImpl, ToolRegistry,
+    build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
+    secret_resolver_from_storage,
 };
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_ai::agent::SubagentDefLookup;
+use restflow_ai::llm::LlmSwitcherImpl;
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///
@@ -748,9 +750,11 @@ impl AgentRuntimeExecutor {
             bash_config.clone(),
         ));
         let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry);
+        let subagent_manager: Arc<dyn SubagentManager> =
+            Arc::new(SubagentManagerImpl::from_deps(&subagent_deps));
         let mut registry = registry_from_allowlist(
             filtered_tool_names_ref,
-            Some(&subagent_deps),
+            Some(subagent_manager),
             secret_resolver,
             Some(self.storage.as_ref()),
             agent_id,
@@ -764,7 +768,8 @@ impl AgentRuntimeExecutor {
         };
 
         if requested("switch_model") {
-            registry.register(SwitchModelTool::new(swappable, factory));
+            let switcher = Arc::new(LlmSwitcherImpl::new(swappable, factory));
+            registry.register(SwitchModelTool::new(switcher));
         }
 
         if requested("process") {
