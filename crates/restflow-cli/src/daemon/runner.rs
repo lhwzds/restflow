@@ -12,8 +12,8 @@ use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::{
     AgentDefinitionRegistry, AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger,
     ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
-    MessageHandlerConfig, NoopHeartbeatEmitter, RunnerConfig, RunnerHandle, SubagentConfig,
-    SubagentTracker, SystemStatus, TelegramNotifier,
+    MessageHandlerConfig, MessageHandlerHandle, NoopHeartbeatEmitter, RunnerConfig, RunnerHandle,
+    SubagentConfig, SubagentTracker, SystemStatus, TelegramNotifier,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
@@ -39,6 +39,7 @@ pub struct CliBackgroundAgentRunner {
     handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
     runner: Arc<RwLock<Option<Arc<BackgroundAgentRunner>>>>,
     router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
+    message_handler: Option<MessageHandlerHandle>,
 }
 
 fn create_auth_manager(
@@ -61,6 +62,7 @@ impl CliBackgroundAgentRunner {
             handle: Arc::new(RwLock::new(None)),
             runner: Arc::new(RwLock::new(None)),
             router: Arc::new(RwLock::new(None)),
+            message_handler: None,
         }
     }
 
@@ -210,7 +212,7 @@ impl CliBackgroundAgentRunner {
             let pairing_manager = Arc::new(PairingManager::new(Arc::new(storage.pairing.clone())));
             bootstrap_default_chat_pairing(&storage.secrets, pairing_manager.as_ref())?;
 
-            start_message_handler_with_pairing(
+            let msg_handle = start_message_handler_with_pairing(
                 router.clone(),
                 trigger,
                 Some(chat_dispatcher),
@@ -220,6 +222,7 @@ impl CliBackgroundAgentRunner {
                     ..MessageHandlerConfig::default()
                 },
             );
+            self.message_handler = Some(msg_handle);
 
             if let Some(ref runner) = *self.runner.read().await {
                 runner.set_channel_router(router.clone()).await;
@@ -235,6 +238,11 @@ impl CliBackgroundAgentRunner {
     }
 
     pub async fn stop(&mut self) -> Result<()> {
+        if let Some(msg_handle) = self.message_handler.take() {
+            msg_handle.shutdown();
+            info!("Message handler stopped");
+        }
+
         if let Some(handle) = self.handle.write().await.take() {
             handle.stop().await?;
             info!("Task runner stopped");
