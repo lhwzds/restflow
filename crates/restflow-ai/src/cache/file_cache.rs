@@ -9,7 +9,6 @@ struct CachedFile {
     content: String,
     mtime: SystemTime,
     size: u64,
-    line_count: usize,
 }
 
 /// Session-scoped file content cache
@@ -67,7 +66,6 @@ impl FileContentCache {
             content,
             mtime: meta.modified().unwrap_or(SystemTime::UNIX_EPOCH),
             size: meta.len(),
-            line_count: 0,
         };
 
         cache.insert(path.to_path_buf(), entry);

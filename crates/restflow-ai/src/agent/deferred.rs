@@ -21,13 +21,6 @@ pub struct DeferredToolCall {
     pub created_at: Instant,
 }
 
-#[derive(Debug, Clone)]
-pub struct DeferredResolution {
-    pub call_id: String,
-    pub tool_name: String,
-    pub status: DeferredStatus,
-}
-
 pub struct DeferredExecutionManager {
     pending: RwLock<HashMap<String, DeferredToolCall>>,
     approval_index: RwLock<HashMap<String, String>>,

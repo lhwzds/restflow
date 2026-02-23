@@ -91,7 +91,6 @@ impl StreamEmitter for ChannelEmitter {
 
 #[derive(Debug, Clone)]
 struct ToolCallBuilder {
-    index: usize,
     id: String,
     name: String,
     arguments_json: String,
@@ -114,7 +113,6 @@ impl ToolCallAccumulator {
             .builders
             .entry(delta.index)
             .or_insert_with(|| ToolCallBuilder {
-                index: delta.index,
                 id: String::new(),
                 name: String::new(),
                 arguments_json: String::new(),
