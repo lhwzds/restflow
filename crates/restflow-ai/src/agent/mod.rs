@@ -23,7 +23,6 @@ mod stream;
 mod streaming_buffer;
 pub mod stuck;
 mod sub_agent;
-mod trace;
 
 /// Default base prompt used when no agent-specific prompt is configured.
 pub const DEFAULT_AGENT_PROMPT: &str = "You are a helpful AI assistant.";
@@ -49,4 +48,3 @@ pub use sub_agent::{
     SubagentManagerImpl, SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
     SubagentTracker, spawn_subagent,
 };
-pub use trace::TraceEvent;
