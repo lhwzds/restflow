@@ -1,6 +1,5 @@
 mod cli;
 mod commands;
-mod completions;
 mod config;
 mod daemon;
 mod error;
