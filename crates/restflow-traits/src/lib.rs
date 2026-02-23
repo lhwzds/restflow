@@ -10,6 +10,8 @@
 
 pub mod cache;
 pub mod error;
+#[cfg(feature = "http-client")]
+pub mod http_client;
 pub mod filtered;
 pub mod llm;
 pub mod network;

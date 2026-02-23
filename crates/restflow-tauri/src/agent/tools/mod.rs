@@ -21,11 +21,10 @@ pub use restflow_core::runtime::agent::tools::{
 // Local: Tauri-specific tools and LLM-only spawn.
 mod show_panel;
 mod spawn;
-mod spawn_agent;
 
 pub use show_panel::ShowPanelTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
-pub use spawn_agent::SpawnAgentTool;
+pub use restflow_tools::SpawnAgentTool;
 
 pub type ToolResult = ToolOutput;
 

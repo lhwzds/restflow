@@ -2,7 +2,7 @@
 //!
 //! This crate provides:
 //! - All tool implementations (bash, file, http, email, telegram, discord, slack, and 30+ more)
-//! - Security implementations (BashSecurityChecker, network SSRF protection)
+//! - Security implementations (BashSecurityConfig, network SSRF protection)
 //! - Skill-as-Tool system (SkillAsTool, register_skills)
 //! - HTTP client utilities
 //!
@@ -86,7 +86,7 @@ pub use skill::tool::SkillAsTool;
 pub use skill::loader::register_skills;
 
 // Re-export security implementations
-pub use security::bash_security::{BashSecurityChecker, BashSecurityConfig, SecurityCheckResult};
+pub use security::bash_security::BashSecurityConfig;
 
 // Re-export http client utilities
 pub use http_client::{build_http_client, build_ssrf_safe_client};

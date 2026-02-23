@@ -6,7 +6,7 @@
 use crate::{
     AppCore,
     models::{AgentNode, encode_validation_error},
-    storage::agent::StoredAgent,
+    storage::{BackgroundAgentStorage, agent::StoredAgent},
 };
 use anyhow::{Context, Result};
 use std::sync::Arc;
@@ -53,18 +53,32 @@ pub async fn update_agent(
         .with_context(|| format!("Failed to update agent {}", id))
 }
 
-pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
-    let active_tasks = core
-        .storage
-        .background_agents
-        .list_active_tasks_by_agent_id(id)
-        .with_context(|| format!("Failed to query background tasks for agent {}", id))?;
-    if !active_tasks.is_empty() {
+/// Check whether an agent has active background tasks.
+/// Returns `Ok(Some(task_names))` when active tasks exist, `Ok(None)` otherwise.
+pub(crate) fn check_agent_has_active_tasks(
+    bg_storage: &BackgroundAgentStorage,
+    agent_id: &str,
+) -> Result<Option<String>> {
+    let active_tasks = bg_storage.list_active_tasks_by_agent_id(agent_id)?;
+    if active_tasks.is_empty() {
+        Ok(None)
+    } else {
         let task_names = active_tasks
             .iter()
             .map(|task| task.name.clone())
             .collect::<Vec<_>>()
             .join(", ");
+        Ok(Some(task_names))
+    }
+}
+
+pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
+    if let Some(task_names) = check_agent_has_active_tasks(
+        &core.storage.background_agents,
+        id,
+    )
+    .with_context(|| format!("Failed to query background tasks for agent {}", id))?
+    {
         anyhow::bail!(
             "Cannot delete agent {}: active background tasks exist ({})",
             id,

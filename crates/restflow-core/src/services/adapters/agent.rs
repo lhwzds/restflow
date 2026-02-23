@@ -179,15 +179,13 @@ impl AgentStore for AgentStoreAdapter {
     }
 
     fn delete_agent(&self, id: &str) -> restflow_tools::Result<Value> {
-        let active_tasks = self
-            .background_agent_storage
-            .list_active_tasks_by_agent_id(id)?;
-        if !active_tasks.is_empty() {
-            let task_names = active_tasks
-                .iter()
-                .map(|task| task.name.clone())
-                .collect::<Vec<_>>()
-                .join(", ");
+        if let Some(task_names) =
+            crate::services::agent::check_agent_has_active_tasks(
+                &self.background_agent_storage,
+                id,
+            )
+            .map_err(|e| ToolError::Tool(e.to_string()))?
+        {
             return Err(ToolError::Tool(format!(
                 "Cannot delete agent {}: active background tasks exist ({})",
                 id, task_names

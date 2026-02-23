@@ -12,6 +12,8 @@ use restflow_traits::{SpawnRequest, SubagentManager};
 
 /// Parameters for spawn_agent tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export))]
 pub struct SpawnAgentParams {
     /// Agent type to spawn (researcher, coder, reviewer, writer, analyst).
     pub agent: String,
@@ -27,6 +29,7 @@ pub struct SpawnAgentParams {
     pub timeout_secs: Option<u64>,
 
     /// Optional model override for this spawn (e.g., "minimax/coding-plan").
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub model: Option<String>,
 }
 
