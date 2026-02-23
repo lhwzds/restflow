@@ -1,15 +1,15 @@
 ---
-name: PR Shared Space Validation
-description: Validate shared_space PR artifacts and block risky content before submission
+name: PR KV Store Validation
+description: Validate kv_store PR artifacts and block risky content before submission
 tags:
   - default
   - pr
   - validation
 suggested_tools:
-  - shared_space
+  - kv_store
 ---
 
-# PR Shared Space Validation
+# PR KV Store Validation
 
 Use this skill before PR submission.
 

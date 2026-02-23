@@ -8,7 +8,7 @@ tags:
 suggested_tools:
   - bash
   - file
-  - workspace_notes
+  - work_items
   - memory_search
   - web_search
 ---
@@ -120,7 +120,7 @@ Produce a plan in this exact structure:
 
 ## Output Contract
 
-After producing the plan, save it with `workspace_notes`:
+After producing the plan, save it with `work_items`:
 - Operation: `create`
 - Folder: `plans`
 - Title: `Plan: [Feature Name]`
