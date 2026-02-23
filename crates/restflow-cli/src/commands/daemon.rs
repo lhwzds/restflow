@@ -385,6 +385,8 @@ fn configure_nofile_limit() {
 async fn stop() -> Result<()> {
     if stop_daemon_effective().await? {
         println!("Sent stop signal to daemon");
+        wait_for_daemon_exit_or_kill().await?;
+        println!("Daemon stopped");
     } else {
         println!("Daemon not running");
     }
@@ -500,6 +502,79 @@ async fn wait_for_daemon_exit() -> Result<()> {
         }
         sleep(DAEMON_STOP_POLL_INTERVAL).await;
     }
+}
+
+/// Wait for daemon to exit gracefully, then SIGKILL if it doesn't stop in time.
+///
+/// Phase 1: Poll for graceful exit up to `DAEMON_STOP_TIMEOUT` (30s).
+/// Phase 2: If still alive, send SIGKILL and wait up to 5s more.
+async fn wait_for_daemon_exit_or_kill() -> Result<()> {
+    const KILL_GRACE_PERIOD: Duration = Duration::from_secs(5);
+
+    let deadline = tokio::time::Instant::now() + DAEMON_STOP_TIMEOUT;
+    loop {
+        let snapshot = daemon_state::collect_daemon_status_snapshot(false).await?;
+        if !snapshot.is_running() {
+            return Ok(());
+        }
+        if tokio::time::Instant::now() >= deadline {
+            // Extract PID for SIGKILL
+            let pid = match snapshot.daemon_status {
+                EffectiveDaemonStatus::Running { pid: Some(pid), .. } => pid,
+                _ => {
+                    anyhow::bail!(
+                        "Daemon did not stop within {}s and PID is unknown; cannot force-kill",
+                        DAEMON_STOP_TIMEOUT.as_secs()
+                    );
+                }
+            };
+
+            warn!(
+                pid,
+                timeout_secs = DAEMON_STOP_TIMEOUT.as_secs(),
+                "Daemon did not stop gracefully, sending SIGKILL"
+            );
+            send_kill_signal(pid)?;
+
+            // Wait briefly for the kill to take effect
+            let kill_deadline = tokio::time::Instant::now() + KILL_GRACE_PERIOD;
+            loop {
+                let snap = daemon_state::collect_daemon_status_snapshot(false).await?;
+                if !snap.is_running() {
+                    return Ok(());
+                }
+                if tokio::time::Instant::now() >= kill_deadline {
+                    anyhow::bail!(
+                        "Daemon (PID {}) still alive after SIGKILL; manual intervention required",
+                        pid
+                    );
+                }
+                sleep(DAEMON_STOP_POLL_INTERVAL).await;
+            }
+        }
+        sleep(DAEMON_STOP_POLL_INTERVAL).await;
+    }
+}
+
+fn send_kill_signal(pid: u32) -> Result<()> {
+    #[cfg(unix)]
+    {
+        use nix::sys::signal::{Signal, kill};
+        use nix::unistd::Pid;
+
+        let pid_i32 =
+            i32::try_from(pid).with_context(|| format!("Daemon PID {} exceeds i32 range", pid))?;
+        kill(Pid::from_raw(pid_i32), Signal::SIGKILL)?;
+    }
+
+    #[cfg(not(unix))]
+    {
+        Command::new("taskkill")
+            .args(["/PID", &pid.to_string(), "/F"])
+            .output()?;
+    }
+
+    Ok(())
 }
 
 fn resolve_mcp_bind_addr() -> IpAddr {
