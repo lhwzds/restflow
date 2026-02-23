@@ -7,7 +7,7 @@ use crate::models::{
 };
 use crate::storage::{AgentStorage, BackgroundAgentStorage};
 use chrono::Utc;
-use restflow_ai::tools::{
+use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
     BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
@@ -424,7 +424,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::BackgroundAgentStore;
+    use restflow_traits::store::BackgroundAgentStore;
     use std::sync::Arc;
     use tempfile::tempdir;
 

@@ -1,7 +1,7 @@
 //! SecurityQueryProvider adapter.
 
 use crate::security::SecurityChecker;
-use restflow_ai::tools::SecurityQueryProvider;
+use restflow_traits::store::SecurityQueryProvider;
 use serde_json::{Value, json};
 
 pub struct SecurityQueryProviderAdapter;
@@ -51,7 +51,7 @@ impl SecurityQueryProvider for SecurityQueryProviderAdapter {
             let target_str = target.unwrap_or_else(|| "*".to_string());
             let summary_str = summary
                 .unwrap_or_else(|| format!("{}:{}", tool_name, operation_name));
-            let ai_action = restflow_ai::ToolAction {
+            let ai_action = restflow_traits::security::ToolAction {
                 tool_name: tool_name.clone(),
                 operation: operation_name.clone(),
                 target: target_str,

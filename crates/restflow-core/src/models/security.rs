@@ -66,8 +66,8 @@ impl ToolAction {
     }
 }
 
-impl From<&restflow_ai::ToolAction> for ToolAction {
-    fn from(action: &restflow_ai::ToolAction) -> Self {
+impl From<&restflow_traits::security::ToolAction> for ToolAction {
+    fn from(action: &restflow_traits::security::ToolAction) -> Self {
         Self {
             tool_name: action.tool_name.clone(),
             operation: action.operation.clone(),

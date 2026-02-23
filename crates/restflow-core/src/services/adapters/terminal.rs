@@ -3,7 +3,7 @@
 use crate::models::TerminalSession;
 use crate::storage::TerminalSessionStorage;
 use chrono::Utc;
-use restflow_ai::tools::TerminalStore;
+use restflow_traits::store::TerminalStore;
 use restflow_tools::ToolError;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -103,7 +103,7 @@ impl TerminalStore for TerminalStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::TerminalStore;
+    use restflow_traits::store::TerminalStore;
     use std::sync::Arc;
     use tempfile::tempdir;
 

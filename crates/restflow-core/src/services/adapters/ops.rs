@@ -4,7 +4,7 @@ use crate::daemon::{DaemonStatus, check_daemon_status, check_health};
 use crate::models::BackgroundAgentStatus;
 use crate::storage::{BackgroundAgentStorage, ChatSessionStorage};
 use chrono::Utc;
-use restflow_ai::tools::OpsProvider;
+use restflow_traits::store::OpsProvider;
 use restflow_tools::ToolError;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -315,7 +315,7 @@ impl OpsProviderAdapter {
 #[cfg(test)]
 mod tests_adapter {
     use super::*;
-    use restflow_ai::tools::OpsProvider;
+    use restflow_traits::store::OpsProvider;
     use std::sync::Arc;
     use tempfile::tempdir;
 

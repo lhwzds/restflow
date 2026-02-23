@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 use uuid::Uuid;
 
-use restflow_ai::tools::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo};
+use restflow_traits::store::{ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo};
 
 mod session;
 

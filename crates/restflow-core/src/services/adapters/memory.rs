@@ -2,7 +2,7 @@
 
 use crate::memory::MemoryExporter;
 use crate::storage::MemoryStorage;
-use restflow_ai::tools::{MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore};
+use restflow_traits::store::{MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore};
 use serde_json::{Value, json};
 
 // ============== Memory Manager Adapter ==============
@@ -306,7 +306,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::{MemoryManager, MemoryStore};
+    use restflow_traits::store::{MemoryManager, MemoryStore};
     use std::sync::Arc;
     use tempfile::tempdir;
 

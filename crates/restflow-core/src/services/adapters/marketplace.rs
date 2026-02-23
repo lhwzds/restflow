@@ -4,7 +4,7 @@ use crate::models::Skill;
 use crate::registry::{GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery};
 use crate::storage::skill::SkillStorage;
 use chrono::Utc;
-use restflow_ai::tools::MarketplaceStore;
+use restflow_traits::store::MarketplaceStore;
 use restflow_tools::ToolError;
 use serde_json::{Value, json};
 
@@ -186,7 +186,7 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::MarketplaceStore;
+    use restflow_traits::store::MarketplaceStore;
     use std::sync::Arc;
     use tempfile::tempdir;
 

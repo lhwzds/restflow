@@ -233,6 +233,18 @@ impl MemoryStorage {
         Ok(chunks)
     }
 
+    /// Check if any chunks exist for a session without loading them all.
+    pub fn has_chunks_for_session(&self, session_id: &str) -> Result<bool> {
+        let read_txn = self.db.begin_read()?;
+        let session_index = read_txn.open_table(SESSION_INDEX_TABLE)?;
+
+        let prefix = format!("{}:", session_id);
+        let (start, end) = prefix_range(&prefix);
+
+        let mut iter = session_index.range(start.as_str()..end.as_str())?;
+        Ok(iter.next().is_some())
+    }
+
     /// List all chunks with a specific tag
     pub fn list_chunks_by_tag_raw(&self, tag: &str) -> Result<Vec<(String, Vec<u8>)>> {
         let read_txn = self.db.begin_read()?;

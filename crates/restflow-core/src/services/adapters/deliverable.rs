@@ -2,7 +2,7 @@
 
 use crate::models::{Deliverable, DeliverableType};
 use chrono::Utc;
-use restflow_ai::tools::DeliverableStore;
+use restflow_traits::store::DeliverableStore;
 use restflow_tools::ToolError;
 use serde_json::Value;
 use uuid::Uuid;
@@ -77,7 +77,7 @@ impl DeliverableStore for DeliverableStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::DeliverableStore;
+    use restflow_traits::store::DeliverableStore;
     use std::sync::Arc;
     use tempfile::tempdir;
 

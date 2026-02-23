@@ -1,7 +1,7 @@
 //! SessionStore adapter backed by ChatSessionStorage.
 
 use crate::storage::{AgentStorage, ChatSessionStorage};
-use restflow_ai::tools::{SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore};
+use restflow_traits::store::{SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore};
 use restflow_tools::ToolError;
 use serde_json::{Value, json};
 
@@ -117,7 +117,7 @@ impl SessionStore for SessionStorageAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::SessionStore;
+    use restflow_traits::store::SessionStore;
     use std::sync::Arc;
     use tempfile::tempdir;
 

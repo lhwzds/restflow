@@ -2,7 +2,7 @@
 
 use crate::storage::{AgentStorage, BackgroundAgentStorage, SecretStorage};
 use crate::storage::skill::SkillStorage;
-use restflow_ai::tools::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
+use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 use restflow_tools::ToolError;
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -72,26 +72,36 @@ impl AgentStoreAdapter {
         }
 
         if let Some(skills) = &agent.skills {
-            for skill_id in skills {
-                let normalized = skill_id.trim();
-                if normalized.is_empty() {
-                    errors.push(crate::models::ValidationError::new(
-                        "skills",
-                        "skill ID must not be empty",
-                    ));
-                    continue;
+            let skill_ids: Vec<&str> = skills
+                .iter()
+                .map(|s| s.trim())
+                .filter(|s| {
+                    if s.is_empty() {
+                        errors.push(crate::models::ValidationError::new(
+                            "skills",
+                            "skill ID must not be empty",
+                        ));
+                        false
+                    } else {
+                        true
+                    }
+                })
+                .collect();
+            match self.skills.exists_many(&skill_ids) {
+                Ok(existing) => {
+                    for &id in &skill_ids {
+                        if !existing.contains(id) {
+                            errors.push(crate::models::ValidationError::new(
+                                "skills",
+                                format!("unknown skill: {}", id),
+                            ));
+                        }
+                    }
                 }
-                match self.skills.exists(normalized) {
-                    Ok(true) => {}
-                    Ok(false) => errors.push(crate::models::ValidationError::new(
-                        "skills",
-                        format!("unknown skill: {}", normalized),
-                    )),
-                    Err(err) => errors.push(crate::models::ValidationError::new(
-                        "skills",
-                        format!("failed to verify skill '{}': {}", normalized, err),
-                    )),
-                }
+                Err(err) => errors.push(crate::models::ValidationError::new(
+                    "skills",
+                    format!("failed to verify skills: {}", err),
+                )),
             }
         }
 
@@ -193,7 +203,7 @@ impl AgentStore for AgentStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::AgentStore;
+    use restflow_traits::store::AgentStore;
     use std::sync::{Arc, Mutex, OnceLock};
     use tempfile::tempdir;
 
