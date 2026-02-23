@@ -365,11 +365,11 @@ pub trait DeliverableStore: Send + Sync {
     ) -> Result<Value>;
 }
 
-// ── WorkspaceNoteProvider ────────────────────────────────────────────
+// ── WorkItemProvider ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-pub enum WorkspaceNoteStatus {
+pub enum WorkItemStatus {
     Open,
     InProgress,
     Done,
@@ -377,13 +377,13 @@ pub enum WorkspaceNoteStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct WorkspaceNoteRecord {
+pub struct WorkItemRecord {
     pub id: String,
     pub folder: String,
     pub title: String,
     pub content: String,
     pub priority: Option<String>,
-    pub status: WorkspaceNoteStatus,
+    pub status: WorkItemStatus,
     pub tags: Vec<String>,
     pub assignee: Option<String>,
     pub created_at: i64,
@@ -391,7 +391,7 @@ pub struct WorkspaceNoteRecord {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct WorkspaceNoteSpec {
+pub struct WorkItemSpec {
     pub folder: String,
     pub title: String,
     pub content: String,
@@ -401,39 +401,39 @@ pub struct WorkspaceNoteSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct WorkspaceNotePatch {
+pub struct WorkItemPatch {
     pub title: Option<String>,
     pub content: Option<String>,
     pub priority: Option<String>,
-    pub status: Option<WorkspaceNoteStatus>,
+    pub status: Option<WorkItemStatus>,
     pub tags: Option<Vec<String>>,
     pub assignee: Option<String>,
     pub folder: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct WorkspaceNoteQuery {
+pub struct WorkItemQuery {
     pub folder: Option<String>,
-    pub status: Option<WorkspaceNoteStatus>,
+    pub status: Option<WorkItemStatus>,
     pub priority: Option<String>,
     pub tag: Option<String>,
     pub assignee: Option<String>,
     pub search: Option<String>,
 }
 
-pub trait WorkspaceNoteProvider: Send + Sync {
-    fn create(&self, spec: WorkspaceNoteSpec) -> std::result::Result<WorkspaceNoteRecord, String>;
-    fn get(&self, id: &str) -> std::result::Result<Option<WorkspaceNoteRecord>, String>;
+pub trait WorkItemProvider: Send + Sync {
+    fn create(&self, spec: WorkItemSpec) -> std::result::Result<WorkItemRecord, String>;
+    fn get(&self, id: &str) -> std::result::Result<Option<WorkItemRecord>, String>;
     fn update(
         &self,
         id: &str,
-        patch: WorkspaceNotePatch,
-    ) -> std::result::Result<WorkspaceNoteRecord, String>;
+        patch: WorkItemPatch,
+    ) -> std::result::Result<WorkItemRecord, String>;
     fn delete(&self, id: &str) -> std::result::Result<bool, String>;
     fn list(
         &self,
-        query: WorkspaceNoteQuery,
-    ) -> std::result::Result<Vec<WorkspaceNoteRecord>, String>;
+        query: WorkItemQuery,
+    ) -> std::result::Result<Vec<WorkItemRecord>, String>;
     fn list_folders(&self) -> std::result::Result<Vec<String>, String>;
 }
 
@@ -551,10 +551,10 @@ pub trait UnifiedMemorySearch: Send + Sync {
     ) -> Result<Value>;
 }
 
-// ── SharedSpaceStore ────────────────────────────────────────────────
+// ── KvStore ─────────────────────────────────────────────────────────
 
 #[allow(clippy::too_many_arguments)]
-pub trait SharedSpaceStore: Send + Sync {
+pub trait KvStore: Send + Sync {
     fn get_entry(&self, key: &str) -> Result<Value>;
     #[allow(clippy::too_many_arguments)]
     fn set_entry(
