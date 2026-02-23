@@ -4,13 +4,6 @@ use restflow_core::storage::{DaemonStateStorage, SecretStorage};
 use std::sync::Arc;
 use tracing::warn;
 
-fn non_empty_secret(secrets: &SecretStorage, key: &str) -> Result<Option<String>> {
-    Ok(secrets
-        .get_secret(key)?
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty()))
-}
-
 const TELEGRAM_LAST_UPDATE_KEY: &str = "telegram_last_update_id";
 
 /// Set up the Telegram channel, returning the channel and optional default chat ID.
@@ -18,14 +11,14 @@ pub fn setup_telegram_channel(
     secrets: &SecretStorage,
     daemon_state: &DaemonStateStorage,
 ) -> Result<Option<(TelegramChannel, Option<String>)>> {
-    let token = non_empty_secret(secrets, "TELEGRAM_BOT_TOKEN")?;
+    let token = secrets.get_non_empty("TELEGRAM_BOT_TOKEN")?;
 
     let Some(token) = token else {
         return Ok(None);
     };
 
-    let default_chat_id = non_empty_secret(secrets, "TELEGRAM_CHAT_ID")?
-        .or(non_empty_secret(secrets, "TELEGRAM_DEFAULT_CHAT_ID")?);
+    let default_chat_id = secrets.get_non_empty("TELEGRAM_CHAT_ID")?
+        .or(secrets.get_non_empty("TELEGRAM_DEFAULT_CHAT_ID")?);
 
     let initial_offset = daemon_state.get_i64(TELEGRAM_LAST_UPDATE_KEY)?;
     let daemon_state = daemon_state.clone();

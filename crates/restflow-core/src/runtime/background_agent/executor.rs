@@ -384,13 +384,7 @@ impl AgentRuntimeExecutor {
     }
 
     fn has_non_empty_secret(&self, name: &str) -> Result<bool> {
-        Ok(self
-            .storage
-            .secrets
-            .get_secret(name)?
-            .as_deref()
-            .map(str::trim)
-            .is_some_and(|value| !value.is_empty()))
+        Ok(self.storage.secrets.get_non_empty(name)?.is_some())
     }
 
     async fn resolve_model_from_stored_credentials(&self) -> Result<Option<AIModel>> {
@@ -957,7 +951,8 @@ impl AgentRuntimeExecutor {
             config = config.with_temperature(temp as f32);
         }
 
-        let agent = ReActAgentExecutor::new(swappable.clone(), tools);
+        let agent = ReActAgentExecutor::new(swappable.clone(), tools)
+            .with_subagent_tracker(self.subagent_tracker.clone());
         let history_messages = Self::session_history_messages(session, max_history, input_mode);
         let result = if history_messages.is_empty() {
             agent.run(config).await?
@@ -1386,7 +1381,8 @@ impl AgentRuntimeExecutor {
             });
         }
 
-        let mut agent = ReActAgentExecutor::new(swappable, tools);
+        let mut agent = ReActAgentExecutor::new(swappable, tools)
+            .with_subagent_tracker(self.subagent_tracker.clone());
         if let Some(rx) = steer_rx {
             agent = agent.with_steer_channel(rx);
         }

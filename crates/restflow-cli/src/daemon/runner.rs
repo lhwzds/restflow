@@ -255,19 +255,12 @@ impl CliBackgroundAgentRunner {
     }
 }
 
-fn non_empty_secret(secrets: &SecretStorage, key: &str) -> Result<Option<String>> {
-    Ok(secrets
-        .get_secret(key)?
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty()))
-}
-
 fn bootstrap_default_chat_pairing(
     secrets: &SecretStorage,
     pairing_manager: &PairingManager,
 ) -> Result<()> {
-    let default_chat_id = non_empty_secret(secrets, "TELEGRAM_CHAT_ID")?
-        .or(non_empty_secret(secrets, "TELEGRAM_DEFAULT_CHAT_ID")?);
+    let default_chat_id = secrets.get_non_empty("TELEGRAM_CHAT_ID")?
+        .or(secrets.get_non_empty("TELEGRAM_DEFAULT_CHAT_ID")?);
 
     let Some(chat_id) = default_chat_id else {
         return Ok(());
