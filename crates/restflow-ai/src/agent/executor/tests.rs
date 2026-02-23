@@ -1,11 +1,13 @@
 use super::*;
+use super::steer::parse_approval_resolution;
+use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
 use crate::llm::{
     CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
 };
 use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
 use async_trait::async_trait;
-use futures::stream;
+use futures::{stream, StreamExt};
 use crate::tools::ToolResult;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
