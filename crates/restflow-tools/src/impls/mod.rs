@@ -38,13 +38,13 @@ pub mod transcribe;
 pub mod vision;
 pub mod web_fetch;
 pub mod web_search;
-pub mod workspace_note;
+pub mod work_item;
 
 // Migrated from restflow-core (tool_registry inline tools)
 pub mod manage_ops;
 pub mod marketplace;
 pub mod security_query;
-pub mod shared_space;
+pub mod kv_store;
 pub mod terminal;
 pub mod trigger;
 pub mod unified_memory_search;
@@ -103,13 +103,13 @@ pub use transcribe::{TranscribeConfig, TranscribeTool};
 pub use vision::VisionTool;
 pub use web_fetch::WebFetchTool;
 pub use web_search::WebSearchTool;
-pub use workspace_note::WorkspaceNoteTool;
+pub use work_item::WorkItemTool;
 
 // Re-export tool_registry inline migrated tools
 pub use manage_ops::ManageOpsTool;
 pub use marketplace::MarketplaceTool;
 pub use security_query::SecurityQueryTool;
-pub use shared_space::SharedSpaceTool;
+pub use kv_store::KvStoreTool;
 pub use terminal::TerminalTool;
 pub use trigger::TriggerTool;
 pub use unified_memory_search::UnifiedMemorySearchTool;

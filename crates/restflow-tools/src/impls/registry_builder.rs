@@ -38,8 +38,8 @@ use crate::impls::memory_store::{SaveMemoryTool, ReadMemoryTool, ListMemoryTool,
 use crate::impls::save_deliverable::SaveDeliverableTool;
 use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
 use crate::impls::manage_ops::ManageOpsTool;
-use crate::impls::shared_space::SharedSpaceTool;
-use crate::impls::workspace_note::WorkspaceNoteTool;
+use crate::impls::kv_store::KvStoreTool;
+use crate::impls::work_item::WorkItemTool;
 use crate::impls::auth_profile::AuthProfileTool;
 use crate::impls::secrets::SecretsTool;
 use crate::impls::config::ConfigTool;
@@ -61,8 +61,8 @@ use crate::impls::task_list::TaskListTool;
 use restflow_traits::store::{
     AgentStore, AuthProfileStore, BackgroundAgentStore, DeliverableStore,
     DiagnosticsProvider, MarketplaceStore, MemoryManager, MemoryStore,
-    OpsProvider, SecurityQueryProvider, SessionStore, SharedSpaceStore,
-    TerminalStore, TriggerStore, UnifiedMemorySearch, WorkspaceNoteProvider,
+    OpsProvider, SecurityQueryProvider, SessionStore, KvStore,
+    TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
 };
 
 // Concrete storage types
@@ -325,14 +325,14 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_shared_space(mut self, store: Arc<dyn SharedSpaceStore>) -> Self {
-        self.registry.register(SharedSpaceTool::new(store, None));
+    pub fn with_kv_store(mut self, store: Arc<dyn KvStore>) -> Self {
+        self.registry.register(KvStoreTool::new(store, None));
         self
     }
 
-    pub fn with_workspace_notes(mut self, provider: Arc<dyn WorkspaceNoteProvider>) -> Self {
+    pub fn with_work_items(mut self, provider: Arc<dyn WorkItemProvider>) -> Self {
         self.registry
-            .register(WorkspaceNoteTool::new(provider).with_write(true));
+            .register(WorkItemTool::new(provider).with_write(true));
         self
     }
 
@@ -433,7 +433,7 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_task_list(mut self, provider: Arc<dyn WorkspaceNoteProvider>) -> Self {
+    pub fn with_task_list(mut self, provider: Arc<dyn WorkItemProvider>) -> Self {
         self.registry.register(TaskListTool::new(provider));
         self
     }

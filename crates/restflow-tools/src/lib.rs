@@ -56,13 +56,13 @@ pub use impls::{
     ReplyTool, SaveDeliverableTool, SecretsTool, SessionTool, SkillTool,
     SwitchModelTool,
     TranscribeConfig, TranscribeTool, VisionTool,
-    WebFetchTool, WebSearchTool, WorkspaceNoteTool,
+    WebFetchTool, WebSearchTool, WorkItemTool,
     get_mcp_tools, invalidate_mcp_cache,
 };
 
 // Re-export tool_registry inline migrated tools
 pub use impls::{
-    ManageOpsTool, MarketplaceTool, SecurityQueryTool, SharedSpaceTool,
+    ManageOpsTool, MarketplaceTool, SecurityQueryTool, KvStoreTool,
     TerminalTool, TriggerTool, UnifiedMemorySearchTool,
 };
 
