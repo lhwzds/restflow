@@ -63,7 +63,7 @@
 
 pub use restflow_core::runtime::channel::{
     BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager,
-    MessageDebouncer, MessageHandlerConfig, MessageRouter, RouteDecision, SystemStatus,
-    forward_to_background_agent, handle_command, start_message_handler,
+    MessageDebouncer, MessageHandlerConfig, MessageHandlerHandle, MessageRouter, RouteDecision,
+    SystemStatus, forward_to_background_agent, handle_command, start_message_handler,
     start_message_handler_with_chat,
 };
