@@ -54,6 +54,10 @@ pub struct SpawnRequest {
 
     /// Optional priority level.
     pub priority: Option<SpawnPriority>,
+
+    /// Optional model override for this spawn (e.g., "minimax/coding-plan").
+    #[ts(optional)]
+    pub model: Option<String>,
 }
 
 /// Priority level for sub-agent spawning.
@@ -398,6 +402,7 @@ mod tests {
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
+            model: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -459,6 +464,7 @@ mod tests {
             system_prompt: "You are a test agent".to_string(),
             allowed_tools: vec![],
             max_iterations,
+            default_model: None,
         }
     }
 

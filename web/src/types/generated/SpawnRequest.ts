@@ -20,4 +20,8 @@ timeout_secs: bigint | null,
 /**
  * Optional priority level.
  */
-priority: SpawnPriority | null, };
+priority: SpawnPriority | null, 
+/**
+ * Optional model override for this spawn (e.g., "minimax/coding-plan").
+ */
+model?: string, };

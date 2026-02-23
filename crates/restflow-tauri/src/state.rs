@@ -94,6 +94,7 @@ impl AppState {
             llm_client,
             tool_registry: Arc::new(ToolRegistry::new()),
             config: self.subagent_config.clone(),
+            llm_client_factory: None,
         }
     }
 

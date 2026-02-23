@@ -137,6 +137,7 @@ mod tests {
                     system_prompt: "You are a test agent.".to_string(),
                     allowed_tools: vec![],
                     max_iterations: Some(1),
+                    default_model: None,
                 },
             );
             Self { defs }
@@ -173,6 +174,7 @@ mod tests {
             llm_client,
             tool_registry,
             config,
+            llm_client_factory: None,
         });
         let manager: Arc<dyn SubagentManager> =
             Arc::new(SubagentManagerImpl::from_deps(&deps));
@@ -192,7 +194,9 @@ mod tests {
                 task: "test task".to_string(),
                 timeout_secs: Some(10),
                 priority: None,
+                model: None,
             },
+            None,
         )
         .unwrap();
         handle.id

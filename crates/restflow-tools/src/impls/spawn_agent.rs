@@ -25,6 +25,9 @@ pub struct SpawnAgentParams {
 
     /// Timeout in seconds (default: 300).
     pub timeout_secs: Option<u64>,
+
+    /// Optional model override for this spawn (e.g., "minimax/coding-plan").
+    pub model: Option<String>,
 }
 
 /// spawn_agent tool for the shared agent execution engine.
@@ -70,6 +73,10 @@ impl Tool for SpawnAgentTool {
                     "type": "integer",
                     "default": 300,
                     "description": "Timeout in seconds (default: 300)"
+                },
+                "model": {
+                    "type": "string",
+                    "description": "Optional model override for this sub-agent (e.g., 'minimax/coding-plan')"
                 }
             },
             "required": ["agent", "task"]
@@ -85,6 +92,7 @@ impl Tool for SpawnAgentTool {
             task: params.task.clone(),
             timeout_secs: params.timeout_secs,
             priority: None,
+            model: params.model.clone(),
         };
 
         let handle = self.manager.spawn(request)?;
@@ -172,6 +180,7 @@ mod tests {
                         system_prompt: format!("You are a {} agent.", name),
                         allowed_tools: vec![],
                         max_iterations: Some(1),
+                        default_model: None,
                     },
                 );
                 summaries.push(SubagentDefSummary {
