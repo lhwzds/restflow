@@ -86,6 +86,19 @@ pub trait SimpleStorage: Send + Sync {
         Ok(table.get(id)?.is_some())
     }
 
+    /// Check which IDs exist in a single read transaction.
+    fn exists_many(&self, ids: &[&str]) -> Result<std::collections::HashSet<String>> {
+        let read_txn = self.db().begin_read()?;
+        let table = read_txn.open_table(Self::TABLE)?;
+        let mut found = std::collections::HashSet::new();
+        for &id in ids {
+            if table.get(id)?.is_some() {
+                found.insert(id.to_string());
+            }
+        }
+        Ok(found)
+    }
+
     /// Count all entries.
     fn count(&self) -> Result<usize> {
         let read_txn = self.db().begin_read()?;

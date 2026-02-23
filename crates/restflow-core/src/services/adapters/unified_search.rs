@@ -2,7 +2,7 @@
 
 use crate::memory::UnifiedSearchEngine;
 use crate::models::{MemorySearchQuery, SearchMode, UnifiedSearchQuery};
-use restflow_ai::tools::UnifiedMemorySearch;
+use restflow_traits::store::UnifiedMemorySearch;
 use serde_json::Value;
 
 pub struct UnifiedMemorySearchAdapter {
@@ -41,7 +41,7 @@ impl UnifiedMemorySearch for UnifiedMemorySearchAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::UnifiedMemorySearch;
+    use restflow_traits::store::UnifiedMemorySearch;
     use crate::storage::MemoryStorage;
     use std::sync::Arc;
     use tempfile::tempdir;

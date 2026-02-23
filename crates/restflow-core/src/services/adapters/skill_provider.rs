@@ -1,7 +1,7 @@
 //! SkillProvider implementation backed by SkillStorage.
 
 use crate::storage::skill::SkillStorage;
-use restflow_ai::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate};
+use restflow_traits::skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate};
 
 /// SkillProvider implementation that reads from SkillStorage.
 pub struct SkillStorageProvider {

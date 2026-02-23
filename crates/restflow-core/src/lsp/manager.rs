@@ -12,7 +12,7 @@ use tokio::sync::Mutex;
 use tracing::warn;
 use url::Url;
 
-use restflow_ai::DiagnosticsProvider;
+use restflow_traits::store::DiagnosticsProvider;
 
 use super::client::{LspClient, LspClientConfig};
 use super::watcher::LspWatcher;

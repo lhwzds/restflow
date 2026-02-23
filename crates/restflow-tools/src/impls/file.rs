@@ -232,19 +232,22 @@ impl FileTool {
             Err(e) => return ToolOutput::error(e),
         };
 
-        if !path.exists() {
-            return ToolOutput::error(format!("File not found: {}", path.display()));
-        }
-
-        if !path.is_file() {
-            return ToolOutput::error(format!("Not a file: {}", path.display()));
-        }
-
-        // Check file size first
-        let metadata = match fs::metadata(&path).await {
+        // Single syscall: get metadata without following symlinks
+        let metadata = match std::fs::symlink_metadata(&path) {
             Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return ToolOutput::error(format!("File not found: {}", path.display()));
+            }
             Err(e) => return ToolOutput::error(format!("Cannot read metadata: {}", e)),
         };
+
+        if metadata.file_type().is_symlink() {
+            return ToolOutput::error(format!("Symlinks are not allowed: {}", path.display()));
+        }
+
+        if !metadata.file_type().is_file() {
+            return ToolOutput::error(format!("Not a file: {}", path.display()));
+        }
 
         if metadata.len() as usize > self.max_read_bytes {
             return ToolOutput::error(format!(
@@ -334,7 +337,7 @@ impl FileTool {
             Err(e) => return ToolOutput::error(e),
         };
 
-        if path.exists() && !self.tracker.has_been_read(&path) {
+        if std::fs::symlink_metadata(&path).is_ok() && !self.tracker.has_been_read(&path) {
             return ToolOutput::error(format!(
                 "You must read {} before writing to it. Read the file first to understand its current content.",
                 path.display()
@@ -356,7 +359,7 @@ impl FileTool {
 
         // Create parent directories if needed
         if let Some(parent) = path.parent()
-            && !parent.exists()
+            && std::fs::symlink_metadata(parent).is_err()
             && let Err(e) = fs::create_dir_all(parent).await
         {
             return ToolOutput::error(format!("Cannot create directory: {}", e));
@@ -760,19 +763,28 @@ impl FileTool {
             Err(e) => return ToolOutput::error(e),
         };
 
-        if !path.exists() {
-            return ToolOutput::error(format!("File not found: {}", path.display()));
+        // Single syscall: get metadata without following symlinks
+        let metadata = match std::fs::symlink_metadata(&path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return ToolOutput::error(format!("File not found: {}", path.display()));
+            }
+            Err(e) => return ToolOutput::error(format!("Cannot read metadata: {}", e)),
+        };
+
+        if metadata.file_type().is_symlink() {
+            return ToolOutput::error(format!("Symlinks are not allowed: {}", path.display()));
         }
 
         // Enforce read-before-write: must read file before deleting
-        if path.is_file() && !self.tracker.has_been_read(&path) {
+        if metadata.file_type().is_file() && !self.tracker.has_been_read(&path) {
             return ToolOutput::error(format!(
                 "You must read {} before deleting it. Read the file first to understand what you are deleting.",
                 path.display()
             ));
         }
 
-        if path.is_dir() {
+        if metadata.file_type().is_dir() {
             match fs::remove_dir_all(&path).await {
                 Ok(()) => ToolOutput::success(serde_json::json!({
                     "path": path.display().to_string(),
@@ -800,23 +812,25 @@ impl FileTool {
             Err(e) => return ToolOutput::error(e),
         };
 
-        let exists = path.exists();
-        let file_type = if exists {
-            if path.is_dir() {
-                "directory"
-            } else if path.is_symlink() {
-                "symlink"
-            } else {
-                "file"
+        // Single syscall: get metadata without following symlinks
+        let (exists, file_type, size) = match std::fs::symlink_metadata(&path) {
+            Ok(meta) => {
+                let ft = meta.file_type();
+                let type_str = if ft.is_symlink() {
+                    "symlink"
+                } else if ft.is_dir() {
+                    "directory"
+                } else {
+                    "file"
+                };
+                let size = if ft.is_file() {
+                    Some(meta.len())
+                } else {
+                    None
+                };
+                (true, type_str, size)
             }
-        } else {
-            "none"
-        };
-
-        let size = if exists && path.is_file() {
-            fs::metadata(&path).await.ok().map(|m| m.len())
-        } else {
-            None
+            Err(_) => (false, "none", None),
         };
 
         ToolOutput::success(serde_json::json!({
@@ -1090,19 +1104,22 @@ impl FileTool {
             }
         };
 
-        match fs::metadata(&resolved).await {
-            Ok(meta) => BatchExistsResult {
-                path: resolved.display().to_string(),
-                exists: true,
-                is_file: meta.is_file(),
-                is_dir: meta.is_dir(),
-                size: if meta.is_file() {
-                    Some(meta.len())
-                } else {
-                    None
-                },
-                error: None,
-            },
+        match std::fs::symlink_metadata(&resolved) {
+            Ok(meta) => {
+                let ft = meta.file_type();
+                BatchExistsResult {
+                    path: resolved.display().to_string(),
+                    exists: true,
+                    is_file: ft.is_file(),
+                    is_dir: ft.is_dir(),
+                    size: if ft.is_file() {
+                        Some(meta.len())
+                    } else {
+                        None
+                    },
+                    error: None,
+                }
+            }
             Err(_) => BatchExistsResult {
                 path: resolved.display().to_string(),
                 exists: false,

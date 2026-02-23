@@ -2,7 +2,7 @@
 
 use crate::models::TriggerConfig;
 use crate::storage::TriggerStorage;
-use restflow_ai::tools::TriggerStore;
+use restflow_traits::store::TriggerStore;
 use serde_json::{Value, json};
 
 pub struct TriggerStoreAdapter {
@@ -51,7 +51,7 @@ impl TriggerStore for TriggerStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::TriggerStore;
+    use restflow_traits::store::TriggerStore;
     use std::sync::Arc;
     use tempfile::tempdir;
 

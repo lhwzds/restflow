@@ -303,7 +303,7 @@ impl SecurityChecker {
     /// Check if a tool action is allowed to execute.
     pub async fn check_tool_action(
         &self,
-        action: &restflow_ai::ToolAction,
+        action: &restflow_traits::security::ToolAction,
         agent_id: Option<&str>,
         task_id: Option<&str>,
     ) -> anyhow::Result<SecurityDecision> {
@@ -612,7 +612,7 @@ impl SecurityGate for SecurityChecker {
 
     async fn check_tool_action(
         &self,
-        action: &restflow_ai::ToolAction,
+        action: &restflow_traits::security::ToolAction,
         agent_id: Option<&str>,
         task_id: Option<&str>,
     ) -> restflow_tools::Result<SecurityDecision> {

@@ -5,7 +5,7 @@
 //! during execution.
 
 use crate::channel::{ChannelRouter, ChannelType, OutboundMessage};
-use restflow_ai::tools::ReplySender;
+use restflow_traits::store::ReplySender;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;

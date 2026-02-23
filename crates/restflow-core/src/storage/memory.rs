@@ -142,6 +142,11 @@ impl MemoryStorage {
         Ok(result)
     }
 
+    /// Check if any chunks exist for a session without loading them all.
+    pub fn has_chunks_for_session(&self, session_id: &str) -> Result<bool> {
+        self.inner.has_chunks_for_session(session_id)
+    }
+
     /// List all chunks with a specific tag
     pub fn list_chunks_by_tag(&self, tag: &str) -> Result<Vec<MemoryChunk>> {
         let chunks = self.inner.list_chunks_by_tag_raw(tag)?;

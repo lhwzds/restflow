@@ -109,8 +109,7 @@ fn cleanup_empty_sessions_for_agents(
     for agent_id in agent_ids {
         let sessions = memory.list_sessions(agent_id)?;
         for session in sessions {
-            let chunks = memory.list_chunks_for_session(&session.id)?;
-            if chunks.is_empty() {
+            if !memory.has_chunks_for_session(&session.id)? {
                 memory.delete_session(&session.id, false)?;
                 deleted += 1;
                 debug!(session_id = %session.id, "Deleted empty memory session");

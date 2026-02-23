@@ -94,6 +94,11 @@ impl SkillStorage {
     pub fn exists(&self, id: &str) -> Result<bool> {
         self.inner.exists(id)
     }
+
+    /// Check which skill IDs exist in a single read transaction.
+    pub fn exists_many(&self, ids: &[&str]) -> Result<std::collections::HashSet<String>> {
+        self.inner.exists_many(ids)
+    }
 }
 
 #[cfg(test)]

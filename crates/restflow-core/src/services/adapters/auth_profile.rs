@@ -1,7 +1,7 @@
 //! AuthProfileStore adapter backed by SecretStorage.
 
 use crate::storage::SecretStorage;
-use restflow_ai::tools::{AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest};
+use restflow_traits::store::{AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest};
 use serde_json::{Value, json};
 
 #[derive(Clone)]
@@ -74,9 +74,9 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
             request.provider.to_uppercase().replace('-', "_")
         );
         let secret_value = match &request.credential {
-            restflow_ai::tools::CredentialInput::ApiKey { key, .. } => key.clone(),
-            restflow_ai::tools::CredentialInput::Token { token, .. } => token.clone(),
-            restflow_ai::tools::CredentialInput::OAuth { access_token, .. } => access_token.clone(),
+            restflow_traits::store::CredentialInput::ApiKey { key, .. } => key.clone(),
+            restflow_traits::store::CredentialInput::Token { token, .. } => token.clone(),
+            restflow_traits::store::CredentialInput::OAuth { access_token, .. } => access_token.clone(),
         };
         self.storage
             .set_secret(
@@ -135,7 +135,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::tools::{AuthProfileStore, CredentialInput};
+    use restflow_traits::store::{AuthProfileStore, CredentialInput};
     use std::sync::{Arc, Mutex, OnceLock};
     use tempfile::tempdir;
 
