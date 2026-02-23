@@ -1,6 +1,7 @@
 use anyhow::Result;
 use restflow_core::daemon::{IpcClient, IpcRequest, is_daemon_available};
 use restflow_core::paths;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use tokio::time::{Duration, sleep};
 
@@ -56,8 +57,8 @@ impl DaemonManager {
             return Ok(());
         }
 
-        let exe = std::env::current_exe()?;
-        let child = Command::new(exe)
+        let cli_bin = Self::find_cli_binary()?;
+        let child = Command::new(cli_bin)
             .args(["daemon", "start", "--foreground"])
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -78,6 +79,42 @@ impl DaemonManager {
             sleep(Duration::from_millis(100)).await;
         }
         anyhow::bail!("Daemon failed to start within timeout");
+    }
+
+    /// Find the `restflow` CLI binary.
+    ///
+    /// Search order:
+    /// 1. Same directory as the current executable (dev: target/debug/)
+    /// 2. `restflow` on PATH (production install)
+    fn find_cli_binary() -> Result<PathBuf> {
+        // Check sibling path next to current exe
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(dir) = exe.parent()
+        {
+            let sibling = dir.join("restflow");
+            if sibling.exists() {
+                return Ok(sibling);
+            }
+        }
+
+        // Fall back to PATH lookup
+        if let Some(path) = Self::find_in_path("restflow") {
+            return Ok(path);
+        }
+
+        anyhow::bail!(
+            "Could not find `restflow` CLI binary. \
+             Please install it or ensure it is on your PATH."
+        )
+    }
+
+    /// Search for a binary name in the system PATH.
+    fn find_in_path(name: &str) -> Option<PathBuf> {
+        std::env::var_os("PATH").and_then(|paths| {
+            std::env::split_paths(&paths)
+                .map(|dir| dir.join(name))
+                .find(|p| p.is_file())
+        })
     }
 
     pub async fn shutdown(&mut self) -> Result<()> {
