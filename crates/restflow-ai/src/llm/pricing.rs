@@ -11,6 +11,8 @@ use std::sync::RwLock;
 pub struct ModelPricing {
     pub cost_per_1m_input: f64,
     pub cost_per_1m_output: f64,
+    pub cache_read_per_1m: Option<f64>,
+    pub cache_write_per_1m: Option<f64>,
 }
 
 #[derive(Default)]
@@ -136,6 +138,8 @@ fn load_dynamic_pricing_cache() -> HashMap<String, ModelPricing> {
             let pricing = ModelPricing {
                 cost_per_1m_input: cost.input,
                 cost_per_1m_output: cost.output,
+                cache_read_per_1m: None,
+                cache_write_per_1m: None,
             };
             let key = normalize(model_key);
             by_model.insert(key.clone(), pricing);
@@ -163,6 +167,8 @@ fn load_dynamic_pricing_cache() -> HashMap<String, ModelPricing> {
             let pricing = ModelPricing {
                 cost_per_1m_input: cost.input,
                 cost_per_1m_output: cost.output,
+                cache_read_per_1m: None,
+                cache_write_per_1m: None,
             };
             let key = normalize(model_key);
             if !canonical_keys.contains(&key) {
@@ -233,24 +239,32 @@ pub fn get_pricing(model_name: &str) -> Option<ModelPricing> {
         return Some(ModelPricing {
             cost_per_1m_input: 10.0,
             cost_per_1m_output: 40.0,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
     if model_name.starts_with("gpt-5-mini") {
         return Some(ModelPricing {
             cost_per_1m_input: 0.4,
             cost_per_1m_output: 1.6,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
     if model_name.starts_with("gpt-5-nano") {
         return Some(ModelPricing {
             cost_per_1m_input: 0.1,
             cost_per_1m_output: 0.4,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
     if model_name.starts_with("gpt-5") || model_name == "gpt-5" {
         return Some(ModelPricing {
             cost_per_1m_input: 1.25,
             cost_per_1m_output: 10.0,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
 
@@ -259,18 +273,24 @@ pub fn get_pricing(model_name: &str) -> Option<ModelPricing> {
         return Some(ModelPricing {
             cost_per_1m_input: 15.0,
             cost_per_1m_output: 75.0,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
     if model_name.starts_with("claude-sonnet-4") {
         return Some(ModelPricing {
             cost_per_1m_input: 3.0,
             cost_per_1m_output: 15.0,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
     if model_name.starts_with("claude-haiku-4") {
         return Some(ModelPricing {
             cost_per_1m_input: 0.8,
             cost_per_1m_output: 4.0,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
 
@@ -279,12 +299,16 @@ pub fn get_pricing(model_name: &str) -> Option<ModelPricing> {
         return Some(ModelPricing {
             cost_per_1m_input: 0.55,
             cost_per_1m_output: 2.19,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
     if model_name.starts_with("deepseek-chat") || model_name.starts_with("deepseek") {
         return Some(ModelPricing {
             cost_per_1m_input: 0.27,
             cost_per_1m_output: 1.10,
+            cache_read_per_1m: None,
+            cache_write_per_1m: None,
         });
     }
 

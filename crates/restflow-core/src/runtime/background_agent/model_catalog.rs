@@ -21,13 +21,7 @@ pub struct ModelCapabilities {
     pub output_limit: usize,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct ModelPricing {
-    pub input_per_1m: f64,
-    pub output_per_1m: f64,
-    pub cache_read_per_1m: f64,
-    pub cache_write_per_1m: f64,
-}
+pub use restflow_ai::llm::pricing::ModelPricing;
 
 #[derive(Debug, Clone, Copy)]
 pub struct ModelCatalogEntry {
@@ -240,10 +234,10 @@ fn parse_models_dev_json(raw: &str) -> Result<ParsedCatalog> {
                     output_limit,
                 },
                 pricing: model.cost.map(|cost| ModelPricing {
-                    input_per_1m: cost.input,
-                    output_per_1m: cost.output,
-                    cache_read_per_1m: cost.cache_read.unwrap_or(0.0),
-                    cache_write_per_1m: cost.cache_write.unwrap_or(0.0),
+                    cost_per_1m_input: cost.input,
+                    cost_per_1m_output: cost.output,
+                    cache_read_per_1m: cost.cache_read,
+                    cache_write_per_1m: cost.cache_write,
                 }),
             };
 
