@@ -437,7 +437,20 @@ pub fn spawn_subagent(
 
     let handle = tokio::spawn(async move {
         let task_id = task_id_for_spawn;
-        let _ = start_rx.await;
+        // Wait for registration confirmation. If the channel is closed
+        // (e.g. try_register failed due to slot limit), abort immediately
+        // to avoid orphaned execution.
+        if start_rx.await.is_err() {
+            return SubagentResult {
+                success: false,
+                output: String::new(),
+                summary: None,
+                duration_ms: 0,
+                tokens_used: None,
+                cost_usd: None,
+                error: Some("Sub-agent registration cancelled".to_string()),
+            };
+        }
         let start = std::time::Instant::now();
 
         let result = timeout(
@@ -534,7 +547,13 @@ async fn execute_subagent(
     task: String,
     config: SubagentConfig,
 ) -> Result<AgentResult> {
-    let registry = build_registry_for_agent(&tool_registry, &agent_def.allowed_tools);
+    // depth=1: direct child of the parent agent
+    let registry = build_registry_for_agent(
+        &tool_registry,
+        &agent_def.allowed_tools,
+        1,
+        config.max_depth,
+    );
     let registry = Arc::new(registry);
 
     let max_iterations = agent_def
@@ -545,6 +564,9 @@ async fn execute_subagent(
     let mut agent_config = AgentConfig::new(task.clone());
     agent_config.system_prompt = Some(agent_def.system_prompt.clone());
     agent_config.max_iterations = max_iterations;
+    // Subagents run autonomously — there is no approval channel from the
+    // parent, so security-gated tools must be auto-approved.
+    agent_config.yolo_mode = true;
 
     let executor = AgentExecutor::new(llm_client, registry);
     let result = executor.run(agent_config).await?;
@@ -552,11 +574,30 @@ async fn execute_subagent(
     Ok(result)
 }
 
-fn build_registry_for_agent(parent: &Arc<ToolRegistry>, allowed_tools: &[String]) -> ToolRegistry {
+fn build_registry_for_agent(
+    parent: &Arc<ToolRegistry>,
+    allowed_tools: &[String],
+    current_depth: usize,
+    max_depth: usize,
+) -> ToolRegistry {
     let filtered = FilteredToolset::from_allowlist(parent.clone(), allowed_tools);
     let mut registry = ToolRegistry::new();
 
+    // Sub-agent management tools to exclude when at the depth limit,
+    // so the LLM won't waste a tool call only to get a runtime error.
+    const COLLAB_TOOLS: &[&str] = &[
+        "spawn_agent",
+        "wait_agents",
+        "list_agents",
+        "cancel_agent",
+        "send_input",
+    ];
+    let at_depth_limit = max_depth > 0 && current_depth >= max_depth;
+
     for schema in filtered.list_tools() {
+        if at_depth_limit && COLLAB_TOOLS.contains(&schema.name.as_str()) {
+            continue;
+        }
         if let Some(tool) = parent.get(&schema.name) {
             registry.register_arc(tool);
         }
@@ -648,6 +689,39 @@ impl SubagentManager for SubagentManagerImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::llm::{MockLlmClient, MockStep};
+    use std::collections::HashMap;
+
+    /// Minimal mock for sub-agent definitions used in integration tests.
+    struct MockDefLookup {
+        defs: HashMap<String, SubagentDefSnapshot>,
+    }
+
+    impl MockDefLookup {
+        fn with_agent(id: &str) -> Self {
+            let mut defs = HashMap::new();
+            defs.insert(
+                id.to_string(),
+                SubagentDefSnapshot {
+                    name: id.to_string(),
+                    system_prompt: "You are a test agent.".to_string(),
+                    allowed_tools: vec![],
+                    max_iterations: Some(1),
+                    default_model: None,
+                },
+            );
+            Self { defs }
+        }
+    }
+
+    impl SubagentDefLookup for MockDefLookup {
+        fn lookup(&self, id: &str) -> Option<SubagentDefSnapshot> {
+            self.defs.get(id).cloned()
+        }
+        fn list_callable(&self) -> Vec<SubagentDefSummary> {
+            vec![]
+        }
+    }
 
     #[test]
     fn test_spawn_request_serialization() {
@@ -800,5 +874,138 @@ mod tests {
         );
 
         let _ = abort_tx.send(());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_over_max_parallel_does_not_execute() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> =
+            Arc::new(MockDefLookup::with_agent("tester"));
+        // Two steps so two agents can be spawned
+        let llm_client: Arc<dyn LlmClient> =
+            Arc::new(MockLlmClient::from_steps("mock", vec![
+                MockStep::text("result-1").with_delay(2000),
+                MockStep::text("result-2"),
+            ]));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let config = SubagentConfig {
+            max_parallel_agents: 1,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        // First spawn should succeed
+        let result1 = spawn_subagent(
+            tracker.clone(),
+            definitions.clone(),
+            llm_client.clone(),
+            tool_registry.clone(),
+            config.clone(),
+            SpawnRequest {
+                agent_id: "tester".to_string(),
+                task: "first task".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: None,
+            },
+            None,
+        );
+        assert!(result1.is_ok(), "First spawn should succeed");
+
+        // Second spawn should fail because max_parallel_agents is 1
+        let result2 = spawn_subagent(
+            tracker.clone(),
+            definitions.clone(),
+            llm_client.clone(),
+            tool_registry.clone(),
+            config.clone(),
+            SpawnRequest {
+                agent_id: "tester".to_string(),
+                task: "second task (should not execute)".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: None,
+            },
+            None,
+        );
+        assert!(result2.is_err(), "Second spawn should fail at max parallel limit");
+
+        // The orphaned tokio task (from the failed spawn) should not run.
+        // Give it a moment to potentially execute if the bug existed.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+
+        // Only 1 agent should be tracked
+        assert_eq!(tracker.all().len(), 1);
+    }
+
+    #[test]
+    fn test_build_registry_excludes_collab_tools_at_depth_limit() {
+        let mut parent = ToolRegistry::new();
+
+        // Minimal Tool impl for registry testing
+        struct DummyTool(&'static str);
+        #[async_trait::async_trait]
+        impl restflow_traits::Tool for DummyTool {
+            fn name(&self) -> &str {
+                self.0
+            }
+            fn description(&self) -> &str {
+                ""
+            }
+            fn parameters_schema(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
+            async fn execute(
+                &self,
+                _input: serde_json::Value,
+            ) -> std::result::Result<restflow_traits::ToolOutput, restflow_traits::ToolError>
+            {
+                unimplemented!()
+            }
+        }
+
+        parent.register(DummyTool("http"));
+        parent.register(DummyTool("bash"));
+        parent.register(DummyTool("spawn_agent"));
+        parent.register(DummyTool("wait_agents"));
+        parent.register(DummyTool("list_agents"));
+        parent.register(DummyTool("cancel_agent"));
+        parent.register(DummyTool("send_input"));
+
+        let parent = Arc::new(parent);
+        let all_tools: Vec<String> = vec![
+            "http", "bash", "spawn_agent", "wait_agents",
+            "list_agents", "cancel_agent", "send_input",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect();
+
+        // At depth limit: collab tools should be excluded
+        let registry = build_registry_for_agent(&parent, &all_tools, 1, 1);
+        let names: Vec<String> = registry
+            .list_tools()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert!(names.contains(&"http".to_string()));
+        assert!(names.contains(&"bash".to_string()));
+        assert!(!names.contains(&"spawn_agent".to_string()));
+        assert!(!names.contains(&"wait_agents".to_string()));
+        assert!(!names.contains(&"list_agents".to_string()));
+        assert!(!names.contains(&"cancel_agent".to_string()));
+        assert!(!names.contains(&"send_input".to_string()));
+
+        // Not at depth limit: all tools should be included
+        let registry = build_registry_for_agent(&parent, &all_tools, 0, 2);
+        let names: Vec<String> = registry
+            .list_tools()
+            .into_iter()
+            .map(|s| s.name)
+            .collect();
+        assert!(names.contains(&"spawn_agent".to_string()));
+        assert!(names.contains(&"wait_agents".to_string()));
     }
 }
