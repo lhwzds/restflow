@@ -147,6 +147,7 @@ fn main() {
             commands::get_background_agent_stream_event_name,
             commands::get_heartbeat_event_name,
             commands::emit_test_background_agent_event,
+            commands::steer_task,
             // Hooks
             commands::list_hooks,
             commands::create_hook,
