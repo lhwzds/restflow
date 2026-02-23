@@ -1,5 +1,7 @@
-//! Path utilities for restflow-storage.
-//! Duplicated from restflow-core to avoid circular dependency.
+//! Path utilities for RestFlow directory resolution.
+//!
+//! This is the canonical source for shared path functions. Re-exported by
+//! restflow-core for convenience.
 
 use anyhow::Result;
 use std::path::PathBuf;
