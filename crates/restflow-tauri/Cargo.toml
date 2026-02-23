@@ -20,7 +20,7 @@ tauri-build = { version = "2", features = [] }
 restflow-core = { path = "../restflow-core" }
 restflow-storage = { path = "../restflow-storage" }
 restflow-ai = { path = "../restflow-ai" }
-restflow-tools = { workspace = true }
+restflow-tools = { workspace = true, features = ["ts"] }
 
 # Tauri
 tauri = { version = "2", features = ["devtools"] }
