@@ -92,6 +92,7 @@ mod tests {
 
     use super::*;
     use restflow_traits::tool::Tool;
+    use restflow_traits::wrapper::WrappedTool;
     use restflow_traits::error::Result;
 
     struct EchoTool;

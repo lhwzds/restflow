@@ -45,7 +45,8 @@ pub use stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator
 pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
 pub use sub_agent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
-    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps, SubagentResult,
-    SubagentSpawner, SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
+    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps,
+    SubagentManagerImpl, SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
+    SubagentTracker, spawn_subagent,
 };
 pub use trace::TraceEvent;

@@ -38,3 +38,84 @@ impl Default for AgentCacheManager {
         Self::new()
     }
 }
+
+// ── AgentCache trait implementation ──────────────────────────────────
+
+use restflow_traits::cache::{
+    AgentCache, CachedSearchResult as TraitCachedSearchResult,
+    SearchMatch as TraitSearchMatch,
+};
+
+#[async_trait::async_trait]
+impl AgentCache for AgentCacheManager {
+    async fn get_file(
+        &self,
+        path: &std::path::Path,
+        metadata: &std::fs::Metadata,
+    ) -> Option<String> {
+        self.files.get_with_metadata(path, metadata).await
+    }
+
+    async fn put_file(
+        &self,
+        path: &std::path::Path,
+        content: String,
+        metadata: &std::fs::Metadata,
+    ) {
+        self.files.put(path, content, metadata).await;
+    }
+
+    async fn invalidate_file(&self, path: &std::path::Path) {
+        self.files.invalidate(path).await;
+    }
+
+    async fn get_search(
+        &self,
+        pattern: &str,
+        dir: &str,
+        file_pattern: Option<&str>,
+    ) -> Option<TraitCachedSearchResult> {
+        self.search.get(pattern, dir, file_pattern).await.map(|r| {
+            TraitCachedSearchResult {
+                matches: r
+                    .matches
+                    .into_iter()
+                    .map(|m| TraitSearchMatch {
+                        file: m.file,
+                        line: m.line,
+                        content: m.content,
+                    })
+                    .collect(),
+                total_files_searched: r.total_files_searched,
+                truncated: r.truncated,
+            }
+        })
+    }
+
+    async fn put_search(
+        &self,
+        pattern: &str,
+        dir: &str,
+        file_pattern: Option<&str>,
+        result: TraitCachedSearchResult,
+    ) {
+        let internal = CachedSearchResult {
+            matches: result
+                .matches
+                .into_iter()
+                .map(|m| SearchMatch {
+                    file: m.file,
+                    line: m.line,
+                    content: m.content,
+                })
+                .collect(),
+            total_files_searched: result.total_files_searched,
+            truncated: result.truncated,
+        };
+        self.search.put(pattern, dir, file_pattern, internal).await;
+    }
+
+    async fn invalidate_search_dir(&self, dir: &str) {
+        self.search.invalidate_directory(dir).await;
+    }
+}

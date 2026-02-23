@@ -14,6 +14,7 @@ mod opencode;
 mod pricing;
 mod retry;
 mod swappable;
+mod switcher;
 
 pub use anthropic::AnthropicClient;
 pub use claude_code::ClaudeCodeClient;
@@ -30,3 +31,4 @@ pub use openai::OpenAIClient;
 pub use opencode::OpenCodeClient;
 pub use retry::{LlmRetryConfig, RetryingLlmClient};
 pub use swappable::SwappableLlm;
+pub use switcher::LlmSwitcherImpl;
