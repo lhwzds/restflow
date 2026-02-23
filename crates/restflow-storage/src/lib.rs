@@ -10,6 +10,7 @@
 //! restflow-core.
 
 pub mod agent;
+pub mod audit;
 pub mod auth_profiles;
 pub mod background_agent;
 pub mod chat_session;
@@ -23,18 +24,20 @@ pub mod pairing;
 pub mod paths;
 pub mod range_utils;
 pub mod secrets;
-pub mod shared_space;
+pub mod security_amendment;
+pub mod kv_store;
 pub mod skill;
 pub mod terminal_session;
 pub mod trigger;
 pub mod vector;
-pub mod workspace_note;
+pub mod work_item;
 
 mod encryption;
 mod simple_storage;
 pub mod time_utils;
 
 pub use agent::AgentStorage;
+pub use audit::AuditStorage as AuditStorageBackend;
 pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
@@ -46,10 +49,11 @@ pub use memory::{MemoryStorage, PutChunkResult};
 pub use memory_index::{IndexableChunk, MemoryIndex, SearchHit};
 pub use pairing::PairingStorage;
 pub use secrets::{Secret, SecretStorage, SecretStorageConfig};
-pub use shared_space::SharedSpaceStorage;
+pub use security_amendment::SecurityAmendmentStorage;
+pub use kv_store::KvStoreStorage;
 pub use simple_storage::SimpleStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use vector::{VectorConfig, VectorStats, VectorStorage};
-pub use workspace_note::WorkspaceNoteStorage;
+pub use work_item::WorkItemStorage;
