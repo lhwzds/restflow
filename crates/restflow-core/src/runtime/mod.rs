@@ -22,10 +22,8 @@ pub use channel::{
     MessageDebouncer, MessageHandlerConfig, MessageHandlerHandle, MessageRouter, RouteDecision,
     SystemStatus, start_message_handler, start_message_handler_with_chat,
 };
-pub use subagent::{
-    AgentDefinition, AgentDefinitionRegistry, SpawnHandle, SpawnPriority, SpawnRequest,
-    SubagentCompletion, SubagentConfig, SubagentResult, SubagentState, SubagentStatus,
-    builtin_agents, spawn_subagent,
+pub use subagent::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
+pub use restflow_ai::agent::{
+    SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig, SubagentResult,
+    SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
 };
-// SubagentTracker from restflow-ai (runtime implementation with DashMap, abort handles, etc.)
-pub use restflow_ai::agent::SubagentTracker;
