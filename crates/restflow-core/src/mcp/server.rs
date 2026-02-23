@@ -146,8 +146,8 @@ fn create_runtime_tool_registry_for_core(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
-        core.storage.shared_space.clone(),
-        core.storage.workspace_notes.clone(),
+        core.storage.kv_store.clone(),
+        core.storage.work_items.clone(),
         core.storage.secrets.clone(),
         core.storage.config.clone(),
         core.storage.agents.clone(),
@@ -195,6 +195,20 @@ fn build_switch_model_tool(secret_storage: Option<&SecretStorage>) -> SwitchMode
 
 struct CoreBackend {
     core: Arc<AppCore>,
+    registry: std::sync::OnceLock<restflow_traits::registry::ToolRegistry>,
+}
+
+impl CoreBackend {
+    fn get_registry(&self) -> Result<&restflow_traits::registry::ToolRegistry, String> {
+        if let Some(r) = self.registry.get() {
+            return Ok(r);
+        }
+        let r = create_runtime_tool_registry_for_core(&self.core)
+            .map_err(|e| e.to_string())?;
+        // If another thread raced us, that's fine — return whichever won.
+        let _ = self.registry.set(r);
+        Ok(self.registry.get().unwrap())
+    }
 }
 
 #[async_trait::async_trait]
@@ -444,8 +458,7 @@ impl McpBackend for CoreBackend {
     }
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
-        let registry =
-            create_runtime_tool_registry_for_core(&self.core).map_err(|e| e.to_string())?;
+        let registry = self.get_registry()?;
         Ok(registry
             .schemas()
             .into_iter()
@@ -462,8 +475,7 @@ impl McpBackend for CoreBackend {
         name: &str,
         input: Value,
     ) -> Result<RuntimeToolResult, String> {
-        let registry =
-            create_runtime_tool_registry_for_core(&self.core).map_err(|e| e.to_string())?;
+        let registry = self.get_registry()?;
         let output = registry
             .execute_safe(name, input)
             .await
@@ -780,7 +792,10 @@ impl RestFlowMcpServer {
     pub fn new(core: Arc<AppCore>) -> Self {
         Self {
             switch_model_tool: build_switch_model_tool(Some(&core.storage.secrets)),
-            backend: Arc::new(CoreBackend { core }),
+            backend: Arc::new(CoreBackend {
+                core,
+                registry: std::sync::OnceLock::new(),
+            }),
         }
     }
 

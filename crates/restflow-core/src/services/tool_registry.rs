@@ -9,10 +9,11 @@ use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChatSessionStorage, ConfigStorage, MemoryStorage,
-    SecretStorage, SharedSpaceStorage, TerminalSessionStorage, TriggerStorage,
-    WorkspaceNoteStorage,
+    SecretStorage, KvStoreStorage, TerminalSessionStorage, TriggerStorage,
+    WorkItemStorage,
 };
-use restflow_ai::{SecretResolver, ToolRegistry};
+use restflow_traits::tool::SecretResolver;
+use restflow_traits::registry::ToolRegistry;
 use restflow_tools::ToolRegistryBuilder;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
@@ -29,8 +30,8 @@ pub fn create_tool_registry(
     skill_storage: SkillStorage,
     memory_storage: MemoryStorage,
     chat_storage: ChatSessionStorage,
-    shared_space_storage: SharedSpaceStorage,
-    workspace_note_storage: WorkspaceNoteStorage,
+    kv_store_storage: KvStoreStorage,
+    work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
     config_storage: ConfigStorage,
     agent_storage: AgentStorage,
@@ -64,11 +65,11 @@ pub fn create_tool_registry(
         background_agent_storage.clone(),
         chat_storage,
     ));
-    let shared_space_store = Arc::new(SharedSpaceStoreAdapter::new(
-        shared_space_storage,
+    let kv_store = Arc::new(KvStoreAdapter::new(
+        kv_store_storage,
         accessor_id,
     ));
-    let workspace_note_provider = Arc::new(DbWorkspaceNoteAdapter::new(workspace_note_storage));
+    let work_item_provider = Arc::new(DbWorkItemAdapter::new(work_item_storage));
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let agent_store = Arc::new(AgentStoreAdapter::new(
@@ -110,8 +111,8 @@ pub fn create_tool_registry(
         .with_deliverable(deliverable_store)
         .with_unified_search(unified_search)
         .with_ops(ops_provider)
-        .with_shared_space(shared_space_store)
-        .with_workspace_notes(workspace_note_provider)
+        .with_kv_store(kv_store)
+        .with_work_items(work_item_provider)
         .with_auth_profile(auth_store)
         .with_secrets(Arc::new(secret_storage))
         .with_config(Arc::new(config_storage))
@@ -143,8 +144,8 @@ mod tests {
         AgentStoreAdapter, BackgroundAgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter,
     };
     use redb::Database;
-    use restflow_ai::SkillProvider as _;
-    use restflow_ai::tools::{
+    use restflow_traits::skill::SkillProvider as _;
+    use restflow_traits::store::{
         AgentCreateRequest, AgentStore, AgentUpdateRequest,
         BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
         BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
@@ -168,8 +169,8 @@ mod tests {
         SkillStorage,
         MemoryStorage,
         ChatSessionStorage,
-        SharedSpaceStorage,
-        WorkspaceNoteStorage,
+        KvStoreStorage,
+        WorkItemStorage,
         SecretStorage,
         ConfigStorage,
         AgentStorage,
@@ -195,9 +196,9 @@ mod tests {
         let skill_storage = SkillStorage::new(db.clone()).unwrap();
         let memory_storage = MemoryStorage::new(db.clone()).unwrap();
         let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-        let shared_space_storage =
-            SharedSpaceStorage::new(restflow_storage::SharedSpaceStorage::new(db.clone()).unwrap());
-        let workspace_note_storage = WorkspaceNoteStorage::new(db.clone()).unwrap();
+        let kv_store_storage =
+            KvStoreStorage::new(restflow_storage::KvStoreStorage::new(db.clone()).unwrap());
+        let work_item_storage = WorkItemStorage::new(db.clone()).unwrap();
         let secret_storage = SecretStorage::with_config(
             db.clone(),
             restflow_storage::SecretStorageConfig {
@@ -224,8 +225,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -243,8 +244,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -258,8 +259,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -277,7 +278,7 @@ mod tests {
         assert!(registry.has("send_email"));
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
-        assert!(registry.has("shared_space"));
+        assert!(registry.has("kv_store"));
         // New system management tools
         assert!(registry.has("manage_secrets"));
         assert!(registry.has("manage_config"));
@@ -301,8 +302,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -322,8 +323,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -545,8 +546,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -561,8 +562,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -606,8 +607,8 @@ mod tests {
             storage,
             _memory_storage,
             _chat_storage,
-            _shared_space_storage,
-            _workspace_note_storage,
+            _kv_store_storage,
+            _work_item_storage,
             _secret_storage,
             _config_storage,
             _agent_storage,
@@ -629,8 +630,8 @@ mod tests {
             storage,
             _memory_storage,
             _chat_storage,
-            _shared_space_storage,
-            _workspace_note_storage,
+            _kv_store_storage,
+            _work_item_storage,
             _secret_storage,
             _config_storage,
             _agent_storage,
@@ -682,8 +683,8 @@ mod tests {
             skill_storage,
             _memory_storage,
             _chat_storage,
-            _shared_space_storage,
-            _workspace_note_storage,
+            _kv_store_storage,
+            _work_item_storage,
             secret_storage,
             _config_storage,
             agent_storage,
@@ -813,8 +814,8 @@ mod tests {
             skill_storage,
             _memory_storage,
             _chat_storage,
-            _shared_space_storage,
-            _workspace_note_storage,
+            _kv_store_storage,
+            _work_item_storage,
             secret_storage,
             _config_storage,
             agent_storage,
@@ -869,8 +870,8 @@ mod tests {
             skill_storage,
             _memory_storage,
             _chat_storage,
-            _shared_space_storage,
-            _workspace_note_storage,
+            _kv_store_storage,
+            _work_item_storage,
             secret_storage,
             _config_storage,
             agent_storage,
@@ -942,8 +943,8 @@ mod tests {
             _skill_storage,
             _memory_storage,
             _chat_storage,
-            _shared_space_storage,
-            _workspace_note_storage,
+            _kv_store_storage,
+            _work_item_storage,
             _secret_storage,
             _config_storage,
             agent_storage,
@@ -1163,8 +1164,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1188,8 +1189,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1229,8 +1230,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1245,8 +1246,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1301,8 +1302,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1317,8 +1318,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1393,8 +1394,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1409,8 +1410,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1453,8 +1454,8 @@ mod tests {
             _skill_storage,
             memory_storage,
             _chat_storage,
-            _shared_space_storage,
-            _workspace_note_storage,
+            _kv_store_storage,
+            _work_item_storage,
             _secret_storage,
             _config_storage,
             _agent_storage,
@@ -1544,8 +1545,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,
@@ -1560,8 +1561,8 @@ mod tests {
             skill_storage,
             memory_storage,
             chat_storage,
-            shared_space_storage,
-            workspace_note_storage,
+            kv_store_storage,
+            work_item_storage,
             secret_storage,
             config_storage,
             agent_storage,

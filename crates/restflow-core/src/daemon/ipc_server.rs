@@ -393,38 +393,38 @@ impl IpcServer {
                 Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
-            IpcRequest::ListWorkspaceNotes { query } => {
-                match core.storage.workspace_notes.list_notes(query) {
-                    Ok(notes) => IpcResponse::success(notes),
+            IpcRequest::ListWorkItems { query } => {
+                match core.storage.work_items.list_notes(query) {
+                    Ok(items) => IpcResponse::success(items),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::ListWorkspaceNoteFolders => {
-                match core.storage.workspace_notes.list_folders() {
+            IpcRequest::ListWorkItemFolders => {
+                match core.storage.work_items.list_folders() {
                     Ok(folders) => IpcResponse::success(folders),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::GetWorkspaceNote { id } => match core.storage.workspace_notes.get_note(&id)
+            IpcRequest::GetWorkItem { id } => match core.storage.work_items.get_note(&id)
             {
-                Ok(Some(note)) => IpcResponse::success(note),
-                Ok(None) => IpcResponse::not_found("Workspace note"),
+                Ok(Some(item)) => IpcResponse::success(item),
+                Ok(None) => IpcResponse::not_found("Work item"),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
-            IpcRequest::CreateWorkspaceNote { spec } => {
-                match core.storage.workspace_notes.create_note(spec) {
-                    Ok(note) => IpcResponse::success(note),
+            IpcRequest::CreateWorkItem { spec } => {
+                match core.storage.work_items.create_note(spec) {
+                    Ok(item) => IpcResponse::success(item),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::UpdateWorkspaceNote { id, patch } => {
-                match core.storage.workspace_notes.update_note(&id, patch) {
-                    Ok(note) => IpcResponse::success(note),
+            IpcRequest::UpdateWorkItem { id, patch } => {
+                match core.storage.work_items.update_note(&id, patch) {
+                    Ok(item) => IpcResponse::success(item),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::DeleteWorkspaceNote { id } => {
-                match core.storage.workspace_notes.delete_note(&id) {
+            IpcRequest::DeleteWorkItem { id } => {
+                match core.storage.work_items.delete_note(&id) {
                     Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
@@ -1436,8 +1436,8 @@ fn create_runtime_tool_registry(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
-        core.storage.shared_space.clone(),
-        core.storage.workspace_notes.clone(),
+        core.storage.kv_store.clone(),
+        core.storage.work_items.clone(),
         core.storage.secrets.clone(),
         core.storage.config.clone(),
         core.storage.agents.clone(),

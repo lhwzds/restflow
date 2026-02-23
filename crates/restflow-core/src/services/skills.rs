@@ -77,11 +77,11 @@ pub async fn get_skill_reference(
         return Ok(Some(reference_skill.content));
     }
 
-    let shared_space_key = format!("skill-ref:{}:{}", skill_id, ref_id);
+    let kv_store_key = format!("skill-ref:{}:{}", skill_id, ref_id);
     if let Some(content) = core
         .storage
-        .shared_space
-        .quick_get(&shared_space_key, None)?
+        .kv_store
+        .quick_get(&kv_store_key, None)?
     {
         return Ok(Some(content));
     }

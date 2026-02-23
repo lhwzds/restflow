@@ -12,7 +12,7 @@ use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
-use restflow_ai::SkillProvider;
+use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::DiagnosticsProvider;
 
 // Re-export tool types from restflow-tools
@@ -63,8 +63,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "switch_model",
         "skill",
         "memory_search",
-        "shared_space",
-        "workspace_notes",
+        "kv_store",
         "manage_secrets",
         "manage_config",
         "manage_sessions",
@@ -331,18 +330,18 @@ pub fn registry_from_allowlist(
                     )))
                 });
             }
-            "shared_space" => {
-                with_storage!(storage, "shared_space", builder, |s| {
-                    builder.with_shared_space(Arc::new(SharedSpaceStoreAdapter::new(
-                        s.shared_space.clone(),
+            "kv_store" => {
+                with_storage!(storage, "kv_store", builder, |s| {
+                    builder.with_kv_store(Arc::new(KvStoreAdapter::new(
+                        s.kv_store.clone(),
                         None,
                     )))
                 });
             }
-            "workspace_notes" => {
-                with_storage!(storage, "workspace_notes", builder, |s| {
-                    builder.with_workspace_notes(Arc::new(DbWorkspaceNoteAdapter::new(
-                        s.workspace_notes.clone(),
+            "work_items" => {
+                with_storage!(storage, "work_items", builder, |s| {
+                    builder.with_work_items(Arc::new(DbWorkItemAdapter::new(
+                        s.work_items.clone(),
                     )))
                 });
             }
@@ -405,8 +404,8 @@ pub fn registry_from_allowlist(
             }
             "task_list" => {
                 with_storage!(storage, "task_list", builder, |s| {
-                    builder.with_task_list(Arc::new(DbWorkspaceNoteAdapter::new(
-                        s.workspace_notes.clone(),
+                    builder.with_task_list(Arc::new(DbWorkItemAdapter::new(
+                        s.work_items.clone(),
                     )))
                 });
             }
