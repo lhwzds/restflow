@@ -49,6 +49,8 @@ export interface StreamStep {
   status: StepStatus
   /** Tool call ID for correlating start/end events */
   toolId?: string
+  /** Tool call arguments JSON (populated on tool_call_start) */
+  arguments?: string
   /** Tool call result JSON (populated on tool_call_end) */
   result?: string
 }
@@ -137,6 +139,7 @@ export function useChatStream(sessionId: () => string | null) {
               name: kind.tool_name,
               status: 'running',
               toolId: kind.tool_id,
+              arguments: kind.arguments,
             })
           }
           break

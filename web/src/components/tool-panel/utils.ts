@@ -48,13 +48,7 @@ export function formatDuration(ms: number): string {
 }
 
 export function parseToolArguments(step: StreamStep): JsonRecord {
-  const withArgs = step as StreamStep & {
-    arguments?: unknown
-    args?: unknown
-    input?: unknown
-  }
-  const raw = withArgs.arguments ?? withArgs.args ?? withArgs.input
-  const parsed = parseMaybeJson(raw)
+  const parsed = parseMaybeJson(step.arguments)
   return isRecord(parsed) ? parsed : {}
 }
 

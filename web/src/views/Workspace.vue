@@ -235,6 +235,7 @@ onMounted(() => {
         :title="toolPanel.state.value.title"
         :tool-name="toolPanel.state.value.toolName"
         :data="toolPanel.state.value.data"
+        :step="toolPanel.state.value.step"
         :can-navigate-prev="toolPanel.canNavigatePrev.value"
         :can-navigate-next="toolPanel.canNavigateNext.value"
         @navigate="toolPanel.navigateHistory"
