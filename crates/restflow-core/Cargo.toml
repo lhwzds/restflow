@@ -55,7 +55,7 @@ sha2 = "0.10.9"
 glob-match = "0.2"
 shell-words = "1.1"
 which = "8"
-tempfile = "3.23.0"
+tempfile = "3.25.0"
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["full"] }
 scopeguard = "1"
