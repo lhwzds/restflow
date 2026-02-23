@@ -20,7 +20,7 @@ use crate::models::security::{
 };
 use crate::security::path_resolver::{CommandResolution, matches_path_pattern};
 use crate::security::shell_parser;
-use restflow_ai::{SecurityDecision, SecurityGate};
+use restflow_traits::security::{SecurityDecision, SecurityGate};
 
 /// Security checker for validating commands.
 ///
