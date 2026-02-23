@@ -51,7 +51,7 @@ pub use impls::{
     PythonTool, RunPythonTool, PatchTool, ProcessTool,
     PythonExecutionBackend, PythonExecutionLimits,
     ReplyTool, SaveDeliverableTool, SecretsTool, SessionTool, SkillTool,
-    SpawnSubtaskRequest, SpawnSubtaskTool, SwitchModelTool,
+    SwitchModelTool,
     TranscribeConfig, TranscribeTool, VisionTool,
     WebFetchTool, WebSearchTool, WorkspaceNoteTool,
     get_mcp_tools, invalidate_mcp_cache,
