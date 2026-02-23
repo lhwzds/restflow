@@ -2,27 +2,14 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::sync::RwLock;
 
+pub use restflow_traits::cache::{CachedSearchResult, SearchMatch};
+
 /// Search cache key
 #[derive(Debug, Clone, Hash, Eq, PartialEq)]
 struct SearchKey {
     pattern: String,
     directory: String,
     file_pattern: Option<String>,
-}
-
-/// Cached search results
-#[derive(Debug, Clone)]
-pub struct CachedSearchResult {
-    pub matches: Vec<SearchMatch>,
-    pub total_files_searched: usize,
-    pub truncated: bool,
-}
-
-#[derive(Debug, Clone)]
-pub struct SearchMatch {
-    pub file: String,
-    pub line: usize,
-    pub content: String,
 }
 
 #[derive(Debug, Clone)]
