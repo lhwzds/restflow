@@ -11,7 +11,7 @@ mod gemini_cli;
 mod mock_client;
 mod openai;
 mod opencode;
-mod pricing;
+pub mod pricing;
 mod retry;
 mod swappable;
 mod switcher;
