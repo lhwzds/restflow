@@ -17,7 +17,6 @@ pub mod checkpoint;
 pub mod config;
 pub mod daemon_state;
 pub mod deliverable;
-pub mod keychain;
 pub mod memory;
 pub mod memory_index;
 pub mod pairing;
