@@ -13,9 +13,17 @@ pub mod resolver;
 pub mod types;
 pub mod writer;
 
-pub use discoverer::*;
-pub use manager::*;
-pub use refresh::*;
-pub use resolver::*;
-pub use types::*;
-pub use writer::*;
+pub use discoverer::{
+    ClaudeCodeDiscoverer, CodexCliDiscoverer, CompositeDiscoverer, CredentialDiscoverer,
+    DiscoveredProfile, DiscoveryResult, EnvVarDiscoverer,
+};
+#[cfg(feature = "keychain")]
+pub use discoverer::KeychainDiscoverer;
+pub use manager::{AuthManagerConfig, AuthProfileManager, ManagerSummary, ProfileUpdate};
+pub use refresh::{AnthropicRefresher, OAuthRefresher, RefreshedCredential};
+pub use resolver::CredentialResolver;
+pub use types::{
+    secret_key, AuthProfile, AuthProvider, Credential, CredentialSource, DiscoverySummary,
+    ProfileHealth, ProfileSelection, SecureCredential,
+};
+pub use writer::CredentialWriter;
