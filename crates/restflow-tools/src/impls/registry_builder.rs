@@ -48,6 +48,8 @@ use crate::impls::marketplace::MarketplaceTool;
 use crate::impls::trigger::TriggerTool;
 use crate::impls::terminal::TerminalTool;
 use crate::impls::security_query::SecurityQueryTool;
+use crate::impls::edit::EditTool;
+use crate::impls::multiedit::MultiEditTool;
 use crate::impls::patch::PatchTool;
 use crate::impls::file_tracker::FileTracker;
 
@@ -127,9 +129,18 @@ impl Default for FileConfig {
 }
 
 impl FileConfig {
-    /// Convert into a [`FileTool`].
+    /// Convert into a [`FileTool`] with a new internal tracker.
     pub fn into_file_tool(self) -> FileTool {
         let mut tool = FileTool::new().with_max_read(self.max_read_bytes);
+        if let Some(base) = self.allowed_paths.into_iter().next() {
+            tool = tool.with_base_dir(base);
+        }
+        tool
+    }
+
+    /// Convert into a [`FileTool`] using a shared [`FileTracker`].
+    pub fn into_file_tool_with_tracker(self, tracker: Arc<FileTracker>) -> FileTool {
+        let mut tool = FileTool::with_tracker(tracker).with_max_read(self.max_read_bytes);
         if let Some(base) = self.allowed_paths.into_iter().next() {
             tool = tool.with_base_dir(base);
         }
@@ -140,6 +151,7 @@ impl FileConfig {
 /// Builder for creating a fully configured ToolRegistry.
 pub struct ToolRegistryBuilder {
     pub registry: ToolRegistry,
+    tracker: Arc<FileTracker>,
 }
 
 impl Default for ToolRegistryBuilder {
@@ -152,7 +164,13 @@ impl ToolRegistryBuilder {
     pub fn new() -> Self {
         Self {
             registry: ToolRegistry::new(),
+            tracker: Arc::new(FileTracker::new()),
         }
+    }
+
+    /// Get shared file tracker for external use.
+    pub fn tracker(&self) -> Arc<FileTracker> {
+        self.tracker.clone()
     }
 
     pub fn with_bash(mut self, config: BashConfig) -> Self {
@@ -161,7 +179,8 @@ impl ToolRegistryBuilder {
     }
 
     pub fn with_file(mut self, config: FileConfig) -> Self {
-        self.registry.register(config.into_file_tool());
+        self.registry
+            .register(config.into_file_tool_with_tracker(self.tracker.clone()));
         self
     }
 
@@ -361,8 +380,40 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_patch(mut self, tracker: Arc<FileTracker>) -> Self {
-        self.registry.register(PatchTool::new(tracker));
+    pub fn with_patch(mut self) -> Self {
+        self.registry.register(PatchTool::new(self.tracker.clone()));
+        self
+    }
+
+    pub fn with_edit(self) -> Self {
+        self.with_edit_and_diagnostics(None)
+    }
+
+    pub fn with_edit_and_diagnostics(
+        mut self,
+        diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
+    ) -> Self {
+        let mut tool = EditTool::with_tracker(self.tracker.clone());
+        if let Some(diag) = diagnostics {
+            tool = tool.with_diagnostics_provider(diag);
+        }
+        self.registry.register(tool);
+        self
+    }
+
+    pub fn with_multiedit(self) -> Self {
+        self.with_multiedit_and_diagnostics(None)
+    }
+
+    pub fn with_multiedit_and_diagnostics(
+        mut self,
+        diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
+    ) -> Self {
+        let mut tool = MultiEditTool::with_tracker(self.tracker.clone());
+        if let Some(diag) = diagnostics {
+            tool = tool.with_diagnostics_provider(diag);
+        }
+        self.registry.register(tool);
         self
     }
 
