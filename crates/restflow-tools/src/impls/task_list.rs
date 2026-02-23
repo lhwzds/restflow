@@ -1,4 +1,4 @@
-//! Task list tool backed by WorkspaceNoteProvider.
+//! Task list tool backed by WorkItemProvider.
 //!
 //! Provides structured task tracking with:
 //! - Status lifecycle: pending -> in_progress -> completed
@@ -6,7 +6,7 @@
 //! - Priority, owner, and tag support
 //! - Dependency-aware listing (shows which tasks are blocked)
 //!
-//! Internally uses WorkspaceNoteProvider with a fixed `__tasks__` folder,
+//! Internally uses WorkItemProvider with a fixed `__tasks__` folder,
 //! storing dependency metadata in the note content as JSON.
 
 use async_trait::async_trait;
@@ -18,8 +18,8 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolOutput};
 use restflow_traits::store::{
-    WorkspaceNoteProvider, WorkspaceNotePatch, WorkspaceNoteQuery, WorkspaceNoteSpec,
-    WorkspaceNoteStatus,
+    WorkItemProvider, WorkItemPatch, WorkItemQuery, WorkItemSpec,
+    WorkItemStatus,
 };
 
 /// Fixed folder name for task notes
@@ -60,13 +60,13 @@ struct TaskMeta {
     metadata: Option<Value>,
 }
 
-/// Task list tool backed by WorkspaceNoteProvider.
+/// Task list tool backed by WorkItemProvider.
 pub struct TaskListTool {
-    provider: Arc<dyn WorkspaceNoteProvider>,
+    provider: Arc<dyn WorkItemProvider>,
 }
 
 impl TaskListTool {
-    pub fn new(provider: Arc<dyn WorkspaceNoteProvider>) -> Self {
+    pub fn new(provider: Arc<dyn WorkItemProvider>) -> Self {
         Self { provider }
     }
 
@@ -81,22 +81,22 @@ impl TaskListTool {
         serde_json::to_string(meta).unwrap_or_default()
     }
 
-    /// Map WorkspaceNoteStatus to task status string
-    fn status_to_str(status: &WorkspaceNoteStatus) -> &'static str {
+    /// Map WorkItemStatus to task status string
+    fn status_to_str(status: &WorkItemStatus) -> &'static str {
         match status {
-            WorkspaceNoteStatus::Open => "pending",
-            WorkspaceNoteStatus::InProgress => "in_progress",
-            WorkspaceNoteStatus::Done => "completed",
-            WorkspaceNoteStatus::Archived => "completed",
+            WorkItemStatus::Open => "pending",
+            WorkItemStatus::InProgress => "in_progress",
+            WorkItemStatus::Done => "completed",
+            WorkItemStatus::Archived => "completed",
         }
     }
 
-    /// Map task status string to WorkspaceNoteStatus
-    fn str_to_status(s: &str) -> Option<WorkspaceNoteStatus> {
+    /// Map task status string to WorkItemStatus
+    fn str_to_status(s: &str) -> Option<WorkItemStatus> {
         match s {
-            "pending" => Some(WorkspaceNoteStatus::Open),
-            "in_progress" => Some(WorkspaceNoteStatus::InProgress),
-            "completed" => Some(WorkspaceNoteStatus::Done),
+            "pending" => Some(WorkItemStatus::Open),
+            "in_progress" => Some(WorkItemStatus::InProgress),
+            "completed" => Some(WorkItemStatus::Done),
             _ => None,
         }
     }
@@ -196,7 +196,7 @@ impl Tool for TaskListTool {
                     metadata: params.metadata,
                 };
 
-                let spec = WorkspaceNoteSpec {
+                let spec = WorkItemSpec {
                     folder: TASK_FOLDER.to_string(),
                     title: subject.clone(),
                     content: Self::encode_meta(&meta),
@@ -219,7 +219,7 @@ impl Tool for TaskListTool {
             }
 
             "list" => {
-                let query = WorkspaceNoteQuery {
+                let query = WorkItemQuery {
                     folder: Some(TASK_FOLDER.to_string()),
                     status: params
                         .status
@@ -241,7 +241,7 @@ impl Tool for TaskListTool {
 
                         let completed_ids: HashSet<&str> = notes
                             .iter()
-                            .filter(|n| matches!(n.status, WorkspaceNoteStatus::Done | WorkspaceNoteStatus::Archived))
+                            .filter(|n| matches!(n.status, WorkItemStatus::Done | WorkItemStatus::Archived))
                             .map(|n| n.id.as_str())
                             .collect();
 
@@ -386,7 +386,7 @@ impl Tool for TaskListTool {
                     }
                 }
 
-                let patch = WorkspaceNotePatch {
+                let patch = WorkItemPatch {
                     title: params.subject,
                     content: Some(Self::encode_meta(&meta)),
                     priority: params.priority,
@@ -440,32 +440,32 @@ impl Tool for TaskListTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_traits::WorkspaceNoteRecord;
+    use restflow_traits::WorkItemRecord;
     use std::collections::HashMap;
     use std::sync::Mutex;
 
     #[derive(Default)]
     struct MockProvider {
-        notes: Mutex<HashMap<String, WorkspaceNoteRecord>>,
+        notes: Mutex<HashMap<String, WorkItemRecord>>,
         counter: Mutex<u64>,
     }
 
-    impl WorkspaceNoteProvider for MockProvider {
+    impl WorkItemProvider for MockProvider {
         fn create(
             &self,
-            spec: WorkspaceNoteSpec,
-        ) -> std::result::Result<WorkspaceNoteRecord, String> {
+            spec: WorkItemSpec,
+        ) -> std::result::Result<WorkItemRecord, String> {
             let mut notes = self.notes.lock().map_err(|_| "Lock poisoned".to_string())?;
             let mut counter = self.counter.lock().map_err(|_| "Lock poisoned".to_string())?;
             *counter += 1;
             let id = format!("task-{}", *counter);
-            let note = WorkspaceNoteRecord {
+            let note = WorkItemRecord {
                 id: id.clone(),
                 folder: spec.folder,
                 title: spec.title,
                 content: spec.content,
                 priority: spec.priority,
-                status: WorkspaceNoteStatus::Open,
+                status: WorkItemStatus::Open,
                 tags: spec.tags,
                 assignee: None,
                 created_at: 1000,
@@ -475,7 +475,7 @@ mod tests {
             Ok(note)
         }
 
-        fn get(&self, id: &str) -> std::result::Result<Option<WorkspaceNoteRecord>, String> {
+        fn get(&self, id: &str) -> std::result::Result<Option<WorkItemRecord>, String> {
             let notes = self.notes.lock().map_err(|_| "Lock poisoned".to_string())?;
             Ok(notes.get(id).cloned())
         }
@@ -483,8 +483,8 @@ mod tests {
         fn update(
             &self,
             id: &str,
-            patch: WorkspaceNotePatch,
-        ) -> std::result::Result<WorkspaceNoteRecord, String> {
+            patch: WorkItemPatch,
+        ) -> std::result::Result<WorkItemRecord, String> {
             let mut notes = self.notes.lock().map_err(|_| "Lock poisoned".to_string())?;
             let note = notes.get_mut(id).ok_or_else(|| "Not found".to_string())?;
 
@@ -518,8 +518,8 @@ mod tests {
 
         fn list(
             &self,
-            query: WorkspaceNoteQuery,
-        ) -> std::result::Result<Vec<WorkspaceNoteRecord>, String> {
+            query: WorkItemQuery,
+        ) -> std::result::Result<Vec<WorkItemRecord>, String> {
             let notes = self.notes.lock().map_err(|_| "Lock poisoned".to_string())?;
             let mut result: Vec<_> = notes
                 .values()
