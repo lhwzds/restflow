@@ -6,10 +6,9 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use restflow_ai::error::AiError;
 use crate::Result;
 
-use crate::{Tool, ToolOutput};
+use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::DiagnosticsProvider;
 
 /// Tool for querying diagnostics from the provider.
@@ -57,7 +56,7 @@ impl Tool for DiagnosticsTool {
         let path = args
             .get("path")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| AiError::Tool("Missing 'path' argument".to_string()))?;
+            .ok_or_else(|| ToolError::Tool("Missing 'path' argument".to_string()))?;
         let timeout_ms = args
             .get("timeout_ms")
             .and_then(|v| v.as_u64())
@@ -66,7 +65,7 @@ impl Tool for DiagnosticsTool {
         let path = Path::new(path);
 
         self.provider.ensure_open(path).await.map_err(|error| {
-            AiError::Tool(format!(
+            ToolError::Tool(format!(
                 "Diagnostics service unavailable: {error}. The language server may not be running."
             ))
         })?;
@@ -76,7 +75,7 @@ impl Tool for DiagnosticsTool {
             .wait_for_diagnostics(path, Duration::from_millis(timeout_ms))
             .await
             .map_err(|error| {
-                AiError::Tool(format!(
+                ToolError::Tool(format!(
                     "Diagnostics timed out or failed: {error}. The file may have syntax errors that prevent analysis, or the language server is overloaded."
                 ))
             })?;
@@ -88,6 +87,7 @@ impl Tool for DiagnosticsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use lsp_types::Diagnostic;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     struct MockDiagnosticsProvider {

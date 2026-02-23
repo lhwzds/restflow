@@ -8,10 +8,9 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use tokio::fs;
 
-use restflow_ai::error::AiError;
 use crate::Result;
 use crate::http_client::build_http_client;
-use crate::{SecretResolver, Tool, ToolOutput};
+use crate::{SecretResolver, Tool, ToolError, ToolOutput};
 
 #[derive(Debug, Deserialize)]
 struct VisionInput {
@@ -107,20 +106,20 @@ impl Tool for VisionTool {
         let api_key = self
             .resolve_api_key()
             .ok_or_else(|| {
-                AiError::Tool(
+                ToolError::Tool(
                     "Missing OPENAI_API_KEY. Set it via manage_secrets tool with {operation: 'set', key: 'OPENAI_API_KEY', value: '...'}.".to_string(),
                 )
             })?;
 
         let mime_type = Self::detect_mime_type(&params.file_path).ok_or_else(|| {
-            AiError::Tool(format!(
+            ToolError::Tool(format!(
                 "Unsupported image type for '{}'. Supported: png, jpg, jpeg, webp, gif.",
                 params.file_path
             ))
         })?;
 
         let image_bytes = fs::read(&params.file_path).await.map_err(|e| {
-            AiError::Tool(format!(
+            ToolError::Tool(format!(
                 "Cannot read image '{}': {}. Verify the file exists and is accessible.",
                 params.file_path, e
             ))
@@ -156,7 +155,7 @@ impl Tool for VisionTool {
             .send()
             .await
             .map_err(|e| {
-                AiError::Tool(format!(
+                ToolError::Tool(format!(
                     "Vision API request failed: {}. This may be a network issue or rate limit. Retry after a brief wait.",
                     e
                 ))
@@ -175,7 +174,7 @@ impl Tool for VisionTool {
             .json()
             .await
             .map_err(|_| {
-                AiError::Tool(
+                ToolError::Tool(
                     "Vision API returned an unexpected response format. This may indicate an API version mismatch. Retry or report the issue.".to_string(),
                 )
             })?;

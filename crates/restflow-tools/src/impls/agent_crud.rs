@@ -5,8 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::{Tool, ToolOutput};
-use restflow_ai::error::AiError;
+use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{AgentStore, AgentCreateRequest, AgentUpdateRequest};
 use crate::Result;
 
@@ -106,12 +105,12 @@ impl Tool for AgentCrudTool {
             AgentAction::List => ToolOutput::success(
                 self.store
                     .list_agents()
-                    .map_err(|e| AiError::Tool(format!("Failed to list agent: {e}")))?,
+                    .map_err(|e| ToolError::Tool(format!("Failed to list agent: {e}")))?,
             ),
             AgentAction::Show { id } => ToolOutput::success(
                 self.store
                     .get_agent(&id)
-                    .map_err(|e| AiError::Tool(format!("Failed to get agent: {e}")))?,
+                    .map_err(|e| ToolError::Tool(format!("Failed to get agent: {e}")))?,
             ),
             AgentAction::Create { name, agent } => {
                 self.write_guard()?;
@@ -119,9 +118,9 @@ impl Tool for AgentCrudTool {
                 ToolOutput::success(self.store.create_agent(request).map_err(|e| {
                     let message = e.to_string();
                     if message.contains("\"type\":\"validation_error\"") {
-                        AiError::Tool(message)
+                        ToolError::Tool(message)
                     } else {
-                        AiError::Tool(format!("Failed to create agent: {e}"))
+                        ToolError::Tool(format!("Failed to create agent: {e}"))
                     }
                 })?)
             }
@@ -131,9 +130,9 @@ impl Tool for AgentCrudTool {
                 ToolOutput::success(self.store.update_agent(request).map_err(|e| {
                     let message = e.to_string();
                     if message.contains("\"type\":\"validation_error\"") {
-                        AiError::Tool(message)
+                        ToolError::Tool(message)
                     } else {
-                        AiError::Tool(format!("Failed to update agent: {e}"))
+                        ToolError::Tool(format!("Failed to update agent: {e}"))
                     }
                 })?)
             }
@@ -142,7 +141,7 @@ impl Tool for AgentCrudTool {
                 ToolOutput::success(
                     self.store
                         .delete_agent(&id)
-                        .map_err(|e| AiError::Tool(format!("Failed to delete agent: {e}")))?,
+                        .map_err(|e| ToolError::Tool(format!("Failed to delete agent: {e}")))?,
                 )
             }
         };

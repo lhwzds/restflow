@@ -9,10 +9,9 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
-use restflow_ai::error::AiError;
 use crate::Result;
 use crate::http_client::build_http_client;
-use crate::{SecretResolver, Tool, ToolOutput};
+use crate::{SecretResolver, Tool, ToolError, ToolOutput};
 
 /// Configuration for transcribe tool security.
 #[derive(Debug, Clone)]
@@ -169,7 +168,7 @@ impl Tool for TranscribeTool {
         let api_key = self
             .resolve_api_key()
             .ok_or_else(|| {
-                AiError::Tool(
+                ToolError::Tool(
                     "Missing OPENAI_API_KEY. Set it via manage_secrets tool with {operation: 'set', key: 'OPENAI_API_KEY', value: '...'}.".to_string(),
                 )
             })?;
@@ -180,7 +179,7 @@ impl Tool for TranscribeTool {
         let audio_bytes = fs::read(&params.file_path)
             .await
             .map_err(|e| {
-                AiError::Tool(format!(
+                ToolError::Tool(format!(
                     "Cannot read audio file '{}': {}. Verify the file exists. Supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm.",
                     params.file_path, e
                 ))
@@ -228,7 +227,7 @@ impl Tool for TranscribeTool {
             .send()
             .await
             .map_err(|e| {
-                AiError::Tool(format!(
+                ToolError::Tool(format!(
                     "Transcription API request failed: {}. This may be a network issue or rate limit. Retry after a brief wait.",
                     e
                 ))
@@ -247,7 +246,7 @@ impl Tool for TranscribeTool {
             .json()
             .await
             .map_err(|_| {
-                AiError::Tool(
+                ToolError::Tool(
                     "Transcription API returned an unexpected response format. This may indicate an API version mismatch. Retry or report the issue.".to_string(),
                 )
             })?;

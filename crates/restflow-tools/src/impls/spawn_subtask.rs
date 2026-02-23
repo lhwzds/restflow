@@ -101,7 +101,7 @@ impl Tool for SpawnSubtaskTool {
             .get("task_id")
             .and_then(|v| v.as_str())
             .ok_or_else(|| {
-                restflow_ai::error::AiError::Tool(
+                crate::ToolError::Tool(
                     "Failed to extract task_id from create result".to_string(),
                 )
             })?

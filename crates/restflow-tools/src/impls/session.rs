@@ -5,8 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::{Tool, ToolOutput};
-use restflow_ai::error::AiError;
+use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{SessionStore, SessionCreateRequest, SessionSearchQuery, SessionListFilter};
 use crate::Result;
 
@@ -158,13 +157,13 @@ impl Tool for SessionTool {
                 ToolOutput::success(
                     self.store
                         .list_sessions(filter)
-                        .map_err(|e| AiError::Tool(format!("Failed to list session: {e}")))?,
+                        .map_err(|e| ToolError::Tool(format!("Failed to list session: {e}")))?,
                 )
             }
             SessionAction::Get { id } => ToolOutput::success(
                 self.store
                     .get_session(&id)
-                    .map_err(|e| AiError::Tool(format!("Failed to get session: {e}")))?,
+                    .map_err(|e| ToolError::Tool(format!("Failed to get session: {e}")))?,
             ),
             SessionAction::Create {
                 agent_id,
@@ -184,7 +183,7 @@ impl Tool for SessionTool {
                 ToolOutput::success(
                     self.store
                         .create_session(request)
-                        .map_err(|e| AiError::Tool(format!("Failed to create session: {e}")))?,
+                        .map_err(|e| ToolError::Tool(format!("Failed to create session: {e}")))?,
                 )
             }
             SessionAction::Delete { id } => {
@@ -192,7 +191,7 @@ impl Tool for SessionTool {
                 ToolOutput::success(
                     self.store
                         .delete_session(&id)
-                        .map_err(|e| AiError::Tool(format!("Failed to delete session: {e}")))?,
+                        .map_err(|e| ToolError::Tool(format!("Failed to delete session: {e}")))?,
                 )
             }
             SessionAction::Search {
@@ -210,7 +209,7 @@ impl Tool for SessionTool {
                 ToolOutput::success(
                     self.store
                         .search_sessions(request)
-                        .map_err(|e| AiError::Tool(format!("Failed to search session: {e}")))?,
+                        .map_err(|e| ToolError::Tool(format!("Failed to search session: {e}")))?,
                 )
             }
             SessionAction::Cleanup => {
@@ -218,7 +217,7 @@ impl Tool for SessionTool {
                 ToolOutput::success(
                     self.store
                         .cleanup_sessions()
-                        .map_err(|e| AiError::Tool(format!("Failed to cleanup sessions: {e}")))?,
+                        .map_err(|e| ToolError::Tool(format!("Failed to cleanup sessions: {e}")))?,
                 )
             }
         };

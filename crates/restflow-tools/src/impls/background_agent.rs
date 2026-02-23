@@ -5,8 +5,7 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::{Tool, ToolOutput};
-use restflow_ai::error::AiError;
+use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
     BackgroundAgentStore, BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
     BackgroundAgentControlRequest, BackgroundAgentProgressRequest, BackgroundAgentMessageRequest,
@@ -299,7 +298,7 @@ impl Tool for BackgroundAgentTool {
                 let result = self
                     .store
                     .list_background_agents(status)
-                    .map_err(|e| AiError::Tool(format!("Failed to list background agent: {e}.")))?;
+                    .map_err(|e| ToolError::Tool(format!("Failed to list background agent: {e}.")))?;
                 ToolOutput::success(result)
             }
             BackgroundAgentAction::Create {
@@ -330,7 +329,7 @@ impl Tool for BackgroundAgentTool {
                         resource_limits,
                     })
                     .map_err(|e| {
-                        AiError::Tool(format!("Failed to create background agent: {e}."))
+                        ToolError::Tool(format!("Failed to create background agent: {e}."))
                     })?;
                 ToolOutput::success(result)
             }
@@ -370,14 +369,14 @@ impl Tool for BackgroundAgentTool {
                         resource_limits,
                     })
                     .map_err(|e| {
-                        AiError::Tool(format!("Failed to update background agent: {e}."))
+                        ToolError::Tool(format!("Failed to update background agent: {e}."))
                     })?;
                 ToolOutput::success(result)
             }
             BackgroundAgentAction::Delete { id } => {
                 self.write_guard()?;
                 ToolOutput::success(self.store.delete_background_agent(&id).map_err(|e| {
-                    AiError::Tool(format!("Failed to delete background agent: {e}."))
+                    ToolError::Tool(format!("Failed to delete background agent: {e}."))
                 })?)
             }
             BackgroundAgentAction::Pause { id } => {
@@ -389,7 +388,7 @@ impl Tool for BackgroundAgentTool {
                             action: "pause".to_string(),
                         })
                         .map_err(|e| {
-                            AiError::Tool(format!("Failed to pause background agent: {e}."))
+                            ToolError::Tool(format!("Failed to pause background agent: {e}."))
                         })?,
                 )
             }
@@ -402,7 +401,7 @@ impl Tool for BackgroundAgentTool {
                             action: "resume".to_string(),
                         })
                         .map_err(|e| {
-                            AiError::Tool(format!("Failed to resume background agent: {e}."))
+                            ToolError::Tool(format!("Failed to resume background agent: {e}."))
                         })?,
                 )
             }
@@ -415,7 +414,7 @@ impl Tool for BackgroundAgentTool {
                             action: "stop".to_string(),
                         })
                         .map_err(|e| {
-                            AiError::Tool(format!("Failed to cancel background agent: {e}."))
+                            ToolError::Tool(format!("Failed to cancel background agent: {e}."))
                         })?,
                 )
             }
@@ -428,7 +427,7 @@ impl Tool for BackgroundAgentTool {
                             action: "run_now".to_string(),
                         })
                         .map_err(|e| {
-                            AiError::Tool(format!("Failed to run background agent: {e}."))
+                            ToolError::Tool(format!("Failed to run background agent: {e}."))
                         })?,
                 )
             }
@@ -438,7 +437,7 @@ impl Tool for BackgroundAgentTool {
                     self.store
                         .control_background_agent(BackgroundAgentControlRequest { id, action })
                         .map_err(|e| {
-                            AiError::Tool(format!("Failed to control background agent: {e}."))
+                            ToolError::Tool(format!("Failed to control background agent: {e}."))
                         })?,
                 )
             }
@@ -448,7 +447,7 @@ impl Tool for BackgroundAgentTool {
                         id,
                         event_limit,
                     })
-                    .map_err(|e| AiError::Tool(format!("Failed to get background agent: {e}.")))?,
+                    .map_err(|e| ToolError::Tool(format!("Failed to get background agent: {e}.")))?,
             ),
             BackgroundAgentAction::SendMessage {
                 id,
@@ -464,7 +463,7 @@ impl Tool for BackgroundAgentTool {
                             source,
                         })
                         .map_err(|e| {
-                            AiError::Tool(format!("Failed to send message background agent: {e}."))
+                            ToolError::Tool(format!("Failed to send message background agent: {e}."))
                         })?,
                 )
             }
@@ -472,7 +471,7 @@ impl Tool for BackgroundAgentTool {
                 self.store
                     .list_background_agent_messages(BackgroundAgentMessageListRequest { id, limit })
                     .map_err(|e| {
-                        AiError::Tool(format!("Failed to list messages background agent: {e}."))
+                        ToolError::Tool(format!("Failed to list messages background agent: {e}."))
                     })?,
             ),
             BackgroundAgentAction::ListDeliverables { id } => ToolOutput::success(
@@ -481,7 +480,7 @@ impl Tool for BackgroundAgentTool {
                         id,
                     })
                     .map_err(|e| {
-                        AiError::Tool(format!(
+                        ToolError::Tool(format!(
                             "Failed to list deliverables background agent: {e}."
                         ))
                     })?,
@@ -493,7 +492,7 @@ impl Tool for BackgroundAgentTool {
                         limit,
                     })
                     .map_err(|e| {
-                        AiError::Tool(format!("Failed to list scratchpads background agent: {e}."))
+                        ToolError::Tool(format!("Failed to list scratchpads background agent: {e}."))
                     })?,
             ),
             BackgroundAgentAction::ReadScratchpad {
@@ -506,7 +505,7 @@ impl Tool for BackgroundAgentTool {
                         line_limit,
                     })
                     .map_err(|e| {
-                        AiError::Tool(format!("Failed to read scratchpad background agent: {e}."))
+                        ToolError::Tool(format!("Failed to read scratchpad background agent: {e}."))
                     })?,
             ),
         };
