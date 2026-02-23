@@ -253,8 +253,8 @@ impl ChatSessionMetadata {
 
     /// Update metadata after adding a message.
     pub fn update(&mut self, tokens: u32, model: Option<String>) {
-        self.total_tokens += tokens;
-        self.message_count += 1;
+        self.total_tokens = self.total_tokens.saturating_add(tokens);
+        self.message_count = self.message_count.saturating_add(1);
         if let Some(m) = model {
             self.last_model = Some(m);
         }
@@ -376,7 +376,7 @@ impl ChatSession {
         if let Some(ref exec) = message.execution {
             self.metadata.update(exec.tokens_used, None);
         } else {
-            self.metadata.message_count += 1;
+            self.metadata.message_count = self.metadata.message_count.saturating_add(1);
         }
 
         self.messages.push(message);
