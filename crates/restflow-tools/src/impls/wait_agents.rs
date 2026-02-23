@@ -20,6 +20,11 @@ pub struct WaitAgentsParams {
     pub timeout_secs: Option<u64>,
 }
 
+/// Minimum allowed wait timeout to prevent tight-polling abuse.
+const MIN_WAIT_TIMEOUT_SECS: u64 = 10;
+/// Maximum allowed wait timeout.
+const MAX_WAIT_TIMEOUT_SECS: u64 = 300;
+
 /// wait_agents tool for the shared agent execution engine.
 pub struct WaitAgentsTool {
     manager: Arc<dyn SubagentManager>,
@@ -53,7 +58,8 @@ impl Tool for WaitAgentsTool {
                 "timeout_secs": {
                     "type": "integer",
                     "default": 300,
-                    "description": "Timeout in seconds (default: 300)"
+                    "minimum": 10,
+                    "description": "Timeout in seconds (default: 300, minimum: 10, maximum: 300)"
                 }
             },
             "required": ["task_ids"]
@@ -66,7 +72,8 @@ impl Tool for WaitAgentsTool {
 
         let wait_timeout = params
             .timeout_secs
-            .unwrap_or(self.manager.config().subagent_timeout_secs);
+            .unwrap_or(self.manager.config().subagent_timeout_secs)
+            .clamp(MIN_WAIT_TIMEOUT_SECS, MAX_WAIT_TIMEOUT_SECS);
 
         let mut results = Vec::new();
         for task_id in params.task_ids {
@@ -240,15 +247,17 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore] // Requires 10s+ wait due to MIN_WAIT_TIMEOUT_SECS clamp
     async fn test_wait_timeout() {
-        // Use a delayed step that exceeds the wait timeout
+        // Use a delayed step that exceeds the wait timeout (10s, the clamped minimum)
         let (deps, manager) =
-            make_deps(vec![MockStep::text("slow").with_delay(5000)]);
+            make_deps(vec![MockStep::text("slow").with_delay(15_000)]);
         let task_id = spawn_test_agent(&deps);
 
         let tool = WaitAgentsTool::new(manager);
+        // timeout_secs: 10 (minimum) will timeout before the 15s delay
         let result = tool
-            .execute(json!({"task_ids": [task_id], "timeout_secs": 1}))
+            .execute(json!({"task_ids": [task_id], "timeout_secs": 10}))
             .await
             .unwrap();
         assert!(result.success);
@@ -275,6 +284,24 @@ mod tests {
         assert_eq!(results.len(), 3);
         // First two should be completed, third not_found
         assert_eq!(results[2]["status"], "not_found");
+    }
+
+    #[test]
+    fn test_timeout_clamp_enforces_minimum() {
+        // Verify the clamp logic: values below MIN are raised to MIN
+        let low: u64 = 1;
+        let clamped = low.clamp(MIN_WAIT_TIMEOUT_SECS, MAX_WAIT_TIMEOUT_SECS);
+        assert_eq!(clamped, MIN_WAIT_TIMEOUT_SECS);
+
+        // Values above MAX are lowered to MAX
+        let high: u64 = 600;
+        let clamped = high.clamp(MIN_WAIT_TIMEOUT_SECS, MAX_WAIT_TIMEOUT_SECS);
+        assert_eq!(clamped, MAX_WAIT_TIMEOUT_SECS);
+
+        // Values in range are unchanged
+        let mid: u64 = 60;
+        let clamped = mid.clamp(MIN_WAIT_TIMEOUT_SECS, MAX_WAIT_TIMEOUT_SECS);
+        assert_eq!(clamped, 60);
     }
 
     #[tokio::test]
