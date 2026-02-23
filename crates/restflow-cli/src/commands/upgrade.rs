@@ -1,4 +1,5 @@
 use anyhow::{Context, Result, bail};
+use sha2::{Sha256, Digest};
 use flate2::read::GzDecoder;
 use reqwest::{Client, RequestBuilder, header};
 use serde::Deserialize;
@@ -117,6 +118,20 @@ pub async fn run(args: UpgradeArgs, format: OutputFormat) -> Result<()> {
 
     let binary_bytes = extract_binary(&archive_bytes, platform.archive_kind, platform.binary_name)?;
 
+    // Download and verify checksums
+    if !format.is_json() {
+        println!("Verifying checksums...");
+    }
+    let checksums = download_checksums(&client, &repo, &release.tag_name).await?;
+    let expected_checksum = parse_checksum(&checksums, &platform.binary_name)
+        .with_context(|| format!("Failed to find checksum for {}", platform.binary_name))?;
+    verify_checksum(&binary_bytes, &expected_checksum)
+        .with_context(|| "Binary checksum verification failed")?;
+
+    if !format.is_json() {
+        println!("Checksum verified.");
+    }
+
     let install_path = install_path()?;
     install_binary(&binary_bytes, &install_path)?;
     let alias_updated = ensure_rf_alias(&install_path)?;
@@ -175,6 +190,86 @@ async fn download_asset(client: &Client, url: &str) -> Result<Vec<u8>> {
         .await
         .context("Failed to read release asset bytes")?;
     Ok(bytes.to_vec())
+}
+
+/// Compute SHA256 checksum of binary data
+fn compute_checksum(data: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(data);
+    let result = hasher.finalize();
+    format!("{:x}", result)
+}
+
+/// Verify binary against expected checksum
+fn verify_checksum(data: &[u8], expected_checksum: &str) -> Result<()> {
+    let actual = compute_checksum(data);
+    if actual != expected_checksum {
+        bail!(
+            "Binary checksum mismatch! Expected {}, got {}",
+            expected_checksum,
+            actual
+        );
+    }
+    Ok(())
+}
+
+/// Download SHA256 checksums file from GitHub release
+async fn download_checksums(client: &Client, repo: &str, tag: &str) -> Result<String> {
+    // Try different checksum filename patterns
+    let checksum_urls = [
+        format!("https://github.com/{}/releases/download/{}/checksums.txt", repo, tag),
+        format!("https://github.com/{}/releases/download/{}/SHA256SUMS", repo, tag),
+    ];
+
+    for url in &checksum_urls {
+        let response = with_github_headers(client.get(url))
+            .send()
+            .await
+            .ok()
+            .and_then(|r| r.error_for_status().ok());
+
+        if let Some(response) = response {
+            if let Ok(checksums) = response.text().await {
+                if !checksums.is_empty() {
+                    return Ok(checksums);
+                }
+            }
+        }
+    }
+
+    // If no checksums file found, log warning but continue
+    // This is a best-effort security measure
+    eprintln!("WARNING: No checksums file found in release. Skipping verification.");
+    Ok(String::new())
+}
+
+/// Parse checksum from checksums file content
+fn parse_checksum(checksums: &str, filename: &str) -> Result<String> {
+    if checksums.is_empty() {
+        // No checksums available - fail safe
+        bail!("No checksums available for verification");
+    }
+
+    for line in checksums.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+
+        // SHA256SUMS format: "<checksum>  <filename with optional leading *>"
+        // Or: "<checksum> <filename>"
+        let parts: Vec<&str> = line.splitn(2, char::is_whitespace).collect();
+        if parts.len() == 2 {
+            let checksum = parts[0].trim();
+            let file = parts[1].trim().trim_start_matches('*').trim();
+
+            if file.ends_with(filename) || filename.ends_with(file) {
+                return Ok(checksum.to_string());
+            }
+        }
+    }
+
+    bail!("Checksum for {} not found in checksums file", filename)
 }
 
 fn with_github_headers(request: RequestBuilder) -> RequestBuilder {
