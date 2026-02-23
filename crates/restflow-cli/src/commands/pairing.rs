@@ -218,14 +218,14 @@ fn set_owner(secrets: &SecretStorage, chat_id: &str, format: OutputFormat) -> Re
 }
 
 fn resolve_owner_chat_id(secrets: &SecretStorage) -> Result<Option<OwnerChatId>> {
-    if let Some(value) = non_empty_secret(secrets, TELEGRAM_CHAT_ID_SECRET)? {
+    if let Some(value) = secrets.get_non_empty(TELEGRAM_CHAT_ID_SECRET)? {
         return Ok(Some(OwnerChatId {
             value,
             source: TELEGRAM_CHAT_ID_SECRET,
         }));
     }
 
-    if let Some(value) = non_empty_secret(secrets, TELEGRAM_DEFAULT_CHAT_ID_SECRET)? {
+    if let Some(value) = secrets.get_non_empty(TELEGRAM_DEFAULT_CHAT_ID_SECRET)? {
         return Ok(Some(OwnerChatId {
             value,
             source: TELEGRAM_DEFAULT_CHAT_ID_SECRET,
@@ -241,13 +241,6 @@ fn auto_bind_owner_chat_id_if_missing(secrets: &SecretStorage, chat_id: &str) ->
     }
     secrets.set_secret(TELEGRAM_CHAT_ID_SECRET, chat_id, None)?;
     Ok(true)
-}
-
-fn non_empty_secret(secrets: &SecretStorage, key: &str) -> Result<Option<String>> {
-    Ok(secrets
-        .get_secret(key)?
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty()))
 }
 
 fn deny_pairing(manager: &PairingManager, code: &str, format: OutputFormat) -> Result<()> {
