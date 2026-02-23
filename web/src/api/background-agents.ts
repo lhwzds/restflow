@@ -55,7 +55,7 @@ export async function resumeBackgroundAgent(id: string): Promise<BackgroundAgent
 
 /** Cancel a running background agent */
 export async function cancelBackgroundAgent(taskId: string): Promise<boolean> {
-  return tauriInvoke<boolean>('cancel_background_agent', { task_id: taskId })
+  return tauriInvoke<boolean>('cancel_background_agent', { taskId })
 }
 
 /** Run a background agent immediately with streaming */
@@ -67,7 +67,7 @@ export async function runBackgroundAgentStreaming(
 
 /** Steer a running task with a new instruction */
 export async function steerTask(taskId: string, instruction: string): Promise<boolean> {
-  return tauriInvoke<boolean>('steer_task', { task_id: taskId, instruction })
+  return tauriInvoke<boolean>('steer_task', { taskId, instruction })
 }
 
 /** Get event history for a task */
@@ -75,7 +75,7 @@ export async function getBackgroundAgentEvents(
   taskId: string,
   limit?: number,
 ): Promise<TaskEvent[]> {
-  return tauriInvoke<TaskEvent[]>('get_background_agent_events', { task_id: taskId, limit })
+  return tauriInvoke<TaskEvent[]>('get_background_agent_events', { taskId, limit })
 }
 
 /** Get the stream event channel name (also activates the Rust bridge) */
@@ -100,12 +100,12 @@ export async function deleteBackgroundAgent(id: string): Promise<boolean> {
 
 /** List memory sessions for a memory namespace (agent ID) */
 export async function listMemorySessions(agentId: string): Promise<MemorySession[]> {
-  return tauriInvoke<MemorySession[]>('list_memory_sessions', { agent_id: agentId })
+  return tauriInvoke<MemorySession[]>('list_memory_sessions', { agentId })
 }
 
 /** List memory chunks for a given session */
 export async function listMemoryChunksForSession(sessionId: string): Promise<MemoryChunk[]> {
-  return tauriInvoke<MemoryChunk[]>('list_memory_chunks_for_session', { session_id: sessionId })
+  return tauriInvoke<MemoryChunk[]>('list_memory_chunks_for_session', { sessionId })
 }
 
 /** List memory chunks by tag (used for task:<background-agent-id>) */
