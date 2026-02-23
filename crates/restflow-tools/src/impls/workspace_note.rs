@@ -226,6 +226,7 @@ impl Tool for WorkspaceNoteTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_traits::WorkspaceNoteRecord;
     use std::collections::HashMap;
     use std::sync::Mutex;
 

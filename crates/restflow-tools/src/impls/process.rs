@@ -187,6 +187,7 @@ impl Tool for ProcessTool {
 mod tests {
     use super::*;
     use anyhow::anyhow;
+    use restflow_traits::store::{ProcessLog, ProcessPollResult, ProcessSessionInfo};
     use serde_json::json;
 
     struct MockProcessManager;
