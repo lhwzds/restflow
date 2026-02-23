@@ -6,19 +6,18 @@
  * Replaces the entire chat layout when active.
  */
 import { ref } from 'vue'
-import { ArrowLeft, Key, Shield, Store, KeyRound } from 'lucide-vue-next'
+import { ArrowLeft, Key, Shield, KeyRound } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import SecretsSection from './SecretsSection.vue'
 import AuthProfiles from './AuthProfiles.vue'
 import SecurityPanel from '@/components/security/SecurityPanel.vue'
-import SkillMarketplace from '@/components/marketplace/SkillMarketplace.vue'
 
 const emit = defineEmits<{
   back: []
 }>()
 
-type SettingsSection = 'secrets' | 'auth' | 'security' | 'marketplace'
+type SettingsSection = 'secrets' | 'auth' | 'security'
 
 const activeSection = ref<SettingsSection>('secrets')
 
@@ -26,7 +25,6 @@ const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
   { id: 'secrets', label: 'Secrets', icon: Key },
   { id: 'auth', label: 'Auth Profiles', icon: KeyRound },
   { id: 'security', label: 'Security', icon: Shield },
-  { id: 'marketplace', label: 'Marketplace', icon: Store },
 ]
 </script>
 
@@ -73,7 +71,6 @@ const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
         <SecretsSection v-if="activeSection === 'secrets'" />
         <AuthProfiles v-else-if="activeSection === 'auth'" />
         <SecurityPanel v-else-if="activeSection === 'security'" />
-        <SkillMarketplace v-else-if="activeSection === 'marketplace'" />
       </div>
     </div>
   </div>
