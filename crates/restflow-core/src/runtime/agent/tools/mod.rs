@@ -13,6 +13,7 @@ use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
 use restflow_ai::SkillProvider;
+use restflow_traits::store::DiagnosticsProvider;
 
 // Re-export tool types from restflow-tools
 pub use restflow_tools::impls::{
@@ -70,6 +71,8 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "manage_memory",
         "manage_auth_profiles",
         "save_deliverable",
+        "edit",
+        "multiedit",
         "patch",
         "diagnostics",
         "web_search",
@@ -121,6 +124,19 @@ pub fn registry_from_allowlist(
     let mut allow_file = false;
     let mut allow_file_write = false;
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
+
+    // Pre-create shared diagnostics provider when any of diagnostics/edit/multiedit
+    // are in the allowlist, so they all share the same LspManager instance.
+    let needs_diag = tool_names
+        .iter()
+        .any(|n| matches!(n.as_str(), "diagnostics" | "edit" | "multiedit"));
+    let shared_diagnostics: Option<Arc<dyn DiagnosticsProvider>> = if needs_diag {
+        let root =
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        Some(Arc::new(LspManager::new(root)))
+    } else {
+        None
+    };
 
     /// Register a storage-backed tool, warning if storage is unavailable.
     macro_rules! with_storage {
@@ -192,17 +208,22 @@ pub fn registry_from_allowlist(
                 builder = builder.with_jina_reader()?;
             }
             "diagnostics" => {
-                let root = std::env::current_dir()
-                    .unwrap_or_else(|_| std::path::PathBuf::from("."));
-                builder = builder.with_diagnostics(Arc::new(LspManager::new(root)));
+                if let Some(diag) = &shared_diagnostics {
+                    builder = builder.with_diagnostics(diag.clone());
+                }
             }
             "security_query" => {
                 builder =
                     builder.with_security_query(Arc::new(SecurityQueryProviderAdapter));
             }
             "patch" => {
-                builder = builder
-                    .with_patch(Arc::new(restflow_tools::impls::file_tracker::FileTracker::new()));
+                builder = builder.with_patch();
+            }
+            "edit" => {
+                builder = builder.with_edit_and_diagnostics(shared_diagnostics.clone());
+            }
+            "multiedit" => {
+                builder = builder.with_multiedit_and_diagnostics(shared_diagnostics.clone());
             }
 
             // --- Subagent tools ---
