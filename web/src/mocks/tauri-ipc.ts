@@ -403,31 +403,6 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
     case 'auth_clear':
       return null
 
-    // ---- Marketplace ----
-    case 'marketplace_search':
-      return []
-
-    case 'marketplace_get_skill':
-      throw 'Skill not found in marketplace'
-
-    case 'marketplace_get_versions':
-      return []
-
-    case 'marketplace_get_content':
-      return ''
-
-    case 'marketplace_check_gating':
-      return { passed: true, missing: [] }
-
-    case 'marketplace_install_skill':
-      return null
-
-    case 'marketplace_uninstall_skill':
-      return null
-
-    case 'marketplace_list_installed':
-      return []
-
     // ---- Security ----
     case 'get_security_policy':
       return {
