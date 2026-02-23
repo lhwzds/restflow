@@ -25,6 +25,7 @@ impl SkillAsTool {
 
 #[async_trait]
 impl Tool for SkillAsTool {
+    #[allow(clippy::misnamed_getters)]
     fn name(&self) -> &str {
         &self.info.id
     }
