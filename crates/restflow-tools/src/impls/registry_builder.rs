@@ -165,9 +165,9 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_http(mut self) -> Self {
-        self.registry.register(HttpTool::new());
-        self
+    pub fn with_http(mut self) -> Result<Self, reqwest::Error> {
+        self.registry.register(HttpTool::new()?);
+        Ok(self)
     }
 
     pub fn with_email(mut self) -> Self {
@@ -175,19 +175,19 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_telegram(mut self) -> Self {
-        self.registry.register(TelegramTool::new());
-        self
+    pub fn with_telegram(mut self) -> Result<Self, reqwest::Error> {
+        self.registry.register(TelegramTool::new()?);
+        Ok(self)
     }
 
-    pub fn with_discord(mut self) -> Self {
-        self.registry.register(DiscordTool::new());
-        self
+    pub fn with_discord(mut self) -> Result<Self, reqwest::Error> {
+        self.registry.register(DiscordTool::new()?);
+        Ok(self)
     }
 
-    pub fn with_slack(mut self) -> Self {
-        self.registry.register(SlackTool::new());
-        self
+    pub fn with_slack(mut self) -> Result<Self, reqwest::Error> {
+        self.registry.register(SlackTool::new()?);
+        Ok(self)
     }
 
     pub fn with_python(mut self) -> Self {
@@ -196,14 +196,14 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_transcribe(mut self, resolver: SecretResolver) -> Self {
-        self.registry.register(TranscribeTool::new(resolver));
-        self
+    pub fn with_transcribe(mut self, resolver: SecretResolver) -> Result<Self, reqwest::Error> {
+        self.registry.register(TranscribeTool::new(resolver)?);
+        Ok(self)
     }
 
-    pub fn with_vision(mut self, resolver: SecretResolver) -> Self {
-        self.registry.register(VisionTool::new(resolver));
-        self
+    pub fn with_vision(mut self, resolver: SecretResolver) -> Result<Self, reqwest::Error> {
+        self.registry.register(VisionTool::new(resolver)?);
+        Ok(self)
     }
 
     pub fn with_spawn(mut self, spawner: Arc<dyn SubagentSpawner>) -> Self {
@@ -238,20 +238,20 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_jina_reader(mut self) -> Self {
-        self.registry.register(JinaReaderTool::new());
-        self
+    pub fn with_jina_reader(mut self) -> Result<Self, reqwest::Error> {
+        self.registry.register(JinaReaderTool::new()?);
+        Ok(self)
     }
 
-    pub fn with_web_search(mut self) -> Self {
-        self.registry.register(WebSearchTool::new());
-        self
+    pub fn with_web_search(mut self) -> Result<Self, reqwest::Error> {
+        self.registry.register(WebSearchTool::new()?);
+        Ok(self)
     }
 
-    pub fn with_web_search_with_resolver(mut self, resolver: SecretResolver) -> Self {
+    pub fn with_web_search_with_resolver(mut self, resolver: SecretResolver) -> Result<Self, reqwest::Error> {
         self.registry
-            .register(WebSearchTool::new().with_secret_resolver(resolver));
-        self
+            .register(WebSearchTool::new()?.with_secret_resolver(resolver));
+        Ok(self)
     }
 
     // --- Storage-backed tools ---
@@ -372,15 +372,15 @@ impl ToolRegistryBuilder {
 }
 
 /// Create a registry with default tools.
-pub fn default_registry() -> ToolRegistry {
-    ToolRegistryBuilder::new()
+pub fn default_registry() -> Result<ToolRegistry, reqwest::Error> {
+    Ok(ToolRegistryBuilder::new()
         .with_bash(BashConfig::default())
         .with_file(FileConfig::default())
-        .with_http()
+        .with_http()?
         .with_email()
-        .with_telegram()
-        .with_discord()
-        .with_slack()
+        .with_telegram()?
+        .with_discord()?
+        .with_slack()?
         .with_python()
-        .build()
+        .build())
 }

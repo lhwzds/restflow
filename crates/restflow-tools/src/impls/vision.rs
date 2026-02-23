@@ -26,11 +26,11 @@ pub struct VisionTool {
 }
 
 impl VisionTool {
-    pub fn new(secret_resolver: SecretResolver) -> Self {
-        Self {
-            client: build_http_client(),
+    pub fn new(secret_resolver: SecretResolver) -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
             secret_resolver,
-        }
+        })
     }
 
     fn resolve_api_key(&self) -> Option<String> {
@@ -201,7 +201,7 @@ mod tests {
     #[test]
     fn test_vision_schema() {
         let resolver: SecretResolver = Arc::new(|_| None);
-        let tool = VisionTool::new(resolver);
+        let tool = VisionTool::new(resolver).unwrap();
         let schema = tool.parameters_schema();
         assert_eq!(tool.name(), "vision");
         assert!(schema.get("properties").is_some());

@@ -43,16 +43,16 @@ impl AnthropicAuthType {
 
 impl AnthropicClient {
     /// Create a new Anthropic client
-    pub fn new(api_key: impl Into<String>) -> Self {
+    pub fn new(api_key: impl Into<String>) -> std::result::Result<Self, reqwest::Error> {
         let api_key = api_key.into();
         let auth_type = AnthropicAuthType::from_key(&api_key);
-        Self {
-            client: build_http_client(),
+        Ok(Self {
+            client: build_http_client()?,
             api_key,
             auth_type,
             model: "claude-sonnet-4-20250514".to_string(),
             base_url: None,
-        }
+        })
     }
 
     /// Set the model to use

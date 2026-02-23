@@ -22,9 +22,9 @@ async fn test_agent_with_http_tool() {
     disable_system_proxy_for_tests();
     let api_key = std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY required");
 
-    let llm = Arc::new(OpenAIClient::new(api_key));
+    let llm = Arc::new(OpenAIClient::new(api_key).expect("failed to build HTTP client"));
     let mut tools = ToolRegistry::new();
-    tools.register(HttpTool::new());
+    tools.register(HttpTool::new().expect("failed to build HTTP client"));
 
     let executor = AgentExecutor::new(llm, Arc::new(tools));
     let config =
@@ -46,9 +46,9 @@ async fn test_agent_with_anthropic() {
     disable_system_proxy_for_tests();
     let api_key = std::env::var("ANTHROPIC_API_KEY").expect("ANTHROPIC_API_KEY required");
 
-    let llm = Arc::new(AnthropicClient::new(api_key));
+    let llm = Arc::new(AnthropicClient::new(api_key).expect("failed to build HTTP client"));
     let mut tools = ToolRegistry::new();
-    tools.register(HttpTool::new());
+    tools.register(HttpTool::new().expect("failed to build HTTP client"));
 
     let executor = AgentExecutor::new(llm, Arc::new(tools));
     let config = AgentConfig::new(
@@ -67,7 +67,7 @@ async fn test_agent_with_anthropic() {
 async fn test_tool_registry() {
     disable_system_proxy_for_tests();
     let mut registry = ToolRegistry::new();
-    registry.register(HttpTool::new());
+    registry.register(HttpTool::new().expect("failed to build HTTP client"));
     registry.register(EmailTool::new());
 
     assert!(registry.has("http_request"));

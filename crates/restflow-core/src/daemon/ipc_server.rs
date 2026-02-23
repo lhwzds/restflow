@@ -1374,36 +1374,44 @@ impl IpcServer {
                 "pid": std::process::id(),
             })),
             IpcRequest::GetAvailableModels => IpcResponse::success(Vec::<String>::new()),
-            IpcRequest::GetAvailableTools => {
-                let registry = create_runtime_tool_registry(core);
-                let tools: Vec<String> = registry
-                    .list()
-                    .iter()
-                    .map(|name| name.to_string())
-                    .collect();
-                IpcResponse::success(tools)
-            }
+            IpcRequest::GetAvailableTools => match create_runtime_tool_registry(core) {
+                Ok(registry) => {
+                    let tools: Vec<String> = registry
+                        .list()
+                        .iter()
+                        .map(|name| name.to_string())
+                        .collect();
+                    IpcResponse::success(tools)
+                }
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::GetAvailableToolDefinitions => {
-                let registry = create_runtime_tool_registry(core);
-                let tools: Vec<ToolDefinition> = registry
-                    .schemas()
-                    .into_iter()
-                    .map(|schema| ToolDefinition {
-                        name: schema.name,
-                        description: schema.description,
-                        parameters: schema.parameters,
-                    })
-                    .collect();
-                IpcResponse::success(tools)
+                match create_runtime_tool_registry(core) {
+                    Ok(registry) => {
+                        let tools: Vec<ToolDefinition> = registry
+                            .schemas()
+                            .into_iter()
+                            .map(|schema| ToolDefinition {
+                                name: schema.name,
+                                description: schema.description,
+                                parameters: schema.parameters,
+                            })
+                            .collect();
+                        IpcResponse::success(tools)
+                    }
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
             }
             IpcRequest::ExecuteTool { name, input } => {
-                let registry = create_runtime_tool_registry(core);
-                match registry.execute_safe(&name, input).await {
-                    Ok(output) => IpcResponse::success(ToolExecutionResult {
-                        success: output.success,
-                        result: output.result,
-                        error: output.error,
-                    }),
+                match create_runtime_tool_registry(core) {
+                    Ok(registry) => match registry.execute_safe(&name, input).await {
+                        Ok(output) => IpcResponse::success(ToolExecutionResult {
+                            success: output.success,
+                            result: output.result,
+                            error: output.error,
+                        }),
+                        Err(err) => IpcResponse::error(500, err.to_string()),
+                    },
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
@@ -1421,7 +1429,9 @@ impl IpcServer {
     }
 }
 
-fn create_runtime_tool_registry(core: &Arc<AppCore>) -> restflow_ai::tools::ToolRegistry {
+fn create_runtime_tool_registry(
+    core: &Arc<AppCore>,
+) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
     create_tool_registry(
         core.storage.skills.clone(),
         core.storage.memory.clone(),

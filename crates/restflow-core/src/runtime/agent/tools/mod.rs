@@ -108,13 +108,13 @@ pub fn registry_from_allowlist(
     storage: Option<&Storage>,
     _agent_id: Option<&str>,
     bash_config: Option<BashConfig>,
-) -> ToolRegistry {
+) -> anyhow::Result<ToolRegistry> {
     let Some(tool_names) = tool_names else {
-        return ToolRegistry::new();
+        return Ok(ToolRegistry::new());
     };
 
     if tool_names.is_empty() {
-        return ToolRegistry::new();
+        return Ok(ToolRegistry::new());
     }
 
     let mut builder = ToolRegistryBuilder::new();
@@ -147,49 +147,49 @@ pub fn registry_from_allowlist(
                 allow_file_write = true;
             }
             "http" | "http_request" => {
-                builder = builder.with_http();
+                builder = builder.with_http()?;
             }
             "send_email" | "email" => {
                 builder = builder.with_email();
             }
             "telegram_send" | "telegram" => {
-                builder = builder.with_telegram();
+                builder = builder.with_telegram()?;
             }
             "discord_send" | "discord" => {
-                builder = builder.with_discord();
+                builder = builder.with_discord()?;
             }
             "slack_send" | "slack" => {
-                builder = builder.with_slack();
+                builder = builder.with_slack()?;
             }
             "python" | "run_python" => {
                 builder = builder.with_python();
             }
             "transcribe" => {
                 if let Some(resolver) = secret_resolver.clone() {
-                    builder = builder.with_transcribe(resolver);
+                    builder = builder.with_transcribe(resolver)?;
                 } else {
                     warn!(tool_name = "transcribe", "Secret resolver missing, skipping");
                 }
             }
             "vision" => {
                 if let Some(resolver) = secret_resolver.clone() {
-                    builder = builder.with_vision(resolver);
+                    builder = builder.with_vision(resolver)?;
                 } else {
                     warn!(tool_name = "vision", "Secret resolver missing, skipping");
                 }
             }
             "web_search" => {
                 if let Some(resolver) = secret_resolver.clone() {
-                    builder = builder.with_web_search_with_resolver(resolver);
+                    builder = builder.with_web_search_with_resolver(resolver)?;
                 } else {
-                    builder = builder.with_web_search();
+                    builder = builder.with_web_search()?;
                 }
             }
             "web_fetch" => {
                 builder = builder.with_web_fetch();
             }
             "jina_reader" => {
-                builder = builder.with_jina_reader();
+                builder = builder.with_jina_reader()?;
             }
             "diagnostics" => {
                 let root = std::env::current_dir()
@@ -414,7 +414,7 @@ pub fn registry_from_allowlist(
             .collect::<HashSet<_>>();
     }
 
-    registry
+    Ok(registry)
 }
 
 #[cfg(test)]
@@ -437,7 +437,8 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None);
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None)
+                .unwrap();
         assert!(registry.has("manage_background_agents"));
         assert!(registry.has("manage_agents"));
     }
@@ -448,7 +449,8 @@ mod tests {
             "manage_background_agents".to_string(),
             "manage_agents".to_string(),
         ];
-        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None);
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
         assert!(!registry.has("manage_background_agents"));
         assert!(!registry.has("manage_agents"));
     }
@@ -468,7 +470,8 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None);
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None)
+                .unwrap();
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
@@ -494,7 +497,8 @@ mod tests {
     #[test]
     fn test_python_alias_and_run_python_are_both_registered() {
         let names = vec!["python".to_string()];
-        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None);
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
         assert!(registry.has("python"));
         assert!(registry.has("run_python"));
     }

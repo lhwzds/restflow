@@ -211,18 +211,18 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                     if key.starts_with("sk-ant-oat") {
                         Arc::new(ClaudeCodeClient::new(key).with_model(spec.client_model))
                     } else {
-                        Arc::new(AnthropicClient::new(key).with_model(spec.client_model))
+                        Arc::new(AnthropicClient::new(key)?.with_model(spec.client_model))
                     }
                 }
                 LlmProvider::MiniMax | LlmProvider::MiniMaxCodingPlan => Arc::new(
-                    AnthropicClient::new(key)
+                    AnthropicClient::new(key)?
                         .with_model(spec.client_model)
                         .with_base_url("https://api.minimax.io/anthropic"),
                 ),
                 provider => {
                     let base_url = spec.base_url.as_deref().unwrap_or(provider.base_url());
                     Arc::new(
-                        OpenAIClient::new(key)
+                        OpenAIClient::new(key)?
                             .with_model(spec.client_model)
                             .with_base_url(base_url),
                     )

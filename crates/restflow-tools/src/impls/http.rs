@@ -29,21 +29,15 @@ pub struct HttpTool {
     network_allowlist: Option<NetworkAllowlist>,
 }
 
-impl Default for HttpTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl HttpTool {
-    pub fn new() -> Self {
-        Self {
-            client: build_http_client(),
+    pub fn new() -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
             security_gate: None,
             agent_id: None,
             task_id: None,
             network_allowlist: None,
-        }
+        })
     }
 
     pub fn with_client(client: Client) -> Self {
@@ -199,7 +193,8 @@ impl Tool for HttpTool {
         }
 
         let host = parsed_url.host_str().unwrap_or_default();
-        let client = build_ssrf_safe_client(host, pinned_addr);
+        let client = build_ssrf_safe_client(host, pinned_addr)
+            .map_err(anyhow::Error::from)?;
 
         let max_redirects = 5;
         let mut current_url = params.url.clone();
@@ -290,7 +285,8 @@ impl Tool for HttpTool {
                             };
 
                         let new_host = new_parsed.host_str().unwrap_or_default();
-                        current_client = build_ssrf_safe_client(new_host, new_addr);
+                        current_client = build_ssrf_safe_client(new_host, new_addr)
+                            .map_err(anyhow::Error::from)?;
                         current_url = redirect_url;
                         continue;
                     }
@@ -352,7 +348,7 @@ mod tests {
 
     #[test]
     fn test_http_tool_schema() {
-        let tool = HttpTool::new();
+        let tool = HttpTool::new().unwrap();
         assert_eq!(tool.name(), "http_request");
         let schema = tool.parameters_schema();
         assert!(schema.get("properties").is_some());

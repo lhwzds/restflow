@@ -345,7 +345,7 @@ impl AgentNode {
     pub async fn validate_async(&self, core: &Arc<AppCore>) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
 
-        let tool_registry = crate::services::tool_registry::create_tool_registry(
+        let tool_registry = match crate::services::tool_registry::create_tool_registry(
             core.storage.skills.clone(),
             core.storage.memory.clone(),
             core.storage.chat_sessions.clone(),
@@ -360,7 +360,16 @@ impl AgentNode {
             core.storage.deliverables.clone(),
             None,
             None,
-        );
+        ) {
+            Ok(registry) => registry,
+            Err(err) => {
+                errors.push(ValidationError::new(
+                    "tools",
+                    format!("Failed to create tool registry: {err}"),
+                ));
+                return Err(errors);
+            }
+        };
 
         if let Some(tools) = &self.tools {
             for tool_name in tools {
