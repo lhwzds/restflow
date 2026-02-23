@@ -71,10 +71,16 @@ impl WorkerPool {
 
     /// Stop all workers.
     pub async fn stop(&mut self) {
+        const WORKER_STOP_TIMEOUT: Duration = Duration::from_secs(10);
+
         info!("Stopping worker pool");
         let _ = self.shutdown_tx.send(());
-        for handle in self.handles.drain(..) {
-            let _ = handle.await;
+        let handles: Vec<_> = self.handles.drain(..).collect();
+        for (i, mut handle) in handles.into_iter().enumerate() {
+            if tokio::time::timeout(WORKER_STOP_TIMEOUT, &mut handle).await.is_err() {
+                warn!(worker_id = i, "Worker did not stop within {:?}, aborting", WORKER_STOP_TIMEOUT);
+                handle.abort();
+            }
         }
     }
 
