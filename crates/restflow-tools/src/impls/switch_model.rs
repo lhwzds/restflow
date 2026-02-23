@@ -4,20 +4,18 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use restflow_ai::error::AiError;
-use crate::Result;
-use restflow_ai::llm::{LlmClientFactory, LlmProvider, SwappableLlm};
+use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
+use restflow_traits::LlmSwitcher;
 
 #[derive(Clone)]
 pub struct SwitchModelTool {
-    llm: Arc<SwappableLlm>,
-    factory: Arc<dyn LlmClientFactory>,
+    switcher: Arc<dyn LlmSwitcher>,
 }
 
 impl SwitchModelTool {
-    pub fn new(llm: Arc<SwappableLlm>, factory: Arc<dyn LlmClientFactory>) -> Self {
-        Self { llm, factory }
+    pub fn new(switcher: Arc<dyn LlmSwitcher>) -> Self {
+        Self { switcher }
     }
 
     fn normalize_model(model: &str) -> String {
@@ -36,26 +34,24 @@ impl SwitchModelTool {
     fn parse_provider(value: &str) -> Option<ProviderSelector> {
         let normalized = Self::normalize_provider(value);
         match normalized.as_str() {
-            "openai" | "gpt" => Some(ProviderSelector::Api(LlmProvider::OpenAI)),
-            "anthropic" => Some(ProviderSelector::Api(LlmProvider::Anthropic)),
+            "openai" | "gpt" => Some(ProviderSelector::Api("openai")),
+            "anthropic" => Some(ProviderSelector::Api("anthropic")),
             "claudecode" => Some(ProviderSelector::ClaudeCode),
-            "deepseek" => Some(ProviderSelector::Api(LlmProvider::DeepSeek)),
-            "google" | "gemini" => Some(ProviderSelector::Api(LlmProvider::Google)),
-            "groq" => Some(ProviderSelector::Api(LlmProvider::Groq)),
-            "openrouter" => Some(ProviderSelector::Api(LlmProvider::OpenRouter)),
-            "xai" => Some(ProviderSelector::Api(LlmProvider::XAI)),
-            "qwen" => Some(ProviderSelector::Api(LlmProvider::Qwen)),
-            "zai" => Some(ProviderSelector::Api(LlmProvider::Zai)),
-            "zaicodingplan" | "zaicoding" => {
-                Some(ProviderSelector::Api(LlmProvider::ZaiCodingPlan))
-            }
-            "moonshot" => Some(ProviderSelector::Api(LlmProvider::Moonshot)),
-            "doubao" => Some(ProviderSelector::Api(LlmProvider::Doubao)),
-            "yi" => Some(ProviderSelector::Api(LlmProvider::Yi)),
-            "siliconflow" => Some(ProviderSelector::Api(LlmProvider::SiliconFlow)),
-            "minimax" => Some(ProviderSelector::Api(LlmProvider::MiniMax)),
+            "deepseek" => Some(ProviderSelector::Api("deepseek")),
+            "google" | "gemini" => Some(ProviderSelector::Api("google")),
+            "groq" => Some(ProviderSelector::Api("groq")),
+            "openrouter" => Some(ProviderSelector::Api("openrouter")),
+            "xai" => Some(ProviderSelector::Api("xai")),
+            "qwen" => Some(ProviderSelector::Api("qwen")),
+            "zai" => Some(ProviderSelector::Api("zai")),
+            "zaicodingplan" | "zaicoding" => Some(ProviderSelector::Api("zai-coding-plan")),
+            "moonshot" => Some(ProviderSelector::Api("moonshot")),
+            "doubao" => Some(ProviderSelector::Api("doubao")),
+            "yi" => Some(ProviderSelector::Api("yi")),
+            "siliconflow" => Some(ProviderSelector::Api("siliconflow")),
+            "minimax" => Some(ProviderSelector::Api("minimax")),
             "minimaxcodingplan" | "minimaxcoding" => {
-                Some(ProviderSelector::Api(LlmProvider::MiniMaxCodingPlan))
+                Some(ProviderSelector::Api("minimax-coding-plan"))
             }
             "codex" | "codexcli" | "openaicodex" => Some(ProviderSelector::OpenAICodex),
             "opencode" | "opencodecli" => Some(ProviderSelector::OpenCodeCli),
@@ -89,14 +85,17 @@ impl SwitchModelTool {
 
     fn model_matches_provider(&self, model: &str, provider: ProviderSelector) -> bool {
         match provider {
-            ProviderSelector::Api(value) => {
-                self.factory.provider_for_model(model) == Some(value)
+            ProviderSelector::Api(expected) => {
+                self.switcher
+                    .provider_for_model(model)
+                    .map(|p| p == expected)
+                    .unwrap_or(false)
                     && !self.is_cli_scoped_model(model)
             }
             ProviderSelector::ClaudeCode => Self::is_claude_code_model(model),
-            ProviderSelector::OpenAICodex => self.factory.is_codex_cli_model(model),
-            ProviderSelector::OpenCodeCli => self.factory.is_opencode_cli_model(model),
-            ProviderSelector::GeminiCli => self.factory.is_gemini_cli_model(model),
+            ProviderSelector::OpenAICodex => self.switcher.is_codex_cli_model(model),
+            ProviderSelector::OpenCodeCli => self.switcher.is_opencode_cli_model(model),
+            ProviderSelector::GeminiCli => self.switcher.is_gemini_cli_model(model),
         }
     }
 
@@ -107,9 +106,9 @@ impl SwitchModelTool {
     }
 
     fn is_cli_scoped_model(&self, model: &str) -> bool {
-        self.factory.is_codex_cli_model(model)
-            || self.factory.is_opencode_cli_model(model)
-            || self.factory.is_gemini_cli_model(model)
+        self.switcher.is_codex_cli_model(model)
+            || self.switcher.is_opencode_cli_model(model)
+            || self.switcher.is_gemini_cli_model(model)
             || Self::is_claude_code_model(model)
     }
 
@@ -118,17 +117,17 @@ impl SwitchModelTool {
         requested_provider: Option<&str>,
         requested_model: Option<&str>,
     ) -> Result<String> {
-        let available = self.factory.available_models();
+        let available = self.switcher.available_models();
 
         if requested_provider.is_none() || requested_model.is_none() {
-            return Err(crate::ToolError::Tool(
+            return Err(ToolError::Tool(
                 "Missing parameters: both 'provider' and 'model' are required".to_string(),
             ));
         }
 
         let provider_raw = requested_provider.expect("requested_provider checked above");
         let provider = Self::parse_provider(provider_raw).ok_or_else(|| {
-            AiError::Tool(format!(
+            ToolError::Tool(format!(
                 "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, minimax, minimax-coding-plan, zai, zai-coding-plan, claude-code, openai-codex, gemini-cli"
             ))
         })?;
@@ -138,7 +137,7 @@ impl SwitchModelTool {
             Self::split_provider_qualified_model(model_raw)
         {
             if inline_provider != provider {
-                return Err(crate::ToolError::Tool(format!(
+                return Err(ToolError::Tool(format!(
                     "Model '{model_raw}' does not belong to provider '{}'",
                     provider.label()
                 )));
@@ -151,12 +150,12 @@ impl SwitchModelTool {
         let model = self
             .find_model_by_name(&available, &model_candidate)
             .ok_or_else(|| {
-                AiError::Tool(format!(
+                ToolError::Tool(format!(
                     "Unknown model: '{model_candidate}'. Use manage_agents tool to list available models, or check the provider's documentation."
                 ))
             })?;
         if !self.model_matches_provider(model, provider) {
-            return Err(crate::ToolError::Tool(format!(
+            return Err(ToolError::Tool(format!(
                 "Model '{model_raw}' does not belong to provider '{}'",
                 provider.label()
             )));
@@ -164,16 +163,16 @@ impl SwitchModelTool {
         Ok(model.to_string())
     }
 
-    fn resolve_provider(&self, model: &str) -> Result<LlmProvider> {
-        self.factory
+    fn resolve_provider_name(&self, model: &str) -> Result<String> {
+        self.switcher
             .provider_for_model(model)
-            .ok_or_else(|| crate::ToolError::Tool(format!("Unknown model: {model}")))
+            .ok_or_else(|| ToolError::Tool(format!("Unknown model: {model}")))
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ProviderSelector {
-    Api(LlmProvider),
+    Api(&'static str),
     ClaudeCode,
     OpenAICodex,
     OpenCodeCli,
@@ -183,7 +182,7 @@ enum ProviderSelector {
 impl ProviderSelector {
     fn label(self) -> &'static str {
         match self {
-            Self::Api(provider) => provider.as_str(),
+            Self::Api(name) => name,
             Self::ClaudeCode => "claude-code",
             Self::OpenAICodex => "openai-codex",
             Self::OpenCodeCli => "opencode-cli",
@@ -242,25 +241,24 @@ impl Tool for SwitchModelTool {
 
         let model_name = self.resolve_target_model(requested_provider, requested_model)?;
 
-        let provider = self.resolve_provider(&model_name)?;
-        let is_cli = self.factory.is_codex_cli_model(&model_name)
-            || self.factory.is_opencode_cli_model(&model_name)
-            || self.factory.is_gemini_cli_model(&model_name);
+        let provider_name = self.resolve_provider_name(&model_name)?;
+        let is_cli = self.switcher.is_codex_cli_model(&model_name)
+            || self.switcher.is_opencode_cli_model(&model_name)
+            || self.switcher.is_gemini_cli_model(&model_name);
         let api_key = if is_cli {
-            self.factory.resolve_api_key(provider)
+            self.switcher.resolve_api_key(&provider_name)
         } else {
-            Some(self.factory.resolve_api_key(provider).ok_or_else(|| {
-                AiError::Tool(format!(
+            Some(self.switcher.resolve_api_key(&provider_name).ok_or_else(|| {
+                ToolError::Tool(format!(
                     "No API key for provider '{}'. Set the key via manage_secrets tool (e.g., ANTHROPIC_API_KEY, OPENAI_API_KEY).",
-                    provider.as_str(),
+                    provider_name,
                 ))
             })?)
         };
 
-        let client = self
-            .factory
-            .create_client(&model_name, api_key.as_deref())?;
-        let previous = self.llm.swap(client.clone());
+        let swap_result = self
+            .switcher
+            .create_and_swap(&model_name, api_key.as_deref())?;
 
         let payload = json!({
             "switched": true,
@@ -269,12 +267,12 @@ impl Tool for SwitchModelTool {
                 "model": requested_model
             },
             "from": {
-                "provider": previous.provider(),
-                "model": previous.model()
+                "provider": swap_result.previous_provider,
+                "model": swap_result.previous_model
             },
             "to": {
-                "provider": client.provider(),
-                "model": client.model()
+                "provider": swap_result.new_provider,
+                "model": swap_result.new_model
             },
             "reason": reason
         });
@@ -286,10 +284,12 @@ impl Tool for SwitchModelTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    type AiResult<T> = std::result::Result<T, restflow_ai::error::AiError>;
+    use restflow_ai::error::AiError;
     use restflow_ai::llm::{
-        CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult, TokenUsage,
+        CompletionRequest, CompletionResponse, FinishReason, LlmClient, LlmClientFactory,
+        LlmProvider, StreamResult, SwappableLlm, TokenUsage,
     };
+    type AiResult<T> = std::result::Result<T, AiError>;
     use std::collections::{HashMap, HashSet};
     use std::sync::Mutex;
 
@@ -409,11 +409,13 @@ mod tests {
     }
 
     fn build_tool(factory: Arc<MockFactory>) -> (SwitchModelTool, Arc<SwappableLlm>) {
+        use restflow_ai::llm::LlmSwitcherImpl;
         let llm = Arc::new(SwappableLlm::new(Arc::new(MockClient::new(
             "anthropic",
             "claude-haiku-4-5",
         ))));
-        (SwitchModelTool::new(llm.clone(), factory), llm)
+        let switcher = Arc::new(LlmSwitcherImpl::new(llm.clone(), factory));
+        (SwitchModelTool::new(switcher), llm)
     }
 
     #[tokio::test]

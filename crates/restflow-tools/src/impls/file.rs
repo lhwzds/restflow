@@ -32,7 +32,7 @@ use restflow_traits::store::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
 use crate::{Tool, ToolErrorCategory, ToolOutput};
 use crate::ToolAction;
-use restflow_ai::cache::{AgentCacheManager, CachedSearchResult, SearchMatch as CachedSearchMatch};
+use restflow_traits::cache::{AgentCache, CachedSearchResult, SearchMatch as CachedSearchMatch};
 use crate::Result;
 use crate::security::SecurityGate;
 use crate::check_security;
@@ -82,7 +82,7 @@ pub struct FileTool {
     /// Optional diagnostics provider
     diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
     /// Optional cache manager for file/search operations
-    cache_manager: Option<Arc<AgentCacheManager>>,
+    cache_manager: Option<Arc<dyn AgentCache>>,
     /// Optional security gate
     security_gate: Option<Arc<dyn SecurityGate>>,
     /// Agent identifier for security checks
@@ -136,7 +136,7 @@ impl FileTool {
     }
 
     /// Attach a cache manager for file and search operations
-    pub fn with_cache_manager(mut self, cache_manager: Arc<AgentCacheManager>) -> Self {
+    pub fn with_cache_manager(mut self, cache_manager: Arc<dyn AgentCache>) -> Self {
         self.cache_manager = Some(cache_manager);
         self
     }
@@ -255,7 +255,7 @@ impl FileTool {
         }
 
         if let Some(cache) = &self.cache_manager
-            && let Some(content) = cache.files.get_with_metadata(&path, &metadata).await
+            && let Some(content) = cache.get_file(&path, &metadata).await
         {
             return Self::format_file_output(&path, &content, offset, limit);
         }
@@ -267,7 +267,7 @@ impl FileTool {
 
         self.tracker.record_read(&path);
         if let Some(cache) = &self.cache_manager {
-            cache.files.put(&path, content.clone(), &metadata).await;
+            cache.put_file(&path, content.clone(), &metadata).await;
         }
 
         Self::format_file_output(&path, &content, offset, limit)
@@ -382,12 +382,11 @@ impl FileTool {
                 self.tracker.record_write(&path);
 
                 if let Some(cache) = &self.cache_manager {
-                    cache.files.invalidate(&path).await;
+                    cache.invalidate_file(&path).await;
                     let mut current = path.parent();
                     while let Some(directory) = current {
                         cache
-                            .search
-                            .invalidate_directory(&directory.to_string_lossy())
+                            .invalidate_search_dir(&directory.to_string_lossy())
                             .await;
                         current = directory.parent();
                     }
@@ -580,7 +579,7 @@ impl FileTool {
 
         let search_path = path.display().to_string();
         if let Some(cache) = &self.cache_manager
-            && let Some(cached) = cache.search.get(pattern, &search_path, file_pattern).await
+            && let Some(cached) = cache.get_search(pattern, &search_path, file_pattern).await
         {
             return Self::format_search_output(&search_path, pattern, cached);
         }
@@ -612,8 +611,7 @@ impl FileTool {
 
         if let Some(cache) = &self.cache_manager {
             cache
-                .search
-                .put(pattern, &search_path, file_pattern, result.clone())
+                .put_search(pattern, &search_path, file_pattern, result.clone())
                 .await;
         }
 

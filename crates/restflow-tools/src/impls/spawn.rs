@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_ai::agent::SubagentSpawner;
+use restflow_traits::SubagentSpawner;
 
 pub struct SpawnTool {
     spawner: Arc<dyn SubagentSpawner>,
