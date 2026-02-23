@@ -104,6 +104,7 @@ impl SubagentDefLookup for AgentDefinitionRegistry {
             system_prompt: def.system_prompt.clone(),
             allowed_tools: def.allowed_tools.clone(),
             max_iterations: def.max_iterations,
+            default_model: def.model.clone(),
         })
     }
 

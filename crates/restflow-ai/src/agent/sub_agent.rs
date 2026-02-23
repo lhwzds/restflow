@@ -2,7 +2,7 @@
 
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::error::{AiError, Result};
-use crate::llm::LlmClient;
+use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::{FilteredToolset, ToolRegistry, Toolset};
 use dashmap::DashMap;
 use std::sync::Arc;
@@ -368,6 +368,32 @@ pub struct SubagentDeps {
     pub llm_client: Arc<dyn LlmClient>,
     pub tool_registry: Arc<ToolRegistry>,
     pub config: SubagentConfig,
+    /// Optional factory for creating LLM clients when a per-spawn model is requested.
+    pub llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
+}
+
+/// Resolve which LLM client to use for a sub-agent spawn.
+///
+/// Priority: request.model > agent_def.default_model > parent llm_client.
+fn resolve_llm_client(
+    request_model: Option<&str>,
+    def_default_model: Option<&str>,
+    parent_client: &Arc<dyn LlmClient>,
+    factory: Option<&Arc<dyn LlmClientFactory>>,
+) -> Result<Arc<dyn LlmClient>> {
+    let chosen_model = request_model.or(def_default_model);
+    let Some(model) = chosen_model else {
+        return Ok(parent_client.clone());
+    };
+    let Some(factory) = factory else {
+        // No factory available — fall back to parent even if a model was requested.
+        return Ok(parent_client.clone());
+    };
+    let provider = factory.provider_for_model(model).ok_or_else(|| {
+        AiError::Agent(format!("Unknown model for sub-agent: {model}"))
+    })?;
+    let api_key = factory.resolve_api_key(provider);
+    factory.create_client(model, api_key.as_deref())
 }
 
 /// Spawn a sub-agent with the given request.
@@ -378,10 +404,19 @@ pub fn spawn_subagent(
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
     request: SpawnRequest,
+    llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
 ) -> Result<SpawnHandle> {
     let agent_def = definitions
         .lookup(&request.agent_id)
         .ok_or_else(|| AiError::Agent(format!("Unknown agent type: {}", request.agent_id)))?;
+
+    // Resolve the LLM client: request.model > def.default_model > parent
+    let llm_client = resolve_llm_client(
+        request.model.as_deref(),
+        agent_def.default_model.as_deref(),
+        &llm_client,
+        llm_client_factory.as_ref(),
+    )?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
     let timeout_secs = request.timeout_secs.unwrap_or(config.subagent_timeout_secs);
@@ -539,6 +574,8 @@ pub struct SubagentManagerImpl {
     pub llm_client: Arc<dyn LlmClient>,
     pub tool_registry: Arc<ToolRegistry>,
     pub config: SubagentConfig,
+    /// Optional factory for creating LLM clients when a per-spawn model is requested.
+    pub llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
 }
 
 impl SubagentManagerImpl {
@@ -555,6 +592,7 @@ impl SubagentManagerImpl {
             llm_client,
             tool_registry,
             config,
+            llm_client_factory: None,
         }
     }
 
@@ -566,6 +604,7 @@ impl SubagentManagerImpl {
             llm_client: deps.llm_client.clone(),
             tool_registry: deps.tool_registry.clone(),
             config: deps.config.clone(),
+            llm_client_factory: deps.llm_client_factory.clone(),
         }
     }
 }
@@ -580,6 +619,7 @@ impl SubagentManager for SubagentManagerImpl {
             self.tool_registry.clone(),
             self.config.clone(),
             request,
+            self.llm_client_factory.clone(),
         )
         .map_err(|e| ToolError::Tool(e.to_string()))
     }
@@ -616,6 +656,7 @@ mod tests {
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
+            model: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();

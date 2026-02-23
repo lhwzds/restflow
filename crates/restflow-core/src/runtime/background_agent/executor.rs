@@ -518,6 +518,7 @@ impl AgentRuntimeExecutor {
         &self,
         llm_client: Arc<dyn LlmClient>,
         tool_registry: Arc<ToolRegistry>,
+        llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
     ) -> SubagentDeps {
         SubagentDeps {
             tracker: self.subagent_tracker.clone(),
@@ -525,6 +526,7 @@ impl AgentRuntimeExecutor {
             llm_client,
             tool_registry,
             config: self.subagent_config.clone(),
+            llm_client_factory,
         }
     }
 
@@ -749,7 +751,7 @@ impl AgentRuntimeExecutor {
             agent_id,
             bash_config.clone(),
         )?);
-        let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry);
+        let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry, Some(factory.clone()));
         let subagent_manager: Arc<dyn SubagentManager> =
             Arc::new(SubagentManagerImpl::from_deps(&subagent_deps));
         let mut registry = registry_from_allowlist(

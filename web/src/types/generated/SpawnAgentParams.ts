@@ -19,4 +19,8 @@ wait: boolean,
 /**
  * Timeout in seconds (default: 300).
  */
-timeout_secs: bigint | null, };
+timeout_secs: bigint | null, 
+/**
+ * Optional model override for this spawn (e.g., "minimax/coding-plan").
+ */
+model?: string, };

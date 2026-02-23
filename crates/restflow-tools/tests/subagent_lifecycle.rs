@@ -36,6 +36,7 @@ impl MockDefLookup {
                     system_prompt: format!("You are a {} agent.", name),
                     allowed_tools: vec![],
                     max_iterations: Some(1),
+                    default_model: None,
                 },
             );
             summaries.push(SubagentDefSummary {
@@ -79,6 +80,7 @@ fn make_shared_deps(
         llm_client,
         tool_registry,
         config,
+        llm_client_factory: None,
     });
     Arc::new(SubagentManagerImpl::from_deps(&deps))
 }

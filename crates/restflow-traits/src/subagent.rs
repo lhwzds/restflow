@@ -22,6 +22,8 @@ pub struct SubagentDefSnapshot {
     pub allowed_tools: Vec<String>,
     /// Maximum ReAct loop iterations
     pub max_iterations: Option<u32>,
+    /// Default model for this agent type (from agent definition).
+    pub default_model: Option<String>,
 }
 
 /// Summary info for listing a sub-agent definition.
@@ -88,6 +90,10 @@ pub struct SpawnRequest {
 
     /// Optional priority level.
     pub priority: Option<SpawnPriority>,
+
+    /// Optional model override for this spawn (e.g., "minimax/coding-plan").
+    #[serde(default)]
+    pub model: Option<String>,
 }
 
 /// Priority level for sub-agent spawning.
@@ -221,6 +227,7 @@ mod tests {
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
+            model: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();

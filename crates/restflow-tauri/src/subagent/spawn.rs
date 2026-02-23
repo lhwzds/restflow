@@ -156,6 +156,7 @@ mod tests {
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
+            model: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();

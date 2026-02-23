@@ -130,6 +130,7 @@ mod tests {
                         system_prompt: format!("You are a {} agent.", name),
                         allowed_tools: vec![],
                         max_iterations: Some(1),
+                        default_model: None,
                     },
                 );
                 summaries.push(SubagentDefSummary {
@@ -180,6 +181,7 @@ mod tests {
             llm_client,
             tool_registry,
             config,
+            llm_client_factory: None,
         })
     }
 
@@ -252,7 +254,9 @@ mod tests {
                 task: "write code".to_string(),
                 timeout_secs: Some(30),
                 priority: None,
+                model: None,
             },
+            None,
         )
         .unwrap();
 
