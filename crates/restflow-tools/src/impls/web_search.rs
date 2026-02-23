@@ -29,18 +29,12 @@ pub struct WebSearchTool {
     secret_resolver: Option<SecretResolver>,
 }
 
-impl Default for WebSearchTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl WebSearchTool {
-    pub fn new() -> Self {
-        Self {
-            client: build_http_client(),
+    pub fn new() -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
             secret_resolver: None,
-        }
+        })
     }
 
     pub fn with_secret_resolver(mut self, resolver: SecretResolver) -> Self {
@@ -313,7 +307,7 @@ mod tests {
 
     #[test]
     fn test_web_search_tool_schema() {
-        let tool = WebSearchTool::new();
+        let tool = WebSearchTool::new().unwrap();
         assert_eq!(tool.name(), "web_search");
         assert!(!tool.description().is_empty());
 
@@ -390,7 +384,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_web_search_invalid_input_returns_actionable_error() {
-        let tool = WebSearchTool::new();
+        let tool = WebSearchTool::new().unwrap();
         let output = tool.execute(json!({"num_results": 2})).await.unwrap();
 
         assert!(!output.success);

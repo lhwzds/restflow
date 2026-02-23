@@ -139,7 +139,9 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<RuntimeToolResult, String>;
 }
 
-fn create_runtime_tool_registry_for_core(core: &Arc<AppCore>) -> restflow_ai::tools::ToolRegistry {
+fn create_runtime_tool_registry_for_core(
+    core: &Arc<AppCore>,
+) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
     create_tool_registry(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
@@ -442,7 +444,8 @@ impl McpBackend for CoreBackend {
     }
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
-        let registry = create_runtime_tool_registry_for_core(&self.core);
+        let registry =
+            create_runtime_tool_registry_for_core(&self.core).map_err(|e| e.to_string())?;
         Ok(registry
             .schemas()
             .into_iter()
@@ -459,7 +462,8 @@ impl McpBackend for CoreBackend {
         name: &str,
         input: Value,
     ) -> Result<RuntimeToolResult, String> {
-        let registry = create_runtime_tool_registry_for_core(&self.core);
+        let registry =
+            create_runtime_tool_registry_for_core(&self.core).map_err(|e| e.to_string())?;
         let output = registry
             .execute_safe(name, input)
             .await

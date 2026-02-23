@@ -29,17 +29,11 @@ pub struct JinaReaderTool {
     client: Client,
 }
 
-impl Default for JinaReaderTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl JinaReaderTool {
-    pub fn new() -> Self {
-        Self {
-            client: build_http_client(),
-        }
+    pub fn new() -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
+        })
     }
 
     fn format_http_error(status: StatusCode, url: &str) -> String {
@@ -151,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_jina_reader_tool_schema() {
-        let tool = JinaReaderTool::new();
+        let tool = JinaReaderTool::new().unwrap();
         assert_eq!(tool.name(), "jina_reader");
         assert!(!tool.description().is_empty());
         assert!(tool.description().contains("JavaScript"));

@@ -32,17 +32,11 @@ pub struct TelegramTool {
     client: Client,
 }
 
-impl Default for TelegramTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl TelegramTool {
-    pub fn new() -> Self {
-        Self {
-            client: build_http_client(),
-        }
+    pub fn new() -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
+        })
     }
 
     pub fn with_client(client: Client) -> Self {
@@ -206,7 +200,7 @@ pub async fn send_telegram_notification(
     message: &str,
     parse_mode: Option<&str>,
 ) -> std::result::Result<(), String> {
-    let client = build_http_client();
+    let client = build_http_client().map_err(|e| e.to_string())?;
     let url = format!("{}/bot{}/sendMessage", TELEGRAM_API_BASE, bot_token);
 
     let mut payload = json!({
@@ -245,7 +239,7 @@ mod tests {
 
     #[test]
     fn test_telegram_tool_schema() {
-        let tool = TelegramTool::new();
+        let tool = TelegramTool::new().unwrap();
         assert_eq!(tool.name(), "telegram_send");
     }
 
@@ -257,7 +251,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_telegram_tool_validation() {
-        let tool = TelegramTool::new();
+        let tool = TelegramTool::new().unwrap();
         let result = tool
             .execute(json!({
                 "bot_token": "",

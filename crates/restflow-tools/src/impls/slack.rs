@@ -24,17 +24,11 @@ pub struct SlackTool {
     client: reqwest::Client,
 }
 
-impl Default for SlackTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl SlackTool {
-    pub fn new() -> Self {
-        Self {
-            client: build_http_client(),
-        }
+    pub fn new() -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
+        })
     }
 }
 
@@ -131,13 +125,13 @@ mod tests {
 
     #[test]
     fn test_tool_name() {
-        let tool = SlackTool::new();
+        let tool = SlackTool::new().unwrap();
         assert_eq!(tool.name(), "slack_send");
     }
 
     #[test]
     fn test_schema_has_required_fields() {
-        let tool = SlackTool::new();
+        let tool = SlackTool::new().unwrap();
         let schema = tool.parameters_schema();
         let required = schema["required"].as_array().unwrap();
         assert!(required.contains(&json!("channel")));
@@ -147,7 +141,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_slack_tool_validation() {
-        let tool = SlackTool::new();
+        let tool = SlackTool::new().unwrap();
         let result = tool
             .execute(json!({
                 "bot_token": "",

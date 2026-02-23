@@ -737,7 +737,7 @@ impl AgentRuntimeExecutor {
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
         bash_config: Option<BashConfig>,
-    ) -> Arc<ToolRegistry> {
+    ) -> anyhow::Result<Arc<ToolRegistry>> {
         let filtered_tool_names = self.filter_requested_tool_names(tool_names);
         let filtered_tool_names_ref = filtered_tool_names.as_deref();
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
@@ -748,7 +748,7 @@ impl AgentRuntimeExecutor {
             Some(self.storage.as_ref()),
             agent_id,
             bash_config.clone(),
-        ));
+        )?);
         let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry);
         let subagent_manager: Arc<dyn SubagentManager> =
             Arc::new(SubagentManagerImpl::from_deps(&subagent_deps));
@@ -759,7 +759,7 @@ impl AgentRuntimeExecutor {
             Some(self.storage.as_ref()),
             agent_id,
             bash_config,
-        );
+        )?;
 
         let requested = |name: &str| {
             filtered_tool_names_ref
@@ -782,7 +782,7 @@ impl AgentRuntimeExecutor {
             registry.register(ReplyTool::new(sender.clone()));
         }
 
-        Arc::new(registry)
+        Ok(Arc::new(registry))
     }
 
     fn filter_requested_tool_names(&self, tool_names: Option<&[String]>) -> Option<Vec<String>> {
@@ -923,7 +923,7 @@ impl AgentRuntimeExecutor {
             factory.clone(),
             agent_id,
             Some(bash_config),
-        );
+        )?;
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
 
         let catalog = ModelCatalog::global().await;
@@ -1275,7 +1275,7 @@ impl AgentRuntimeExecutor {
             factory.clone(),
             agent_id,
             Some(bash_config),
-        );
+        )?;
         let system_prompt =
             self.build_background_system_prompt(agent_node, agent_id, background_task_id, input)?;
         let goal = input.unwrap_or("Execute the agent task");

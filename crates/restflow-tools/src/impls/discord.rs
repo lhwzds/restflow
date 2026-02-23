@@ -22,17 +22,11 @@ pub struct DiscordTool {
     client: reqwest::Client,
 }
 
-impl Default for DiscordTool {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl DiscordTool {
-    pub fn new() -> Self {
-        Self {
-            client: build_http_client(),
-        }
+    pub fn new() -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
+        })
     }
 }
 
@@ -124,13 +118,13 @@ mod tests {
 
     #[test]
     fn test_tool_name() {
-        let tool = DiscordTool::new();
+        let tool = DiscordTool::new().unwrap();
         assert_eq!(tool.name(), "discord_send");
     }
 
     #[test]
     fn test_schema_has_required_fields() {
-        let tool = DiscordTool::new();
+        let tool = DiscordTool::new().unwrap();
         let schema = tool.parameters_schema();
         let required = schema["required"].as_array().unwrap();
         assert!(required.contains(&json!("channel_id")));
@@ -140,7 +134,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_discord_tool_validation() {
-        let tool = DiscordTool::new();
+        let tool = DiscordTool::new().unwrap();
         let result = tool
             .execute(json!({
                 "bot_token": "",

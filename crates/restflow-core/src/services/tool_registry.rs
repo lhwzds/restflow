@@ -40,7 +40,7 @@ pub fn create_tool_registry(
     deliverable_storage: crate::storage::DeliverableStorage,
     accessor_id: Option<String>,
     _agent_id: Option<String>,
-) -> ToolRegistry {
+) -> anyhow::Result<ToolRegistry> {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let lsp_manager = Arc::new(LspManager::new(root));
 
@@ -88,24 +88,21 @@ pub fn create_tool_registry(
     let terminal_store = Arc::new(TerminalStoreAdapter::new(terminal_storage));
     let security_provider: Arc<_> = Arc::new(SecurityQueryProviderAdapter);
 
-    // Build registry using builder
     let registry = ToolRegistryBuilder::new()
-        // Base tools
         .with_bash(restflow_tools::BashConfig::default())
         .with_file(restflow_tools::FileConfig::default())
-        .with_http()
+        .with_http()?
         .with_email()
-        .with_telegram()
-        .with_discord()
-        .with_slack()
+        .with_telegram()?
+        .with_discord()?
+        .with_slack()?
         .with_python()
         .with_web_fetch()
-        .with_jina_reader()
-        .with_web_search_with_resolver(secret_resolver.clone())
+        .with_jina_reader()?
+        .with_web_search_with_resolver(secret_resolver.clone())?
         .with_diagnostics(lsp_manager)
-        .with_transcribe(secret_resolver.clone())
-        .with_vision(secret_resolver)
-        // Storage-backed tools
+        .with_transcribe(secret_resolver.clone())?
+        .with_vision(secret_resolver)?
         .with_skill_tool(skill_provider)
         .with_session(session_store)
         .with_memory_management(memory_manager)
@@ -135,7 +132,7 @@ pub fn create_tool_registry(
             .collect::<HashSet<_>>();
     }
 
-    registry
+    Ok(registry)
 }
 
 #[cfg(test)]
@@ -272,7 +269,8 @@ mod tests {
             deliverable_storage,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         // Should have default tools + skill tool
         assert!(registry.has("http_request"));
@@ -335,7 +333,8 @@ mod tests {
             deliverable_storage,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         let output = registry
             .execute_safe(
@@ -573,7 +572,8 @@ mod tests {
             deliverable_storage,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         let output = registry
             .execute_safe(
@@ -1199,7 +1199,8 @@ mod tests {
             deliverable_storage,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         let listed = registry
             .execute_safe(
@@ -1255,7 +1256,8 @@ mod tests {
             deliverable_storage,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         let created = registry
             .execute_safe(
@@ -1326,7 +1328,8 @@ mod tests {
             deliverable_storage,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         let created = registry
             .execute_safe(
@@ -1417,7 +1420,8 @@ mod tests {
             deliverable_storage,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         let summary = registry
             .execute_safe("security_query", json!({ "operation": "list_permissions" }))
@@ -1567,7 +1571,8 @@ mod tests {
             deliverable_storage,
             None,
             None,
-        );
+        )
+        .unwrap();
 
         assert!(registry.has("save_to_memory"));
         assert!(registry.has("read_memory"));

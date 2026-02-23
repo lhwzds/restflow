@@ -25,13 +25,13 @@ pub struct OpenAIClient {
 
 impl OpenAIClient {
     /// Create a new OpenAI client
-    pub fn new(api_key: impl Into<String>) -> Self {
-        Self {
-            client: build_http_client(),
+    pub fn new(api_key: impl Into<String>) -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
             api_key: api_key.into(),
             model: "gpt-4o".to_string(),
             base_url: "https://api.openai.com/v1".to_string(),
-        }
+        })
     }
 
     /// Set the model to use

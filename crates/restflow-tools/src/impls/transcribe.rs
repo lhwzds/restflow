@@ -69,16 +69,16 @@ pub struct TranscribeTool {
 }
 
 impl TranscribeTool {
-    pub fn new(secret_resolver: SecretResolver) -> Self {
+    pub fn new(secret_resolver: SecretResolver) -> std::result::Result<Self, reqwest::Error> {
         Self::with_config(secret_resolver, TranscribeConfig::default())
     }
 
-    pub fn with_config(secret_resolver: SecretResolver, config: TranscribeConfig) -> Self {
-        Self {
-            client: build_http_client(),
+    pub fn with_config(secret_resolver: SecretResolver, config: TranscribeConfig) -> std::result::Result<Self, reqwest::Error> {
+        Ok(Self {
+            client: build_http_client()?,
             secret_resolver,
             config,
-        }
+        })
     }
 
     fn resolve_api_key(&self) -> Option<String> {
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn test_transcribe_schema() {
         let resolver: SecretResolver = Arc::new(|_| None);
-        let tool = TranscribeTool::new(resolver);
+        let tool = TranscribeTool::new(resolver).unwrap();
         let schema = tool.parameters_schema();
         assert_eq!(tool.name(), "transcribe");
         assert!(schema.get("properties").is_some());
@@ -331,7 +331,7 @@ mod tests {
             max_file_size: 1024,
             allowed_extensions: vec!["mp3".to_string()],
         };
-        let tool = TranscribeTool::with_config(resolver, config);
+        let tool = TranscribeTool::with_config(resolver, config).unwrap();
         let schema = tool.parameters_schema();
         assert_eq!(tool.name(), "transcribe");
         assert!(schema.get("properties").is_some());
@@ -345,7 +345,7 @@ mod tests {
             max_file_size: 25 * 1024 * 1024,
             allowed_extensions: vec!["mp3".to_string()],
         };
-        let tool = TranscribeTool::with_config(resolver, config);
+        let tool = TranscribeTool::with_config(resolver, config).unwrap();
 
         let result = tool.validate_path("/etc/passwd");
         assert!(result.is_err());
@@ -365,7 +365,7 @@ mod tests {
             max_file_size: 25 * 1024 * 1024,
             allowed_extensions: vec!["mp3".to_string()],
         };
-        let tool = TranscribeTool::with_config(resolver, config);
+        let tool = TranscribeTool::with_config(resolver, config).unwrap();
 
         // Test with .txt extension
         let result = tool.validate_path("/tmp/test.txt");
