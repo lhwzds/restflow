@@ -27,13 +27,11 @@ use std::sync::{Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant};
 
 use anyhow::{Result, anyhow, bail};
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use redb::Database;
 use regex::Regex;
+use restflow_storage::SimpleStorage;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
-
-const SECURITY_AMENDMENTS_TABLE: TableDefinition<&str, &[u8]> =
-    TableDefinition::new("security_amendments");
 const MAX_REGEX_PATTERN_LEN: usize = 512;
 const MAX_CACHED_REGEX_PATTERNS: usize = 1024;
 const MAX_REGEX_MATCH_TIME_MS: u64 = 100; // Timeout for regex matching
@@ -247,17 +245,14 @@ impl SecurityAmendment {
 
 #[derive(Debug, Clone)]
 pub struct SecurityAmendmentStore {
-    db: Arc<Database>,
+    inner: restflow_storage::SecurityAmendmentStorage,
 }
 
 impl SecurityAmendmentStore {
     pub fn new(db: Arc<Database>) -> Result<Self> {
-        let write_txn = db.begin_write()?;
-        {
-            let _ = write_txn.open_table(SECURITY_AMENDMENTS_TABLE)?;
-        }
-        write_txn.commit()?;
-        Ok(Self { db })
+        Ok(Self {
+            inner: restflow_storage::SecurityAmendmentStorage::new(db)?,
+        })
     }
 
     /// Add an allow rule amendment.
@@ -298,12 +293,7 @@ impl SecurityAmendmentStore {
         };
 
         let payload = serde_json::to_vec(&rule)?;
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(SECURITY_AMENDMENTS_TABLE)?;
-            table.insert(rule.id.as_str(), payload.as_slice())?;
-        }
-        write_txn.commit()?;
+        self.inner.put_raw(&rule.id, &payload)?;
 
         Ok((rule, warnings))
     }
@@ -321,12 +311,10 @@ impl SecurityAmendmentStore {
     }
 
     pub fn list_rules(&self) -> Result<Vec<SecurityAmendment>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(SECURITY_AMENDMENTS_TABLE)?;
+        let raw_entries = self.inner.list_raw()?;
         let mut rules = Vec::new();
-        for entry in table.iter()? {
-            let (_, value) = entry?;
-            let rule: SecurityAmendment = serde_json::from_slice(value.value())?;
+        for (_, bytes) in raw_entries {
+            let rule: SecurityAmendment = serde_json::from_slice(&bytes)?;
             rules.push(rule);
         }
         rules.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
@@ -352,15 +340,15 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
-    fn create_store() -> SecurityAmendmentStore {
+    fn create_store() -> (SecurityAmendmentStore, tempfile::TempDir) {
         let dir = tempdir().unwrap();
         let db = Arc::new(Database::create(dir.path().join("security-amendments.db")).unwrap());
-        SecurityAmendmentStore::new(db).unwrap()
+        (SecurityAmendmentStore::new(db).unwrap(), dir)
     }
 
     #[test]
     fn match_exact_prefix_and_regex() {
-        let store = create_store();
+        let (store, _dir) = create_store();
         store
             .add_allow_rule_simple(
                 "bash",
@@ -408,7 +396,7 @@ mod tests {
 
     #[test]
     fn respect_agent_scope() {
-        let store = create_store();
+        let (store, _dir) = create_store();
         store
             .add_allow_rule_simple(
                 "bash",
@@ -436,7 +424,7 @@ mod tests {
 
     #[test]
     fn reject_invalid_regex_pattern_on_create() {
-        let store = create_store();
+        let (store, _dir) = create_store();
         let result = store.add_allow_rule_simple(
             "bash",
             "([invalid",
@@ -448,7 +436,7 @@ mod tests {
 
     #[test]
     fn reject_oversized_regex_pattern_on_create() {
-        let store = create_store();
+        let (store, _dir) = create_store();
         let oversized = "a".repeat(MAX_REGEX_PATTERN_LEN + 1);
         let result = store.add_allow_rule_simple(
             "bash",
@@ -481,7 +469,7 @@ mod tests {
 
     #[test]
     fn anchored_pattern_prevents_command_injection_bypass() {
-        let store = create_store();
+        let (store, _dir) = create_store();
         // Pattern with proper anchors
         store
             .add_allow_rule_simple(
@@ -519,7 +507,7 @@ mod tests {
 
     #[test]
     fn unanchored_pattern_allows_bypass() {
-        let store = create_store();
+        let (store, _dir) = create_store();
         // Pattern WITHOUT anchors (insecure, but allowed with warning)
         let (_, warnings) = store
             .add_allow_rule(
@@ -553,7 +541,7 @@ mod tests {
 
     #[test]
     fn add_allow_rule_returns_warnings() {
-        let store = create_store();
+        let (store, _dir) = create_store();
         let (_, warnings) = store
             .add_allow_rule(
                 "bash",
@@ -572,7 +560,7 @@ mod tests {
         // Security test: Verify that long commands are NOT truncated before regex matching.
         // Truncation would create a bypass vulnerability where an anchored pattern
         // matches the truncated input but should fail on the full input.
-        let store = create_store();
+        let (store, _dir) = create_store();
         store
             .add_allow_rule_simple(
                 "bash",
