@@ -180,6 +180,31 @@ pub struct SubagentCompletion {
     pub result: SubagentResult,
 }
 
+/// High-level subagent lifecycle management.
+///
+/// Abstracts `SubagentTracker` + `SubagentDefLookup` + `spawn_subagent` so that
+/// tool implementations can manage subagents without depending on `restflow-ai`.
+#[async_trait::async_trait]
+pub trait SubagentManager: Send + Sync {
+    /// Spawn a new sub-agent from a [`SpawnRequest`].
+    fn spawn(&self, request: SpawnRequest) -> std::result::Result<SpawnHandle, ToolError>;
+
+    /// List all callable sub-agent definitions.
+    fn list_callable(&self) -> Vec<SubagentDefSummary>;
+
+    /// List currently running sub-agents.
+    fn list_running(&self) -> Vec<SubagentState>;
+
+    /// Number of currently running sub-agents.
+    fn running_count(&self) -> usize;
+
+    /// Wait for a sub-agent to complete, returning its result.
+    async fn wait(&self, task_id: &str) -> Option<SubagentResult>;
+
+    /// Access the sub-agent configuration.
+    fn config(&self) -> &SubagentConfig;
+}
+
 /// Trait for spawning subagents (simple variant used by SpawnTool).
 pub trait SubagentSpawner: Send + Sync {
     fn spawn(&self, task: String) -> std::result::Result<String, ToolError>;

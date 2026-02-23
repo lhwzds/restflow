@@ -8,8 +8,10 @@
 //! - 18+ store traits (MemoryStore, AgentStore, SessionStore, etc.)
 //! - Sub-agent data types and lookup traits
 
+pub mod cache;
 pub mod error;
 pub mod filtered;
+pub mod llm;
 pub mod network;
 pub mod registry;
 pub mod security;
@@ -78,6 +80,12 @@ pub use store::{
 // Sub-agent types
 pub use subagent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
-    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentResult, SubagentSpawner,
-    SubagentState, SubagentStatus,
+    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentManager, SubagentResult,
+    SubagentSpawner, SubagentState, SubagentStatus,
 };
+
+// LLM switching
+pub use llm::{LlmSwitcher, SwapResult};
+
+// Cache types
+pub use cache::{AgentCache, CachedSearchResult, SearchMatch};
