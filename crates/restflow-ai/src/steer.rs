@@ -13,6 +13,8 @@ pub enum SteerCommand {
         #[serde(default)]
         metadata: Value,
     },
+    /// Cancel a specific running tool call by its ID.
+    CancelToolCall { tool_call_id: String },
 }
 
 /// A message injected into a running agent's ReAct loop.
@@ -49,11 +51,24 @@ impl SteerMessage {
     }
 
     /// Backward-compatible accessor: returns the instruction text for Message
-    /// commands, or the reason for Interrupt commands.
+    /// commands, the reason for Interrupt commands, or the tool_call_id for
+    /// CancelToolCall commands.
     pub fn instruction(&self) -> &str {
         match &self.command {
             SteerCommand::Message { instruction } => instruction,
             SteerCommand::Interrupt { reason, .. } => reason,
+            SteerCommand::CancelToolCall { tool_call_id } => tool_call_id,
+        }
+    }
+
+    /// Create a cancel-tool-call steer message.
+    pub fn cancel_tool_call(tool_call_id: impl Into<String>, source: SteerSource) -> Self {
+        Self {
+            command: SteerCommand::CancelToolCall {
+                tool_call_id: tool_call_id.into(),
+            },
+            source,
+            timestamp: chrono::Utc::now().timestamp_millis(),
         }
     }
 }

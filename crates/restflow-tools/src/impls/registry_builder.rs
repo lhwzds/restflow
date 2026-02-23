@@ -11,6 +11,7 @@ use crate::SecretResolver;
 use crate::impls::{
     BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool,
 };
+use crate::impls::batch::BatchTool;
 use crate::impls::monty_python::{PythonTool, RunPythonTool};
 use crate::impls::transcribe::TranscribeTool;
 use crate::impls::vision::VisionTool;
@@ -52,6 +53,9 @@ use crate::impls::edit::EditTool;
 use crate::impls::multiedit::MultiEditTool;
 use crate::impls::patch::PatchTool;
 use crate::impls::file_tracker::FileTracker;
+use crate::impls::glob_tool::GlobTool;
+use crate::impls::grep_tool::GrepTool;
+use crate::impls::task_list::TaskListTool;
 
 // Store traits
 use restflow_traits::store::{
@@ -414,6 +418,34 @@ impl ToolRegistryBuilder {
             tool = tool.with_diagnostics_provider(diag);
         }
         self.registry.register(tool);
+        self
+    }
+
+    // --- Search tools ---
+
+    pub fn with_glob(mut self) -> Self {
+        self.registry.register(GlobTool::new());
+        self
+    }
+
+    pub fn with_grep(mut self) -> Self {
+        self.registry.register(GrepTool::new());
+        self
+    }
+
+    pub fn with_task_list(mut self, provider: Arc<dyn WorkspaceNoteProvider>) -> Self {
+        self.registry.register(TaskListTool::new(provider));
+        self
+    }
+
+    /// Register the batch tool. This requires an `Arc<ToolRegistry>` containing
+    /// the tools the batch tool can invoke. Typically used in a two-phase build:
+    /// 1. Build the base registry with `build()` and wrap in `Arc`
+    /// 2. Register the batch tool on the Arc'd registry
+    ///
+    /// Alternatively, use `build_with_batch()` which handles this automatically.
+    pub fn with_batch(mut self, tools: Arc<ToolRegistry>) -> Self {
+        self.registry.register(BatchTool::new(tools));
         self
     }
 
