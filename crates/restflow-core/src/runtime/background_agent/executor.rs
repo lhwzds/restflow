@@ -32,9 +32,10 @@ use restflow_ai::llm::Message;
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    ReplySender, ResourceLimits as AgentResourceLimits, Scratchpad,
+    ResourceLimits as AgentResourceLimits, Scratchpad,
     SwappableLlm,
 };
+use restflow_traits::ReplySender;
 use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -139,7 +140,7 @@ impl AgentRuntimeExecutor {
         let payload = serde_json::to_string(&payload)?;
         let created_at = self
             .storage
-            .shared_space
+            .kv_store
             .get_unchecked(&key)?
             .map(|entry| entry.created_at)
             .unwrap_or(now);
@@ -155,7 +156,7 @@ impl AgentRuntimeExecutor {
             updated_at: now,
             last_modified_by: Some(agent_id.to_string()),
         };
-        self.storage.shared_space.set(&entry)
+        self.storage.kv_store.set(&entry)
     }
 
     fn validate_prerequisites(&self, prerequisites: &[String]) -> Result<()> {
@@ -166,7 +167,7 @@ impl AgentRuntimeExecutor {
         let mut failed = Vec::new();
         for task_id in prerequisites {
             let key = format!("deliverable:{task_id}");
-            match self.storage.shared_space.quick_get(&key, None) {
+            match self.storage.kv_store.quick_get(&key, None) {
                 Ok(Some(raw)) => match serde_json::from_str::<serde_json::Value>(&raw) {
                     Ok(value) => {
                         let parts = value.get("parts").and_then(|part| part.as_array());
@@ -1895,7 +1896,7 @@ mod tests {
     use crate::models::{AgentNode, MemoryConfig, SharedEntry, Skill, Visibility};
     use crate::runtime::subagent::AgentDefinitionRegistry;
     use restflow_ai::agent::{SubagentConfig, SubagentTracker};
-    use restflow_ai::ReplySender;
+    use restflow_traits::store::ReplySender;
     use std::future::Future;
     use std::pin::Pin;
     use tempfile::tempdir;
@@ -1950,7 +1951,7 @@ mod tests {
             updated_at: now,
             last_modified_by: Some("test".to_string()),
         };
-        storage.shared_space.set(&entry).unwrap();
+        storage.kv_store.set(&entry).unwrap();
     }
 
     #[test]
@@ -2342,9 +2343,9 @@ mod tests {
             .expect("save deliverable should succeed");
 
         let entry = storage
-            .shared_space
+            .kv_store
             .get_unchecked("deliverable:task-save")
-            .expect("shared space read should succeed")
+            .expect("kv store read should succeed")
             .expect("deliverable entry should exist");
         assert_eq!(entry.type_hint.as_deref(), Some("deliverable"));
         assert_eq!(entry.owner.as_deref(), Some("agent-1"));

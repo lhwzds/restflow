@@ -36,7 +36,7 @@ pub use models::{
     HookEvent, HookFilter, InstallStatus, InstalledSkill, LifecycleAudit, LlmCallAudit,
     MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySession,
     MemorySource, MemoryStats, MessageAudit, MessageExecution, ModelMetadataDTO,
-    ModelRoutingConfig, ModelSwitchAudit, NoteQuery, NoteStatus, NotificationConfig, OsType,
+    ModelRoutingConfig, ModelSwitchAudit, ItemQuery, ItemStatus, NotificationConfig, OsType,
     PendingApproval, Provider, ResourceLimits, ResumePayload, SearchMode, SecurityAction,
     SecurityCheckResult, SecurityMode, SecurityPolicy, SharedEntry, Skill, SkillAuthor,
     SkillDependency, SkillGating, SkillManifest, SkillMeta, SkillPermission, SkillPermissions,
@@ -44,8 +44,8 @@ pub use models::{
     SteerMessage, SteerSource, StorageMode, TaskEvent, TaskEventType, TaskSchedule,
     TerminalSession, TerminalStatus, ToolAction, ToolCallAudit, ToolCallInfo, ToolRule,
     UnifiedSearchQuery, ValidationError, ValidationErrorResponse, VersionRequirement, Visibility,
-    WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse, WorkspaceNote,
-    WorkspaceNotePatch, WorkspaceNoteSpec, ActiveTrigger, AuthConfig,
+    WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse, WorkItem,
+    WorkItemPatch, WorkItemSpec, ActiveTrigger, AuthConfig,
     TriggerConfig, encode_validation_error,
 };
 pub use steer::SteerRegistry;

@@ -10,12 +10,12 @@ pub mod checkpoint;
 pub mod deliverable;
 pub mod hook;
 pub mod memory;
-pub mod shared_space;
+pub mod kv_store;
 pub mod skill;
 pub mod audit;
 pub mod terminal_session;
 pub mod trigger;
-pub mod workspace_note;
+pub mod work_item;
 
 use anyhow::Result;
 use redb::Database;
@@ -36,11 +36,11 @@ pub use checkpoint::CheckpointStorage;
 pub use deliverable::DeliverableStorage;
 pub use hook::HookStorage;
 pub use memory::MemoryStorage;
-pub use shared_space::SharedSpaceStorage;
+pub use kv_store::KvStoreStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
-pub use workspace_note::WorkspaceNoteStorage;
+pub use work_item::WorkItemStorage;
 pub use audit::AuditStorage;
 
 /// Central storage manager that initializes all storage subsystems.
@@ -56,13 +56,13 @@ pub struct Storage {
     pub secrets: SecretStorage,
     pub daemon_state: DaemonStateStorage,
     pub skills: SkillStorage,
-    pub shared_space: SharedSpaceStorage,
+    pub kv_store: KvStoreStorage,
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
     pub deliverables: DeliverableStorage,
     pub hooks: HookStorage,
-    pub workspace_notes: WorkspaceNoteStorage,
+    pub work_items: WorkItemStorage,
     pub checkpoints: CheckpointStorage,
     pub pairing: PairingStorage,
     pub audit: AuditStorage,
@@ -86,8 +86,8 @@ impl Storage {
         let secrets = SecretStorage::with_config(db.clone(), secret_config)?;
         let daemon_state = DaemonStateStorage::new(db.clone())?;
         let skills = SkillStorage::new(db.clone())?;
-        let shared_space_raw = restflow_storage::SharedSpaceStorage::new(db.clone())?;
-        let shared_space = SharedSpaceStorage::new(shared_space_raw);
+        let kv_store_raw = restflow_storage::KvStoreStorage::new(db.clone())?;
+        let kv_store = KvStoreStorage::new(kv_store_raw);
         let terminal_sessions = TerminalSessionStorage::new(db.clone())?;
         let index = if path == ":memory:" {
             Some(Arc::new(MemoryIndex::in_memory()?))
@@ -106,7 +106,7 @@ impl Storage {
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let deliverables = DeliverableStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
-        let workspace_notes = WorkspaceNoteStorage::new(db.clone())?;
+        let work_items = WorkItemStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let pairing = PairingStorage::new(db.clone())?;
         let audit = AuditStorage::new(db.clone())?;
@@ -120,13 +120,13 @@ impl Storage {
             secrets,
             daemon_state,
             skills,
-            shared_space,
+            kv_store,
             terminal_sessions,
             memory,
             chat_sessions,
             deliverables,
             hooks,
-            workspace_notes,
+            work_items,
             checkpoints,
             pairing,
             audit,

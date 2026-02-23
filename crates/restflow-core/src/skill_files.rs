@@ -101,7 +101,7 @@ mod tests {
     }
 
     #[test]
-    fn creates_new_shared_space_pr_skills() {
+    fn creates_new_kv_store_pr_skills() {
         let _lock = env_lock();
         let temp = tempfile::tempdir().unwrap();
         unsafe { std::env::set_var(RESTFLOW_DIR_ENV, temp.path()) };
@@ -163,7 +163,7 @@ mod tests {
     }
 
     #[test]
-    fn validates_shared_space_pr_key_schema() {
+    fn validates_kv_store_pr_key_schema() {
         fn is_valid_key(task_id: &str, key: &str) -> bool {
             let prefix = format!("pr:{task_id}:");
             key.starts_with(&prefix)

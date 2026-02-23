@@ -21,7 +21,7 @@ pub mod terminal_session;
 pub mod trigger;
 pub mod validation;
 pub mod webhook;
-pub mod workspace_note;
+pub mod work_item;
 
 pub use agent::{AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConfig};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
@@ -43,8 +43,8 @@ pub use memory::{
 };
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
-pub use workspace_note::{
-    NoteQuery, NoteStatus, WorkspaceNote, WorkspaceNotePatch, WorkspaceNoteSpec,
+pub use work_item::{
+    ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec,
 };
 // Secret is now defined in restflow-storage
 pub use chat_session::{
