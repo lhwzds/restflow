@@ -42,7 +42,10 @@ import {
   type ManagerSummary,
   type AddProfileRequest,
 } from '@/api/auth'
+import { useConfirm } from '@/composables/useConfirm'
 import type { AuthProfile, AuthProvider, Credential } from '@/types/generated'
+
+const { confirm } = useConfirm()
 
 // State
 const profiles = ref<AuthProfile[]>([])
@@ -133,7 +136,14 @@ async function addProfile() {
 }
 
 async function removeProfile(profileId: string) {
-  if (!confirm('Are you sure you want to remove this profile?')) return
+  const confirmed = await confirm({
+    title: 'Remove Profile',
+    description: 'Are you sure you want to remove this profile?',
+    confirmText: 'Remove',
+    cancelText: 'Cancel',
+    variant: 'destructive',
+  })
+  if (!confirmed) return
 
   loading.value = true
   error.value = null

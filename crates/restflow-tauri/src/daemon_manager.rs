@@ -85,7 +85,8 @@ impl DaemonManager {
     ///
     /// Search order:
     /// 1. Same directory as the current executable (dev: target/debug/)
-    /// 2. `restflow` on PATH (production install)
+    /// 2. Well-known install locations (macOS .app doesn't inherit shell PATH)
+    /// 3. `restflow` on PATH
     fn find_cli_binary() -> Result<PathBuf> {
         // Check sibling path next to current exe
         if let Ok(exe) = std::env::current_exe()
@@ -94,6 +95,24 @@ impl DaemonManager {
             let sibling = dir.join("restflow");
             if sibling.exists() {
                 return Ok(sibling);
+            }
+        }
+
+        // Check well-known install locations
+        // macOS .app bundles get a minimal PATH from launchd,
+        // so ~/.local/bin and ~/.cargo/bin are not included.
+        if let Some(home) = std::env::var_os("HOME").map(PathBuf::from) {
+            for rel in &[".local/bin/restflow", ".cargo/bin/restflow"] {
+                let p = home.join(rel);
+                if p.is_file() {
+                    return Ok(p);
+                }
+            }
+        }
+        for p in &["/usr/local/bin/restflow", "/opt/homebrew/bin/restflow"] {
+            let p = PathBuf::from(p);
+            if p.is_file() {
+                return Ok(p);
             }
         }
 
