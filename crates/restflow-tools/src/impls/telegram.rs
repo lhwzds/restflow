@@ -165,10 +165,6 @@ impl Tool for TelegramTool {
         })
     }
 
-    fn supports_parallel(&self) -> bool {
-        false
-    }
-
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: TelegramInput = match serde_json::from_value(input) {
             Ok(p) => p,

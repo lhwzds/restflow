@@ -73,10 +73,6 @@ impl Tool for SlackTool {
         })
     }
 
-    fn supports_parallel(&self) -> bool {
-        false
-    }
-
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: SlackInput = match serde_json::from_value(input) {
             Ok(p) => p,

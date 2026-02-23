@@ -98,10 +98,6 @@ impl Tool for EmailTool {
         })
     }
 
-    fn supports_parallel(&self) -> bool {
-        false
-    }
-
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: EmailInput = serde_json::from_value(input)?;
 

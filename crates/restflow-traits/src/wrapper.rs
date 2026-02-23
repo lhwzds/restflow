@@ -61,14 +61,6 @@ impl Tool for RemainingChain<'_> {
         self.inner.parameters_schema()
     }
 
-    fn supports_parallel(&self) -> bool {
-        self.inner.supports_parallel()
-    }
-
-    fn supports_parallel_for(&self, input: &Value) -> bool {
-        self.inner.supports_parallel_for(input)
-    }
-
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         execute_chain(self.tool_name, self.inner, self.wrappers, self.index, input).await
     }
@@ -106,14 +98,6 @@ impl Tool for WrappedTool {
 
     fn parameters_schema(&self) -> Value {
         self.inner.parameters_schema()
-    }
-
-    fn supports_parallel(&self) -> bool {
-        self.inner.supports_parallel()
-    }
-
-    fn supports_parallel_for(&self, input: &Value) -> bool {
-        self.inner.supports_parallel_for(input)
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {

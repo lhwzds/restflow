@@ -49,10 +49,6 @@ impl Tool for SkillAsTool {
         })
     }
 
-    fn supports_parallel(&self) -> bool {
-        true
-    }
-
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let user_input = input
             .get("input")

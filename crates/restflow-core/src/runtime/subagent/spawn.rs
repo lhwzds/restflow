@@ -356,13 +356,6 @@ impl Tool for RestrictedFileTool {
         self.inner.execute(input).await
     }
 
-    fn supports_parallel(&self) -> bool {
-        self.inner.supports_parallel()
-    }
-
-    fn supports_parallel_for(&self, input: &Value) -> bool {
-        self.inner.supports_parallel_for(input)
-    }
 }
 
 #[cfg(test)]
