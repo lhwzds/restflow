@@ -5253,7 +5253,6 @@ dependencies = [
  "parking_lot",
  "rand 0.10.0",
  "redb",
- "security-framework 3.5.1",
  "serde",
  "serde_json",
  "tantivy",
