@@ -18,7 +18,6 @@ tokio.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 restflow-traits = { path = "../restflow-traits" }
-restflow-storage = { path = "../restflow-storage" }
 restflow-sandbox = { workspace = true, optional = true }
 
 # AI-specific dependencies
