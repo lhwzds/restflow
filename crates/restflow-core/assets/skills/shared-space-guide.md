@@ -1,16 +1,16 @@
 ---
-name: Shared Space Guide
-description: How to use the shared_space tool for persistent storage
+name: KV Store Guide
+description: How to use the kv_store tool for persistent storage
 tags:
   - system
   - guide
 suggested_tools:
-  - shared_space
+  - kv_store
 ---
 
-# Shared Space Usage Guide
+# KV Store Usage Guide
 
-You have access to a persistent shared storage space via the `shared_space` tool. Use it to:
+You have access to a persistent key-value store via the `kv_store` tool. Use it to:
 
 ## When to Use
 1. Store findings for later reference

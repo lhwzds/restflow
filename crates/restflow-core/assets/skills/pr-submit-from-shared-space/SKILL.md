@@ -1,19 +1,19 @@
 ---
-name: PR Submit From Shared Space
-description: Create GitHub pull requests from shared_space draft artifacts using body files only
+name: PR Submit From KV Store
+description: Create GitHub pull requests from kv_store draft artifacts using body files only
 tags:
   - default
   - pr
-  - shared-space
+  - kv-store
 suggested_tools:
-  - shared_space
+  - kv_store
   - bash
   - file
 ---
 
-# PR Submit From Shared Space
+# PR Submit From KV Store
 
-Use this skill to submit a pull request from artifacts stored in `shared_space`.
+Use this skill to submit a pull request from artifacts stored in `kv_store`.
 
 ## Inputs
 - `task_id` (required)
@@ -29,7 +29,7 @@ Read these keys first:
 Fail fast if `title` or `body` is missing or empty.
 
 ## Procedure
-1. Read required keys from `shared_space`.
+1. Read required keys from `kv_store`.
 2. Write title/body to local temp files.
 3. Build command with `gh pr create --title "$(cat title_file)" --body-file body_file`.
 4. If `base` is set, append `--base`.
@@ -40,7 +40,7 @@ Fail fast if `title` or `body` is missing or empty.
 ## Hard Rules
 - Never use inline `gh pr create --body "..."`.
 - Always use `--body-file`.
-- Keep `workspace_notes` limited to lifecycle metadata and the shared key prefix.
+- Keep `work_items` limited to lifecycle metadata and the shared key prefix.
 
 ## Result Shape
 Store this JSON to `pr:{task_id}:result`:
