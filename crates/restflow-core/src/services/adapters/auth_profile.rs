@@ -2,7 +2,6 @@
 
 use crate::storage::SecretStorage;
 use restflow_ai::tools::{AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest};
-use restflow_tools::ToolError;
 use serde_json::{Value, json};
 
 #[derive(Clone)]
@@ -20,8 +19,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
     fn list_profiles(&self) -> restflow_tools::Result<Value> {
         let secrets = self
             .storage
-            .list_secrets()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .list_secrets()?;
 
         let profiles: Vec<Value> = secrets
             .iter()
@@ -85,8 +83,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
                 &key_name,
                 &secret_value,
                 Some(format!("Auth profile: {}", request.name)),
-            )
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            )?;
 
         Ok(json!({
             "id": key_name,
@@ -98,8 +95,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
 
     fn remove_profile(&self, id: &str) -> restflow_tools::Result<Value> {
         self.storage
-            .delete_secret(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .delete_secret(id)?;
         Ok(json!({ "id": id, "removed": true }))
     }
 

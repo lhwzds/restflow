@@ -28,8 +28,7 @@ impl TerminalStore for TerminalStoreAdapter {
         let id = format!("terminal-{}", Uuid::new_v4());
         let default_name = self
             .storage
-            .get_next_name()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .get_next_name()?;
         let mut session =
             TerminalSession::new(id, name.unwrap_or(&default_name).to_string());
         session.set_config(
@@ -37,24 +36,21 @@ impl TerminalStore for TerminalStoreAdapter {
             startup_cmd.map(|s| s.to_string()),
         );
         self.storage
-            .create(&session)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .create(&session)?;
         Ok(serde_json::to_value(session)?)
     }
 
     fn list_sessions(&self) -> restflow_tools::Result<Value> {
         let sessions = self
             .storage
-            .list()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .list()?;
         Ok(serde_json::to_value(sessions)?)
     }
 
     fn send_input(&self, session_id: &str, data: &str) -> restflow_tools::Result<Value> {
         let mut session = self
             .storage
-            .get(session_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .get(session_id)?
             .ok_or_else(|| {
                 ToolError::Tool(format!("Terminal session not found: {}", session_id))
             })?;
@@ -63,8 +59,7 @@ impl TerminalStore for TerminalStoreAdapter {
         history.push_str(&format!("\n$ {}", data));
         session.update_history(history);
         self.storage
-            .update(session_id, &session)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .update(session_id, &session)?;
 
         Ok(json!({
             "session_id": session_id,
@@ -76,8 +71,7 @@ impl TerminalStore for TerminalStoreAdapter {
     fn read_output(&self, session_id: &str) -> restflow_tools::Result<Value> {
         let session = self
             .storage
-            .get(session_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .get(session_id)?
             .ok_or_else(|| {
                 ToolError::Tool(format!("Terminal session not found: {}", session_id))
             })?;
@@ -91,16 +85,14 @@ impl TerminalStore for TerminalStoreAdapter {
     fn close_session(&self, session_id: &str) -> restflow_tools::Result<Value> {
         let mut session = self
             .storage
-            .get(session_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .get(session_id)?
             .ok_or_else(|| {
                 ToolError::Tool(format!("Terminal session not found: {}", session_id))
             })?;
         session.status = crate::models::TerminalStatus::Stopped;
         session.stopped_at = Some(Utc::now().timestamp_millis());
         self.storage
-            .update(session_id, &session)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .update(session_id, &session)?;
         Ok(json!({
             "session_id": session_id,
             "closed": true

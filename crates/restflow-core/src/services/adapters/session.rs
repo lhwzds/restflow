@@ -24,43 +24,37 @@ impl SessionStore for SessionStorageAdapter {
     fn list_sessions(&self, filter: SessionListFilter) -> restflow_tools::Result<Value> {
         let sessions = if let Some(agent_id) = &filter.agent_id {
             self.storage
-                .list_by_agent(agent_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+                .list_by_agent(agent_id)?
         } else if let Some(skill_id) = &filter.skill_id {
             self.storage
-                .list_by_skill(skill_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+                .list_by_skill(skill_id)?
         } else {
             self.storage
-                .list()
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+                .list()?
         };
 
         if filter.include_messages.unwrap_or(false) {
-            serde_json::to_value(sessions).map_err(ToolError::from)
+            Ok(serde_json::to_value(sessions)?)
         } else {
             let summaries = self
                 .storage
-                .list_summaries()
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            serde_json::to_value(summaries).map_err(ToolError::from)
+                .list_summaries()?;
+            Ok(serde_json::to_value(summaries)?)
         }
     }
 
     fn get_session(&self, id: &str) -> restflow_tools::Result<Value> {
         let session = self
             .storage
-            .get(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?
+            .get(id)?
             .ok_or_else(|| ToolError::Tool(format!("Session {} not found", id)))?;
-        serde_json::to_value(session).map_err(ToolError::from)
+        Ok(serde_json::to_value(session)?)
     }
 
     fn create_session(&self, request: SessionCreateRequest) -> restflow_tools::Result<Value> {
         let resolved_agent_id = self
             .agent_storage
-            .resolve_existing_agent_id(&request.agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .resolve_existing_agent_id(&request.agent_id)?;
         let mut session = crate::models::ChatSession::new(resolved_agent_id, request.model);
         if let Some(name) = request.name {
             session = session.with_name(name);
@@ -72,28 +66,24 @@ impl SessionStore for SessionStorageAdapter {
             session = session.with_retention(retention);
         }
         self.storage
-            .create(&session)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(session).map_err(ToolError::from)
+            .create(&session)?;
+        Ok(serde_json::to_value(session)?)
     }
 
     fn delete_session(&self, id: &str) -> restflow_tools::Result<Value> {
         let deleted = self
             .storage
-            .delete(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .delete(id)?;
         Ok(json!({ "id": id, "deleted": deleted }))
     }
 
     fn search_sessions(&self, query: SessionSearchQuery) -> restflow_tools::Result<Value> {
         let sessions = if let Some(agent_id) = &query.agent_id {
             self.storage
-                .list_by_agent(agent_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+                .list_by_agent(agent_id)?
         } else {
             self.storage
-                .list()
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+                .list()?
         };
 
         let keyword = query.query.to_lowercase();
@@ -112,16 +102,15 @@ impl SessionStore for SessionStorageAdapter {
             .take(limit)
             .collect();
 
-        serde_json::to_value(matched).map_err(ToolError::from)
+        Ok(serde_json::to_value(matched)?)
     }
 
     fn cleanup_sessions(&self) -> restflow_tools::Result<Value> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let stats = self
             .storage
-            .cleanup_by_session_retention(now_ms)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(stats).map_err(ToolError::from)
+            .cleanup_by_session_retention(now_ms)?;
+        Ok(serde_json::to_value(stats)?)
     }
 }
 

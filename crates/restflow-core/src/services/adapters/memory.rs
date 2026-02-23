@@ -3,7 +3,6 @@
 use crate::memory::MemoryExporter;
 use crate::storage::MemoryStorage;
 use restflow_ai::tools::{MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore};
-use restflow_tools::ToolError;
 use serde_json::{Value, json};
 
 // ============== Memory Manager Adapter ==============
@@ -21,44 +20,31 @@ impl MemoryManagerAdapter {
 
 impl MemoryManager for MemoryManagerAdapter {
     fn stats(&self, agent_id: &str) -> restflow_tools::Result<Value> {
-        let stats = self
-            .storage
-            .get_stats(agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        serde_json::to_value(stats).map_err(ToolError::from)
+        let stats = self.storage.get_stats(agent_id)?;
+        Ok(serde_json::to_value(stats)?)
     }
 
     fn export(&self, request: MemoryExportRequest) -> restflow_tools::Result<Value> {
         let exporter = MemoryExporter::new(self.storage.clone());
         let result = if let Some(session_id) = &request.session_id {
-            exporter
-                .export_session(session_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+            exporter.export_session(session_id)?
         } else {
-            exporter
-                .export_agent(&request.agent_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?
+            exporter.export_agent(&request.agent_id)?
         };
-        serde_json::to_value(result).map_err(ToolError::from)
+        Ok(serde_json::to_value(result)?)
     }
 
     fn clear(&self, request: MemoryClearRequest) -> restflow_tools::Result<Value> {
         if let Some(session_id) = &request.session_id {
             let delete_chunks = request.delete_sessions.unwrap_or(true);
-            let deleted = self
-                .storage
-                .delete_session(session_id, delete_chunks)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            let deleted = self.storage.delete_session(session_id, delete_chunks)?;
             Ok(json!({
                 "agent_id": request.agent_id,
                 "session_id": session_id,
                 "deleted": deleted
             }))
         } else {
-            let deleted = self
-                .storage
-                .delete_chunks_for_agent(&request.agent_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            let deleted = self.storage.delete_chunks_for_agent(&request.agent_id)?;
             Ok(json!({
                 "agent_id": request.agent_id,
                 "chunks_deleted": deleted
@@ -67,10 +53,7 @@ impl MemoryManager for MemoryManagerAdapter {
     }
 
     fn compact(&self, request: MemoryCompactRequest) -> restflow_tools::Result<Value> {
-        let chunks = self
-            .storage
-            .list_chunks(&request.agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let chunks = self.storage.list_chunks(&request.agent_id)?;
 
         let keep_recent = request.keep_recent.unwrap_or(10) as usize;
         let before_ms = request.before_ms;
@@ -95,9 +78,7 @@ impl MemoryManager for MemoryManagerAdapter {
 
         let deleted_count = to_delete.len();
         for chunk_id in &to_delete {
-            self.storage
-                .delete_chunk(chunk_id)
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
+            self.storage.delete_chunk(chunk_id)?;
         }
 
         Ok(json!({
@@ -204,10 +185,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
                     tool_name: "save_to_memory".to_string(),
                 });
 
-        let stored_id = self
-            .storage
-            .store_chunk(&chunk)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let stored_id = self.storage.store_chunk(&chunk)?;
 
         let is_dedup = stored_id != chunk.id;
         let message = if is_dedup {
@@ -225,10 +203,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
     }
 
     fn read_by_id(&self, id: &str) -> restflow_tools::Result<Option<Value>> {
-        let chunk = self
-            .storage
-            .get_chunk(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let chunk = self.storage.get_chunk(id)?;
 
         match chunk {
             Some(c) => {
@@ -249,10 +224,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
         search: Option<&str>,
         limit: usize,
     ) -> restflow_tools::Result<Value> {
-        let mut chunks = self
-            .storage
-            .list_chunks(agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let mut chunks = self.storage.list_chunks(agent_id)?;
 
         if let Some(tag_filter) = tag {
             let tag_lower = tag_filter.to_lowercase();
@@ -288,10 +260,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
         tag: Option<&str>,
         limit: usize,
     ) -> restflow_tools::Result<Value> {
-        let chunks = self
-            .storage
-            .list_chunks(agent_id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let chunks = self.storage.list_chunks(agent_id)?;
 
         let total = chunks.len();
         let mut filtered = chunks;
@@ -317,10 +286,7 @@ impl MemoryStore for DbMemoryStoreAdapter {
     }
 
     fn delete(&self, id: &str) -> restflow_tools::Result<Value> {
-        let deleted = self
-            .storage
-            .delete_chunk(id)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let deleted = self.storage.delete_chunk(id)?;
 
         if deleted {
             Ok(json!({

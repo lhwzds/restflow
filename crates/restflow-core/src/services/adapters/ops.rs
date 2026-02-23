@@ -84,8 +84,7 @@ impl OpsProviderAdapter {
     }
 
     pub(crate) fn resolve_log_tail_path(path: Option<&str>) -> restflow_tools::Result<PathBuf> {
-        let logs_dir =
-            crate::paths::logs_dir().map_err(|e| ToolError::Tool(e.to_string()))?;
+        let logs_dir = crate::paths::logs_dir()?;
         let resolved = match path
             .map(str::trim)
             .filter(|raw| !raw.is_empty())
@@ -93,14 +92,11 @@ impl OpsProviderAdapter {
         {
             Some(custom_path) if custom_path.is_absolute() => custom_path,
             Some(custom_path) => logs_dir.join(custom_path),
-            None => crate::paths::daemon_log_path()
-                .map_err(|e| ToolError::Tool(e.to_string()))?,
+            None => crate::paths::daemon_log_path()?,
         };
 
-        let logs_root = Self::canonical_existing_ancestor(&logs_dir)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
-        let path_root = Self::canonical_existing_ancestor(&resolved)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let logs_root = Self::canonical_existing_ancestor(&logs_dir)?;
+        let path_root = Self::canonical_existing_ancestor(&resolved)?;
         if !path_root.starts_with(&logs_root) {
             return Err(ToolError::Tool(format!(
                 "log_tail path must stay under {}",
@@ -134,8 +130,7 @@ impl OpsProviderAdapter {
 
 impl OpsProvider for OpsProviderAdapter {
     fn daemon_status(&self) -> restflow_tools::Result<Value> {
-        let status =
-            check_daemon_status().map_err(|e| ToolError::Tool(e.to_string()))?;
+        let status = check_daemon_status()?;
         let evidence = match status {
             DaemonStatus::Running { pid } => json!({
                 "status": "running",
@@ -161,12 +156,9 @@ impl OpsProvider for OpsProviderAdapter {
     ) -> std::pin::Pin<Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>>
     {
         Box::pin(async move {
-            let socket = crate::paths::socket_path()
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            let health = check_health(socket, None)
-                .await
-                .map_err(|e| ToolError::Tool(e.to_string()))?;
-            let evidence = serde_json::to_value(health).map_err(ToolError::from)?;
+            let socket = crate::paths::socket_path()?;
+            let health = check_health(socket, None).await?;
+            let evidence = serde_json::to_value(health)?;
             let verification = json!({
                 "healthy": evidence["healthy"],
                 "ipc_checked": true,
@@ -183,14 +175,8 @@ impl OpsProvider for OpsProviderAdapter {
     ) -> restflow_tools::Result<Value> {
         let status_filter = Self::parse_status_filter(status)?;
         let tasks = match status_filter.clone() {
-            Some(s) => self
-                .background_storage
-                .list_tasks_by_status(s)
-                .map_err(|e| ToolError::Tool(e.to_string()))?,
-            None => self
-                .background_storage
-                .list_tasks()
-                .map_err(|e| ToolError::Tool(e.to_string()))?,
+            Some(s) => self.background_storage.list_tasks_by_status(s)?,
+            None => self.background_storage.list_tasks()?,
         };
         let mut by_status: BTreeMap<String, usize> = BTreeMap::new();
         for task in &tasks {
@@ -225,10 +211,7 @@ impl OpsProvider for OpsProviderAdapter {
     }
 
     fn session_summary(&self, limit: usize) -> restflow_tools::Result<Value> {
-        let summaries = self
-            .chat_storage
-            .list_summaries()
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let summaries = self.chat_storage.list_summaries()?;
         let recent: Vec<Value> = summaries
             .iter()
             .take(limit)
@@ -271,8 +254,7 @@ impl OpsProvider for OpsProviderAdapter {
             return Ok(build_ops_response("log_tail", evidence, verification));
         }
 
-        let (tail, truncated) = Self::read_log_tail(&resolved, lines)
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+        let (tail, truncated) = Self::read_log_tail(&resolved, lines)?;
         let evidence = json!({
             "path": resolved.to_string_lossy(),
             "lines": tail,
@@ -315,8 +297,7 @@ impl OpsProviderAdapter {
             return Ok((evidence, verification));
         }
 
-        let (tail, truncated) =
-            Self::read_log_tail(&path, lines).map_err(|e| ToolError::Tool(e.to_string()))?;
+        let (tail, truncated) = Self::read_log_tail(&path, lines)?;
         let evidence = json!({
             "path": path.to_string_lossy(),
             "lines": tail,
