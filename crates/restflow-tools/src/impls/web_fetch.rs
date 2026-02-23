@@ -280,7 +280,7 @@ impl Tool for WebFetchTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::security::network::validate_url;
+    use crate::security::validate_url;
 
     #[test]
     fn test_web_fetch_tool_schema() {

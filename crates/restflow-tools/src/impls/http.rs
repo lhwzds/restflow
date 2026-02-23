@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::http_client::{build_http_client, build_ssrf_safe_client};
-use crate::security::network::{NetworkAllowlist, resolve_and_validate_url};
+use crate::security::{NetworkAllowlist, resolve_and_validate_url};
 use crate::security::{SecurityGate, ToolAction};
 use crate::{Tool, ToolErrorCategory, ToolOutput, check_security};
 
@@ -344,7 +344,7 @@ impl Tool for HttpTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::security::network::validate_url;
+    use crate::security::validate_url;
 
     #[test]
     fn test_http_tool_schema() {
