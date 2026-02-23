@@ -124,10 +124,10 @@ async function testConnection() {
 
   isTesting.value = true
   try {
-    // For now, just show a success message
-    // In a full implementation, we'd call a backend endpoint to send a test message
-    // The backend would retrieve secrets and send via Telegram API
-    toast.success('Test message would be sent (backend integration pending)')
+    // TODO: Add `test_telegram_connection` Tauri command in backend
+    // Backend should: 1) Read stored secrets 2) Call Telegram sendMessage API
+    // See: crates/restflow-tools/src/impls/telegram.rs::send_telegram_notification
+    toast.warning('Test connection requires backend command (not yet implemented)')
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     toast.error('Test failed: ' + errorMessage)

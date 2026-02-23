@@ -20,8 +20,10 @@ function parseMaybeJson(value: unknown): unknown {
 
 export function statusColor(code: number): string {
   if (code >= 200 && code < 300) return 'bg-emerald-100 text-emerald-800'
+  if (code >= 300 && code < 400) return 'bg-sky-100 text-sky-800'
+  if (code >= 400 && code < 500) return 'bg-amber-100 text-amber-800'
   if (code >= 500) return 'bg-rose-100 text-rose-800'
-  return 'bg-amber-100 text-amber-800'
+  return 'bg-gray-100 text-gray-800'
 }
 
 export function methodColor(method: string): string {
