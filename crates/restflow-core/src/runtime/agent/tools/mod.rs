@@ -80,6 +80,9 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "jina_reader",
         "reply",
         "process",
+        "glob",
+        "grep",
+        "task_list",
     ]
     .into_iter()
     .map(str::to_string)
@@ -393,6 +396,26 @@ pub fn registry_from_allowlist(
                 });
             }
 
+            // --- Search tools ---
+            "glob" => {
+                builder = builder.with_glob();
+            }
+            "grep" => {
+                builder = builder.with_grep();
+            }
+            "task_list" => {
+                with_storage!(storage, "task_list", builder, |s| {
+                    builder.with_task_list(Arc::new(DbWorkspaceNoteAdapter::new(
+                        s.workspace_notes.clone(),
+                    )))
+                });
+            }
+
+            // --- Batch tool (registered post-build, see below) ---
+            "batch" => {
+                // Handled after builder.build() since BatchTool needs Arc<ToolRegistry>.
+            }
+
             // --- Caller-registered tools (placeholders) ---
             "switch_model" => {
                 // Registered by callers that provide SwappableLlm + LlmClientFactory.
@@ -424,7 +447,23 @@ pub fn registry_from_allowlist(
         restflow_tools::register_skills(&mut builder.registry, provider);
     }
 
-    let registry = builder.build();
+    // Check if batch tool was requested
+    let wants_batch = tool_names.iter().any(|n| n == "batch");
+
+    let mut registry = builder.build();
+
+    // Batch tool needs Arc<ToolRegistry> — register it post-build as a two-phase step.
+    if wants_batch {
+        let registry_arc = Arc::new(std::mem::take(&mut registry));
+        registry = ToolRegistry::new();
+        // Move all tools from the Arc'd registry back, plus batch
+        for name in registry_arc.list() {
+            if let Some(tool) = registry_arc.get(name) {
+                registry.register_arc(tool);
+            }
+        }
+        registry.register(restflow_tools::BatchTool::new(registry_arc));
+    }
 
     // Populate known_tools for AgentStoreAdapter validation
     if let Ok(mut known) = known_tools.write() {

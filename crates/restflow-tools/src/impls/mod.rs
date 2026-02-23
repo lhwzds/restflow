@@ -49,6 +49,14 @@ pub mod terminal;
 pub mod trigger;
 pub mod unified_memory_search;
 
+// Search tools
+pub mod glob_tool;
+pub mod grep_tool;
+pub mod task_list;
+
+// Batch tool
+pub mod batch;
+
 // Migrated from restflow-core
 pub mod list_agents;
 pub mod registry_builder;
@@ -105,6 +113,14 @@ pub use shared_space::SharedSpaceTool;
 pub use terminal::TerminalTool;
 pub use trigger::TriggerTool;
 pub use unified_memory_search::UnifiedMemorySearchTool;
+
+// Re-export search tools
+pub use glob_tool::GlobTool;
+pub use grep_tool::GrepTool;
+pub use task_list::TaskListTool;
+
+// Re-export batch tool
+pub use batch::BatchTool;
 
 // Re-export core-migrated tools
 pub use list_agents::ListAgentsTool;

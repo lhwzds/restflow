@@ -66,6 +66,12 @@ pub use impls::{
     TerminalTool, TriggerTool, UnifiedMemorySearchTool,
 };
 
+// Re-export search tools
+pub use impls::{GlobTool, GrepTool, TaskListTool};
+
+// Re-export batch tool
+pub use impls::BatchTool;
+
 // Re-export core-migrated tools
 pub use impls::{
     BashConfig, FileConfig, ListAgentsTool, SpawnAgentTool, SpawnTool,

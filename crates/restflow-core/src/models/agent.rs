@@ -64,6 +64,18 @@ impl Default for ModelRoutingConfig {
     }
 }
 
+impl From<&ModelRoutingConfig> for restflow_ai::agent::ModelRoutingConfig {
+    fn from(config: &ModelRoutingConfig) -> Self {
+        Self {
+            enabled: config.enabled,
+            routine_model: config.routine_model.clone(),
+            moderate_model: config.moderate_model.clone(),
+            complex_model: config.complex_model.clone(),
+            escalate_on_failure: config.escalate_on_failure,
+        }
+    }
+}
+
 /// API key or password configuration (direct value or secret reference)
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
 #[ts(export)]

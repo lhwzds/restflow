@@ -45,12 +45,14 @@ use crate::agent::streaming_buffer::{BufferMode, StreamingBuffer};
 use crate::agent::stuck::{StuckAction, StuckDetector, StuckDetectorConfig};
 use crate::error::{AiError, Result};
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
+use crate::agent::sub_agent::SubagentTracker;
 use crate::steer::SteerMessage;
 use crate::tools::{ToolErrorCategory, ToolRegistry};
+use dashmap::DashMap;
 use futures::stream::FuturesOrdered;
 use futures::{Stream, StreamExt};
 use tokio::sync::{Mutex, Semaphore, mpsc};
-use tokio::task::JoinHandle;
+use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::sleep;
 use tracing::debug;
 
@@ -341,6 +343,13 @@ pub struct AgentExecutor {
     tools: Arc<ToolRegistry>,
     context_cache: Option<WorkspaceContextCache>,
     steer_rx: Option<Mutex<mpsc::Receiver<SteerMessage>>>,
+    /// Optional sub-agent tracker for completion notification injection.
+    subagent_tracker: Option<Arc<SubagentTracker>>,
+    /// Active tool calls that can be individually cancelled.
+    active_tool_calls: Arc<DashMap<String, AbortHandle>>,
+    /// Buffer for steer messages that were read during tool drain but need
+    /// to be processed by `apply_steer_messages` at the next iteration.
+    steer_buffer: Mutex<Vec<SteerMessage>>,
 }
 
 impl AgentExecutor {
@@ -355,6 +364,9 @@ impl AgentExecutor {
             tools,
             context_cache,
             steer_rx: None,
+            subagent_tracker: None,
+            active_tool_calls: Arc::new(DashMap::new()),
+            steer_buffer: Mutex::new(Vec::new()),
         }
     }
 
@@ -364,13 +376,90 @@ impl AgentExecutor {
         self
     }
 
+    /// Attach a sub-agent tracker for automatic completion notification injection.
+    pub fn with_subagent_tracker(mut self, tracker: Arc<SubagentTracker>) -> Self {
+        self.subagent_tracker = Some(tracker);
+        self
+    }
+
+    /// Poll the sub-agent tracker for completions and inject notification messages.
+    async fn poll_subagent_completions(
+        &self,
+        state: &mut AgentState,
+        max_result_length: usize,
+    ) {
+        let Some(tracker) = &self.subagent_tracker else {
+            return;
+        };
+
+        let completions = tracker.poll_completions().await;
+        if completions.is_empty() {
+            return;
+        }
+
+        for completion in completions {
+            let agent_name = tracker
+                .get(&completion.id)
+                .map(|s| s.agent_name.clone())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            let status_str = if completion.result.success {
+                "completed"
+            } else if completion.result.error.is_some() {
+                "failed"
+            } else {
+                "failed"
+            };
+
+            let mut output = completion.result.output.clone();
+            if output.len() > max_result_length {
+                output = context_manager::middle_truncate(&output, max_result_length);
+            }
+
+            let error_tag = match &completion.result.error {
+                Some(err) => format!("\n  <error>{}</error>", err),
+                None => String::new(),
+            };
+
+            let notification = format!(
+                "<subagent_notification>\n  \
+                 <task_id>{}</task_id>\n  \
+                 <agent>{}</agent>\n  \
+                 <status>{}</status>\n  \
+                 <duration_ms>{}</duration_ms>\n  \
+                 <output>{}</output>{}\n\
+                 </subagent_notification>",
+                completion.id,
+                agent_name,
+                status_str,
+                completion.result.duration_ms,
+                output,
+                error_tag,
+            );
+
+            tracing::info!(
+                task_id = %completion.id,
+                agent = %agent_name,
+                status = %status_str,
+                "Injecting sub-agent completion notification"
+            );
+
+            state.add_message(Message::system(notification));
+        }
+    }
+
     async fn drain_steer_messages(&self) -> Vec<SteerMessage> {
+        // First, drain any buffered messages from the tool-drain phase
+        let mut messages = {
+            let mut buffer = self.steer_buffer.lock().await;
+            std::mem::take(&mut *buffer)
+        };
+
         let Some(rx) = &self.steer_rx else {
-            return Vec::new();
+            return messages;
         };
 
         let mut rx = rx.lock().await;
-        let mut messages = Vec::new();
         loop {
             match rx.try_recv() {
                 Ok(msg) => messages.push(msg),
@@ -434,6 +523,18 @@ impl AgentExecutor {
                         "Received interrupt command"
                     );
                     state.interrupt(reason);
+                }
+                crate::steer::SteerCommand::CancelToolCall { tool_call_id } => {
+                    if let Some((_, abort_handle)) =
+                        self.active_tool_calls.remove(tool_call_id)
+                    {
+                        abort_handle.abort();
+                        tracing::info!(
+                            tool_call_id = %tool_call_id,
+                            source = ?steer.source,
+                            "Tool call cancelled via steer"
+                        );
+                    }
                 }
             }
         }
@@ -601,6 +702,8 @@ impl AgentExecutor {
                 scratchpad.log_iteration_begin(state.iteration + 1);
             }
             self.apply_steer_messages(&mut state, &deferred_manager)
+                .await;
+            self.poll_subagent_completions(&mut state, config.max_tool_result_length)
                 .await;
             self.process_resolved_deferred_calls(
                 &deferred_manager,
@@ -1341,18 +1444,29 @@ impl AgentExecutor {
                 },
             );
 
+            // Capture abort handle for cancellation support
+            self.active_tool_calls
+                .insert(tool_call_id.clone(), handle.abort_handle());
+
             ordered.push_back(async move {
-                let result = handle
-                    .await
-                    .map_err(|e| AiError::Tool(format!("Tool task panicked: {}", e)))
-                    .and_then(|r| r);
+                let result = match handle.await {
+                    Ok(r) => r,
+                    Err(e) if e.is_cancelled() => {
+                        Err(AiError::Tool("Tool call cancelled".to_string()))
+                    }
+                    Err(e) => Err(AiError::Tool(format!("Tool task panicked: {}", e))),
+                };
                 (tool_call_id, tool_name, result)
             });
         }
 
-        // 3. Drain results in submission order, emitting events as each completes
+        // 3. Drain results in submission order, emitting events as each completes.
+        //    Between each result, check for cancellation steer commands.
         let mut output = Vec::with_capacity(tool_calls.len());
         while let Some((id, name, result)) = ordered.next().await {
+            // Remove from active set now that it has completed
+            self.active_tool_calls.remove(&id);
+
             let (result_str, success) = match &result {
                 Ok(o) if o.success => (
                     serde_json::to_string(&o.result).unwrap_or_default(),
@@ -1368,9 +1482,52 @@ impl AgentExecutor {
                 .emit_tool_call_result(&id, &name, &result_str, success)
                 .await;
             output.push((id, result));
+
+            // Process any pending cancellation steer commands between tool completions
+            self.process_cancel_steers().await;
         }
 
+        // Clear any remaining entries (shouldn't happen, but defensive)
+        self.active_tool_calls.clear();
+
         output
+    }
+
+    /// Process only CancelToolCall steer commands (non-blocking).
+    /// Message and Interrupt variants are buffered for `apply_steer_messages()`.
+    async fn process_cancel_steers(&self) {
+        let Some(rx) = &self.steer_rx else {
+            return;
+        };
+
+        let mut rx = rx.lock().await;
+        let mut deferred = Vec::new();
+        loop {
+            match rx.try_recv() {
+                Ok(steer) => match &steer.command {
+                    crate::steer::SteerCommand::CancelToolCall { tool_call_id } => {
+                        if let Some((_, abort_handle)) =
+                            self.active_tool_calls.remove(tool_call_id)
+                        {
+                            abort_handle.abort();
+                            tracing::info!(
+                                tool_call_id = %tool_call_id,
+                                "Tool call cancelled via steer (during tool drain)"
+                            );
+                        }
+                    }
+                    _ => deferred.push(steer),
+                },
+                Err(_) => break,
+            }
+        }
+        drop(rx);
+
+        // Buffer non-cancel messages for the next apply_steer_messages() call
+        if !deferred.is_empty() {
+            let mut buffer = self.steer_buffer.lock().await;
+            buffer.extend(deferred);
+        }
     }
 
     async fn build_system_prompt(&self, config: &AgentConfig) -> String {

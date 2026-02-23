@@ -208,18 +208,6 @@ impl AgentRuntimeExecutor {
         Ok(Arc::new(Scratchpad::new(path)?))
     }
 
-    fn to_ai_model_routing_config(
-        config: &crate::models::ModelRoutingConfig,
-    ) -> AiModelRoutingConfig {
-        AiModelRoutingConfig {
-            enabled: config.enabled,
-            routine_model: config.routine_model.clone(),
-            moderate_model: config.moderate_model.clone(),
-            complex_model: config.complex_model.clone(),
-            escalate_on_failure: config.escalate_on_failure,
-        }
-    }
-
     /// Create a new AgentRuntimeExecutor with access to storage.
     pub fn new(
         storage: Arc<Storage>,
@@ -1324,7 +1312,7 @@ impl AgentRuntimeExecutor {
             config = config.with_temperature(temp as f32);
         }
         if let Some(model_routing) = agent_node.model_routing.as_ref() {
-            config = config.with_model_routing(Self::to_ai_model_routing_config(model_routing));
+            config = config.with_model_routing(AiModelRoutingConfig::from(model_routing));
             if model_routing.enabled {
                 let switcher: Arc<dyn AiModelSwitcher> = Arc::new(RuntimeModelSwitcher {
                     swappable: swappable.clone(),
