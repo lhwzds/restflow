@@ -5,7 +5,7 @@ use portable_pty::PtySize;
 use restflow_core::process::{
     ProcessOutputListener, ProcessSessionSource, ProcessShellOptions, ProcessSpawnOptions,
 };
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use tauri::{AppHandle, Emitter, State};
 
 /// Event payload for PTY output
@@ -312,19 +312,23 @@ pub fn save_all_terminal_history_sync(app_state: &AppState) {
     }
 }
 
+/// Cached default shell - initialized once and reused
+static DEFAULT_SHELL: OnceLock<String> = OnceLock::new();
+
 /// Get the default shell for the current platform
+/// 
+/// Uses OnceLock to cache the shell path, avoiding memory leaks from repeated Box::leak calls.
 fn get_default_shell() -> &'static str {
-    #[cfg(target_os = "windows")]
-    {
-        "powershell.exe"
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        std::env::var("SHELL")
-            .ok()
-            .map(|s| Box::leak(s.into_boxed_str()) as &str)
-            .unwrap_or("/bin/bash")
-    }
+    DEFAULT_SHELL.get_or_init(|| {
+        #[cfg(target_os = "windows")]
+        {
+            "powershell.exe".to_string()
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+        }
+    })
 }
 
 #[cfg(test)]
