@@ -4,7 +4,6 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::Value;
-use tokio::sync::RwLock;
 
 use crate::error::{Result, ToolError};
 use crate::tool::{Tool, ToolOutput, ToolSchema};
@@ -13,7 +12,6 @@ use crate::wrapper::{ToolWrapper, WrappedTool};
 /// Registry for managing available tools
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn Tool>>,
-    parallel_lock: Arc<RwLock<()>>,
 }
 
 impl Default for ToolRegistry {
@@ -27,7 +25,6 @@ impl ToolRegistry {
     pub fn new() -> Self {
         Self {
             tools: HashMap::new(),
-            parallel_lock: Arc::new(RwLock::new(())),
         }
     }
 
@@ -91,21 +88,10 @@ impl ToolRegistry {
         tool.execute(input).await
     }
 
-    /// Execute a tool with parallel-safety locking.
-    /// Parallel-safe tools acquire a shared read lock.
-    /// Non-parallel tools acquire an exclusive write lock.
+    /// Execute a tool by name.
+    /// All tools execute in parallel; concurrency is controlled by the executor's semaphore.
     pub async fn execute_safe(&self, name: &str, input: Value) -> Result<ToolOutput> {
-        let tool = self
-            .get(name)
-            .ok_or_else(|| ToolError::NotFound(name.to_string()))?;
-
-        if tool.supports_parallel_for(&input) {
-            let _guard = self.parallel_lock.read().await;
-            tool.execute(input).await
-        } else {
-            let _guard = self.parallel_lock.write().await;
-            tool.execute(input).await
-        }
+        self.execute(name, input).await
     }
 }
 

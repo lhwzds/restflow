@@ -196,10 +196,6 @@ impl Tool for RunPythonTool {
         python_parameters_schema()
     }
 
-    fn supports_parallel(&self) -> bool {
-        false
-    }
-
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         execute_python(self, input).await
     }
@@ -217,10 +213,6 @@ impl Tool for PythonTool {
 
     fn parameters_schema(&self) -> Value {
         python_parameters_schema()
-    }
-
-    fn supports_parallel(&self) -> bool {
-        false
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {

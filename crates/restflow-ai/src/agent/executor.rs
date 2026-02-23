@@ -49,10 +49,13 @@ use crate::steer::SteerMessage;
 use crate::tools::{ToolErrorCategory, ToolRegistry};
 use futures::stream::FuturesOrdered;
 use futures::{Stream, StreamExt};
-use tokio::sync::{Mutex, mpsc};
+use tokio::sync::{Mutex, Semaphore, mpsc};
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 use tracing::debug;
+
+/// Default maximum number of tool calls that can execute concurrently.
+const DEFAULT_MAX_TOOL_CONCURRENCY: usize = 100;
 
 const MAX_TOOL_RETRIES: usize = 2;
 
@@ -158,6 +161,8 @@ pub struct AgentConfig {
     pub checkpoint_callback: Option<CheckpointCallback>,
     /// Feature flags for conditional prompt section inclusion.
     pub prompt_flags: PromptFlags,
+    /// Maximum number of tool calls that can execute concurrently (default: 100).
+    pub max_tool_concurrency: usize,
 }
 
 impl AgentConfig {
@@ -184,6 +189,7 @@ impl AgentConfig {
             checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
             checkpoint_callback: None,
             prompt_flags: PromptFlags::default(),
+            max_tool_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
         }
     }
 
@@ -804,6 +810,7 @@ impl AgentExecutor {
                     emitter,
                     config.tool_timeout,
                     config.yolo_mode,
+                    config.max_tool_concurrency,
                 )
                 .await;
             tracker.record_tool_calls(results.len());
@@ -1158,21 +1165,10 @@ impl AgentExecutor {
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
         yolo_mode: bool,
+        max_tool_concurrency: usize,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
-        let all_parallel = tool_calls.iter().all(|call| {
-            self.tools
-                .get(&call.name)
-                .map(|tool| tool.supports_parallel_for(&call.arguments))
-                .unwrap_or(false)
-        });
-
-        if all_parallel && tool_calls.len() > 1 {
-            self.execute_tools_parallel(tool_calls, emitter, tool_timeout, yolo_mode)
-                .await
-        } else {
-            self.execute_tools_sequential(tool_calls, emitter, tool_timeout, yolo_mode)
-                .await
-        }
+        self.execute_tools_parallel(tool_calls, emitter, tool_timeout, yolo_mode, max_tool_concurrency)
+            .await
     }
 
     async fn execute_tool_call(
@@ -1308,57 +1304,13 @@ impl AgentExecutor {
         }
     }
 
-    async fn execute_tools_sequential(
-        &self,
-        tool_calls: &[ToolCall],
-        emitter: &mut dyn StreamEmitter,
-        tool_timeout: Duration,
-        yolo_mode: bool,
-    ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
-        let mut results = Vec::new();
-
-        for call in tool_calls {
-            let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
-            emitter
-                .emit_tool_call_start(&call.id, &call.name, &arguments)
-                .await;
-
-            let result = tokio::time::timeout(
-                tool_timeout,
-                self.execute_tool_call(&call.name, call.arguments.clone(), yolo_mode),
-            )
-            .await
-            .map_err(|_| AiError::Tool(format!("Tool {} timed out", call.name)))
-            .and_then(|result| result);
-
-            if let Ok(output) = &result {
-                let result_str = if output.success {
-                    serde_json::to_string(&output.result).unwrap_or_default()
-                } else {
-                    format!("Error: {}", output.error.clone().unwrap_or_default())
-                };
-                emitter
-                    .emit_tool_call_result(&call.id, &call.name, &result_str, output.success)
-                    .await;
-            } else if let Err(error) = &result {
-                let result_str = format!("Error: {}", error);
-                emitter
-                    .emit_tool_call_result(&call.id, &call.name, &result_str, false)
-                    .await;
-            }
-
-            results.push((call.id.clone(), result));
-        }
-
-        results
-    }
-
     async fn execute_tools_parallel(
         &self,
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
         tool_timeout: Duration,
         yolo_mode: bool,
+        max_concurrency: usize,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         // 1. Emit start events for all tool calls upfront
         for call in tool_calls {
@@ -1368,18 +1320,25 @@ impl AgentExecutor {
                 .await;
         }
 
-        // 2. Spawn each tool as an independent Tokio task, collect into FuturesOrdered
+        // 2. Spawn each tool as an independent Tokio task with semaphore-bounded concurrency
+        let semaphore = Arc::new(Semaphore::new(max_concurrency));
         let mut ordered = FuturesOrdered::new();
 
         for call in tool_calls {
             let tools = Arc::clone(&self.tools);
+            let sem = Arc::clone(&semaphore);
             let name = call.name.clone();
             let args = call.arguments.clone();
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
 
             let handle: JoinHandle<Result<crate::tools::ToolOutput>> = tokio::spawn(
-                Self::execute_tool_with_retry(tools, name, args, tool_timeout, yolo_mode),
+                async move {
+                    let _permit = sem.acquire().await.map_err(|_| {
+                        AiError::Tool("Tool concurrency semaphore closed".to_string())
+                    })?;
+                    Self::execute_tool_with_retry(tools, name, args, tool_timeout, yolo_mode).await
+                },
             );
 
             ordered.push_back(async move {
@@ -2529,10 +2488,6 @@ mod tests {
             serde_json::json!({"type": "object"})
         }
 
-        fn supports_parallel(&self) -> bool {
-            true
-        }
-
         async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             tokio::time::sleep(Duration::from_millis(self.delay_ms)).await;
             Ok(ToolOutput::success(
@@ -2558,10 +2513,6 @@ mod tests {
             serde_json::json!({"type": "object"})
         }
 
-        fn supports_parallel(&self) -> bool {
-            true
-        }
-
         async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
             panic!("intentional panic for testing");
         }
@@ -2582,10 +2533,6 @@ mod tests {
 
         fn parameters_schema(&self) -> Value {
             serde_json::json!({"type": "object"})
-        }
-
-        fn supports_parallel(&self) -> bool {
-            true
         }
 
         async fn execute(&self, _input: Value) -> ToolResult<ToolOutput> {
@@ -2637,7 +2584,7 @@ mod tests {
         let mut emitter = NullEmitter;
         let timeout = Duration::from_secs(10);
         let results = executor
-            .execute_tools_parallel(&calls, &mut emitter, timeout, false)
+            .execute_tools_parallel(&calls, &mut emitter, timeout, false, DEFAULT_MAX_TOOL_CONCURRENCY)
             .await;
 
         // Verify submission order preserved
@@ -2686,7 +2633,7 @@ mod tests {
         let mut emitter = NullEmitter;
         let start = std::time::Instant::now();
         let results = executor
-            .execute_tools_parallel(&calls, &mut emitter, Duration::from_secs(10), false)
+            .execute_tools_parallel(&calls, &mut emitter, Duration::from_secs(10), false, DEFAULT_MAX_TOOL_CONCURRENCY)
             .await;
         let elapsed = start.elapsed();
 
@@ -2728,7 +2675,7 @@ mod tests {
 
         let mut emitter = NullEmitter;
         let results = executor
-            .execute_tools_parallel(&calls, &mut emitter, Duration::from_secs(10), false)
+            .execute_tools_parallel(&calls, &mut emitter, Duration::from_secs(10), false, DEFAULT_MAX_TOOL_CONCURRENCY)
             .await;
 
         assert_eq!(results.len(), 2);
@@ -2784,6 +2731,7 @@ mod tests {
                 &mut emitter,
                 Duration::from_millis(200),
                 false,
+                DEFAULT_MAX_TOOL_CONCURRENCY,
             )
             .await;
 

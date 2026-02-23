@@ -67,10 +67,6 @@ impl Tool for DiscordTool {
         })
     }
 
-    fn supports_parallel(&self) -> bool {
-        false
-    }
-
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: DiscordInput = match serde_json::from_value(input) {
             Ok(p) => p,
