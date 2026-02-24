@@ -5,6 +5,7 @@
 //! - Installing and updating skills with dependency resolution
 //! - Checking gating requirements before installation
 
+mod cache;
 mod gating;
 mod github;
 mod marketplace;
