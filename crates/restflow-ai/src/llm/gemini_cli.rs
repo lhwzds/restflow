@@ -5,7 +5,7 @@ use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{debug, info};
 
-use crate::error::{AiError, Result};
+use crate::error::Result;
 use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult,
 };
@@ -82,19 +82,12 @@ impl LlmClient for GeminiCliClient {
             cmd.env("GEMINI_API_KEY", api_key);
         }
 
-        let output = cmd.output().await.map_err(|e| {
-            AiError::Llm(format!(
-                "Failed to run gemini CLI: {}. Install with: npm install -g @google/gemini-cli",
-                e
-            ))
-        })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AiError::Llm(format!("Gemini CLI error: {}", stderr)));
-        }
-
-        let raw_output = String::from_utf8_lossy(&output.stdout).to_string();
+        let raw_output = cli_utils::execute_cli_command(
+            cmd,
+            "Gemini",
+            "Install with: npm install -g @google/gemini-cli",
+        )
+        .await?;
         let content = Self::parse_json_output(&raw_output)?;
         debug!(content_len = content.len(), "Gemini CLI response parsed");
 

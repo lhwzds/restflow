@@ -5,7 +5,7 @@ use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{debug, info};
 
-use crate::error::{AiError, Result};
+use crate::error::Result;
 use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult,
 };
@@ -85,19 +85,12 @@ impl LlmClient for OpenCodeClient {
             cmd.env(env_var, value);
         }
 
-        let output = cmd.output().await.map_err(|e| {
-            AiError::Llm(format!(
-                "Failed to run opencode CLI: {}. Install with: go install github.com/opencode-ai/opencode@latest",
-                e
-            ))
-        })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AiError::Llm(format!("OpenCode CLI error: {}", stderr)));
-        }
-
-        let raw_output = String::from_utf8_lossy(&output.stdout).to_string();
+        let raw_output = cli_utils::execute_cli_command(
+            cmd,
+            "OpenCode",
+            "Install with: go install github.com/opencode-ai/opencode@latest",
+        )
+        .await?;
         let content = Self::parse_json_output(&raw_output)?;
         debug!(content_len = content.len(), "OpenCode CLI response parsed");
 
