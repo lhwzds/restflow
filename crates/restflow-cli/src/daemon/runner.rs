@@ -267,7 +267,8 @@ fn bootstrap_default_chat_pairing(
     secrets: &SecretStorage,
     pairing_manager: &PairingManager,
 ) -> Result<()> {
-    let default_chat_id = secrets.get_non_empty("TELEGRAM_CHAT_ID")?
+    let default_chat_id = secrets
+        .get_non_empty("TELEGRAM_CHAT_ID")?
         .or(secrets.get_non_empty("TELEGRAM_DEFAULT_CHAT_ID")?);
 
     let Some(chat_id) = default_chat_id else {

@@ -7,7 +7,9 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolOutput};
-use restflow_traits::store::{WorkItemProvider, WorkItemStatus, WorkItemSpec, WorkItemPatch, WorkItemQuery};
+use restflow_traits::store::{
+    WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemSpec, WorkItemStatus,
+};
 
 #[derive(Debug, Deserialize)]
 struct WorkItemInput {
@@ -124,10 +126,7 @@ impl Tool for WorkItemTool {
                 };
                 match self.provider.get(&id) {
                     Ok(Some(item)) => Ok(ToolOutput::success(json!(item))),
-                    Ok(None) => Ok(ToolOutput::error(format!(
-                        "Work item '{}' not found",
-                        id
-                    ))),
+                    Ok(None) => Ok(ToolOutput::error(format!("Work item '{}' not found", id))),
                     Err(err) => Ok(ToolOutput::error(err)),
                 }
             }
@@ -258,10 +257,7 @@ mod tests {
     }
 
     impl WorkItemProvider for MockWorkItemProvider {
-        fn create(
-            &self,
-            spec: WorkItemSpec,
-        ) -> std::result::Result<WorkItemRecord, String> {
+        fn create(&self, spec: WorkItemSpec) -> std::result::Result<WorkItemRecord, String> {
             let mut items = self.items.lock().map_err(|_| "Lock poisoned".to_string())?;
             let id = format!("item-{}", items.len() + 1);
             let item = WorkItemRecord {
@@ -311,10 +307,7 @@ mod tests {
             Ok(items.remove(id).is_some())
         }
 
-        fn list(
-            &self,
-            _query: WorkItemQuery,
-        ) -> std::result::Result<Vec<WorkItemRecord>, String> {
+        fn list(&self, _query: WorkItemQuery) -> std::result::Result<Vec<WorkItemRecord>, String> {
             let items = self.items.lock().map_err(|_| "Lock poisoned".to_string())?;
             Ok(items.values().cloned().collect())
         }

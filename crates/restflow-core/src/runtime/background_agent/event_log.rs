@@ -204,8 +204,9 @@ impl EventLog {
 
         let run_path = Self::run_log_path(task_id, run_id, log_dir)?;
         if let Some(parent) = run_path.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("Failed to create run log directory: {}", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("Failed to create run log directory: {}", parent.display())
+            })?;
         }
 
         let writer = Self::open_writer(&run_path)?;
@@ -596,7 +597,11 @@ mod tests {
         // Read without dropping — data should already be on disk
         let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
         let events = EventLog::read_all(&log_path).unwrap();
-        assert_eq!(events.len(), 1, "terminal event should be flushed immediately");
+        assert_eq!(
+            events.len(),
+            1,
+            "terminal event should be flushed immediately"
+        );
     }
 
     #[cfg(unix)]
@@ -647,8 +652,7 @@ mod tests {
         let task_id = "last-n-overflow";
 
         let mut log = EventLog::new(task_id, temp_dir.path()).unwrap();
-        log.append(&AgentEvent::Resumed { timestamp: 42 })
-            .unwrap();
+        log.append(&AgentEvent::Resumed { timestamp: 42 }).unwrap();
         drop(log);
 
         let log_path = temp_dir.path().join(format!("{}.jsonl", task_id));
@@ -789,7 +793,9 @@ mod tests {
     #[test]
     fn test_sanitize_accepts_uuid() {
         let tmp = TempDir::new().unwrap();
-        assert!(EventLog::legacy_log_path("550e8400-e29b-41d4-a716-446655440000", tmp.path()).is_ok());
+        assert!(
+            EventLog::legacy_log_path("550e8400-e29b-41d4-a716-446655440000", tmp.path()).is_ok()
+        );
         assert!(EventLog::run_log_path("task-1", "1771471846966-abcd", tmp.path()).is_ok());
     }
 }

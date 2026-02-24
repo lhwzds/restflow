@@ -1,7 +1,7 @@
 //! Integration tests for the AI agent with tool implementations
 
 use restflow_ai::{AgentConfig, AgentExecutor, ToolRegistry};
-use restflow_tools::{HttpTool, EmailTool};
+use restflow_tools::{EmailTool, HttpTool};
 use std::sync::Arc;
 
 fn disable_system_proxy_for_tests() {

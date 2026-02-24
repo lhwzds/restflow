@@ -1,8 +1,10 @@
 //! SessionStore adapter backed by ChatSessionStorage.
 
 use crate::storage::{AgentStorage, ChatSessionStorage};
-use restflow_traits::store::{SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore};
 use restflow_tools::ToolError;
+use restflow_traits::store::{
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
+};
 use serde_json::{Value, json};
 
 #[derive(Clone)]
@@ -23,22 +25,17 @@ impl SessionStorageAdapter {
 impl SessionStore for SessionStorageAdapter {
     fn list_sessions(&self, filter: SessionListFilter) -> restflow_tools::Result<Value> {
         let sessions = if let Some(agent_id) = &filter.agent_id {
-            self.storage
-                .list_by_agent(agent_id)?
+            self.storage.list_by_agent(agent_id)?
         } else if let Some(skill_id) = &filter.skill_id {
-            self.storage
-                .list_by_skill(skill_id)?
+            self.storage.list_by_skill(skill_id)?
         } else {
-            self.storage
-                .list()?
+            self.storage.list()?
         };
 
         if filter.include_messages.unwrap_or(false) {
             Ok(serde_json::to_value(sessions)?)
         } else {
-            let summaries = self
-                .storage
-                .list_summaries()?;
+            let summaries = self.storage.list_summaries()?;
             Ok(serde_json::to_value(summaries)?)
         }
     }
@@ -65,25 +62,20 @@ impl SessionStore for SessionStorageAdapter {
         if let Some(retention) = request.retention {
             session = session.with_retention(retention);
         }
-        self.storage
-            .create(&session)?;
+        self.storage.create(&session)?;
         Ok(serde_json::to_value(session)?)
     }
 
     fn delete_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let deleted = self
-            .storage
-            .delete(id)?;
+        let deleted = self.storage.delete(id)?;
         Ok(json!({ "id": id, "deleted": deleted }))
     }
 
     fn search_sessions(&self, query: SessionSearchQuery) -> restflow_tools::Result<Value> {
         let sessions = if let Some(agent_id) = &query.agent_id {
-            self.storage
-                .list_by_agent(agent_id)?
+            self.storage.list_by_agent(agent_id)?
         } else {
-            self.storage
-                .list()?
+            self.storage.list()?
         };
 
         let keyword = query.query.to_lowercase();
@@ -107,9 +99,7 @@ impl SessionStore for SessionStorageAdapter {
 
     fn cleanup_sessions(&self) -> restflow_tools::Result<Value> {
         let now_ms = chrono::Utc::now().timestamp_millis();
-        let stats = self
-            .storage
-            .cleanup_by_session_retention(now_ms)?;
+        let stats = self.storage.cleanup_by_session_retention(now_ms)?;
         Ok(serde_json::to_value(stats)?)
     }
 }
@@ -127,12 +117,18 @@ mod tests {
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
         let agent_storage = AgentStorage::new(db).unwrap();
-        (SessionStorageAdapter::new(chat_storage, agent_storage), temp_dir)
+        (
+            SessionStorageAdapter::new(chat_storage, agent_storage),
+            temp_dir,
+        )
     }
 
     fn create_default_agent(adapter: &SessionStorageAdapter) -> String {
         let agent = crate::models::AgentNode::default();
-        let created = adapter.agent_storage.create_agent("test-agent".to_string(), agent).unwrap();
+        let created = adapter
+            .agent_storage
+            .create_agent("test-agent".to_string(), agent)
+            .unwrap();
         created.id
     }
 

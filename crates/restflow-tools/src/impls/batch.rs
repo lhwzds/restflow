@@ -5,21 +5,20 @@
 //! parallel with bounded concurrency.
 
 use async_trait::async_trait;
-use futures::stream::FuturesOrdered;
 use futures::StreamExt;
+use futures::stream::FuturesOrdered;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
 
+use crate::ToolRegistry;
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use crate::ToolRegistry;
 
 /// Maximum number of sub-invocations per batch call.
 const MAX_BATCH_SIZE: usize = 25;
-
 
 /// A single tool invocation within a batch.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -320,9 +319,7 @@ mod tests {
         let invocations: Vec<Value> = (0..26)
             .map(|i| json!({ "tool": "echo", "input": { "i": i } }))
             .collect();
-        let result = batch
-            .execute(json!({ "invocations": invocations }))
-            .await;
+        let result = batch.execute(json!({ "invocations": invocations })).await;
 
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
@@ -350,10 +347,7 @@ mod tests {
     async fn test_batch_empty() {
         let registry = make_registry();
         let batch = BatchTool::new(registry);
-        let result = batch
-            .execute(json!({ "invocations": [] }))
-            .await
-            .unwrap();
+        let result = batch.execute(json!({ "invocations": [] })).await.unwrap();
 
         assert!(result.success);
         assert_eq!(result.result["summary"]["total"], 0);

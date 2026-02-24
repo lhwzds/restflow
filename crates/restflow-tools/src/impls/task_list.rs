@@ -18,8 +18,7 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolOutput};
 use restflow_traits::store::{
-    WorkItemProvider, WorkItemPatch, WorkItemQuery, WorkItemSpec,
-    WorkItemStatus,
+    WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemSpec, WorkItemStatus,
 };
 
 /// Fixed folder name for task notes
@@ -221,10 +220,7 @@ impl Tool for TaskListTool {
             "list" => {
                 let query = WorkItemQuery {
                     folder: Some(TASK_FOLDER.to_string()),
-                    status: params
-                        .status
-                        .as_deref()
-                        .and_then(Self::str_to_status),
+                    status: params.status.as_deref().and_then(Self::str_to_status),
                     priority: params.priority,
                     tag: params.tags.as_ref().and_then(|t| t.first().cloned()),
                     assignee: params.owner,
@@ -241,7 +237,9 @@ impl Tool for TaskListTool {
 
                         let completed_ids: HashSet<&str> = notes
                             .iter()
-                            .filter(|n| matches!(n.status, WorkItemStatus::Done | WorkItemStatus::Archived))
+                            .filter(|n| {
+                                matches!(n.status, WorkItemStatus::Done | WorkItemStatus::Archived)
+                            })
                             .map(|n| n.id.as_str())
                             .collect();
 
@@ -272,7 +270,8 @@ impl Tool for TaskListTool {
 
                         // Also provide summary counts
                         let pending = status_map.values().filter(|s| *s == "pending").count();
-                        let in_progress = status_map.values().filter(|s| *s == "in_progress").count();
+                        let in_progress =
+                            status_map.values().filter(|s| *s == "in_progress").count();
                         let completed = status_map.values().filter(|s| *s == "completed").count();
 
                         Ok(ToolOutput::success(json!({
@@ -390,10 +389,7 @@ impl Tool for TaskListTool {
                     title: params.subject,
                     content: Some(Self::encode_meta(&meta)),
                     priority: params.priority,
-                    status: params
-                        .status
-                        .as_deref()
-                        .and_then(Self::str_to_status),
+                    status: params.status.as_deref().and_then(Self::str_to_status),
                     tags: params.tags,
                     assignee: params.owner,
                     folder: None,
@@ -451,12 +447,12 @@ mod tests {
     }
 
     impl WorkItemProvider for MockProvider {
-        fn create(
-            &self,
-            spec: WorkItemSpec,
-        ) -> std::result::Result<WorkItemRecord, String> {
+        fn create(&self, spec: WorkItemSpec) -> std::result::Result<WorkItemRecord, String> {
             let mut notes = self.notes.lock().map_err(|_| "Lock poisoned".to_string())?;
-            let mut counter = self.counter.lock().map_err(|_| "Lock poisoned".to_string())?;
+            let mut counter = self
+                .counter
+                .lock()
+                .map_err(|_| "Lock poisoned".to_string())?;
             *counter += 1;
             let id = format!("task-{}", *counter);
             let note = WorkItemRecord {
@@ -516,10 +512,7 @@ mod tests {
             Ok(notes.remove(id).is_some())
         }
 
-        fn list(
-            &self,
-            query: WorkItemQuery,
-        ) -> std::result::Result<Vec<WorkItemRecord>, String> {
+        fn list(&self, query: WorkItemQuery) -> std::result::Result<Vec<WorkItemRecord>, String> {
             let notes = self.notes.lock().map_err(|_| "Lock poisoned".to_string())?;
             let mut result: Vec<_> = notes
                 .values()
@@ -617,10 +610,7 @@ mod tests {
         .unwrap();
 
         // List all
-        let out = tool
-            .execute(json!({ "operation": "list" }))
-            .await
-            .unwrap();
+        let out = tool.execute(json!({ "operation": "list" })).await.unwrap();
         assert!(out.success);
         assert_eq!(out.result["summary"]["total"], 2);
 
@@ -729,7 +719,12 @@ mod tests {
             }))
             .await
             .unwrap();
-        assert!(out.result["blocks"].as_array().unwrap().contains(&json!(task_b)));
+        assert!(
+            out.result["blocks"]
+                .as_array()
+                .unwrap()
+                .contains(&json!(task_b))
+        );
     }
 
     #[tokio::test]
@@ -758,10 +753,7 @@ mod tests {
         .unwrap();
 
         // List should show blocked task with open blockers
-        let out = tool
-            .execute(json!({ "operation": "list" }))
-            .await
-            .unwrap();
+        let out = tool.execute(json!({ "operation": "list" })).await.unwrap();
         let tasks = out.result["tasks"].as_array().unwrap();
         let blocked_task = tasks.iter().find(|t| t["subject"] == "Blocked").unwrap();
         assert!(!blocked_task["blockedBy"].as_array().unwrap().is_empty());
@@ -776,10 +768,7 @@ mod tests {
         .unwrap();
 
         // Now list should show empty blockedBy for the blocked task
-        let out = tool
-            .execute(json!({ "operation": "list" }))
-            .await
-            .unwrap();
+        let out = tool.execute(json!({ "operation": "list" })).await.unwrap();
         let tasks = out.result["tasks"].as_array().unwrap();
         let blocked_task = tasks.iter().find(|t| t["subject"] == "Blocked").unwrap();
         assert!(blocked_task["blockedBy"].as_array().unwrap().is_empty());

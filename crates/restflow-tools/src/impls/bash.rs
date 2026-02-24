@@ -101,10 +101,16 @@ impl BashTool {
             restflow_sandbox::wrap_command(policy, "sh", &["-c", command])
                 .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?
         } else {
-            ("sh".to_string(), vec!["-c".to_string(), command.to_string()])
+            (
+                "sh".to_string(),
+                vec!["-c".to_string(), command.to_string()],
+            )
         };
         #[cfg(not(feature = "sandbox"))]
-        let (program, args) = ("sh".to_string(), vec!["-c".to_string(), command.to_string()]);
+        let (program, args) = (
+            "sh".to_string(),
+            vec!["-c".to_string(), command.to_string()],
+        );
 
         let mut cmd = Command::new(&program);
         cmd.args(&args)

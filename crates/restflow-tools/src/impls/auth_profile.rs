@@ -5,9 +5,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::{Tool, ToolError, ToolOutput};
-use restflow_traits::store::{AuthProfileStore, CredentialInput, AuthProfileCreateRequest, AuthProfileTestRequest};
 use crate::Result;
+use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::store::{
+    AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, CredentialInput,
+};
 
 #[derive(Clone)]
 pub struct AuthProfileTool {
@@ -111,11 +113,11 @@ impl Tool for AuthProfileTool {
 
         let output =
             match action {
-                AuthProfileAction::List => ToolOutput::success(
-                    self.store
-                        .list_profiles()
-                        .map_err(|e| ToolError::Tool(format!("Failed to list auth profile: {e}")))?,
-                ),
+                AuthProfileAction::List => {
+                    ToolOutput::success(self.store.list_profiles().map_err(|e| {
+                        ToolError::Tool(format!("Failed to list auth profile: {e}"))
+                    })?)
+                }
                 AuthProfileAction::Discover => {
                     ToolOutput::success(self.store.discover_profiles().map_err(|e| {
                         ToolError::Tool(format!("Failed to discover auth profile: {e}"))
@@ -148,11 +150,9 @@ impl Tool for AuthProfileTool {
                 }
                 AuthProfileAction::Test { id, provider } => {
                     let request = AuthProfileTestRequest { id, provider };
-                    ToolOutput::success(
-                        self.store.test_profile(request).map_err(|e| {
-                            ToolError::Tool(format!("Failed to test auth profile: {e}"))
-                        })?,
-                    )
+                    ToolOutput::success(self.store.test_profile(request).map_err(|e| {
+                        ToolError::Tool(format!("Failed to test auth profile: {e}"))
+                    })?)
                 }
             };
 

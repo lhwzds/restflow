@@ -277,15 +277,11 @@ impl Tool for MultiEditTool {
             let old_string = edit
                 .get("old_string")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    crate::ToolError::Tool(format!("Edit {i}: missing 'old_string'"))
-                })?;
+                .ok_or_else(|| crate::ToolError::Tool(format!("Edit {i}: missing 'old_string'")))?;
             let new_string = edit
                 .get("new_string")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| {
-                    crate::ToolError::Tool(format!("Edit {i}: missing 'new_string'"))
-                })?;
+                .ok_or_else(|| crate::ToolError::Tool(format!("Edit {i}: missing 'new_string'")))?;
             let replace_all_edit = edit
                 .get("replace_all")
                 .and_then(|v| v.as_bool())
@@ -369,7 +365,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().canonicalize().unwrap();
         let file_path = base.join("test.txt");
-        tokio::fs::write(&file_path, "aaa\nbbb\nccc\n").await.unwrap();
+        tokio::fs::write(&file_path, "aaa\nbbb\nccc\n")
+            .await
+            .unwrap();
 
         let tracker = Arc::new(FileTracker::new());
         tracker.record_read(&file_path);
@@ -397,7 +395,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let base = dir.path().canonicalize().unwrap();
         let file_path = base.join("test.txt");
-        tokio::fs::write(&file_path, "aaa\nbbb\nccc\n").await.unwrap();
+        tokio::fs::write(&file_path, "aaa\nbbb\nccc\n")
+            .await
+            .unwrap();
 
         let tracker = Arc::new(FileTracker::new());
         tracker.record_read(&file_path);

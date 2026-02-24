@@ -12,8 +12,8 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use restflow_ai::agent::context_manager::{
-    compact, compact_was_effective, estimate_tokens, middle_truncate, prune, should_compact,
-    ContextManagerConfig, TokenEstimator,
+    ContextManagerConfig, TokenEstimator, compact, compact_was_effective, estimate_tokens,
+    middle_truncate, prune, should_compact,
 };
 use restflow_ai::llm::{Message, MockLlmClient, MockStep, Role, ToolCall};
 use serde_json::json;
@@ -104,7 +104,11 @@ async fn stress_prune_large_conversation() {
         tokens_after < tokens_before / 2,
         "expected significant token reduction: before={tokens_before}, after={tokens_after}"
     );
-    assert_eq!(msgs.len(), total_messages, "message count should not change");
+    assert_eq!(
+        msgs.len(),
+        total_messages,
+        "message count should not change"
+    );
     // Tool results outside the protection zone should be truncated.
     // Protection covers the last N user turns, so messages in the earlier
     // part of the conversation (say first 75%) should all be truncated.
@@ -573,10 +577,7 @@ async fn stress_alternating_grow_prune_compact() {
         ));
         msgs.push(Message::tool_result(
             &tool_call_id,
-            format!(
-                "fn process_{iter}() {{ {} }}",
-                "let x = 1; ".repeat(200)
-            ),
+            format!("fn process_{iter}() {{ {} }}", "let x = 1; ".repeat(200)),
         ));
         msgs.push(Message::assistant(format!(
             "File_{iter}.rs review: looks good, minor style issues."
@@ -613,7 +614,11 @@ async fn stress_alternating_grow_prune_compact() {
         }
 
         // Invariant: system prompt is always first.
-        assert_eq!(msgs[0].role, Role::System, "iter={iter}: system prompt lost");
+        assert_eq!(
+            msgs[0].role,
+            Role::System,
+            "iter={iter}: system prompt lost"
+        );
         // Invariant: messages are never empty.
         assert!(msgs.len() >= 2, "iter={iter}: too few messages");
     }

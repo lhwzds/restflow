@@ -1,8 +1,8 @@
 //! Security implementations for tool execution.
 
 // Re-export abstractions from restflow-traits
-pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
 pub use restflow_traits::error::Result;
+pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
 
 // Network security types are defined in restflow-traits
 pub use restflow_traits::network::{

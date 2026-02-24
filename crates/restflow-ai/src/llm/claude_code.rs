@@ -34,8 +34,11 @@ impl ClaudeCodeClient {
     }
 
     fn build_cli_command(&self, prompt: &str) -> Result<Command> {
-        let executable =
-            cli_utils::resolve_executable("claude", "RESTFLOW_CLAUDE_BIN", &cli_utils::standard_fallbacks("claude"))?;
+        let executable = cli_utils::resolve_executable(
+            "claude",
+            "RESTFLOW_CLAUDE_BIN",
+            &cli_utils::standard_fallbacks("claude"),
+        )?;
         let mut cmd = Command::new(executable);
         cmd.env("CLAUDE_CODE_OAUTH_TOKEN", &self.oauth_token)
             .env_remove("CLAUDECODE")

@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use restflow_storage::{ConfigStorage, SystemConfig};
 
-use crate::{Tool, ToolError, ToolOutput};
 use crate::Result;
+use crate::{Tool, ToolError, ToolOutput};
 
 #[derive(Clone)]
 pub struct ConfigTool {
@@ -146,7 +146,9 @@ impl ConfigTool {
                     }
                     "python_timeout_secs" => {
                         config.agent.python_timeout_secs = value.as_u64().ok_or_else(|| {
-                            ToolError::Tool("agent.python_timeout_secs must be a number".to_string())
+                            ToolError::Tool(
+                                "agent.python_timeout_secs must be a number".to_string(),
+                            )
                         })?;
                     }
                     "max_iterations" => {
@@ -168,7 +170,9 @@ impl ConfigTool {
                     }
                     "max_wall_clock_secs" => {
                         config.agent.max_wall_clock_secs = value.as_u64().ok_or_else(|| {
-                            ToolError::Tool("agent.max_wall_clock_secs must be a number".to_string())
+                            ToolError::Tool(
+                                "agent.max_wall_clock_secs must be a number".to_string(),
+                            )
                         })?;
                     }
                     "default_task_timeout_secs" => {

@@ -4,15 +4,15 @@
 //! the byte-level APIs from restflow-storage with Rust types from our models.
 
 pub mod agent;
+pub mod audit;
 pub mod background_agent;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
 pub mod hook;
-pub mod memory;
 pub mod kv_store;
+pub mod memory;
 pub mod skill;
-pub mod audit;
 pub mod terminal_session;
 pub mod trigger;
 pub mod work_item;
@@ -30,18 +30,18 @@ pub use restflow_storage::{
 };
 
 pub use agent::AgentStorage;
+pub use audit::AuditStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use deliverable::DeliverableStorage;
 pub use hook::HookStorage;
-pub use memory::MemoryStorage;
 pub use kv_store::KvStoreStorage;
+pub use memory::MemoryStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use trigger::TriggerStorage;
 pub use work_item::WorkItemStorage;
-pub use audit::AuditStorage;
 
 /// Central storage manager that initializes all storage subsystems.
 ///

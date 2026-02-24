@@ -2,6 +2,7 @@ pub mod agent;
 pub mod agent_execution;
 pub mod agent_meta;
 pub mod ai_model;
+pub mod audit;
 pub mod background_agent;
 pub mod chat_session;
 pub mod checkpoint;
@@ -11,7 +12,6 @@ pub mod memory;
 pub mod security;
 pub mod shared_space;
 pub mod skill;
-pub mod audit;
 pub mod skill_folder;
 pub mod skill_marketplace;
 pub mod skill_meta;
@@ -43,10 +43,12 @@ pub use memory::{
 };
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
-pub use work_item::{
-    ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec,
-};
+pub use work_item::{ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec};
 // Secret is now defined in restflow-storage
+pub use audit::{
+    AuditEvent, AuditEventCategory, AuditEventSource, AuditQuery, AuditStats, AuditTimeRange,
+    LifecycleAudit, LlmCallAudit, MessageAudit, ModelSwitchAudit, ToolCallAudit,
+};
 pub use chat_session::{
     ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
     ChatSessionSummary, ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
@@ -65,11 +67,6 @@ pub use skill_marketplace::{
     SkillPermissions, SkillSource, SkillVersion, VersionRequirement,
 };
 pub use skill_meta::SkillMeta;
-pub use audit::{
-    AuditEvent, AuditEventCategory, AuditEventSource, AuditQuery,
-    AuditStats, AuditTimeRange, LifecycleAudit, LlmCallAudit,
-    MessageAudit, ModelSwitchAudit, ToolCallAudit,
-};
 pub use storage_mode::StorageMode;
 pub use terminal_session::{TerminalSession, TerminalStatus};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};

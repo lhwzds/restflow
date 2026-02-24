@@ -202,8 +202,11 @@ impl LlmClient for CodexClient {
 
         let prompt = cli_utils::build_prompt(&request.messages);
         let args = self.build_cli_args(&prompt);
-        let executable =
-            cli_utils::resolve_executable("codex", "RESTFLOW_CODEX_BIN", &cli_utils::standard_fallbacks("codex"))?;
+        let executable = cli_utils::resolve_executable(
+            "codex",
+            "RESTFLOW_CODEX_BIN",
+            &cli_utils::standard_fallbacks("codex"),
+        )?;
 
         let output = Command::new(executable)
             .args(&args)

@@ -86,9 +86,9 @@ impl Tool for UnifiedMemorySearchTool {
             .unwrap_or(0)
             .min(u32::MAX as u64) as u32;
 
-        let results =
-            self.search
-                .search(agent_id, query, include_sessions, limit, offset)?;
+        let results = self
+            .search
+            .search(agent_id, query, include_sessions, limit, offset)?;
         Ok(ToolOutput::success(results))
     }
 }

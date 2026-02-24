@@ -93,9 +93,7 @@ pub fn parse_json_response(output: &str, provider: &str) -> Result<String> {
     let response = value
         .get("response")
         .and_then(|v| v.as_str())
-        .ok_or_else(|| {
-            AiError::Llm(format!("{} CLI output missing 'response' field", provider))
-        })?;
+        .ok_or_else(|| AiError::Llm(format!("{} CLI output missing 'response' field", provider)))?;
 
     if response.trim().is_empty() {
         return Err(AiError::Llm(format!(
@@ -162,10 +160,7 @@ mod tests {
 
     #[test]
     fn test_build_prompt_joins_with_double_newline() {
-        let messages = vec![
-            msg(Role::User, "Hello"),
-            msg(Role::Assistant, "World"),
-        ];
+        let messages = vec![msg(Role::User, "Hello"), msg(Role::Assistant, "World")];
         let result = build_prompt(&messages);
         assert_eq!(result, "Hello\n\nWorld");
     }
@@ -178,7 +173,11 @@ mod tests {
     #[test]
     fn test_standard_fallbacks_contains_homebrew() {
         let paths = standard_fallbacks("claude");
-        assert!(paths.iter().any(|p| p.to_str().unwrap().contains("/opt/homebrew/bin/claude")));
+        assert!(
+            paths
+                .iter()
+                .any(|p| p.to_str().unwrap().contains("/opt/homebrew/bin/claude"))
+        );
     }
 
     #[test]

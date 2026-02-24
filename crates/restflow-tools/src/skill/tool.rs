@@ -31,10 +31,7 @@ impl Tool for SkillAsTool {
     }
 
     fn description(&self) -> &str {
-        self.info
-            .description
-            .as_deref()
-            .unwrap_or(&self.info.name)
+        self.info.description.as_deref().unwrap_or(&self.info.name)
     }
 
     fn parameters_schema(&self) -> Value {
@@ -50,10 +47,7 @@ impl Tool for SkillAsTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let user_input = input
-            .get("input")
-            .and_then(|v| v.as_str())
-            .unwrap_or("");
+        let user_input = input.get("input").and_then(|v| v.as_str()).unwrap_or("");
 
         match self.provider.get_skill(&self.info.id) {
             Some(content) => Ok(ToolOutput::success(json!({
@@ -102,7 +96,11 @@ mod tests {
         fn create_skill(&self, _skill: SkillRecord) -> std::result::Result<SkillRecord, String> {
             Err("not implemented".to_string())
         }
-        fn update_skill(&self, _id: &str, _update: SkillUpdate) -> std::result::Result<SkillRecord, String> {
+        fn update_skill(
+            &self,
+            _id: &str,
+            _update: SkillUpdate,
+        ) -> std::result::Result<SkillRecord, String> {
             Err("not implemented".to_string())
         }
         fn delete_skill(&self, _id: &str) -> std::result::Result<bool, String> {

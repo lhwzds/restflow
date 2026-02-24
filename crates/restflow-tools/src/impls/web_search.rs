@@ -70,7 +70,10 @@ impl WebSearchTool {
             )));
         }
 
-        let data: Value = response.json().await.map_err(|e| crate::ToolError::Other(e.into()))?;
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| crate::ToolError::Other(e.into()))?;
         let results = data["web"]["results"]
             .as_array()
             .map(|arr| {
@@ -113,7 +116,10 @@ impl WebSearchTool {
             )));
         }
 
-        let data: Value = response.json().await.map_err(|e| crate::ToolError::Other(e.into()))?;
+        let data: Value = response
+            .json()
+            .await
+            .map_err(|e| crate::ToolError::Other(e.into()))?;
         let results = data["results"]
             .as_array()
             .map(|arr| {
@@ -156,7 +162,10 @@ impl WebSearchTool {
             )));
         }
 
-        let html = response.text().await.map_err(|e| crate::ToolError::Other(e.into()))?;
+        let html = response
+            .text()
+            .await
+            .map_err(|e| crate::ToolError::Other(e.into()))?;
         let results = parse_duckduckgo_html(&html, num);
         Ok(json!({ "provider": "duckduckgo", "results": results }))
     }

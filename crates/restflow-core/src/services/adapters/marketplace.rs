@@ -4,8 +4,8 @@ use crate::models::Skill;
 use crate::registry::{GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery};
 use crate::storage::skill::SkillStorage;
 use chrono::Utc;
-use restflow_traits::store::MarketplaceStore;
 use restflow_tools::ToolError;
+use restflow_traits::store::MarketplaceStore;
 use serde_json::{Value, json};
 
 pub struct MarketplaceStoreAdapter {
@@ -232,8 +232,14 @@ mod tests {
 
     #[test]
     fn test_provider_name() {
-        assert_eq!(MarketplaceStoreAdapter::provider_name(Some("github")), "github");
+        assert_eq!(
+            MarketplaceStoreAdapter::provider_name(Some("github")),
+            "github"
+        );
         assert_eq!(MarketplaceStoreAdapter::provider_name(None), "marketplace");
-        assert_eq!(MarketplaceStoreAdapter::provider_name(Some("other")), "marketplace");
+        assert_eq!(
+            MarketplaceStoreAdapter::provider_name(Some("other")),
+            "marketplace"
+        );
     }
 }

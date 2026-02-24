@@ -372,7 +372,11 @@ mod tests {
     }
 
     impl LlmClientFactory for MockFactory {
-        fn create_client(&self, model: &str, api_key: Option<&str>) -> AiResult<Arc<dyn LlmClient>> {
+        fn create_client(
+            &self,
+            model: &str,
+            api_key: Option<&str>,
+        ) -> AiResult<Arc<dyn LlmClient>> {
             self.create_calls
                 .lock()
                 .expect("lock poisoned")

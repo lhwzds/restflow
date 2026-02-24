@@ -121,8 +121,8 @@ mod tests {
     use super::*;
     use crate::Tool;
     use restflow_ai::agent::{
-        SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
-        SubagentDefSummary, SubagentDeps, SubagentManagerImpl, SubagentTracker, spawn_subagent,
+        SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
+        SubagentDeps, SubagentManagerImpl, SubagentTracker, spawn_subagent,
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
@@ -160,13 +160,10 @@ mod tests {
         }
     }
 
-    fn make_deps(
-        mock_steps: Vec<MockStep>,
-    ) -> (Arc<SubagentDeps>, Arc<dyn SubagentManager>) {
+    fn make_deps(mock_steps: Vec<MockStep>) -> (Arc<SubagentDeps>, Arc<dyn SubagentManager>) {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
-        let definitions: Arc<dyn SubagentDefLookup> =
-            Arc::new(MockDefLookup::with_agent("tester"));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
         let llm_client = Arc::new(MockLlmClient::from_steps("mock", mock_steps));
         let tool_registry = Arc::new(ToolRegistry::new());
         let config = SubagentConfig {
@@ -183,8 +180,7 @@ mod tests {
             config,
             llm_client_factory: None,
         });
-        let manager: Arc<dyn SubagentManager> =
-            Arc::new(SubagentManagerImpl::from_deps(&deps));
+        let manager: Arc<dyn SubagentManager> = Arc::new(SubagentManagerImpl::from_deps(&deps));
         (deps, manager)
     }
 
@@ -250,8 +246,7 @@ mod tests {
     #[ignore] // Requires 10s+ wait due to MIN_WAIT_TIMEOUT_SECS clamp
     async fn test_wait_timeout() {
         // Use a delayed step that exceeds the wait timeout (10s, the clamped minimum)
-        let (deps, manager) =
-            make_deps(vec![MockStep::text("slow").with_delay(15_000)]);
+        let (deps, manager) = make_deps(vec![MockStep::text("slow").with_delay(15_000)]);
         let task_id = spawn_test_agent(&deps);
 
         let tool = WaitAgentsTool::new(manager);
@@ -267,10 +262,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_multiple_tasks() {
-        let (deps, manager) = make_deps(vec![
-            MockStep::text("result-1"),
-            MockStep::text("result-2"),
-        ]);
+        let (deps, manager) =
+            make_deps(vec![MockStep::text("result-1"), MockStep::text("result-2")]);
         let id1 = spawn_test_agent(&deps);
         let id2 = spawn_test_agent(&deps);
 

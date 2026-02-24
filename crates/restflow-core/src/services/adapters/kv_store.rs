@@ -3,8 +3,8 @@
 use crate::models::{SharedEntry, Visibility};
 use crate::storage::KvStoreStorage;
 use chrono::Utc;
-use restflow_traits::store::KvStore;
 use restflow_tools::ToolError;
+use restflow_traits::store::KvStore;
 use serde_json::{Value, json};
 
 pub struct KvStoreAdapter {
@@ -23,9 +23,7 @@ impl KvStoreAdapter {
 
 impl KvStore for KvStoreAdapter {
     fn get_entry(&self, key: &str) -> restflow_tools::Result<Value> {
-        let entry = self
-            .storage
-            .get(key, self.accessor_id.as_deref())?;
+        let entry = self.storage.get(key, self.accessor_id.as_deref())?;
         let payload = match entry {
             Some(entry) => json!({
                 "found": true,
@@ -54,9 +52,7 @@ impl KvStore for KvStoreAdapter {
         tags: Option<Vec<String>>,
         _accessor_id: Option<&str>,
     ) -> restflow_tools::Result<Value> {
-        let existing = self
-            .storage
-            .get_unchecked(key)?;
+        let existing = self.storage.get_unchecked(key)?;
 
         if let Some(ref entry) = existing
             && !entry.can_write(self.accessor_id.as_deref())
@@ -104,8 +100,7 @@ impl KvStore for KvStoreAdapter {
             last_modified_by: self.accessor_id.clone(),
         };
 
-        self.storage
-            .set(&entry)?;
+        self.storage.set(&entry)?;
 
         Ok(json!({
             "success": true,
@@ -115,9 +110,7 @@ impl KvStore for KvStoreAdapter {
     }
 
     fn delete_entry(&self, key: &str, accessor_id: Option<&str>) -> restflow_tools::Result<Value> {
-        let deleted = self
-            .storage
-            .delete(key, accessor_id)?;
+        let deleted = self.storage.delete(key, accessor_id)?;
         Ok(json!({
             "deleted": deleted,
             "key": key
@@ -167,7 +160,10 @@ mod tests {
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         let inner = restflow_storage::KvStoreStorage::new(db).unwrap();
         let storage = KvStoreStorage::new(inner);
-        (KvStoreAdapter::new(storage, Some("test-agent".to_string())), temp_dir)
+        (
+            KvStoreAdapter::new(storage, Some("test-agent".to_string())),
+            temp_dir,
+        )
     }
 
     #[test]
@@ -205,8 +201,12 @@ mod tests {
     #[test]
     fn test_list_entries() {
         let (adapter, _dir) = setup();
-        adapter.set_entry("a", "1", None, None, None, None, None).unwrap();
-        adapter.set_entry("b", "2", None, None, None, None, None).unwrap();
+        adapter
+            .set_entry("a", "1", None, None, None, None, None)
+            .unwrap();
+        adapter
+            .set_entry("b", "2", None, None, None, None, None)
+            .unwrap();
 
         let result = adapter.list_entries(None).unwrap();
         assert_eq!(result["count"], 2);
@@ -215,8 +215,12 @@ mod tests {
     #[test]
     fn test_update_existing_entry() {
         let (adapter, _dir) = setup();
-        adapter.set_entry("upd", "old", None, None, None, None, None).unwrap();
-        adapter.set_entry("upd", "new", None, None, None, None, None).unwrap();
+        adapter
+            .set_entry("upd", "old", None, None, None, None, None)
+            .unwrap();
+        adapter
+            .set_entry("upd", "new", None, None, None, None, None)
+            .unwrap();
 
         let result = adapter.get_entry("upd").unwrap();
         assert_eq!(result["value"], "new");

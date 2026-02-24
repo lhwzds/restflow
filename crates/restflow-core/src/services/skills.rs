@@ -78,11 +78,7 @@ pub async fn get_skill_reference(
     }
 
     let kv_store_key = format!("skill-ref:{}:{}", skill_id, ref_id);
-    if let Some(content) = core
-        .storage
-        .kv_store
-        .quick_get(&kv_store_key, None)?
-    {
+    if let Some(content) = core.storage.kv_store.quick_get(&kv_store_key, None)? {
         return Ok(Some(content));
     }
 

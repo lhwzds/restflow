@@ -17,9 +17,7 @@ impl AuthProfileStorageAdapter {
 
 impl AuthProfileStore for AuthProfileStorageAdapter {
     fn list_profiles(&self) -> restflow_tools::Result<Value> {
-        let secrets = self
-            .storage
-            .list_secrets()?;
+        let secrets = self.storage.list_secrets()?;
 
         let profiles: Vec<Value> = secrets
             .iter()
@@ -76,14 +74,15 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
         let secret_value = match &request.credential {
             restflow_traits::store::CredentialInput::ApiKey { key, .. } => key.clone(),
             restflow_traits::store::CredentialInput::Token { token, .. } => token.clone(),
-            restflow_traits::store::CredentialInput::OAuth { access_token, .. } => access_token.clone(),
+            restflow_traits::store::CredentialInput::OAuth { access_token, .. } => {
+                access_token.clone()
+            }
         };
-        self.storage
-            .set_secret(
-                &key_name,
-                &secret_value,
-                Some(format!("Auth profile: {}", request.name)),
-            )?;
+        self.storage.set_secret(
+            &key_name,
+            &secret_value,
+            Some(format!("Auth profile: {}", request.name)),
+        )?;
 
         Ok(json!({
             "id": key_name,
@@ -94,8 +93,7 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
     }
 
     fn remove_profile(&self, id: &str) -> restflow_tools::Result<Value> {
-        self.storage
-            .delete_secret(id)?;
+        self.storage.delete_secret(id)?;
         Ok(json!({ "id": id, "removed": true }))
     }
 
@@ -147,7 +145,11 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn setup() -> (AuthProfileStorageAdapter, tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
+    fn setup() -> (
+        AuthProfileStorageAdapter,
+        tempfile::TempDir,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
         let guard = env_lock();
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");

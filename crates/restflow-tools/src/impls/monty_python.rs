@@ -7,10 +7,10 @@ use super::python_backend::{
     ProcessPythonBackend, PythonExecutionBackend, PythonExecutionLimits, PythonExecutionRequest,
     PythonRuntime,
 };
-use crate::{Tool, ToolOutput, check_security};
-use crate::ToolAction;
 use crate::Result;
+use crate::ToolAction;
 use crate::security::SecurityGate;
+use crate::{Tool, ToolOutput, check_security};
 
 const DEFAULT_TIMEOUT_SECONDS: u64 = 30;
 
@@ -135,10 +135,7 @@ fn python_parameters_schema() -> Value {
     })
 }
 
-async fn execute_python(
-    tool: &RunPythonTool,
-    input: Value,
-) -> Result<ToolOutput> {
+async fn execute_python(tool: &RunPythonTool, input: Value) -> Result<ToolOutput> {
     let parsed: RunPythonInput = serde_json::from_value(input)?;
     if let Some(security_gate) = tool.security_gate.as_deref() {
         let action = ToolAction {
@@ -263,10 +260,7 @@ mod tests {
             .expect("tool execute should succeed");
         assert!(output.success);
         assert_eq!(
-            output
-                .result
-                .get("runtime")
-                .and_then(|v| v.as_str()),
+            output.result.get("runtime").and_then(|v| v.as_str()),
             Some("monty")
         );
     }

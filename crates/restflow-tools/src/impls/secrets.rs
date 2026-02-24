@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use restflow_storage::{Secret, SecretStorage};
 
-use crate::{Tool, ToolError, ToolOutput};
 use crate::Result;
+use crate::{Tool, ToolError, ToolOutput};
 
 #[derive(Clone)]
 pub struct SecretsTool {

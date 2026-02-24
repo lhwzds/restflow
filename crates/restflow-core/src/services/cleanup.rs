@@ -65,17 +65,15 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
 
     // L1: Clean up old log files (blocking I/O, offload to spawn_blocking)
     let retention_days = config.log_file_retention_days;
-    let daemon_log_files = tokio::task::spawn_blocking(move || {
-        cleanup_daemon_log_files(retention_days).unwrap_or(0)
-    })
-    .await
-    .unwrap_or(0);
+    let daemon_log_files =
+        tokio::task::spawn_blocking(move || cleanup_daemon_log_files(retention_days).unwrap_or(0))
+            .await
+            .unwrap_or(0);
     let event_retention = config.log_file_retention_days;
-    let event_log_files = tokio::task::spawn_blocking(move || {
-        cleanup_event_log_files(event_retention).unwrap_or(0)
-    })
-    .await
-    .unwrap_or(0);
+    let event_log_files =
+        tokio::task::spawn_blocking(move || cleanup_event_log_files(event_retention).unwrap_or(0))
+            .await
+            .unwrap_or(0);
 
     Ok(CleanupReport {
         chat_sessions,
@@ -127,8 +125,7 @@ fn cleanup_vectors_if_needed(core: &Arc<AppCore>) -> Result<usize> {
         if stats.orphan_count > threshold {
             debug!(
                 orphans = stats.orphan_count,
-                threshold,
-                "Vector orphan threshold exceeded, running cleanup"
+                threshold, "Vector orphan threshold exceeded, running cleanup"
             );
             if let Some(cleaned) = core.storage.memory.cleanup_vector_orphans()? {
                 return Ok(cleaned);
@@ -169,9 +166,7 @@ fn cleanup_event_log_files(retention_days: u32) -> Result<usize> {
         Err(_) => return Ok(0),
     };
 
-    cleanup_old_files_in_dir(&logs_dir, retention_days, |name| {
-        name.ends_with(".jsonl")
-    })
+    cleanup_old_files_in_dir(&logs_dir, retention_days, |name| name.ends_with(".jsonl"))
 }
 
 /// Delete files older than `retention_days` in `dir` that match the `filter` predicate.
@@ -279,16 +274,11 @@ mod tests {
         let old_time = std::time::SystemTime::now()
             .checked_sub(std::time::Duration::from_secs(60 * DAY_SECS))
             .unwrap();
-        filetime::set_file_mtime(
-            &old_file,
-            filetime::FileTime::from_system_time(old_time),
-        )
-        .unwrap();
+        filetime::set_file_mtime(&old_file, filetime::FileTime::from_system_time(old_time))
+            .unwrap();
 
-        let deleted = cleanup_old_files_in_dir(dir, 30, |name| {
-            name.starts_with("daemon.log")
-        })
-        .unwrap();
+        let deleted =
+            cleanup_old_files_in_dir(dir, 30, |name| name.starts_with("daemon.log")).unwrap();
 
         assert_eq!(deleted, 1);
         assert!(!old_file.exists(), "old file should be deleted");
@@ -335,8 +325,7 @@ mod tests {
         let agent_id = "test-agent";
 
         // Create an empty session (no chunks)
-        let empty_session =
-            MemorySession::new(agent_id.to_string(), "Empty Session".to_string());
+        let empty_session = MemorySession::new(agent_id.to_string(), "Empty Session".to_string());
         storage.create_session(&empty_session).unwrap();
 
         // Create a session with one chunk
@@ -352,11 +341,7 @@ mod tests {
         assert_eq!(sessions.len(), 2);
 
         // Run cleanup
-        let deleted = cleanup_empty_sessions_for_agents(
-            &storage,
-            &[agent_id.to_string()],
-        )
-        .unwrap();
+        let deleted = cleanup_empty_sessions_for_agents(&storage, &[agent_id.to_string()]).unwrap();
 
         assert_eq!(deleted, 1, "should delete exactly one empty session");
 
@@ -369,8 +354,7 @@ mod tests {
     #[test]
     fn test_cleanup_empty_sessions_no_agents_returns_zero() {
         let (storage, _tmp) = create_test_memory_storage();
-        let deleted =
-            cleanup_empty_sessions_for_agents(&storage, &[]).unwrap();
+        let deleted = cleanup_empty_sessions_for_agents(&storage, &[]).unwrap();
         assert_eq!(deleted, 0);
     }
 
@@ -383,24 +367,14 @@ mod tests {
 
         // Create two sessions, each with a chunk
         for i in 0..2 {
-            let session = MemorySession::new(
-                agent_id.to_string(),
-                format!("Session {}", i),
-            );
+            let session = MemorySession::new(agent_id.to_string(), format!("Session {}", i));
             storage.create_session(&session).unwrap();
-            let chunk = MemoryChunk::new(
-                agent_id.to_string(),
-                format!("Content {}", i),
-            )
-            .with_session(session.id.clone());
+            let chunk = MemoryChunk::new(agent_id.to_string(), format!("Content {}", i))
+                .with_session(session.id.clone());
             storage.store_chunk(&chunk).unwrap();
         }
 
-        let deleted = cleanup_empty_sessions_for_agents(
-            &storage,
-            &[agent_id.to_string()],
-        )
-        .unwrap();
+        let deleted = cleanup_empty_sessions_for_agents(&storage, &[agent_id.to_string()]).unwrap();
 
         assert_eq!(deleted, 0, "no sessions should be deleted");
         assert_eq!(storage.list_sessions(agent_id).unwrap().len(), 2);
@@ -413,13 +387,11 @@ mod tests {
         let (storage, _tmp) = create_test_memory_storage();
 
         // Agent A: 1 empty session
-        let sess_a =
-            MemorySession::new("agent-a".to_string(), "A session".to_string());
+        let sess_a = MemorySession::new("agent-a".to_string(), "A session".to_string());
         storage.create_session(&sess_a).unwrap();
 
         // Agent B: 1 session with chunk
-        let sess_b =
-            MemorySession::new("agent-b".to_string(), "B session".to_string());
+        let sess_b = MemorySession::new("agent-b".to_string(), "B session".to_string());
         storage.create_session(&sess_b).unwrap();
         let chunk = MemoryChunk::new("agent-b".to_string(), "B content".to_string())
             .with_session(sess_b.id.clone());

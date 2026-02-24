@@ -8,13 +8,12 @@ use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, ChatSessionStorage, ConfigStorage, MemoryStorage,
-    SecretStorage, KvStoreStorage, TerminalSessionStorage, TriggerStorage,
-    WorkItemStorage,
+    AgentStorage, BackgroundAgentStorage, ChatSessionStorage, ConfigStorage, KvStoreStorage,
+    MemoryStorage, SecretStorage, TerminalSessionStorage, TriggerStorage, WorkItemStorage,
 };
-use restflow_traits::tool::SecretResolver;
-use restflow_traits::registry::ToolRegistry;
 use restflow_tools::ToolRegistryBuilder;
+use restflow_traits::registry::ToolRegistry;
+use restflow_traits::tool::SecretResolver;
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
@@ -65,10 +64,7 @@ pub fn create_tool_registry(
         background_agent_storage.clone(),
         chat_storage,
     ));
-    let kv_store = Arc::new(KvStoreAdapter::new(
-        kv_store_storage,
-        accessor_id,
-    ));
+    let kv_store = Arc::new(KvStoreAdapter::new(kv_store_storage, accessor_id));
     let work_item_provider = Arc::new(DbWorkItemAdapter::new(work_item_storage));
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
@@ -146,12 +142,11 @@ mod tests {
     use redb::Database;
     use restflow_traits::skill::SkillProvider as _;
     use restflow_traits::store::{
-        AgentCreateRequest, AgentStore, AgentUpdateRequest,
-        BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
-        BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-        BackgroundAgentProgressRequest, BackgroundAgentScratchpadListRequest,
-        BackgroundAgentScratchpadReadRequest, BackgroundAgentStore,
-        BackgroundAgentUpdateRequest, MemoryStore as _,
+        AgentCreateRequest, AgentStore, AgentUpdateRequest, BackgroundAgentControlRequest,
+        BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
+        BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
+        BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
+        BackgroundAgentStore, BackgroundAgentUpdateRequest, MemoryStore as _,
     };
     use serde_json::json;
     use std::sync::{Mutex, OnceLock};

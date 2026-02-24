@@ -30,9 +30,7 @@ impl UnifiedMemorySearch for UnifiedMemorySearchAdapter {
             .paginate(limit, offset);
         let unified_query = UnifiedSearchQuery::new(base).with_sessions(include_sessions);
 
-        let results = self
-            .engine
-            .search(&unified_query)?;
+        let results = self.engine.search(&unified_query)?;
 
         Ok(serde_json::to_value(results)?)
     }
@@ -41,8 +39,8 @@ impl UnifiedMemorySearch for UnifiedMemorySearchAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_traits::store::UnifiedMemorySearch;
     use crate::storage::MemoryStorage;
+    use restflow_traits::store::UnifiedMemorySearch;
     use std::sync::Arc;
     use tempfile::tempdir;
 
@@ -53,7 +51,11 @@ mod tests {
         let memory_storage = MemoryStorage::new(db.clone()).unwrap();
         let chat_storage = crate::storage::ChatSessionStorage::new(db).unwrap();
         let engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage);
-        (UnifiedMemorySearchAdapter::new(engine), memory_storage, temp_dir)
+        (
+            UnifiedMemorySearchAdapter::new(engine),
+            memory_storage,
+            temp_dir,
+        )
     }
 
     #[test]

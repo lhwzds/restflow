@@ -131,7 +131,12 @@ impl Scratchpad {
 
     /// Save full tool output to a file alongside the scratchpad JSONL.
     /// Returns the file path on success, None on failure.
-    pub fn save_full_output(&self, call_id: &str, tool_name: &str, content: &str) -> Option<PathBuf> {
+    pub fn save_full_output(
+        &self,
+        call_id: &str,
+        tool_name: &str,
+        content: &str,
+    ) -> Option<PathBuf> {
         let dir = self.path.parent()?.join("tool-output");
         if fs::create_dir_all(&dir).is_err() {
             return None;
@@ -139,7 +144,13 @@ impl Scratchpad {
         // Sanitize tool_name for filename safety
         let safe_name: String = tool_name
             .chars()
-            .map(|c| if c.is_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
+            .map(|c| {
+                if c.is_alphanumeric() || c == '-' || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
             .collect();
         let filename = format!("{safe_name}-{call_id}.txt");
         let path = dir.join(filename);

@@ -48,9 +48,7 @@ fn generate_seatbelt_profile(policy: &SandboxPolicy) -> Result<String, SandboxEr
                 // Canonicalize to resolve symlinks like /var -> /private/var on macOS.
                 let canonical = dir.canonicalize().unwrap_or_else(|_| dir.clone());
                 let dir_str = canonical.to_string_lossy();
-                profile.push_str(&format!(
-                    "(allow file-write* (subpath \"{dir_str}\"))\n"
-                ));
+                profile.push_str(&format!("(allow file-write* (subpath \"{dir_str}\"))\n"));
             }
             profile.push_str("(deny network*)\n");
         }
@@ -85,12 +83,8 @@ mod tests {
 
     #[test]
     fn test_wrap_command_readonly() {
-        let (prog, args) = wrap_command_macos(
-            &SandboxPolicy::ReadOnly,
-            "sh",
-            &["-c", "echo hello"],
-        )
-        .unwrap();
+        let (prog, args) =
+            wrap_command_macos(&SandboxPolicy::ReadOnly, "sh", &["-c", "echo hello"]).unwrap();
 
         assert_eq!(prog, SANDBOX_EXEC);
         assert_eq!(args[0], "-p");

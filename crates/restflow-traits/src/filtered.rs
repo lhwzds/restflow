@@ -83,8 +83,8 @@ mod tests {
     use serde_json::{Value, json};
 
     use super::*;
-    use crate::tool::Tool;
     use crate::registry::ToolRegistry;
+    use crate::tool::Tool;
 
     struct EchoTool;
     struct ReverseTool;

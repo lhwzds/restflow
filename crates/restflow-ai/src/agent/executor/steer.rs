@@ -8,7 +8,7 @@ use crate::error::AiError;
 use crate::llm::Message;
 use crate::steer::SteerMessage;
 
-use super::{truncate_tool_output, AgentExecutor};
+use super::{AgentExecutor, truncate_tool_output};
 
 impl AgentExecutor {
     /// Poll the sub-agent tracker for completions and inject notification messages.
@@ -152,9 +152,7 @@ impl AgentExecutor {
                     state.interrupt(reason);
                 }
                 crate::steer::SteerCommand::CancelToolCall { tool_call_id } => {
-                    if let Some((_, abort_handle)) =
-                        self.active_tool_calls.remove(tool_call_id)
-                    {
+                    if let Some((_, abort_handle)) = self.active_tool_calls.remove(tool_call_id) {
                         abort_handle.abort();
                         tracing::info!(
                             tool_call_id = %tool_call_id,
@@ -249,9 +247,7 @@ impl AgentExecutor {
         while let Ok(steer) = rx.try_recv() {
             match &steer.command {
                 crate::steer::SteerCommand::CancelToolCall { tool_call_id } => {
-                    if let Some((_, abort_handle)) =
-                        self.active_tool_calls.remove(tool_call_id)
-                    {
+                    if let Some((_, abort_handle)) = self.active_tool_calls.remove(tool_call_id) {
                         abort_handle.abort();
                         tracing::info!(
                             tool_call_id = %tool_call_id,
@@ -272,7 +268,9 @@ impl AgentExecutor {
     }
 }
 
-pub(crate) fn parse_approval_resolution(instruction: &str) -> Option<(String, bool, Option<String>)> {
+pub(crate) fn parse_approval_resolution(
+    instruction: &str,
+) -> Option<(String, bool, Option<String>)> {
     let trimmed = instruction.trim();
     let lower = trimmed.to_ascii_lowercase();
     if !lower.starts_with("approval ") {

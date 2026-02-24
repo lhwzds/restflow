@@ -13,10 +13,10 @@ use crate::models::{
     BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource, ExecutionMode, HookContext,
     MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource,
 };
-use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
 };
+use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::steer::SteerRegistry;
 use crate::storage::{BackgroundAgentStorage, MemoryStorage};
 use anyhow::{Result, anyhow};
@@ -545,7 +545,11 @@ impl BackgroundAgentRunner {
     }
 
     /// Create an EventLog for recording one task run.
-    fn create_event_log(&self, task_id: &str, run_id: &str) -> Option<Arc<std::sync::Mutex<EventLog>>> {
+    fn create_event_log(
+        &self,
+        task_id: &str,
+        run_id: &str,
+    ) -> Option<Arc<std::sync::Mutex<EventLog>>> {
         let log_dir = crate::paths::ensure_restflow_dir()
             .map(|dir| dir.join("task_logs"))
             .ok()?;

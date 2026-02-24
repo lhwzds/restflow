@@ -17,7 +17,8 @@ pub fn setup_telegram_channel(
         return Ok(None);
     };
 
-    let default_chat_id = secrets.get_non_empty("TELEGRAM_CHAT_ID")?
+    let default_chat_id = secrets
+        .get_non_empty("TELEGRAM_CHAT_ID")?
         .or(secrets.get_non_empty("TELEGRAM_DEFAULT_CHAT_ID")?);
 
     let initial_offset = daemon_state.get_i64(TELEGRAM_LAST_UPDATE_KEY)?;

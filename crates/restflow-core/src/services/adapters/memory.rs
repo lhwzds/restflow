@@ -2,7 +2,9 @@
 
 use crate::memory::MemoryExporter;
 use crate::storage::MemoryStorage;
-use restflow_traits::store::{MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore};
+use restflow_traits::store::{
+    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
+};
 use serde_json::{Value, json};
 
 // ============== Memory Manager Adapter ==============
@@ -310,7 +312,11 @@ mod tests {
     use std::sync::Arc;
     use tempfile::tempdir;
 
-    fn setup() -> (MemoryManagerAdapter, DbMemoryStoreAdapter, tempfile::TempDir) {
+    fn setup() -> (
+        MemoryManagerAdapter,
+        DbMemoryStoreAdapter,
+        tempfile::TempDir,
+    ) {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
@@ -326,7 +332,12 @@ mod tests {
     fn test_save_and_read_memory() {
         let (_mgr, store, _dir) = setup();
         let result = store
-            .save("agent-1", "My Note", "This is content", &["tag1".to_string()])
+            .save(
+                "agent-1",
+                "My Note",
+                "This is content",
+                &["tag1".to_string()],
+            )
             .unwrap();
         assert_eq!(result["success"], true);
         let id = result["id"].as_str().unwrap();
@@ -358,10 +369,14 @@ mod tests {
     #[test]
     fn test_search_memories_by_tag() {
         let (_mgr, store, _dir) = setup();
-        store.save("agent-1", "Tagged", "body", &["important".to_string()]).unwrap();
+        store
+            .save("agent-1", "Tagged", "body", &["important".to_string()])
+            .unwrap();
         store.save("agent-1", "Not Tagged", "body2", &[]).unwrap();
 
-        let result = store.search("agent-1", Some("important"), None, 100).unwrap();
+        let result = store
+            .search("agent-1", Some("important"), None, 100)
+            .unwrap();
         assert_eq!(result["count"], 1);
     }
 

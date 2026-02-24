@@ -22,9 +22,9 @@ pub use restflow_core::runtime::agent::tools::{
 mod show_panel;
 mod spawn;
 
+pub use restflow_tools::SpawnAgentTool;
 pub use show_panel::ShowPanelTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
-pub use restflow_tools::SpawnAgentTool;
 
 pub type ToolResult = ToolOutput;
 

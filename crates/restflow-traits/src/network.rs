@@ -261,9 +261,9 @@ impl NetworkAllowlist {
 
         // Check exact match or subdomain match
         allowed.contains(host)
-            || allowed.iter().any(|domain| {
-                host.ends_with(&format!(".{}", domain))
-            })
+            || allowed
+                .iter()
+                .any(|domain| host.ends_with(&format!(".{}", domain)))
     }
 
     /// Get all allowed domains
@@ -405,14 +405,30 @@ mod tests {
     #[tokio::test]
     async fn test_resolve_and_validate_rejects_private_ip() {
         assert!(resolve_and_validate_url("http://10.0.0.1/").await.is_err());
-        assert!(resolve_and_validate_url("http://192.168.1.1/").await.is_err());
-        assert!(resolve_and_validate_url("http://169.254.169.254/").await.is_err());
+        assert!(
+            resolve_and_validate_url("http://192.168.1.1/")
+                .await
+                .is_err()
+        );
+        assert!(
+            resolve_and_validate_url("http://169.254.169.254/")
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]
     async fn test_resolve_and_validate_rejects_bad_scheme() {
-        assert!(resolve_and_validate_url("ftp://example.com/").await.is_err());
-        assert!(resolve_and_validate_url("file:///etc/passwd").await.is_err());
+        assert!(
+            resolve_and_validate_url("ftp://example.com/")
+                .await
+                .is_err()
+        );
+        assert!(
+            resolve_and_validate_url("file:///etc/passwd")
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

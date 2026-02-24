@@ -41,7 +41,9 @@ impl SecurityQueryProvider for SecurityQueryProviderAdapter {
         operation_name: &str,
         target: Option<&str>,
         summary: Option<&str>,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>> {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>,
+    > {
         let tool_name = tool_name.to_string();
         let operation_name = operation_name.to_string();
         let target = target.map(|s| s.to_string());
@@ -49,8 +51,8 @@ impl SecurityQueryProvider for SecurityQueryProviderAdapter {
         Box::pin(async move {
             let checker = SecurityChecker::with_defaults();
             let target_str = target.unwrap_or_else(|| "*".to_string());
-            let summary_str = summary
-                .unwrap_or_else(|| format!("{}:{}", tool_name, operation_name));
+            let summary_str =
+                summary.unwrap_or_else(|| format!("{}:{}", tool_name, operation_name));
             let ai_action = restflow_traits::security::ToolAction {
                 tool_name: tool_name.clone(),
                 operation: operation_name.clone(),
@@ -78,7 +80,10 @@ mod tests {
     fn test_show_policy_returns_valid_json() {
         let adapter = SecurityQueryProviderAdapter;
         let result = adapter.show_policy().unwrap();
-        assert!(result.is_object(), "show_policy should return a JSON object");
+        assert!(
+            result.is_object(),
+            "show_policy should return a JSON object"
+        );
         assert!(result.get("default_action").is_some());
     }
 

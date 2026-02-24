@@ -231,9 +231,7 @@ impl SystemConfig {
             ));
         }
 
-        if self.log_file_retention_days != 0
-            && self.log_file_retention_days < MIN_RETENTION_DAYS
-        {
+        if self.log_file_retention_days != 0 && self.log_file_retention_days < MIN_RETENTION_DAYS {
             return Err(anyhow::anyhow!(
                 "Log file retention must be 0 (forever) or at least {} day",
                 MIN_RETENTION_DAYS

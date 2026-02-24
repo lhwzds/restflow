@@ -138,7 +138,11 @@ impl Tool for GlobTool {
 
         let total = matches.len();
         let truncated = total > MAX_RESULTS;
-        let files: Vec<String> = matches.into_iter().take(MAX_RESULTS).map(|(p, _)| p).collect();
+        let files: Vec<String> = matches
+            .into_iter()
+            .take(MAX_RESULTS)
+            .map(|(p, _)| p)
+            .collect();
 
         Ok(ToolOutput::success(json!({
             "files": files,
@@ -202,8 +206,7 @@ async fn walk_and_match(
         };
 
         // Skip hidden directories and known generated dirs
-        if (file_name.starts_with('.') || SKIP_DIRS.contains(&file_name.as_str()))
-            && path.is_dir()
+        if (file_name.starts_with('.') || SKIP_DIRS.contains(&file_name.as_str())) && path.is_dir()
         {
             continue;
         }
@@ -257,15 +260,32 @@ mod tests {
         fs::create_dir_all(base.join("src/utils")).await.unwrap();
         fs::create_dir_all(base.join("tests")).await.unwrap();
         fs::create_dir_all(base.join(".git")).await.unwrap();
-        fs::create_dir_all(base.join("node_modules/pkg")).await.unwrap();
+        fs::create_dir_all(base.join("node_modules/pkg"))
+            .await
+            .unwrap();
 
-        fs::write(base.join("src/main.rs"), "fn main() {}").await.unwrap();
-        fs::write(base.join("src/lib.rs"), "pub mod utils;").await.unwrap();
-        fs::write(base.join("src/utils/helpers.rs"), "pub fn help() {}").await.unwrap();
-        fs::write(base.join("src/utils/config.rs"), "pub fn cfg() {}").await.unwrap();
-        fs::write(base.join("tests/test_main.rs"), "#[test] fn t() {}").await.unwrap();
+        fs::write(base.join("src/main.rs"), "fn main() {}")
+            .await
+            .unwrap();
+        fs::write(base.join("src/lib.rs"), "pub mod utils;")
+            .await
+            .unwrap();
+        fs::write(base.join("src/utils/helpers.rs"), "pub fn help() {}")
+            .await
+            .unwrap();
+        fs::write(base.join("src/utils/config.rs"), "pub fn cfg() {}")
+            .await
+            .unwrap();
+        fs::write(base.join("tests/test_main.rs"), "#[test] fn t() {}")
+            .await
+            .unwrap();
         fs::write(base.join(".git/config"), "[core]").await.unwrap();
-        fs::write(base.join("node_modules/pkg/index.js"), "module.exports = {}").await.unwrap();
+        fs::write(
+            base.join("node_modules/pkg/index.js"),
+            "module.exports = {}",
+        )
+        .await
+        .unwrap();
 
         dir
     }
@@ -314,11 +334,17 @@ mod tests {
 
         // Write files with slight delay to ensure different mtimes
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        fs::write(dir.path().join("src/main.rs"), "fn main() { /* updated */ }")
+        fs::write(
+            dir.path().join("src/main.rs"),
+            "fn main() { /* updated */ }",
+        )
+        .await
+        .unwrap();
+
+        let out = tool
+            .execute(json!({ "pattern": "src/*.rs" }))
             .await
             .unwrap();
-
-        let out = tool.execute(json!({ "pattern": "src/*.rs" })).await.unwrap();
         assert!(out.success);
         let files = out.result["files"].as_array().unwrap();
         assert_eq!(files.len(), 2);

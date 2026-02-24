@@ -1,14 +1,14 @@
-use super::*;
 use super::steer::parse_approval_resolution;
+use super::*;
 use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
 use crate::llm::{
     CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
 };
+use crate::tools::ToolResult;
 use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
 use async_trait::async_trait;
-use futures::{stream, StreamExt};
-use crate::tools::ToolResult;
+use futures::{StreamExt, stream};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Mutex as AsyncMutex;
@@ -441,8 +441,7 @@ async fn test_executor_uses_working_memory() {
     let tools = Arc::new(ToolRegistry::new());
     let executor = AgentExecutor::new(mock_llm.clone(), tools);
 
-    let config = AgentConfig::new("Test task")
-        .with_system_prompt("You are a test assistant");
+    let config = AgentConfig::new("Test task").with_system_prompt("You are a test assistant");
 
     let result = executor.run(config).await.unwrap();
     assert!(result.success);
@@ -1070,7 +1069,13 @@ async fn test_parallel_tools_returns_results_in_submission_order() {
     let mut emitter = NullEmitter;
     let timeout = Duration::from_secs(10);
     let results = executor
-        .execute_tools_parallel(&calls, &mut emitter, timeout, false, DEFAULT_MAX_TOOL_CONCURRENCY)
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            timeout,
+            false,
+            DEFAULT_MAX_TOOL_CONCURRENCY,
+        )
         .await;
 
     // Verify submission order preserved
@@ -1081,7 +1086,9 @@ async fn test_parallel_tools_returns_results_in_submission_order() {
 
     // Verify all succeeded
     for (id, result) in &results {
-        let output = result.as_ref().unwrap_or_else(|e| panic!("{id} failed: {e}"));
+        let output = result
+            .as_ref()
+            .unwrap_or_else(|e| panic!("{id} failed: {e}"));
         assert!(output.success, "{id} should succeed");
     }
 }
@@ -1119,7 +1126,13 @@ async fn test_parallel_tools_true_concurrency() {
     let mut emitter = NullEmitter;
     let start = std::time::Instant::now();
     let results = executor
-        .execute_tools_parallel(&calls, &mut emitter, Duration::from_secs(10), false, DEFAULT_MAX_TOOL_CONCURRENCY)
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            Duration::from_secs(10),
+            false,
+            DEFAULT_MAX_TOOL_CONCURRENCY,
+        )
         .await;
     let elapsed = start.elapsed();
 
@@ -1161,7 +1174,13 @@ async fn test_parallel_tools_panic_recovery() {
 
     let mut emitter = NullEmitter;
     let results = executor
-        .execute_tools_parallel(&calls, &mut emitter, Duration::from_secs(10), false, DEFAULT_MAX_TOOL_CONCURRENCY)
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            Duration::from_secs(10),
+            false,
+            DEFAULT_MAX_TOOL_CONCURRENCY,
+        )
         .await;
 
     assert_eq!(results.len(), 2);

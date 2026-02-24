@@ -8,8 +8,8 @@ use futures::stream::StreamExt;
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -61,12 +61,7 @@ impl SlackChannel {
     }
 
     /// Send a message via Slack Web API.
-    async fn send_message(
-        &self,
-        channel: &str,
-        text: &str,
-        thread_ts: Option<&str>,
-    ) -> Result<()> {
+    async fn send_message(&self, channel: &str, text: &str, thread_ts: Option<&str>) -> Result<()> {
         let chunks = chunk_markdown(text, Some(SLACK_MAX_MESSAGE_LEN));
         for chunk in chunks {
             let mut body = json!({
@@ -80,10 +75,7 @@ impl SlackChannel {
             let resp = self
                 .client
                 .post(format!("{}/chat.postMessage", SLACK_API_BASE))
-                .header(
-                    "Authorization",
-                    format!("Bearer {}", self.config.bot_token),
-                )
+                .header("Authorization", format!("Bearer {}", self.config.bot_token))
                 .json(&body)
                 .send()
                 .await?;
@@ -169,10 +161,7 @@ impl SlackChannel {
                     let ack = json!({"envelope_id": envelope_id});
                     use futures::SinkExt;
                     use tokio_tungstenite::tungstenite::Message as WsMessage;
-                    if let Err(e) = ws_write
-                        .send(WsMessage::Text(ack.to_string().into()))
-                        .await
-                    {
+                    if let Err(e) = ws_write.send(WsMessage::Text(ack.to_string().into())).await {
                         warn!("Failed to ACK Slack envelope: {}", e);
                     }
                 }
@@ -215,12 +204,11 @@ impl SlackChannel {
                 let user_id = event["user"].as_str().unwrap_or("");
 
                 // Build conversation ID (channel or channel:thread_ts)
-                let conversation_id =
-                    if let Some(thread_ts) = event["thread_ts"].as_str() {
-                        format!("{}:{}", channel_id, thread_ts)
-                    } else {
-                        channel_id.to_string()
-                    };
+                let conversation_id = if let Some(thread_ts) = event["thread_ts"].as_str() {
+                    format!("{}:{}", channel_id, thread_ts)
+                } else {
+                    channel_id.to_string()
+                };
 
                 let inbound = InboundMessage::new(
                     format!("sk_{}", ts),

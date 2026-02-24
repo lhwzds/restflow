@@ -7,6 +7,7 @@ use crate::models::{
 };
 use crate::storage::{AgentStorage, BackgroundAgentStorage};
 use chrono::Utc;
+use restflow_tools::ToolError;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
@@ -14,7 +15,6 @@ use restflow_traits::store::{
     BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
     BackgroundAgentStore, BackgroundAgentUpdateRequest,
 };
-use restflow_tools::ToolError;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -58,7 +58,10 @@ impl BackgroundAgentStoreAdapter {
             "resume" => Ok(BackgroundAgentControlAction::Resume),
             "stop" => Ok(BackgroundAgentControlAction::Stop),
             "run_now" | "run-now" | "runnow" => Ok(BackgroundAgentControlAction::RunNow),
-            _ => Err(ToolError::Tool(format!("Unknown control action: {}", action))),
+            _ => Err(ToolError::Tool(format!(
+                "Unknown control action: {}",
+                action
+            ))),
         }
     }
 
@@ -69,7 +72,10 @@ impl BackgroundAgentStoreAdapter {
             Some(value) if value == "user" => Ok(BackgroundMessageSource::User),
             Some(value) if value == "agent" => Ok(BackgroundMessageSource::Agent),
             Some(value) if value == "system" => Ok(BackgroundMessageSource::System),
-            Some(value) => Err(ToolError::Tool(format!("Unknown message source: {}", value))),
+            Some(value) => Err(ToolError::Tool(format!(
+                "Unknown message source: {}",
+                value
+            ))),
         }
     }
 
@@ -104,7 +110,10 @@ impl BackgroundAgentStoreAdapter {
             Some(mode) if mode == "sync" => Ok(Some(DurabilityMode::Sync)),
             Some(mode) if mode == "async" => Ok(Some(DurabilityMode::Async)),
             Some(mode) if mode == "exit" => Ok(Some(DurabilityMode::Exit)),
-            Some(mode) => Err(ToolError::Tool(format!("Unknown durability_mode: {}", mode))),
+            Some(mode) => Err(ToolError::Tool(format!(
+                "Unknown durability_mode: {}",
+                mode
+            ))),
         }
     }
 
@@ -128,9 +137,7 @@ impl BackgroundAgentStoreAdapter {
     }
 
     fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
-        Ok(self
-            .agent_storage
-            .resolve_existing_agent_id(id_or_prefix)?)
+        Ok(self.agent_storage.resolve_existing_agent_id(id_or_prefix)?)
     }
 
     fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
@@ -176,24 +183,22 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
         let resource_limits: Option<ResourceLimits> =
             Self::parse_optional_value("resource_limits", request.resource_limits)?;
-        let task = self
-            .storage
-            .create_background_agent(BackgroundAgentSpec {
-                name: request.name,
-                agent_id: resolved_agent_id,
-                description: None,
-                input: request.input,
-                input_template: request.input_template,
-                schedule,
-                notification: None,
-                execution_mode: None,
-                timeout_secs: request.timeout_secs,
-                memory,
-                durability_mode,
-                resource_limits,
-                prerequisites: Vec::new(),
-                continuation: None,
-            })?;
+        let task = self.storage.create_background_agent(BackgroundAgentSpec {
+            name: request.name,
+            agent_id: resolved_agent_id,
+            description: None,
+            input: request.input,
+            input_template: request.input_template,
+            schedule,
+            notification: None,
+            execution_mode: None,
+            timeout_secs: request.timeout_secs,
+            memory,
+            durability_mode,
+            resource_limits,
+            prerequisites: Vec::new(),
+            continuation: None,
+        })?;
         Ok(serde_json::to_value(task)?)
     }
 
@@ -229,9 +234,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         };
 
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let task = self
-            .storage
-            .update_background_agent(&resolved_id, patch)?;
+        let task = self.storage.update_background_agent(&resolved_id, patch)?;
         Ok(serde_json::to_value(task)?)
     }
 
@@ -241,10 +244,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         Ok(json!({ "id": id, "deleted": deleted }))
     }
 
-    fn list_background_agents(
-        &self,
-        status: Option<String>,
-    ) -> restflow_tools::Result<Value> {
+    fn list_background_agents(&self, status: Option<String>) -> restflow_tools::Result<Value> {
         let tasks = if let Some(status) = status {
             let status = Self::parse_status(&status)?;
             self.storage.list_tasks_by_status(status)?
@@ -272,9 +272,10 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentProgressRequest,
     ) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let progress = self
-            .storage
-            .get_background_agent_progress(&resolved_id, request.event_limit.unwrap_or(10).max(1))?;
+        let progress = self.storage.get_background_agent_progress(
+            &resolved_id,
+            request.event_limit.unwrap_or(10).max(1),
+        )?;
         Ok(serde_json::to_value(progress)?)
     }
 
@@ -284,9 +285,9 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
     ) -> restflow_tools::Result<Value> {
         let source = Self::parse_message_source(request.source.as_deref())?;
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let message = self
-            .storage
-            .send_background_agent_message(&resolved_id, request.message, source)?;
+        let message =
+            self.storage
+                .send_background_agent_message(&resolved_id, request.message, source)?;
         Ok(serde_json::to_value(message)?)
     }
 

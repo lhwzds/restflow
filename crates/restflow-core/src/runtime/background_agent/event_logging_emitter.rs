@@ -218,7 +218,8 @@ mod tests {
 
     #[test]
     fn test_sanitize_multiple_patterns() {
-        let input = "key1=sk-abc123defghijklmnopqrstuvwxyz key2=ghp_abcdefghijklmnopqrstuvwxyz1234567890";
+        let input =
+            "key1=sk-abc123defghijklmnopqrstuvwxyz key2=ghp_abcdefghijklmnopqrstuvwxyz1234567890";
         let result = sanitize_secrets(input);
         assert!(!result.contains("sk-abc"));
         assert!(!result.contains("ghp_abc"));
@@ -265,11 +266,7 @@ mod tests {
     fn test_error_count_initial_value() {
         let temp_dir = tempfile::TempDir::new().unwrap();
         let log = EventLog::new("test", temp_dir.path()).unwrap();
-        let emitter = EventLoggingEmitter::new(
-            Box::new(NoopEmitter),
-            log,
-            "test".to_string(),
-        );
+        let emitter = EventLoggingEmitter::new(Box::new(NoopEmitter), log, "test".to_string());
         assert_eq!(emitter.error_count(), 0);
     }
 
@@ -303,7 +300,11 @@ mod tests {
         });
 
         // error_count should reflect the poisoning recovery
-        assert_eq!(emitter.error_count(), 1, "should have recorded 1 error from poisoning");
+        assert_eq!(
+            emitter.error_count(),
+            1,
+            "should have recorded 1 error from poisoning"
+        );
 
         // Drop all Arc references so EventLog::Drop can flush remaining data
         drop(emitter);
@@ -327,7 +328,14 @@ mod tests {
         async fn emit_text_delta(&mut self, _text: &str) {}
         async fn emit_thinking_delta(&mut self, _text: &str) {}
         async fn emit_tool_call_start(&mut self, _id: &str, _name: &str, _arguments: &str) {}
-        async fn emit_tool_call_result(&mut self, _id: &str, _name: &str, _result: &str, _success: bool) {}
+        async fn emit_tool_call_result(
+            &mut self,
+            _id: &str,
+            _name: &str,
+            _result: &str,
+            _success: bool,
+        ) {
+        }
         async fn emit_complete(&mut self) {}
     }
 

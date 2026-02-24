@@ -22,28 +22,23 @@ impl TriggerStore for TriggerStoreAdapter {
         config: Value,
         id: Option<&str>,
     ) -> restflow_tools::Result<Value> {
-        let trigger_config: TriggerConfig =
-            serde_json::from_value(config)?;
+        let trigger_config: TriggerConfig = serde_json::from_value(config)?;
         let mut trigger =
             crate::models::ActiveTrigger::new(workflow_id.to_string(), trigger_config);
         if let Some(id) = id {
             trigger.id = id.to_string();
         }
-        self.storage
-            .activate_trigger(&trigger)?;
+        self.storage.activate_trigger(&trigger)?;
         Ok(serde_json::to_value(trigger)?)
     }
 
     fn list_triggers(&self) -> restflow_tools::Result<Value> {
-        let triggers = self
-            .storage
-            .list_active_triggers()?;
+        let triggers = self.storage.list_active_triggers()?;
         Ok(serde_json::to_value(triggers)?)
     }
 
     fn delete_trigger(&self, id: &str) -> restflow_tools::Result<Value> {
-        self.storage
-            .deactivate_trigger(id)?;
+        self.storage.deactivate_trigger(id)?;
         Ok(json!({ "id": id, "deleted": true }))
     }
 }
@@ -67,7 +62,9 @@ mod tests {
     fn test_create_and_list_trigger() {
         let (adapter, _dir) = setup();
         let config = json!({ "type": "schedule", "cron": "0 * * * *" });
-        let result = adapter.create_trigger("wf-1", config, Some("trig-1")).unwrap();
+        let result = adapter
+            .create_trigger("wf-1", config, Some("trig-1"))
+            .unwrap();
         assert_eq!(result["id"], "trig-1");
 
         let list = adapter.list_triggers().unwrap();
@@ -79,7 +76,9 @@ mod tests {
     fn test_delete_trigger() {
         let (adapter, _dir) = setup();
         let config = json!({ "type": "schedule", "cron": "0 * * * *" });
-        adapter.create_trigger("wf-1", config, Some("trig-del")).unwrap();
+        adapter
+            .create_trigger("wf-1", config, Some("trig-del"))
+            .unwrap();
 
         let result = adapter.delete_trigger("trig-del").unwrap();
         assert_eq!(result["deleted"], true);

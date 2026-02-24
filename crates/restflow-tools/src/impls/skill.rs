@@ -6,8 +6,8 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::Result;
-use restflow_traits::skill::{SkillProvider, SkillRecord, SkillUpdate};
 use crate::{Tool, ToolOutput};
+use restflow_traits::skill::{SkillProvider, SkillRecord, SkillUpdate};
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]

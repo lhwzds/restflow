@@ -45,9 +45,9 @@ use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{NullEmitter, StreamEmitter};
 use crate::agent::streaming_buffer::StreamingBuffer;
 use crate::agent::stuck::{StuckAction, StuckDetector};
+use crate::agent::sub_agent::SubagentTracker;
 use crate::error::Result;
 use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
-use crate::agent::sub_agent::SubagentTracker;
 use crate::steer::SteerMessage;
 use crate::tools::ToolRegistry;
 use dashmap::DashMap;
@@ -203,8 +203,8 @@ impl AgentExecutor {
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
         let tracker = ResourceTracker::new(config.resource_limits.clone());
-        let context_config = ContextManagerConfig::default()
-            .with_context_window(config.context_window);
+        let context_config =
+            ContextManagerConfig::default().with_context_window(config.context_window);
         let mut token_estimator = TokenEstimator::default();
 
         // Initialize stuck detector
@@ -498,9 +498,8 @@ impl AgentExecutor {
                 };
 
                 // Truncate long results with middle-truncation and disk persistence
-                let tool_name_for_truncate = tool_call
-                    .map(|tc| tc.name.as_str())
-                    .unwrap_or("unknown");
+                let tool_name_for_truncate =
+                    tool_call.map(|tc| tc.name.as_str()).unwrap_or("unknown");
                 result_str = truncate_tool_output(
                     &result_str,
                     config.max_tool_result_length,
@@ -620,8 +619,6 @@ impl AgentExecutor {
             resource_usage,
         })
     }
-
-
 }
 
 fn sanitize_tool_call_history(messages: Vec<Message>) -> Vec<Message> {

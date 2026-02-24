@@ -28,14 +28,14 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
-use restflow_traits::store::DiagnosticsProvider;
 use super::file_tracker::FileTracker;
-use crate::{Tool, ToolErrorCategory, ToolOutput};
-use crate::ToolAction;
-use restflow_traits::cache::{AgentCache, CachedSearchResult, SearchMatch as CachedSearchMatch};
 use crate::Result;
-use crate::security::SecurityGate;
+use crate::ToolAction;
 use crate::check_security;
+use crate::security::SecurityGate;
+use crate::{Tool, ToolErrorCategory, ToolOutput};
+use restflow_traits::cache::{AgentCache, CachedSearchResult, SearchMatch as CachedSearchMatch};
+use restflow_traits::store::DiagnosticsProvider;
 
 /// Maximum file size to read (1MB)
 const DEFAULT_MAX_READ_BYTES: usize = 1_000_000;
@@ -823,11 +823,7 @@ impl FileTool {
                 } else {
                     "file"
                 };
-                let size = if ft.is_file() {
-                    Some(meta.len())
-                } else {
-                    None
-                };
+                let size = if ft.is_file() { Some(meta.len()) } else { None };
                 (true, type_str, size)
             }
             Err(_) => (false, "none", None),
@@ -1112,11 +1108,7 @@ impl FileTool {
                     exists: true,
                     is_file: ft.is_file(),
                     is_dir: ft.is_dir(),
-                    size: if ft.is_file() {
-                        Some(meta.len())
-                    } else {
-                        None
-                    },
+                    size: if ft.is_file() { Some(meta.len()) } else { None },
                     error: None,
                 }
             }

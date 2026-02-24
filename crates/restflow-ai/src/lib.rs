@@ -16,13 +16,11 @@ pub mod text_utils;
 pub mod tools;
 
 // Re-export commonly used types
+pub use agent::context_manager::{CompactStats, ContextManagerConfig, PruneStats, TokenEstimator};
 pub use agent::{
     AgentConfig, AgentExecutor, AgentResult, AgentState, AgentStatus, CheckpointDurability,
     ExecutionStep, ResourceLimits, ResourceUsage, Scratchpad, SubagentDeps, SubagentManagerImpl,
     SubagentSpawner,
-};
-pub use agent::context_manager::{
-    CompactStats, ContextManagerConfig, PruneStats, TokenEstimator,
 };
 pub use error::{AiError, Result};
 pub use llm::{
@@ -33,12 +31,23 @@ pub use llm::{
 pub use steer::{SteerMessage, SteerSource};
 // Core tool abstractions
 pub use tools::{
+    // Wrappers
+    LoggingWrapper,
+    RateLimitWrapper,
+    // Tool trait and core types
+    SecretResolver,
+    TimeoutWrapper,
+    Tool,
     // Error types
     ToolError,
-    // Tool trait and core types
-    SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security,
+    ToolErrorCategory,
+    ToolOutput,
     // Registry and toolset
-    ToolRegistry, Toolset, ToolsetContext,
-    // Wrappers
-    LoggingWrapper, RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool,
+    ToolRegistry,
+    ToolSchema,
+    ToolWrapper,
+    Toolset,
+    ToolsetContext,
+    WrappedTool,
+    check_security,
 };

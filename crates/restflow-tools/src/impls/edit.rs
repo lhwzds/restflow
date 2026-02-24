@@ -57,7 +57,12 @@ impl fmt::Display for EditError {
 /// 3. Indentation-flexible (strip minimum common indent before compare)
 ///
 /// Returns the replaced content or an error.
-pub fn replace(content: &str, old: &str, new: &str, replace_all: bool) -> std::result::Result<String, EditError> {
+pub fn replace(
+    content: &str,
+    old: &str,
+    new: &str,
+    replace_all: bool,
+) -> std::result::Result<String, EditError> {
     if old == new {
         return Err(EditError::IdenticalStrings);
     }
@@ -235,7 +240,11 @@ fn apply_line_replacements(
         // Account for the newline character if present
         if offset < content.len() {
             offset += if content.as_bytes().get(offset) == Some(&b'\r') {
-                if content.as_bytes().get(offset + 1) == Some(&b'\n') { 2 } else { 1 }
+                if content.as_bytes().get(offset + 1) == Some(&b'\n') {
+                    2
+                } else {
+                    1
+                }
             } else {
                 1
             };
@@ -513,9 +522,7 @@ impl Tool for EditTool {
         let content = match fs::read_to_string(&path).await {
             Ok(c) => c,
             Err(e) => {
-                return Ok(ToolOutput::error(format!(
-                    "Cannot read file: {e}"
-                )));
+                return Ok(ToolOutput::error(format!("Cannot read file: {e}")));
             }
         };
 
@@ -661,8 +668,7 @@ mod tests {
         let tracker = Arc::new(FileTracker::new());
         tracker.record_read(&file_path);
 
-        let tool = EditTool::with_tracker(tracker)
-            .with_base_dir(&base);
+        let tool = EditTool::with_tracker(tracker).with_base_dir(&base);
 
         let output = tool
             .execute(json!({
@@ -688,8 +694,7 @@ mod tests {
         let tracker = Arc::new(FileTracker::new());
         // Intentionally do NOT record a read
 
-        let tool = EditTool::with_tracker(tracker)
-            .with_base_dir(&base);
+        let tool = EditTool::with_tracker(tracker).with_base_dir(&base);
 
         let output = tool
             .execute(json!({

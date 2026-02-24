@@ -36,12 +36,7 @@ pub trait AgentCache: Send + Sync {
     ) -> Option<String>;
 
     /// Store file content in the cache.
-    async fn put_file(
-        &self,
-        path: &std::path::Path,
-        content: String,
-        metadata: &std::fs::Metadata,
-    );
+    async fn put_file(&self, path: &std::path::Path, content: String, metadata: &std::fs::Metadata);
 
     /// Invalidate cached content for a specific file.
     async fn invalidate_file(&self, path: &std::path::Path);

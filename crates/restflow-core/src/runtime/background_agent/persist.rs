@@ -626,7 +626,9 @@ mod tests {
             .unwrap();
         assert!(result1.chunk_count > 0);
 
-        let chunks1 = storage.list_chunks_for_session(&result1.session_id).unwrap();
+        let chunks1 = storage
+            .list_chunks_for_session(&result1.session_id)
+            .unwrap();
         let first_count = chunks1.len();
 
         // Second persist with same agent+source (upsert)
@@ -638,8 +640,14 @@ mod tests {
         assert_eq!(result1.session_id, result2.session_id);
 
         // After upsert, only the latest chunks should exist
-        let chunks2 = storage.list_chunks_for_session(&result2.session_id).unwrap();
-        assert_eq!(chunks2.len(), first_count, "upsert should not accumulate chunks");
+        let chunks2 = storage
+            .list_chunks_for_session(&result2.session_id)
+            .unwrap();
+        assert_eq!(
+            chunks2.len(),
+            first_count,
+            "upsert should not accumulate chunks"
+        );
     }
 
     #[test]

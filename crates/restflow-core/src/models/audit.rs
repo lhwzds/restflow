@@ -192,8 +192,13 @@ impl AuditEvent {
         agent_id: impl Into<String>,
         audit: LlmCallAudit,
     ) -> Self {
-        Self::new(task_id, agent_id, AuditEventCategory::LlmCall, AuditEventSource::AgentExecutor)
-            .with_llm_call(audit)
+        Self::new(
+            task_id,
+            agent_id,
+            AuditEventCategory::LlmCall,
+            AuditEventSource::AgentExecutor,
+        )
+        .with_llm_call(audit)
     }
 
     /// Create a tool call audit event
@@ -202,8 +207,13 @@ impl AuditEvent {
         agent_id: impl Into<String>,
         audit: ToolCallAudit,
     ) -> Self {
-        Self::new(task_id, agent_id, AuditEventCategory::ToolCall, AuditEventSource::AgentExecutor)
-            .with_tool_call(audit)
+        Self::new(
+            task_id,
+            agent_id,
+            AuditEventCategory::ToolCall,
+            AuditEventSource::AgentExecutor,
+        )
+        .with_tool_call(audit)
     }
 
     /// Create a model switch audit event
@@ -212,8 +222,13 @@ impl AuditEvent {
         agent_id: impl Into<String>,
         audit: ModelSwitchAudit,
     ) -> Self {
-        Self::new(task_id, agent_id, AuditEventCategory::ModelSwitch, AuditEventSource::AgentExecutor)
-            .with_model_switch(audit)
+        Self::new(
+            task_id,
+            agent_id,
+            AuditEventCategory::ModelSwitch,
+            AuditEventSource::AgentExecutor,
+        )
+        .with_model_switch(audit)
     }
 
     /// Create a lifecycle audit event
@@ -222,8 +237,13 @@ impl AuditEvent {
         agent_id: impl Into<String>,
         audit: LifecycleAudit,
     ) -> Self {
-        Self::new(task_id, agent_id, AuditEventCategory::Lifecycle, AuditEventSource::Runtime)
-            .with_lifecycle(audit)
+        Self::new(
+            task_id,
+            agent_id,
+            AuditEventCategory::Lifecycle,
+            AuditEventSource::Runtime,
+        )
+        .with_lifecycle(audit)
     }
 
     /// Create a message audit event
@@ -232,8 +252,13 @@ impl AuditEvent {
         agent_id: impl Into<String>,
         audit: MessageAudit,
     ) -> Self {
-        Self::new(task_id, agent_id, AuditEventCategory::Message, AuditEventSource::AgentExecutor)
-            .with_message(audit)
+        Self::new(
+            task_id,
+            agent_id,
+            AuditEventCategory::Message,
+            AuditEventSource::AgentExecutor,
+        )
+        .with_message(audit)
     }
 
     /// Set LLM call details
