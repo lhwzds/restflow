@@ -47,8 +47,10 @@ const formatTime = (timestamp: number) => {
 
 <template>
   <div class="flex flex-col min-h-0 bg-muted/30">
+    <!-- Drag region for window title bar -->
+    <div class="h-8 shrink-0" data-tauri-drag-region />
     <!-- Header -->
-    <div class="px-3 pt-8 pb-3 space-y-2">
+    <div class="px-3 pb-3 space-y-2">
       <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newSession')">
         <Plus :size="16" />
         <span>{{ t('workspace.newSession') }}</span>
