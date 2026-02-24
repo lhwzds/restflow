@@ -49,7 +49,6 @@ pub use impls::{EditTool, MultiEditTool};
 pub use impls::{
     AgentCrudTool, AuthProfileTool, BackgroundAgentTool, ConfigTool, DiagnosticsTool,
     JinaReaderTool, McpServerConfig, MemoryManagementTool,
-    MemorySearchMatch, MemorySearchTool, SemanticMemory,
     DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
     PythonTool, RunPythonTool, PatchTool, ProcessTool,
     PythonExecutionBackend, PythonExecutionLimits,
