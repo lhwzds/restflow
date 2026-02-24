@@ -228,6 +228,25 @@ export const useChatSessionStore = defineStore('chatSession', {
     },
 
     /**
+     * Refresh a session by forcing a fetch from the backend.
+     */
+    async refreshSession(id: string): Promise<ChatSession | null> {
+      this.isLoadingSession = true
+      try {
+        const session = await chatSessionApi.getChatSession(id)
+        this.sessions.set(id, session)
+        this.version++
+        return session
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : 'Failed to refresh session'
+        console.error('Failed to refresh chat session:', err)
+        return null
+      } finally {
+        this.isLoadingSession = false
+      }
+    },
+
+    /**
      * Create a new chat session
      */
     async createSession(
@@ -407,13 +426,14 @@ export const useChatSessionStore = defineStore('chatSession', {
         return null
       }
 
+      const sessionId = this.currentSessionId
       this.isSending = true
       this.error = null
 
       // Step 1: Save user message
       let sessionAfterUserMsg: ChatSession
       try {
-        sessionAfterUserMsg = await chatSessionApi.sendChatMessage(this.currentSessionId, content)
+        sessionAfterUserMsg = await chatSessionApi.sendChatMessage(sessionId, content)
         this.sessions.set(sessionAfterUserMsg.id, sessionAfterUserMsg)
 
         const summaryIndex = this.summaries.findIndex((s) => s.id === sessionAfterUserMsg.id)
@@ -433,7 +453,7 @@ export const useChatSessionStore = defineStore('chatSession', {
 
       // Step 2: Trigger assistant response generation
       try {
-        const sessionAfterExecution = await executeChatSession(this.currentSessionId)
+        const sessionAfterExecution = await executeChatSession(sessionId)
         this.sessions.set(sessionAfterExecution.id, sessionAfterExecution)
 
         const summaryIndex = this.summaries.findIndex((s) => s.id === sessionAfterExecution.id)

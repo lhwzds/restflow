@@ -8,6 +8,7 @@
  */
 
 import { mockIPC, mockWindows } from '@tauri-apps/api/mocks'
+import { emit } from '@tauri-apps/api/event'
 import type { InvokeArgs } from '@tauri-apps/api/core'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
@@ -81,6 +82,8 @@ const chatSessions: ChatSession[] = demoChatSessionsJson.map((s) => ({
   },
 }))
 
+const activeChatStreams = new Map<string, { sessionId: string; cancelled: boolean }>()
+
 // ============================================================================
 // Helper
 // ============================================================================
@@ -90,6 +93,149 @@ function createId(): string {
     return crypto.randomUUID()
   }
   return `mock-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function updateChatSessionSummary(session: ChatSession, preview?: string | null): void {
+  const index = chatSessionSummaries.findIndex((item) => item.id === session.id)
+  const nextPreview =
+    preview ?? session.messages[session.messages.length - 1]?.content?.slice(0, 100) ?? null
+
+  if (index === -1) {
+    chatSessionSummaries.unshift({
+      id: session.id,
+      name: session.name,
+      agent_id: session.agent_id,
+      model: session.model,
+      skill_id: session.skill_id ?? null,
+      message_count: session.messages.length,
+      updated_at: session.updated_at,
+      last_message_preview: nextPreview,
+    })
+    return
+  }
+
+  const summary = chatSessionSummaries[index]
+  if (!summary) return
+
+  summary.name = session.name
+  summary.agent_id = session.agent_id
+  summary.model = session.model
+  summary.skill_id = session.skill_id ?? null
+  summary.message_count = session.messages.length
+  summary.updated_at = session.updated_at
+  summary.last_message_preview = nextPreview
+}
+
+function buildChatStreamEvent(
+  sessionId: string,
+  messageId: string,
+  kind: Record<string, unknown>,
+) {
+  return {
+    session_id: sessionId,
+    message_id: messageId,
+    timestamp: Date.now(),
+    kind,
+  }
+}
+
+async function runMockChatStream(
+  session: ChatSession,
+  messageId: string,
+  userMessage: string,
+): Promise<void> {
+  const streamState = activeChatStreams.get(messageId)
+  if (!streamState || streamState.cancelled) return
+
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+  const checkCancelled = async () => {
+    const state = activeChatStreams.get(messageId)
+    if (!state || !state.cancelled) return false
+    await emit(
+      'chat:stream',
+      buildChatStreamEvent(session.id, messageId, {
+        type: 'cancelled',
+        partial_content: null,
+      }),
+    )
+    activeChatStreams.delete(messageId)
+    return true
+  }
+
+  const finalContent = `[Demo] Stream response for: ${userMessage}`
+  const chunks = ['[Demo] ', 'Stream response ', `for: ${userMessage}`]
+  const toolId = createId()
+  let tokenCount = 0
+  const startedAt = Date.now()
+
+  await emit(
+    'chat:stream',
+    buildChatStreamEvent(session.id, messageId, {
+      type: 'started',
+      model: session.model,
+    }),
+  )
+  await sleep(40)
+  if (await checkCancelled()) return
+
+  await emit(
+    'chat:stream',
+    buildChatStreamEvent(session.id, messageId, {
+      type: 'tool_call_start',
+      tool_id: toolId,
+      tool_name: 'web_search',
+      arguments: JSON.stringify({ query: userMessage }),
+    }),
+  )
+  await sleep(60)
+  if (await checkCancelled()) return
+
+  await emit(
+    'chat:stream',
+    buildChatStreamEvent(session.id, messageId, {
+      type: 'tool_call_end',
+      tool_id: toolId,
+      result: JSON.stringify({ results: [{ title: 'Demo result', snippet: 'Mock stream tool output' }] }),
+      success: true,
+    }),
+  )
+  await sleep(40)
+  if (await checkCancelled()) return
+
+  for (const chunk of chunks) {
+    tokenCount += 1
+    await emit(
+      'chat:stream',
+      buildChatStreamEvent(session.id, messageId, {
+        type: 'token',
+        text: chunk,
+        token_count: tokenCount,
+      }),
+    )
+    await sleep(35)
+    if (await checkCancelled()) return
+  }
+
+  await emit(
+    'chat:stream',
+    buildChatStreamEvent(session.id, messageId, {
+      type: 'completed',
+      full_content: finalContent,
+      duration_ms: Date.now() - startedAt,
+      total_tokens: tokenCount,
+    }),
+  )
+
+  session.messages.push({
+    id: createId(),
+    role: 'assistant',
+    content: finalContent,
+    timestamp: BigInt(Date.now()),
+    execution: null,
+  })
+  session.updated_at = BigInt(Date.now())
+  updateChatSessionSummary(session)
+  activeChatStreams.delete(messageId)
 }
 
 // ============================================================================
@@ -306,6 +452,7 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
       if (!session) throw `Chat session not found: ${a.sessionId}`
       session.messages.push(a.message as ChatMessage)
       session.updated_at = BigInt(Date.now())
+      updateChatSessionSummary(session)
       return session
     }
 
@@ -320,21 +467,55 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
         timestamp: BigInt(now),
         execution: null,
       })
-      session.messages.push({
-        id: createId(),
-        role: 'assistant',
-        content: '[Demo] This is a mock AI response.',
-        timestamp: BigInt(now + 1000),
-        execution: null,
-      })
-      session.updated_at = BigInt(now + 1000)
+      session.updated_at = BigInt(now)
+      updateChatSessionSummary(session, (a.content as string).slice(0, 100))
       return session
     }
 
     case 'execute_chat_session': {
       const session = chatSessions.find((s) => s.id === a.sessionId)
       if (!session) throw `Chat session not found: ${a.sessionId}`
+      const now = Date.now()
+      session.messages.push({
+        id: createId(),
+        role: 'assistant',
+        content: '[Demo] This is a mock AI response.',
+        timestamp: BigInt(now),
+        execution: null,
+      })
+      session.updated_at = BigInt(now)
+      updateChatSessionSummary(session)
       return session
+    }
+
+    case 'send_chat_message_stream': {
+      const session = chatSessions.find((s) => s.id === a.sessionId)
+      if (!session) throw `Chat session not found: ${a.sessionId}`
+      const message = String(a.message ?? '')
+      const now = Date.now()
+      session.messages.push({
+        id: createId(),
+        role: 'user',
+        content: message,
+        timestamp: BigInt(now),
+        execution: null,
+      })
+      session.updated_at = BigInt(now)
+      updateChatSessionSummary(session, message.slice(0, 100))
+
+      const messageId = createId()
+      activeChatStreams.set(messageId, { sessionId: session.id, cancelled: false })
+      void runMockChatStream(session, messageId, message)
+      return messageId
+    }
+
+    case 'cancel_chat_stream': {
+      const messageId = String(a.messageId ?? '')
+      const state = activeChatStreams.get(messageId)
+      if (!state) return false
+      state.cancelled = true
+      activeChatStreams.set(messageId, state)
+      return true
     }
 
     case 'list_chat_sessions_by_agent':
@@ -421,7 +602,7 @@ export function setupTauriMock(): void {
   // Mock all IPC calls
   mockIPC((cmd, payload) => {
     return handleCommand(cmd, payload)
-  })
+  }, { shouldMockEvents: true })
 
   console.info('[Tauri IPC Mock] Initialized — all invoke() calls are mocked')
 }
