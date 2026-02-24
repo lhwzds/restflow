@@ -276,6 +276,8 @@ export const useChatSessionStore = defineStore('chatSession', {
           message_count: 0,
           updated_at: session.updated_at,
           last_message_preview: null,
+          source_channel: session.source_channel ?? null,
+          source_conversation_id: session.source_conversation_id ?? null,
         }
         this.summaries.unshift(summary)
         this.currentSessionId = session.id

@@ -18,8 +18,8 @@ use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
     AppCore,
     models::{
-        ChatSession, ChatSessionSummary, ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats,
-        Secret, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
+        ChatSession, ChatSessionSource, ChatSessionSummary, ItemQuery, MemoryChunk,
+        MemorySearchResult, MemoryStats, Secret, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
     },
 };
 
@@ -162,7 +162,8 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn create_session(&self, agent_id: String, model: String) -> Result<ChatSession> {
-        let session = ChatSession::new(agent_id, model);
+        let mut session = ChatSession::new(agent_id, model);
+        session.source_channel = Some(ChatSessionSource::Workspace);
         self.core.storage.chat_sessions.create(&session)?;
         Ok(session)
     }

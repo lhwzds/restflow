@@ -261,6 +261,23 @@ impl ChatSessionMetadata {
     }
 }
 
+/// Origin of a chat session.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatSessionSource {
+    /// Created from workspace UI / local API entrypoints.
+    Workspace,
+    /// Created from Telegram inbound messages.
+    Telegram,
+    /// Created from Discord inbound messages.
+    Discord,
+    /// Created from Slack inbound messages.
+    Slack,
+    /// Migrated from legacy `channel:*` naming without precise channel type.
+    ExternalLegacy,
+}
+
 /// A chat session containing conversation history with an agent.
 ///
 /// Sessions persist conversations across application restarts and can be
@@ -316,6 +333,12 @@ pub struct ChatSession {
     pub cost: f64,
     /// Session metadata (tokens, message count, etc.)
     pub metadata: ChatSessionMetadata,
+    /// Optional origin channel of this session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_channel: Option<ChatSessionSource>,
+    /// Optional channel-specific conversation identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_conversation_id: Option<String>,
 }
 
 /// Partial update payload for a chat session.
@@ -346,6 +369,8 @@ impl ChatSession {
             completion_tokens: 0,
             cost: 0.0,
             metadata: ChatSessionMetadata::new(),
+            source_channel: None,
+            source_conversation_id: None,
         }
     }
 
@@ -364,6 +389,17 @@ impl ChatSession {
     /// Set an optional retention policy for this session.
     pub fn with_retention(mut self, retention: impl Into<String>) -> Self {
         self.retention = Some(retention.into());
+        self
+    }
+
+    /// Associate this session with an external channel source.
+    pub fn with_source(
+        mut self,
+        source_channel: ChatSessionSource,
+        source_conversation_id: impl Into<String>,
+    ) -> Self {
+        self.source_channel = Some(source_channel);
+        self.source_conversation_id = Some(source_conversation_id.into());
         self
     }
 
@@ -441,6 +477,12 @@ pub struct ChatSessionSummary {
     /// Preview of last message (truncated)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_message_preview: Option<String>,
+    /// Optional origin channel of this session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_channel: Option<ChatSessionSource>,
+    /// Optional channel-specific conversation identifier.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_conversation_id: Option<String>,
 }
 
 impl From<&ChatSession> for ChatSessionSummary {
@@ -463,6 +505,8 @@ impl From<&ChatSession> for ChatSessionSummary {
             message_count: session.metadata.message_count,
             updated_at: session.updated_at,
             last_message_preview,
+            source_channel: session.source_channel,
+            source_conversation_id: session.source_conversation_id.clone(),
         }
     }
 }

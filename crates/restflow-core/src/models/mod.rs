@@ -51,7 +51,7 @@ pub use audit::{
 };
 pub use chat_session::{
     ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
-    ChatSessionSummary, ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
+    ChatSessionSource, ChatSessionSummary, ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
 };
 pub use restflow_storage::Secret;
 pub use security::{

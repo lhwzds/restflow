@@ -13,6 +13,9 @@ pub async fn run(
 ) -> Result<()> {
     match command {
         MaintenanceCommands::Cleanup => run_cleanup(core, format).await,
+        MaintenanceCommands::MigrateSessionSources { dry_run } => {
+            run_migrate_session_sources(core, format, dry_run).await
+        }
     }
 }
 
@@ -41,5 +44,37 @@ async fn run_cleanup(core: Arc<AppCore>, format: OutputFormat) -> Result<()> {
     println!("  vector_orphans: {}", report.vector_orphans);
     println!("  daemon_log_files: {}", report.daemon_log_files);
     println!("  event_log_files: {}", report.event_log_files);
+    Ok(())
+}
+
+async fn run_migrate_session_sources(
+    core: Arc<AppCore>,
+    format: OutputFormat,
+    dry_run: bool,
+) -> Result<()> {
+    let stats = core
+        .storage
+        .chat_sessions
+        .migrate_legacy_channel_sources(dry_run)?;
+
+    if format.is_json() {
+        return print_json(&json!({
+            "dry_run": dry_run,
+            "scanned": stats.scanned,
+            "migrated": stats.migrated,
+            "skipped": stats.skipped,
+            "failed": stats.failed
+        }));
+    }
+
+    if dry_run {
+        println!("Session source migration dry run:");
+    } else {
+        println!("Session source migration completed:");
+    }
+    println!("  scanned: {}", stats.scanned);
+    println!("  migrated: {}", stats.migrated);
+    println!("  skipped: {}", stats.skipped);
+    println!("  failed: {}", stats.failed);
     Ok(())
 }

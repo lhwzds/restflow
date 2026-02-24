@@ -83,6 +83,7 @@ const sessions = computed<SessionItem[]>(() => {
       updatedAt: Number(session.updated_at),
       agentId: session.agent_id,
       agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
+      sourceChannel: session.source_channel,
     }),
   )
 

@@ -10,8 +10,10 @@ use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
-use crate::channel::{ChannelReplySender, ChannelRouter, InboundMessage, OutboundMessage};
-use crate::models::{AIModel, ChatMessage, ChatSession};
+use crate::channel::{
+    ChannelReplySender, ChannelRouter, ChannelType, InboundMessage, OutboundMessage,
+};
+use crate::models::{AIModel, ChatMessage, ChatSession, ChatSessionSource};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::output::{ensure_success_output, format_error_output};
@@ -170,12 +172,11 @@ impl ChatSessionManager {
     /// Sessions are keyed by conversation_id (e.g., Telegram chat ID).
     pub async fn get_or_create_session(
         &self,
+        channel_type: ChannelType,
         conversation_id: &str,
         user_id: &str,
     ) -> Result<ChatSession> {
-        // Try to find existing session by conversation ID
-        // We use a naming convention: "channel:{conversation_id}"
-        let session_name = format!("channel:{}", conversation_id);
+        let source_channel = Self::source_from_channel(channel_type);
 
         // Use mutex to serialize session creation and prevent race conditions.
         // This ensures that under concurrent requests for the same conversation,
@@ -184,10 +185,47 @@ impl ChatSessionManager {
 
         // Re-check after acquiring lock (another task may have created it)
         let sessions = self.storage.chat_sessions.list()?;
-        if let Some(session) = sessions.into_iter().find(|s| s.name == session_name) {
+        if let Some(session) = sessions
+            .iter()
+            .find(|s| {
+                s.source_channel == source_channel
+                    && s.source_conversation_id.as_deref() == Some(conversation_id)
+            })
+            .cloned()
+        {
             debug!(
-                "Found existing session {} for conversation {}",
-                session.id, conversation_id
+                "Found existing session {} for {:?} conversation {}",
+                session.id, channel_type, conversation_id
+            );
+            return Ok(session);
+        }
+
+        // Rebind migrated legacy sessions (`external_legacy` / missing source) when possible.
+        if let Some(source_channel) = source_channel
+            && let Some(mut session) = sessions
+                .iter()
+                .find(|s| {
+                    s.source_conversation_id.as_deref() == Some(conversation_id)
+                        && matches!(
+                            s.source_channel,
+                            None | Some(ChatSessionSource::ExternalLegacy)
+                        )
+                })
+                .cloned()
+        {
+            if session.source_channel != Some(source_channel) {
+                session.source_channel = Some(source_channel);
+                if let Err(err) = self.storage.chat_sessions.save(&session) {
+                    warn!(
+                        "Failed to persist source channel rebind for session {}: {}",
+                        session.id, err
+                    );
+                }
+            }
+
+            debug!(
+                "Reused migrated legacy session {} for {:?} conversation {}",
+                session.id, channel_type, conversation_id
             );
             return Ok(session);
         }
@@ -196,13 +234,19 @@ impl ChatSessionManager {
         let agent_id = self.get_default_agent_id()?;
         let model = self.get_agent_model(&agent_id)?;
 
-        let session = ChatSession::new(agent_id, model).with_name(session_name.clone());
+        let mut session = ChatSession::new(agent_id, model).with_name(conversation_id);
+        if let Some(source_channel) = source_channel {
+            session = session.with_source(source_channel, conversation_id);
+        }
 
         // Handle potential duplicate from race condition (defensive)
         if let Err(e) = self.storage.chat_sessions.create(&session) {
             // Check if another request created the session while we were creating ours
             let sessions = self.storage.chat_sessions.list()?;
-            if let Some(existing) = sessions.into_iter().find(|s| s.name == session_name) {
+            if let Some(existing) = sessions.into_iter().find(|s| {
+                s.source_channel == source_channel
+                    && s.source_conversation_id.as_deref() == Some(conversation_id)
+            }) {
                 debug!(
                     "Session {} was created by another request, using existing",
                     existing.id
@@ -219,6 +263,15 @@ impl ChatSessionManager {
         );
 
         Ok(session)
+    }
+
+    fn source_from_channel(channel_type: ChannelType) -> Option<ChatSessionSource> {
+        match channel_type {
+            ChannelType::Telegram => Some(ChatSessionSource::Telegram),
+            ChannelType::Discord => Some(ChatSessionSource::Discord),
+            ChannelType::Slack => Some(ChatSessionSource::Slack),
+            ChannelType::Email | ChannelType::Webhook => None,
+        }
     }
 
     /// Append a user-assistant exchange to a session.
@@ -467,7 +520,11 @@ impl ChatDispatcher {
         // 2. Get or create session
         let mut session = match self
             .sessions
-            .get_or_create_session(&message.conversation_id, &message.sender_id)
+            .get_or_create_session(
+                message.channel_type,
+                &message.conversation_id,
+                &message.sender_id,
+            )
             .await
         {
             Ok(s) => s,
@@ -606,6 +663,7 @@ mod tests {
     use super::*;
     use crate::AIModel;
     use crate::channel::ChannelType;
+    use crate::models::ChatSessionSource;
     use crate::runtime::effective_main_agent_tool_names;
     use serde_json::json;
     use tempfile::tempdir;
@@ -707,17 +765,60 @@ mod tests {
         let manager = ChatSessionManager::new(storage, 20).with_default_agent(agent_id);
 
         let session = manager
-            .get_or_create_session("conv-1", "user-1")
+            .get_or_create_session(ChannelType::Telegram, "conv-1", "user-1")
             .await
             .unwrap();
-        assert_eq!(session.name, "channel:conv-1");
+        assert_eq!(session.name, "conv-1");
+        assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(session.source_conversation_id.as_deref(), Some("conv-1"));
 
         // Getting again should return same session
         let session2 = manager
-            .get_or_create_session("conv-1", "user-1")
+            .get_or_create_session(ChannelType::Telegram, "conv-1", "user-1")
             .await
             .unwrap();
         assert_eq!(session.id, session2.id);
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_rebinds_external_legacy_source_channel() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        use crate::models::AgentNode;
+        storage
+            .agents
+            .create_agent("Test Agent".to_string(), AgentNode::new())
+            .unwrap();
+        let agents = storage.agents.list_agents().unwrap();
+        let agent_id = agents[0].id.clone();
+
+        let legacy = ChatSession::new(
+            agent_id.clone(),
+            AIModel::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("conv-legacy")
+        .with_source(ChatSessionSource::ExternalLegacy, "conv-legacy");
+        storage.chat_sessions.create(&legacy).unwrap();
+
+        let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
+        let session = manager
+            .get_or_create_session(ChannelType::Telegram, "conv-legacy", "user-1")
+            .await
+            .unwrap();
+
+        assert_eq!(session.id, legacy.id);
+        assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(
+            session.source_conversation_id.as_deref(),
+            Some("conv-legacy")
+        );
+
+        let persisted = storage
+            .chat_sessions
+            .get(&legacy.id)
+            .unwrap()
+            .expect("session should exist");
+        assert_eq!(persisted.source_channel, Some(ChatSessionSource::Telegram));
     }
 
     #[tokio::test]
@@ -736,7 +837,7 @@ mod tests {
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
 
         let session = manager
-            .get_or_create_session("conv-1", "user-1")
+            .get_or_create_session(ChannelType::Telegram, "conv-1", "user-1")
             .await
             .unwrap();
 
@@ -773,7 +874,7 @@ mod tests {
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
         let session = manager
-            .get_or_create_session("conv-1", "user-1")
+            .get_or_create_session(ChannelType::Telegram, "conv-1", "user-1")
             .await
             .unwrap();
 
@@ -812,7 +913,7 @@ mod tests {
 
         let manager = ChatSessionManager::new(storage.clone(), 2).with_default_agent(agent_id);
         let session = manager
-            .get_or_create_session("conv-1", "user-1")
+            .get_or_create_session(ChannelType::Telegram, "conv-1", "user-1")
             .await
             .unwrap();
 
@@ -854,7 +955,7 @@ mod tests {
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(stale.id);
         let session = manager
-            .get_or_create_session("conv-1", "user-1")
+            .get_or_create_session(ChannelType::Telegram, "conv-1", "user-1")
             .await
             .unwrap();
 
