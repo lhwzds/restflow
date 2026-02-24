@@ -36,6 +36,10 @@ export {
   type InfoMessageKey,
 } from './ui/messages'
 
+// ===== Chat Related =====
+export * from './common/chat'
+export { MESSAGE_PREVIEW_MAX_LENGTH } from './common/chat'
+
 // ===== Time Related =====
 export * from './common/time'
 export {
