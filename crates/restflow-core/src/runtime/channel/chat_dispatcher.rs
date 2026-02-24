@@ -11,7 +11,7 @@ use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
 use crate::channel::{ChannelReplySender, ChannelRouter, InboundMessage, OutboundMessage};
-use crate::models::{ChatMessage, ChatSession};
+use crate::models::{AIModel, ChatMessage, ChatSession};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::output::{ensure_success_output, format_error_output};
@@ -258,9 +258,11 @@ impl ChatSessionManager {
         // Add assistant message
         session.add_message(ChatMessage::assistant(assistant_message));
 
-        if let Some(model) = active_model {
-            session.model = model.to_string();
-            session.metadata.last_model = Some(model.to_string());
+        if let Some(model) = active_model
+            && let Some(normalized) = AIModel::normalize_model_id(model)
+        {
+            session.model = normalized.clone();
+            session.metadata.last_model = Some(normalized);
         }
 
         debug!(
@@ -333,8 +335,8 @@ impl ChatSessionManager {
         Ok(agent
             .agent
             .model
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_else(|| "unknown".to_string()))
+            .map(|m| m.as_serialized_str().to_string())
+            .unwrap_or_else(|| AIModel::Gpt5.as_serialized_str().to_string()))
     }
 }
 

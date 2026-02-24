@@ -3,7 +3,7 @@
 //! Provides type-safe access to chat session storage, wrapping the byte-level
 //! API from restflow-storage with our Rust models.
 
-use crate::models::{ChatSession, ChatSessionSummary};
+use crate::models::{AIModel, ChatSession, ChatSessionSummary};
 use anyhow::Result;
 use redb::Database;
 use restflow_storage::SimpleStorage;
@@ -37,6 +37,19 @@ fn parse_retention_to_ms(retention: &str) -> Option<i64> {
     }
 }
 
+fn normalize_session_model_id(model: &str) -> String {
+    AIModel::normalize_model_id(model).unwrap_or_else(|| model.trim().to_string())
+}
+
+fn normalize_session_model(session: &mut ChatSession) -> bool {
+    let normalized = normalize_session_model_id(&session.model);
+    if normalized == session.model {
+        return false;
+    }
+    session.model = normalized;
+    true
+}
+
 impl ChatSessionStorage {
     /// Create a new chat session storage instance.
     pub fn new(db: Arc<Database>) -> Result<Self> {
@@ -47,21 +60,29 @@ impl ChatSessionStorage {
 
     /// Create a new chat session (fails if already exists).
     pub fn create(&self, session: &ChatSession) -> Result<()> {
-        if self.inner.exists(&session.id)? {
+        let mut normalized = session.clone();
+        normalize_session_model(&mut normalized);
+
+        if self.inner.exists(&normalized.id)? {
             return Err(anyhow::anyhow!(
                 "Chat session {} already exists",
-                session.id
+                normalized.id
             ));
         }
-        let json = serde_json::to_string(session)?;
-        self.inner.put_raw(&session.id, json.as_bytes())
+        let json = serde_json::to_string(&normalized)?;
+        self.inner.put_raw(&normalized.id, json.as_bytes())
     }
 
     /// Get a chat session by ID.
     pub fn get(&self, id: &str) -> Result<Option<ChatSession>> {
         if let Some(bytes) = self.inner.get_raw(id)? {
             let json = std::str::from_utf8(&bytes)?;
-            Ok(Some(serde_json::from_str(json)?))
+            let mut session: ChatSession = serde_json::from_str(json)?;
+            if normalize_session_model(&mut session) {
+                let normalized_json = serde_json::to_string(&session)?;
+                self.inner.put_raw(id, normalized_json.as_bytes())?;
+            }
+            Ok(Some(session))
         } else {
             Ok(None)
         }
@@ -73,10 +94,18 @@ impl ChatSessionStorage {
     pub fn list(&self) -> Result<Vec<ChatSession>> {
         let raw_sessions = self.inner.list_raw()?;
         let mut sessions = Vec::new();
-        for (_, bytes) in raw_sessions {
+        let mut normalized_updates: Vec<(String, String)> = Vec::new();
+        for (id, bytes) in raw_sessions {
             let json = std::str::from_utf8(&bytes)?;
-            let session: ChatSession = serde_json::from_str(json)?;
+            let mut session: ChatSession = serde_json::from_str(json)?;
+            if normalize_session_model(&mut session) {
+                normalized_updates.push((id, serde_json::to_string(&session)?));
+            }
             sessions.push(session);
+        }
+
+        for (id, normalized_json) in normalized_updates {
+            self.inner.put_raw(&id, normalized_json.as_bytes())?;
         }
 
         // Sort by updated_at descending (most recent first)
@@ -113,17 +142,22 @@ impl ChatSessionStorage {
 
     /// Update an existing chat session.
     pub fn update(&self, session: &ChatSession) -> Result<()> {
-        if !self.inner.exists(&session.id)? {
-            return Err(anyhow::anyhow!("Chat session {} not found", session.id));
+        let mut normalized = session.clone();
+        normalize_session_model(&mut normalized);
+
+        if !self.inner.exists(&normalized.id)? {
+            return Err(anyhow::anyhow!("Chat session {} not found", normalized.id));
         }
-        let json = serde_json::to_string(session)?;
-        self.inner.put_raw(&session.id, json.as_bytes())
+        let json = serde_json::to_string(&normalized)?;
+        self.inner.put_raw(&normalized.id, json.as_bytes())
     }
 
     /// Save a chat session (create or update).
     pub fn save(&self, session: &ChatSession) -> Result<()> {
-        let json = serde_json::to_string(session)?;
-        self.inner.put_raw(&session.id, json.as_bytes())
+        let mut normalized = session.clone();
+        normalize_session_model(&mut normalized);
+        let json = serde_json::to_string(&normalized)?;
+        self.inner.put_raw(&normalized.id, json.as_bytes())
     }
 
     /// Delete a chat session.
@@ -238,7 +272,19 @@ mod tests {
         let retrieved = storage.get(&session.id).unwrap().unwrap();
         assert_eq!(retrieved.name, "Test Chat");
         assert_eq!(retrieved.agent_id, "agent-1");
-        assert_eq!(retrieved.model, "claude-sonnet-4");
+        assert_eq!(retrieved.model, "claude-sonnet-4-5");
+    }
+
+    #[test]
+    fn test_create_normalizes_model_id() {
+        let (storage, _temp_dir) = setup();
+
+        let session = ChatSession::new("agent-1".to_string(), "MiniMax-M2.5".to_string());
+        let id = session.id.clone();
+        storage.create(&session).unwrap();
+
+        let retrieved = storage.get(&id).unwrap().unwrap();
+        assert_eq!(retrieved.model, "minimax-m2-5");
     }
 
     #[test]
@@ -278,6 +324,24 @@ mod tests {
 
         let sessions = storage.list().unwrap();
         assert_eq!(sessions.len(), 2);
+    }
+
+    #[test]
+    fn test_list_normalizes_and_persists_legacy_model_id() {
+        let (storage, _temp_dir) = setup();
+        let mut legacy = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        legacy.model = "MiniMax-M2.5".to_string();
+        let id = legacy.id.clone();
+
+        let raw = serde_json::to_string(&legacy).unwrap();
+        storage.inner.put_raw(&id, raw.as_bytes()).unwrap();
+
+        let sessions = storage.list().unwrap();
+        let listed = sessions.into_iter().find(|s| s.id == id).unwrap();
+        assert_eq!(listed.model, "minimax-m2-5");
+
+        let persisted = storage.get(&id).unwrap().unwrap();
+        assert_eq!(persisted.model, "minimax-m2-5");
     }
 
     #[test]

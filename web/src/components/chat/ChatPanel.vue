@@ -47,6 +47,10 @@ const selectedAgent = ref<string | null>(null)
 const selectedModel = ref('')
 const availableAgents = ref<AgentFile[]>([])
 const availableModels = ref<ModelOption[]>([])
+const chatBoxKey = computed(() => {
+  const sessionId = currentSession.value?.id ?? 'new'
+  return `chatbox-${sessionId}-${availableAgents.value.length}-${availableModels.value.length}`
+})
 
 // Messages from store
 const messages = computed<ChatMessage[]>(() => chatMessages.value)
@@ -91,18 +95,25 @@ watch(
   },
 )
 
-// Sync agent/model from current session and reset stream on session change
+// Sync agent/model from current session and reset stream only when session id changes
 watch(
-  () => currentSession.value?.id ?? null,
-  () => {
-    const session = currentSession.value
-    chatStream.reset()
-    processedToolIds.value.clear()
-    if (session) {
-      selectedAgent.value = session.agent_id
-      selectedModel.value = session.model
+  () => ({
+    id: currentSession.value?.id ?? null,
+    agentId: currentSession.value?.agent_id ?? null,
+    model: currentSession.value?.model ?? '',
+  }),
+  (next, prev) => {
+    if (next.id !== prev?.id) {
+      chatStream.reset()
+      processedToolIds.value.clear()
+    }
+
+    if (next.id) {
+      selectedAgent.value = next.agentId
+      selectedModel.value = next.model
     }
   },
+  { immediate: true },
 )
 
 async function syncSessionFromBackend() {
@@ -312,6 +323,7 @@ defineExpose({
     <!-- Input Area -->
     <div class="shrink-0 px-4 pb-4">
       <ChatBox
+        :key="chatBoxKey"
         :is-expanded="true"
         :is-executing="isExecuting"
         :selected-agent="selectedAgent"

@@ -814,8 +814,8 @@ impl AgentRuntimeExecutor {
         let fallback_model = fallback
             .agent
             .model
-            .map(|m| m.as_str().to_string())
-            .unwrap_or_else(|| "unknown".to_string());
+            .map(|m| m.as_serialized_str().to_string())
+            .unwrap_or_else(|| AIModel::Gpt5.as_serialized_str().to_string());
         session.agent_id = fallback.id.clone();
         session.model = fallback_model.clone();
         session.metadata.last_model = Some(fallback_model);
