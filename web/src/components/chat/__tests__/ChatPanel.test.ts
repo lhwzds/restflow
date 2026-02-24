@@ -240,4 +240,22 @@ describe('ChatPanel', () => {
 
     expect(chatBoxMountCount).toBeGreaterThan(1)
   })
+
+  it('updates model selector when model options arrive after initial mount', async () => {
+    mockModels.length = 0
+    mockLoadModels.mockImplementation(async () => {
+      // Simulate loadModels returning while another caller is already loading.
+    })
+
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="chatbox"]').attributes('data-selected-model')).toBe('gpt-4')
+
+    mockModels.push({ model: 'gpt-4', name: 'GPT-4' }, { model: 'gpt-5', name: 'GPT-5' })
+    await nextTick()
+
+    expect(wrapper.get('[data-testid="chatbox"]').attributes('data-selected-model')).toBe('gpt-4')
+    expect(chatBoxMountCount).toBeGreaterThan(1)
+  })
 })

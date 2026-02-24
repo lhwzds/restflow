@@ -46,7 +46,12 @@ const chatStream = useChatStream(() => chatSessionStore.currentSessionId)
 const selectedAgent = ref<string | null>(null)
 const selectedModel = ref('')
 const availableAgents = ref<AgentFile[]>([])
-const availableModels = ref<ModelOption[]>([])
+const availableModels = computed<ModelOption[]>(() =>
+  modelsStore.getAllModels.map((model) => ({
+    id: model.model,
+    name: model.name,
+  })),
+)
 const chatBoxKey = computed(() => {
   const sessionId = currentSession.value?.id ?? 'new'
   return `chatbox-${sessionId}-${availableAgents.value.length}-${availableModels.value.length}`
@@ -165,10 +170,6 @@ async function loadAgents() {
 async function loadModels() {
   try {
     await modelsStore.loadModels()
-    availableModels.value = modelsStore.getAllModels.map((model) => ({
-      id: model.model,
-      name: model.name,
-    }))
 
     if (!selectedModel.value && availableModels.value.length > 0) {
       selectedModel.value = availableModels.value[0]?.id ?? ''
