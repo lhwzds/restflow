@@ -181,12 +181,17 @@ impl ChatStreamState {
     /// Emit stream completed event
     pub fn emit_completed(&self) {
         let duration_ms = self.start_time.elapsed().as_millis() as u64;
+        let total_tokens = if self.input_tokens + self.output_tokens > 0 {
+            self.input_tokens + self.output_tokens
+        } else {
+            self.token_count
+        };
         self.emit_event(ChatStreamEvent::completed(
             &self.session_id,
             &self.message_id,
             &self.content,
             duration_ms,
-            self.input_tokens + self.output_tokens,
+            total_tokens,
         ));
     }
 

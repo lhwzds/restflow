@@ -312,11 +312,18 @@ pub async fn send_chat_message_stream(
                             name,
                             arguments,
                         } => stream_state.emit_tool_call_start(&id, &name, &arguments.to_string()),
-                        StreamFrame::ToolResult { id, result } => {
-                            stream_state.emit_tool_call_end(&id, &result, true)
+                        StreamFrame::ToolResult {
+                            id,
+                            result,
+                            success,
+                        } => stream_state.emit_tool_call_end(&id, &result, success),
+                        StreamFrame::Done { total_tokens } => {
+                            if let Some(total) = total_tokens {
+                                stream_state.update_usage(0, total);
+                            }
+                            stream_state.emit_completed();
                         }
                         StreamFrame::BackgroundAgentEvent { .. } => {}
-                        StreamFrame::Done { .. } => stream_state.emit_completed(),
                         StreamFrame::Error { code, message } => {
                             if code == 499 {
                                 stream_state.emit_cancelled();
