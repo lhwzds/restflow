@@ -1,8 +1,8 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::models::{
     AgentNode, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
-    BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, Hook, MemoryChunk,
-    ItemQuery, MemorySession, Skill, TerminalSession, WorkItemPatch, WorkItemSpec,
+    BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, Hook, ItemQuery,
+    MemoryChunk, MemorySession, Skill, TerminalSession, WorkItemPatch, WorkItemSpec,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::SystemConfig;
@@ -408,6 +408,7 @@ pub enum StreamFrame {
     ToolResult {
         id: String,
         result: String,
+        success: bool,
     },
     BackgroundAgentEvent {
         event: TaskStreamEvent,
@@ -881,6 +882,30 @@ mod tests {
             assert_eq!(id, "call-1");
             assert_eq!(name, "search");
             assert_eq!(arguments["query"], "test");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_stream_frame_tool_result() {
+        let frame = StreamFrame::ToolResult {
+            id: "call-1".to_string(),
+            result: "{\"ok\":true}".to_string(),
+            success: true,
+        };
+        let json = serde_json::to_string(&frame).unwrap();
+        let parsed: StreamFrame = serde_json::from_str(&json).unwrap();
+
+        if let StreamFrame::ToolResult {
+            id,
+            result,
+            success,
+        } = parsed
+        {
+            assert_eq!(id, "call-1");
+            assert_eq!(result, "{\"ok\":true}");
+            assert!(success);
         } else {
             panic!("Wrong variant");
         }

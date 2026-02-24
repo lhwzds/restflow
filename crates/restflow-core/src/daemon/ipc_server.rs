@@ -13,19 +13,22 @@ use crate::models::{
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::subagent::AgentDefinitionRegistry;
-use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     skills as skills_service,
 };
 use anyhow::Result;
+use async_trait::async_trait;
 use chrono::Utc;
+use restflow_ai::agent::StreamEmitter;
+use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_storage::AuthProfileStorage;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Instant;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio::task::JoinHandle;
@@ -45,6 +48,63 @@ pub struct IpcServer {
 fn active_chat_streams() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
     static STREAMS: OnceLock<Mutex<HashMap<String, JoinHandle<()>>>> = OnceLock::new();
     STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+struct IpcStreamEmitter {
+    tx: mpsc::UnboundedSender<StreamFrame>,
+    has_text_streamed: Arc<AtomicBool>,
+}
+
+impl IpcStreamEmitter {
+    fn new(tx: mpsc::UnboundedSender<StreamFrame>, has_text_streamed: Arc<AtomicBool>) -> Self {
+        Self {
+            tx,
+            has_text_streamed,
+        }
+    }
+}
+
+fn parse_tool_arguments(arguments: &str) -> serde_json::Value {
+    if arguments.trim().is_empty() {
+        return serde_json::Value::Null;
+    }
+    match serde_json::from_str::<serde_json::Value>(arguments) {
+        Ok(value) => value,
+        Err(_) => serde_json::Value::String(arguments.to_string()),
+    }
+}
+
+#[async_trait]
+impl StreamEmitter for IpcStreamEmitter {
+    async fn emit_text_delta(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.has_text_streamed.store(true, Ordering::Relaxed);
+        let _ = self.tx.send(StreamFrame::Data {
+            content: text.to_string(),
+        });
+    }
+
+    async fn emit_thinking_delta(&mut self, _text: &str) {}
+
+    async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
+        let _ = self.tx.send(StreamFrame::ToolCall {
+            id: id.to_string(),
+            name: name.to_string(),
+            arguments: parse_tool_arguments(arguments),
+        });
+    }
+
+    async fn emit_tool_call_result(&mut self, id: &str, _name: &str, result: &str, success: bool) {
+        let _ = self.tx.send(StreamFrame::ToolResult {
+            id: id.to_string(),
+            result: result.to_string(),
+            success,
+        });
+    }
+
+    async fn emit_complete(&mut self) {}
 }
 
 impl IpcServer {
@@ -211,12 +271,17 @@ impl IpcServer {
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
         let worker_stream_id = stream_id.clone();
         let handle = tokio::spawn(async move {
-            let result = execute_chat_session(&core, session_id, user_input).await;
+            let has_text_streamed = Arc::new(AtomicBool::new(false));
+            let emitter = IpcStreamEmitter::new(tx.clone(), has_text_streamed.clone());
+            let result =
+                execute_chat_session(&core, session_id, user_input, Some(Box::new(emitter))).await;
 
             match result {
                 Ok(session) => {
                     if let Some((content, total_tokens)) = latest_assistant_payload(&session) {
-                        let _ = tx.send(StreamFrame::Data { content });
+                        if !has_text_streamed.load(Ordering::Relaxed) && !content.is_empty() {
+                            let _ = tx.send(StreamFrame::Data { content });
+                        }
                         let _ = tx.send(StreamFrame::Done { total_tokens });
                     } else {
                         let _ = tx.send(StreamFrame::Error {
@@ -399,14 +464,11 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::ListWorkItemFolders => {
-                match core.storage.work_items.list_folders() {
-                    Ok(folders) => IpcResponse::success(folders),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
-            IpcRequest::GetWorkItem { id } => match core.storage.work_items.get_note(&id)
-            {
+            IpcRequest::ListWorkItemFolders => match core.storage.work_items.list_folders() {
+                Ok(folders) => IpcResponse::success(folders),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::GetWorkItem { id } => match core.storage.work_items.get_note(&id) {
                 Ok(Some(item)) => IpcResponse::success(item),
                 Ok(None) => IpcResponse::not_found("Work item"),
                 Err(err) => IpcResponse::error(500, err.to_string()),
@@ -423,12 +485,10 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::DeleteWorkItem { id } => {
-                match core.storage.work_items.delete_note(&id) {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            IpcRequest::DeleteWorkItem { id } => match core.storage.work_items.delete_note(&id) {
+                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::ListBackgroundAgents { status } => {
                 let result = match status {
                     Some(status) => match parse_background_agent_status(&status) {
@@ -968,7 +1028,7 @@ impl IpcServer {
             IpcRequest::ExecuteChatSession {
                 session_id,
                 user_input,
-            } => match execute_chat_session(core, session_id, user_input).await {
+            } => match execute_chat_session(core, session_id, user_input, None).await {
                 Ok(session) => IpcResponse::success(session),
                 Err(err) => {
                     let message = err.to_string();
@@ -1385,36 +1445,32 @@ impl IpcServer {
                 }
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
-            IpcRequest::GetAvailableToolDefinitions => {
-                match create_runtime_tool_registry(core) {
-                    Ok(registry) => {
-                        let tools: Vec<ToolDefinition> = registry
-                            .schemas()
-                            .into_iter()
-                            .map(|schema| ToolDefinition {
-                                name: schema.name,
-                                description: schema.description,
-                                parameters: schema.parameters,
-                            })
-                            .collect();
-                        IpcResponse::success(tools)
-                    }
-                    Err(err) => IpcResponse::error(500, err.to_string()),
+            IpcRequest::GetAvailableToolDefinitions => match create_runtime_tool_registry(core) {
+                Ok(registry) => {
+                    let tools: Vec<ToolDefinition> = registry
+                        .schemas()
+                        .into_iter()
+                        .map(|schema| ToolDefinition {
+                            name: schema.name,
+                            description: schema.description,
+                            parameters: schema.parameters,
+                        })
+                        .collect();
+                    IpcResponse::success(tools)
                 }
-            }
-            IpcRequest::ExecuteTool { name, input } => {
-                match create_runtime_tool_registry(core) {
-                    Ok(registry) => match registry.execute_safe(&name, input).await {
-                        Ok(output) => IpcResponse::success(ToolExecutionResult {
-                            success: output.success,
-                            result: output.result,
-                            error: output.error,
-                        }),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
-                    },
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
+            IpcRequest::ExecuteTool { name, input } => match create_runtime_tool_registry(core) {
+                Ok(registry) => match registry.execute_safe(&name, input).await {
+                    Ok(output) => IpcResponse::success(ToolExecutionResult {
+                        success: output.success,
+                        result: output.result,
+                        error: output.error,
+                    }),
                     Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+                },
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::ListMcpServers => IpcResponse::success(Vec::<String>::new()),
             IpcRequest::BuildAgentSystemPrompt { agent_node } => {
                 match build_agent_system_prompt(core, agent_node) {
@@ -1496,6 +1552,7 @@ async fn execute_chat_session(
     core: &Arc<AppCore>,
     session_id: String,
     user_input: Option<String>,
+    emitter: Option<Box<dyn StreamEmitter>>,
 ) -> Result<ChatSession> {
     let mut session = core
         .storage
@@ -1518,11 +1575,12 @@ async fn execute_chat_session(
     let executor = create_chat_executor(core, auth_manager);
     let started_at = Instant::now();
     let exec_result = executor
-        .execute_session_turn(
+        .execute_session_turn_with_emitter(
             &mut session,
             &input,
             20,
             SessionInputMode::PersistedInSession,
+            emitter,
         )
         .await?;
     let duration_ms = started_at.elapsed().as_millis() as u64;
