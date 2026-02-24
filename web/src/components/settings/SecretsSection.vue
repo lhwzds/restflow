@@ -31,6 +31,7 @@ const { createSecret, updateSecret, deleteSecret } = useSecretOperations()
 
 const showNewPassword = ref(false)
 const showEditPassword = ref(false)
+const isSaving = ref(false)
 
 interface NewRowData {
   key: string
@@ -83,8 +84,17 @@ async function saveNewSecret() {
     return
   }
 
+  if (isSaving.value) return
+  isSaving.value = true
+
   try {
     const formattedKey = editState.newRow.key.toUpperCase().replace(/[^A-Z0-9]/g, '_')
+
+    if (secrets.value.some((s) => s.key === formattedKey)) {
+      toast.error(VALIDATION_MESSAGES.REQUIRED_FIELD('unique key — this key already exists'))
+      return
+    }
+
     await createSecret(formattedKey, editState.newRow.value)
     toast.success(SUCCESS_MESSAGES.SECRET_CREATED)
     cancelEdit()
@@ -92,6 +102,8 @@ async function saveNewSecret() {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     toast.error(ERROR_MESSAGES.FAILED_TO_CREATE('secret') + ': ' + errorMessage)
+  } finally {
+    isSaving.value = false
   }
 }
 
@@ -101,6 +113,9 @@ async function saveEditedSecret(key: string) {
     toast.error(VALIDATION_MESSAGES.REQUIRED_FIELD('secret value'))
     return
   }
+
+  if (isSaving.value) return
+  isSaving.value = true
 
   try {
     await updateSecret(key, data.value)
@@ -112,6 +127,9 @@ async function saveEditedSecret(key: string) {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error)
     toast.error(ERROR_MESSAGES.FAILED_TO_UPDATE('secret') + ': ' + errorMessage)
+    // Preserve edit state so user can retry
+  } finally {
+    isSaving.value = false
   }
 }
 
