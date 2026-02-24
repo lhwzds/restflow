@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::cli::{AllowlistAction, SecurityCommands};
+use crate::commands::utils::short_id;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::models::security::{
     ApprovalStatus, CommandPattern, PendingApproval, SecurityPolicy,
@@ -230,10 +231,6 @@ fn resolve_approval_index(approvals: &[PendingApproval], id: &str) -> Result<usi
     }
 
     Ok(matches[0])
-}
-
-fn short_id(value: &str) -> String {
-    value.chars().take(8).collect::<String>()
 }
 
 #[derive(Debug, Serialize, Deserialize)]

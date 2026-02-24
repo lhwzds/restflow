@@ -5,7 +5,7 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::cli::SessionCommands;
-use crate::commands::utils::{format_timestamp, preview_text};
+use crate::commands::utils::{format_timestamp, preview_text, short_id};
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::models::chat_session::{ChatRole, ChatSession};
@@ -270,8 +270,4 @@ async fn resolve_session_id(executor: &Arc<dyn CommandExecutor>, id: &str) -> Re
     resolve_session_id_optional(executor, id)
         .await?
         .ok_or_else(|| anyhow::anyhow!("Session not found: {}", id))
-}
-
-fn short_id(id: &str) -> String {
-    id.chars().take(8).collect()
 }

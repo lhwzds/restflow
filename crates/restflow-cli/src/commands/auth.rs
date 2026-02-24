@@ -8,6 +8,7 @@ use restflow_core::paths;
 use std::path::Path;
 
 use crate::cli::AuthCommands;
+use crate::commands::utils::short_id;
 use crate::output::{OutputFormat, json::print_json};
 
 pub async fn run(command: AuthCommands, format: OutputFormat) -> Result<()> {
@@ -218,10 +219,6 @@ fn parse_provider(value: &str) -> Result<AuthProvider> {
             "Unsupported provider: {value}. Valid options: anthropic, claude-code, openai, openai-codex, google, other"
         ),
     }
-}
-
-fn short_id(value: &str) -> String {
-    value.chars().take(8).collect::<String>()
 }
 
 fn format_health(health: &restflow_core::auth::ProfileHealth) -> String {
