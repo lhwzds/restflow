@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use crate::cli::{AgentCommands, CodexExecutionModeArg};
 use crate::commands::utils::{
-    format_timestamp, parse_model, parse_model_for_provider, parse_provider,
+    format_timestamp, parse_model, parse_model_for_provider, parse_provider, short_id,
 };
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
@@ -240,10 +240,6 @@ async fn delete_agent(
 
     println!("Agent deleted: {id}");
     Ok(())
-}
-
-fn short_id(value: &str) -> String {
-    value.chars().take(8).collect::<String>()
 }
 
 fn format_tools(tools: &Option<Vec<String>>) -> String {

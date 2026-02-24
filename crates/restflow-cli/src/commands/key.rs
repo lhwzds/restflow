@@ -8,6 +8,7 @@ use restflow_core::paths;
 use std::path::Path;
 
 use crate::cli::KeyCommands;
+use crate::commands::utils::short_id;
 use crate::output::{OutputFormat, json::print_json};
 
 pub async fn run(command: KeyCommands, format: OutputFormat) -> Result<()> {
@@ -299,10 +300,6 @@ fn parse_provider(value: &str) -> Result<AuthProvider> {
             "Unknown provider: {value}. Use: anthropic, claude-code, openai, openai-codex, deepseek"
         ),
     }
-}
-
-fn short_id(value: &str) -> String {
-    value.chars().take(8).collect::<String>()
 }
 
 fn credential_type(credential: &SecureCredential) -> String {
