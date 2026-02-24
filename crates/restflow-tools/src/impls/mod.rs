@@ -1,5 +1,8 @@
 //! Built-in tool implementations.
 
+// Shared utilities
+pub(crate) mod path_utils;
+
 // Original 7 tools
 mod bash;
 mod discord;
