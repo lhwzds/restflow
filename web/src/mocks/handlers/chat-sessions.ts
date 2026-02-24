@@ -25,6 +25,8 @@ const createMessageId = (): string => {
 const chatSessionSummaries: ChatSessionSummary[] = demoChatSessions.map((s) => ({
   ...s,
   updated_at: BigInt(s.updated_at),
+  source_channel: null,
+  source_conversation_id: null,
 }))
 
 // Full chat sessions with messages
@@ -46,6 +48,8 @@ const chatSessions: ChatSession[] = demoChatSessions.map((s) => ({
     message_count: s.message_count,
     last_model: s.model,
   },
+  source_channel: null,
+  source_conversation_id: null,
 }))
 
 export const chatSessionHandlers = [
@@ -128,6 +132,8 @@ export const chatSessionHandlers = [
         message_count: 0,
         last_model: null,
       },
+      source_channel: 'workspace',
+      source_conversation_id: null,
     }
     chatSessions.push(newSession)
 

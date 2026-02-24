@@ -3,7 +3,7 @@
 //! Provides type-safe access to chat session storage, wrapping the byte-level
 //! API from restflow-storage with our Rust models.
 
-use crate::models::{AIModel, ChatSession, ChatSessionSummary};
+use crate::models::{AIModel, ChatSession, ChatSessionSource, ChatSessionSummary};
 use anyhow::Result;
 use redb::Database;
 use restflow_storage::SimpleStorage;
@@ -25,6 +25,16 @@ pub struct SessionRetentionCleanupStats {
     pub failed: usize,
     pub bytes_freed: u64,
 }
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct SessionSourceMigrationStats {
+    pub scanned: usize,
+    pub migrated: usize,
+    pub skipped: usize,
+    pub failed: usize,
+}
+
+const LEGACY_CHANNEL_SESSION_PREFIX: &str = "channel:";
 
 fn parse_retention_to_ms(retention: &str) -> Option<i64> {
     let normalized = retention.trim().to_ascii_lowercase();
@@ -48,6 +58,46 @@ fn normalize_session_model(session: &mut ChatSession) -> bool {
     }
     session.model = normalized;
     true
+}
+
+fn extract_legacy_conversation_id(session_name: &str) -> Option<&str> {
+    let conversation_id = session_name
+        .strip_prefix(LEGACY_CHANNEL_SESSION_PREFIX)?
+        .trim();
+    if conversation_id.is_empty() {
+        return None;
+    }
+    Some(conversation_id)
+}
+
+fn migrate_legacy_channel_source_fields(session: &mut ChatSession) -> bool {
+    let Some(conversation_id) = extract_legacy_conversation_id(&session.name) else {
+        return false;
+    };
+
+    let mut changed = false;
+    if session.source_channel.is_none() {
+        session.source_channel = Some(ChatSessionSource::ExternalLegacy);
+        changed = true;
+    }
+
+    if session
+        .source_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .is_none_or(|value| value.is_empty())
+    {
+        session.source_conversation_id = Some(conversation_id.to_string());
+        changed = true;
+    }
+
+    let normalized_name = conversation_id.to_string();
+    if session.name != normalized_name {
+        session.name = normalized_name;
+        changed = true;
+    }
+
+    changed
 }
 
 impl ChatSessionStorage {
@@ -244,12 +294,63 @@ impl ChatSessionStorage {
 
         Ok(stats)
     }
+
+    /// Migrate legacy `channel:*` session naming into explicit source fields.
+    ///
+    /// This migration:
+    /// - Sets `source_channel = external_legacy` when missing
+    /// - Extracts `source_conversation_id` from legacy session names
+    /// - Renames legacy `channel:{id}` names to `{id}` for cleaner UI display
+    pub fn migrate_legacy_channel_sources(
+        &self,
+        dry_run: bool,
+    ) -> Result<SessionSourceMigrationStats> {
+        let raw_sessions = self.inner.list_raw()?;
+        let mut stats = SessionSourceMigrationStats {
+            scanned: raw_sessions.len(),
+            ..SessionSourceMigrationStats::default()
+        };
+
+        for (id, bytes) in raw_sessions {
+            let json = match std::str::from_utf8(&bytes) {
+                Ok(value) => value,
+                Err(_) => {
+                    stats.failed += 1;
+                    continue;
+                }
+            };
+
+            let mut session: ChatSession = match serde_json::from_str(json) {
+                Ok(value) => value,
+                Err(_) => {
+                    stats.failed += 1;
+                    continue;
+                }
+            };
+
+            let changed = migrate_legacy_channel_source_fields(&mut session);
+            if !changed {
+                stats.skipped += 1;
+                continue;
+            }
+
+            stats.migrated += 1;
+            if dry_run {
+                continue;
+            }
+
+            let normalized_json = serde_json::to_string(&session)?;
+            self.inner.put_raw(&id, normalized_json.as_bytes())?;
+        }
+
+        Ok(stats)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ChatMessage, ChatRole};
+    use crate::models::{ChatMessage, ChatRole, ChatSessionSource};
     use tempfile::tempdir;
 
     fn setup() -> (ChatSessionStorage, tempfile::TempDir) {
@@ -342,6 +443,58 @@ mod tests {
 
         let persisted = storage.get(&id).unwrap().unwrap();
         assert_eq!(persisted.model, "minimax-m2-5");
+    }
+
+    #[test]
+    fn test_migrate_legacy_channel_sources_dry_run() {
+        let (storage, _temp_dir) = setup();
+        let mut legacy = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
+            .with_name("channel:7686400336");
+        let id = legacy.id.clone();
+        legacy.source_channel = None;
+        legacy.source_conversation_id = None;
+        storage.save(&legacy).unwrap();
+
+        let stats = storage.migrate_legacy_channel_sources(true).unwrap();
+        assert_eq!(stats.scanned, 1);
+        assert_eq!(stats.migrated, 1);
+        assert_eq!(stats.skipped, 0);
+        assert_eq!(stats.failed, 0);
+
+        let persisted = storage.get(&id).unwrap().unwrap();
+        assert_eq!(persisted.name, "channel:7686400336");
+        assert_eq!(persisted.source_channel, None);
+        assert_eq!(persisted.source_conversation_id, None);
+    }
+
+    #[test]
+    fn test_migrate_legacy_channel_sources_apply() {
+        let (storage, _temp_dir) = setup();
+        let legacy = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
+            .with_name("channel:7686400336");
+        let id = legacy.id.clone();
+        storage.save(&legacy).unwrap();
+
+        let stats = storage.migrate_legacy_channel_sources(false).unwrap();
+        assert_eq!(stats.scanned, 1);
+        assert_eq!(stats.migrated, 1);
+        assert_eq!(stats.skipped, 0);
+        assert_eq!(stats.failed, 0);
+
+        let persisted = storage.get(&id).unwrap().unwrap();
+        assert_eq!(persisted.name, "7686400336");
+        assert_eq!(
+            persisted.source_channel,
+            Some(ChatSessionSource::ExternalLegacy)
+        );
+        assert_eq!(
+            persisted.source_conversation_id.as_deref(),
+            Some("7686400336")
+        );
+
+        let rerun = storage.migrate_legacy_channel_sources(false).unwrap();
+        assert_eq!(rerun.migrated, 0);
+        assert_eq!(rerun.skipped, 1);
     }
 
     #[test]

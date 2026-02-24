@@ -1,5 +1,6 @@
 //! SessionStore adapter backed by ChatSessionStorage.
 
+use crate::models::ChatSessionSource;
 use crate::storage::{AgentStorage, ChatSessionStorage};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
@@ -53,6 +54,7 @@ impl SessionStore for SessionStorageAdapter {
             .agent_storage
             .resolve_existing_agent_id(&request.agent_id)?;
         let mut session = crate::models::ChatSession::new(resolved_agent_id, request.model);
+        session.source_channel = Some(ChatSessionSource::Workspace);
         if let Some(name) = request.name {
             session = session.with_name(name);
         }

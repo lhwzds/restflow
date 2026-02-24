@@ -7,8 +7,8 @@ use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
     AIModel, AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
-    ChatSession, ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery,
-    MessageExecution, TerminalSession,
+    ChatSession, ChatSessionSource, ChatSessionSummary, HookContext, HookEvent, MemoryChunk,
+    MemorySearchQuery, MessageExecution, TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
@@ -891,6 +891,7 @@ impl IpcServer {
                     },
                 };
                 let mut session = crate::models::ChatSession::new(agent_id, model);
+                session.source_channel = Some(ChatSessionSource::Workspace);
                 if let Some(name) = name {
                     session = session.with_name(name);
                 }

@@ -38,6 +38,8 @@ describe('chatSessionStore', () => {
           message_count: 1,
           updated_at: 1700000000000n,
           last_message_preview: null,
+          source_channel: null,
+          source_conversation_id: null,
         },
         {
           id: 'b',
@@ -48,6 +50,8 @@ describe('chatSessionStore', () => {
           message_count: 1,
           updated_at: 1700000000002n,
           last_message_preview: null,
+          source_channel: null,
+          source_conversation_id: null,
         },
         {
           id: 'c',
@@ -58,6 +62,8 @@ describe('chatSessionStore', () => {
           message_count: 1,
           updated_at: 1700000000001n,
           last_message_preview: null,
+          source_channel: null,
+          source_conversation_id: null,
         },
       ]
 
@@ -87,6 +93,8 @@ describe('chatSessionStore', () => {
           message_count: 0,
           updated_at: large2,
           last_message_preview: null,
+          source_channel: null,
+          source_conversation_id: null,
         },
         {
           id: 'y',
@@ -97,6 +105,8 @@ describe('chatSessionStore', () => {
           message_count: 0,
           updated_at: large1,
           last_message_preview: null,
+          source_channel: null,
+          source_conversation_id: null,
         },
       ]
 
@@ -118,7 +128,13 @@ describe('chatSessionStore', () => {
         model: 'gpt-4',
         skill_id: null,
         messages: [
-          { id: 'msg-1', role: 'user' as const, content: 'hello', timestamp: 1000n, execution: null },
+          {
+            id: 'msg-1',
+            role: 'user' as const,
+            content: 'hello',
+            timestamp: 1000n,
+            execution: null,
+          },
         ],
         created_at: 1000n,
         updated_at: 1001n,
@@ -127,6 +143,8 @@ describe('chatSessionStore', () => {
         completion_tokens: 0n,
         cost: 0,
         metadata: {},
+        source_channel: null,
+        source_conversation_id: null,
       }
 
       const execResult = {

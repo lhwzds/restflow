@@ -12,6 +12,7 @@ import {
 import { cn } from '@/lib/utils'
 import { TIME_THRESHOLDS, TIME_UNITS } from '@/constants'
 import type { AgentFile, SessionItem } from '@/types/workspace'
+import type { ChatSessionSource } from '@/types/generated/ChatSessionSource'
 
 const props = defineProps<{
   sessions: SessionItem[]
@@ -34,14 +35,48 @@ const emit = defineEmits<{
   updateAgentFilter: [value: string | null]
 }>()
 
+const CHANNEL_SESSION_PREFIX = 'channel:'
+
+function displaySessionName(session: SessionItem): string {
+  if (session.isBackgroundAgent) return session.name
+
+  if (session.name.startsWith(CHANNEL_SESSION_PREFIX)) {
+    const displayName = session.name.slice(CHANNEL_SESSION_PREFIX.length).trim()
+    return displayName || session.name
+  }
+
+  return session.name
+}
+
+function sourceLabel(source: ChatSessionSource | null | undefined): string | null {
+  if (!source) return null
+
+  switch (source) {
+    case 'workspace':
+      return 'Workspace'
+    case 'telegram':
+      return 'Telegram'
+    case 'discord':
+      return 'Discord'
+    case 'slack':
+      return 'Slack'
+    case 'external_legacy':
+      return 'External'
+    default:
+      return null
+  }
+}
+
 const formatTime = (timestamp: number) => {
   const date = new Date(timestamp)
   const now = new Date()
   const diff = now.getTime() - date.getTime()
 
   if (diff < TIME_THRESHOLDS.SECONDS_AGO) return t('workspace.time.justNow')
-  if (diff < TIME_THRESHOLDS.MINUTES_AGO) return t('workspace.time.minutesAgo', { count: Math.floor(diff / TIME_UNITS.MS_PER_MINUTE) })
-  if (diff < TIME_THRESHOLDS.HOURS_AGO) return t('workspace.time.hoursAgo', { count: Math.floor(diff / TIME_UNITS.MS_PER_HOUR) })
+  if (diff < TIME_THRESHOLDS.MINUTES_AGO)
+    return t('workspace.time.minutesAgo', { count: Math.floor(diff / TIME_UNITS.MS_PER_MINUTE) })
+  if (diff < TIME_THRESHOLDS.HOURS_AGO)
+    return t('workspace.time.hoursAgo', { count: Math.floor(diff / TIME_UNITS.MS_PER_HOUR) })
   return date.toLocaleDateString()
 }
 </script>
@@ -126,14 +161,26 @@ const formatTime = (timestamp: number) => {
 
           <!-- Content -->
           <div class="flex-1 min-w-0">
-            <div class="text-sm truncate">{{ session.name }}</div>
+            <div class="text-sm truncate">{{ displaySessionName(session) }}</div>
             <div class="text-xs text-muted-foreground truncate">
               <template v-if="session.isBackgroundAgent">
                 <span class="text-blue-500 font-medium">{{ t('workspace.background') }}</span>
                 <span v-if="session.agentName"> · {{ session.agentName }}</span>
               </template>
               <template v-else>
-                {{ session.agentName || t('common.unknownAgent') }}
+                <span
+                  v-if="session.sourceChannel"
+                  class="inline-flex items-center rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wide"
+                >
+                  {{ sourceLabel(session.sourceChannel) }}
+                </span>
+                <span v-if="session.agentName">
+                  <span v-if="session.sourceChannel"> · </span>
+                  {{ session.agentName }}
+                </span>
+                <span v-else-if="!session.sourceChannel">
+                  {{ t('common.unknownAgent') }}
+                </span>
               </template>
             </div>
             <div class="text-xs text-muted-foreground">

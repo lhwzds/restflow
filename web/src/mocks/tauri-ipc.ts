@@ -60,6 +60,8 @@ function toMsBigInt(value: number | string): bigint {
 const chatSessionSummaries: ChatSessionSummary[] = demoChatSessionsJson.map((s) => ({
   ...s,
   updated_at: toMsBigInt(s.updated_at),
+  source_channel: null,
+  source_conversation_id: null,
 }))
 
 const chatSessions: ChatSession[] = demoChatSessionsJson.map((s) => ({
@@ -80,6 +82,8 @@ const chatSessions: ChatSession[] = demoChatSessionsJson.map((s) => ({
     message_count: s.message_count,
     last_model: s.model,
   },
+  source_channel: null,
+  source_conversation_id: null,
 }))
 
 const activeChatStreams = new Map<string, { sessionId: string; cancelled: boolean }>()
@@ -110,6 +114,8 @@ function updateChatSessionSummary(session: ChatSession, preview?: string | null)
       message_count: session.messages.length,
       updated_at: session.updated_at,
       last_message_preview: nextPreview,
+      source_channel: session.source_channel ?? null,
+      source_conversation_id: session.source_conversation_id ?? null,
     })
     return
   }
@@ -124,13 +130,11 @@ function updateChatSessionSummary(session: ChatSession, preview?: string | null)
   summary.message_count = session.messages.length
   summary.updated_at = session.updated_at
   summary.last_message_preview = nextPreview
+  summary.source_channel = session.source_channel ?? null
+  summary.source_conversation_id = session.source_conversation_id ?? null
 }
 
-function buildChatStreamEvent(
-  sessionId: string,
-  messageId: string,
-  kind: Record<string, unknown>,
-) {
+function buildChatStreamEvent(sessionId: string, messageId: string, kind: Record<string, unknown>) {
   return {
     session_id: sessionId,
     message_id: messageId,
@@ -195,7 +199,9 @@ async function runMockChatStream(
     buildChatStreamEvent(session.id, messageId, {
       type: 'tool_call_end',
       tool_id: toolId,
-      result: JSON.stringify({ results: [{ title: 'Demo result', snippet: 'Mock stream tool output' }] }),
+      result: JSON.stringify({
+        results: [{ title: 'Demo result', snippet: 'Mock stream tool output' }],
+      }),
       success: true,
     }),
   )
@@ -416,6 +422,8 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
         completion_tokens: 0n,
         cost: 0,
         metadata: { total_tokens: 0, message_count: 0, last_model: null },
+        source_channel: 'workspace',
+        source_conversation_id: null,
       }
       chatSessions.push(newSession)
       return newSession
@@ -600,9 +608,12 @@ export function setupTauriMock(): void {
   mockWindows('main')
 
   // Mock all IPC calls
-  mockIPC((cmd, payload) => {
-    return handleCommand(cmd, payload)
-  }, { shouldMockEvents: true })
+  mockIPC(
+    (cmd, payload) => {
+      return handleCommand(cmd, payload)
+    },
+    { shouldMockEvents: true },
+  )
 
   console.info('[Tauri IPC Mock] Initialized — all invoke() calls are mocked')
 }
