@@ -96,7 +96,7 @@ export const useChatSessionStore = defineStore('chatSession', {
             comparison = a.name.localeCompare(b.name)
             break
           case 'updated_at':
-            comparison = Number(a.updated_at - b.updated_at)
+            comparison = a.updated_at > b.updated_at ? 1 : a.updated_at < b.updated_at ? -1 : 0
             break
           case 'message_count':
             comparison = a.message_count - b.message_count
