@@ -73,11 +73,8 @@ pub(crate) fn check_agent_has_active_tasks(
 }
 
 pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
-    if let Some(task_names) = check_agent_has_active_tasks(
-        &core.storage.background_agents,
-        id,
-    )
-    .with_context(|| format!("Failed to query background tasks for agent {}", id))?
+    if let Some(task_names) = check_agent_has_active_tasks(&core.storage.background_agents, id)
+        .with_context(|| format!("Failed to query background tasks for agent {}", id))?
     {
         anyhow::bail!(
             "Cannot delete agent {}: active background tasks exist ({})",

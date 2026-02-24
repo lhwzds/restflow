@@ -159,7 +159,8 @@ async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> R
             if !report.is_clean() {
                 println!("{}", report);
             }
-            let pid = tokio::task::spawn_blocking(move || start_daemon_with_config(config)).await??;
+            let pid =
+                tokio::task::spawn_blocking(move || start_daemon_with_config(config)).await??;
             println!("Daemon started (PID: {})", pid);
             Ok(())
         }

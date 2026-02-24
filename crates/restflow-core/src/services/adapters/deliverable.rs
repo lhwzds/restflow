@@ -2,8 +2,8 @@
 
 use crate::models::{Deliverable, DeliverableType};
 use chrono::Utc;
-use restflow_traits::store::DeliverableStore;
 use restflow_tools::ToolError;
+use restflow_traits::store::DeliverableStore;
 use serde_json::Value;
 use uuid::Uuid;
 
@@ -68,8 +68,7 @@ impl DeliverableStore for DeliverableStoreAdapter {
             created_at: now_ms,
             metadata,
         };
-        self.storage
-            .save(&deliverable)?;
+        self.storage.save(&deliverable)?;
         serde_json::to_value(deliverable).map_err(ToolError::from)
     }
 }
@@ -93,7 +92,16 @@ mod tests {
     fn test_save_deliverable_report() {
         let (adapter, _dir) = setup();
         let result = adapter
-            .save_deliverable("task-1", "exec-1", "report", "Test Report", "content", None, None, None)
+            .save_deliverable(
+                "task-1",
+                "exec-1",
+                "report",
+                "Test Report",
+                "content",
+                None,
+                None,
+                None,
+            )
             .unwrap();
         assert_eq!(result["title"], "Test Report");
         assert_eq!(result["task_id"], "task-1");
@@ -143,7 +151,8 @@ mod tests {
     fn test_save_deliverable_invalid_metadata_fails() {
         let (adapter, _dir) = setup();
         let bad_metadata = serde_json::json!([1, 2, 3]);
-        let result = adapter.save_deliverable("t", "e", "report", "t", "c", None, None, Some(bad_metadata));
+        let result =
+            adapter.save_deliverable("t", "e", "report", "t", "c", None, None, Some(bad_metadata));
         assert!(result.is_err());
     }
 }

@@ -10,10 +10,10 @@ pub async fn run(
     _format: crate::cli::OutputFormat,
 ) -> Result<()> {
     match command {
-        TriggerCommands::List
-        | TriggerCommands::Create { .. }
-        | TriggerCommands::Delete { .. } => {
-            anyhow::bail!("Trigger management is not yet implemented. Use MCP tools for trigger operations.")
+        TriggerCommands::List | TriggerCommands::Create { .. } | TriggerCommands::Delete { .. } => {
+            anyhow::bail!(
+                "Trigger management is not yet implemented. Use MCP tools for trigger operations."
+            )
         }
     }
 }

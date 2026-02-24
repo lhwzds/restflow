@@ -256,7 +256,11 @@ impl Tool for GrepTool {
                 let matching_files: Vec<_> = matching_files
                     .into_iter()
                     .skip(offset)
-                    .take(if head_limit > 0 { head_limit } else { usize::MAX })
+                    .take(if head_limit > 0 {
+                        head_limit
+                    } else {
+                        usize::MAX
+                    })
                     .collect();
 
                 Ok(ToolOutput::success(json!({
@@ -282,7 +286,11 @@ impl Tool for GrepTool {
                 let counts: Vec<_> = counts
                     .into_iter()
                     .skip(offset)
-                    .take(if head_limit > 0 { head_limit } else { usize::MAX })
+                    .take(if head_limit > 0 {
+                        head_limit
+                    } else {
+                        usize::MAX
+                    })
                     .collect();
 
                 Ok(ToolOutput::success(json!({
@@ -311,9 +319,7 @@ impl Tool for GrepTool {
                         if regex.is_match(line) {
                             let before: Vec<(usize, String)> = if before_ctx > 0 {
                                 let start = i.saturating_sub(before_ctx);
-                                (start..i)
-                                    .map(|j| (j + 1, lines[j].to_string()))
-                                    .collect()
+                                (start..i).map(|j| (j + 1, lines[j].to_string())).collect()
                             } else {
                                 Vec::new()
                             };
@@ -346,7 +352,11 @@ impl Tool for GrepTool {
                 let matches: Vec<_> = all_matches
                     .into_iter()
                     .skip(offset)
-                    .take(if head_limit > 0 { head_limit } else { usize::MAX })
+                    .take(if head_limit > 0 {
+                        head_limit
+                    } else {
+                        usize::MAX
+                    })
                     .collect();
 
                 // Format output as text
@@ -461,9 +471,7 @@ async fn search_single_file(
                 if regex.is_match(line) {
                     let before: Vec<(usize, String)> = if opts.before_ctx > 0 {
                         let start = i.saturating_sub(opts.before_ctx);
-                        (start..i)
-                            .map(|j| (j + 1, lines[j].to_string()))
-                            .collect()
+                        (start..i).map(|j| (j + 1, lines[j].to_string())).collect()
                     } else {
                         Vec::new()
                     };
@@ -491,7 +499,11 @@ async fn search_single_file(
             let matches: Vec<_> = matches
                 .into_iter()
                 .skip(opts.offset)
-                .take(if opts.head_limit > 0 { opts.head_limit } else { usize::MAX })
+                .take(if opts.head_limit > 0 {
+                    opts.head_limit
+                } else {
+                    usize::MAX
+                })
                 .collect();
 
             let mut output = String::new();
@@ -581,7 +593,9 @@ async fn collect_files(
         if let Some(ft) = type_filter {
             let exts = extensions_for_type(ft);
             if !exts.is_empty() {
-                let has_ext = exts.iter().any(|ext| file_name.ends_with(&format!(".{}", ext)));
+                let has_ext = exts
+                    .iter()
+                    .any(|ext| file_name.ends_with(&format!(".{}", ext)));
                 if !has_ext {
                     continue;
                 }
@@ -685,10 +699,7 @@ mod tests {
         let dir = setup_test_dir().await;
         let tool = GrepTool::new().with_base_dir(dir.path());
 
-        let out = tool
-            .execute(json!({ "pattern": "Hello" }))
-            .await
-            .unwrap();
+        let out = tool.execute(json!({ "pattern": "Hello" })).await.unwrap();
         assert!(out.success);
         assert!(out.result["match_count"].as_u64().unwrap() > 0);
         let text = out.result["output"].as_str().unwrap();

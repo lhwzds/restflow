@@ -81,12 +81,8 @@ mod macos_tests {
 
     #[test]
     fn test_readonly_allows_read() {
-        let (prog, args) = wrap_command(
-            &SandboxPolicy::ReadOnly,
-            "sh",
-            &["-c", "cat /etc/hosts"],
-        )
-        .unwrap();
+        let (prog, args) =
+            wrap_command(&SandboxPolicy::ReadOnly, "sh", &["-c", "cat /etc/hosts"]).unwrap();
 
         let output = Command::new(&prog).args(&args).output().unwrap();
         assert!(
@@ -143,10 +139,7 @@ mod macos_tests {
             !output2.status.success(),
             "writing to non-allowed dir should fail"
         );
-        assert!(
-            !blocked_file.exists(),
-            "blocked file should not be created"
-        );
+        assert!(!blocked_file.exists(), "blocked file should not be created");
     }
 }
 

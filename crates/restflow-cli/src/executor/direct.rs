@@ -18,7 +18,7 @@ use restflow_core::storage::agent::StoredAgent;
 use restflow_core::{
     AppCore,
     models::{
-        ChatSession, ChatSessionSummary, MemoryChunk, MemorySearchResult, MemoryStats, ItemQuery,
+        ChatSession, ChatSessionSummary, ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats,
         Secret, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
     },
 };

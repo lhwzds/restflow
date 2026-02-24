@@ -104,8 +104,8 @@ mod tests {
     use super::*;
     use crate::Tool;
     use restflow_ai::agent::{
-        SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
-        SubagentDefSummary, SubagentDeps, SubagentManagerImpl, SubagentTracker, spawn_subagent,
+        SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
+        SubagentDeps, SubagentManagerImpl, SubagentTracker, spawn_subagent,
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
@@ -160,10 +160,7 @@ mod tests {
         }
     }
 
-    fn make_deps(
-        lookup: MockDefLookup,
-        mock_steps: Vec<MockStep>,
-    ) -> Arc<SubagentDeps> {
+    fn make_deps(lookup: MockDefLookup, mock_steps: Vec<MockStep>) -> Arc<SubagentDeps> {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
         let definitions: Arc<dyn SubagentDefLookup> = Arc::new(lookup);
@@ -221,10 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_no_running() {
-        let deps = make_deps(
-            MockDefLookup::with_agents(vec![("coder", "Coder")]),
-            vec![],
-        );
+        let deps = make_deps(MockDefLookup::with_agents(vec![("coder", "Coder")]), vec![]);
         let tool = ListAgentsTool::new(as_manager(&deps));
         let result = tool
             .execute(json!({"include_running": false}))

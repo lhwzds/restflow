@@ -58,7 +58,11 @@ mod tests {
         fn create_skill(&self, _skill: SkillRecord) -> std::result::Result<SkillRecord, String> {
             Err("not implemented".to_string())
         }
-        fn update_skill(&self, _id: &str, _update: SkillUpdate) -> std::result::Result<SkillRecord, String> {
+        fn update_skill(
+            &self,
+            _id: &str,
+            _update: SkillUpdate,
+        ) -> std::result::Result<SkillRecord, String> {
             Err("not implemented".to_string())
         }
         fn delete_skill(&self, _id: &str) -> std::result::Result<bool, String> {

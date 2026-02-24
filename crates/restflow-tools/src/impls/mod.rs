@@ -40,10 +40,10 @@ pub mod web_search;
 pub mod work_item;
 
 // Migrated from restflow-core (tool_registry inline tools)
+pub mod kv_store;
 pub mod manage_ops;
 pub mod marketplace;
 pub mod security_query;
-pub mod kv_store;
 pub mod terminal;
 pub mod trigger;
 pub mod unified_memory_search;
@@ -104,10 +104,10 @@ pub use web_search::WebSearchTool;
 pub use work_item::WorkItemTool;
 
 // Re-export tool_registry inline migrated tools
+pub use kv_store::KvStoreTool;
 pub use manage_ops::ManageOpsTool;
 pub use marketplace::MarketplaceTool;
 pub use security_query::SecurityQueryTool;
-pub use kv_store::KvStoreTool;
 pub use terminal::TerminalTool;
 pub use trigger::TriggerTool;
 pub use unified_memory_search::UnifiedMemorySearchTool;

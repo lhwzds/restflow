@@ -2,8 +2,8 @@
 
 use std::sync::Arc;
 
-use restflow_traits::llm::{LlmSwitcher, SwapResult};
 use restflow_traits::ToolError;
+use restflow_traits::llm::{LlmSwitcher, SwapResult};
 
 use super::factory::{LlmClientFactory, LlmProvider};
 use super::swappable::SwappableLlm;

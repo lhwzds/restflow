@@ -214,8 +214,7 @@ impl Tool for WebFetchTool {
         };
 
         let host = parsed_url.host_str().unwrap_or_default();
-        let client = build_ssrf_safe_client(host, pinned_addr)
-            .map_err(anyhow::Error::from)?;
+        let client = build_ssrf_safe_client(host, pinned_addr).map_err(anyhow::Error::from)?;
 
         let response = client
             .get(&params.url)

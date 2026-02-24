@@ -1,8 +1,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::stream::FuturesOrdered;
 use futures::StreamExt;
+use futures::stream::FuturesOrdered;
 use serde_json::Value;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
@@ -24,8 +24,14 @@ impl AgentExecutor {
         yolo_mode: bool,
         max_tool_concurrency: usize,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
-        self.execute_tools_parallel(tool_calls, emitter, tool_timeout, yolo_mode, max_tool_concurrency)
-            .await
+        self.execute_tools_parallel(
+            tool_calls,
+            emitter,
+            tool_timeout,
+            yolo_mode,
+            max_tool_concurrency,
+        )
+        .await
     }
 
     pub(crate) async fn execute_tool_call(
@@ -92,7 +98,10 @@ impl AgentExecutor {
         {
             map.insert("yolo_mode".to_string(), Value::Bool(true));
         }
-        self.tools.execute_safe(name, args).await.map_err(Into::into)
+        self.tools
+            .execute_safe(name, args)
+            .await
+            .map_err(Into::into)
     }
 
     /// Execute a tool with retry logic and timeout.
@@ -113,13 +122,11 @@ impl AgentExecutor {
 
         let mut retry_count = 0usize;
         loop {
-            let output = tokio::time::timeout(
-                tool_timeout,
-                tools.execute_safe(&name, args.clone()),
-            )
-            .await
-            .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
-            .and_then(|r| r.map_err(Into::into))?;
+            let output =
+                tokio::time::timeout(tool_timeout, tools.execute_safe(&name, args.clone()))
+                    .await
+                    .map_err(|_| AiError::Tool(format!("Tool {} timed out", name)))
+                    .and_then(|r| r.map_err(Into::into))?;
 
             if output.success {
                 return Ok(output);
@@ -189,14 +196,13 @@ impl AgentExecutor {
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
 
-            let handle: JoinHandle<Result<crate::tools::ToolOutput>> = tokio::spawn(
-                async move {
-                    let _permit = sem.acquire().await.map_err(|_| {
-                        AiError::Tool("Tool concurrency semaphore closed".to_string())
-                    })?;
-                    Self::execute_tool_with_retry(tools, name, args, tool_timeout, yolo_mode).await
-                },
-            );
+            let handle: JoinHandle<Result<crate::tools::ToolOutput>> = tokio::spawn(async move {
+                let _permit = sem
+                    .acquire()
+                    .await
+                    .map_err(|_| AiError::Tool("Tool concurrency semaphore closed".to_string()))?;
+                Self::execute_tool_with_retry(tools, name, args, tool_timeout, yolo_mode).await
+            });
 
             // Capture abort handle for cancellation support
             self.active_tool_calls
@@ -222,10 +228,7 @@ impl AgentExecutor {
             self.active_tool_calls.remove(&id);
 
             let (result_str, success) = match &result {
-                Ok(o) if o.success => (
-                    serde_json::to_string(&o.result).unwrap_or_default(),
-                    true,
-                ),
+                Ok(o) if o.success => (serde_json::to_string(&o.result).unwrap_or_default(), true),
                 Ok(o) => (
                     format!("Error: {}", o.error.clone().unwrap_or_default()),
                     false,

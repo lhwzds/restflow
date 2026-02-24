@@ -4,17 +4,17 @@
 //! ChatDispatcher processes it through an AI agent and returns the response.
 
 use anyhow::{Result, anyhow};
-use std::sync::Arc;
 use parking_lot::Mutex;
+use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
 use crate::channel::{ChannelReplySender, ChannelRouter, InboundMessage, OutboundMessage};
 use crate::models::{ChatMessage, ChatSession};
-use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
+use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
 
 use super::debounce::MessageDebouncer;
@@ -185,7 +185,10 @@ impl ChatSessionManager {
         // Re-check after acquiring lock (another task may have created it)
         let sessions = self.storage.chat_sessions.list()?;
         if let Some(session) = sessions.into_iter().find(|s| s.name == session_name) {
-            debug!("Found existing session {} for conversation {}", session.id, conversation_id);
+            debug!(
+                "Found existing session {} for conversation {}",
+                session.id, conversation_id
+            );
             return Ok(session);
         }
 
@@ -200,7 +203,10 @@ impl ChatSessionManager {
             // Check if another request created the session while we were creating ours
             let sessions = self.storage.chat_sessions.list()?;
             if let Some(existing) = sessions.into_iter().find(|s| s.name == session_name) {
-                debug!("Session {} was created by another request, using existing", existing.id);
+                debug!(
+                    "Session {} was created by another request, using existing",
+                    existing.id
+                );
                 return Ok(existing);
             }
             // It's a real error, propagate it
@@ -459,7 +465,8 @@ impl ChatDispatcher {
         // 2. Get or create session
         let mut session = match self
             .sessions
-            .get_or_create_session(&message.conversation_id, &message.sender_id).await
+            .get_or_create_session(&message.conversation_id, &message.sender_id)
+            .await
         {
             Ok(s) => s,
             Err(e) => {
@@ -697,11 +704,17 @@ mod tests {
 
         let manager = ChatSessionManager::new(storage, 20).with_default_agent(agent_id);
 
-        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
+        let session = manager
+            .get_or_create_session("conv-1", "user-1")
+            .await
+            .unwrap();
         assert_eq!(session.name, "channel:conv-1");
 
         // Getting again should return same session
-        let session2 = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
+        let session2 = manager
+            .get_or_create_session("conv-1", "user-1")
+            .await
+            .unwrap();
         assert_eq!(session.id, session2.id);
     }
 
@@ -720,7 +733,10 @@ mod tests {
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
 
-        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
+        let session = manager
+            .get_or_create_session("conv-1", "user-1")
+            .await
+            .unwrap();
 
         manager
             .append_exchange(&session.id, "Hello!", "Hi there!", None)
@@ -754,7 +770,10 @@ mod tests {
         let agent_id = agents[0].id.clone();
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
-        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
+        let session = manager
+            .get_or_create_session("conv-1", "user-1")
+            .await
+            .unwrap();
 
         manager
             .append_exchange(
@@ -790,7 +809,10 @@ mod tests {
         let agent_id = agents[0].id.clone();
 
         let manager = ChatSessionManager::new(storage.clone(), 2).with_default_agent(agent_id);
-        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
+        let session = manager
+            .get_or_create_session("conv-1", "user-1")
+            .await
+            .unwrap();
 
         manager
             .append_exchange(&session.id, "u1", "a1", None)
@@ -829,7 +851,10 @@ mod tests {
             .unwrap();
 
         let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(stale.id);
-        let session = manager.get_or_create_session("conv-1", "user-1").await.unwrap();
+        let session = manager
+            .get_or_create_session("conv-1", "user-1")
+            .await
+            .unwrap();
 
         let rebound = manager
             .rebind_session_agent(&session.id, &fallback.id)

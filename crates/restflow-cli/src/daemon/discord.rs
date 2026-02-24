@@ -73,9 +73,7 @@ mod tests {
         let db = Arc::new(Database::create(temp_dir.path().join("test.db")).unwrap());
         let secrets = SecretStorage::new(db).unwrap();
 
-        secrets
-            .set_secret("DISCORD_BOT_TOKEN", "  ", None)
-            .unwrap();
+        secrets.set_secret("DISCORD_BOT_TOKEN", "  ", None).unwrap();
 
         let result = setup_discord_channel(&secrets).unwrap();
         assert!(result.is_none());

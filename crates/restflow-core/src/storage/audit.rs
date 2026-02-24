@@ -46,7 +46,10 @@ impl AuditStorage {
 
     /// Query audit events with filters.
     pub fn query(&self, query: &AuditQuery) -> Result<Vec<AuditEvent>> {
-        let raw_entries = self.inner.list_raw().context("Failed to list audit events")?;
+        let raw_entries = self
+            .inner
+            .list_raw()
+            .context("Failed to list audit events")?;
 
         let mut events = Vec::new();
         let offset = query.offset.unwrap_or(0);

@@ -5,14 +5,15 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
-    BackgroundAgentStore, BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
-    BackgroundAgentControlRequest, BackgroundAgentProgressRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentMessageListRequest, BackgroundAgentDeliverableListRequest,
+    BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
+    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
     BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
+    BackgroundAgentStore, BackgroundAgentUpdateRequest,
 };
-use crate::Result;
 
 #[derive(Clone)]
 pub struct BackgroundAgentTool {
@@ -295,10 +296,9 @@ impl Tool for BackgroundAgentTool {
 
         let output = match action {
             BackgroundAgentAction::List { status } => {
-                let result = self
-                    .store
-                    .list_background_agents(status)
-                    .map_err(|e| ToolError::Tool(format!("Failed to list background agent: {e}.")))?;
+                let result = self.store.list_background_agents(status).map_err(|e| {
+                    ToolError::Tool(format!("Failed to list background agent: {e}."))
+                })?;
                 ToolOutput::success(result)
             }
             BackgroundAgentAction::Create {
@@ -447,7 +447,9 @@ impl Tool for BackgroundAgentTool {
                         id,
                         event_limit,
                     })
-                    .map_err(|e| ToolError::Tool(format!("Failed to get background agent: {e}.")))?,
+                    .map_err(|e| {
+                        ToolError::Tool(format!("Failed to get background agent: {e}."))
+                    })?,
             ),
             BackgroundAgentAction::SendMessage {
                 id,
@@ -463,7 +465,9 @@ impl Tool for BackgroundAgentTool {
                             source,
                         })
                         .map_err(|e| {
-                            ToolError::Tool(format!("Failed to send message background agent: {e}."))
+                            ToolError::Tool(format!(
+                                "Failed to send message background agent: {e}."
+                            ))
                         })?,
                 )
             }
@@ -492,7 +496,9 @@ impl Tool for BackgroundAgentTool {
                         limit,
                     })
                     .map_err(|e| {
-                        ToolError::Tool(format!("Failed to list scratchpads background agent: {e}."))
+                        ToolError::Tool(format!(
+                            "Failed to list scratchpads background agent: {e}."
+                        ))
                     })?,
             ),
             BackgroundAgentAction::ReadScratchpad {

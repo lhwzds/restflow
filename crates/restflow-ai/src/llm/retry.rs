@@ -320,7 +320,11 @@ mod tests {
         let request = CompletionRequest::new(vec![Message::user("ping")]);
 
         let mut stream = retrying.complete_stream(request);
-        let first = stream.next().await.expect("first stream item").expect("chunk");
+        let first = stream
+            .next()
+            .await
+            .expect("first stream item")
+            .expect("chunk");
         assert_eq!(first.text, "hello");
         assert!(stream.next().await.is_none());
         assert_eq!(client.stream_call_count(), 2);
@@ -342,7 +346,11 @@ mod tests {
         let request = CompletionRequest::new(vec![Message::user("ping")]);
 
         let mut stream = retrying.complete_stream(request);
-        let first = stream.next().await.expect("first stream item").expect("chunk");
+        let first = stream
+            .next()
+            .await
+            .expect("first stream item")
+            .expect("chunk");
         assert_eq!(first.text, "partial");
 
         let second = stream.next().await.expect("second stream item");

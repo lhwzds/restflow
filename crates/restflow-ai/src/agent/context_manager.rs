@@ -724,7 +724,10 @@ mod tests {
         let raw = estimate_tokens(&msgs);
         let calibrated = est.estimate(&msgs);
         assert!(calibrated > raw);
-        assert_eq!(calibrated, (raw as f64 * est.calibration_factor).ceil() as usize);
+        assert_eq!(
+            calibrated,
+            (raw as f64 * est.calibration_factor).ceil() as usize
+        );
     }
 
     #[test]
@@ -935,8 +938,8 @@ mod tests {
         let big_content = "x".repeat(20_000);
         let mut msgs = vec![
             Message::system("sys"),
-            Message::user(&big_content),      // big but not Tool
-            Message::assistant(&big_content),  // big but not Tool
+            Message::user(&big_content),              // big but not Tool
+            Message::assistant(&big_content),         // big but not Tool
             Message::tool_result("c1", &big_content), // this should be pruned
             Message::user("u2"),
             Message::assistant("a2"),
@@ -955,7 +958,7 @@ mod tests {
         assert_eq!(stats.messages_truncated, 1); // only the Tool message
         assert_eq!(msgs[1].content.len(), 20_000); // User unchanged
         assert_eq!(msgs[2].content.len(), 20_000); // Assistant unchanged
-        assert!(msgs[3].content.len() <= 2048);    // Tool truncated
+        assert!(msgs[3].content.len() <= 2048); // Tool truncated
     }
 
     #[test]
@@ -1217,10 +1220,7 @@ mod tests {
 
     #[test]
     fn format_conversation_basic() {
-        let msgs = vec![
-            Message::user("Hello"),
-            Message::assistant("Hi there!"),
-        ];
+        let msgs = vec![Message::user("Hello"), Message::assistant("Hi there!")];
         let formatted = format_conversation_for_summary(&msgs);
         assert!(formatted.contains("[USER] Hello"));
         assert!(formatted.contains("[ASSISTANT] Hi there!"));

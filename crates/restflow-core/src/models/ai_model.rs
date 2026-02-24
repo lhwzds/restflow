@@ -718,17 +718,18 @@ impl AIModel {
 
         // Try "provider:model" format first
         if let Some((provider_str, model_str)) = normalized.split_once(':')
-            && let Some(provider) = Provider::from_canonical_str(provider_str) {
-                // Search for matching model (case-insensitive comparison)
-                for model in Self::all() {
-                    if model.provider() == provider {
-                        let serialized = model.as_serialized_str().to_lowercase();
-                        if serialized == model_str || model.as_str() == model_str {
-                            return Some(*model);
-                        }
+            && let Some(provider) = Provider::from_canonical_str(provider_str)
+        {
+            // Search for matching model (case-insensitive comparison)
+            for model in Self::all() {
+                if model.provider() == provider {
+                    let serialized = model.as_serialized_str().to_lowercase();
+                    if serialized == model_str || model.as_str() == model_str {
+                        return Some(*model);
                     }
                 }
             }
+        }
 
         // Fallback: try model-only lookup (legacy support, case-insensitive)
         for model in Self::all() {
@@ -1592,7 +1593,10 @@ mod tests {
             AIModel::ClaudeSonnet4_5.canonical_id(),
             "anthropic:claude-sonnet-4-5"
         );
-        assert_eq!(AIModel::DeepseekChat.canonical_id(), "deepseek:deepseek-chat");
+        assert_eq!(
+            AIModel::DeepseekChat.canonical_id(),
+            "deepseek:deepseek-chat"
+        );
         assert_eq!(AIModel::Gemini3Pro.canonical_id(), "google:gemini-3-pro");
         assert_eq!(AIModel::OrGpt5.canonical_id(), "openrouter:or-gpt-5");
         assert_eq!(AIModel::CodexCli.canonical_id(), "openai:gpt-5.3-codex");
@@ -1633,7 +1637,8 @@ mod tests {
             let canonical = model.canonical_id();
             let parsed = AIModel::from_canonical_id(&canonical);
             assert_eq!(
-                parsed, Some(*model),
+                parsed,
+                Some(*model),
                 "Round-trip failed for {} -> {}",
                 model.as_str(),
                 canonical
@@ -1649,20 +1654,35 @@ mod tests {
         assert_eq!(Provider::DeepSeek.as_canonical_str(), "deepseek");
         assert_eq!(Provider::Google.as_canonical_str(), "google");
         assert_eq!(Provider::OpenRouter.as_canonical_str(), "openrouter");
-        assert_eq!(Provider::ZaiCodingPlan.as_canonical_str(), "zai-coding-plan");
-        assert_eq!(Provider::MiniMaxCodingPlan.as_canonical_str(), "minimax-coding-plan");
+        assert_eq!(
+            Provider::ZaiCodingPlan.as_canonical_str(),
+            "zai-coding-plan"
+        );
+        assert_eq!(
+            Provider::MiniMaxCodingPlan.as_canonical_str(),
+            "minimax-coding-plan"
+        );
     }
 
     #[test]
     fn test_provider_from_canonical_str() {
         // Test parsing provider canonical strings
-        assert_eq!(Provider::from_canonical_str("openai"), Some(Provider::OpenAI));
+        assert_eq!(
+            Provider::from_canonical_str("openai"),
+            Some(Provider::OpenAI)
+        );
         assert_eq!(
             Provider::from_canonical_str("anthropic"),
             Some(Provider::Anthropic)
         );
-        assert_eq!(Provider::from_canonical_str("deepseek"), Some(Provider::DeepSeek));
-        assert_eq!(Provider::from_canonical_str("google"), Some(Provider::Google));
+        assert_eq!(
+            Provider::from_canonical_str("deepseek"),
+            Some(Provider::DeepSeek)
+        );
+        assert_eq!(
+            Provider::from_canonical_str("google"),
+            Some(Provider::Google)
+        );
         assert_eq!(Provider::from_canonical_str("invalid"), None);
     }
 

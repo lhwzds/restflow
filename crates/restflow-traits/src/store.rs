@@ -308,10 +308,7 @@ impl CredentialInput {
                     let dt = DateTime::parse_from_rfc3339(value)
                         .map(|dt| dt.with_timezone(&Utc))
                         .map_err(|e| {
-                            crate::error::ToolError::Tool(format!(
-                                "Invalid timestamp: {}",
-                                e
-                            ))
+                            crate::error::ToolError::Tool(format!("Invalid timestamp: {}", e))
                         })?;
                     Ok(Some(dt))
                 } else {
@@ -424,16 +421,10 @@ pub struct WorkItemQuery {
 pub trait WorkItemProvider: Send + Sync {
     fn create(&self, spec: WorkItemSpec) -> std::result::Result<WorkItemRecord, String>;
     fn get(&self, id: &str) -> std::result::Result<Option<WorkItemRecord>, String>;
-    fn update(
-        &self,
-        id: &str,
-        patch: WorkItemPatch,
-    ) -> std::result::Result<WorkItemRecord, String>;
+    fn update(&self, id: &str, patch: WorkItemPatch)
+    -> std::result::Result<WorkItemRecord, String>;
     fn delete(&self, id: &str) -> std::result::Result<bool, String>;
-    fn list(
-        &self,
-        query: WorkItemQuery,
-    ) -> std::result::Result<Vec<WorkItemRecord>, String>;
+    fn list(&self, query: WorkItemQuery) -> std::result::Result<Vec<WorkItemRecord>, String>;
     fn list_folders(&self) -> std::result::Result<Vec<String>, String>;
 }
 
@@ -513,12 +504,7 @@ pub trait SecurityQueryProvider: Send + Sync {
 // ── TriggerStore ────────────────────────────────────────────────────
 
 pub trait TriggerStore: Send + Sync {
-    fn create_trigger(
-        &self,
-        workflow_id: &str,
-        config: Value,
-        id: Option<&str>,
-    ) -> Result<Value>;
+    fn create_trigger(&self, workflow_id: &str, config: Value, id: Option<&str>) -> Result<Value>;
     fn list_triggers(&self) -> Result<Value>;
     fn delete_trigger(&self, id: &str) -> Result<Value>;
 }
@@ -588,12 +574,8 @@ pub trait MarketplaceStore: Send + Sync {
         source: Option<&str>,
     ) -> Result<Value>;
     async fn skill_info(&self, id: &str, source: Option<&str>) -> Result<Value>;
-    async fn install_skill(
-        &self,
-        id: &str,
-        source: Option<&str>,
-        overwrite: bool,
-    ) -> Result<Value>;
+    async fn install_skill(&self, id: &str, source: Option<&str>, overwrite: bool)
+    -> Result<Value>;
     fn uninstall_skill(&self, id: &str) -> Result<Value>;
     fn list_installed(&self) -> Result<Value>;
 }
@@ -602,14 +584,8 @@ pub trait MarketplaceStore: Send + Sync {
 
 pub trait OpsProvider: Send + Sync {
     fn daemon_status(&self) -> Result<Value>;
-    fn daemon_health(
-        &self,
-    ) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
-    fn background_summary(
-        &self,
-        status: Option<&str>,
-        limit: usize,
-    ) -> Result<Value>;
+    fn daemon_health(&self) -> Pin<Box<dyn Future<Output = Result<Value>> + Send + '_>>;
+    fn background_summary(&self, status: Option<&str>, limit: usize) -> Result<Value>;
     fn session_summary(&self, limit: usize) -> Result<Value>;
     fn log_tail(&self, lines: usize, path: Option<&str>) -> Result<Value>;
 }

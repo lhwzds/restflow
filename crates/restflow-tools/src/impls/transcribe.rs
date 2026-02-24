@@ -73,7 +73,10 @@ impl TranscribeTool {
         Self::with_config(secret_resolver, TranscribeConfig::default())
     }
 
-    pub fn with_config(secret_resolver: SecretResolver, config: TranscribeConfig) -> std::result::Result<Self, reqwest::Error> {
+    pub fn with_config(
+        secret_resolver: SecretResolver,
+        config: TranscribeConfig,
+    ) -> std::result::Result<Self, reqwest::Error> {
         Ok(Self {
             client: build_http_client()?,
             secret_resolver,

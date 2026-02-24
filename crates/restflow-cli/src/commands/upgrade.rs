@@ -330,8 +330,8 @@ struct SemVer {
 
 impl Ord for SemVer {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        let triplet_cmp = (self.major, self.minor, self.patch)
-            .cmp(&(other.major, other.minor, other.patch));
+        let triplet_cmp =
+            (self.major, self.minor, self.patch).cmp(&(other.major, other.minor, other.patch));
         if triplet_cmp != std::cmp::Ordering::Equal {
             return triplet_cmp;
         }
@@ -590,10 +590,7 @@ mod tests {
             VersionRelation::LatestNewer
         );
         // same release version
-        assert_eq!(
-            compare_versions("1.0.0", "1.0.0"),
-            VersionRelation::Equal
-        );
+        assert_eq!(compare_versions("1.0.0", "1.0.0"), VersionRelation::Equal);
     }
 
     #[test]

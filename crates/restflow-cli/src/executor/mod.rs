@@ -5,8 +5,8 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    MemoryChunk, MemorySearchResult, MemoryStats, ItemQuery, Secret, SharedEntry, Skill,
-    WorkItem, WorkItemPatch, WorkItemSpec,
+    ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
+    WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -116,12 +116,7 @@ pub trait CommandExecutor: Send + Sync {
     // Shared Space operations
     async fn list_kv_store(&self, namespace: Option<&str>) -> Result<Vec<SharedEntry>>;
     async fn get_kv_store(&self, key: &str) -> Result<Option<SharedEntry>>;
-    async fn set_kv_store(
-        &self,
-        key: &str,
-        value: &str,
-        visibility: &str,
-    ) -> Result<SharedEntry>;
+    async fn set_kv_store(&self, key: &str, value: &str, visibility: &str) -> Result<SharedEntry>;
     async fn delete_kv_store(&self, key: &str) -> Result<bool>;
 
     // Deliverable operations

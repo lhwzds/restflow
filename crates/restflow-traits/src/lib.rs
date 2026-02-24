@@ -10,9 +10,9 @@
 
 pub mod cache;
 pub mod error;
+pub mod filtered;
 #[cfg(feature = "http-client")]
 pub mod http_client;
-pub mod filtered;
 pub mod llm;
 pub mod network;
 pub mod registry;
@@ -30,9 +30,7 @@ pub mod wrapper;
 pub use error::{Result as ToolResult, ToolError};
 
 // Tool trait and core types
-pub use tool::{
-    SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security,
-};
+pub use tool::{SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security};
 
 // Registry and toolset
 pub use registry::ToolRegistry;
@@ -45,38 +43,28 @@ pub use wrapper::{RateLimitWrapper, TimeoutWrapper, ToolWrapper, WrappedTool};
 pub use filtered::{FilteredToolset, ToolPredicate};
 
 // Security
-pub use security::{SecurityDecision, SecurityGate, ToolAction};
 pub use network::{
     NetworkAllowlist, NetworkEcosystem, is_restricted_ip, resolve_and_validate_url, validate_url,
 };
+pub use security::{SecurityDecision, SecurityGate, ToolAction};
 
 // Skill types
 pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate};
 
 // Store traits
 pub use store::{
-    AgentCreateRequest, AgentStore, AgentUpdateRequest,
-    AuthProfileCreateRequest, AuthProfileStore, AuthProfileTestRequest, CredentialInput,
-    BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
+    AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
+    AuthProfileTestRequest, BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
     BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
     BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
-    BackgroundAgentStore, BackgroundAgentUpdateRequest,
-    DeliverableStore,
-    DiagnosticsProvider,
-    MarketplaceStore,
-    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
-    OpsProvider,
-    ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo,
-    ReplySender,
-    SecurityQueryProvider,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
-    KvStore,
-    TerminalStore,
-    TriggerStore,
-    UnifiedMemorySearch,
-    WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemRecord,
-    WorkItemSpec, WorkItemStatus,
+    BackgroundAgentStore, BackgroundAgentUpdateRequest, CredentialInput, DeliverableStore,
+    DiagnosticsProvider, KvStore, MarketplaceStore, MemoryClearRequest, MemoryCompactRequest,
+    MemoryExportRequest, MemoryManager, MemoryStore, OpsProvider, ProcessLog, ProcessManager,
+    ProcessPollResult, ProcessSessionInfo, ReplySender, SecurityQueryProvider,
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, TerminalStore,
+    TriggerStore, UnifiedMemorySearch, WorkItemPatch, WorkItemProvider, WorkItemQuery,
+    WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };
 
 // Sub-agent types

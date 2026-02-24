@@ -11,12 +11,12 @@ use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::{Duration, timeout};
 
 // Re-export data types from restflow-traits
+use restflow_traits::ToolError;
 pub use restflow_traits::subagent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
     SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentManager, SubagentResult,
     SubagentSpawner, SubagentState, SubagentStatus,
 };
-use restflow_traits::ToolError;
 
 /// Sub-agent tracker with concurrent access support
 pub struct SubagentTracker {
@@ -389,9 +389,9 @@ fn resolve_llm_client(
         // No factory available — fall back to parent even if a model was requested.
         return Ok(parent_client.clone());
     };
-    let provider = factory.provider_for_model(model).ok_or_else(|| {
-        AiError::Agent(format!("Unknown model for sub-agent: {model}"))
-    })?;
+    let provider = factory
+        .provider_for_model(model)
+        .ok_or_else(|| AiError::Agent(format!("Unknown model for sub-agent: {model}")))?;
     let api_key = factory.resolve_api_key(provider);
     factory.create_client(model, api_key.as_deref())
 }
@@ -880,14 +880,15 @@ mod tests {
     async fn test_spawn_over_max_parallel_does_not_execute() {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
-        let definitions: Arc<dyn SubagentDefLookup> =
-            Arc::new(MockDefLookup::with_agent("tester"));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
         // Two steps so two agents can be spawned
-        let llm_client: Arc<dyn LlmClient> =
-            Arc::new(MockLlmClient::from_steps("mock", vec![
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
+            "mock",
+            vec![
                 MockStep::text("result-1").with_delay(2000),
                 MockStep::text("result-2"),
-            ]));
+            ],
+        ));
         let tool_registry = Arc::new(ToolRegistry::new());
         let config = SubagentConfig {
             max_parallel_agents: 1,
@@ -930,7 +931,10 @@ mod tests {
             },
             None,
         );
-        assert!(result2.is_err(), "Second spawn should fail at max parallel limit");
+        assert!(
+            result2.is_err(),
+            "Second spawn should fail at max parallel limit"
+        );
 
         // The orphaned tokio task (from the failed spawn) should not run.
         // Give it a moment to potentially execute if the bug existed.
@@ -976,8 +980,13 @@ mod tests {
 
         let parent = Arc::new(parent);
         let all_tools: Vec<String> = vec![
-            "http", "bash", "spawn_agent", "wait_agents",
-            "list_agents", "cancel_agent", "send_input",
+            "http",
+            "bash",
+            "spawn_agent",
+            "wait_agents",
+            "list_agents",
+            "cancel_agent",
+            "send_input",
         ]
         .into_iter()
         .map(String::from)
@@ -985,11 +994,7 @@ mod tests {
 
         // At depth limit: collab tools should be excluded
         let registry = build_registry_for_agent(&parent, &all_tools, 1, 1);
-        let names: Vec<String> = registry
-            .list_tools()
-            .into_iter()
-            .map(|s| s.name)
-            .collect();
+        let names: Vec<String> = registry.list_tools().into_iter().map(|s| s.name).collect();
         assert!(names.contains(&"http".to_string()));
         assert!(names.contains(&"bash".to_string()));
         assert!(!names.contains(&"spawn_agent".to_string()));
@@ -1000,11 +1005,7 @@ mod tests {
 
         // Not at depth limit: all tools should be included
         let registry = build_registry_for_agent(&parent, &all_tools, 0, 2);
-        let names: Vec<String> = registry
-            .list_tools()
-            .into_iter()
-            .map(|s| s.name)
-            .collect();
+        let names: Vec<String> = registry.list_tools().into_iter().map(|s| s.name).collect();
         assert!(names.contains(&"spawn_agent".to_string()));
         assert!(names.contains(&"wait_agents".to_string()));
     }

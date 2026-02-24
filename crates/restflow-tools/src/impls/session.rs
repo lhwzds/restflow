@@ -5,9 +5,11 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use crate::{Tool, ToolError, ToolOutput};
-use restflow_traits::store::{SessionStore, SessionCreateRequest, SessionSearchQuery, SessionListFilter};
 use crate::Result;
+use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::store::{
+    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
+};
 
 #[derive(Clone)]
 pub struct SessionTool {

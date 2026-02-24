@@ -91,9 +91,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use restflow_traits::error::Result;
     use restflow_traits::tool::Tool;
     use restflow_traits::wrapper::WrappedTool;
-    use restflow_traits::error::Result;
 
     struct EchoTool;
 

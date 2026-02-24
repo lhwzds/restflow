@@ -203,8 +203,7 @@ impl CoreBackend {
         if let Some(r) = self.registry.get() {
             return Ok(r);
         }
-        let r = create_runtime_tool_registry_for_core(&self.core)
-            .map_err(|e| e.to_string())?;
+        let r = create_runtime_tool_registry_for_core(&self.core).map_err(|e| e.to_string())?;
         // If another thread raced us, that's fine — return whichever won.
         let _ = self.registry.set(r);
         Ok(self.registry.get().unwrap())
@@ -3230,7 +3229,7 @@ mod tests {
                     tools: None,
                     skills: None,
                     skill_variables: None,
-                            model_routing: None,
+                    model_routing: None,
                 },
                 created_at: None,
                 updated_at: None,

@@ -9,8 +9,8 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    MemoryChunk, MemorySearchResult, MemoryStats, ItemQuery, Secret, SharedEntry, Skill,
-    WorkItem, WorkItemPatch, WorkItemSpec,
+    ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
+    WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -233,9 +233,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>> {
-        let response = self
-            .request(IpcRequest::ListWorkItems { query })
-            .await?;
+        let response = self.request(IpcRequest::ListWorkItems { query }).await?;
         self.decode_response(response)
     }
 
@@ -247,9 +245,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem> {
-        let response = self
-            .request(IpcRequest::CreateWorkItem { spec })
-            .await?;
+        let response = self.request(IpcRequest::CreateWorkItem { spec }).await?;
         self.decode_response(response)
     }
 

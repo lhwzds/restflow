@@ -119,21 +119,61 @@ fn apply_network_seccomp(policy: &SandboxPolicy) -> Result<(), SandboxError> {
 
     let filter: Vec<SockFilter> = vec![
         // [0] Load arch
-        SockFilter { code: BPF_LD | BPF_W | BPF_ABS, jt: 0, jf: 0, k: OFFSET_ARCH },
+        SockFilter {
+            code: BPF_LD | BPF_W | BPF_ABS,
+            jt: 0,
+            jf: 0,
+            k: OFFSET_ARCH,
+        },
         // [1] If arch != expected -> allow (skip filter)
-        SockFilter { code: BPF_JMP | BPF_JEQ | BPF_K, jt: 0, jf: 5, k: arch },
+        SockFilter {
+            code: BPF_JMP | BPF_JEQ | BPF_K,
+            jt: 0,
+            jf: 5,
+            k: arch,
+        },
         // [2] Load syscall number
-        SockFilter { code: BPF_LD | BPF_W | BPF_ABS, jt: 0, jf: 0, k: OFFSET_NR },
+        SockFilter {
+            code: BPF_LD | BPF_W | BPF_ABS,
+            jt: 0,
+            jf: 0,
+            k: OFFSET_NR,
+        },
         // [3] If syscall != socket -> allow
-        SockFilter { code: BPF_JMP | BPF_JEQ | BPF_K, jt: 0, jf: 3, k: sys_socket },
+        SockFilter {
+            code: BPF_JMP | BPF_JEQ | BPF_K,
+            jt: 0,
+            jf: 3,
+            k: sys_socket,
+        },
         // [4] Load first argument (domain)
-        SockFilter { code: BPF_LD | BPF_W | BPF_ABS, jt: 0, jf: 0, k: OFFSET_ARGS_0 },
+        SockFilter {
+            code: BPF_LD | BPF_W | BPF_ABS,
+            jt: 0,
+            jf: 0,
+            k: OFFSET_ARGS_0,
+        },
         // [5] If domain == AF_UNIX -> allow
-        SockFilter { code: BPF_JMP | BPF_JEQ | BPF_K, jt: 1, jf: 0, k: af_unix },
+        SockFilter {
+            code: BPF_JMP | BPF_JEQ | BPF_K,
+            jt: 1,
+            jf: 0,
+            k: af_unix,
+        },
         // [6] Return EPERM
-        SockFilter { code: BPF_RET | BPF_K, jt: 0, jf: 0, k: SECCOMP_RET_ERRNO | (libc::EPERM as u32) },
+        SockFilter {
+            code: BPF_RET | BPF_K,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ERRNO | (libc::EPERM as u32),
+        },
         // [7] Allow
-        SockFilter { code: BPF_RET | BPF_K, jt: 0, jf: 0, k: SECCOMP_RET_ALLOW },
+        SockFilter {
+            code: BPF_RET | BPF_K,
+            jt: 0,
+            jf: 0,
+            k: SECCOMP_RET_ALLOW,
+        },
     ];
 
     let prog = SockFprog {

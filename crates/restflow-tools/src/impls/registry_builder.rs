@@ -6,67 +6,66 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::ToolRegistry;
 use crate::SecretResolver;
-use crate::impls::{
-    BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool,
-};
+use crate::ToolRegistry;
 use crate::impls::batch::BatchTool;
+use crate::impls::list_agents::ListAgentsTool;
 use crate::impls::monty_python::{PythonTool, RunPythonTool};
-use crate::impls::transcribe::TranscribeTool;
-use crate::impls::vision::VisionTool;
 use crate::impls::spawn::SpawnTool;
 use crate::impls::spawn_agent::SpawnAgentTool;
-use crate::impls::wait_agents::WaitAgentsTool;
-use crate::impls::list_agents::ListAgentsTool;
+use crate::impls::transcribe::TranscribeTool;
 use crate::impls::use_skill::UseSkillTool;
+use crate::impls::vision::VisionTool;
+use crate::impls::wait_agents::WaitAgentsTool;
+use crate::impls::{BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool};
 use crate::security::bash_security::BashSecurityConfig;
-use restflow_traits::{SubagentManager, SubagentSpawner};
 use restflow_traits::skill::SkillProvider;
+use restflow_traits::{SubagentManager, SubagentSpawner};
 
 // Web tools
-use crate::impls::web_fetch::WebFetchTool;
 use crate::impls::jina_reader::JinaReaderTool;
+use crate::impls::web_fetch::WebFetchTool;
 use crate::impls::web_search::WebSearchTool;
 
 // Storage-backed tools
-use crate::impls::diagnostics::DiagnosticsTool;
-use crate::impls::skill::SkillTool;
-use crate::impls::session::SessionTool;
-use crate::impls::memory_mgmt::MemoryManagementTool;
-use crate::impls::memory_store::{SaveMemoryTool, ReadMemoryTool, ListMemoryTool, DeleteMemoryTool};
-use crate::impls::save_deliverable::SaveDeliverableTool;
-use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
-use crate::impls::manage_ops::ManageOpsTool;
-use crate::impls::kv_store::KvStoreTool;
-use crate::impls::work_item::WorkItemTool;
-use crate::impls::auth_profile::AuthProfileTool;
-use crate::impls::secrets::SecretsTool;
-use crate::impls::config::ConfigTool;
 use crate::impls::agent_crud::AgentCrudTool;
+use crate::impls::auth_profile::AuthProfileTool;
 use crate::impls::background_agent::BackgroundAgentTool;
-use crate::impls::marketplace::MarketplaceTool;
-use crate::impls::trigger::TriggerTool;
-use crate::impls::terminal::TerminalTool;
-use crate::impls::security_query::SecurityQueryTool;
+use crate::impls::config::ConfigTool;
+use crate::impls::diagnostics::DiagnosticsTool;
 use crate::impls::edit::EditTool;
-use crate::impls::multiedit::MultiEditTool;
-use crate::impls::patch::PatchTool;
 use crate::impls::file_tracker::FileTracker;
 use crate::impls::glob_tool::GlobTool;
 use crate::impls::grep_tool::GrepTool;
+use crate::impls::kv_store::KvStoreTool;
+use crate::impls::manage_ops::ManageOpsTool;
+use crate::impls::marketplace::MarketplaceTool;
+use crate::impls::memory_mgmt::MemoryManagementTool;
+use crate::impls::memory_store::{
+    DeleteMemoryTool, ListMemoryTool, ReadMemoryTool, SaveMemoryTool,
+};
+use crate::impls::multiedit::MultiEditTool;
+use crate::impls::patch::PatchTool;
+use crate::impls::save_deliverable::SaveDeliverableTool;
+use crate::impls::secrets::SecretsTool;
+use crate::impls::security_query::SecurityQueryTool;
+use crate::impls::session::SessionTool;
+use crate::impls::skill::SkillTool;
 use crate::impls::task_list::TaskListTool;
+use crate::impls::terminal::TerminalTool;
+use crate::impls::trigger::TriggerTool;
+use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
+use crate::impls::work_item::WorkItemTool;
 
 // Store traits
 use restflow_traits::store::{
-    AgentStore, AuthProfileStore, BackgroundAgentStore, DeliverableStore,
-    DiagnosticsProvider, MarketplaceStore, MemoryManager, MemoryStore,
-    OpsProvider, SecurityQueryProvider, SessionStore, KvStore,
-    TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
+    AgentStore, AuthProfileStore, BackgroundAgentStore, DeliverableStore, DiagnosticsProvider,
+    KvStore, MarketplaceStore, MemoryManager, MemoryStore, OpsProvider, SecurityQueryProvider,
+    SessionStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
 };
 
 // Concrete storage types
-use restflow_storage::{SecretStorage, ConfigStorage};
+use restflow_storage::{ConfigStorage, SecretStorage};
 
 /// Configuration for bash tool security.
 #[derive(Debug, Clone)]
@@ -271,7 +270,10 @@ impl ToolRegistryBuilder {
         Ok(self)
     }
 
-    pub fn with_web_search_with_resolver(mut self, resolver: SecretResolver) -> Result<Self, reqwest::Error> {
+    pub fn with_web_search_with_resolver(
+        mut self,
+        resolver: SecretResolver,
+    ) -> Result<Self, reqwest::Error> {
         self.registry
             .register(WebSearchTool::new()?.with_secret_resolver(resolver));
         Ok(self)
@@ -315,8 +317,7 @@ impl ToolRegistryBuilder {
     }
 
     pub fn with_unified_search(mut self, search: Arc<dyn UnifiedMemorySearch>) -> Self {
-        self.registry
-            .register(UnifiedMemorySearchTool::new(search));
+        self.registry.register(UnifiedMemorySearchTool::new(search));
         self
     }
 

@@ -1,13 +1,12 @@
 //! WorkItemProvider adapter backed by WorkItemStorage.
 
 use crate::models::{
-    ItemQuery, ItemStatus, WorkItem,
-    WorkItemPatch as CoreWorkItemPatch, WorkItemSpec as CoreWorkItemSpec,
+    ItemQuery, ItemStatus, WorkItem, WorkItemPatch as CoreWorkItemPatch,
+    WorkItemSpec as CoreWorkItemSpec,
 };
 use crate::storage::WorkItemStorage;
 use restflow_traits::store::{
-    WorkItemPatch, WorkItemProvider, WorkItemQuery,
-    WorkItemRecord, WorkItemSpec, WorkItemStatus,
+    WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };
 
 pub fn to_tool_item_status(status: ItemStatus) -> WorkItemStatus {
@@ -109,10 +108,7 @@ impl WorkItemProvider for DbWorkItemAdapter {
         }
     }
 
-    fn list(
-        &self,
-        query: WorkItemQuery,
-    ) -> std::result::Result<Vec<WorkItemRecord>, String> {
+    fn list(&self, query: WorkItemQuery) -> std::result::Result<Vec<WorkItemRecord>, String> {
         self.storage
             .list_notes(ItemQuery {
                 folder: query.folder,
@@ -233,20 +229,24 @@ mod tests {
     #[test]
     fn test_list_folders() {
         let (adapter, _dir) = setup();
-        adapter.create(WorkItemSpec {
-            folder: "inbox".to_string(),
-            title: "A".to_string(),
-            content: "x".to_string(),
-            priority: None,
-            tags: vec![],
-        }).unwrap();
-        adapter.create(WorkItemSpec {
-            folder: "work".to_string(),
-            title: "B".to_string(),
-            content: "x".to_string(),
-            priority: None,
-            tags: vec![],
-        }).unwrap();
+        adapter
+            .create(WorkItemSpec {
+                folder: "inbox".to_string(),
+                title: "A".to_string(),
+                content: "x".to_string(),
+                priority: None,
+                tags: vec![],
+            })
+            .unwrap();
+        adapter
+            .create(WorkItemSpec {
+                folder: "work".to_string(),
+                title: "B".to_string(),
+                content: "x".to_string(),
+                priority: None,
+                tags: vec![],
+            })
+            .unwrap();
 
         let folders = adapter.list_folders().unwrap();
         assert!(folders.contains(&"inbox".to_string()));

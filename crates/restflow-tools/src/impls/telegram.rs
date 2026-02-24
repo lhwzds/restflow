@@ -6,8 +6,8 @@ use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use crate::{Result, ToolError};
 use crate::http_client::build_http_client;
+use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org";
@@ -212,16 +212,11 @@ pub async fn send_telegram_notification(
         payload["parse_mode"] = json!(mode);
     }
 
-    let response = client
-        .post(&url)
-        .json(&payload)
-        .send()
-        .await
-        .map_err(|e| {
-            let error_str = e.to_string();
-            let sanitized = error_str.replace(bot_token, "***");
-            format!("Failed to send Telegram message: {}", sanitized)
-        })?;
+    let response = client.post(&url).json(&payload).send().await.map_err(|e| {
+        let error_str = e.to_string();
+        let sanitized = error_str.replace(bot_token, "***");
+        format!("Failed to send Telegram message: {}", sanitized)
+    })?;
     let status = response.status();
 
     let body: Value = response.json().await.unwrap_or_else(|_| json!({}));

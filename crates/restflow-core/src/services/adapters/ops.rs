@@ -4,8 +4,8 @@ use crate::daemon::{DaemonStatus, check_daemon_status, check_health};
 use crate::models::BackgroundAgentStatus;
 use crate::storage::{BackgroundAgentStorage, ChatSessionStorage};
 use chrono::Utc;
-use restflow_traits::store::OpsProvider;
 use restflow_tools::ToolError;
+use restflow_traits::store::OpsProvider;
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -74,10 +74,7 @@ impl OpsProviderAdapter {
         }
 
         if !current.exists() {
-            anyhow::bail!(
-                "No existing ancestor found for path: {}",
-                path.display()
-            );
+            anyhow::bail!("No existing ancestor found for path: {}", path.display());
         }
 
         Ok(current.canonicalize()?)
@@ -153,8 +150,9 @@ impl OpsProvider for OpsProviderAdapter {
 
     fn daemon_health(
         &self,
-    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>>
-    {
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = restflow_tools::Result<Value>> + Send + '_>,
+    > {
         Box::pin(async move {
             let socket = crate::paths::socket_path()?;
             let health = check_health(socket, None).await?;
@@ -207,7 +205,11 @@ impl OpsProvider for OpsProviderAdapter {
             "sample_limit": limit,
             "derived_from": "background_agent_storage"
         });
-        Ok(build_ops_response("background_summary", evidence, verification))
+        Ok(build_ops_response(
+            "background_summary",
+            evidence,
+            verification,
+        ))
     }
 
     fn session_summary(&self, limit: usize) -> restflow_tools::Result<Value> {
@@ -236,7 +238,11 @@ impl OpsProvider for OpsProviderAdapter {
             "sample_limit": limit,
             "derived_from": "chat_session_storage"
         });
-        Ok(build_ops_response("session_summary", evidence, verification))
+        Ok(build_ops_response(
+            "session_summary",
+            evidence,
+            verification,
+        ))
     }
 
     fn log_tail(&self, lines: usize, path: Option<&str>) -> restflow_tools::Result<Value> {
@@ -279,11 +285,7 @@ impl OpsProviderAdapter {
             .map(|v| v as usize)
             .unwrap_or(100)
             .clamp(1, 1000);
-        let path = Self::resolve_log_tail_path(
-            input
-                .get("path")
-                .and_then(Value::as_str),
-        )?;
+        let path = Self::resolve_log_tail_path(input.get("path").and_then(Value::as_str))?;
         if !path.exists() {
             let evidence = json!({
                 "path": path.to_string_lossy(),
@@ -387,9 +389,21 @@ mod tests_adapter {
 
     #[test]
     fn test_parse_status_filter() {
-        assert!(OpsProviderAdapter::parse_status_filter(None).unwrap().is_none());
-        assert!(OpsProviderAdapter::parse_status_filter(Some("active")).unwrap().is_some());
-        assert!(OpsProviderAdapter::parse_status_filter(Some("RUNNING")).unwrap().is_some());
+        assert!(
+            OpsProviderAdapter::parse_status_filter(None)
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            OpsProviderAdapter::parse_status_filter(Some("active"))
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            OpsProviderAdapter::parse_status_filter(Some("RUNNING"))
+                .unwrap()
+                .is_some()
+        );
         assert!(OpsProviderAdapter::parse_status_filter(Some("invalid")).is_err());
     }
 }

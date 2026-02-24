@@ -212,8 +212,7 @@ mod tests {
     ) -> Arc<dyn SubagentManager> {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
-        let definitions: Arc<dyn SubagentDefLookup> =
-            Arc::new(MockDefLookup::with_agents(agents));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agents(agents));
         let llm_client = Arc::new(MockLlmClient::from_steps("mock", mock_steps));
         let tool_registry = Arc::new(ToolRegistry::new());
         let config = SubagentConfig {
@@ -241,7 +240,8 @@ mod tests {
 
     #[test]
     fn test_params_with_wait() {
-        let json = r#"{"agent": "coder", "task": "Write function Y", "wait": true, "timeout_secs": 600}"#;
+        let json =
+            r#"{"agent": "coder", "task": "Write function Y", "wait": true, "timeout_secs": 600}"#;
         let params: SpawnAgentParams = serde_json::from_str(json).unwrap();
         assert!(params.wait);
         assert_eq!(params.timeout_secs, Some(600));
@@ -271,23 +271,29 @@ mod tests {
         );
         let tool = SpawnAgentTool::new(deps);
         let result = tool
-            .execute(json!({"agent": "coder", "task": "Write code", "wait": true, "timeout_secs": 10}))
+            .execute(
+                json!({"agent": "coder", "task": "Write code", "wait": true, "timeout_secs": 10}),
+            )
             .await
             .unwrap();
         assert!(result.success);
         assert_eq!(result.result["status"], "completed");
-        assert!(result.result["output"].as_str().unwrap().contains("function written"));
+        assert!(
+            result.result["output"]
+                .as_str()
+                .unwrap()
+                .contains("function written")
+        );
     }
 
     #[tokio::test]
     async fn test_spawn_agent_wait_failure() {
-        let deps = make_test_deps(
-            vec![("coder", "Coder")],
-            vec![MockStep::error("LLM error")],
-        );
+        let deps = make_test_deps(vec![("coder", "Coder")], vec![MockStep::error("LLM error")]);
         let tool = SpawnAgentTool::new(deps);
         let result = tool
-            .execute(json!({"agent": "coder", "task": "Write code", "wait": true, "timeout_secs": 10}))
+            .execute(
+                json!({"agent": "coder", "task": "Write code", "wait": true, "timeout_secs": 10}),
+            )
             .await
             .unwrap();
         assert!(result.success); // ToolOutput is success, but status indicates failure

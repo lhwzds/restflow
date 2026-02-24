@@ -8,8 +8,8 @@ use futures::stream::StreamExt;
 use reqwest::Client;
 use serde_json::{Value, json};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -243,14 +243,12 @@ impl DiscordChannel {
                 let author_name = data["author"]["username"].as_str().map(|s| s.to_string());
 
                 // Build conversation ID (channel_id or channel_id:thread_id)
-                let conversation_id = if let Some(thread_id) = data["message_reference"]
-                    ["message_id"]
-                    .as_str()
-                {
-                    format!("{}:{}", channel_id, thread_id)
-                } else {
-                    channel_id.to_string()
-                };
+                let conversation_id =
+                    if let Some(thread_id) = data["message_reference"]["message_id"].as_str() {
+                        format!("{}:{}", channel_id, thread_id)
+                    } else {
+                        channel_id.to_string()
+                    };
 
                 let mut inbound = InboundMessage::new(
                     format!("dc_{}", message_id),

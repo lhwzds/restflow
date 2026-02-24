@@ -1,9 +1,9 @@
 //! AgentStore adapter backed by AgentStorage.
 
-use crate::storage::{AgentStorage, BackgroundAgentStorage, SecretStorage};
 use crate::storage::skill::SkillStorage;
-use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
+use crate::storage::{AgentStorage, BackgroundAgentStorage, SecretStorage};
 use restflow_tools::ToolError;
+use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 use serde_json::{Value, json};
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
@@ -134,9 +134,7 @@ impl AgentStoreAdapter {
 
 impl AgentStore for AgentStoreAdapter {
     fn list_agents(&self) -> restflow_tools::Result<Value> {
-        let agents = self
-            .storage
-            .list_agents()?;
+        let agents = self.storage.list_agents()?;
         serde_json::to_value(agents).map_err(ToolError::from)
     }
 
@@ -148,22 +146,14 @@ impl AgentStore for AgentStoreAdapter {
         serde_json::to_value(agent).map_err(ToolError::from)
     }
 
-    fn create_agent(
-        &self,
-        request: AgentCreateRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn create_agent(&self, request: AgentCreateRequest) -> restflow_tools::Result<Value> {
         let agent = Self::parse_agent_node(request.agent)?;
         self.validate_agent_node(&agent)?;
-        let created = self
-            .storage
-            .create_agent(request.name, agent)?;
+        let created = self.storage.create_agent(request.name, agent)?;
         serde_json::to_value(created).map_err(ToolError::from)
     }
 
-    fn update_agent(
-        &self,
-        request: AgentUpdateRequest,
-    ) -> restflow_tools::Result<Value> {
+    fn update_agent(&self, request: AgentUpdateRequest) -> restflow_tools::Result<Value> {
         let agent = match request.agent {
             Some(value) => {
                 let node = Self::parse_agent_node(value)?;
@@ -172,19 +162,14 @@ impl AgentStore for AgentStoreAdapter {
             }
             None => None,
         };
-        let updated = self
-            .storage
-            .update_agent(request.id, request.name, agent)?;
+        let updated = self.storage.update_agent(request.id, request.name, agent)?;
         serde_json::to_value(updated).map_err(ToolError::from)
     }
 
     fn delete_agent(&self, id: &str) -> restflow_tools::Result<Value> {
         if let Some(task_names) =
-            crate::services::agent::check_agent_has_active_tasks(
-                &self.background_agent_storage,
-                id,
-            )
-            .map_err(|e| ToolError::Tool(e.to_string()))?
+            crate::services::agent::check_agent_has_active_tasks(&self.background_agent_storage, id)
+                .map_err(|e| ToolError::Tool(e.to_string()))?
         {
             return Err(ToolError::Tool(format!(
                 "Cannot delete agent {}: active background tasks exist ({})",
@@ -192,8 +177,7 @@ impl AgentStore for AgentStoreAdapter {
             )));
         }
 
-        self.storage
-            .delete_agent(id.to_string())?;
+        self.storage.delete_agent(id.to_string())?;
         Ok(json!({ "id": id, "deleted": true }))
     }
 }
@@ -212,7 +196,11 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn setup() -> (AgentStoreAdapter, tempfile::TempDir, std::sync::MutexGuard<'static, ()>) {
+    fn setup() -> (
+        AgentStoreAdapter,
+        tempfile::TempDir,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
         let guard = env_lock();
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -255,7 +243,13 @@ mod tests {
         }
 
         (
-            AgentStoreAdapter::new(agent_storage, skill_storage, secret_storage, bg_storage, known_tools),
+            AgentStoreAdapter::new(
+                agent_storage,
+                skill_storage,
+                secret_storage,
+                bg_storage,
+                known_tools,
+            ),
             temp_dir,
             guard,
         )

@@ -124,9 +124,7 @@ impl Tool for KvStoreTool {
                     .get("key")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| ToolError::Tool("Missing key parameter".to_string()))?;
-                let result = self
-                    .store
-                    .delete_entry(key, self.accessor_id.as_deref())?;
+                let result = self.store.delete_entry(key, self.accessor_id.as_deref())?;
                 Ok(ToolOutput::success(result))
             }
             "list" => {

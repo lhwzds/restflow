@@ -186,15 +186,11 @@ impl Tool for HttpTool {
         }
 
         if let Err(e) = self.check_network_allowlist(&params.url) {
-            return Ok(ToolOutput::non_retryable_error(
-                e,
-                ToolErrorCategory::Auth,
-            ));
+            return Ok(ToolOutput::non_retryable_error(e, ToolErrorCategory::Auth));
         }
 
         let host = parsed_url.host_str().unwrap_or_default();
-        let client = build_ssrf_safe_client(host, pinned_addr)
-            .map_err(anyhow::Error::from)?;
+        let client = build_ssrf_safe_client(host, pinned_addr).map_err(anyhow::Error::from)?;
 
         let max_redirects = 5;
         let mut current_url = params.url.clone();

@@ -6,10 +6,10 @@ use crate::cli::{BackgroundAgentCommands, OutputFormat};
 use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
-use restflow_core::paths;
 use restflow_core::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, TaskSchedule,
 };
+use restflow_core::paths;
 use restflow_core::runtime::background_agent::EventLog;
 
 pub async fn run(

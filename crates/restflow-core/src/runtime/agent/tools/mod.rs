@@ -17,16 +17,15 @@ use restflow_traits::store::DiagnosticsProvider;
 
 // Re-export tool types from restflow-tools
 pub use restflow_tools::impls::{
-    BashConfig, BashTool, DiscordTool, EmailTool, FileConfig, FileTool, HttpTool,
-    ListAgentsTool, SlackTool, SpawnAgentTool, SpawnTool, TelegramTool,
-    ToolRegistryBuilder, UseSkillTool, WaitAgentsTool,
-    default_registry,
+    BashConfig, BashTool, DiscordTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool,
+    SlackTool, SpawnAgentTool, SpawnTool, TelegramTool, ToolRegistryBuilder, UseSkillTool,
+    WaitAgentsTool, default_registry,
 };
 pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeTool, VisionTool};
 
 // Re-export core types from restflow-ai
-pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
 pub use restflow_ai::agent::{SubagentDeps, SubagentManagerImpl, SubagentSpawner};
+pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
 pub use restflow_traits::SubagentManager;
 
 pub type ToolResult = ToolOutput;
@@ -133,8 +132,7 @@ pub fn registry_from_allowlist(
         .iter()
         .any(|n| matches!(n.as_str(), "diagnostics" | "edit" | "multiedit"));
     let shared_diagnostics: Option<Arc<dyn DiagnosticsProvider>> = if needs_diag {
-        let root =
-            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         Some(Arc::new(LspManager::new(root)))
     } else {
         None
@@ -186,7 +184,10 @@ pub fn registry_from_allowlist(
                 if let Some(resolver) = secret_resolver.clone() {
                     builder = builder.with_transcribe(resolver)?;
                 } else {
-                    warn!(tool_name = "transcribe", "Secret resolver missing, skipping");
+                    warn!(
+                        tool_name = "transcribe",
+                        "Secret resolver missing, skipping"
+                    );
                 }
             }
             "vision" => {
@@ -215,8 +216,7 @@ pub fn registry_from_allowlist(
                 }
             }
             "security_query" => {
-                builder =
-                    builder.with_security_query(Arc::new(SecurityQueryProviderAdapter));
+                builder = builder.with_security_query(Arc::new(SecurityQueryProviderAdapter));
             }
             "patch" => {
                 builder = builder.with_patch();
@@ -233,21 +233,30 @@ pub fn registry_from_allowlist(
                 if let Some(manager) = &subagent_manager {
                     builder = builder.with_spawn_agent(manager.clone());
                 } else {
-                    debug!(tool_name = "spawn_agent", "Subagent manager missing, skipping");
+                    debug!(
+                        tool_name = "spawn_agent",
+                        "Subagent manager missing, skipping"
+                    );
                 }
             }
             "wait_agents" => {
                 if let Some(manager) = &subagent_manager {
                     builder = builder.with_wait_agents(manager.clone());
                 } else {
-                    debug!(tool_name = "wait_agents", "Subagent manager missing, skipping");
+                    debug!(
+                        tool_name = "wait_agents",
+                        "Subagent manager missing, skipping"
+                    );
                 }
             }
             "list_agents" => {
                 if let Some(manager) = &subagent_manager {
                     builder = builder.with_list_agents(manager.clone());
                 } else {
-                    debug!(tool_name = "list_agents", "Subagent manager missing, skipping");
+                    debug!(
+                        tool_name = "list_agents",
+                        "Subagent manager missing, skipping"
+                    );
                 }
             }
             "use_skill" => {
@@ -285,16 +294,13 @@ pub fn registry_from_allowlist(
             }
             "manage_marketplace" => {
                 with_storage!(storage, "manage_marketplace", builder, |s| {
-                    builder.with_marketplace(Arc::new(MarketplaceStoreAdapter::new(
-                        s.skills.clone(),
-                    )))
+                    builder
+                        .with_marketplace(Arc::new(MarketplaceStoreAdapter::new(s.skills.clone())))
                 });
             }
             "manage_triggers" => {
                 with_storage!(storage, "manage_triggers", builder, |s| {
-                    builder.with_trigger(Arc::new(TriggerStoreAdapter::new(
-                        s.triggers.clone(),
-                    )))
+                    builder.with_trigger(Arc::new(TriggerStoreAdapter::new(s.triggers.clone())))
                 });
             }
             "manage_terminal" => {
@@ -314,35 +320,24 @@ pub fn registry_from_allowlist(
             }
             "skill" => {
                 with_storage!(storage, "skill", builder, |s| {
-                    builder.with_skill_tool(Arc::new(SkillStorageProvider::new(
-                        s.skills.clone(),
-                    )))
+                    builder.with_skill_tool(Arc::new(SkillStorageProvider::new(s.skills.clone())))
                 });
             }
             "memory_search" => {
                 with_storage!(storage, "memory_search", builder, |s| {
-                    let engine = UnifiedSearchEngine::new(
-                        s.memory.clone(),
-                        s.chat_sessions.clone(),
-                    );
-                    builder.with_unified_search(Arc::new(UnifiedMemorySearchAdapter::new(
-                        engine,
-                    )))
+                    let engine =
+                        UnifiedSearchEngine::new(s.memory.clone(), s.chat_sessions.clone());
+                    builder.with_unified_search(Arc::new(UnifiedMemorySearchAdapter::new(engine)))
                 });
             }
             "kv_store" => {
                 with_storage!(storage, "kv_store", builder, |s| {
-                    builder.with_kv_store(Arc::new(KvStoreAdapter::new(
-                        s.kv_store.clone(),
-                        None,
-                    )))
+                    builder.with_kv_store(Arc::new(KvStoreAdapter::new(s.kv_store.clone(), None)))
                 });
             }
             "work_items" => {
                 with_storage!(storage, "work_items", builder, |s| {
-                    builder.with_work_items(Arc::new(DbWorkItemAdapter::new(
-                        s.work_items.clone(),
-                    )))
+                    builder.with_work_items(Arc::new(DbWorkItemAdapter::new(s.work_items.clone())))
                 });
             }
             "manage_secrets" | "secrets" => {
@@ -404,9 +399,7 @@ pub fn registry_from_allowlist(
             }
             "task_list" => {
                 with_storage!(storage, "task_list", builder, |s| {
-                    builder.with_task_list(Arc::new(DbWorkItemAdapter::new(
-                        s.work_items.clone(),
-                    )))
+                    builder.with_task_list(Arc::new(DbWorkItemAdapter::new(s.work_items.clone())))
                 });
             }
 
@@ -496,8 +489,7 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None)
-                .unwrap();
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None).unwrap();
         assert!(registry.has("manage_background_agents"));
         assert!(registry.has("manage_agents"));
     }
@@ -508,8 +500,7 @@ mod tests {
             "manage_background_agents".to_string(),
             "manage_agents".to_string(),
         ];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
         assert!(!registry.has("manage_background_agents"));
         assert!(!registry.has("manage_agents"));
     }
@@ -529,8 +520,7 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None)
-                .unwrap();
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None).unwrap();
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
@@ -556,8 +546,7 @@ mod tests {
     #[test]
     fn test_python_alias_and_run_python_are_both_registered() {
         let names = vec!["python".to_string()];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
+        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
         assert!(registry.has("python"));
         assert!(registry.has("run_python"));
     }

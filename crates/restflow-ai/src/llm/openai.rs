@@ -7,13 +7,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::{AiError, Result};
-use restflow_traits::http_client::build_http_client;
 use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Role, StreamChunk,
     StreamResult, TokenUsage, ToolCall, ToolCallDelta,
 };
 use crate::llm::pricing::calculate_cost;
 use crate::llm::retry::response_to_error;
+use restflow_traits::http_client::build_http_client;
 
 /// OpenAI client
 pub struct OpenAIClient {
