@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import SessionAgentSelector from '@/components/workspace/SessionAgentSelector.vue'
+import TokenCounter from '@/components/chat/TokenCounter.vue'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 
 const props = defineProps<{
@@ -22,6 +23,12 @@ const props = defineProps<{
   selectedModel: string
   availableAgents: AgentFile[]
   availableModels: ModelOption[]
+  isStreaming?: boolean
+  inputTokens?: number
+  outputTokens?: number
+  totalTokens?: number
+  tokensPerSecond?: number
+  durationMs?: number
 }>()
 
 const emit = defineEmits<{
@@ -142,6 +149,18 @@ watch(inputMessage, async (newVal) => {
             </SelectItem>
           </SelectContent>
         </Select>
+
+        <!-- Token Counter -->
+        <TokenCounter
+          v-if="totalTokens || isStreaming"
+          :input-tokens="inputTokens"
+          :output-tokens="outputTokens"
+          :total-tokens="totalTokens"
+          :tokens-per-second="tokensPerSecond"
+          :duration-ms="durationMs"
+          :is-streaming="isStreaming"
+          compact
+        />
 
         <!-- Spacer -->
         <div class="flex-1" />

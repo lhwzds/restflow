@@ -8,7 +8,6 @@
  */
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import ChatHeader from './ChatHeader.vue'
 import MessageList from './MessageList.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
 import { useChatSession } from '@/composables/workspace/useChatSession'
@@ -67,16 +66,6 @@ const outputTokens = computed(() => chatStream.state.value.outputTokens)
 const totalTokens = computed(() => chatStream.state.value.tokenCount)
 const tokensPerSecond = computed(() => chatStream.tokensPerSecond.value)
 const durationMs = computed(() => chatStream.duration.value)
-
-// Current agent/model display names
-const agentName = computed(() => {
-  if (!selectedAgent.value) return undefined
-  return availableAgents.value.find((a) => a.id === selectedAgent.value)?.name
-})
-const modelName = computed(() => {
-  if (!selectedModel.value) return undefined
-  return availableModels.value.find((m) => m.id === selectedModel.value)?.name
-})
 
 // Track processed tool call IDs to avoid duplicate emits
 const processedToolIds = ref<Set<string>>(new Set())
@@ -285,17 +274,8 @@ defineExpose({
 
 <template>
   <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-    <!-- Header (compact status bar) -->
-    <ChatHeader
-      :agent-name="agentName"
-      :model-name="modelName"
-      :is-streaming="isStreaming"
-      :input-tokens="inputTokens"
-      :output-tokens="outputTokens"
-      :total-tokens="totalTokens"
-      :tokens-per-second="tokensPerSecond"
-      :duration-ms="durationMs"
-    />
+    <!-- Invisible drag region (replaces removed ChatHeader) -->
+    <div class="h-8 shrink-0" data-tauri-drag-region />
 
     <!-- Message List -->
     <MessageList
@@ -318,6 +298,12 @@ defineExpose({
         :selected-model="selectedModel"
         :available-agents="availableAgents"
         :available-models="availableModels"
+        :is-streaming="isStreaming"
+        :input-tokens="inputTokens"
+        :output-tokens="outputTokens"
+        :total-tokens="totalTokens"
+        :tokens-per-second="tokensPerSecond"
+        :duration-ms="durationMs"
         @send="onSendMessage"
         @cancel="handleCancel"
         @close="() => {}"
