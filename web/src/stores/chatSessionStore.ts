@@ -11,6 +11,7 @@ import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import * as chatSessionApi from '@/api/chat-session'
 import { executeChatSession } from '@/api/chat-session'
+import { MESSAGE_PREVIEW_MAX_LENGTH } from '@/constants'
 
 export type SortField = 'name' | 'updated_at' | 'message_count'
 export type SortOrder = 'asc' | 'desc'
@@ -399,7 +400,7 @@ export const useChatSessionStore = defineStore('chatSession', {
         if (summary) {
           summary.message_count = session.messages.length
           summary.updated_at = session.updated_at
-          summary.last_message_preview = content.slice(0, 100)
+          summary.last_message_preview = content.slice(0, MESSAGE_PREVIEW_MAX_LENGTH)
         }
         this.version++
         return session
@@ -441,7 +442,7 @@ export const useChatSessionStore = defineStore('chatSession', {
         if (summary) {
           summary.message_count = sessionAfterUserMsg.messages.length
           summary.updated_at = sessionAfterUserMsg.updated_at
-          summary.last_message_preview = content.slice(0, 100)
+          summary.last_message_preview = content.slice(0, MESSAGE_PREVIEW_MAX_LENGTH)
         }
         this.version++
       } catch (err) {
@@ -464,7 +465,7 @@ export const useChatSessionStore = defineStore('chatSession', {
           const lastMessage =
             sessionAfterExecution.messages[sessionAfterExecution.messages.length - 1]
           if (lastMessage) {
-            summary.last_message_preview = lastMessage.content.slice(0, 100)
+            summary.last_message_preview = lastMessage.content.slice(0, MESSAGE_PREVIEW_MAX_LENGTH)
           }
         }
         this.version++
@@ -494,7 +495,7 @@ export const useChatSessionStore = defineStore('chatSession', {
           summary.message_count = session.messages.length
           summary.updated_at = session.updated_at
           if (message.content) {
-            summary.last_message_preview = message.content.slice(0, 100)
+            summary.last_message_preview = message.content.slice(0, MESSAGE_PREVIEW_MAX_LENGTH)
           }
         }
         this.version++
@@ -530,7 +531,7 @@ export const useChatSessionStore = defineStore('chatSession', {
         summary.agent_id = session.agent_id
         const lastMessage = session.messages[session.messages.length - 1]
         if (lastMessage) {
-          summary.last_message_preview = lastMessage.content.slice(0, 100)
+          summary.last_message_preview = lastMessage.content.slice(0, MESSAGE_PREVIEW_MAX_LENGTH)
         }
       }
       this.version++
