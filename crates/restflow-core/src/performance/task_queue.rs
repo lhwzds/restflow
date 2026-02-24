@@ -256,7 +256,10 @@ mod tests {
     async fn submit_and_pop() {
         let queue = test_queue(100);
         let agent = test_agent("t1");
-        queue.submit(agent.clone(), TaskPriority::Normal).await.unwrap();
+        queue
+            .submit(agent.clone(), TaskPriority::Normal)
+            .await
+            .unwrap();
 
         let popped = queue.pop();
         assert!(popped.is_some(), "should pop the submitted task");
@@ -270,10 +273,22 @@ mod tests {
         let queue = test_queue(100);
 
         // Submit in non-priority order
-        queue.submit(test_agent("low"), TaskPriority::Low).await.unwrap();
-        queue.submit(test_agent("normal"), TaskPriority::Normal).await.unwrap();
-        queue.submit(test_agent("high"), TaskPriority::High).await.unwrap();
-        queue.submit(test_agent("critical"), TaskPriority::Critical).await.unwrap();
+        queue
+            .submit(test_agent("low"), TaskPriority::Low)
+            .await
+            .unwrap();
+        queue
+            .submit(test_agent("normal"), TaskPriority::Normal)
+            .await
+            .unwrap();
+        queue
+            .submit(test_agent("high"), TaskPriority::High)
+            .await
+            .unwrap();
+        queue
+            .submit(test_agent("critical"), TaskPriority::Critical)
+            .await
+            .unwrap();
 
         // Pop should return in priority order: Critical > High > Normal > Low
         assert_eq!(queue.pop().unwrap().task.id, "critical");
@@ -286,13 +301,19 @@ mod tests {
     #[test]
     fn pop_empty_queue() {
         let queue = test_queue(100);
-        assert!(queue.pop().is_none(), "pop on empty queue should return None");
+        assert!(
+            queue.pop().is_none(),
+            "pop on empty queue should return None"
+        );
     }
 
     #[tokio::test]
     async fn mark_running_updates_stats() {
         let queue = test_queue(100);
-        queue.submit(test_agent("t1"), TaskPriority::Normal).await.unwrap();
+        queue
+            .submit(test_agent("t1"), TaskPriority::Normal)
+            .await
+            .unwrap();
 
         let stats_before = queue.get_stats();
         assert_eq!(stats_before.pending, 1);
@@ -310,7 +331,10 @@ mod tests {
     #[tokio::test]
     async fn mark_completed_updates_stats() {
         let queue = test_queue(100);
-        queue.submit(test_agent("t1"), TaskPriority::Normal).await.unwrap();
+        queue
+            .submit(test_agent("t1"), TaskPriority::Normal)
+            .await
+            .unwrap();
         let _popped = queue.pop().unwrap();
         queue.mark_running("t1", 0, Duration::from_millis(5));
 
@@ -329,11 +353,20 @@ mod tests {
     #[tokio::test]
     async fn queue_full() {
         let queue = test_queue(2);
-        queue.submit(test_agent("t1"), TaskPriority::Normal).await.unwrap();
-        queue.submit(test_agent("t2"), TaskPriority::Normal).await.unwrap();
+        queue
+            .submit(test_agent("t1"), TaskPriority::Normal)
+            .await
+            .unwrap();
+        queue
+            .submit(test_agent("t2"), TaskPriority::Normal)
+            .await
+            .unwrap();
 
         let result = queue.submit(test_agent("t3"), TaskPriority::Normal).await;
-        assert!(result.is_err(), "submitting beyond max_queue_size should fail");
+        assert!(
+            result.is_err(),
+            "submitting beyond max_queue_size should fail"
+        );
         match result.unwrap_err() {
             QueueError::QueueFull => {} // expected
             other => panic!("expected QueueFull, got: {:?}", other),
