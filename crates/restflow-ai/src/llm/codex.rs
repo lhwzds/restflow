@@ -208,26 +208,18 @@ impl LlmClient for CodexClient {
             &cli_utils::standard_fallbacks("codex"),
         )?;
 
-        let output = Command::new(executable)
-            .args(&args)
+        let mut cmd = Command::new(executable);
+        cmd.args(&args)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|e| {
-                AiError::Llm(format!(
-                    "Failed to run codex CLI: {}. Install with: npm install -g @openai/codex",
-                    e
-                ))
-            })?;
+            .stderr(Stdio::piped());
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AiError::Llm(format!("Codex CLI error: {}", stderr)));
-        }
-
-        let raw_output = String::from_utf8_lossy(&output.stdout).to_string();
+        let raw_output = cli_utils::execute_cli_command(
+            cmd,
+            "Codex",
+            "Install with: npm install -g @openai/codex",
+        )
+        .await?;
         let (content, thread_id) = Self::parse_jsonl_output(&raw_output)?;
         debug!(
             content_len = content.len(),

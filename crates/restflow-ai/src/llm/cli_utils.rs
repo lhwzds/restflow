@@ -105,6 +105,27 @@ pub fn parse_json_response(output: &str, provider: &str) -> Result<String> {
     Ok(response.to_string())
 }
 
+/// Execute a CLI command and return its stdout as a string.
+///
+/// Returns an error if the command fails to spawn or exits with non-zero status.
+pub async fn execute_cli_command(
+    mut cmd: tokio::process::Command,
+    provider: &str,
+    install_hint: &str,
+) -> Result<String> {
+    let output = cmd.output().await.map_err(|e| {
+        AiError::Llm(format!(
+            "Failed to run {} CLI: {}. {}",
+            provider, e, install_hint
+        ))
+    })?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(AiError::Llm(format!("{} CLI error: {}", provider, stderr)));
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
 /// Return a stream that immediately yields an "unsupported" error.
 pub fn unsupported_stream(provider: &str) -> crate::llm::StreamResult {
     let msg = format!("Streaming not supported with {}", provider);

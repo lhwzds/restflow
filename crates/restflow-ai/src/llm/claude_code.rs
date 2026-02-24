@@ -7,7 +7,7 @@ use tracing::{debug, info};
 
 use super::cli_utils;
 
-use crate::error::{AiError, Result};
+use crate::error::Result;
 use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult,
 };
@@ -71,20 +71,14 @@ impl LlmClient for ClaudeCodeClient {
 
         let prompt = cli_utils::build_prompt(&request.messages);
 
-        let mut cmd = self.build_cli_command(&prompt)?;
-        let output = cmd.output().await.map_err(|e| {
-            AiError::Llm(format!(
-                "Failed to run claude CLI: {}. Install with: npm install -g @anthropic-ai/claude-code",
-                e
-            ))
-        })?;
-
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(AiError::Llm(format!("Claude CLI error: {}", stderr)));
-        }
-
-        let content = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        let cmd = self.build_cli_command(&prompt)?;
+        let raw_output = cli_utils::execute_cli_command(
+            cmd,
+            "Claude",
+            "Install with: npm install -g @anthropic-ai/claude-code",
+        )
+        .await?;
+        let content = raw_output.trim().to_string();
         debug!("Claude CLI response: {} chars", content.len());
 
         Ok(CompletionResponse {
