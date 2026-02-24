@@ -7,6 +7,8 @@
     "model": "Model",
     "send": "Send",
     "stop": "Stop",
+    "cancel": "Cancel",
+    "remove": "Remove",
     "unknownAgent": "Unknown agent"
   },
   "workspace": {
@@ -33,5 +35,58 @@
     "updateSessionAgentFailed": "Failed to update session agent",
     "updateSessionModelFailed": "Failed to update session model",
     "collapseInput": "Collapse chat input"
+  },
+  "settings": {
+    "auth": {
+      "title": "Auth Profiles",
+      "description": "Manage authentication credentials for LLM providers",
+      "discover": "Discover",
+      "addProfile": "Add Profile",
+      "addProfileTitle": "Add Auth Profile",
+      "addProfileDescription": "Add a manual API key for an LLM provider",
+      "nameLabel": "Name",
+      "namePlaceholder": "My Anthropic Key",
+      "providerLabel": "Provider",
+      "providerPlaceholder": "Select provider",
+      "apiKeyLabel": "API Key",
+      "apiKeyPlaceholder": "sk-ant-api03-...",
+      "emailLabel": "Email (optional)",
+      "nameAndKeyRequired": "Name and API key are required",
+      "failedToAdd": "Failed to add profile",
+      "removeTitle": "Remove Profile",
+      "removeConfirm": "Are you sure you want to remove this profile?",
+      "failedToRemove": "Failed to remove profile",
+      "failedToDisable": "Failed to disable profile",
+      "failedToEnable": "Failed to enable profile",
+      "totalProfiles": "Total Profiles",
+      "available": "Available",
+      "inCooldown": "In Cooldown",
+      "disabled": "Disabled",
+      "lastUsed": "Last used: {date}",
+      "neverUsed": "Never used",
+      "failures": "({count} failures)",
+      "disable": "Disable",
+      "enable": "Enable",
+      "noProfilesFound": "No auth profiles found",
+      "noProfilesHint": "Click \"Discover\" to find credentials or \"Add Profile\" to add one manually"
+    }
+  },
+  "backgroundAgent": {
+    "loadingHistory": "Loading history...",
+    "processing": "Processing...",
+    "noExecutions": "No executions yet",
+    "clickRunToStart": "Click Run to start the agent",
+    "pause": "Pause",
+    "resume": "Resume",
+    "runNow": "Run now",
+    "cancel": "Cancel",
+    "toggleOverview": "Toggle overview",
+    "persistedMemory": "Persisted Memory · {count} chunks",
+    "agent": "Agent",
+    "thinking": "Thinking...",
+    "lastRun": "Last run {time}",
+    "passed": "{count} passed",
+    "failed": "{count} failed",
+    "steerPlaceholder": "Send instruction to agent..."
   }
 }

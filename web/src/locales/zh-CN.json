@@ -7,6 +7,8 @@
     "model": "模型",
     "send": "发送",
     "stop": "停止",
+    "cancel": "取消",
+    "remove": "删除",
     "unknownAgent": "未知 Agent"
   },
   "workspace": {
@@ -33,5 +35,58 @@
     "updateSessionAgentFailed": "更新会话 Agent 失败",
     "updateSessionModelFailed": "更新会话模型失败",
     "collapseInput": "收起输入框"
+  },
+  "settings": {
+    "auth": {
+      "title": "认证配置",
+      "description": "管理 LLM 供应商的认证凭据",
+      "discover": "自动发现",
+      "addProfile": "添加配置",
+      "addProfileTitle": "添加认证配置",
+      "addProfileDescription": "为 LLM 供应商手动添加 API Key",
+      "nameLabel": "名称",
+      "namePlaceholder": "我的 Anthropic Key",
+      "providerLabel": "供应商",
+      "providerPlaceholder": "选择供应商",
+      "apiKeyLabel": "API Key",
+      "apiKeyPlaceholder": "sk-ant-api03-...",
+      "emailLabel": "邮箱（可选）",
+      "nameAndKeyRequired": "名称和 API Key 为必填项",
+      "failedToAdd": "添加配置失败",
+      "removeTitle": "删除配置",
+      "removeConfirm": "确定要删除此认证配置吗？",
+      "failedToRemove": "删除配置失败",
+      "failedToDisable": "禁用配置失败",
+      "failedToEnable": "启用配置失败",
+      "totalProfiles": "总配置数",
+      "available": "可用",
+      "inCooldown": "冷却中",
+      "disabled": "已禁用",
+      "lastUsed": "上次使用：{date}",
+      "neverUsed": "从未使用",
+      "failures": "（{count} 次失败）",
+      "disable": "禁用",
+      "enable": "启用",
+      "noProfilesFound": "未找到认证配置",
+      "noProfilesHint": "点击「自动发现」查找凭据，或点击「添加配置」手动添加"
+    }
+  },
+  "backgroundAgent": {
+    "loadingHistory": "加载历史记录...",
+    "processing": "处理中...",
+    "noExecutions": "暂无执行记录",
+    "clickRunToStart": "点击运行以启动 Agent",
+    "pause": "暂停",
+    "resume": "恢复",
+    "runNow": "立即运行",
+    "cancel": "取消",
+    "toggleOverview": "切换概览",
+    "persistedMemory": "持久化记忆 · {count} 条",
+    "agent": "Agent",
+    "thinking": "思考中...",
+    "lastRun": "上次运行 {time}",
+    "passed": "{count} 成功",
+    "failed": "{count} 失败",
+    "steerPlaceholder": "向 Agent 发送指令..."
   }
 }
