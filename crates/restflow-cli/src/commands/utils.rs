@@ -180,6 +180,10 @@ pub fn slugify(input: &str) -> String {
     }
 }
 
+pub fn short_id(value: &str) -> String {
+    value.chars().take(8).collect()
+}
+
 pub fn preview_text(input: &str, max_len: usize) -> String {
     if input.len() <= max_len {
         return input.to_string();
