@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { X, Clock, Activity, DollarSign, AlertTriangle } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import { TIME_UNITS } from '@/constants'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 
 defineProps<{
@@ -18,7 +19,7 @@ function formatSchedule(agent: BackgroundAgent): string {
     return `Cron: ${schedule.expression}${schedule.timezone ? ` (${schedule.timezone})` : ''}`
   }
   if (schedule.type === 'interval') {
-    const mins = Math.round(schedule.interval_ms / 60000)
+    const mins = Math.round(schedule.interval_ms / TIME_UNITS.MS_PER_MINUTE)
     if (mins < 60) return `Every ${mins} minutes`
     const hours = Math.round(mins / 60)
     return `Every ${hours} hour${hours > 1 ? 's' : ''}`

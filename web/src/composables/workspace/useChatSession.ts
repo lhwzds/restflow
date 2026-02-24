@@ -6,6 +6,7 @@
  */
 
 import { ref, computed, watch, onMounted } from 'vue'
+import { TIME_UNITS } from '@/constants'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import type { ChatSession } from '@/types/generated/ChatSession'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
@@ -254,7 +255,7 @@ export function formatSessionTime(timestamp: bigint): string {
   const date = new Date(Number(timestamp))
   const now = new Date()
   const diffMs = now.getTime() - date.getTime()
-  const diffMins = Math.floor(diffMs / 60000)
+  const diffMins = Math.floor(diffMs / TIME_UNITS.MS_PER_MINUTE)
   const diffHours = Math.floor(diffMins / 60)
   const diffDays = Math.floor(diffHours / 24)
 
