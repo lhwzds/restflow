@@ -53,3 +53,86 @@ impl SecretEncryptor {
         Ok(plaintext)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_key() -> [u8; 32] {
+        [0xAB; 32]
+    }
+
+    #[test]
+    fn roundtrip() {
+        let encryptor = SecretEncryptor::new(&test_key()).unwrap();
+        let plaintext = b"hello world";
+        let ciphertext = encryptor.encrypt(plaintext).unwrap();
+        let decrypted = encryptor.decrypt(&ciphertext).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn wrong_key_size_31() {
+        let key = [0u8; 31];
+        let result = SecretEncryptor::new(&key);
+        let err = result.err().expect("should fail with 31-byte key");
+        let msg = err.to_string();
+        assert!(msg.contains("32"), "error should mention expected size 32: {msg}");
+    }
+
+    #[test]
+    fn wrong_key_size_33() {
+        let key = [0u8; 33];
+        let result = SecretEncryptor::new(&key);
+        let err = result.err().expect("should fail with 33-byte key");
+        let msg = err.to_string();
+        assert!(msg.contains("32"), "error should mention expected size 32: {msg}");
+    }
+
+    #[test]
+    fn tampered_ciphertext() {
+        let encryptor = SecretEncryptor::new(&test_key()).unwrap();
+        let plaintext = b"sensitive data";
+        let mut ciphertext = encryptor.encrypt(plaintext).unwrap();
+
+        // Flip a byte in the authenticated ciphertext portion (after the nonce)
+        let idx = NONCE_SIZE + 1;
+        assert!(ciphertext.len() > idx, "ciphertext too short to tamper");
+        ciphertext[idx] ^= 0xFF;
+
+        let result = encryptor.decrypt(&ciphertext);
+        assert!(result.is_err(), "decrypting tampered ciphertext should fail");
+    }
+
+    #[test]
+    fn different_key_decrypt() {
+        let key_a = [0x11; 32];
+        let key_b = [0x22; 32];
+        let encryptor_a = SecretEncryptor::new(&key_a).unwrap();
+        let encryptor_b = SecretEncryptor::new(&key_b).unwrap();
+
+        let ciphertext = encryptor_a.encrypt(b"secret").unwrap();
+        let result = encryptor_b.decrypt(&ciphertext);
+        assert!(result.is_err(), "decrypting with a different key should fail");
+    }
+
+    #[test]
+    fn empty_plaintext_roundtrip() {
+        let encryptor = SecretEncryptor::new(&test_key()).unwrap();
+        let plaintext: &[u8] = b"";
+        let ciphertext = encryptor.encrypt(plaintext).unwrap();
+        // Ciphertext should still contain nonce + auth tag even for empty plaintext
+        assert!(ciphertext.len() > NONCE_SIZE);
+        let decrypted = encryptor.decrypt(&ciphertext).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn nonce_uniqueness() {
+        let encryptor = SecretEncryptor::new(&test_key()).unwrap();
+        let plaintext = b"same input twice";
+        let ct1 = encryptor.encrypt(plaintext).unwrap();
+        let ct2 = encryptor.encrypt(plaintext).unwrap();
+        assert_ne!(ct1, ct2, "encrypting the same plaintext twice should produce different ciphertexts due to random nonces");
+    }
+}
