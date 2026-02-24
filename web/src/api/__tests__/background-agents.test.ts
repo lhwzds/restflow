@@ -20,7 +20,7 @@ describe('background-agents memory API', () => {
 
     await listMemorySessions('agent-1')
 
-    expect(tauriInvoke).toHaveBeenCalledWith('list_memory_sessions', { agent_id: 'agent-1' })
+    expect(tauriInvoke).toHaveBeenCalledWith('list_memory_sessions', { agentId: 'agent-1' })
   })
 
   it('calls list_memory_chunks_for_session with session_id', async () => {
@@ -29,7 +29,7 @@ describe('background-agents memory API', () => {
     await listMemoryChunksForSession('session-1')
 
     expect(tauriInvoke).toHaveBeenCalledWith('list_memory_chunks_for_session', {
-      session_id: 'session-1',
+      sessionId: 'session-1',
     })
   })
 
