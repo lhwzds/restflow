@@ -6,9 +6,9 @@ use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery, MessageExecution,
-    TerminalSession,
+    AIModel, AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
+    ChatSession, ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery,
+    MessageExecution, TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
@@ -72,6 +72,11 @@ fn parse_tool_arguments(arguments: &str) -> serde_json::Value {
         Ok(value) => value,
         Err(_) => serde_json::Value::String(arguments.to_string()),
     }
+}
+
+fn normalize_model_input(model: &str) -> Result<String> {
+    AIModel::normalize_model_id(model)
+        .ok_or_else(|| anyhow::anyhow!("Unsupported model identifier: {}", model))
 }
 
 #[async_trait]
@@ -870,7 +875,21 @@ impl IpcServer {
                     Ok(agent_id) => agent_id,
                     Err(err) => return IpcResponse::error(400, err.to_string()),
                 };
-                let model = model.unwrap_or_else(|| "default".to_string());
+                let model = match model {
+                    Some(model) => match normalize_model_input(&model) {
+                        Ok(normalized) => normalized,
+                        Err(err) => return IpcResponse::error(400, err.to_string()),
+                    },
+                    None => match core.storage.agents.get_agent(agent_id.clone()) {
+                        Ok(Some(agent)) => agent
+                            .agent
+                            .model
+                            .map(|m| m.as_serialized_str().to_string())
+                            .unwrap_or_else(|| AIModel::Gpt5.as_serialized_str().to_string()),
+                        Ok(None) => AIModel::Gpt5.as_serialized_str().to_string(),
+                        Err(err) => return IpcResponse::error(500, err.to_string()),
+                    },
+                };
                 let mut session = crate::models::ChatSession::new(agent_id, model);
                 if let Some(name) = name {
                     session = session.with_name(name);
@@ -904,7 +923,11 @@ impl IpcServer {
                 }
 
                 if let Some(model) = updates.model {
-                    session.model = model;
+                    let normalized = match normalize_model_input(&model) {
+                        Ok(normalized) => normalized,
+                        Err(err) => return IpcResponse::error(400, err.to_string()),
+                    };
+                    session.model = normalized;
                     updated = true;
                 }
 
@@ -1588,8 +1611,10 @@ async fn execute_chat_session(
     let execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
     let assistant_message = ChatMessage::assistant(&exec_result.output).with_execution(execution);
     session.add_message(assistant_message);
-    session.model = exec_result.active_model.clone();
-    session.metadata.last_model = Some(exec_result.active_model);
+    if let Some(normalized_model) = AIModel::normalize_model_id(&exec_result.active_model) {
+        session.model = normalized_model.clone();
+        session.metadata.last_model = Some(normalized_model);
+    }
 
     // Auto-persist chat session conversation to long-term memory
     persist_chat_session_memory(core, &session);
@@ -1724,6 +1749,20 @@ mod tests {
     use super::*;
     use crate::models::{AgentNode, Skill};
     use tempfile::tempdir;
+
+    #[test]
+    fn normalize_model_input_converts_to_serialized_form() {
+        assert_eq!(
+            normalize_model_input("MiniMax-M2.5").unwrap(),
+            "minimax-m2-5"
+        );
+        assert_eq!(normalize_model_input("gpt-5.1").unwrap(), "gpt-5-1");
+    }
+
+    #[test]
+    fn normalize_model_input_rejects_unknown_value() {
+        assert!(normalize_model_input("not-a-real-model").is_err());
+    }
 
     #[tokio::test]
     /// Skills are now registered as callable tools, not injected into the system prompt.

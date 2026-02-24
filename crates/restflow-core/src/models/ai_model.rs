@@ -747,6 +747,23 @@ impl AIModel {
         self.metadata().supports_temperature
     }
 
+    /// Normalize accepted model identifiers into serialized enum form.
+    ///
+    /// Examples:
+    /// - "MiniMax-M2.5" -> "minimax-m2-5"
+    /// - "gpt-5.1" -> "gpt-5-1"
+    /// - "openai:gpt-5" -> "gpt-5"
+    pub fn normalize_model_id(input: &str) -> Option<String> {
+        let normalized = input.trim();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        Self::from_api_name(normalized)
+            .or_else(|| Self::from_canonical_id(normalized))
+            .map(|model| model.as_serialized_str().to_string())
+    }
+
     /// Get the string representation used for API calls
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -1684,6 +1701,27 @@ mod tests {
             Some(Provider::Google)
         );
         assert_eq!(Provider::from_canonical_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_normalize_model_id() {
+        assert_eq!(
+            AIModel::normalize_model_id("MiniMax-M2.5"),
+            Some("minimax-m2-5".to_string())
+        );
+        assert_eq!(
+            AIModel::normalize_model_id("gpt-5.1"),
+            Some("gpt-5-1".to_string())
+        );
+        assert_eq!(
+            AIModel::normalize_model_id("openai:gpt-5"),
+            Some("gpt-5".to_string())
+        );
+        assert_eq!(
+            AIModel::normalize_model_id("claude-sonnet-4-20250514"),
+            Some("claude-sonnet-4-5".to_string())
+        );
+        assert_eq!(AIModel::normalize_model_id(""), None);
     }
 
     #[test]
