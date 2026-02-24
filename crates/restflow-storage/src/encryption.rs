@@ -77,7 +77,10 @@ mod tests {
         let result = SecretEncryptor::new(&key);
         let err = result.err().expect("should fail with 31-byte key");
         let msg = err.to_string();
-        assert!(msg.contains("32"), "error should mention expected size 32: {msg}");
+        assert!(
+            msg.contains("32"),
+            "error should mention expected size 32: {msg}"
+        );
     }
 
     #[test]
@@ -86,7 +89,10 @@ mod tests {
         let result = SecretEncryptor::new(&key);
         let err = result.err().expect("should fail with 33-byte key");
         let msg = err.to_string();
-        assert!(msg.contains("32"), "error should mention expected size 32: {msg}");
+        assert!(
+            msg.contains("32"),
+            "error should mention expected size 32: {msg}"
+        );
     }
 
     #[test]
@@ -101,7 +107,10 @@ mod tests {
         ciphertext[idx] ^= 0xFF;
 
         let result = encryptor.decrypt(&ciphertext);
-        assert!(result.is_err(), "decrypting tampered ciphertext should fail");
+        assert!(
+            result.is_err(),
+            "decrypting tampered ciphertext should fail"
+        );
     }
 
     #[test]
@@ -113,7 +122,10 @@ mod tests {
 
         let ciphertext = encryptor_a.encrypt(b"secret").unwrap();
         let result = encryptor_b.decrypt(&ciphertext);
-        assert!(result.is_err(), "decrypting with a different key should fail");
+        assert!(
+            result.is_err(),
+            "decrypting with a different key should fail"
+        );
     }
 
     #[test]
@@ -133,6 +145,9 @@ mod tests {
         let plaintext = b"same input twice";
         let ct1 = encryptor.encrypt(plaintext).unwrap();
         let ct2 = encryptor.encrypt(plaintext).unwrap();
-        assert_ne!(ct1, ct2, "encrypting the same plaintext twice should produce different ciphertexts due to random nonces");
+        assert_ne!(
+            ct1, ct2,
+            "encrypting the same plaintext twice should produce different ciphertexts due to random nonces"
+        );
     }
 }
