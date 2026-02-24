@@ -7,6 +7,7 @@
  * Overview info is in a floating overlay toggled by the Info button.
  */
 import { ref, computed, watch, onMounted, nextTick } from 'vue'
+import { useI18n } from 'vue-i18n'
 import {
   Play,
   Pause,
@@ -47,6 +48,7 @@ const emit = defineEmits<{
   refresh: []
 }>()
 
+const { t } = useI18n()
 const toast = useToast()
 const store = useBackgroundAgentStore()
 const MEMORY_CHUNK_LIMIT = 200
@@ -396,7 +398,7 @@ onMounted(() => {
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        title="Pause"
+        :title="t('backgroundAgent.pause')"
         @click="handlePause"
       >
         <Pause :size="12" />
@@ -406,7 +408,7 @@ onMounted(() => {
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        title="Resume"
+        :title="t('backgroundAgent.resume')"
         @click="handleResume"
       >
         <RotateCcw :size="12" />
@@ -416,7 +418,7 @@ onMounted(() => {
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        title="Run now"
+        :title="t('backgroundAgent.runNow')"
         @click="handleRun"
       >
         <Play :size="12" />
@@ -426,7 +428,7 @@ onMounted(() => {
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        title="Cancel"
+        :title="t('backgroundAgent.cancel')"
         @click="handleCancel"
       >
         <XCircle :size="12" />
@@ -438,7 +440,7 @@ onMounted(() => {
         size="icon"
         class="h-6 w-6"
         :class="showOverview && 'bg-muted'"
-        title="Toggle overview"
+        :title="t('backgroundAgent.toggleOverview')"
         @click="showOverview = !showOverview"
       >
         <PanelRight :size="12" />
@@ -453,7 +455,7 @@ onMounted(() => {
           <div
             class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"
           />
-          <span class="text-sm">Loading history...</span>
+          <span class="text-sm">{{ t('backgroundAgent.loadingHistory') }}</span>
         </div>
 
         <!-- Event history (chat-style) -->
@@ -506,7 +508,7 @@ onMounted(() => {
           <div class="flex justify-center">
             <div class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs bg-muted text-muted-foreground">
               <Info :size="11" />
-              <span>Persisted Memory · {{ memoryChunks.length }} chunks</span>
+              <span>{{ t('backgroundAgent.persistedMemory', { count: memoryChunks.length }) }}</span>
             </div>
           </div>
           <div
@@ -526,11 +528,11 @@ onMounted(() => {
           v-if="streamTaskId && (outputText || isStreaming)"
           class="bg-muted mr-auto max-w-[90%] p-4 rounded-lg"
         >
-          <div class="text-xs text-muted-foreground mb-1">Agent</div>
+          <div class="text-xs text-muted-foreground mb-1">{{ t('backgroundAgent.agent') }}</div>
 
           <!-- Thinking indicator -->
           <div v-if="isStreaming && !outputText" class="text-sm text-muted-foreground italic mb-2">
-            Thinking...
+            {{ t('backgroundAgent.thinking') }}
           </div>
 
           <!-- Streaming content -->
@@ -573,7 +575,7 @@ onMounted(() => {
           <div
             class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"
           />
-          <span class="text-sm">Processing...</span>
+          <span class="text-sm">{{ t('backgroundAgent.processing') }}</span>
         </div>
 
         <!-- Empty state: only when truly empty (no events, no stats, no stream) -->
@@ -589,8 +591,8 @@ onMounted(() => {
           class="flex flex-col items-center justify-center py-20 text-muted-foreground"
         >
           <Cog :size="32" class="mb-3 opacity-50" />
-          <p class="text-sm">No executions yet</p>
-          <p class="text-xs mt-1">Click Run to start the agent</p>
+          <p class="text-sm">{{ t('backgroundAgent.noExecutions') }}</p>
+          <p class="text-xs mt-1">{{ t('backgroundAgent.clickRunToStart') }}</p>
         </div>
 
         <!-- Stats summary when events are empty but agent has run history -->
@@ -602,12 +604,12 @@ onMounted(() => {
             class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs bg-muted text-muted-foreground"
           >
             <span>
-              Last run {{ formatRelativeTime(agent.last_run_at) }}
+              {{ t('backgroundAgent.lastRun', { time: formatRelativeTime(agent.last_run_at) }) }}
             </span>
             <span class="opacity-40">·</span>
-            <span class="text-green-500">{{ agent.success_count }} passed</span>
+            <span class="text-green-500">{{ t('backgroundAgent.passed', { count: agent.success_count }) }}</span>
             <span class="opacity-40">·</span>
-            <span class="text-destructive">{{ agent.failure_count }} failed</span>
+            <span class="text-destructive">{{ t('backgroundAgent.failed', { count: agent.failure_count }) }}</span>
           </div>
         </div>
       </div>
@@ -622,7 +624,7 @@ onMounted(() => {
           <textarea
             v-model="steerInput"
             rows="1"
-            placeholder="Send instruction to agent..."
+            :placeholder="t('backgroundAgent.steerPlaceholder')"
             class="flex-1 resize-none bg-transparent text-sm outline-none placeholder:text-muted-foreground max-h-32"
             @keydown.enter.exact.prevent="handleSteer"
           />
