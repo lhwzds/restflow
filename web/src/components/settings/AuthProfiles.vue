@@ -9,6 +9,7 @@
  */
 
 import { ref, computed, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -45,6 +46,7 @@ import {
 import { useConfirm } from '@/composables/useConfirm'
 import type { AuthProfile, AuthProvider, Credential } from '@/types/generated'
 
+const { t } = useI18n()
 const { confirm } = useConfirm()
 
 // State
@@ -107,7 +109,7 @@ async function runDiscovery() {
 
 async function addProfile() {
   if (!newProfile.value.name || !newProfile.value.api_key) {
-    error.value = 'Name and API key are required'
+    error.value = t('settings.auth.nameAndKeyRequired')
     return
   }
 
@@ -116,7 +118,7 @@ async function addProfile() {
   try {
     const response = await authAddProfile(newProfile.value)
     if (!response.success) {
-      error.value = response.error || 'Failed to add profile'
+      error.value = response.error || t('settings.auth.failedToAdd')
       return
     }
     showAddDialog.value = false
@@ -137,10 +139,10 @@ async function addProfile() {
 
 async function removeProfile(profileId: string) {
   const confirmed = await confirm({
-    title: 'Remove Profile',
-    description: 'Are you sure you want to remove this profile?',
-    confirmText: 'Remove',
-    cancelText: 'Cancel',
+    title: t('settings.auth.removeTitle'),
+    description: t('settings.auth.removeConfirm'),
+    confirmText: t('common.remove'),
+    cancelText: t('common.cancel'),
     variant: 'destructive',
   })
   if (!confirmed) return
@@ -150,7 +152,7 @@ async function removeProfile(profileId: string) {
   try {
     const response = await authRemoveProfile(profileId)
     if (!response.success) {
-      error.value = response.error || 'Failed to remove profile'
+      error.value = response.error || t('settings.auth.failedToRemove')
       return
     }
     await loadProfiles()
@@ -168,13 +170,13 @@ async function toggleProfile(profile: AuthProfile) {
     if (profile.enabled) {
       const response = await authDisableProfile(profile.id, 'User disabled')
       if (!response.success) {
-        error.value = response.error || 'Failed to disable profile'
+        error.value = response.error || t('settings.auth.failedToDisable')
         return
       }
     } else {
       const response = await authEnableProfile(profile.id)
       if (!response.success) {
-        error.value = response.error || 'Failed to enable profile'
+        error.value = response.error || t('settings.auth.failedToEnable')
         return
       }
     }
@@ -246,30 +248,30 @@ onMounted(loadProfiles)
     <!-- Header -->
     <div class="flex items-center justify-between">
       <div>
-        <h2 class="text-2xl font-bold tracking-tight">Auth Profiles</h2>
-        <p class="text-muted-foreground">Manage authentication credentials for LLM providers</p>
+        <h2 class="text-2xl font-bold tracking-tight">{{ t('settings.auth.title') }}</h2>
+        <p class="text-muted-foreground">{{ t('settings.auth.description') }}</p>
       </div>
       <div class="flex gap-2">
-        <Button variant="outline" @click="runDiscovery" :disabled="loading"> 🔍 Discover </Button>
+        <Button variant="outline" @click="runDiscovery" :disabled="loading"> 🔍 {{ t('settings.auth.discover') }} </Button>
         <Dialog v-model:open="showAddDialog">
           <DialogTrigger as-child>
-            <Button>➕ Add Profile</Button>
+            <Button>➕ {{ t('settings.auth.addProfile') }}</Button>
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
-              <DialogTitle>Add Auth Profile</DialogTitle>
-              <DialogDescription> Add a manual API key for an LLM provider </DialogDescription>
+              <DialogTitle>{{ t('settings.auth.addProfileTitle') }}</DialogTitle>
+              <DialogDescription>{{ t('settings.auth.addProfileDescription') }}</DialogDescription>
             </DialogHeader>
             <div class="grid gap-4 py-4">
               <div class="grid gap-2">
-                <Label for="name">Name</Label>
-                <Input id="name" v-model="newProfile.name" placeholder="My Anthropic Key" />
+                <Label for="name">{{ t('settings.auth.nameLabel') }}</Label>
+                <Input id="name" v-model="newProfile.name" :placeholder="t('settings.auth.namePlaceholder')" />
               </div>
               <div class="grid gap-2">
-                <Label for="provider">Provider</Label>
+                <Label for="provider">{{ t('settings.auth.providerLabel') }}</Label>
                 <Select v-model="newProfile.provider">
                   <SelectTrigger>
-                    <SelectValue placeholder="Select provider" />
+                    <SelectValue :placeholder="t('settings.auth.providerPlaceholder')" />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="anthropic">Anthropic</SelectItem>
@@ -280,16 +282,16 @@ onMounted(loadProfiles)
                 </Select>
               </div>
               <div class="grid gap-2">
-                <Label for="api_key">API Key</Label>
+                <Label for="api_key">{{ t('settings.auth.apiKeyLabel') }}</Label>
                 <Input
                   id="api_key"
                   v-model="newProfile.api_key"
                   type="password"
-                  placeholder="sk-ant-api03-..."
+                  :placeholder="t('settings.auth.apiKeyPlaceholder')"
                 />
               </div>
               <div class="grid gap-2">
-                <Label for="email">Email (optional)</Label>
+                <Label for="email">{{ t('settings.auth.emailLabel') }}</Label>
                 <Input
                   id="email"
                   v-model="newProfile.email"
@@ -299,8 +301,8 @@ onMounted(loadProfiles)
               </div>
             </div>
             <DialogFooter>
-              <Button variant="outline" @click="showAddDialog = false"> Cancel </Button>
-              <Button @click="addProfile" :disabled="loading"> Add Profile </Button>
+              <Button variant="outline" @click="showAddDialog = false"> {{ t('common.cancel') }} </Button>
+              <Button @click="addProfile" :disabled="loading"> {{ t('settings.auth.addProfile') }} </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -319,7 +321,7 @@ onMounted(loadProfiles)
     <div v-if="summary" class="grid gap-4 md:grid-cols-4">
       <Card>
         <CardHeader class="pb-2">
-          <CardTitle class="text-sm font-medium">Total Profiles</CardTitle>
+          <CardTitle class="text-sm font-medium">{{ t('settings.auth.totalProfiles') }}</CardTitle>
         </CardHeader>
         <CardContent>
           <div class="text-2xl font-bold">{{ summary.total }}</div>
@@ -327,7 +329,7 @@ onMounted(loadProfiles)
       </Card>
       <Card>
         <CardHeader class="pb-2">
-          <CardTitle class="text-sm font-medium">Available</CardTitle>
+          <CardTitle class="text-sm font-medium">{{ t('settings.auth.available') }}</CardTitle>
         </CardHeader>
         <CardContent>
           <div class="text-2xl font-bold text-green-600">{{ summary.available }}</div>
@@ -335,7 +337,7 @@ onMounted(loadProfiles)
       </Card>
       <Card>
         <CardHeader class="pb-2">
-          <CardTitle class="text-sm font-medium">In Cooldown</CardTitle>
+          <CardTitle class="text-sm font-medium">{{ t('settings.auth.inCooldown') }}</CardTitle>
         </CardHeader>
         <CardContent>
           <div class="text-2xl font-bold text-yellow-600">{{ summary.in_cooldown }}</div>
@@ -343,7 +345,7 @@ onMounted(loadProfiles)
       </Card>
       <Card>
         <CardHeader class="pb-2">
-          <CardTitle class="text-sm font-medium">Disabled</CardTitle>
+          <CardTitle class="text-sm font-medium">{{ t('settings.auth.disabled') }}</CardTitle>
         </CardHeader>
         <CardContent>
           <div class="text-2xl font-bold text-red-600">{{ summary.disabled }}</div>
@@ -389,16 +391,16 @@ onMounted(loadProfiles)
               <div class="flex items-center justify-between">
                 <div class="text-sm text-muted-foreground">
                   <span v-if="profile.last_used_at">
-                    Last used: {{ new Date(profile.last_used_at).toLocaleDateString() }}
+                    {{ t('settings.auth.lastUsed', { date: new Date(profile.last_used_at).toLocaleDateString() }) }}
                   </span>
-                  <span v-else>Never used</span>
+                  <span v-else>{{ t('settings.auth.neverUsed') }}</span>
                   <span v-if="profile.failure_count > 0" class="ml-2 text-yellow-600">
-                    ({{ profile.failure_count }} failures)
+                    {{ t('settings.auth.failures', { count: profile.failure_count }) }}
                   </span>
                 </div>
                 <div class="flex gap-2">
                   <Button variant="outline" size="sm" @click="toggleProfile(profile)">
-                    {{ profile.enabled ? '⏸️ Disable' : '▶️ Enable' }}
+                    {{ profile.enabled ? '⏸️ ' + t('settings.auth.disable') : '▶️ ' + t('settings.auth.enable') }}
                   </Button>
                   <Button
                     v-if="profile.source === 'manual'"
@@ -406,7 +408,7 @@ onMounted(loadProfiles)
                     size="sm"
                     @click="removeProfile(profile.id)"
                   >
-                    🗑️ Remove
+                    🗑️ {{ t('common.remove') }}
                   </Button>
                 </div>
               </div>
@@ -417,10 +419,8 @@ onMounted(loadProfiles)
 
       <!-- Empty State -->
       <div v-if="profiles.length === 0" class="text-center py-12 text-muted-foreground">
-        <p class="text-lg mb-2">No auth profiles found</p>
-        <p class="text-sm">
-          Click "Discover" to find credentials or "Add Profile" to add one manually
-        </p>
+        <p class="text-lg mb-2">{{ t('settings.auth.noProfilesFound') }}</p>
+        <p class="text-sm">{{ t('settings.auth.noProfilesHint') }}</p>
       </div>
     </div>
   </div>
