@@ -36,10 +36,8 @@ const lastUserContent = ref('')
 const {
   currentSession,
   messages: chatMessages,
-  inputMessage,
   isSending,
   createSession: createChatSession,
-  sendMessage: sendChatMessage,
 } = useChatSession({ autoLoad: true, autoSelectRecent: true })
 
 // Chat stream for real-time responses
@@ -94,14 +92,46 @@ watch(
 )
 
 // Sync agent/model from current session and reset stream on session change
-watch(currentSession, (session) => {
-  chatStream.reset()
-  processedToolIds.value.clear()
-  if (session) {
-    selectedAgent.value = session.agent_id
-    selectedModel.value = session.model
+watch(
+  () => currentSession.value?.id ?? null,
+  () => {
+    const session = currentSession.value
+    chatStream.reset()
+    processedToolIds.value.clear()
+    if (session) {
+      selectedAgent.value = session.agent_id
+      selectedModel.value = session.model
+    }
+  },
+)
+
+async function syncSessionFromBackend() {
+  const sessionId = chatSessionStore.currentSessionId
+  if (!sessionId) return
+
+  const refreshed = await chatSessionStore.refreshSession(sessionId)
+  if (refreshed) {
+    chatSessionStore.updateSessionLocally(refreshed)
+  }
+}
+
+watch(isStreaming, (streaming, prevStreaming) => {
+  if (prevStreaming && !streaming) {
+    void syncSessionFromBackend()
   }
 })
+
+async function sendMessageWithStream(message: string) {
+  chatStream.reset()
+  processedToolIds.value.clear()
+  try {
+    await chatStream.send(message)
+    await syncSessionFromBackend()
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : t('chat.sendMessageFailed')
+    toast.error(messageText)
+  }
+}
 
 async function loadAgents() {
   try {
@@ -180,13 +210,8 @@ async function onSendMessage(message: string) {
     return
   }
 
-  // Normal send: reset stream and trigger execution
-  chatStream.reset()
-  processedToolIds.value.clear()
-
   lastUserContent.value = message
-  inputMessage.value = message
-  await sendChatMessage()
+  await sendMessageWithStream(message)
 
   if (chatSessionStore.error) {
     toast.error(chatSessionStore.error)
@@ -239,11 +264,7 @@ async function handleRegenerate() {
   const sessionId = chatSessionStore.currentSessionId
   if (!sessionId) return
 
-  chatStream.reset()
-  processedToolIds.value.clear()
-
-  inputMessage.value = lastUserContent.value
-  await sendChatMessage()
+  await sendMessageWithStream(lastUserContent.value)
 
   if (chatSessionStore.error) {
     toast.error(chatSessionStore.error)
@@ -291,7 +312,6 @@ defineExpose({
     <!-- Input Area -->
     <div class="shrink-0 px-4 pb-4">
       <ChatBox
-        :key="`chatbox-${availableAgents.length}-${availableModels.length}`"
         :is-expanded="true"
         :is-executing="isExecuting"
         :selected-agent="selectedAgent"

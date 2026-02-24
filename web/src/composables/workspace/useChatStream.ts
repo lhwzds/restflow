@@ -83,14 +83,15 @@ function createInitialState(): StreamState {
 export function useChatStream(sessionId: () => string | null) {
   const state = ref<StreamState>(createInitialState())
   let unlistenFn: UnlistenFn | null = null
+  let disposed = false
 
   /**
    * Set up the Tauri event listener for chat stream events
    */
   async function setupListener(): Promise<void> {
-    if (unlistenFn) return
+    if (unlistenFn || disposed) return
 
-    unlistenFn = await listen<ChatStreamEvent>('chat:stream', (event) => {
+    const unlisten = await listen<ChatStreamEvent>('chat:stream', (event) => {
       const data = event.payload
       const currentSessionId = sessionId()
 
@@ -99,6 +100,14 @@ export function useChatStream(sessionId: () => string | null) {
 
       handleEvent(data)
     })
+
+    // Component was unmounted while awaiting listen
+    if (disposed) {
+      unlisten()
+      return
+    }
+
+    unlistenFn = unlisten
   }
 
   /**
@@ -269,6 +278,7 @@ export function useChatStream(sessionId: () => string | null) {
 
   // Cleanup on unmount
   onUnmounted(() => {
+    disposed = true
     if (unlistenFn) {
       unlistenFn()
       unlistenFn = null
