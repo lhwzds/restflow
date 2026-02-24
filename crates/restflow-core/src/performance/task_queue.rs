@@ -226,3 +226,129 @@ pub struct QueueStatsSnapshot {
     pub avg_exec_time_ms: u64,
     pub avg_wait_time_ms: u64,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::background_agent::TaskSchedule;
+
+    /// Helper to create a test queue with no persistence.
+    fn test_queue(max_queue_size: usize) -> TaskQueue {
+        let config = TaskQueueConfig {
+            max_concurrent: 10,
+            max_queue_size,
+            persist_tasks: false,
+        };
+        TaskQueue::new(config, None)
+    }
+
+    /// Helper to create a minimal BackgroundAgent for testing.
+    fn test_agent(id: &str) -> BackgroundAgent {
+        BackgroundAgent::new(
+            id.to_string(),
+            format!("task-{id}"),
+            "agent-1".to_string(),
+            TaskSchedule::default(),
+        )
+    }
+
+    #[tokio::test]
+    async fn submit_and_pop() {
+        let queue = test_queue(100);
+        let agent = test_agent("t1");
+        queue.submit(agent.clone(), TaskPriority::Normal).await.unwrap();
+
+        let popped = queue.pop();
+        assert!(popped.is_some(), "should pop the submitted task");
+        let popped = popped.unwrap();
+        assert_eq!(popped.task.id, "t1");
+        assert_eq!(popped.priority, TaskPriority::Normal);
+    }
+
+    #[tokio::test]
+    async fn priority_ordering() {
+        let queue = test_queue(100);
+
+        // Submit in non-priority order
+        queue.submit(test_agent("low"), TaskPriority::Low).await.unwrap();
+        queue.submit(test_agent("normal"), TaskPriority::Normal).await.unwrap();
+        queue.submit(test_agent("high"), TaskPriority::High).await.unwrap();
+        queue.submit(test_agent("critical"), TaskPriority::Critical).await.unwrap();
+
+        // Pop should return in priority order: Critical > High > Normal > Low
+        assert_eq!(queue.pop().unwrap().task.id, "critical");
+        assert_eq!(queue.pop().unwrap().task.id, "high");
+        assert_eq!(queue.pop().unwrap().task.id, "normal");
+        assert_eq!(queue.pop().unwrap().task.id, "low");
+        assert!(queue.pop().is_none(), "queue should be empty");
+    }
+
+    #[test]
+    fn pop_empty_queue() {
+        let queue = test_queue(100);
+        assert!(queue.pop().is_none(), "pop on empty queue should return None");
+    }
+
+    #[tokio::test]
+    async fn mark_running_updates_stats() {
+        let queue = test_queue(100);
+        queue.submit(test_agent("t1"), TaskPriority::Normal).await.unwrap();
+
+        let stats_before = queue.get_stats();
+        assert_eq!(stats_before.pending, 1);
+        assert_eq!(stats_before.running, 0);
+
+        let _popped = queue.pop().unwrap();
+        queue.mark_running("t1", 0, Duration::from_millis(10));
+
+        let stats_after = queue.get_stats();
+        assert_eq!(stats_after.running, 1);
+        // pending_count was decremented by mark_running
+        assert_eq!(stats_after.pending, 0);
+    }
+
+    #[tokio::test]
+    async fn mark_completed_updates_stats() {
+        let queue = test_queue(100);
+        queue.submit(test_agent("t1"), TaskPriority::Normal).await.unwrap();
+        let _popped = queue.pop().unwrap();
+        queue.mark_running("t1", 0, Duration::from_millis(5));
+
+        let stats_before = queue.get_stats();
+        assert_eq!(stats_before.running, 1);
+        assert_eq!(stats_before.completed, 0);
+
+        queue.mark_completed("t1", true);
+
+        let stats_after = queue.get_stats();
+        assert_eq!(stats_after.running, 0);
+        assert_eq!(stats_after.completed, 1);
+        assert_eq!(stats_after.failed, 0);
+    }
+
+    #[tokio::test]
+    async fn queue_full() {
+        let queue = test_queue(2);
+        queue.submit(test_agent("t1"), TaskPriority::Normal).await.unwrap();
+        queue.submit(test_agent("t2"), TaskPriority::Normal).await.unwrap();
+
+        let result = queue.submit(test_agent("t3"), TaskPriority::Normal).await;
+        assert!(result.is_err(), "submitting beyond max_queue_size should fail");
+        match result.unwrap_err() {
+            QueueError::QueueFull => {} // expected
+            other => panic!("expected QueueFull, got: {:?}", other),
+        }
+    }
+
+    #[test]
+    fn fresh_queue_stats_all_zero() {
+        let queue = test_queue(100);
+        let stats = queue.get_stats();
+        assert_eq!(stats.pending, 0);
+        assert_eq!(stats.running, 0);
+        assert_eq!(stats.completed, 0);
+        assert_eq!(stats.failed, 0);
+        assert_eq!(stats.avg_exec_time_ms, 0);
+        assert_eq!(stats.avg_wait_time_ms, 0);
+    }
+}
