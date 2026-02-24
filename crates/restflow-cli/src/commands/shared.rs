@@ -3,6 +3,7 @@ use comfy_table::{Cell, Table};
 use std::sync::Arc;
 
 use crate::cli::{OutputFormat, SharedCommands};
+use crate::commands::utils::format_timestamp;
 use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
@@ -49,7 +50,7 @@ async fn list_shared(
         table.add_row(vec![
             Cell::new(entry.key),
             Cell::new(format!("{:?}", entry.visibility).to_lowercase()),
-            Cell::new(format_timestamp(entry.updated_at)),
+            Cell::new(format_timestamp(Some(entry.updated_at))),
         ]);
     }
 
@@ -72,8 +73,8 @@ async fn get_shared(
 
     println!("Key:         {}", entry.key);
     println!("Visibility:  {:?}", entry.visibility);
-    println!("Created:     {}", format_timestamp(entry.created_at));
-    println!("Updated:     {}", format_timestamp(entry.updated_at));
+    println!("Created:     {}", format_timestamp(Some(entry.created_at)));
+    println!("Updated:     {}", format_timestamp(Some(entry.updated_at)));
     if let Some(owner) = &entry.owner {
         println!("Owner:       {}", owner);
     }
@@ -121,10 +122,4 @@ async fn delete_shared(
     }
 
     Ok(())
-}
-
-fn format_timestamp(ts: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ts)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| ts.to_string())
 }
