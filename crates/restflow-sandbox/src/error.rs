@@ -10,4 +10,7 @@ pub enum SandboxError {
 
     #[error("landlock not supported on this kernel")]
     LandlockUnsupported,
+
+    #[error("sandbox unavailable: {0}")]
+    Unavailable(String),
 }
