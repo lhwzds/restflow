@@ -2,5 +2,9 @@
 
 /**
  * Provider type for the credential
+ *
+ * Distinguishes between direct API access and Claude Code CLI usage:
+ * - `Anthropic`: Direct API calls using `sk-ant-api03-...` keys
+ * - `ClaudeCode`: Claude Code CLI with OAuth tokens (`sk-ant-oat01-...`)
  */
-export type AuthProvider = 'anthropic' | 'openai' | 'google' | 'other'
+export type AuthProvider = "anthropic" | "claude_code" | "openai" | "openai_codex" | "google" | "other";
