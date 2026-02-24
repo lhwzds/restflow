@@ -6,12 +6,17 @@
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
+const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../web/src/types/generated/"
+);
+
 /// Event name for chat stream events
 pub const CHAT_STREAM_EVENT: &str = "chat:stream";
 
 /// A chat stream event emitted during message generation
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../web/src/types/generated/")]
+#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 pub struct ChatStreamEvent {
     /// Session ID this event belongs to
     pub session_id: String,
@@ -25,7 +30,7 @@ pub struct ChatStreamEvent {
 
 /// Types of chat stream events
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../web/src/types/generated/")]
+#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatStreamKind {
     /// Stream started
@@ -115,7 +120,7 @@ pub enum ChatStreamKind {
 
 /// Status of an execution step
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../web/src/types/generated/")]
+#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {
     /// Step is pending

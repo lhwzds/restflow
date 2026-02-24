@@ -11,9 +11,14 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 use ts_rs::TS;
 
+const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../web/src/types/generated/"
+);
+
 /// Request to add a manual profile
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../web/src/types/generated/")]
+#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 pub struct AddProfileRequest {
     /// Display name for the profile
     pub name: String,
@@ -31,7 +36,7 @@ pub struct AddProfileRequest {
 
 /// Response for profile operations
 #[derive(Debug, Clone, Serialize, Deserialize, TS)]
-#[ts(export, export_to = "../../web/src/types/generated/")]
+#[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 pub struct ProfileResponse {
     pub success: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
