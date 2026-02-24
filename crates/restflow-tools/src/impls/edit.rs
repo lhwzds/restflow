@@ -315,48 +315,7 @@ impl EditTool {
     }
 
     fn resolve_path(&self, path: &str) -> std::result::Result<PathBuf, String> {
-        let path = PathBuf::from(path);
-
-        if let Some(base) = &self.base_dir {
-            let resolved = if path.is_absolute() {
-                path
-            } else {
-                base.join(&path)
-            };
-
-            if resolved.exists() {
-                let canonical = resolved.canonicalize().map_err(|e| e.to_string())?;
-                let canonical_base = base.canonicalize().map_err(|e| e.to_string())?;
-                if !canonical.starts_with(&canonical_base) {
-                    return Err(format!(
-                        "Path '{}' escapes allowed base directory '{}'.",
-                        canonical.display(),
-                        canonical_base.display()
-                    ));
-                }
-                return Ok(canonical);
-            }
-
-            let canonical_base = if base.exists() {
-                base.canonicalize().map_err(|e| e.to_string())?
-            } else {
-                normalize_path(base)
-            };
-            let normalized = normalize_path(&resolved);
-            if !normalized.starts_with(&canonical_base) {
-                return Err(format!(
-                    "Path '{}' escapes allowed base directory '{}'.",
-                    normalized.display(),
-                    canonical_base.display()
-                ));
-            }
-            Ok(normalized)
-        } else if path.is_absolute() {
-            Ok(path)
-        } else {
-            let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
-            Ok(cwd.join(path))
-        }
+        super::path_utils::resolve_path(path, self.base_dir.as_deref())
     }
 
     /// Invalidate caches for the given path and its parent directories.
@@ -563,21 +522,6 @@ impl Tool for EditTool {
             "lines_changed": lines_changed,
         })))
     }
-}
-
-/// Normalize a path without canonicalizing (for non-existent paths).
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut result = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                result.pop();
-            }
-            std::path::Component::CurDir => {}
-            c => result.push(c),
-        }
-    }
-    result
 }
 
 #[cfg(test)]

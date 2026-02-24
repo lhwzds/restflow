@@ -36,70 +36,7 @@ impl PatchTool {
     }
 
     fn resolve_path(&self, path: &str) -> std::result::Result<PathBuf, String> {
-        let path = PathBuf::from(path);
-
-        if let Some(base) = &self.base_dir {
-            let resolved = if path.is_absolute() {
-                path
-            } else {
-                base.join(&path)
-            };
-            if resolved.exists() {
-                let canonical = resolved.canonicalize().map_err(|e| e.to_string())?;
-                let canonical_base = if base.exists() {
-                    base.canonicalize().map_err(|e| e.to_string())?
-                } else {
-                    normalize_path(base)
-                };
-                if !canonical.starts_with(&canonical_base) {
-                    return Err(format!(
-                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
-                        canonical.display(),
-                        canonical_base.display()
-                    ));
-                }
-                return Ok(canonical);
-            }
-
-            if base.exists() {
-                let Some((ancestor, suffix)) = find_existing_ancestor(&resolved) else {
-                    return Err(format!(
-                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
-                        resolved.display(),
-                        base.display()
-                    ));
-                };
-                let canonical_parent = ancestor.canonicalize().map_err(|e| e.to_string())?;
-                let candidate = normalize_path(&canonical_parent.join(suffix));
-                let canonical_base = base.canonicalize().map_err(|e| e.to_string())?;
-                if !candidate.starts_with(&canonical_base) {
-                    return Err(format!(
-                        "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
-                        candidate.display(),
-                        canonical_base.display()
-                    ));
-                }
-                return Ok(candidate);
-            }
-
-            let canonical_base = normalize_path(base);
-            let normalized = normalize_path(&resolved);
-            if !normalized.starts_with(&canonical_base) {
-                return Err(format!(
-                    "Path '{}' escapes allowed base directory '{}'. All file operations must be within this directory.",
-                    normalized.display(),
-                    canonical_base.display()
-                ));
-            }
-
-            Ok(normalized)
-        } else if path.is_absolute() {
-            Ok(path)
-        } else {
-            std::env::current_dir()
-                .map(|cwd| cwd.join(&path))
-                .map_err(|e| e.to_string())
-        }
+        crate::impls::path_utils::resolve_path(path, self.base_dir.as_deref())
     }
 }
 
@@ -324,37 +261,6 @@ async fn rollback(backups: &[Backup]) {
             None => {
                 let _ = fs::remove_file(&backup.path).await;
             }
-        }
-    }
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut result = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::ParentDir => {
-                result.pop();
-            }
-            std::path::Component::CurDir => {}
-            c => result.push(c),
-        }
-    }
-    result
-}
-
-fn find_existing_ancestor(path: &Path) -> Option<(PathBuf, PathBuf)> {
-    let mut ancestor = path.to_path_buf();
-    loop {
-        if ancestor.exists() {
-            let suffix = path
-                .strip_prefix(&ancestor)
-                .unwrap_or_else(|_| Path::new(""))
-                .to_path_buf();
-            return Some((ancestor, suffix));
-        }
-
-        if !ancestor.pop() {
-            return None;
         }
     }
 }
