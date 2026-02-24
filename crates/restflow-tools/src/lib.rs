@@ -44,11 +44,11 @@ pub use impls::{EditTool, MultiEditTool};
 // Re-export migrated tool implementations
 pub use impls::{
     AgentCrudTool, AuthProfileTool, BackgroundAgentTool, ConfigTool, DeleteMemoryTool,
-    DiagnosticsTool, JinaReaderTool, ListMemoryTool, McpServerConfig, MemoryManagementTool,
-    PatchTool, ProcessTool, PythonExecutionBackend, PythonExecutionLimits, PythonTool,
-    ReadMemoryTool, ReplyTool, RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretsTool,
-    SessionTool, SkillTool, SwitchModelTool, TranscribeConfig, TranscribeTool, VisionTool,
-    WebFetchTool, WebSearchTool, WorkItemTool, get_mcp_tools, invalidate_mcp_cache,
+    DiagnosticsTool, JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool, ProcessTool,
+    PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool, ReplyTool,
+    RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretsTool, SessionTool, SkillTool,
+    SwitchModelTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool, WebSearchTool,
+    WorkItemTool,
 };
 
 // Re-export tool_registry inline migrated tools
