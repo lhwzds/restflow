@@ -10,9 +10,10 @@ use reqwest::Client;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use tokio::sync::RwLock;
 
+use super::cache::CacheEntry;
 use super::{
     SkillProvider, SkillProviderError, SkillSearchQuery, SkillSearchResult, SkillSortOrder,
 };
@@ -92,25 +93,6 @@ struct GitHubAsset {
     content_type: String,
     size: u64,
     browser_download_url: String,
-}
-
-/// Cache entry with expiration
-struct CacheEntry<T> {
-    data: T,
-    expires_at: Instant,
-}
-
-impl<T> CacheEntry<T> {
-    fn new(data: T, ttl: Duration) -> Self {
-        Self {
-            data,
-            expires_at: Instant::now() + ttl,
-        }
-    }
-
-    fn is_expired(&self) -> bool {
-        Instant::now() > self.expires_at
-    }
 }
 
 /// GitHub skill provider
