@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import StreamingMarkdown from '@/components/shared/StreamingMarkdown.vue'
 import AgentStatusBadge from './AgentStatusBadge.vue'
 import AgentOverviewOverlay from './AgentOverviewOverlay.vue'
+import { useToast } from '@/composables/useToast'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useBackgroundAgentStream } from '@/composables/workspace/useBackgroundAgentStream'
 import {
@@ -46,6 +47,7 @@ const emit = defineEmits<{
   refresh: []
 }>()
 
+const toast = useToast()
 const store = useBackgroundAgentStore()
 const MEMORY_CHUNK_LIMIT = 200
 const MEMORY_FALLBACK_SESSION_LIMIT = 20
@@ -56,6 +58,9 @@ const showOverview = ref(false)
 // Steer input
 const steerInput = ref('')
 const isSteering = ref(false)
+
+// Staleness guard for agent switch race condition
+let loadVersion = 0
 
 // Event history
 const events = ref<TaskEvent[]>([])
@@ -85,16 +90,28 @@ const hasMemoryPersistence = computed(() => props.agent.memory.persist_on_comple
 
 async function handlePause() {
   await store.pauseAgent(props.agent.id)
-  emit('refresh')
+  if (store.error) {
+    toast.error(store.error)
+  } else {
+    emit('refresh')
+  }
 }
 
 async function handleResume() {
   await store.resumeAgent(props.agent.id)
-  emit('refresh')
+  if (store.error) {
+    toast.error(store.error)
+  } else {
+    emit('refresh')
+  }
 }
 
 async function handleRun() {
   const response = await store.runAgentNow(props.agent.id)
+  if (store.error) {
+    toast.error(store.error)
+    return
+  }
   if (response) {
     streamTaskId.value = response.task_id
     reset()
@@ -104,7 +121,11 @@ async function handleRun() {
 
 async function handleCancel() {
   await store.cancelAgent(props.agent.id)
-  emit('refresh')
+  if (store.error) {
+    toast.error(store.error)
+  } else {
+    emit('refresh')
+  }
 }
 
 async function handleSteer() {
@@ -124,13 +145,18 @@ async function handleSteer() {
 }
 
 async function loadEvents() {
+  const version = loadVersion
   isLoadingEvents.value = true
   try {
-    events.value = await getBackgroundAgentEvents(props.agent.id, 100)
+    const result = await getBackgroundAgentEvents(props.agent.id, 100)
+    if (version !== loadVersion) return
+    events.value = result
   } catch (err) {
     console.error('Failed to load events:', err)
   } finally {
-    isLoadingEvents.value = false
+    if (version === loadVersion) {
+      isLoadingEvents.value = false
+    }
   }
 }
 
@@ -164,6 +190,7 @@ function sortChunksByTime(chunks: MemoryChunk[]): MemoryChunk[] {
 }
 
 async function loadMemoryConversation() {
+  const version = loadVersion
   memoryLoadError.value = null
   memorySessions.value = []
 
@@ -176,6 +203,7 @@ async function loadMemoryConversation() {
   try {
     const taskTag = `task:${props.agent.id}`
     const taggedChunks = await listMemoryChunksByTag(taskTag, MEMORY_CHUNK_LIMIT)
+    if (version !== loadVersion) return
     const filteredTaggedChunks = sortChunksByTime(dedupeById(taggedChunks).filter(chunkMatchesTask))
 
     if (filteredTaggedChunks.length > 0) {
@@ -194,6 +222,7 @@ async function loadMemoryConversation() {
         }
       }),
     )
+    if (version !== loadVersion) return
 
     const allSessions = dedupeById(sessionsPerNamespace.flat()).sort(
       (a, b) => b.updated_at - a.updated_at,
@@ -221,15 +250,19 @@ async function loadMemoryConversation() {
         }
       }),
     )
+    if (version !== loadVersion) return
 
     memoryChunks.value = sortChunksByTime(
       dedupeById(sessionChunks.flat()).filter((chunk) => chunkMatchesTask(chunk)),
     )
   } catch (err) {
+    if (version !== loadVersion) return
     memoryLoadError.value = err instanceof Error ? err.message : 'Failed to load memory'
     memoryChunks.value = []
   } finally {
-    isLoadingMemory.value = false
+    if (version === loadVersion) {
+      isLoadingMemory.value = false
+    }
   }
 }
 
@@ -312,6 +345,7 @@ watch([outputText, () => events.value.length, () => memoryChunks.value.length], 
 watch(
   () => props.agent.id,
   () => {
+    loadVersion++
     streamTaskId.value = null
     reset()
     loadEvents()
