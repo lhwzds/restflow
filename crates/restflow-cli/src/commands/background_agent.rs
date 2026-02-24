@@ -3,6 +3,7 @@ use comfy_table::{Cell, Table};
 use std::sync::Arc;
 
 use crate::cli::{BackgroundAgentCommands, OutputFormat};
+use crate::commands::utils::format_timestamp;
 use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
@@ -107,7 +108,7 @@ async fn list_background_agents(
         let short_id = &agent.id[..8.min(agent.id.len())];
         let next_run = agent
             .next_run_at
-            .map(format_timestamp)
+            .map(|ts| format_timestamp(Some(ts)))
             .unwrap_or_else(|| "-".to_string());
         table.add_row(vec![
             Cell::new(short_id),
@@ -143,13 +144,13 @@ async fn show_background_agent(
     if let Some(timeout) = agent.timeout_secs {
         println!("Timeout:     {}s", timeout);
     }
-    println!("Created:     {}", format_timestamp(agent.created_at));
-    println!("Updated:     {}", format_timestamp(agent.updated_at));
+    println!("Created:     {}", format_timestamp(Some(agent.created_at)));
+    println!("Updated:     {}", format_timestamp(Some(agent.updated_at)));
     if let Some(last_run) = agent.last_run_at {
-        println!("Last Run:    {}", format_timestamp(last_run));
+        println!("Last Run:    {}", format_timestamp(Some(last_run)));
     }
     if let Some(next_run) = agent.next_run_at {
-        println!("Next Run:    {}", format_timestamp(next_run));
+        println!("Next Run:    {}", format_timestamp(Some(next_run)));
     }
     println!("Success:     {}", agent.success_count);
     println!("Failed:      {}", agent.failure_count);
@@ -316,7 +317,7 @@ async fn show_progress(
     }
     println!("Events (last {}):", progress.recent_events.len());
     for event in progress.recent_events {
-        let ts = format_timestamp(event.timestamp);
+        let ts = format_timestamp(Some(event.timestamp));
         println!(
             "  [{}] {:?}: {}",
             ts,
@@ -457,12 +458,6 @@ fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction> {
             action
         ),
     }
-}
-
-fn format_timestamp(ts: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ts)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| ts.to_string())
 }
 
 fn truncate(s: &str, max_len: usize) -> String {

@@ -3,6 +3,7 @@ use comfy_table::{Cell, Table};
 use std::sync::Arc;
 
 use crate::cli::{DeliverableCommands, OutputFormat};
+use crate::commands::utils::format_timestamp;
 use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
@@ -42,15 +43,9 @@ async fn list_deliverables(
             Cell::new(short_id),
             Cell::new(format!("{:?}", d.deliverable_type).to_lowercase()),
             Cell::new(&d.title),
-            Cell::new(format_timestamp(d.created_at)),
+            Cell::new(format_timestamp(Some(d.created_at))),
         ]);
     }
 
     print_table(table)
-}
-
-fn format_timestamp(ts: i64) -> String {
-    chrono::DateTime::from_timestamp_millis(ts)
-        .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string())
-        .unwrap_or_else(|| ts.to_string())
 }
