@@ -89,3 +89,57 @@ impl Supervisor {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn supervisor_config_defaults() {
+        let config = SupervisorConfig::default();
+
+        assert_eq!(config.check_interval, Duration::from_secs(5));
+        assert_eq!(config.max_restarts, 5);
+        assert_eq!(config.restart_window, Duration::from_secs(60));
+
+        // Verify nested DaemonConfig defaults.
+        assert!(config.daemon_config.mcp);
+        assert_eq!(config.daemon_config.mcp_port, Some(8787));
+    }
+
+    #[tokio::test]
+    async fn shutdown_signal_stops_run() {
+        // Create a ProcessManager (uses ~/.restflow/ paths but we never call
+        // start/stop, so no actual daemon interaction occurs).
+        let process_manager =
+            Arc::new(ProcessManager::new().expect("ProcessManager::new should succeed in tests"));
+
+        // HealthChecker pointed at a non-existent socket; we expect the
+        // supervisor to exit via shutdown before any health check fires.
+        let health_checker = Arc::new(HealthChecker::new(
+            std::path::PathBuf::from("/tmp/restflow-test-nonexistent.sock"),
+            None,
+        ));
+
+        let config = SupervisorConfig {
+            // Use a very long interval so the health check branch never fires
+            // before the shutdown signal.
+            check_interval: Duration::from_secs(3600),
+            ..Default::default()
+        };
+
+        let supervisor = Supervisor::new(process_manager, health_checker, config);
+
+        let (shutdown_tx, shutdown_rx) = broadcast::channel(1);
+
+        // Send shutdown before run() even starts its select loop iteration.
+        let _ = shutdown_tx.send(());
+
+        // run() must return promptly (within 2 seconds).
+        let result = tokio::time::timeout(Duration::from_secs(2), supervisor.run(shutdown_rx))
+            .await
+            .expect("supervisor.run() should exit within timeout");
+
+        assert!(result.is_ok(), "supervisor.run() should return Ok(())");
+    }
+}
