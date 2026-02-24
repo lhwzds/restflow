@@ -148,3 +148,179 @@ impl WorkerPool {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::BackgroundAgent;
+    use crate::performance::{TaskPriority, TaskQueue, TaskQueueConfig};
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    /// Mock executor that tracks how many times it was called and optionally
+    /// returns an error for every invocation.
+    struct MockExecutor {
+        call_count: Arc<AtomicU32>,
+        should_fail: bool,
+    }
+
+    impl MockExecutor {
+        fn new() -> (Self, Arc<AtomicU32>) {
+            let counter = Arc::new(AtomicU32::new(0));
+            (
+                Self {
+                    call_count: counter.clone(),
+                    should_fail: false,
+                },
+                counter,
+            )
+        }
+
+        fn failing() -> (Self, Arc<AtomicU32>) {
+            let counter = Arc::new(AtomicU32::new(0));
+            (
+                Self {
+                    call_count: counter.clone(),
+                    should_fail: true,
+                },
+                counter,
+            )
+        }
+    }
+
+    #[async_trait]
+    impl TaskExecutor for MockExecutor {
+        async fn execute(&self, _task: &BackgroundAgent) -> anyhow::Result<bool> {
+            self.call_count.fetch_add(1, Ordering::SeqCst);
+            if self.should_fail {
+                Err(anyhow::anyhow!("mock executor error"))
+            } else {
+                Ok(true)
+            }
+        }
+    }
+
+    /// Helper to build a minimal BackgroundAgent for testing.
+    fn make_task(id: &str) -> BackgroundAgent {
+        use crate::models::TaskSchedule;
+        BackgroundAgent::new(
+            id.to_string(),
+            format!("task-{}", id),
+            "agent-1".to_string(),
+            TaskSchedule::default(),
+        )
+    }
+
+    /// Helper to build a simple TaskQueue with no persistence.
+    fn make_queue() -> Arc<TaskQueue> {
+        Arc::new(TaskQueue::new(
+            TaskQueueConfig {
+                max_concurrent: 10,
+                max_queue_size: 100,
+                persist_tasks: false,
+            },
+            None,
+        ))
+    }
+
+    #[tokio::test]
+    async fn start_submit_execute_stop() {
+        let queue = make_queue();
+        let (executor, call_count) = MockExecutor::new();
+
+        let mut pool = WorkerPool::new(
+            queue.clone(),
+            Arc::new(executor),
+            WorkerPoolConfig {
+                worker_count: 2,
+                idle_sleep: Duration::from_millis(5),
+            },
+        );
+
+        pool.start();
+
+        // Submit a task to the queue.
+        queue
+            .submit(make_task("t1"), TaskPriority::Normal)
+            .await
+            .expect("submit should succeed");
+
+        // Wait until the executor has been called at least once.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while call_count.load(Ordering::SeqCst) == 0 {
+            if tokio::time::Instant::now() > deadline {
+                panic!("executor was never called within timeout");
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        assert!(call_count.load(Ordering::SeqCst) >= 1);
+
+        // Stop should complete without hanging.
+        pool.stop().await;
+    }
+
+    #[tokio::test]
+    async fn stop_empty_queue_no_deadlock() {
+        let queue = make_queue();
+        let (executor, _call_count) = MockExecutor::new();
+
+        let mut pool = WorkerPool::new(
+            queue,
+            Arc::new(executor),
+            WorkerPoolConfig {
+                worker_count: 2,
+                idle_sleep: Duration::from_millis(5),
+            },
+        );
+
+        pool.start();
+
+        // No tasks submitted. Stop should return promptly.
+        let result = tokio::time::timeout(Duration::from_secs(5), pool.stop()).await;
+        assert!(result.is_ok(), "stop() should not deadlock on empty queue");
+    }
+
+    #[tokio::test]
+    async fn executor_error_increments_failed() {
+        let queue = make_queue();
+        let (executor, call_count) = MockExecutor::failing();
+
+        let mut pool = WorkerPool::new(
+            queue.clone(),
+            Arc::new(executor),
+            WorkerPoolConfig {
+                worker_count: 1,
+                idle_sleep: Duration::from_millis(5),
+            },
+        );
+
+        pool.start();
+
+        // Submit a task that the failing executor will process.
+        queue
+            .submit(make_task("t-fail"), TaskPriority::Normal)
+            .await
+            .expect("submit should succeed");
+
+        // Wait until the executor has been called.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(5);
+        while call_count.load(Ordering::SeqCst) == 0 {
+            if tokio::time::Instant::now() > deadline {
+                panic!("executor was never called within timeout");
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+
+        // Allow a brief moment for mark_completed to propagate.
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let stats = queue.get_stats();
+        assert!(
+            stats.failed >= 1,
+            "failed count should be >= 1, got {}",
+            stats.failed
+        );
+
+        pool.stop().await;
+    }
+}
