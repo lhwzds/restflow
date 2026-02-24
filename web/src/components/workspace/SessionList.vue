@@ -10,6 +10,7 @@ import {
   DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
+import { TIME_THRESHOLDS, TIME_UNITS } from '@/constants'
 import type { AgentFile, SessionItem } from '@/types/workspace'
 
 const props = defineProps<{
@@ -38,9 +39,9 @@ const formatTime = (timestamp: number) => {
   const now = new Date()
   const diff = now.getTime() - date.getTime()
 
-  if (diff < 60000) return t('workspace.time.justNow')
-  if (diff < 3600000) return t('workspace.time.minutesAgo', { count: Math.floor(diff / 60000) })
-  if (diff < 86400000) return t('workspace.time.hoursAgo', { count: Math.floor(diff / 3600000) })
+  if (diff < TIME_THRESHOLDS.SECONDS_AGO) return t('workspace.time.justNow')
+  if (diff < TIME_THRESHOLDS.MINUTES_AGO) return t('workspace.time.minutesAgo', { count: Math.floor(diff / TIME_UNITS.MS_PER_MINUTE) })
+  if (diff < TIME_THRESHOLDS.HOURS_AGO) return t('workspace.time.hoursAgo', { count: Math.floor(diff / TIME_UNITS.MS_PER_HOUR) })
   return date.toLocaleDateString()
 }
 </script>
