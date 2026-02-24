@@ -32,11 +32,10 @@ use restflow_ai::llm::Message;
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    ResourceLimits as AgentResourceLimits, Scratchpad,
-    SwappableLlm,
+    ResourceLimits as AgentResourceLimits, Scratchpad, SwappableLlm,
 };
-use restflow_traits::ReplySender;
 use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool};
+use restflow_traits::ReplySender;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -51,8 +50,8 @@ use crate::runtime::agent::{
     build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
     secret_resolver_from_storage,
 };
-use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_ai::agent::SubagentDefLookup;
+use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_ai::llm::LlmSwitcherImpl;
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
@@ -734,7 +733,8 @@ impl AgentRuntimeExecutor {
             agent_id,
             bash_config.clone(),
         )?);
-        let subagent_deps = self.build_subagent_deps(llm_client, subagent_tool_registry, Some(factory.clone()));
+        let subagent_deps =
+            self.build_subagent_deps(llm_client, subagent_tool_registry, Some(factory.clone()));
         let subagent_manager: Arc<dyn SubagentManager> =
             Arc::new(SubagentManagerImpl::from_deps(&subagent_deps));
         let mut registry = registry_from_allowlist(
@@ -884,6 +884,7 @@ impl AgentRuntimeExecutor {
         user_input: &str,
         max_history: usize,
         input_mode: SessionInputMode,
+        emitter: Option<Box<dyn StreamEmitter>>,
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
     ) -> Result<SessionExecutionResult> {
@@ -943,8 +944,18 @@ impl AgentRuntimeExecutor {
         let agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
         let history_messages = Self::session_history_messages(session, max_history, input_mode);
+        let force_non_stream = model.is_codex_cli();
         let result = if history_messages.is_empty() {
-            agent.run(config).await?
+            if force_non_stream {
+                agent.run(config).await?
+            } else if let Some(mut emitter) = emitter {
+                #[allow(deprecated)]
+                {
+                    agent.execute_streaming(config, emitter.as_mut()).await?
+                }
+            } else {
+                agent.run(config).await?
+            }
         } else {
             let mut state = restflow_ai::AgentState::new(
                 uuid::Uuid::new_v4().to_string(),
@@ -955,7 +966,15 @@ impl AgentRuntimeExecutor {
                 state.add_message(message);
             }
             state.add_message(Message::user(user_input.to_string()));
-            agent.run_from_state(config, state).await?
+            if force_non_stream {
+                agent.run_from_state(config, state).await?
+            } else if let Some(mut emitter) = emitter {
+                agent
+                    .execute_from_state(config, state, emitter.as_mut())
+                    .await?
+            } else {
+                agent.run_from_state(config, state).await?
+            }
         };
         if !result.success {
             return Err(anyhow!(
@@ -981,6 +1000,7 @@ impl AgentRuntimeExecutor {
         primary_provider: Provider,
         max_history: usize,
         input_mode: SessionInputMode,
+        emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
     ) -> Result<SessionExecutionResult> {
         let model_specs = AIModel::build_model_specs();
@@ -1020,6 +1040,7 @@ impl AgentRuntimeExecutor {
             user_input,
             max_history,
             input_mode,
+            emitter,
             factory,
             agent_id,
         )
@@ -1036,6 +1057,7 @@ impl AgentRuntimeExecutor {
         primary_provider: Provider,
         max_history: usize,
         input_mode: SessionInputMode,
+        emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
     ) -> Result<SessionExecutionResult> {
         if model.is_codex_cli() || agent_node.api_key_config.is_some() {
@@ -1048,6 +1070,7 @@ impl AgentRuntimeExecutor {
                     primary_provider,
                     max_history,
                     input_mode,
+                    emitter,
                     agent_id,
                 )
                 .await;
@@ -1067,12 +1090,14 @@ impl AgentRuntimeExecutor {
                     primary_provider,
                     max_history,
                     input_mode,
+                    emitter,
                     agent_id,
                 )
                 .await;
         }
 
         let mut last_error: Option<anyhow::Error> = None;
+        let mut emitter = emitter;
         for profile in profiles {
             let api_key = match profile.get_api_key(self.auth_manager.resolver()) {
                 Ok(key) => key,
@@ -1109,6 +1134,7 @@ impl AgentRuntimeExecutor {
                     user_input,
                     max_history,
                     input_mode,
+                    emitter.take(),
                     factory,
                     agent_id,
                 )
@@ -1170,6 +1196,19 @@ impl AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
     ) -> Result<SessionExecutionResult> {
+        self.execute_session_turn_with_emitter(session, user_input, max_history, input_mode, None)
+            .await
+    }
+
+    /// Execute a chat turn for an existing chat session with optional stream emitter.
+    pub async fn execute_session_turn_with_emitter(
+        &self,
+        session: &mut ChatSession,
+        user_input: &str,
+        max_history: usize,
+        input_mode: SessionInputMode,
+        emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> Result<SessionExecutionResult> {
         let stored_agent = self.resolve_stored_agent_for_session(session)?;
         let agent_node = stored_agent.agent.clone();
         let primary_model = self.resolve_primary_model(&agent_node).await?;
@@ -1182,6 +1221,7 @@ impl AgentRuntimeExecutor {
         let mut retry_state = RetryState::new();
         let session_snapshot = session.clone();
         let agent_id = session.agent_id.clone();
+        let mut emitter = emitter;
 
         loop {
             let node = agent_node.clone();
@@ -1190,6 +1230,7 @@ impl AgentRuntimeExecutor {
                 let node = node.clone();
                 let session_for_execution = session_for_execution.clone();
                 let agent_id = agent_id.clone();
+                let emitter = emitter.take();
                 async move {
                     self.execute_session_with_profiles(
                         &node,
@@ -1199,6 +1240,7 @@ impl AgentRuntimeExecutor {
                         primary_provider,
                         max_history,
                         input_mode,
+                        emitter,
                         Some(agent_id.as_str()),
                     )
                     .await
