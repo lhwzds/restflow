@@ -282,10 +282,16 @@ pub async fn restart_terminal(
 
 /// Synchronous version of save_all_terminal_history for use in window close handler
 pub fn save_all_terminal_history_sync(app_state: &AppState) {
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let rt = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .expect("Failed to create terminal history runtime");
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            tracing::error!("Failed to create terminal history runtime: {e}");
+            return;
+        }
+    };
     let session_ids = app_state
         .process_registry
         .list_session_ids_by_source(ProcessSessionSource::User);
