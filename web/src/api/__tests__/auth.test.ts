@@ -204,13 +204,13 @@ describe('Auth API', () => {
   })
 
   describe('authGetApiKey', () => {
-    it('invokes auth_get_api_key with provider parameter', async () => {
-      mockedInvoke.mockResolvedValue('sk-real-key-456')
+    it('invokes auth_get_api_key with provider parameter and returns boolean', async () => {
+      mockedInvoke.mockResolvedValue(true)
 
       const result = await authGetApiKey('openai')
 
       expect(mockedInvoke).toHaveBeenCalledWith('auth_get_api_key', { provider: 'openai' })
-      expect(result).toBe('sk-real-key-456')
+      expect(result).toBe(true)
     })
 
     it('returns null when no key is available', async () => {

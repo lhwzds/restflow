@@ -136,10 +136,10 @@ export async function authMarkFailure(profileId: string): Promise<ProfileRespons
 }
 
 /**
- * Get API key for a provider (selects best available profile)
+ * Check if an API key exists for a provider (selects best available profile)
  */
-export async function authGetApiKey(provider: AuthProvider): Promise<string | null> {
-  return invoke<string | null>('auth_get_api_key', { provider })
+export async function authGetApiKey(provider: AuthProvider): Promise<boolean | null> {
+  return invoke<boolean | null>('auth_get_api_key', { provider })
 }
 
 /**

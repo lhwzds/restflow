@@ -282,14 +282,14 @@ pub async fn auth_mark_failure(
     }
 }
 
-/// Get API key for a provider (selects best available profile)
+/// Check if an API key exists for a provider (selects best available profile)
 #[tauri::command]
 pub async fn auth_get_api_key(
     state: State<'_, AppState>,
     provider: AuthProvider,
-) -> Result<Option<String>, String> {
+) -> Result<Option<bool>, String> {
     match state.executor().get_api_key(provider).await {
-        Ok(key) => Ok(Some(key)),
+        Ok(_) => Ok(Some(true)),
         Err(_) => Ok(None),
     }
 }
