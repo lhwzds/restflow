@@ -50,20 +50,15 @@ pub use models::{
 pub use steer::SteerRegistry;
 
 use std::sync::Arc;
-use std::time::Duration;
 use storage::Storage;
 use tracing::{info, warn};
-
-use crate::mcp::McpToolCache;
 
 /// Core application state shared between server and Tauri modes
 ///
 /// After AgentFlow refactor, this struct focuses on:
 /// - Storage access for Agent, Skill, Trigger, and Secrets
-/// - MCP tool cache management
 pub struct AppCore {
     pub storage: Arc<Storage>,
-    pub mcp_tool_cache: Arc<McpToolCache>,
     pub features: Arc<features::Features>,
 }
 
@@ -99,15 +94,10 @@ impl AppCore {
 
         info!("Initializing RestFlow (Agent-centric mode)");
 
-        let mcp_tool_cache = Arc::new(McpToolCache::new(Duration::from_secs(3600)));
         let config = storage.config.get_config()?.unwrap_or_default();
         let features = Arc::new(features::Features::from_config(&config));
 
-        let core = Self {
-            storage,
-            mcp_tool_cache,
-            features,
-        };
+        let core = Self { storage, features };
 
         // Sync filesystem-backed default skills into database records.
         if let Ok(user_skills_dir) = paths::user_skills_dir() {
