@@ -31,7 +31,6 @@ fn generate_seatbelt_profile(policy: &SandboxPolicy) -> Result<String, SandboxEr
 
     // Allow basic process operations.
     profile.push_str("(allow process-exec process-fork)\n");
-    profile.push_str("(allow process*)\n");
     profile.push_str("(allow signal)\n");
     profile.push_str("(allow sysctl-read)\n");
     profile.push_str("(allow mach-lookup)\n");

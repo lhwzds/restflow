@@ -56,7 +56,9 @@ fn apply_landlock(policy: &SandboxPolicy) -> Result<(), SandboxError> {
 
     let status = ruleset.restrict_self().map_err(ll_err)?;
     if status.ruleset == RulesetStatus::NotEnforced {
-        tracing::warn!("Landlock rules were not enforced (kernel may be too old)");
+        return Err(SandboxError::Unavailable(
+            "Landlock rules were not enforced (kernel may be too old)".into(),
+        ));
     }
 
     Ok(())
