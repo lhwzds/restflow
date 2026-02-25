@@ -5,6 +5,8 @@ use serde_json::json;
 use std::process::Command;
 
 use crate::cli::McpCommands;
+use crate::commands::claude_mcp::try_sync_claude_http_mcp;
+use crate::commands::codex_mcp::try_sync_codex_http_mcp;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::daemon::{IpcClient, ensure_daemon_running};
 use restflow_core::mcp::RestFlowMcpServer;
@@ -19,8 +21,67 @@ pub async fn run(command: McpCommands, format: OutputFormat) -> Result<()> {
         McpCommands::Remove { name } => remove_server(&name, format).await,
         McpCommands::Start { name } => start_server(&name, format).await,
         McpCommands::Stop { name } => stop_server(&name, format).await,
+        McpCommands::Sync { port } => sync_clients(port, format).await,
         McpCommands::Serve => serve_builtin().await,
     }
+}
+
+#[derive(Debug, Serialize)]
+struct McpClientSyncResult {
+    client: &'static str,
+    ok: bool,
+    error: Option<String>,
+}
+
+async fn sync_clients(port: u16, format: OutputFormat) -> Result<()> {
+    let mut results = Vec::new();
+
+    match try_sync_claude_http_mcp(port).await {
+        Ok(()) => results.push(McpClientSyncResult {
+            client: "claude",
+            ok: true,
+            error: None,
+        }),
+        Err(err) => results.push(McpClientSyncResult {
+            client: "claude",
+            ok: false,
+            error: Some(err.to_string()),
+        }),
+    }
+
+    match try_sync_codex_http_mcp(port).await {
+        Ok(()) => results.push(McpClientSyncResult {
+            client: "codex",
+            ok: true,
+            error: None,
+        }),
+        Err(err) => results.push(McpClientSyncResult {
+            client: "codex",
+            ok: false,
+            error: Some(err.to_string()),
+        }),
+    }
+
+    if format.is_json() {
+        return print_json(&json!({
+            "port": port,
+            "url": format!("http://127.0.0.1:{port}/mcp"),
+            "results": results
+        }));
+    }
+
+    println!("MCP client sync target: http://127.0.0.1:{port}/mcp");
+    for result in &results {
+        if result.ok {
+            println!("{}: ok", result.client);
+        } else if let Some(error) = &result.error {
+            println!("{}: failed ({})", result.client, error);
+        } else {
+            println!("{}: failed", result.client);
+        }
+    }
+
+    Ok(())
 }
 
 async fn list_servers(format: OutputFormat) -> Result<()> {

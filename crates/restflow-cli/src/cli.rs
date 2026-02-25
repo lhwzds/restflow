@@ -364,6 +364,18 @@ mod tests {
             })
         ));
     }
+
+    #[test]
+    fn parses_mcp_sync_command() {
+        let cli = Cli::try_parse_from(["restflow", "mcp", "sync", "--port", "9900"])
+            .expect("parse mcp sync");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Mcp {
+                command: super::McpCommands::Sync { port: 9900 }
+            })
+        ));
+    }
 }
 
 #[derive(Subcommand)]
@@ -793,6 +805,13 @@ pub enum McpCommands {
 
     /// Stop MCP server
     Stop { name: String },
+
+    /// Sync MCP client configuration for Claude/Codex
+    Sync {
+        /// RestFlow MCP HTTP port (default: 8787)
+        #[arg(long, default_value_t = 8787)]
+        port: u16,
+    },
 
     /// Run the built-in MCP server over stdio
     Serve,
