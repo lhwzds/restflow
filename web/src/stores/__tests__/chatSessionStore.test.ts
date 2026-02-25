@@ -142,7 +142,7 @@ describe('chatSessionStore', () => {
         prompt_tokens: 0n,
         completion_tokens: 0n,
         cost: 0,
-        metadata: {},
+        metadata: { total_tokens: 0, message_count: 1, last_model: null },
         source_channel: null,
         source_conversation_id: null,
       }
