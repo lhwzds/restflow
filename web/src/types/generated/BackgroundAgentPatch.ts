@@ -24,6 +24,10 @@ description: string | null,
  */
 agent_id: string | null, 
 /**
+ * New bound chat session ID
+ */
+chat_session_id: string | null, 
+/**
  * New input prompt
  */
 input: string | null, 

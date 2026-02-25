@@ -3,4 +3,4 @@
 /**
  * Origin of a chat session.
  */
-export type ChatSessionSource = 'workspace' | 'telegram' | 'discord' | 'slack' | 'external_legacy'
+export type ChatSessionSource = "workspace" | "telegram" | "discord" | "slack" | "external_legacy";
