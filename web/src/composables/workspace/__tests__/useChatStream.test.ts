@@ -62,19 +62,19 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: Date.now(),
+      timestamp: BigInt(Date.now()),
       kind: { type: 'started', model: 'gpt-5' },
     })
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: Date.now(),
+      timestamp: BigInt(Date.now()),
       kind: { type: 'token', text: 'Hel', token_count: 1 },
     })
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: Date.now(),
+      timestamp: BigInt(Date.now()),
       kind: {
         type: 'tool_call_start',
         tool_id: 'tool-1',
@@ -85,7 +85,7 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: Date.now(),
+      timestamp: BigInt(Date.now()),
       kind: {
         type: 'tool_call_end',
         tool_id: 'tool-1',
@@ -96,11 +96,11 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: Date.now(),
+      timestamp: BigInt(Date.now()),
       kind: {
         type: 'completed',
         full_content: 'Hello world',
-        duration_ms: 120,
+        duration_ms: 120n,
         total_tokens: 12,
       },
     })
@@ -162,7 +162,7 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-other',
       message_id: 'msg-2',
-      timestamp: Date.now(),
+      timestamp: BigInt(Date.now()),
       kind: { type: 'token', text: 'ignored', token_count: 1 },
     })
 
