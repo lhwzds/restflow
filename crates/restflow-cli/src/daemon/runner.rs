@@ -442,6 +442,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use restflow_core::models::{

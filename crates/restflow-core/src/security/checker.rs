@@ -1035,7 +1035,7 @@ mod tests {
         let is_chain_blocked = result
             .reason
             .as_deref()
-            .map_or(false, |r| r.contains("chaining"));
+            .is_some_and(|r| r.contains("chaining"));
         assert!(!is_chain_blocked);
     }
 
