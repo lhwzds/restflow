@@ -428,10 +428,22 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
 mod tests {
     use super::*;
     use restflow_traits::store::BackgroundAgentStore;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex, OnceLock};
     use tempfile::tempdir;
 
-    fn setup() -> (BackgroundAgentStoreAdapter, tempfile::TempDir) {
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn setup() -> (
+        BackgroundAgentStoreAdapter,
+        tempfile::TempDir,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
+        let guard = env_lock();
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
@@ -439,15 +451,30 @@ mod tests {
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let deliverable_storage = crate::storage::DeliverableStorage::new(db).unwrap();
 
+        // Set RESTFLOW_DIR so create_agent can write agent prompt files
+        let state_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let prev_dir = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
+
         // Create a default agent for referencing
         let agent = crate::models::AgentNode::default();
         agent_storage
             .create_agent("test-agent".to_string(), agent)
             .unwrap();
 
+        // Restore env var immediately after agent creation
+        unsafe {
+            match prev_dir {
+                Some(v) => std::env::set_var("RESTFLOW_DIR", v),
+                None => std::env::remove_var("RESTFLOW_DIR"),
+            }
+        }
+
         (
             BackgroundAgentStoreAdapter::new(bg_storage, agent_storage, deliverable_storage),
             temp_dir,
+            guard,
         )
     }
 
@@ -458,7 +485,7 @@ mod tests {
 
     #[test]
     fn test_create_and_list_background_agent() {
-        let (adapter, _dir) = setup();
+        let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let request = BackgroundAgentCreateRequest {
             name: "Test BG Task".to_string(),
@@ -483,7 +510,7 @@ mod tests {
 
     #[test]
     fn test_delete_background_agent() {
-        let (adapter, _dir) = setup();
+        let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let request = BackgroundAgentCreateRequest {
             name: "Delete Me".to_string(),
@@ -507,7 +534,7 @@ mod tests {
 
     #[test]
     fn test_send_and_list_messages() {
-        let (adapter, _dir) = setup();
+        let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
         let created = adapter
             .create_background_agent(BackgroundAgentCreateRequest {
