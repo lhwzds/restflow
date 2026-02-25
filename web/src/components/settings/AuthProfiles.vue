@@ -44,7 +44,7 @@ import {
   type AddProfileRequest,
 } from '@/api/auth'
 import { useConfirm } from '@/composables/useConfirm'
-import type { AuthProfile, AuthProvider, Credential } from '@/types/generated'
+import type { AuthProfile, AuthProvider, SecureCredential } from '@/types/generated'
 
 const { t } = useI18n()
 const { confirm } = useConfirm()
@@ -224,16 +224,16 @@ function maskApiKey(key: string): string {
 }
 
 /**
- * Safely extract the displayable credential value from a Credential union type
+ * Safely extract the displayable credential value from a SecureCredential union type
  */
-function getCredentialDisplayValue(credential: Credential): string {
+function getCredentialDisplayValue(credential: SecureCredential): string {
   switch (credential.type) {
     case 'api_key':
-      return credential.key
+      return credential.secret_ref
     case 'token':
-      return credential.token
+      return credential.secret_ref
     case 'o_auth':
-      return credential.access_token
+      return credential.access_token_ref
     default:
       return ''
   }
