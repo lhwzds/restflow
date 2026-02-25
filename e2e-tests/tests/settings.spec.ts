@@ -5,7 +5,7 @@ import { goToWorkspace, openSettings, closeSettings } from './helpers'
  * Settings Panel E2E Tests
  *
  * Tests the full-screen settings view:
- * - Left nav with section buttons (Secrets, Auth Profiles, Security, Marketplace)
+ * - Left nav with section buttons (Secrets, Auth Profiles)
  * - Right content area showing the selected section
  * - Back button to return to chat layout
  */
@@ -20,8 +20,6 @@ test.describe('Settings Panel', () => {
     // Settings nav items should be visible
     await expect(page.locator('nav button', { hasText: 'Secrets' })).toBeVisible()
     await expect(page.locator('nav button', { hasText: 'Auth Profiles' })).toBeVisible()
-    await expect(page.locator('nav button', { hasText: 'Security' })).toBeVisible()
-    await expect(page.locator('nav button', { hasText: 'Marketplace' })).toBeVisible()
 
     // Chat layout should be hidden
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).not.toBeVisible()
@@ -57,22 +55,6 @@ test.describe('Settings Panel', () => {
     // Secrets should no longer be active
     const secretsBtn = page.locator('nav button', { hasText: 'Secrets' })
     await expect(secretsBtn).not.toHaveClass(/font-medium/)
-  })
-
-  test('can navigate to Security section', async ({ page }) => {
-    await openSettings(page)
-
-    await page.locator('nav button', { hasText: 'Security' }).click()
-    const securityBtn = page.locator('nav button', { hasText: 'Security' })
-    await expect(securityBtn).toHaveClass(/font-medium/)
-  })
-
-  test('can navigate to Marketplace section', async ({ page }) => {
-    await openSettings(page)
-
-    await page.locator('nav button', { hasText: 'Marketplace' }).click()
-    const marketplaceBtn = page.locator('nav button', { hasText: 'Marketplace' })
-    await expect(marketplaceBtn).toHaveClass(/font-medium/)
   })
 
   test('settings replaces entire chat layout', async ({ page }) => {

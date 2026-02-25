@@ -20,15 +20,15 @@ test.describe('Chat Input', () => {
     await expect(textarea).toHaveValue('Hello, world!')
   })
 
-  test('Enter key keeps the typed message available', async ({ page }) => {
+  test('Enter key sends and clears the input', async ({ page }) => {
     const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
     await textarea.fill('Test message')
 
     // Press Enter to send
     await textarea.press('Enter')
 
-    // Input remains available for retry if send cannot complete in mocked E2E mode.
-    await expect(textarea).toHaveValue('Test message')
+    // Input should be cleared after send.
+    await expect(textarea).toHaveValue('')
   })
 
   test('Shift+Enter adds new line instead of sending', async ({ page }) => {
@@ -45,15 +45,15 @@ test.describe('Chat Input', () => {
     expect(value).toContain('Line 2')
   })
 
-  test('send button click keeps message available in mocked mode', async ({ page }) => {
+  test('send button click sends and clears the input', async ({ page }) => {
     const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
     await textarea.fill('Test message')
 
     const sendButton = page.getByRole('button', { name: 'Send' })
     await sendButton.click()
 
-    // Input remains available for retry if send cannot complete in mocked E2E mode.
-    await expect(textarea).toHaveValue('Test message')
+    // Input should be cleared after send.
+    await expect(textarea).toHaveValue('')
   })
 
   test('agent selector is visible in chat box', async ({ page }) => {
