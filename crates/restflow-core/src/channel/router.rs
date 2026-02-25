@@ -320,6 +320,33 @@ impl ChannelRouter {
             .cloned()
     }
 
+    /// Find all conversations linked to a specific task ID.
+    pub async fn find_conversations_by_task(&self, task_id: &str) -> Vec<ConversationContext> {
+        self.conversations
+            .read()
+            .await
+            .values()
+            .filter(|c| c.task_id.as_deref() == Some(task_id))
+            .cloned()
+            .collect()
+    }
+
+    /// Clear task associations for all conversations linked to a task ID.
+    ///
+    /// Returns the number of updated conversations.
+    pub async fn clear_task_associations(&self, task_id: &str) -> usize {
+        let mut cleared = 0;
+        let mut conversations = self.conversations.write().await;
+        for context in conversations.values_mut() {
+            if context.task_id.as_deref() == Some(task_id) {
+                context.task_id = None;
+                context.touch();
+                cleared += 1;
+            }
+        }
+        cleared
+    }
+
     /// Remove stale conversations older than max_age_ms
     pub async fn cleanup_stale_conversations(&self, max_age_ms: i64) -> usize {
         let mut conversations = self.conversations.write().await;
@@ -596,6 +623,70 @@ mod tests {
 
         let not_found = router.find_conversation_by_task("task-nonexistent").await;
         assert!(not_found.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_find_conversations_by_task_returns_all_matches() {
+        let router = ChannelRouter::new();
+
+        let message_a =
+            InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", "Hello");
+        let message_b =
+            InboundMessage::new("msg-2", ChannelType::Discord, "user-2", "chat-2", "Hi");
+        let message_c =
+            InboundMessage::new("msg-3", ChannelType::Telegram, "user-3", "chat-3", "Yo");
+
+        router
+            .record_conversation(&message_a, Some("task-42".to_string()))
+            .await;
+        router
+            .record_conversation(&message_b, Some("task-42".to_string()))
+            .await;
+        router.record_conversation(&message_c, None).await;
+
+        let matched = router.find_conversations_by_task("task-42").await;
+        assert_eq!(matched.len(), 2);
+        let ids: std::collections::HashSet<_> =
+            matched.into_iter().map(|ctx| ctx.conversation_id).collect();
+        assert!(ids.contains("chat-1"));
+        assert!(ids.contains("chat-2"));
+    }
+
+    #[tokio::test]
+    async fn test_clear_task_associations_clears_all_matches() {
+        let router = ChannelRouter::new();
+
+        let message_a =
+            InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", "Hello");
+        let message_b =
+            InboundMessage::new("msg-2", ChannelType::Discord, "user-2", "chat-2", "Hi");
+        let message_c =
+            InboundMessage::new("msg-3", ChannelType::Telegram, "user-3", "chat-3", "Yo");
+
+        router
+            .record_conversation(&message_a, Some("task-42".to_string()))
+            .await;
+        router
+            .record_conversation(&message_b, Some("task-42".to_string()))
+            .await;
+        router
+            .record_conversation(&message_c, Some("task-99".to_string()))
+            .await;
+
+        let cleared = router.clear_task_associations("task-42").await;
+        assert_eq!(cleared, 2);
+        assert_eq!(
+            router.get_conversation("chat-1").await.unwrap().task_id,
+            None
+        );
+        assert_eq!(
+            router.get_conversation("chat-2").await.unwrap().task_id,
+            None
+        );
+        assert_eq!(
+            router.get_conversation("chat-3").await.unwrap().task_id,
+            Some("task-99".to_string())
+        );
     }
 
     #[tokio::test]

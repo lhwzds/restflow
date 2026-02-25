@@ -109,6 +109,18 @@ async fn cmd_run_task(
         }
     };
 
+    // Notify user before dispatching task execution.
+    let pending_response = OutboundMessage::new(
+        &message.conversation_id,
+        format!(
+            "⏳ Received request. Starting background agent `{}`...",
+            task_name
+        ),
+    );
+    router
+        .send_to(message.channel_type, pending_response)
+        .await?;
+
     // Find and run task
     match trigger.find_and_run_background_agent(&task_name).await {
         Ok(task) => {
@@ -218,8 +230,42 @@ pub async fn send_help(router: &ChannelRouter, message: &InboundMessage) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::channel::ChannelType;
+    use crate::channel::{Channel, ChannelType, OutboundMessage};
+    use crate::models::{BackgroundAgent, TaskSchedule};
     use crate::runtime::channel::trigger::mock::MockBackgroundAgentTrigger;
+    use async_trait::async_trait;
+    use futures::Stream;
+    use std::pin::Pin;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    struct CaptureChannel {
+        sent: Arc<Mutex<Vec<OutboundMessage>>>,
+    }
+
+    #[async_trait]
+    impl Channel for CaptureChannel {
+        fn channel_type(&self) -> ChannelType {
+            ChannelType::Telegram
+        }
+
+        fn is_configured(&self) -> bool {
+            true
+        }
+
+        async fn send(&self, message: OutboundMessage) -> Result<()> {
+            self.sent.lock().await.push(message);
+            Ok(())
+        }
+
+        async fn send_typing(&self, _conversation_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn start_receiving(&self) -> Option<Pin<Box<dyn Stream<Item = InboundMessage> + Send>>> {
+            None
+        }
+    }
 
     fn create_message(content: &str) -> InboundMessage {
         InboundMessage::new("msg-1", ChannelType::Telegram, "user-1", "chat-1", content)
@@ -272,5 +318,37 @@ mod tests {
             command.as_str(),
             "/start" | "/help" | "/agents" | "/tasks" | "/list" | "/run" | "/status" | "/stop"
         ));
+    }
+
+    #[tokio::test]
+    async fn test_run_command_sends_pending_then_started_and_associates_task() {
+        let sent = Arc::new(Mutex::new(Vec::new()));
+        let mut router = ChannelRouter::new();
+        router.register(CaptureChannel { sent: sent.clone() });
+
+        let trigger = MockBackgroundAgentTrigger::new();
+        let task = BackgroundAgent::new(
+            "task-1".to_string(),
+            "Build docs".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::default(),
+        );
+        trigger.add_task(task).await;
+
+        let message = create_message("/run task-1");
+        router.record_conversation(&message, None).await;
+
+        handle_command(&router, &trigger, &message).await.unwrap();
+
+        let sent_messages = sent.lock().await;
+        assert_eq!(sent_messages.len(), 2);
+        assert!(sent_messages[0].content.contains("Received request"));
+        assert!(sent_messages[1].content.contains("Started"));
+
+        let context = router
+            .get_conversation(&message.conversation_id)
+            .await
+            .unwrap();
+        assert_eq!(context.task_id, Some("task-1".to_string()));
     }
 }
