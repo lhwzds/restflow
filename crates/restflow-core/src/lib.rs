@@ -62,8 +62,6 @@ pub struct AppCore {
     pub features: Arc<features::Features>,
 }
 
-const DEFAULT_AGENT_NAME: &str = "Default Assistant";
-
 impl AppCore {
     pub async fn new(db_path: &str) -> anyhow::Result<Self> {
         let storage = Arc::new(Storage::new(db_path)?);
@@ -127,10 +125,14 @@ impl AppCore {
         if agents.is_empty() {
             info!("Creating default agent...");
             let agent_node = models::AgentNode::with_model(models::AIModel::CodexCli);
-            let _created = storage
-                .agents
-                .create_agent(DEFAULT_AGENT_NAME.to_string(), agent_node)?;
-            info!("Default agent created: {}", DEFAULT_AGENT_NAME);
+            let _created = storage.agents.create_agent(
+                crate::storage::agent::DEFAULT_ASSISTANT_NAME.to_string(),
+                agent_node,
+            )?;
+            info!(
+                "Default agent created: {}",
+                crate::storage::agent::DEFAULT_ASSISTANT_NAME
+            );
         }
         Ok(())
     }

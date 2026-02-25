@@ -11,6 +11,11 @@ use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
 
+/// Canonical default assistant name created during app initialization.
+pub const DEFAULT_ASSISTANT_NAME: &str = "Default Assistant";
+/// Legacy default assistant name for backward compatibility.
+pub const LEGACY_DEFAULT_ASSISTANT_NAME: &str = "default";
+
 /// Stored agent with metadata
 #[derive(Serialize, Deserialize, Debug, Clone, TS)]
 #[ts(export)]
@@ -88,6 +93,58 @@ impl AgentStorage {
             result.push(agent);
         }
         Ok(result)
+    }
+
+    /// Resolve the default chat agent deterministically.
+    ///
+    /// Resolution order:
+    /// 1. Agent named "Default Assistant" (case-insensitive)
+    /// 2. Agent named "default" (legacy, case-insensitive)
+    /// 3. The only existing agent (when exactly one exists)
+    ///
+    /// This intentionally avoids selecting an arbitrary first agent when
+    /// multiple agents exist.
+    pub fn resolve_default_agent(&self) -> Result<StoredAgent> {
+        let agents = self.list_agents()?;
+
+        if agents.is_empty() {
+            anyhow::bail!("No agents configured");
+        }
+
+        if let Some(agent) = agents
+            .iter()
+            .find(|agent| agent.name.eq_ignore_ascii_case(DEFAULT_ASSISTANT_NAME))
+            .cloned()
+        {
+            return Ok(agent);
+        }
+
+        if let Some(agent) = agents
+            .iter()
+            .find(|agent| {
+                agent
+                    .name
+                    .eq_ignore_ascii_case(LEGACY_DEFAULT_ASSISTANT_NAME)
+            })
+            .cloned()
+        {
+            return Ok(agent);
+        }
+
+        if agents.len() == 1 {
+            return Ok(agents[0].clone());
+        }
+
+        anyhow::bail!(
+            "Default agent is ambiguous: define an agent named '{}' or '{}'",
+            DEFAULT_ASSISTANT_NAME,
+            LEGACY_DEFAULT_ASSISTANT_NAME
+        )
+    }
+
+    /// Resolve only the ID of the default chat agent.
+    pub fn resolve_default_agent_id(&self) -> Result<String> {
+        Ok(self.resolve_default_agent()?.id)
     }
 
     pub fn update_agent(
@@ -510,6 +567,100 @@ mod tests {
 
         assert!(result.is_err());
         assert!(result.unwrap_err().to_string().contains("not found"));
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_resolve_default_agent_prefers_default_assistant() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let first = storage
+            .create_agent("Issue Finder Agent".to_string(), create_test_agent_node())
+            .unwrap();
+        let default_agent = storage
+            .create_agent(DEFAULT_ASSISTANT_NAME.to_string(), create_test_agent_node())
+            .unwrap();
+
+        let resolved = storage.resolve_default_agent().unwrap();
+        assert_eq!(resolved.id, default_agent.id);
+        assert_ne!(resolved.id, first.id);
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_resolve_default_agent_supports_legacy_default_name() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        storage
+            .create_agent("Issue Finder Agent".to_string(), create_test_agent_node())
+            .unwrap();
+        let legacy_default = storage
+            .create_agent(
+                LEGACY_DEFAULT_ASSISTANT_NAME.to_string(),
+                create_test_agent_node(),
+            )
+            .unwrap();
+
+        let resolved = storage.resolve_default_agent().unwrap();
+        assert_eq!(resolved.id, legacy_default.id);
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_resolve_default_agent_uses_only_agent() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let only = storage
+            .create_agent("Only Agent".to_string(), create_test_agent_node())
+            .unwrap();
+
+        let resolved = storage.resolve_default_agent().unwrap();
+        assert_eq!(resolved.id, only.id);
+        assert_eq!(storage.resolve_default_agent_id().unwrap(), only.id);
+
+        unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
+    }
+
+    #[test]
+    fn test_resolve_default_agent_errors_when_ambiguous() {
+        let _lock = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let prompts_dir = temp_dir.path().join("agents");
+        unsafe { std::env::set_var(AGENTS_DIR_ENV, &prompts_dir) };
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        storage
+            .create_agent("Issue Finder Agent".to_string(), create_test_agent_node())
+            .unwrap();
+        storage
+            .create_agent("Feature B".to_string(), create_test_agent_node())
+            .unwrap();
+
+        let err = storage.resolve_default_agent().expect_err("should fail");
+        assert!(err.to_string().contains("Default agent is ambiguous"));
+
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
 
