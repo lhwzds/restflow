@@ -1,6 +1,4 @@
 use crate::cli::DaemonCommands;
-use crate::commands::claude_mcp::try_sync_claude_http_mcp;
-use crate::commands::codex_mcp::try_sync_codex_http_mcp;
 use crate::commands::daemon_state::{self, EffectiveDaemonStatus, RunningSource};
 use crate::daemon::CliBackgroundAgentRunner;
 use anyhow::{Context, Result};
@@ -23,15 +21,6 @@ const CLEANUP_INTERVAL_HOURS: u64 = 24;
 const DAEMON_STOP_TIMEOUT: Duration = Duration::from_secs(30);
 const DAEMON_STOP_POLL_INTERVAL: Duration = Duration::from_millis(200);
 
-pub async fn sync_mcp_configs(mcp_port: Option<u16>) {
-    if let Err(err) = try_sync_claude_http_mcp(mcp_port.unwrap_or(8787)).await {
-        eprintln!("Warning: failed to auto-configure Claude MCP: {err}");
-    }
-    if let Err(err) = try_sync_codex_http_mcp(mcp_port.unwrap_or(8787)).await {
-        eprintln!("Warning: failed to auto-configure Codex MCP: {err}");
-    }
-}
-
 pub async fn restart_background(mcp_port: Option<u16>) -> Result<()> {
     let config = DaemonConfig {
         mcp: true,
@@ -49,8 +38,6 @@ pub async fn restart_background(mcp_port: Option<u16>) -> Result<()> {
     if !report.is_clean() {
         println!("{}", report);
     }
-
-    sync_mcp_configs(mcp_port).await;
 
     let pid = tokio::task::spawn_blocking(move || start_daemon_with_config(config)).await??;
     if was_running {
@@ -129,7 +116,6 @@ async fn start_background(mcp_port: Option<u16>) -> Result<()> {
     }
     let pid = tokio::task::spawn_blocking(move || start_daemon_with_config(config)).await??;
     println!("Daemon started (PID: {})", pid);
-    sync_mcp_configs(mcp_port).await;
     Ok(())
 }
 
@@ -138,8 +124,6 @@ async fn start(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) -> R
         mcp: true,
         mcp_port,
     };
-
-    sync_mcp_configs(mcp_port).await;
 
     if foreground {
         // In foreground mode, clean stale artifacts before binding.
@@ -191,7 +175,6 @@ async fn restart(core: Arc<AppCore>, foreground: bool, mcp_port: Option<u16>) ->
         if !report.is_clean() {
             println!("{}", report);
         }
-        sync_mcp_configs(mcp_port).await;
         run_daemon(core, config).await
     } else {
         restart_background(mcp_port).await
