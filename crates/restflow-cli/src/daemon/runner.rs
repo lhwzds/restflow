@@ -201,13 +201,17 @@ impl CliBackgroundAgentRunner {
                 .with_default_agent(default_chat_agent_id),
             );
             let debouncer = Arc::new(MessageDebouncer::default_timeout());
+            let chat_dispatcher_config = ChatDispatcherConfig {
+                response_timeout_secs: system_config.chat_response_timeout_seconds,
+                ..ChatDispatcherConfig::default()
+            };
             let chat_dispatcher = Arc::new(ChatDispatcher::new(
                 session_manager,
                 storage.clone(),
                 auth_manager.clone(),
                 debouncer,
                 router.clone(),
-                ChatDispatcherConfig::default(),
+                chat_dispatcher_config,
                 subagent_tracker.clone(),
                 subagent_definitions.clone(),
                 subagent_config.clone(),

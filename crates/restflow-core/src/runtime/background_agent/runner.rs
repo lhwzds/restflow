@@ -148,8 +148,10 @@ pub struct RunnerConfig {
     pub poll_interval_ms: u64,
     /// Maximum concurrent task executions
     pub max_concurrent_tasks: usize,
-    /// Timeout for individual task execution (in seconds)
-    pub task_timeout_secs: u64,
+    /// Default timeout for individual task execution (in seconds).
+    ///
+    /// `None` disables timeout by default.
+    pub task_timeout_secs: Option<u64>,
 }
 
 impl Default for RunnerConfig {
@@ -157,7 +159,7 @@ impl Default for RunnerConfig {
         Self {
             poll_interval_ms: 10_000, // 10 seconds
             max_concurrent_tasks: 5,
-            task_timeout_secs: 1800, // 30 minutes
+            task_timeout_secs: None,
         }
     }
 }
@@ -1291,11 +1293,16 @@ impl BackgroundAgentRunner {
         };
 
         let execution_timeout_secs = match &task.execution_mode {
-            ExecutionMode::Api => task.timeout_secs.unwrap_or(self.config.task_timeout_secs),
-            ExecutionMode::Cli(cli_config) => cli_config.timeout_secs,
+            ExecutionMode::Api => task.timeout_secs.or(self.config.task_timeout_secs),
+            ExecutionMode::Cli(cli_config) => Some(cli_config.timeout_secs),
         };
         let execution_timeout_secs = if task.resource_limits.max_duration_secs > 0 {
-            execution_timeout_secs.min(task.resource_limits.max_duration_secs)
+            match execution_timeout_secs {
+                Some(timeout_secs) => {
+                    Some(timeout_secs.min(task.resource_limits.max_duration_secs))
+                }
+                None => Some(task.resource_limits.max_duration_secs),
+            }
         } else {
             execution_timeout_secs
         };
@@ -1306,23 +1313,36 @@ impl BackgroundAgentRunner {
                 ExecutionMode::Api => {
                     // Use the injected API executor
                     debug!("Using API executor for task '{}'", task.name);
-                    let timeout = Duration::from_secs(execution_timeout_secs);
                     if let Some(state) = resume_state {
+                        if let Some(timeout_secs) = execution_timeout_secs {
+                            tokio::time::timeout(
+                                Duration::from_secs(timeout_secs),
+                                self.executor.execute_from_state(
+                                    &task.agent_id,
+                                    Some(&task.id),
+                                    state,
+                                    &task.memory,
+                                    steer_rx,
+                                    step_emitter,
+                                ),
+                            )
+                            .await
+                        } else {
+                            Ok(self
+                                .executor
+                                .execute_from_state(
+                                    &task.agent_id,
+                                    Some(&task.id),
+                                    state,
+                                    &task.memory,
+                                    steer_rx,
+                                    step_emitter,
+                                )
+                                .await)
+                        }
+                    } else if let Some(timeout_secs) = execution_timeout_secs {
                         tokio::time::timeout(
-                            timeout,
-                            self.executor.execute_from_state(
-                                &task.agent_id,
-                                Some(&task.id),
-                                state,
-                                &task.memory,
-                                steer_rx,
-                                step_emitter,
-                            ),
-                        )
-                        .await
-                    } else {
-                        tokio::time::timeout(
-                            timeout,
+                            Duration::from_secs(timeout_secs),
                             self.executor.execute_with_emitter(
                                 &task.agent_id,
                                 Some(&task.id),
@@ -1333,6 +1353,18 @@ impl BackgroundAgentRunner {
                             ),
                         )
                         .await
+                    } else {
+                        Ok(self
+                            .executor
+                            .execute_with_emitter(
+                                &task.agent_id,
+                                Some(&task.id),
+                                resolved_input.as_deref(),
+                                &task.memory,
+                                steer_rx,
+                                step_emitter,
+                            )
+                            .await)
                     }
                 }
                 ExecutionMode::Cli(cli_config) => {
@@ -1357,17 +1389,21 @@ impl BackgroundAgentRunner {
                         });
                     });
 
-                    // Execute with timeout
-                    let timeout = Duration::from_secs(execution_timeout_secs);
-                    tokio::time::timeout(
-                        timeout,
-                        cli_executor.execute_cli(
-                            cli_config,
-                            resolved_input.as_deref(),
-                            Some(task_id),
-                        ),
-                    )
-                    .await
+                    if let Some(timeout_secs) = execution_timeout_secs {
+                        tokio::time::timeout(
+                            Duration::from_secs(timeout_secs),
+                            cli_executor.execute_cli(
+                                cli_config,
+                                resolved_input.as_deref(),
+                                Some(task_id),
+                            ),
+                        )
+                        .await
+                    } else {
+                        Ok(cli_executor
+                            .execute_cli(cli_config, resolved_input.as_deref(), Some(task_id))
+                            .await)
+                    }
                 }
             }
         };
@@ -1631,7 +1667,12 @@ impl BackgroundAgentRunner {
             }
             Err(_) => {
                 // Timeout
-                let error_msg = format!("Task timed out after {} seconds", execution_timeout_secs);
+                let timeout_secs = execution_timeout_secs.unwrap_or(0);
+                let error_msg = if timeout_secs > 0 {
+                    format!("Task timed out after {} seconds", timeout_secs)
+                } else {
+                    "Task timed out".to_string()
+                };
                 error!("Task '{}' timed out", task.name);
 
                 // Record Error event
@@ -1650,11 +1691,7 @@ impl BackgroundAgentRunner {
                 }
 
                 self.event_emitter
-                    .emit(TaskStreamEvent::timeout(
-                        task_id,
-                        execution_timeout_secs,
-                        duration_ms,
-                    ))
+                    .emit(TaskStreamEvent::timeout(task_id, timeout_secs, duration_ms))
                     .await;
                 self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
                     .await;
