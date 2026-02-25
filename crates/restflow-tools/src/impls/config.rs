@@ -81,10 +81,12 @@ impl ConfigTool {
                 config.stall_timeout_seconds = timeout;
             }
             "background_api_timeout_seconds" => {
-                let timeout = value.as_u64().ok_or_else(|| {
-                    ToolError::Tool("background_api_timeout_seconds must be a number".to_string())
-                })?;
-                config.background_api_timeout_seconds = timeout;
+                config.background_api_timeout_seconds =
+                    Self::parse_optional_timeout(value, "background_api_timeout_seconds")?;
+            }
+            "chat_response_timeout_seconds" => {
+                config.chat_response_timeout_seconds =
+                    Self::parse_optional_timeout(value, "chat_response_timeout_seconds")?;
             }
             "max_retries" => {
                 let retries = value
@@ -200,12 +202,22 @@ impl ConfigTool {
             }
             _ => {
                 return Err(crate::ToolError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*."
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*."
                 )));
             }
         }
 
         Ok(config)
+    }
+
+    fn parse_optional_timeout(value: &Value, key: &str) -> Result<Option<u64>> {
+        if value.is_null() {
+            return Ok(None);
+        }
+        value
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| ToolError::Tool(format!("{key} must be a number or null")))
     }
 }
 
@@ -275,6 +287,7 @@ impl Tool for ConfigTool {
                     "task_timeout_seconds",
                     "stall_timeout_seconds",
                     "background_api_timeout_seconds",
+                    "chat_response_timeout_seconds",
                     "max_retries",
                     "chat_session_retention_days",
                     "background_task_retention_days",
@@ -304,8 +317,9 @@ impl Tool for ConfigTool {
                 self.write_guard()?;
                 let updated = if let Some(config) = config {
                     *config
-                } else if let (Some(key), Some(value)) = (key, value) {
-                    self.apply_update(&key, &value)?
+                } else if let Some(key) = key {
+                    let resolved_value = value.unwrap_or(Value::Null);
+                    self.apply_update(&key, &resolved_value)?
                 } else {
                     return Ok(ToolOutput::error(
                         "set requires either config or key/value".to_string(),
@@ -381,7 +395,7 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*"
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*"
         ));
     }
 
@@ -405,6 +419,28 @@ mod tests {
             .and_then(|value| value.as_array())
             .expect("experimental_features should be an array");
         assert_eq!(values.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_set_optional_timeout_with_null() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let output = tool
+            .execute(json!({
+                "operation": "set",
+                "key": "background_api_timeout_seconds",
+                "value": null
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert!(
+            output
+                .result
+                .get("background_api_timeout_seconds")
+                .is_some_and(|v| v.is_null())
+        );
     }
 
     #[tokio::test]

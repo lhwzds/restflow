@@ -47,7 +47,11 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     ]);
     table.add_row(vec![
         Cell::new("background_api_timeout_seconds"),
-        Cell::new(config.background_api_timeout_seconds),
+        Cell::new(format_optional_u64(config.background_api_timeout_seconds)),
+    ]);
+    table.add_row(vec![
+        Cell::new("chat_response_timeout_seconds"),
+        Cell::new(format_optional_u64(config.chat_response_timeout_seconds)),
     ]);
     table.add_row(vec![
         Cell::new("max_retries"),
@@ -131,6 +135,7 @@ async fn get_config_value(
         "task_timeout_seconds" => json!(config.task_timeout_seconds),
         "stall_timeout_seconds" => json!(config.stall_timeout_seconds),
         "background_api_timeout_seconds" => json!(config.background_api_timeout_seconds),
+        "chat_response_timeout_seconds" => json!(config.chat_response_timeout_seconds),
         "max_retries" => json!(config.max_retries),
         "chat_session_retention_days" => json!(config.chat_session_retention_days),
         "background_task_retention_days" => json!(config.background_task_retention_days),
@@ -177,7 +182,10 @@ async fn set_config_value(
             config.stall_timeout_seconds = parse_value(value)?;
         }
         "background_api_timeout_seconds" => {
-            config.background_api_timeout_seconds = parse_value(value)?;
+            config.background_api_timeout_seconds = parse_optional_u64(value)?;
+        }
+        "chat_response_timeout_seconds" => {
+            config.chat_response_timeout_seconds = parse_optional_u64(value)?;
         }
         "max_retries" => {
             config.max_retries = parse_value(value)?;
@@ -259,4 +267,44 @@ where
     value
         .parse::<T>()
         .map_err(|e| anyhow::anyhow!("Invalid value '{value}': {e}"))
+}
+
+fn parse_optional_u64(value: &str) -> Result<Option<u64>> {
+    let normalized = value.trim();
+    if normalized.eq_ignore_ascii_case("none")
+        || normalized.eq_ignore_ascii_case("null")
+        || normalized.eq_ignore_ascii_case("unset")
+    {
+        return Ok(None);
+    }
+    parse_value::<u64>(normalized).map(Some)
+}
+
+fn format_optional_u64(value: Option<u64>) -> String {
+    value
+        .map(|secs| secs.to_string())
+        .unwrap_or_else(|| "none".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_optional_u64_none_aliases() {
+        assert_eq!(parse_optional_u64("none").unwrap(), None);
+        assert_eq!(parse_optional_u64("null").unwrap(), None);
+        assert_eq!(parse_optional_u64("unset").unwrap(), None);
+    }
+
+    #[test]
+    fn test_parse_optional_u64_number() {
+        assert_eq!(parse_optional_u64("3600").unwrap(), Some(3600));
+    }
+
+    #[test]
+    fn test_format_optional_u64() {
+        assert_eq!(format_optional_u64(Some(42)), "42");
+        assert_eq!(format_optional_u64(None), "none");
+    }
 }

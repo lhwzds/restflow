@@ -12,7 +12,6 @@ const CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_
 const DEFAULT_WORKER_COUNT: usize = 4;
 const DEFAULT_TASK_TIMEOUT_SECONDS: u64 = 1800; // 30 minutes
 const DEFAULT_STALL_TIMEOUT_SECONDS: u64 = 600; // 10 minutes
-const DEFAULT_BACKGROUND_API_TIMEOUT_SECONDS: u64 = 3600; // 60 minutes
 const DEFAULT_MAX_RETRIES: u32 = 3;
 const DEFAULT_CHAT_SESSION_RETENTION_DAYS: u32 = 30;
 const DEFAULT_BACKGROUND_TASK_RETENTION_DAYS: u32 = 7;
@@ -130,7 +129,17 @@ pub struct SystemConfig {
     pub worker_count: usize,
     pub task_timeout_seconds: u64,
     pub stall_timeout_seconds: u64,
-    pub background_api_timeout_seconds: u64,
+    /// Default timeout for background API tasks in seconds.
+    ///
+    /// `None` disables timeout by default. Individual tasks may still configure
+    /// their own `timeout_secs` and resource limits.
+    #[serde(default)]
+    pub background_api_timeout_seconds: Option<u64>,
+    /// Timeout for interactive channel chat responses in seconds.
+    ///
+    /// `None` disables timeout for chat dispatching.
+    #[serde(default)]
+    pub chat_response_timeout_seconds: Option<u64>,
     pub max_retries: u32,
     pub chat_session_retention_days: u32,
     pub background_task_retention_days: u32,
@@ -151,7 +160,8 @@ impl Default for SystemConfig {
             worker_count: DEFAULT_WORKER_COUNT,
             task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
             stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
-            background_api_timeout_seconds: DEFAULT_BACKGROUND_API_TIMEOUT_SECONDS,
+            background_api_timeout_seconds: None,
+            chat_response_timeout_seconds: None,
             max_retries: DEFAULT_MAX_RETRIES,
             chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
             background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
@@ -188,9 +198,20 @@ impl SystemConfig {
             ));
         }
 
-        if self.background_api_timeout_seconds < MIN_TIMEOUT_SECONDS {
+        if let Some(timeout_secs) = self.background_api_timeout_seconds
+            && timeout_secs < MIN_TIMEOUT_SECONDS
+        {
             return Err(anyhow::anyhow!(
                 "Background API timeout must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+
+        if let Some(timeout_secs) = self.chat_response_timeout_seconds
+            && timeout_secs < MIN_TIMEOUT_SECONDS
+        {
+            return Err(anyhow::anyhow!(
+                "Chat response timeout must be at least {} seconds",
                 MIN_TIMEOUT_SECONDS
             ));
         }
@@ -347,10 +368,8 @@ mod tests {
         let config = config.unwrap();
         assert_eq!(config.worker_count, DEFAULT_WORKER_COUNT);
         assert_eq!(config.task_timeout_seconds, DEFAULT_TASK_TIMEOUT_SECONDS);
-        assert_eq!(
-            config.background_api_timeout_seconds,
-            DEFAULT_BACKGROUND_API_TIMEOUT_SECONDS
-        );
+        assert_eq!(config.background_api_timeout_seconds, None);
+        assert_eq!(config.chat_response_timeout_seconds, None);
     }
 
     #[test]
@@ -361,7 +380,8 @@ mod tests {
             worker_count: 8,
             task_timeout_seconds: 600,
             stall_timeout_seconds: 600,
-            background_api_timeout_seconds: 3600,
+            background_api_timeout_seconds: Some(3600),
+            chat_response_timeout_seconds: Some(900),
             max_retries: 5,
             chat_session_retention_days: 45,
             background_task_retention_days: 14,
@@ -384,7 +404,8 @@ mod tests {
             worker_count: 2,
             task_timeout_seconds: 30,
             stall_timeout_seconds: 30,
-            background_api_timeout_seconds: 1200,
+            background_api_timeout_seconds: Some(1200),
+            chat_response_timeout_seconds: Some(300),
             max_retries: 1,
             chat_session_retention_days: 30,
             background_task_retention_days: 7,
@@ -394,6 +415,32 @@ mod tests {
             ..Default::default()
         };
         assert!(valid_config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_optional_timeouts_allow_none() {
+        let config = SystemConfig {
+            background_api_timeout_seconds: None,
+            chat_response_timeout_seconds: None,
+            ..Default::default()
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_invalid_chat_response_timeout() {
+        let config = SystemConfig {
+            chat_response_timeout_seconds: Some(5),
+            ..Default::default()
+        };
+        let result = config.validate();
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Chat response timeout must be at least")
+        );
     }
 
     #[test]
