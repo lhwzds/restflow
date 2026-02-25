@@ -794,7 +794,7 @@ impl AgentRuntimeExecutor {
     /// Resolve the stored agent referenced by a chat session.
     ///
     /// If the session references a missing agent, this method falls back to
-    /// the "default" agent (or the first available one) and updates the session.
+    /// the resolved default agent and updates the session.
     fn resolve_stored_agent_for_session(
         &self,
         session: &mut ChatSession,
@@ -803,13 +803,7 @@ impl AgentRuntimeExecutor {
             return Ok(agent);
         }
 
-        let agents = self.storage.agents.list_agents()?;
-        let fallback = agents
-            .iter()
-            .find(|agent| agent.name.eq_ignore_ascii_case("default"))
-            .cloned()
-            .or_else(|| agents.first().cloned())
-            .ok_or_else(|| anyhow!("No AI agent configured"))?;
+        let fallback = self.storage.agents.resolve_default_agent()?;
 
         let fallback_model = fallback
             .agent
