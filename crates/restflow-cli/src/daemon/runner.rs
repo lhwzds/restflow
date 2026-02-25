@@ -192,10 +192,14 @@ impl CliBackgroundAgentRunner {
             ));
 
             // Create ChatDispatcher for AI conversations
-            let session_manager = Arc::new(ChatSessionManager::new(
-                storage.clone(),
-                20, // max history messages
-            ));
+            let default_chat_agent_id = storage.agents.resolve_default_agent_id()?;
+            let session_manager = Arc::new(
+                ChatSessionManager::new(
+                    storage.clone(),
+                    20, // max history messages
+                )
+                .with_default_agent(default_chat_agent_id),
+            );
             let debouncer = Arc::new(MessageDebouncer::default_timeout());
             let chat_dispatcher = Arc::new(ChatDispatcher::new(
                 session_manager,
@@ -443,15 +447,28 @@ mod tests {
     use restflow_core::models::{
         BackgroundAgentSpec, MemoryConfig, NotificationConfig, TaskSchedule,
     };
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     async fn setup_trigger_with_background_agent() -> (
         Arc<AppCore>,
         CliBackgroundAgentTrigger,
         BackgroundAgent,
         tempfile::TempDir,
+        std::sync::MutexGuard<'static, ()>,
     ) {
+        let env_lock = env_lock();
         let temp_dir = tempdir().expect("failed to create temp dir");
+        let agents_dir = temp_dir.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).expect("failed to create agents dir");
+        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
         let db_path = temp_dir.path().join("runner-test.db");
         let core = Arc::new(
             AppCore::new(db_path.to_str().expect("invalid db path"))
@@ -462,10 +479,7 @@ mod tests {
         let default_agent = core
             .storage
             .agents
-            .list_agents()
-            .expect("failed to list agents")
-            .into_iter()
-            .next()
+            .resolve_default_agent()
             .expect("default agent missing");
 
         let task = core
@@ -495,12 +509,13 @@ mod tests {
             Arc::new(RwLock::new(None)),
         );
 
-        (core, trigger, task, temp_dir)
+        (core, trigger, task, temp_dir, env_lock)
     }
 
     #[tokio::test]
     async fn send_input_to_task_enqueues_user_message() {
-        let (core, trigger, task, _temp_dir) = setup_trigger_with_background_agent().await;
+        let (core, trigger, task, _temp_dir, _env_lock) =
+            setup_trigger_with_background_agent().await;
 
         trigger
             .send_message_to_background_agent(&task.id, "hello from main agent")
@@ -516,11 +531,13 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].source, BackgroundMessageSource::User);
         assert_eq!(messages[0].message, "hello from main agent");
+        unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
 
     #[tokio::test]
     async fn handle_approval_falls_back_to_system_message_injection() {
-        let (core, trigger, task, _temp_dir) = setup_trigger_with_background_agent().await;
+        let (core, trigger, task, _temp_dir, _env_lock) =
+            setup_trigger_with_background_agent().await;
 
         let handled = trigger
             .handle_background_agent_approval(&task.id, true)
@@ -537,5 +554,6 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].source, BackgroundMessageSource::System);
         assert!(messages[0].message.contains("approved"));
+        unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
 }
