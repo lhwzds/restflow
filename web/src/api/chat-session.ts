@@ -117,23 +117,6 @@ export async function listChatSessionsBySkill(skillId: string): Promise<ChatSess
 }
 
 /**
- * Get the count of chat sessions.
- */
-export async function countChatSessions(): Promise<number> {
-  return tauriInvoke<number>('get_chat_session_count')
-}
-
-/**
- * Delete chat sessions older than the specified number of days.
- */
-export async function cleanupOldChatSessions(olderThanDays: number): Promise<number> {
-  const olderThanMs = Date.now() - olderThanDays * 24 * 60 * 60 * 1000
-  return tauriInvoke<number>('clear_old_chat_sessions', {
-    older_than_ms: Math.floor(olderThanMs),
-  })
-}
-
-/**
  * Trigger assistant response generation for a chat session.
  */
 export async function executeChatSession(sessionId: string): Promise<ChatSession> {
