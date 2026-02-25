@@ -20,6 +20,12 @@ name: string,
  */
 agent_id: string, 
 /**
+ * Optional chat session ID bound to this background agent
+ *
+ * When omitted, storage will create and bind a dedicated session.
+ */
+chat_session_id: string | null, 
+/**
  * Optional description
  */
 description: string | null, 

@@ -30,6 +30,10 @@ description: string | null,
  */
 agent_id: string, 
 /**
+ * Chat session ID bound to this background agent
+ */
+chat_session_id: string, 
+/**
  * Input/prompt to send to the agent
  */
 input: string | null, 
