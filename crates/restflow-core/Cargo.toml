@@ -55,7 +55,7 @@ sha2 = "0.10.9"
 glob-match = "0.2"
 shell-words = "1.1"
 which = "8"
-tempfile = "3.23.0"
+tempfile = "3.25.0"
 thiserror = "2.0.17"
 tokio = { version = "1.47.1", features = ["full"] }
 scopeguard = "1"
@@ -63,10 +63,10 @@ tokio-util = "0.7"
 toml = "1.0"
 tokio-cron-scheduler = "0.15.1"
 tokio-stream = "0.1"
-tokio-tungstenite = { version = "0.26", features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.28", features = ["connect", "rustls-tls-webpki-roots"] }
 tracing = "0.1"
 ts-rs = { version = "12.0", features = ["chrono-impl"] }
-uuid = { version = "1.20.0", features = ["v4", "serde"] }
+uuid = { version = "1.21.0", features = ["v4", "serde"] }
 walkdir = "2"
 urlencoding = "2.1.3"
 zip = "6.0.0"
