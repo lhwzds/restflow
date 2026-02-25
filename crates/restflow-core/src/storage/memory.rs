@@ -159,11 +159,11 @@ impl MemoryStorage {
         Ok(result)
     }
 
-    /// Check if a chunk with the given content already exists
-    pub fn exists_by_content(&self, content: &str) -> Result<Option<String>> {
+    /// Check if a chunk with the given content already exists for an agent
+    pub fn exists_by_content(&self, agent_id: &str, content: &str) -> Result<Option<String>> {
         use sha2::{Digest, Sha256};
         let hash = hex::encode(Sha256::digest(content.as_bytes()));
-        self.inner.find_by_hash(&hash)
+        self.inner.find_by_hash(agent_id, &hash)
     }
 
     /// Delete a memory chunk
@@ -242,11 +242,22 @@ impl MemoryStorage {
 
     // ============== Session Operations ==============
 
-    /// Create a new memory session
-    pub fn create_session(&self, session: &MemorySession) -> Result<String> {
+    fn put_session_with_index_cleanup(&self, session: &MemorySession) -> Result<()> {
+        if let Some(existing) = self.get_session(&session.id)?
+            && existing.agent_id != session.agent_id
+        {
+            self.inner.delete_session(&session.id, &existing.agent_id)?;
+        }
+
         let json_bytes = serde_json::to_vec(session)?;
         self.inner
             .put_session_raw(&session.id, &session.agent_id, &json_bytes)?;
+        Ok(())
+    }
+
+    /// Create a new memory session
+    pub fn create_session(&self, session: &MemorySession) -> Result<String> {
+        self.put_session_with_index_cleanup(session)?;
         Ok(session.id.clone())
     }
 
@@ -275,10 +286,7 @@ impl MemoryStorage {
 
     /// Update a session's metadata
     pub fn update_session(&self, session: &MemorySession) -> Result<()> {
-        let json_bytes = serde_json::to_vec(session)?;
-        self.inner
-            .put_session_raw(&session.id, &session.agent_id, &json_bytes)?;
-        Ok(())
+        self.put_session_with_index_cleanup(session)
     }
 
     /// Update session statistics based on its chunks
@@ -1091,18 +1099,61 @@ mod tests {
     }
 
     #[test]
+    fn test_create_session_cleans_stale_agent_index() {
+        let storage = create_test_storage();
+
+        let session_id = "session-stable-id".to_string();
+        let session_a = MemorySession::new("agent-001".to_string(), "Session".to_string())
+            .with_id(session_id.clone());
+        storage.create_session(&session_a).unwrap();
+
+        let mut session_b = session_a.clone();
+        session_b.agent_id = "agent-002".to_string();
+        storage.create_session(&session_b).unwrap();
+
+        let sessions_agent_a = storage.list_sessions("agent-001").unwrap();
+        let sessions_agent_b = storage.list_sessions("agent-002").unwrap();
+
+        assert!(sessions_agent_a.is_empty());
+        assert_eq!(sessions_agent_b.len(), 1);
+        assert_eq!(sessions_agent_b[0].id, session_id);
+    }
+
+    #[test]
     fn test_exists_by_content() {
         let storage = create_test_storage();
 
         let chunk = MemoryChunk::new("agent-001".to_string(), "Unique content".to_string());
         storage.store_chunk(&chunk).unwrap();
 
-        let exists = storage.exists_by_content("Unique content").unwrap();
+        let exists = storage
+            .exists_by_content("agent-001", "Unique content")
+            .unwrap();
         assert!(exists.is_some());
         assert_eq!(exists.unwrap(), chunk.id);
 
-        let not_exists = storage.exists_by_content("Different content").unwrap();
+        let not_exists = storage
+            .exists_by_content("agent-001", "Different content")
+            .unwrap();
         assert!(not_exists.is_none());
+    }
+
+    #[test]
+    fn test_exists_by_content_isolated_by_agent() {
+        let storage = create_test_storage();
+
+        let chunk = MemoryChunk::new("agent-001".to_string(), "Shared content".to_string());
+        storage.store_chunk(&chunk).unwrap();
+
+        let exists_agent_1 = storage
+            .exists_by_content("agent-001", "Shared content")
+            .unwrap();
+        let exists_agent_2 = storage
+            .exists_by_content("agent-002", "Shared content")
+            .unwrap();
+
+        assert_eq!(exists_agent_1, Some(chunk.id));
+        assert!(exists_agent_2.is_none());
     }
 
     #[test]

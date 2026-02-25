@@ -42,6 +42,7 @@
 
 use crate::memory::TextChunker;
 use crate::models::memory::{MemorySession, MemorySource};
+use crate::models::{ChatRole, ChatSession};
 use crate::storage::MemoryStorage;
 use anyhow::Result;
 use chrono::Utc;
@@ -167,8 +168,9 @@ impl MemoryPersister {
 
     /// Internal: persist messages with a configurable memory source.
     ///
-    /// This method uses deterministic session IDs based on `sha256(agent_id:source_id)`
-    /// so that re-persisting the same source replaces old chunks (upsert) instead of
+    /// This method uses deterministic session IDs based on source identity keys
+    /// (for example `conversation:{session_id}` or `task:{task_id}`) so that
+    /// re-persisting the same source replaces old chunks (upsert) instead of
     /// creating duplicate sessions.
     ///
     /// Steps:
@@ -202,17 +204,21 @@ impl MemoryPersister {
             });
         }
 
-        // Create deterministic session (same agent+source → same session ID)
+        // Create deterministic session (same source key → same session ID)
         let session_name = format!("Session: {}", source_name);
         let session_desc = format!(
             "Conversation persisted at {}",
             Utc::now().format("%Y-%m-%d %H:%M UTC")
         );
+        let deterministic_source_key = Self::deterministic_source_key(source_id, &source);
 
-        let session =
-            MemorySession::new_deterministic(agent_id.to_string(), source_id, session_name)
-                .with_description(session_desc)
-                .with_tags(tags.to_vec());
+        let session = MemorySession::new_deterministic(
+            agent_id.to_string(),
+            &deterministic_source_key,
+            session_name,
+        )
+        .with_description(session_desc)
+        .with_tags(tags.to_vec());
 
         // Upsert: if session already exists, delete old chunks and replace
         if self.storage.get_session(&session.id)?.is_some() {
@@ -328,6 +334,61 @@ impl MemoryPersister {
         }
 
         lines.join("\n\n")
+    }
+
+    fn deterministic_source_key(source_id: &str, source: &MemorySource) -> String {
+        match source {
+            MemorySource::TaskExecution { .. } => format!("task:{}", source_id),
+            MemorySource::Conversation { .. } => format!("conversation:{}", source_id),
+            MemorySource::ManualNote => format!("manual_note:{}", source_id),
+            MemorySource::AgentGenerated { tool_name } => {
+                format!("agent_generated:{}:{}", tool_name, source_id)
+            }
+        }
+    }
+}
+
+/// Persist a chat session to long-term memory using conversation source tagging.
+///
+/// Returns `Ok(None)` when there is nothing to persist (for example empty
+/// message list or content below persistence threshold).
+pub fn persist_chat_session_memory(
+    storage: &MemoryStorage,
+    session: &ChatSession,
+) -> Result<Option<PersistResult>> {
+    let messages: Vec<Message> = session
+        .messages
+        .iter()
+        .map(|m| match m.role {
+            ChatRole::User => Message::user(m.content.clone()),
+            ChatRole::Assistant => Message::assistant(m.content.clone()),
+            ChatRole::System => Message::system(m.content.clone()),
+        })
+        .collect();
+
+    if messages.is_empty() {
+        return Ok(None);
+    }
+
+    let persister = MemoryPersister::new(storage.clone());
+    let tags = vec![
+        format!("session:{}", session.id),
+        format!("agent:{}", session.agent_id),
+        "source:chat_session".to_string(),
+    ];
+
+    let result = persister.persist_conversation(
+        &messages,
+        &session.agent_id,
+        &session.id,
+        &session.name,
+        &tags,
+    )?;
+
+    if result.session_id.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(result))
     }
 }
 
@@ -578,15 +639,15 @@ mod tests {
     fn test_deterministic_session_id_consistency() {
         let s1 = MemorySession::new_deterministic(
             "agent-1".to_string(),
-            "source-abc",
+            "conversation:source-abc",
             "Session A".to_string(),
         );
         let s2 = MemorySession::new_deterministic(
             "agent-1".to_string(),
-            "source-abc",
+            "conversation:source-abc",
             "Session B".to_string(),
         );
-        // Same agent+source → same ID
+        // Same source key -> same deterministic ID
         assert_eq!(s1.id, s2.id);
         assert!(s1.id.starts_with("session-"));
     }
@@ -595,22 +656,38 @@ mod tests {
     fn test_deterministic_session_id_different_sources() {
         let s1 = MemorySession::new_deterministic(
             "agent-1".to_string(),
-            "source-abc",
+            "conversation:source-abc",
             "Session".to_string(),
         );
         let s2 = MemorySession::new_deterministic(
             "agent-1".to_string(),
-            "source-xyz",
+            "conversation:source-xyz",
             "Session".to_string(),
         );
         let s3 = MemorySession::new_deterministic(
             "agent-2".to_string(),
-            "source-abc",
+            "conversation:source-abc",
             "Session".to_string(),
         );
-        // Different inputs → different IDs
+        // Different source keys -> different IDs
         assert_ne!(s1.id, s2.id);
-        assert_ne!(s1.id, s3.id);
+        assert_eq!(s1.id, s3.id);
+    }
+
+    #[test]
+    fn test_deterministic_session_id_separates_task_and_conversation_sources() {
+        let conversation_session = MemorySession::new_deterministic(
+            "agent-1".to_string(),
+            "conversation:shared-id",
+            "Conversation".to_string(),
+        );
+        let task_session = MemorySession::new_deterministic(
+            "agent-1".to_string(),
+            "task:shared-id",
+            "Task".to_string(),
+        );
+
+        assert_ne!(conversation_session.id, task_session.id);
     }
 
     #[test]

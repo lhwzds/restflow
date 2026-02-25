@@ -1,7 +1,7 @@
 //! Hook executor implementation.
 
 use crate::channel::{ChannelRouter, ChannelType};
-use crate::models::{Hook, HookAction, HookContext, HookFilter, TaskSchedule};
+use crate::models::{BackgroundAgentSpec, Hook, HookAction, HookContext, HookFilter, TaskSchedule};
 use crate::storage::{BackgroundAgentStorage, HookStorage};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -34,20 +34,27 @@ impl HookTaskScheduler for BackgroundAgentHookScheduler {
     async fn schedule_task(&self, agent_id: &str, input: &str) -> Result<()> {
         let now = chrono::Utc::now().timestamp_millis();
         let task_name = format!("Hook follow-up: {}", agent_id);
-
-        let mut task = self.storage.create_task(
-            task_name,
-            agent_id.to_string(),
-            TaskSchedule::Once { run_at: now },
-        )?;
-
-        if !input.trim().is_empty() {
-            task.input = Some(input.to_string());
-        }
-        task.description = Some("Created by hook automation".to_string());
-        task.updated_at = now;
-
-        self.storage.update_task(&task)?;
+        self.storage.create_background_agent(BackgroundAgentSpec {
+            name: task_name,
+            agent_id: agent_id.to_string(),
+            chat_session_id: None,
+            description: Some("Created by hook automation".to_string()),
+            input: if input.trim().is_empty() {
+                None
+            } else {
+                Some(input.to_string())
+            },
+            input_template: None,
+            schedule: TaskSchedule::Once { run_at: now },
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        })?;
         Ok(())
     }
 }

@@ -980,6 +980,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Agent ID for execution
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// Optional bound chat session ID
+    #[serde(default)]
+    pub chat_session_id: Option<String>,
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
@@ -1659,6 +1662,7 @@ impl RestFlowMcpServer {
                 let spec = BackgroundAgentSpec {
                     name,
                     agent_id,
+                    chat_session_id: params.chat_session_id,
                     description: params.description,
                     input: params.input,
                     input_template: params.input_template,
@@ -1691,6 +1695,7 @@ impl RestFlowMcpServer {
                     name: params.name,
                     description: params.description,
                     agent_id: params.agent_id,
+                    chat_session_id: params.chat_session_id,
                     input: params.input,
                     input_template: params.input_template,
                     schedule: Self::parse_optional_value("schedule", params.schedule)?,
@@ -3476,6 +3481,7 @@ mod tests {
             id: None,
             name: None,
             agent_id: None,
+            chat_session_id: None,
             description: None,
             input: None,
             input_template: None,
@@ -3879,6 +3885,7 @@ mod tests {
             id: None,
             name: None,
             agent_id: None,
+            chat_session_id: None,
             description: None,
             input: None,
             input_template: None,

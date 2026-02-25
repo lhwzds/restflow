@@ -291,18 +291,16 @@ impl MemorySession {
         }
     }
 
-    /// Create a memory session with a deterministic ID based on agent_id and source_id.
+    /// Create a memory session with a deterministic ID based on source identity.
     ///
-    /// The ID is derived from `sha256(agent_id:source_id)` so the same agent+source
-    /// pair always produces the same session ID. This enables upsert semantics:
-    /// re-persisting the same source replaces the old session instead of creating duplicates.
+    /// The ID is derived from `sha256(source_key)` so the same source always
+    /// produces the same session ID, even if the bound agent changes later.
+    /// This enables stable upsert semantics for session-centric memory.
     pub fn new_deterministic(agent_id: String, source_id: &str, name: String) -> Self {
         use restflow_storage::time_utils;
         use sha2::{Digest, Sha256};
 
-        let hash = hex::encode(Sha256::digest(
-            format!("{}:{}", agent_id, source_id).as_bytes(),
-        ));
+        let hash = hex::encode(Sha256::digest(source_id.as_bytes()));
         let id = format!("session-{}", &hash[..16]);
         let now = time_utils::now_ms();
 
@@ -870,7 +868,10 @@ mod tests {
             "source-123",
             "Name".to_string(),
         );
-        assert_ne!(s1.id, s3.id, "different agent must produce different ID");
+        assert_eq!(
+            s1.id, s3.id,
+            "same source key must stay stable even when agent changes"
+        );
     }
 
     #[test]

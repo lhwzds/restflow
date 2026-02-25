@@ -186,6 +186,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let task = self.storage.create_background_agent(BackgroundAgentSpec {
             name: request.name,
             agent_id: resolved_agent_id,
+            chat_session_id: request.chat_session_id,
             description: None,
             input: request.input,
             input_template: request.input_template,
@@ -220,6 +221,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             name: request.name,
             description: request.description,
             agent_id: resolved_agent_id,
+            chat_session_id: request.chat_session_id,
             input: request.input,
             input_template: request.input_template,
             schedule: Self::parse_optional_value("schedule", request.schedule)?,
@@ -461,6 +463,7 @@ mod tests {
         let request = BackgroundAgentCreateRequest {
             name: "Test BG Task".to_string(),
             agent_id,
+            chat_session_id: None,
             input: Some("Do something".to_string()),
             input_template: None,
             schedule: None,
@@ -485,6 +488,7 @@ mod tests {
         let request = BackgroundAgentCreateRequest {
             name: "Delete Me".to_string(),
             agent_id,
+            chat_session_id: None,
             input: Some("task to delete".to_string()),
             input_template: None,
             schedule: None,
@@ -509,6 +513,7 @@ mod tests {
             .create_background_agent(BackgroundAgentCreateRequest {
                 name: "Messaging".to_string(),
                 agent_id,
+                chat_session_id: None,
                 input: Some("messaging task".to_string()),
                 input_template: None,
                 schedule: None,

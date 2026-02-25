@@ -488,6 +488,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Background Agent Test".to_string(),
                 agent_id: default_agent.id,
+                chat_session_id: None,
                 description: Some("test".to_string()),
                 input: Some("hello".to_string()),
                 input_template: None,

@@ -52,6 +52,8 @@ enum BackgroundAgentAction {
         name: String,
         agent_id: String,
         #[serde(default)]
+        chat_session_id: Option<String>,
+        #[serde(default)]
         schedule: Option<Value>,
         #[serde(default)]
         input: Option<String>,
@@ -76,6 +78,8 @@ enum BackgroundAgentAction {
         description: Option<String>,
         #[serde(default)]
         agent_id: Option<String>,
+        #[serde(default)]
+        chat_session_id: Option<String>,
         #[serde(default)]
         input: Option<String>,
         #[serde(default)]
@@ -202,6 +206,10 @@ impl Tool for BackgroundAgentTool {
                     "type": "string",
                     "description": "Background agent description (for update)"
                 },
+                "chat_session_id": {
+                    "type": "string",
+                    "description": "Optional bound chat session ID (for create/update). If omitted on create, backend creates one."
+                },
                 "schedule": {
                     "type": "object",
                     "description": "Background agent schedule object (for create/update)"
@@ -304,6 +312,7 @@ impl Tool for BackgroundAgentTool {
             BackgroundAgentAction::Create {
                 name,
                 agent_id,
+                chat_session_id,
                 schedule,
                 input,
                 input_template,
@@ -319,6 +328,7 @@ impl Tool for BackgroundAgentTool {
                     .create_background_agent(BackgroundAgentCreateRequest {
                         name,
                         agent_id,
+                        chat_session_id,
                         schedule,
                         input,
                         input_template,
@@ -338,6 +348,7 @@ impl Tool for BackgroundAgentTool {
                 name,
                 description,
                 agent_id,
+                chat_session_id,
                 input,
                 input_template,
                 schedule,
@@ -357,6 +368,7 @@ impl Tool for BackgroundAgentTool {
                         name,
                         description,
                         agent_id,
+                        chat_session_id,
                         input,
                         input_template,
                         schedule,

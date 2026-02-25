@@ -4,10 +4,10 @@
 //! APIs from restflow-storage with Rust types from our models.
 
 use crate::models::{
-    AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
+    AIModel, AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
     BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec,
     BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
-    BackgroundProgress,
+    BackgroundProgress, ChatSession,
 };
 use anyhow::Result;
 use redb::Database;
@@ -15,13 +15,15 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::CheckpointStorage;
+use super::{AgentStorage, ChatSessionStorage, CheckpointStorage};
 
 /// Typed agent task storage wrapper around restflow-storage::BackgroundAgentStorage.
 #[derive(Clone)]
 pub struct BackgroundAgentStorage {
     inner: restflow_storage::BackgroundAgentStorage,
     checkpoints: CheckpointStorage,
+    agents: AgentStorage,
+    chat_sessions: ChatSessionStorage,
 }
 
 impl BackgroundAgentStorage {
@@ -29,6 +31,17 @@ impl BackgroundAgentStorage {
 
     fn has_non_empty_text(value: Option<&str>) -> bool {
         value.is_some_and(|text| !text.trim().is_empty())
+    }
+
+    fn normalize_optional_id(value: Option<String>) -> Option<String> {
+        value.and_then(|id| {
+            let trimmed = id.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
     }
 
     fn validate_timeout_secs(timeout_secs: Option<u64>) -> Result<()> {
@@ -80,12 +93,91 @@ impl BackgroundAgentStorage {
         crate::template::render_template_single_pass(template, &replacements)
     }
 
+    fn resolve_agent_model_for_session(&self, agent_id: &str) -> Result<String> {
+        let fallback_model = AIModel::Gpt5.as_serialized_str().to_string();
+        let Some(agent) = self.agents.get_agent(agent_id.to_string())? else {
+            return Ok(fallback_model);
+        };
+
+        Ok(agent
+            .agent
+            .model
+            .map(|model| model.as_serialized_str().to_string())
+            .unwrap_or(fallback_model))
+    }
+
+    fn create_bound_chat_session(&self, agent_id: &str, task_name: &str) -> Result<String> {
+        let model = self.resolve_agent_model_for_session(agent_id)?;
+        let session_name = format!("Background: {}", task_name);
+        let session = ChatSession::new(agent_id.to_string(), model).with_name(session_name);
+        let session_id = session.id.clone();
+        self.chat_sessions.create(&session)?;
+        Ok(session_id)
+    }
+
+    fn ensure_chat_session_binding(&self, chat_session_id: &str, agent_id: &str) -> Result<()> {
+        let session = self
+            .chat_sessions
+            .get(chat_session_id)?
+            .ok_or_else(|| anyhow::anyhow!("chat_session_id '{}' not found", chat_session_id))?;
+
+        if session.agent_id != agent_id {
+            return Err(anyhow::anyhow!(
+                "chat_session_id '{}' is bound to agent '{}', expected '{}'",
+                chat_session_id,
+                session.agent_id,
+                agent_id
+            ));
+        }
+
+        Ok(())
+    }
+
+    fn resolve_chat_session_id_for_create(
+        &self,
+        requested_chat_session_id: Option<String>,
+        agent_id: &str,
+        task_name: &str,
+    ) -> Result<String> {
+        if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
+            self.ensure_chat_session_binding(&chat_session_id, agent_id)?;
+            return Ok(chat_session_id);
+        }
+
+        self.create_bound_chat_session(agent_id, task_name)
+    }
+
+    fn resolve_chat_session_id_for_update(
+        &self,
+        task: &BackgroundAgent,
+        requested_chat_session_id: Option<String>,
+        next_agent_id: &str,
+    ) -> Result<String> {
+        if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
+            self.ensure_chat_session_binding(&chat_session_id, next_agent_id)?;
+            return Ok(chat_session_id);
+        }
+
+        let current_chat_session_id = task.chat_session_id.trim();
+        if !current_chat_session_id.is_empty()
+            && self
+                .ensure_chat_session_binding(current_chat_session_id, next_agent_id)
+                .is_ok()
+        {
+            return Ok(current_chat_session_id.to_string());
+        }
+
+        self.create_bound_chat_session(next_agent_id, &task.name)
+    }
+
     /// Create a new BackgroundAgentStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         let checkpoints = CheckpointStorage::new(db.clone())?;
         Ok(Self {
-            inner: restflow_storage::BackgroundAgentStorage::new(db)?,
+            inner: restflow_storage::BackgroundAgentStorage::new(db.clone())?,
             checkpoints,
+            agents: AgentStorage::new(db.clone())?,
+            chat_sessions: ChatSessionStorage::new(db)?,
         })
     }
 
@@ -425,31 +517,52 @@ impl BackgroundAgentStorage {
 
     /// Create a background agent from a rich spec.
     pub fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
-        Self::validate_timeout_secs(spec.timeout_secs)?;
-        Self::validate_task_input(spec.input.as_deref(), spec.input_template.as_deref())?;
-        let mut task = self.create_task(spec.name, spec.agent_id, spec.schedule)?;
+        let BackgroundAgentSpec {
+            name,
+            agent_id,
+            chat_session_id,
+            description,
+            input,
+            input_template,
+            schedule,
+            notification,
+            execution_mode,
+            timeout_secs,
+            memory,
+            durability_mode,
+            resource_limits,
+            prerequisites,
+            continuation,
+        } = spec;
 
-        task.description = spec.description;
-        task.input = spec.input;
-        task.input_template = spec.input_template;
-        if let Some(notification) = spec.notification {
+        Self::validate_timeout_secs(timeout_secs)?;
+        Self::validate_task_input(input.as_deref(), input_template.as_deref())?;
+        let resolved_chat_session_id =
+            self.resolve_chat_session_id_for_create(chat_session_id, &agent_id, &name)?;
+        let mut task = self.create_task(name, agent_id, schedule)?;
+
+        task.chat_session_id = resolved_chat_session_id;
+        task.description = description;
+        task.input = input;
+        task.input_template = input_template;
+        if let Some(notification) = notification {
             task.notification = notification;
         }
-        if let Some(execution_mode) = spec.execution_mode {
+        if let Some(execution_mode) = execution_mode {
             task.execution_mode = execution_mode;
         }
-        task.timeout_secs = spec.timeout_secs;
-        if let Some(memory) = spec.memory {
+        task.timeout_secs = timeout_secs;
+        if let Some(memory) = memory {
             task.memory = memory;
         }
-        if let Some(durability_mode) = spec.durability_mode {
+        if let Some(durability_mode) = durability_mode {
             task.durability_mode = durability_mode;
         }
-        if let Some(resource_limits) = spec.resource_limits {
+        if let Some(resource_limits) = resource_limits {
             task.resource_limits = resource_limits;
         }
-        task.prerequisites = spec.prerequisites;
-        if let Some(continuation) = spec.continuation {
+        task.prerequisites = prerequisites;
+        if let Some(continuation) = continuation {
             task.continuation = continuation;
         }
         task.updated_at = chrono::Utc::now().timestamp_millis();
@@ -463,52 +576,74 @@ impl BackgroundAgentStorage {
         id: &str,
         patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent> {
-        Self::validate_timeout_secs(patch.timeout_secs)?;
+        let BackgroundAgentPatch {
+            name,
+            description,
+            agent_id,
+            chat_session_id,
+            input,
+            input_template,
+            schedule,
+            notification,
+            execution_mode,
+            timeout_secs,
+            memory,
+            durability_mode,
+            resource_limits,
+            prerequisites,
+            continuation,
+        } = patch;
+        Self::validate_timeout_secs(timeout_secs)?;
         let mut task = self
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
 
-        if let Some(name) = patch.name {
+        let next_agent_id = agent_id.clone().unwrap_or_else(|| task.agent_id.clone());
+        let resolved_chat_session_id =
+            self.resolve_chat_session_id_for_update(&task, chat_session_id, &next_agent_id)?;
+
+        if let Some(name) = name {
             task.name = name;
         }
-        if let Some(description) = patch.description {
+        if let Some(description) = description {
             task.description = Some(description);
         }
-        if let Some(agent_id) = patch.agent_id {
+        if let Some(agent_id) = agent_id {
             task.agent_id = agent_id;
         }
-        if let Some(input) = patch.input {
+        task.chat_session_id = resolved_chat_session_id;
+        if let Some(input) = input {
             task.input = Some(input);
         }
-        if let Some(input_template) = patch.input_template {
+        if let Some(input_template) = input_template {
             task.input_template = Some(input_template);
         }
-        if let Some(schedule) = patch.schedule {
+        if let Some(schedule) = schedule {
             task.schedule = schedule;
             task.update_next_run();
         }
-        if let Some(notification) = patch.notification {
+        if let Some(notification) = notification {
             task.notification = notification;
         }
-        if let Some(execution_mode) = patch.execution_mode {
+        if let Some(execution_mode) = execution_mode {
             task.execution_mode = execution_mode;
         }
-        if let Some(timeout_secs) = patch.timeout_secs {
+        if let Some(timeout_secs) = timeout_secs {
             task.timeout_secs = Some(timeout_secs);
         }
-        if let Some(memory) = patch.memory {
+        if let Some(memory) = memory {
             task.memory = memory;
         }
-        if let Some(durability_mode) = patch.durability_mode {
+        if let Some(durability_mode) = durability_mode {
             task.durability_mode = durability_mode;
         }
-        if let Some(resource_limits) = patch.resource_limits {
+        if let Some(resource_limits) = resource_limits {
             task.resource_limits = resource_limits;
         }
-        if let Some(prerequisites) = patch.prerequisites {
+        if let Some(prerequisites) = prerequisites {
             task.prerequisites = prerequisites;
         }
-        if let Some(continuation) = patch.continuation {
+        if let Some(continuation) = continuation {
             task.continuation = continuation;
             task.continuation_total_iterations = 0;
             task.continuation_segments_completed = 0;
@@ -909,6 +1044,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Test Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("test input".to_string()),
                 input_template: None,
@@ -937,6 +1073,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Test Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("test input".to_string()),
                 input_template: None,
@@ -976,6 +1113,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Task 1".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("test input".to_string()),
                 input_template: None,
@@ -995,6 +1133,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Task 2".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("test input".to_string()),
                 input_template: None,
@@ -1032,6 +1171,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Test Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("test input".to_string()),
                 input_template: None,
@@ -1489,6 +1629,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Cron Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("hello".to_string()),
                 input_template: None,
@@ -1527,6 +1668,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Stale Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("hello".to_string()),
                 input_template: None,
@@ -1610,6 +1752,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "BG Agent".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: Some("Background agent".to_string()),
                 input: Some("Run checks".to_string()),
                 input_template: None,
@@ -1708,6 +1851,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Templated Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("fallback".to_string()),
                 input_template: Some("Run task {{task.id}}".to_string()),
@@ -1739,6 +1883,117 @@ mod tests {
     }
 
     #[test]
+    fn test_create_background_agent_auto_creates_bound_chat_session() {
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Bound Session Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("Run with auto session".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        assert!(!created.chat_session_id.trim().is_empty());
+        let session = storage
+            .chat_sessions
+            .get(&created.chat_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(session.agent_id, "agent-001");
+        assert!(session.name.contains("Bound Session Task"));
+    }
+
+    #[test]
+    fn test_create_background_agent_rejects_chat_session_bound_to_other_agent() {
+        let storage = create_test_storage();
+        let foreign_session = ChatSession::new(
+            "agent-002".to_string(),
+            AIModel::Gpt5.as_serialized_str().to_string(),
+        );
+        storage.chat_sessions.create(&foreign_session).unwrap();
+
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Reject Foreign Session".to_string(),
+            agent_id: "agent-001".to_string(),
+            chat_session_id: Some(foreign_session.id.clone()),
+            description: None,
+            input: Some("Run".to_string()),
+            input_template: None,
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        });
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("is bound to agent"));
+        assert!(err.contains("agent-002"));
+    }
+
+    #[test]
+    fn test_update_background_agent_agent_change_rebinds_chat_session() {
+        let storage = create_test_storage();
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Rebind Session Task".to_string(),
+                agent_id: "agent-001".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("Run".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+        let original_session_id = created.chat_session_id.clone();
+
+        let updated = storage
+            .update_background_agent(
+                &created.id,
+                BackgroundAgentPatch {
+                    agent_id: Some("agent-002".to_string()),
+                    ..Default::default()
+                },
+            )
+            .unwrap();
+
+        assert_eq!(updated.agent_id, "agent-002");
+        assert_ne!(updated.chat_session_id, original_session_id);
+
+        let rebound_session = storage
+            .chat_sessions
+            .get(&updated.chat_session_id)
+            .unwrap()
+            .unwrap();
+        assert_eq!(rebound_session.agent_id, "agent-002");
+    }
+
+    #[test]
     fn test_update_background_agent_updates_template_and_memory_scope() {
         use crate::models::{MemoryConfig, MemoryScope};
 
@@ -1747,6 +2002,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Updatable Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("Fallback task input".to_string()),
                 input_template: None,
@@ -1794,6 +2050,7 @@ mod tests {
         let result = storage.create_background_agent(BackgroundAgentSpec {
             name: "Too Fast Timeout".to_string(),
             agent_id: "agent-001".to_string(),
+            chat_session_id: None,
             description: None,
             input: Some("Run timeout validation".to_string()),
             input_template: None,
@@ -1824,6 +2081,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Timeout Update Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("Run timeout update".to_string()),
                 input_template: None,
@@ -1861,6 +2119,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Resource Limits Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("Run resource limit roundtrip".to_string()),
                 input_template: None,
@@ -1916,6 +2175,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Continuation Task".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("Run continuation roundtrip".to_string()),
                 input_template: None,
@@ -1980,6 +2240,7 @@ mod tests {
         let result = storage.create_background_agent(BackgroundAgentSpec {
             name: "Missing Input".to_string(),
             agent_id: "agent-001".to_string(),
+            chat_session_id: None,
             description: None,
             input: None,
             input_template: None,
@@ -2010,6 +2271,7 @@ mod tests {
             .create_background_agent(BackgroundAgentSpec {
                 name: "Mutable Input".to_string(),
                 agent_id: "agent-001".to_string(),
+                chat_session_id: None,
                 description: None,
                 input: Some("Initial input".to_string()),
                 input_template: Some("Template {{task.name}}".to_string()),
@@ -2049,6 +2311,7 @@ mod tests {
         let result = storage.create_background_agent(BackgroundAgentSpec {
             name: "Fallback Input".to_string(),
             agent_id: "agent-001".to_string(),
+            chat_session_id: None,
             description: None,
             input: Some("Use fallback".to_string()),
             input_template: Some("{{input}}".to_string()),
@@ -2072,6 +2335,7 @@ mod tests {
         let result = storage.create_background_agent(BackgroundAgentSpec {
             name: "Empty Template".to_string(),
             agent_id: "agent-001".to_string(),
+            chat_session_id: None,
             description: None,
             input: None,
             input_template: Some("{{input}}".to_string()),
@@ -2101,6 +2365,7 @@ mod tests {
         let result = storage.create_background_agent(BackgroundAgentSpec {
             name: "Template Compatibility".to_string(),
             agent_id: "agent-001".to_string(),
+            chat_session_id: None,
             description: None,
             input: None,
             input_template: Some("Task {{task.name}}".to_string()),

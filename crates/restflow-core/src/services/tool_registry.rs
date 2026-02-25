@@ -967,6 +967,7 @@ mod tests {
             BackgroundAgentCreateRequest {
                 name: "Background Agent".to_string(),
                 agent_id: created_agent.id,
+                chat_session_id: None,
                 schedule: None,
                 input: Some("Run periodic checks".to_string()),
                 input_template: Some("Template {{task.id}}".to_string()),
@@ -1004,6 +1005,7 @@ mod tests {
                 name: Some("Background Agent Updated".to_string()),
                 description: Some("Updated description".to_string()),
                 agent_id: None,
+                chat_session_id: None,
                 input: Some("Run checks and summarize".to_string()),
                 input_template: Some("Updated {{task.name}}".to_string()),
                 schedule: None,
