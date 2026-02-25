@@ -7,7 +7,7 @@
 //! - Persisting conversation memory to long-term storage
 //! - Sending notifications on completion/failure
 
-use crate::channel::{ChannelRouter, MessageLevel};
+use crate::channel::{ChannelRouter, MessageLevel, OutboundMessage};
 use crate::hooks::HookExecutor;
 use crate::models::{
     BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource, ExecutionMode, HookContext,
@@ -327,6 +327,48 @@ impl NotificationSink for ChannelRouterNotificationSink {
         let Some(router) = self.router.read().await.as_ref().cloned() else {
             return Ok(NotificationDispatchStatus::Skipped);
         };
+
+        // Prefer task-bound conversations to avoid confusing global broadcasts.
+        let task_conversations = router.find_conversations_by_task(&task.id).await;
+        if !task_conversations.is_empty() {
+            let mut any_sent = false;
+            let mut failures: Vec<String> = Vec::new();
+
+            for context in task_conversations {
+                let mut outbound = OutboundMessage::new(&context.conversation_id, message);
+                outbound.level = level;
+                // Keep payload plain to avoid markdown parse failures in adapters.
+                outbound.parse_mode = None;
+
+                match router.send_to(context.channel_type, outbound).await {
+                    Ok(()) => {
+                        any_sent = true;
+                        info!(
+                            "Notification sent to task-bound conversation '{}' for task '{}'",
+                            context.conversation_id, task.name
+                        );
+                    }
+                    Err(err) => {
+                        warn!(
+                            "Failed sending notification to conversation '{}' for task '{}': {}",
+                            context.conversation_id, task.name, err
+                        );
+                        failures.push(format!("{}: {}", context.conversation_id, err));
+                    }
+                }
+            }
+
+            if any_sent {
+                return Ok(NotificationDispatchStatus::Sent);
+            }
+            if !failures.is_empty() {
+                return Err(anyhow!(
+                    "Task-bound notification delivery failed: {}",
+                    failures.join(" | ")
+                ));
+            }
+            return Ok(NotificationDispatchStatus::Skipped);
+        }
 
         let mut any_sent = false;
         let mut failures: Vec<String> = Vec::new();
@@ -1228,6 +1270,7 @@ impl BackgroundAgentRunner {
             }
 
             self.send_notification(&task, false, &error_msg).await;
+            self.clear_task_conversation_links(task_id).await;
             self.cleanup_task_tracking(task_id).await;
             return Ok(false);
         }
@@ -1708,8 +1751,22 @@ impl BackgroundAgentRunner {
             }
         }
 
+        self.clear_task_conversation_links(task_id).await;
         self.cleanup_task_tracking(task_id).await;
         Ok(success)
+    }
+
+    async fn clear_task_conversation_links(&self, task_id: &str) {
+        let Some(router) = self.channel_router.read().await.as_ref().cloned() else {
+            return;
+        };
+        let cleared = router.clear_task_associations(task_id).await;
+        if cleared > 0 {
+            info!(
+                "Cleared task association for {} conversation(s) after task {} terminal state",
+                cleared, task_id
+            );
+        }
     }
 
     /// Clean up all resources associated with a background agent task.
@@ -2085,15 +2142,20 @@ fn truncate_event_output(output: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::channel::{Channel, ChannelType, InboundMessage, OutboundMessage};
     use crate::hooks::{HookExecutor, HookTaskScheduler};
     use crate::models::{
         AgentCheckpoint, Hook, HookAction, HookEvent, MemoryScope, ResumePayload, TaskEventType,
         TaskSchedule,
     };
     use crate::runtime::background_agent::{ChannelEventEmitter, StreamEventKind};
+    use async_trait::async_trait;
+    use futures::Stream;
+    use std::pin::Pin;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::time::Instant;
     use tempfile::tempdir;
+    use tokio::sync::Mutex;
 
     /// Mock executor for testing
     struct MockExecutor {
@@ -2297,6 +2359,34 @@ mod tests {
         async fn schedule_task(&self, _agent_id: &str, _input: &str) -> Result<()> {
             self.call_count.fetch_add(1, Ordering::SeqCst);
             Ok(())
+        }
+    }
+
+    struct CaptureChannel {
+        sent: Arc<Mutex<Vec<OutboundMessage>>>,
+    }
+
+    #[async_trait]
+    impl Channel for CaptureChannel {
+        fn channel_type(&self) -> ChannelType {
+            ChannelType::Telegram
+        }
+
+        fn is_configured(&self) -> bool {
+            true
+        }
+
+        async fn send(&self, message: OutboundMessage) -> Result<()> {
+            self.sent.lock().await.push(message);
+            Ok(())
+        }
+
+        async fn send_typing(&self, _conversation_id: &str) -> Result<()> {
+            Ok(())
+        }
+
+        fn start_receiving(&self) -> Option<Pin<Box<dyn Stream<Item = InboundMessage> + Send>>> {
+            None
         }
     }
 
@@ -3260,6 +3350,124 @@ mod tests {
 
         // Should have sent notification
         assert_eq!(notifier.notification_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_channel_router_notification_prefers_task_bound_conversation() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(MockNotifier::new());
+        let sent = Arc::new(Mutex::new(Vec::new()));
+
+        let mut router = ChannelRouter::new();
+        router.register(CaptureChannel { sent: sent.clone() });
+        let router = Arc::new(router);
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage,
+            executor,
+            notifier.clone(),
+            config,
+            steer_registry,
+        ));
+        runner.set_channel_router(router.clone()).await;
+
+        let task = BackgroundAgent::new(
+            "task-route-1".to_string(),
+            "Route Task".to_string(),
+            "agent-001".to_string(),
+            TaskSchedule::default(),
+        );
+
+        let bound = InboundMessage::new(
+            "msg-1",
+            ChannelType::Telegram,
+            "user-1",
+            "chat-bound",
+            "Hello",
+        );
+        let other = InboundMessage::new(
+            "msg-2",
+            ChannelType::Telegram,
+            "user-2",
+            "chat-other",
+            "Hello",
+        );
+        router
+            .record_conversation(&bound, Some(task.id.clone()))
+            .await;
+        router.record_conversation(&other, None).await;
+
+        runner.send_notification(&task, true, "Done").await;
+
+        let sent_messages = sent.lock().await;
+        assert_eq!(sent_messages.len(), 1);
+        assert_eq!(sent_messages[0].conversation_id, "chat-bound");
+        assert_eq!(notifier.notification_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_runner_clears_task_association_after_completion() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+        let sent = Arc::new(Mutex::new(Vec::new()));
+
+        let mut router = ChannelRouter::new();
+        router.register(CaptureChannel { sent });
+        let router = Arc::new(router);
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Clear Link Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.input = Some("run".to_string());
+        task.next_run_at = Some(past_time);
+        storage.update_task(&task).unwrap();
+
+        let inbound = InboundMessage::new(
+            "msg-1",
+            ChannelType::Telegram,
+            "user-1",
+            "chat-task-link",
+            "/run clear-link-task",
+        );
+        router
+            .record_conversation(&inbound, Some(task.id.clone()))
+            .await;
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage,
+            executor,
+            notifier,
+            config,
+            steer_registry,
+        ));
+        runner.set_channel_router(router.clone()).await;
+
+        let handle = runner.clone().start();
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        handle.stop().await.unwrap();
+
+        let context = router
+            .get_conversation("chat-task-link")
+            .await
+            .expect("conversation should exist");
+        assert_eq!(context.task_id, None);
     }
 
     #[tokio::test]
