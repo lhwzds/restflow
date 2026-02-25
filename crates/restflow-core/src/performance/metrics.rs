@@ -86,26 +86,3 @@ pub struct MetricsSnapshot {
     pub queue_completed: u64,
     pub queue_failed: u64,
 }
-
-#[allow(dead_code)]
-pub fn print_metrics(metrics: &MetricsSnapshot) {
-    println!("=== RestFlow Performance Metrics ===");
-    println!();
-    println!("Database:");
-    println!(
-        " Reads: {} (avg {}μs)",
-        metrics.db_read_count, metrics.db_avg_read_us
-    );
-    println!(
-        " Writes: {} (avg {}μs)",
-        metrics.db_write_count, metrics.db_avg_write_us
-    );
-    println!();
-    println!("Cache:");
-    println!(" Hit rate: {:.1}%", metrics.cache_hit_rate * 100.0);
-    println!();
-    println!("Task Queue:");
-    println!(" Submitted: {}", metrics.queue_submitted);
-    println!(" Completed: {}", metrics.queue_completed);
-    println!(" Failed: {}", metrics.queue_failed);
-}

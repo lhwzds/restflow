@@ -4,10 +4,6 @@
 //! messages at safe boundaries while preserving Markdown code fence state,
 //! so code blocks are never broken mid-fence.
 
-/// Telegram hard limit for text messages.
-#[allow(dead_code)]
-const TELEGRAM_MAX_LEN: usize = 4096;
-
 /// Default split threshold (leaves headroom for fence re-opening markup).
 const DEFAULT_MAX_LEN: usize = 4000;
 /// Lower bound to prevent pathological tiny limits.
