@@ -42,7 +42,7 @@ sandbox = ["dep:restflow-sandbox"]
 dead_code = "allow"
 
 [dev-dependencies]
-tempfile = "3.19"
+tempfile = "3.25"
 tokio = { version = "1.0", features = ["rt-multi-thread", "macros"] }
 wiremock = "0.6"
 redb = "3.1"

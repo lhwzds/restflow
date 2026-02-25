@@ -58,5 +58,5 @@ clap_mangen = "0.2"
 [dev-dependencies]
 assert_cmd = "2.0"
 predicates = "3.1"
-tempfile = "3.10"
+tempfile = "3.25"
 redb = "3.1"

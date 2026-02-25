@@ -27,4 +27,4 @@ dirs = "6.0"
 tantivy = "0.25"
 
 [dev-dependencies]
-tempfile = "3.23.0"
+tempfile = "3.25.0"
