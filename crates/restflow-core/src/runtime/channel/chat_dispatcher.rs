@@ -29,7 +29,9 @@ pub struct ChatDispatcherConfig {
     /// Maximum number of messages to keep in session history.
     pub max_session_history: usize,
     /// AI response timeout in seconds.
-    pub response_timeout_secs: u64,
+    ///
+    /// `None` disables timeout and allows long-running foreground tasks.
+    pub response_timeout_secs: Option<u64>,
     /// Whether to send typing indicator while processing.
     pub send_typing_indicator: bool,
     /// Default agent name to use when none is specified.
@@ -40,7 +42,7 @@ impl Default for ChatDispatcherConfig {
     fn default() -> Self {
         Self {
             max_session_history: 20,
-            response_timeout_secs: 300,
+            response_timeout_secs: None,
             send_typing_indicator: true,
             default_agent_name: "default".to_string(),
         }
@@ -573,27 +575,42 @@ impl ChatDispatcher {
             message.channel_type,
         ));
         let executor = self.create_executor().with_reply_sender(reply_sender);
-        let exec_result = match tokio::time::timeout(
-            tokio::time::Duration::from_secs(self.config.response_timeout_secs),
-            executor.execute_session_turn(
-                &mut session,
-                &input,
-                self.config.max_session_history,
-                SessionInputMode::EphemeralInput,
-            ),
-        )
-        .await
-        {
-            Ok(Ok(result)) => result,
-            Ok(Err(error)) => {
+        let execution_result = if let Some(timeout_secs) = self.config.response_timeout_secs {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(timeout_secs),
+                executor.execute_session_turn(
+                    &mut session,
+                    &input,
+                    self.config.max_session_history,
+                    SessionInputMode::EphemeralInput,
+                ),
+            )
+            .await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    error!("Agent execution timed out after {} seconds", timeout_secs);
+                    self.send_error_response(message, ChatError::Timeout)
+                        .await?;
+                    return Ok(());
+                }
+            }
+        } else {
+            executor
+                .execute_session_turn(
+                    &mut session,
+                    &input,
+                    self.config.max_session_history,
+                    SessionInputMode::EphemeralInput,
+                )
+                .await
+        };
+
+        let exec_result = match execution_result {
+            Ok(result) => result,
+            Err(error) => {
                 error!("Agent execution failed: {}", error);
                 self.send_error_response(message, Self::map_execution_error(&error))
-                    .await?;
-                return Ok(());
-            }
-            Err(_) => {
-                error!("Agent execution timed out");
-                self.send_error_response(message, ChatError::Timeout)
                     .await?;
                 return Ok(());
             }
@@ -766,8 +783,17 @@ mod tests {
     fn test_config_defaults() {
         let config = ChatDispatcherConfig::default();
         assert_eq!(config.max_session_history, 20);
-        assert_eq!(config.response_timeout_secs, 300);
+        assert_eq!(config.response_timeout_secs, None);
         assert!(config.send_typing_indicator);
+    }
+
+    #[test]
+    fn test_config_allows_explicit_timeout() {
+        let config = ChatDispatcherConfig {
+            response_timeout_secs: Some(300),
+            ..ChatDispatcherConfig::default()
+        };
+        assert_eq!(config.response_timeout_secs, Some(300));
     }
 
     #[test]
