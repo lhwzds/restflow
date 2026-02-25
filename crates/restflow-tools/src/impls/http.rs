@@ -1,13 +1,12 @@
 //! HTTP request tool for making API calls.
 
 use async_trait::async_trait;
-use reqwest::Client;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::Result;
-use crate::http_client::{build_http_client, build_ssrf_safe_client};
+use crate::http_client::build_ssrf_safe_client;
 use crate::security::{NetworkAllowlist, resolve_and_validate_url};
 use crate::security::{SecurityGate, ToolAction};
 use crate::{Tool, ToolErrorCategory, ToolOutput, check_security};
@@ -22,7 +21,6 @@ struct HttpInput {
 
 /// HTTP request tool for making API calls.
 pub struct HttpTool {
-    client: Client,
     security_gate: Option<Arc<dyn SecurityGate>>,
     agent_id: Option<String>,
     task_id: Option<String>,
@@ -32,22 +30,11 @@ pub struct HttpTool {
 impl HttpTool {
     pub fn new() -> std::result::Result<Self, reqwest::Error> {
         Ok(Self {
-            client: build_http_client()?,
             security_gate: None,
             agent_id: None,
             task_id: None,
             network_allowlist: None,
         })
-    }
-
-    pub fn with_client(client: Client) -> Self {
-        Self {
-            client,
-            security_gate: None,
-            agent_id: None,
-            task_id: None,
-            network_allowlist: None,
-        }
     }
 
     pub fn with_security(
