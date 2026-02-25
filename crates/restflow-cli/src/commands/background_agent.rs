@@ -186,6 +186,7 @@ async fn create_background_agent(
     let spec = BackgroundAgentSpec {
         name,
         agent_id,
+        chat_session_id: None,
         description: None,
         input,
         input_template,
@@ -235,6 +236,7 @@ async fn update_background_agent(
         name,
         description: None,
         agent_id: None,
+        chat_session_id: None,
         input,
         input_template: None,
         schedule,

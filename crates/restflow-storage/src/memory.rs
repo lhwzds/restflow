@@ -10,7 +10,7 @@
 //! - `memory_sessions`: session_id -> session_data
 //! - `memory_agent_index`: agent_id:chunk_id -> chunk_id (for listing by agent)
 //! - `memory_session_index`: session_id:chunk_id -> chunk_id (for listing by session)
-//! - `memory_hash_index`: content_hash -> chunk_id (for deduplication)
+//! - `memory_hash_index`: agent_id:content_hash -> chunk_id (for deduplication)
 //! - `memory_tag_index`: tag:chunk_id -> chunk_id (for tag filtering)
 
 use anyhow::Result;
@@ -27,7 +27,7 @@ const AGENT_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("mem
 /// Index: session_id:chunk_id -> chunk_id
 const SESSION_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("memory_session_index");
-/// Index: content_hash -> chunk_id (for deduplication)
+/// Index: agent_id:content_hash -> chunk_id (for deduplication)
 const HASH_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("memory_hash_index");
 /// Index: tag:chunk_id -> chunk_id (for tag filtering)
 const TAG_INDEX_TABLE: TableDefinition<&str, &str> = TableDefinition::new("memory_tag_index");
@@ -48,6 +48,10 @@ pub enum PutChunkResult {
 }
 
 impl MemoryStorage {
+    fn scoped_hash_key(agent_id: &str, content_hash: &str) -> String {
+        format!("{}:{}", agent_id, content_hash)
+    }
+
     /// Create a new MemoryStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         // Initialize all tables
@@ -82,7 +86,8 @@ impl MemoryStorage {
         let result = {
             // Open hash_index once as mutable for both read and write
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            if let Some(existing) = hash_index.get(content_hash)? {
+            let hash_key = Self::scoped_hash_key(agent_id, content_hash);
+            if let Some(existing) = hash_index.get(hash_key.as_str())? {
                 PutChunkResult::Existing(existing.value().to_string())
             } else {
                 let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
@@ -99,7 +104,7 @@ impl MemoryStorage {
                 }
 
                 // Use the already-opened hash_index for insert
-                hash_index.insert(content_hash, chunk_id)?;
+                hash_index.insert(hash_key.as_str(), chunk_id)?;
 
                 let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
                 for tag in tags {
@@ -152,7 +157,8 @@ impl MemoryStorage {
 
             // Index by content hash for deduplication checking
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            hash_index.insert(content_hash, chunk_id)?;
+            let hash_key = Self::scoped_hash_key(agent_id, content_hash);
+            hash_index.insert(hash_key.as_str(), chunk_id)?;
 
             // Index by tags
             let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
@@ -268,11 +274,12 @@ impl MemoryStorage {
 
     /// Check if a chunk with the given content hash already exists.
     /// Returns the existing chunk ID if found.
-    pub fn find_by_hash(&self, content_hash: &str) -> Result<Option<String>> {
+    pub fn find_by_hash(&self, agent_id: &str, content_hash: &str) -> Result<Option<String>> {
         let read_txn = self.db.begin_read()?;
         let hash_index = read_txn.open_table(HASH_INDEX_TABLE)?;
+        let hash_key = Self::scoped_hash_key(agent_id, content_hash);
 
-        if let Some(value) = hash_index.get(content_hash)? {
+        if let Some(value) = hash_index.get(hash_key.as_str())? {
             Ok(Some(value.value().to_string()))
         } else {
             Ok(None)
@@ -310,7 +317,16 @@ impl MemoryStorage {
 
             // Remove from hash index
             let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            hash_index.remove(content_hash)?;
+            let hash_key = Self::scoped_hash_key(agent_id, content_hash);
+            hash_index.remove(hash_key.as_str())?;
+            // Best-effort cleanup for legacy global hash keys.
+            let remove_legacy_key = hash_index
+                .get(content_hash)?
+                .map(|existing| existing.value() == chunk_id)
+                .unwrap_or(false);
+            if remove_legacy_key {
+                hash_index.remove(content_hash)?;
+            }
 
             // Remove from tag indexes
             let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
@@ -495,7 +511,15 @@ impl MemoryStorage {
                     session_index.remove(session_key.as_str())?;
                 }
 
-                hash_index.remove(content_hash.as_str())?;
+                let hash_key = Self::scoped_hash_key(agent_id, content_hash.as_str());
+                hash_index.remove(hash_key.as_str())?;
+                let remove_legacy_key = hash_index
+                    .get(content_hash.as_str())?
+                    .map(|existing| existing.value() == chunk_id.as_str())
+                    .unwrap_or(false);
+                if remove_legacy_key {
+                    hash_index.remove(content_hash.as_str())?;
+                }
 
                 for tag in tags {
                     let tag_key = format!("{}:{}", tag, chunk_id);
@@ -847,12 +871,12 @@ mod tests {
             .unwrap();
 
         // Check for existing hash
-        let existing = storage.find_by_hash("unique-hash").unwrap();
+        let existing = storage.find_by_hash("agent-001", "unique-hash").unwrap();
         assert!(existing.is_some());
         assert_eq!(existing.unwrap(), "chunk-001");
 
         // Check for non-existing hash
-        let not_found = storage.find_by_hash("other-hash").unwrap();
+        let not_found = storage.find_by_hash("agent-001", "other-hash").unwrap();
         assert!(not_found.is_none());
     }
 
@@ -895,7 +919,7 @@ mod tests {
         assert!(session_chunks.is_empty());
 
         // Hash index should be empty
-        let hash_result = storage.find_by_hash("hash123").unwrap();
+        let hash_result = storage.find_by_hash("agent-001", "hash123").unwrap();
         assert!(hash_result.is_none());
 
         // Tag index should be empty
@@ -1037,8 +1061,18 @@ mod tests {
         assert!(chunks_agent1.is_empty());
 
         // Hash index cleaned
-        assert!(storage.find_by_hash("hash1").unwrap().is_none());
-        assert!(storage.find_by_hash("hash2").unwrap().is_none());
+        assert!(
+            storage
+                .find_by_hash("agent-001", "hash1")
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            storage
+                .find_by_hash("agent-001", "hash2")
+                .unwrap()
+                .is_none()
+        );
 
         // Session index cleaned
         let session1 = storage.list_chunks_by_session_raw("session-001").unwrap();
@@ -1056,7 +1090,12 @@ mod tests {
         // agent-002 data untouched
         let chunks_agent2 = storage.list_chunks_by_agent_raw("agent-002").unwrap();
         assert_eq!(chunks_agent2.len(), 1);
-        assert!(storage.find_by_hash("hash3").unwrap().is_some());
+        assert!(
+            storage
+                .find_by_hash("agent-002", "hash3")
+                .unwrap()
+                .is_some()
+        );
         let python_chunks = storage.list_chunks_by_tag_raw("python").unwrap();
         assert_eq!(python_chunks.len(), 1);
     }
@@ -1137,6 +1176,54 @@ mod tests {
         assert_eq!(chunks.len(), 1);
     }
 
+    #[test]
+    fn test_put_chunk_if_not_exists_isolated_by_agent() {
+        let storage = create_test_storage();
+
+        let result_agent_1 = storage
+            .put_chunk_if_not_exists(
+                "chunk-a1",
+                "agent-001",
+                None,
+                "shared-hash",
+                &[],
+                b"same-content",
+            )
+            .unwrap();
+        assert_eq!(
+            result_agent_1,
+            PutChunkResult::Created("chunk-a1".to_string())
+        );
+
+        let result_agent_2 = storage
+            .put_chunk_if_not_exists(
+                "chunk-a2",
+                "agent-002",
+                None,
+                "shared-hash",
+                &[],
+                b"same-content",
+            )
+            .unwrap();
+        assert_eq!(
+            result_agent_2,
+            PutChunkResult::Created("chunk-a2".to_string())
+        );
+
+        let agent_1_chunks = storage.list_chunks_by_agent_raw("agent-001").unwrap();
+        let agent_2_chunks = storage.list_chunks_by_agent_raw("agent-002").unwrap();
+        assert_eq!(agent_1_chunks.len(), 1);
+        assert_eq!(agent_2_chunks.len(), 1);
+        assert_eq!(
+            storage.find_by_hash("agent-001", "shared-hash").unwrap(),
+            Some("chunk-a1".to_string())
+        );
+        assert_eq!(
+            storage.find_by_hash("agent-002", "shared-hash").unwrap(),
+            Some("chunk-a2".to_string())
+        );
+    }
+
     /// Test concurrent chunk deduplication - all threads should get the same chunk ID.
     #[test]
     fn test_concurrent_chunk_dedup() {
@@ -1200,7 +1287,7 @@ mod tests {
         assert_eq!(chunks.len(), 1);
 
         // Hash index should point to the single chunk
-        let hash_result = storage.find_by_hash(content_hash).unwrap();
+        let hash_result = storage.find_by_hash("agent-001", content_hash).unwrap();
         assert!(hash_result.is_some());
     }
 

@@ -372,6 +372,11 @@ pub struct BackgroundAgentSpec {
     pub name: String,
     /// ID of the agent to execute
     pub agent_id: String,
+    /// Optional chat session ID bound to this background agent
+    ///
+    /// When omitted, storage will create and bind a dedicated session.
+    #[serde(default)]
+    pub chat_session_id: Option<String>,
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
@@ -422,6 +427,9 @@ pub struct BackgroundAgentPatch {
     /// New agent ID
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// New bound chat session ID
+    #[serde(default)]
+    pub chat_session_id: Option<String>,
     /// New input prompt
     #[serde(default)]
     pub input: Option<String>,
@@ -720,6 +728,9 @@ pub struct BackgroundAgent {
     pub description: Option<String>,
     /// ID of the agent to execute
     pub agent_id: String,
+    /// Chat session ID bound to this background agent
+    #[serde(default)]
+    pub chat_session_id: String,
     /// Input/prompt to send to the agent
     #[serde(default)]
     pub input: Option<String>,
@@ -809,6 +820,7 @@ impl BackgroundAgent {
             name,
             description: None,
             agent_id,
+            chat_session_id: String::new(),
             input: None,
             input_template: None,
             schedule,

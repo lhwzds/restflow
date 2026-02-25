@@ -103,6 +103,9 @@ pub struct CreateBackgroundAgentRequest {
     pub name: String,
     /// ID of the agent to execute
     pub agent_id: String,
+    /// Optional bound chat session ID
+    #[serde(default)]
+    pub chat_session_id: Option<String>,
     /// Schedule configuration
     pub schedule: BackgroundAgentSchedule,
     /// Optional description
@@ -146,6 +149,9 @@ pub struct UpdateBackgroundAgentRequest {
     /// New agent ID (optional)
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// New bound chat session ID (optional)
+    #[serde(default)]
+    pub chat_session_id: Option<String>,
     /// New input/prompt (optional)
     #[serde(default)]
     pub input: Option<String>,
@@ -228,6 +234,7 @@ pub async fn create_background_agent(
     let spec = BackgroundAgentSpec {
         name: request.name,
         agent_id: request.agent_id,
+        chat_session_id: request.chat_session_id,
         description: request.description,
         input: request.input,
         input_template: request.input_template,
@@ -260,6 +267,7 @@ pub async fn update_background_agent(
         name: request.name,
         description: request.description,
         agent_id: request.agent_id,
+        chat_session_id: request.chat_session_id,
         input: request.input,
         input_template: request.input_template,
         schedule: request.schedule,

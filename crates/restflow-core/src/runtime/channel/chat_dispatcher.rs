@@ -632,6 +632,41 @@ impl ChatDispatcher {
             Some(&exec_result.active_model),
         ) {
             warn!("Failed to save exchange to session: {}", e);
+        } else {
+            match self.storage.chat_sessions.get(&session.id) {
+                Ok(Some(persisted_session)) => {
+                    match crate::runtime::background_agent::persist::persist_chat_session_memory(
+                        &self.storage.memory,
+                        &persisted_session,
+                    ) {
+                        Ok(Some(result)) if result.chunk_count > 0 => {
+                            debug!(
+                                "Persisted {} memory chunks for channel session {}",
+                                result.chunk_count, session.id
+                            );
+                        }
+                        Ok(Some(_)) | Ok(None) => {}
+                        Err(error) => {
+                            warn!(
+                                "Failed to persist memory for channel session {}: {}",
+                                session.id, error
+                            );
+                        }
+                    }
+                }
+                Ok(None) => {
+                    warn!(
+                        "Session {} disappeared before memory persistence",
+                        session.id
+                    );
+                }
+                Err(error) => {
+                    warn!(
+                        "Failed to reload session {} for memory persistence: {}",
+                        session.id, error
+                    );
+                }
+            }
         }
 
         // 6. Send response (plain message without emoji prefix for AI chat)

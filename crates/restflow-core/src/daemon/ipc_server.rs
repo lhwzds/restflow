@@ -1629,43 +1629,17 @@ async fn execute_chat_session(
 /// Uses content-hash deduplication so repeated calls on the same session
 /// won't create duplicate chunks.
 fn persist_chat_session_memory(core: &Arc<AppCore>, session: &ChatSession) {
-    use crate::runtime::background_agent::persist::MemoryPersister;
-    use restflow_ai::llm::Message;
-
-    let messages: Vec<Message> = session
-        .messages
-        .iter()
-        .map(|m| match m.role {
-            ChatRole::User => Message::user(m.content.clone()),
-            ChatRole::Assistant => Message::assistant(m.content.clone()),
-            ChatRole::System => Message::system(m.content.clone()),
-        })
-        .collect();
-
-    if messages.is_empty() {
-        return;
-    }
-
-    let persister = MemoryPersister::new(core.storage.memory.clone());
-    let tags = vec![
-        format!("session:{}", session.id),
-        format!("agent:{}", session.agent_id),
-        "source:chat_session".to_string(),
-    ];
-
-    match persister.persist_conversation(
-        &messages,
-        &session.agent_id,
-        &session.id,
-        &session.name,
-        &tags,
+    match crate::runtime::background_agent::persist::persist_chat_session_memory(
+        &core.storage.memory,
+        session,
     ) {
-        Ok(result) if result.chunk_count > 0 => {
+        Ok(Some(result)) if result.chunk_count > 0 => {
             info!(
                 "Persisted {} memory chunks for chat session '{}' ({} deduplicated)",
                 result.chunk_count, session.id, result.deduplicated_count
             );
         }
+        Ok(Some(_)) => {}
         Err(e) => {
             warn!("Failed to persist chat session memory: {}", e);
         }
