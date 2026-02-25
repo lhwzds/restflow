@@ -593,61 +593,6 @@ impl BackgroundAgentRunner {
         }
     }
 
-    /// Create a git worktree for CLI agent isolation.
-    ///
-    /// Returns the worktree path if a git repo is detected and worktree creation succeeds,
-    /// None otherwise.
-    #[allow(dead_code)]
-    async fn setup_cli_worktree(&self, task: &BackgroundAgent, repo_path: &str) -> Option<String> {
-        let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S").to_string();
-        let safe_name = task
-            .name
-            .chars()
-            .filter(|c| c.is_alphanumeric() || *c == '-')
-            .collect::<String>();
-        let branch_name = format!("task/{}-{}", safe_name, &task.id[..8.min(task.id.len())]);
-        let worktree_path = format!(
-            "{}/.restflow/worktrees/{}-{}",
-            repo_path, safe_name, timestamp
-        );
-
-        let output = tokio::process::Command::new("git")
-            .args(["worktree", "add", &worktree_path, "-b", &branch_name])
-            .current_dir(repo_path)
-            .output()
-            .await
-            .ok()?;
-
-        if output.status.success() {
-            info!(worktree = %worktree_path, branch = %branch_name, "Created worktree for CLI agent");
-            Some(worktree_path)
-        } else {
-            warn!(
-                "Failed to create worktree: {}",
-                String::from_utf8_lossy(&output.stderr)
-            );
-            None
-        }
-    }
-
-    /// Detect git repository path from task configuration or current environment.
-    ///
-    /// Currently returns the current working directory if it's a git repo.
-    #[allow(dead_code)]
-    fn detect_repo_path(&self) -> Option<String> {
-        // For now, use current working directory as the default repo path
-        // In a more sophisticated implementation, this could parse task input
-        // or check task metadata for explicit repo paths
-        std::env::current_dir().ok().and_then(|p| {
-            // Check if it's a git repository
-            if p.join(".git").exists() {
-                Some(p.to_string_lossy().to_string())
-            } else {
-                None
-            }
-        })
-    }
-
     /// Start the runner and return a handle for controlling it
     pub fn start(self: Arc<Self>) -> RunnerHandle {
         let (command_tx, command_rx) = mpsc::channel(32);
