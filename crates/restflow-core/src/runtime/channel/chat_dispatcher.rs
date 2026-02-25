@@ -193,6 +193,8 @@ impl ChatSessionManager {
             })
             .cloned()
         {
+            let mut session = session;
+            self.maybe_rebind_to_forced_default(&mut session)?;
             debug!(
                 "Found existing session {} for {:?} conversation {}",
                 session.id, channel_type, conversation_id
@@ -222,6 +224,7 @@ impl ChatSessionManager {
                     );
                 }
             }
+            self.maybe_rebind_to_forced_default(&mut session)?;
 
             debug!(
                 "Reused migrated legacy session {} for {:?} conversation {}",
@@ -363,18 +366,7 @@ impl ChatSessionManager {
             return Ok(id.clone());
         }
 
-        // Try to find an agent named "default" or use the first available agent
-        let agents = self.storage.agents.list_agents()?;
-
-        if let Some(agent) = agents.iter().find(|a| a.name.to_lowercase() == "default") {
-            return Ok(agent.id.clone());
-        }
-
-        if let Some(agent) = agents.first() {
-            return Ok(agent.id.clone());
-        }
-
-        Err(anyhow!("No agents configured"))
+        self.storage.agents.resolve_default_agent_id()
     }
 
     /// Get the model for an agent.
@@ -390,6 +382,29 @@ impl ChatSessionManager {
             .model
             .map(|m| m.as_serialized_str().to_string())
             .unwrap_or_else(|| AIModel::Gpt5.as_serialized_str().to_string()))
+    }
+
+    fn maybe_rebind_to_forced_default(&self, session: &mut ChatSession) -> Result<()> {
+        let Some(default_agent_id) = self.default_agent_id.as_ref() else {
+            return Ok(());
+        };
+        if session.agent_id == *default_agent_id {
+            return Ok(());
+        }
+
+        let model = self.get_agent_model(default_agent_id)?;
+        session.agent_id = default_agent_id.clone();
+        session.model = model.clone();
+        session.metadata.last_model = Some(model);
+
+        if let Err(err) = self.storage.chat_sessions.save(session) {
+            warn!(
+                "Failed to persist forced default-agent rebind for session {}: {}",
+                session.id, err
+            );
+        }
+
+        Ok(())
     }
 }
 
@@ -778,6 +793,55 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(session.id, session2.id);
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_forces_existing_channel_session_to_default_agent() {
+        let (storage, _temp_dir) = create_test_storage();
+        let _env_lock = crate::prompt_files::agents_dir_env_lock();
+        let agents_dir = _temp_dir.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
+
+        use crate::models::AgentNode;
+        let non_default = storage
+            .agents
+            .create_agent(
+                "Issue Finder Agent".to_string(),
+                AgentNode::with_model(AIModel::CodexCli),
+            )
+            .unwrap();
+        let default_agent = storage
+            .agents
+            .create_agent(
+                crate::storage::agent::DEFAULT_ASSISTANT_NAME.to_string(),
+                AgentNode::with_model(AIModel::ClaudeSonnet4_5),
+            )
+            .unwrap();
+
+        let stale = ChatSession::new(
+            non_default.id.clone(),
+            AIModel::CodexCli.as_str().to_string(),
+        )
+        .with_name("conv-rebind")
+        .with_source(ChatSessionSource::Telegram, "conv-rebind");
+        storage.chat_sessions.create(&stale).unwrap();
+
+        let manager = ChatSessionManager::new(storage.clone(), 20)
+            .with_default_agent(default_agent.id.clone());
+        let session = manager
+            .get_or_create_session(ChannelType::Telegram, "conv-rebind", "user-1")
+            .await
+            .unwrap();
+
+        assert_eq!(session.id, stale.id);
+        assert_eq!(session.agent_id, default_agent.id);
+        assert_eq!(session.model, AIModel::ClaudeSonnet4_5.as_str());
+        assert_eq!(
+            session.metadata.last_model.as_deref(),
+            Some(AIModel::ClaudeSonnet4_5.as_str())
+        );
+        unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
 
     #[tokio::test]
