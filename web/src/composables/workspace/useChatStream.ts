@@ -33,9 +33,9 @@ export interface StreamState {
   /** Error message if failed */
   error: string | null
   /** Stream start timestamp */
-  startedAt: number | null
+  startedAt: bigint | null
   /** Stream completion timestamp */
-  completedAt: number | null
+  completedAt: bigint | null
   /** Thinking/reasoning content */
   thinking: string
 }
@@ -267,8 +267,8 @@ export function useChatStream(sessionId: () => string | null) {
   const hasError: ComputedRef<boolean> = computed(() => state.value.error !== null)
   const duration: ComputedRef<number> = computed(() => {
     if (!state.value.startedAt) return 0
-    const end = state.value.completedAt || Date.now()
-    return end - state.value.startedAt
+    const end = state.value.completedAt ?? BigInt(Date.now())
+    return Number(end - state.value.startedAt)
   })
   const tokensPerSecond: ComputedRef<number> = computed(() => {
     const ms = duration.value
