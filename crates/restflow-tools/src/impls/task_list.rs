@@ -517,15 +517,15 @@ mod tests {
             let mut result: Vec<_> = notes
                 .values()
                 .filter(|n| {
-                    if let Some(folder) = &query.folder {
-                        if n.folder != *folder {
-                            return false;
-                        }
+                    if let Some(folder) = &query.folder
+                        && n.folder != *folder
+                    {
+                        return false;
                     }
-                    if let Some(status) = &query.status {
-                        if n.status != *status {
-                            return false;
-                        }
+                    if let Some(status) = &query.status
+                        && n.status != *status
+                    {
+                        return false;
                     }
                     true
                 })

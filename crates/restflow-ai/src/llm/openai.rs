@@ -166,34 +166,6 @@ struct OpenAIStreamFunction {
     arguments: Option<String>,
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_stream_response_deserializes_stop_finish_reason() {
-        let json = r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#;
-        let parsed: OpenAIStreamResponse = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed.choices.len(), 1);
-        assert_eq!(parsed.choices[0].finish_reason, Some("stop".to_string()));
-    }
-
-    #[test]
-    fn test_finish_reason_mapping() {
-        // Verify the mapping from string to FinishReason enum
-        let map = |s: &str| match s {
-            "stop" => FinishReason::Stop,
-            "tool_calls" => FinishReason::ToolCalls,
-            "length" => FinishReason::MaxTokens,
-            _ => FinishReason::Error,
-        };
-        assert_eq!(map("stop"), FinishReason::Stop);
-        assert_eq!(map("tool_calls"), FinishReason::ToolCalls);
-        assert_eq!(map("length"), FinishReason::MaxTokens);
-        assert_eq!(map("unknown"), FinishReason::Error);
-    }
-}
-
 #[async_trait]
 impl LlmClient for OpenAIClient {
     fn provider(&self) -> &str {
@@ -566,5 +538,33 @@ impl LlmClient for OpenAIClient {
                 }
             }
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_stream_response_deserializes_stop_finish_reason() {
+        let json = r#"{"choices":[{"delta":{},"finish_reason":"stop"}]}"#;
+        let parsed: OpenAIStreamResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.choices.len(), 1);
+        assert_eq!(parsed.choices[0].finish_reason, Some("stop".to_string()));
+    }
+
+    #[test]
+    fn test_finish_reason_mapping() {
+        // Verify the mapping from string to FinishReason enum
+        let map = |s: &str| match s {
+            "stop" => FinishReason::Stop,
+            "tool_calls" => FinishReason::ToolCalls,
+            "length" => FinishReason::MaxTokens,
+            _ => FinishReason::Error,
+        };
+        assert_eq!(map("stop"), FinishReason::Stop);
+        assert_eq!(map("tool_calls"), FinishReason::ToolCalls);
+        assert_eq!(map("length"), FinishReason::MaxTokens);
+        assert_eq!(map("unknown"), FinishReason::Error);
     }
 }

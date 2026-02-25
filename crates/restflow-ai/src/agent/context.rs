@@ -336,6 +336,32 @@ impl ContextLoader {
     }
 }
 
+/// Cached workspace context.
+pub struct WorkspaceContextCache {
+    cache: tokio::sync::OnceCell<std::sync::Arc<DiscoveredContext>>,
+    loader: ContextLoader,
+}
+
+impl WorkspaceContextCache {
+    pub fn new(config: ContextDiscoveryConfig, workdir: PathBuf) -> Self {
+        Self {
+            cache: tokio::sync::OnceCell::new(),
+            loader: ContextLoader::new(config, workdir),
+        }
+    }
+
+    pub async fn get(&self) -> std::sync::Arc<DiscoveredContext> {
+        self.cache
+            .get_or_init(|| async { std::sync::Arc::new(self.loader.load().await) })
+            .await
+            .clone()
+    }
+
+    pub fn invalidate(&mut self) {
+        self.cache = tokio::sync::OnceCell::new();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -397,31 +423,5 @@ mod tests {
         // Should not panic
         let result = ctx.format_for_prompt();
         assert!(result.contains("..."));
-    }
-}
-
-/// Cached workspace context.
-pub struct WorkspaceContextCache {
-    cache: tokio::sync::OnceCell<std::sync::Arc<DiscoveredContext>>,
-    loader: ContextLoader,
-}
-
-impl WorkspaceContextCache {
-    pub fn new(config: ContextDiscoveryConfig, workdir: PathBuf) -> Self {
-        Self {
-            cache: tokio::sync::OnceCell::new(),
-            loader: ContextLoader::new(config, workdir),
-        }
-    }
-
-    pub async fn get(&self) -> std::sync::Arc<DiscoveredContext> {
-        self.cache
-            .get_or_init(|| async { std::sync::Arc::new(self.loader.load().await) })
-            .await
-            .clone()
-    }
-
-    pub fn invalidate(&mut self) {
-        self.cache = tokio::sync::OnceCell::new();
     }
 }

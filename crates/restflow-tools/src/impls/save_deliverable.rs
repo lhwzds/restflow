@@ -145,7 +145,6 @@ impl Tool for SaveDeliverableTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_ai::error::AiError;
 
     struct MockDeliverableStore;
 

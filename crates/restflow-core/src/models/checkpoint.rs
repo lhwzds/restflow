@@ -229,8 +229,8 @@ mod tests {
     fn test_with_ttl_ms_normal_value() {
         let cp = AgentCheckpoint::new("exec-1".into(), None, 1, 0, b"{}".to_vec(), "test".into());
         let created = cp.created_at;
-        let cp = cp.with_ttl_ms(3600_000); // 1 hour
-        assert_eq!(cp.expired_at, Some(created + 3600_000));
+        let cp = cp.with_ttl_ms(3_600_000); // 1 hour
+        assert_eq!(cp.expired_at, Some(created + 3_600_000));
     }
 
     #[test]

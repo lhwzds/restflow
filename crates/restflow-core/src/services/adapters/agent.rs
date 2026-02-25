@@ -334,8 +334,10 @@ mod tests {
     #[test]
     fn test_validate_unknown_tool_rejected() {
         let (adapter, _dir, _guard) = setup();
-        let mut agent = crate::models::AgentNode::default();
-        agent.tools = Some(vec!["nonexistent_tool".to_string()]);
+        let agent = crate::models::AgentNode {
+            tools: Some(vec!["nonexistent_tool".to_string()]),
+            ..Default::default()
+        };
         let agent_json = serde_json::to_value(agent).unwrap();
 
         let result = adapter.create_agent(AgentCreateRequest {
