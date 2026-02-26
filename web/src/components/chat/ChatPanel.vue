@@ -150,13 +150,13 @@ async function sendMessageWithStream(message: string) {
   processedToolIds.value.clear()
 
   // Optimistically show the user message immediately
-  const sessionId = chatSessionStore.currentSessionId
-  if (sessionId) {
-    chatSessionStore.appendLocalMessage(sessionId, {
+  const session = chatSessionStore.currentSession
+  if (session) {
+    session.messages.push({
       id: `optimistic-${Date.now()}`,
       role: 'user',
       content: message,
-      timestamp: BigInt(Date.now()),
+      timestamp: 0n,
       execution: null,
     })
   }
