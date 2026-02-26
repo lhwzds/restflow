@@ -23,13 +23,17 @@ pub use tools::{
 /// Skills are now registered as callable tools (via `registry_from_allowlist`),
 /// so they are no longer injected into the system prompt.
 pub fn build_agent_system_prompt(
-    _storage: Arc<Storage>,
+    storage: Arc<Storage>,
     agent_node: &AgentNode,
     agent_id: Option<&str>,
 ) -> Result<String, anyhow::Error> {
     let base = agent_id
-        .and_then(|id| match prompt_files::load_agent_prompt(id) {
-            Ok(prompt) => prompt,
+        .and_then(|id| match storage.agents.get_agent(id.to_string()) {
+            Ok(Some(stored_agent)) => stored_agent
+                .agent
+                .prompt
+                .filter(|prompt| !prompt.trim().is_empty()),
+            Ok(None) => None,
             Err(err) => {
                 warn!(
                     agent_id = %id,

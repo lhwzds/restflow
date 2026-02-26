@@ -23,6 +23,9 @@ pub struct StoredAgent {
     pub id: String,
     pub name: String,
     pub agent: AgentNode,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub prompt_file: Option<String>,
     #[ts(optional, type = "number")]
     pub created_at: Option<i64>,
     #[ts(optional, type = "number")]
@@ -48,12 +51,14 @@ impl AgentStorage {
 
         // Prompt content is file-backed under ~/.restflow/agents/{agent-name}.md, not stored in DB.
         let prompt_override = agent.prompt.take();
-        prompt_files::ensure_agent_prompt_file(&id, &name, prompt_override.as_deref())?;
+        let prompt_path =
+            prompt_files::ensure_agent_prompt_file(&id, &name, None, prompt_override.as_deref())?;
 
         let stored_agent = StoredAgent {
             id,
             name,
             agent,
+            prompt_file: Some(path_file_name(&prompt_path)?),
             created_at: Some(now),
             updated_at: Some(now),
         };
@@ -81,16 +86,11 @@ impl AgentStorage {
     }
 
     pub fn list_agents(&self) -> Result<Vec<StoredAgent>> {
-        let prompt_map = prompt_files::load_all_agent_prompts()?;
         let agents = self.inner.list_raw()?;
         let mut result = Vec::new();
         for (_, bytes) in agents {
-            let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
-            agent.agent.prompt = prompt_map
-                .get(&agent.id)
-                .cloned()
-                .filter(|prompt| !prompt.trim().is_empty());
-            result.push(agent);
+            let agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            result.push(self.hydrate_prompt_from_file(agent)?);
         }
         Ok(result)
     }
@@ -170,8 +170,11 @@ impl AgentStorage {
         prompt_files::ensure_agent_prompt_file(
             &existing_agent.id,
             &existing_agent.name,
+            existing_agent.prompt_file.as_deref(),
             prompt_override.as_deref(),
-        )?;
+        )
+        .and_then(|path| path_file_name(&path))
+        .map(|prompt_file| existing_agent.prompt_file = Some(prompt_file))?;
 
         let now = time_utils::now_ms();
         existing_agent.updated_at = Some(now);
@@ -190,15 +193,23 @@ impl AgentStorage {
     /// # Errors
     /// Returns an error if the agent is not found or if the ID prefix is ambiguous.
     pub fn delete_agent(&self, id: String) -> Result<()> {
-        // Use atomic delete from inner storage to prevent TOCTOU race
-        let (existed, resolved_id) = self.inner.delete_atomically(&id)?;
+        let resolved_id = self.resolve_existing_agent_id(&id)?;
+        let bytes = self
+            .inner
+            .get_raw(&resolved_id)?
+            .ok_or_else(|| anyhow::anyhow!("Agent {} not found", id))?;
+        let existing: StoredAgent = serde_json::from_slice(&bytes)?;
+
+        // Use atomic delete from inner storage after loading prompt metadata.
+        let (existed, _) = self.inner.delete_atomically(&resolved_id)?;
         if !existed {
             return Err(anyhow::anyhow!("Agent {} not found", id));
         }
-        // Clean up prompt file using resolved ID
-        if let Some(resolved) = resolved_id {
-            let _ = prompt_files::delete_agent_prompt_file(&resolved);
-        }
+        let _ = prompt_files::delete_agent_prompt_file_for_agent(
+            &existing.id,
+            &existing.name,
+            existing.prompt_file.as_deref(),
+        );
         Ok(())
     }
 
@@ -229,14 +240,33 @@ impl AgentStorage {
 
     pub fn reconcile_prompt_file_names(&self) -> Result<()> {
         let agents = self.list_agents()?;
-        for agent in agents {
-            prompt_files::ensure_agent_prompt_file(&agent.id, &agent.name, None)?;
+        for mut agent in agents {
+            let prompt_path = prompt_files::ensure_agent_prompt_file(
+                &agent.id,
+                &agent.name,
+                agent.prompt_file.as_deref(),
+                None,
+            )?;
+            let prompt_file = path_file_name(&prompt_path)?;
+            if agent.prompt_file.as_deref() != Some(prompt_file.as_str()) {
+                agent.prompt_file = Some(prompt_file);
+                self.persist_without_prompt(&agent)?;
+            }
         }
         Ok(())
     }
 
     fn hydrate_prompt_from_file(&self, mut stored: StoredAgent) -> Result<StoredAgent> {
-        stored.agent.prompt = prompt_files::load_agent_prompt(&stored.id)?;
+        let loaded = prompt_files::load_agent_prompt_for_agent(
+            &stored.id,
+            &stored.name,
+            stored.prompt_file.as_deref(),
+        )?;
+        stored.agent.prompt = loaded.content;
+        if stored.prompt_file != loaded.prompt_file {
+            stored.prompt_file = loaded.prompt_file;
+            self.persist_without_prompt(&stored)?;
+        }
         Ok(stored)
     }
 
@@ -281,6 +311,13 @@ impl AgentStorage {
             }
         }
     }
+}
+
+fn path_file_name(path: &std::path::Path) -> Result<String> {
+    path.file_name()
+        .and_then(|value| value.to_str())
+        .map(ToString::to_string)
+        .ok_or_else(|| anyhow::anyhow!("Invalid prompt path: {}", path.display()))
 }
 
 #[cfg(test)]
@@ -451,10 +488,14 @@ mod tests {
 
         assert!(!prompts_dir.join("original-name.md").exists());
         assert!(prompts_dir.join("renamed-agent.md").exists());
+        let loaded = prompt_files::load_agent_prompt_for_agent(
+            &stored.id,
+            "Renamed Agent",
+            Some("renamed-agent.md"),
+        )
+        .unwrap();
         assert_eq!(
-            prompt_files::load_agent_prompt(&stored.id)
-                .unwrap()
-                .as_deref(),
+            loaded.content.as_deref(),
             Some("You are a helpful assistant")
         );
 

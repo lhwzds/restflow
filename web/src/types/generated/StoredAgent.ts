@@ -4,4 +4,4 @@ import type { AgentNode } from "./AgentNode";
 /**
  * Stored agent with metadata
  */
-export type StoredAgent = { id: string, name: string, agent: AgentNode, created_at?: number, updated_at?: number, };
+export type StoredAgent = { id: string, name: string, agent: AgentNode, prompt_file?: string, created_at?: number, updated_at?: number, };
