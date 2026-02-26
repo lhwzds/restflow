@@ -592,6 +592,10 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
     case 'auth_clear':
       return null
 
+    // ---- Background Agents ----
+    case 'list_background_agents':
+      return []
+
     // ---- Fallback ----
     default:
       console.warn(`[Tauri IPC Mock] Unhandled command: ${cmd}`, args)
