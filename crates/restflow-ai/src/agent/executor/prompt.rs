@@ -1,8 +1,6 @@
+use super::{AgentConfig, AgentExecutor, CheckpointDurability};
 use crate::agent::state::AgentState;
 use crate::error::Result;
-use tracing::debug;
-
-use super::{AgentConfig, AgentExecutor, CheckpointDurability};
 
 impl AgentExecutor {
     pub(crate) async fn build_system_prompt(&self, config: &AgentConfig) -> String {
@@ -33,20 +31,6 @@ impl AgentExecutor {
             }
         }
 
-        // Workspace context section
-        if flags.include_workspace_context
-            && let Some(cache) = &self.context_cache
-        {
-            let context = cache.get().await;
-            if !context.content.is_empty() {
-                debug!(
-                    files = ?context.loaded_files,
-                    bytes = context.total_bytes,
-                    "Loaded workspace context"
-                );
-                sections.push(context.content.clone());
-            }
-        }
         // Agent context section (skills, memory summary)
         if flags.include_agent_context
             && config.inject_agent_context

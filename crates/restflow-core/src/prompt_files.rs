@@ -18,19 +18,12 @@ const BACKGROUND_AGENT_POLICY_ASSET: &str =
     include_str!("../assets/agents/background_agent_policy.md");
 
 pub fn ensure_prompt_templates() -> Result<()> {
-    ensure_prompt_template_file(DEFAULT_AGENT_PROMPT_FILE, DEFAULT_AGENT_PROMPT_ASSET)?;
     ensure_prompt_template_file(BACKGROUND_AGENT_POLICY_FILE, BACKGROUND_AGENT_POLICY_ASSET)?;
     Ok(())
 }
 
 pub fn load_default_main_agent_prompt() -> Result<String> {
-    let path = ensure_prompt_template_file(DEFAULT_AGENT_PROMPT_FILE, DEFAULT_AGENT_PROMPT_ASSET)?;
-    fs::read_to_string(&path).with_context(|| {
-        format!(
-            "Failed to read default main agent prompt: {}",
-            path.display()
-        )
-    })
+    Ok(DEFAULT_AGENT_PROMPT_ASSET.to_string())
 }
 
 pub fn load_background_agent_policy(background_task_id: Option<&str>) -> Result<String> {
@@ -751,7 +744,7 @@ mod tests {
         unsafe { std::env::set_var(AGENTS_DIR_ENV, temp.path()) };
 
         ensure_prompt_templates().unwrap();
-        assert!(temp.path().join(DEFAULT_AGENT_PROMPT_FILE).exists());
+        assert!(!temp.path().join(DEFAULT_AGENT_PROMPT_FILE).exists());
         assert!(temp.path().join(BACKGROUND_AGENT_POLICY_FILE).exists());
 
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };

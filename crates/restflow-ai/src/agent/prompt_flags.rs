@@ -22,7 +22,7 @@ pub struct PromptFlags {
     #[serde(default = "default_true")]
     pub include_tools: bool,
 
-    /// Include workspace context (file contents from context discovery).
+    /// Include workspace instructions from context discovery as a user-role message.
     /// Default: true
     #[serde(default = "default_true")]
     pub include_workspace_context: bool,
