@@ -4,7 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { Send, Square, X, Cpu, Mic, Loader2, AudioLines, Type } from 'lucide-vue-next'
 import AudioWaveform from '@/components/workspace/AudioWaveform.vue'
 import { useVoiceRecorder, getVoiceModel } from '@/composables/workspace/useVoiceRecorder'
-import type { VoiceMode } from '@/composables/workspace/useVoiceRecorder'
+import type { VoiceMode, VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -39,7 +39,7 @@ const emit = defineEmits<{
   send: [message: string]
   cancel: []
   close: []
-  sendVoiceMessage: [filePath: string]
+  sendVoiceMessage: [info: VoiceMessageInfo]
   'update:selectedAgent': [value: string | null]
   'update:selectedModel': [value: string]
 }>()
@@ -61,8 +61,8 @@ const recorder = useVoiceRecorder({
   onTranscribed: (_text) => {
     // Full text already accumulated via deltas; no extra action needed
   },
-  onVoiceMessage: (filePath) => {
-    emit('sendVoiceMessage', filePath)
+  onVoiceMessage: (info) => {
+    emit('sendVoiceMessage', info)
   },
 })
 
