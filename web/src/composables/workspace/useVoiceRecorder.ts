@@ -2,8 +2,11 @@
  * Voice Recorder Composable
  *
  * Manages audio recording with two modes:
- * - Voice-to-text (short click): Records audio → transcribes → returns text
- * - Voice message (long press): Records audio → saves file → returns path
+ * - Voice-to-text: Records audio → transcribes → returns text
+ * - Voice message: Records audio → saves file → returns path
+ *
+ * Uses click-to-toggle interaction (not long-press).
+ * Mode is chosen explicitly by the caller.
  */
 
 import { ref, computed, readonly, type Ref, type ComputedRef } from 'vue'
@@ -24,14 +27,14 @@ export interface VoiceRecorderOptions {
   language?: string
   onTranscribed?: (text: string) => void
   onVoiceMessage?: (filePath: string) => void
-  longPressThreshold?: number
 }
 
 export interface VoiceRecorderReturn {
   state: Readonly<Ref<VoiceRecorderState>>
-  startRecording: () => void
+  startRecording: (mode: VoiceMode) => void
   stopRecording: () => void
   cancelRecording: () => void
+  toggleRecording: (mode: VoiceMode) => void
   isSupported: ComputedRef<boolean>
 }
 
@@ -55,13 +58,7 @@ export function setVoiceModel(model: string): void {
 }
 
 export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecorderReturn {
-  const {
-    model,
-    language,
-    onTranscribed,
-    onVoiceMessage,
-    longPressThreshold = 500,
-  } = options
+  const { model, language, onTranscribed, onVoiceMessage } = options
 
   const state = ref<VoiceRecorderState>({
     isRecording: false,
@@ -74,7 +71,6 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
   let mediaRecorder: MediaRecorder | null = null
   let audioChunks: Blob[] = []
   let durationTimer: ReturnType<typeof setInterval> | null = null
-  let longPressTimer: ReturnType<typeof setTimeout> | null = null
   let stream: MediaStream | null = null
 
   // Always show the mic button; check actual support at recording time.
@@ -88,10 +84,6 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
       clearInterval(durationTimer)
       durationTimer = null
     }
-    if (longPressTimer) {
-      clearTimeout(longPressTimer)
-      longPressTimer = null
-    }
   }
 
   function stopStream() {
@@ -101,8 +93,9 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     }
   }
 
-  async function startRecording() {
+  async function startRecording(mode: VoiceMode) {
     if (state.value.isRecording || state.value.isTranscribing) return
+    if (!mode) return
 
     state.value.error = null
     audioChunks = []
@@ -140,22 +133,14 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
 
     mediaRecorder.start()
 
-    // Default to voice-to-text mode; upgrade to voice-message on long press
     state.value.isRecording = true
     state.value.duration = 0
-    state.value.mode = 'voice-to-text'
+    state.value.mode = mode
 
     // Duration counter
     durationTimer = setInterval(() => {
       state.value.duration++
     }, 1000)
-
-    // Long press detection
-    longPressTimer = setTimeout(() => {
-      if (state.value.isRecording) {
-        state.value.mode = 'voice-message'
-      }
-    }, longPressThreshold)
   }
 
   function stopRecording() {
@@ -178,6 +163,14 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     state.value.isRecording = false
     state.value.mode = null
     state.value.duration = 0
+  }
+
+  function toggleRecording(mode: VoiceMode) {
+    if (state.value.isRecording) {
+      stopRecording()
+    } else {
+      startRecording(mode)
+    }
   }
 
   async function handleRecordingComplete() {
@@ -228,6 +221,7 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     startRecording,
     stopRecording,
     cancelRecording,
+    toggleRecording,
     isSupported,
   }
 }
