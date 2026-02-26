@@ -4,6 +4,7 @@ pub mod agent_meta;
 pub mod ai_model;
 pub mod audit;
 pub mod background_agent;
+pub mod chat_execution_event;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
@@ -49,6 +50,7 @@ pub use audit::{
     AuditEvent, AuditEventCategory, AuditEventSource, AuditQuery, AuditStats, AuditTimeRange,
     LifecycleAudit, LlmCallAudit, MessageAudit, ModelSwitchAudit, ToolCallAudit,
 };
+pub use chat_execution_event::{ChatExecutionEvent, ChatExecutionEventType};
 pub use chat_session::{
     ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
     ChatSessionSource, ChatSessionSummary, ChatSessionUpdate, ExecutionStepInfo, MessageExecution,

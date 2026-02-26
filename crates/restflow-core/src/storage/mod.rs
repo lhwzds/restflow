@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod audit;
 pub mod background_agent;
+pub mod chat_execution_event;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
@@ -32,6 +33,7 @@ pub use restflow_storage::{
 pub use agent::AgentStorage;
 pub use audit::AuditStorage;
 pub use background_agent::BackgroundAgentStorage;
+pub use chat_execution_event::ChatExecutionEventStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use deliverable::DeliverableStorage;
@@ -60,6 +62,7 @@ pub struct Storage {
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
+    pub chat_execution_events: ChatExecutionEventStorage,
     pub deliverables: DeliverableStorage,
     pub hooks: HookStorage,
     pub work_items: WorkItemStorage,
@@ -104,6 +107,7 @@ impl Storage {
         let memory = MemoryStorage::with_index(db.clone(), index)?;
         memory.rebuild_text_index_if_empty()?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
+        let chat_execution_events = ChatExecutionEventStorage::new(db.clone())?;
         let deliverables = DeliverableStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
         let work_items = WorkItemStorage::new(db.clone())?;
@@ -124,6 +128,7 @@ impl Storage {
             terminal_sessions,
             memory,
             chat_sessions,
+            chat_execution_events,
             deliverables,
             hooks,
             work_items,
