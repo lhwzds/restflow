@@ -3236,6 +3236,7 @@ mod tests {
                     skill_variables: None,
                     model_routing: None,
                 },
+                prompt_file: None,
                 created_at: None,
                 updated_at: None,
             }
