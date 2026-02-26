@@ -56,7 +56,10 @@ pub async fn transcribe_audio(
     match response {
         IpcResponse::Success(value) => {
             // The tool returns { success, result, error }
-            let success = value.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+            let success = value
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
             if !success {
                 let error = value
                     .get("error")
@@ -70,7 +73,12 @@ pub async fn transcribe_audio(
             let text = result
                 .as_str()
                 .map(String::from)
-                .or_else(|| result.get("text").and_then(|v| v.as_str()).map(String::from))
+                .or_else(|| {
+                    result
+                        .get("text")
+                        .and_then(|v| v.as_str())
+                        .map(String::from)
+                })
                 .unwrap_or_default();
 
             Ok(TranscribeResult {
@@ -103,8 +111,7 @@ fn save_audio_to_temp(audio_base64: &str) -> Result<String, String> {
     let filename = format!("tauri-{}.webm", uuid::Uuid::new_v4());
     let file_path = dir.join(&filename);
 
-    std::fs::write(&file_path, &bytes)
-        .map_err(|e| format!("Failed to write audio file: {}", e))?;
+    std::fs::write(&file_path, &bytes).map_err(|e| format!("Failed to write audio file: {}", e))?;
 
     Ok(file_path.to_string_lossy().to_string())
 }
