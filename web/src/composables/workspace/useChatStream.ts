@@ -8,6 +8,7 @@
 import { ref, computed, onUnmounted, type ComputedRef } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { sendChatMessageStream, cancelChatStream } from '@/api/chat-stream'
+import { listChatExecutionEvents, type ChatExecutionEvent } from '@/api/chat-execution-events'
 import type { ChatStreamEvent } from '@/types/generated/ChatStreamEvent'
 import type { ChatStreamKind } from '@/types/generated/ChatStreamKind'
 import type { StepStatus } from '@/types/generated/StepStatus'
@@ -85,6 +86,79 @@ export function useChatStream(sessionId: () => string | null) {
   let unlistenFn: UnlistenFn | null = null
   let disposed = false
 
+  function buildStepsFromExecutionEvents(events: ChatExecutionEvent[]): StreamStep[] {
+    const sortedEvents = [...events].sort(
+      (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
+    )
+    const steps: StreamStep[] = []
+    const stepByToolId = new Map<string, StreamStep>()
+
+    for (const event of sortedEvents) {
+      if (event.event_type === 'tool_call_started') {
+        const toolId = event.tool_call_id ?? event.id
+        const step: StreamStep = {
+          type: 'tool_call',
+          name: event.tool_name ?? 'tool',
+          status: 'running',
+          toolId,
+          arguments: event.input ?? undefined,
+        }
+        stepByToolId.set(toolId, step)
+        steps.push(step)
+        continue
+      }
+
+      if (event.event_type === 'tool_call_completed') {
+        const toolId = event.tool_call_id ?? event.id
+        let step = stepByToolId.get(toolId)
+        if (!step) {
+          step = {
+            type: 'tool_call',
+            name: event.tool_name ?? 'tool',
+            status: 'running',
+            toolId,
+          }
+          stepByToolId.set(toolId, step)
+          steps.push(step)
+        }
+        step.status = event.success === false ? 'failed' : 'completed'
+        if (event.output) {
+          step.result = event.output
+        } else if (event.error) {
+          step.result = event.error
+        }
+        continue
+      }
+
+      if (event.event_type === 'turn_failed' || event.event_type === 'turn_cancelled') {
+        for (const step of steps) {
+          if (step.status === 'running') {
+            step.status = 'failed'
+          }
+        }
+      }
+    }
+
+    return steps
+  }
+
+  async function syncPersistedExecutionEvents(turnId: string): Promise<void> {
+    const sid = sessionId()
+    if (!sid) return
+
+    try {
+      const events = await listChatExecutionEvents(sid, turnId, 200)
+      if (disposed || state.value.messageId !== turnId) return
+
+      const steps = buildStepsFromExecutionEvents(events)
+      if (steps.length > 0) {
+        state.value.steps = steps
+      }
+    } catch {
+      // Ignore persistence read errors and keep live stream behavior.
+    }
+  }
+
   /**
    * Set up the Tauri event listener for chat stream events
    */
@@ -115,6 +189,7 @@ export function useChatStream(sessionId: () => string | null) {
    */
   function handleEvent(event: ChatStreamEvent): void {
     const kind = event.kind as ChatStreamKind
+    if (state.value.messageId && event.message_id !== state.value.messageId) return
 
     // Handle different event types based on the 'type' discriminator
     if ('type' in kind) {
@@ -196,6 +271,7 @@ export function useChatStream(sessionId: () => string | null) {
             state.value.content = kind.full_content
             state.value.tokenCount = kind.total_tokens
             state.value.completedAt = event.timestamp
+            void syncPersistedExecutionEvents(event.message_id)
           }
           break
 
@@ -206,6 +282,7 @@ export function useChatStream(sessionId: () => string | null) {
             if ('partial_content' in kind && kind.partial_content) {
               state.value.content = kind.partial_content
             }
+            void syncPersistedExecutionEvents(event.message_id)
           }
           break
 
@@ -214,6 +291,7 @@ export function useChatStream(sessionId: () => string | null) {
           if ('partial_content' in kind && kind.partial_content) {
             state.value.content = kind.partial_content
           }
+          void syncPersistedExecutionEvents(event.message_id)
           break
       }
     }
@@ -236,6 +314,7 @@ export function useChatStream(sessionId: () => string | null) {
     try {
       const messageId = await sendChatMessageStream(sid, message)
       state.value.messageId = messageId
+      void syncPersistedExecutionEvents(messageId)
       return messageId
     } catch (error) {
       state.value.isStreaming = false
