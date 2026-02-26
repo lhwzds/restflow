@@ -16,12 +16,15 @@ use crate::channel::{
 use crate::models::{AIModel, ChatMessage, ChatSession, ChatSessionSource};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
+use crate::runtime::channel::{
+    PersistingStreamEmitter, append_turn_completed, append_turn_failed, append_turn_started,
+};
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
 
 use super::debounce::MessageDebouncer;
 use crate::runtime::subagent::AgentDefinitionRegistry;
-use restflow_ai::agent::{SubagentConfig, SubagentTracker};
+use restflow_ai::agent::{NullEmitter, StreamEmitter, SubagentConfig, SubagentTracker};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -575,20 +578,35 @@ impl ChatDispatcher {
             message.channel_type,
         ));
         let executor = self.create_executor().with_reply_sender(reply_sender);
+        let turn_id = uuid::Uuid::new_v4().to_string();
+        append_turn_started(&self.storage.chat_execution_events, &session.id, &turn_id);
+        let mut tool_event_emitter = Some(Box::new(PersistingStreamEmitter::new(
+            Box::new(NullEmitter),
+            self.storage.chat_execution_events.clone(),
+            session.id.clone(),
+            turn_id.clone(),
+        )) as Box<dyn StreamEmitter>);
         let execution_result = if let Some(timeout_secs) = self.config.response_timeout_secs {
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(timeout_secs),
-                executor.execute_session_turn(
+                executor.execute_session_turn_with_emitter(
                     &mut session,
                     &input,
                     self.config.max_session_history,
                     SessionInputMode::EphemeralInput,
+                    tool_event_emitter.take(),
                 ),
             )
             .await
             {
                 Ok(result) => result,
                 Err(_) => {
+                    append_turn_failed(
+                        &self.storage.chat_execution_events,
+                        &session.id,
+                        &turn_id,
+                        &format!("execution timed out after {} seconds", timeout_secs),
+                    );
                     error!("Agent execution timed out after {} seconds", timeout_secs);
                     self.send_error_response(message, ChatError::Timeout)
                         .await?;
@@ -597,11 +615,12 @@ impl ChatDispatcher {
             }
         } else {
             executor
-                .execute_session_turn(
+                .execute_session_turn_with_emitter(
                     &mut session,
                     &input,
                     self.config.max_session_history,
                     SessionInputMode::EphemeralInput,
+                    tool_event_emitter.take(),
                 )
                 .await
         };
@@ -609,12 +628,19 @@ impl ChatDispatcher {
         let exec_result = match execution_result {
             Ok(result) => result,
             Err(error) => {
+                append_turn_failed(
+                    &self.storage.chat_execution_events,
+                    &session.id,
+                    &turn_id,
+                    &error.to_string(),
+                );
                 error!("Agent execution failed: {}", error);
                 self.send_error_response(message, Self::map_execution_error(&error))
                     .await?;
                 return Ok(());
             }
         };
+        append_turn_completed(&self.storage.chat_execution_events, &session.id, &turn_id);
 
         if session.agent_id != original_agent_id {
             match self
