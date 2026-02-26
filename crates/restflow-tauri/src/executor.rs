@@ -553,6 +553,24 @@ impl TauriExecutor {
         Ok(response.canceled)
     }
 
+    pub async fn steer_chat_session_stream(
+        &self,
+        session_id: String,
+        instruction: String,
+    ) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct SteerResponse {
+            steered: bool,
+        }
+        let response: SteerResponse = self
+            .request(IpcRequest::SteerChatSessionStream {
+                session_id,
+                instruction,
+            })
+            .await?;
+        Ok(response.steered)
+    }
+
     pub async fn get_session_messages(
         &self,
         session_id: String,

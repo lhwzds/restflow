@@ -36,3 +36,15 @@ export async function cancelChatStream(sessionId: string, messageId: string): Pr
     messageId,
   })
 }
+
+/**
+ * Send a steering instruction to the currently running stream for a session.
+ *
+ * Returns false when no active stream is steerable.
+ */
+export async function steerChatStream(sessionId: string, instruction: string): Promise<boolean> {
+  return tauriInvoke<boolean>('steer_chat_stream', {
+    sessionId,
+    instruction,
+  })
+}

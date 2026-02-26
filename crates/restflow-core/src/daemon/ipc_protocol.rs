@@ -257,6 +257,10 @@ pub enum IpcRequest {
         user_input: Option<String>,
         stream_id: String,
     },
+    SteerChatSessionStream {
+        session_id: String,
+        instruction: String,
+    },
     CancelChatSessionStream {
         stream_id: String,
     },
@@ -661,6 +665,27 @@ mod tests {
 
         if let IpcRequest::CancelChatSessionStream { stream_id } = parsed {
             assert_eq!(stream_id, "stream-456");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_steer_chat_session_stream_serialization() {
+        let request = IpcRequest::SteerChatSessionStream {
+            session_id: "session-9".to_string(),
+            instruction: "Focus on root cause".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::SteerChatSessionStream {
+            session_id,
+            instruction,
+        } = parsed
+        {
+            assert_eq!(session_id, "session-9");
+            assert_eq!(instruction, "Focus on root cause");
         } else {
             panic!("Wrong variant");
         }

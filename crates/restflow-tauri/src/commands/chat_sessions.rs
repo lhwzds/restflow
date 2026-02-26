@@ -363,6 +363,20 @@ pub async fn send_chat_message_stream(
     Ok(message_id)
 }
 
+/// Steer an active chat stream for the given session.
+#[tauri::command]
+pub async fn steer_chat_stream(
+    state: State<'_, AppState>,
+    session_id: String,
+    instruction: String,
+) -> Result<bool, String> {
+    state
+        .executor()
+        .steer_chat_session_stream(session_id, instruction)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Cancel an active chat stream.
 #[tauri::command]
 pub async fn cancel_chat_stream(
