@@ -39,7 +39,9 @@ pub struct AgentDefaults {
     /// Maximum tool calls allowed per agent run.
     pub max_tool_calls: usize,
     /// Maximum wall-clock time per agent run in seconds.
-    pub max_wall_clock_secs: u64,
+    ///
+    /// `None` disables wall-clock timeout for foreground agent runs.
+    pub max_wall_clock_secs: Option<u64>,
     /// Default timeout for background agent task execution in seconds.
     pub default_task_timeout_secs: u64,
     /// Default max duration for background agent resource limits in seconds.
@@ -60,7 +62,7 @@ impl Default for AgentDefaults {
             max_iterations: 100,
             subagent_timeout_secs: 600,
             max_tool_calls: 200,
-            max_wall_clock_secs: 1800,
+            max_wall_clock_secs: None,
             default_task_timeout_secs: 1800,
             default_max_duration_secs: 1800,
             fallback_models: None,
@@ -100,7 +102,9 @@ impl AgentDefaults {
         if self.max_tool_calls == 0 {
             return Err(anyhow::anyhow!("agent.max_tool_calls must be at least 1"));
         }
-        if self.max_wall_clock_secs < MIN_TIMEOUT_SECONDS {
+        if let Some(timeout_secs) = self.max_wall_clock_secs
+            && timeout_secs < MIN_TIMEOUT_SECONDS
+        {
             return Err(anyhow::anyhow!(
                 "agent.max_wall_clock_secs must be at least {} seconds",
                 MIN_TIMEOUT_SECONDS
@@ -370,6 +374,7 @@ mod tests {
         assert_eq!(config.task_timeout_seconds, DEFAULT_TASK_TIMEOUT_SECONDS);
         assert_eq!(config.background_api_timeout_seconds, None);
         assert_eq!(config.chat_response_timeout_seconds, None);
+        assert_eq!(config.agent.max_wall_clock_secs, None);
     }
 
     #[test]
@@ -484,11 +489,13 @@ mod tests {
 
         config.agent.tool_timeout_secs = 180;
         config.agent.bash_timeout_secs = 600;
+        config.agent.max_wall_clock_secs = Some(3_600);
         storage.update_config(config).unwrap();
 
         let retrieved = storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.agent.tool_timeout_secs, 180);
         assert_eq!(retrieved.agent.bash_timeout_secs, 600);
+        assert_eq!(retrieved.agent.max_wall_clock_secs, Some(3_600));
     }
 
     #[test]
@@ -524,5 +531,13 @@ mod tests {
         let mut config = SystemConfig::default();
         config.agent.max_iterations = 0;
         assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.max_wall_clock_secs = Some(5);
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.max_wall_clock_secs = None;
+        assert!(config.validate().is_ok());
     }
 }
