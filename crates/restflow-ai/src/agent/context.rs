@@ -183,11 +183,16 @@ pub struct DiscoveredContext {
 pub struct ContextLoader {
     config: ContextDiscoveryConfig,
     workdir: PathBuf,
+    user_agents_fallback_paths: Option<Vec<PathBuf>>,
 }
 
 impl ContextLoader {
     pub fn new(config: ContextDiscoveryConfig, workdir: PathBuf) -> Self {
-        Self { config, workdir }
+        Self {
+            config,
+            workdir,
+            user_agents_fallback_paths: None,
+        }
     }
 
     /// Discover and load all context files.
@@ -234,6 +239,15 @@ impl ContextLoader {
             }
         }
 
+        if !contents
+            .iter()
+            .any(|(path, _)| Self::is_agents_instruction_file(path))
+            && let Some((path, content)) = self.load_user_agents_fallback(&mut seen_paths).await
+            && total_bytes + content.len() <= self.config.max_total_size
+        {
+            contents.push((path, content));
+        }
+
         contents = self.prioritize_instruction_sources(contents);
         total_bytes = contents.iter().map(|(_, content)| content.len()).sum();
 
@@ -275,6 +289,59 @@ impl ContextLoader {
         };
         file_name.eq_ignore_ascii_case("AGENTS.md")
             || file_name.eq_ignore_ascii_case("AGENTS.local.md")
+    }
+
+    async fn load_user_agents_fallback(
+        &self,
+        seen_paths: &mut HashSet<String>,
+    ) -> Option<(PathBuf, String)> {
+        for candidate in self.user_agents_fallback_candidates() {
+            if self.is_duplicate(seen_paths, &candidate) {
+                continue;
+            }
+
+            match fs::metadata(&candidate).await {
+                Ok(meta) if meta.is_file() => {
+                    if let Ok(content) = self.load_file(&candidate).await {
+                        debug!(
+                            path = %candidate.display(),
+                            "Loaded fallback AGENTS instructions from user RestFlow directory"
+                        );
+                        return Some((candidate, content));
+                    }
+                }
+                _ => {
+                    debug!(
+                        path = %candidate.display(),
+                        "User fallback AGENTS path not found, skipping"
+                    );
+                }
+            }
+        }
+        None
+    }
+
+    fn user_agents_fallback_candidates(&self) -> Vec<PathBuf> {
+        if let Some(paths) = &self.user_agents_fallback_paths {
+            return paths.clone();
+        }
+
+        let Some(restflow_dir) = Self::resolve_restflow_dir() else {
+            return Vec::new();
+        };
+        vec![
+            restflow_dir.join("agents.md"),
+            restflow_dir.join("AGENTS.md"),
+        ]
+    }
+
+    fn resolve_restflow_dir() -> Option<PathBuf> {
+        if let Ok(dir) = std::env::var("RESTFLOW_DIR")
+            && !dir.trim().is_empty()
+        {
+            return Some(PathBuf::from(dir));
+        }
+        dirs::home_dir().map(|home| home.join(".restflow"))
     }
 
     async fn scan_directory(&self, dir: &Path) -> Result<Vec<(PathBuf, String)>, std::io::Error> {
@@ -366,6 +433,12 @@ impl ContextLoader {
             seen.insert(key);
             false
         }
+    }
+
+    #[cfg(test)]
+    fn with_user_agents_fallback_paths(mut self, paths: Vec<PathBuf>) -> Self {
+        self.user_agents_fallback_paths = Some(paths);
+        self
     }
 }
 
@@ -459,10 +532,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_context_loader_prioritizes_agents_files_over_fallbacks() {
+    async fn test_context_loader_prioritizes_workspace_agents_over_user_fallback() {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::write(temp.path().join("AGENTS.md"), "agents-content").expect("write AGENTS");
         std::fs::write(temp.path().join("CLAUDE.md"), "claude-content").expect("write CLAUDE");
+        let user_dir = tempfile::tempdir().expect("user tempdir");
+        let user_agents = user_dir.path().join("agents.md");
+        std::fs::write(&user_agents, "user-agents-content").expect("write user agents");
 
         let config = ContextDiscoveryConfig {
             paths: vec!["AGENTS.md".into(), "CLAUDE.md".into()],
@@ -471,16 +547,42 @@ mod tests {
             max_total_size: 100_000,
             max_file_size: 50_000,
         };
-        let loader = ContextLoader::new(config, temp.path().to_path_buf());
+        let loader = ContextLoader::new(config, temp.path().to_path_buf())
+            .with_user_agents_fallback_paths(vec![user_agents]);
         let discovered = loader.load().await;
 
         assert_eq!(discovered.loaded_files, vec![temp.path().join("AGENTS.md")]);
         assert!(discovered.content.contains("agents-content"));
+        assert!(!discovered.content.contains("user-agents-content"));
         assert!(!discovered.content.contains("claude-content"));
     }
 
     #[tokio::test]
-    async fn test_context_loader_falls_back_when_agents_missing() {
+    async fn test_context_loader_uses_user_restflow_agents_as_fallback() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp.path().join("CLAUDE.md"), "workspace-claude").expect("write CLAUDE");
+        let user_dir = tempfile::tempdir().expect("user tempdir");
+        let user_agents = user_dir.path().join("agents.md");
+        std::fs::write(&user_agents, "user-agents-only").expect("write user agents");
+
+        let config = ContextDiscoveryConfig {
+            paths: vec!["AGENTS.md".into(), "CLAUDE.md".into()],
+            scan_directories: false,
+            case_insensitive_dedup: true,
+            max_total_size: 100_000,
+            max_file_size: 50_000,
+        };
+        let loader = ContextLoader::new(config, temp.path().to_path_buf())
+            .with_user_agents_fallback_paths(vec![user_agents.clone()]);
+        let discovered = loader.load().await;
+
+        assert_eq!(discovered.loaded_files, vec![user_agents]);
+        assert!(discovered.content.contains("user-agents-only"));
+        assert!(!discovered.content.contains("workspace-claude"));
+    }
+
+    #[tokio::test]
+    async fn test_context_loader_falls_back_to_other_files_when_user_agents_missing() {
         let temp = tempfile::tempdir().expect("tempdir");
         std::fs::write(temp.path().join("CLAUDE.md"), "claude-only").expect("write CLAUDE");
 
@@ -491,7 +593,8 @@ mod tests {
             max_total_size: 100_000,
             max_file_size: 50_000,
         };
-        let loader = ContextLoader::new(config, temp.path().to_path_buf());
+        let loader = ContextLoader::new(config, temp.path().to_path_buf())
+            .with_user_agents_fallback_paths(vec![temp.path().join("missing-agents.md")]);
         let discovered = loader.load().await;
 
         assert_eq!(discovered.loaded_files, vec![temp.path().join("CLAUDE.md")]);
