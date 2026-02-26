@@ -221,6 +221,7 @@ describe('ChatPanel', () => {
       updateSessionLocally: mockUpdateSessionLocally,
       updateSessionAgent: mockUpdateSessionAgent,
       updateSessionModel: mockUpdateSessionModel,
+      appendLocalMessage: vi.fn(),
     } as any)
 
     vi.mocked(useModelsStore).mockReturnValue({
