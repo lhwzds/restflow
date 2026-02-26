@@ -15,6 +15,7 @@ import { useChatStream, type StreamStep } from '@/composables/workspace/useChatS
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents } from '@/api/agents'
+import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage as sendChatMessageApi } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
@@ -209,16 +210,25 @@ async function onSendMessage(message: string) {
   if (!canSend) return
 
   if (isExecuting.value) {
-    // Steering: save user message without resetting stream or triggering new execution
     const sessionId = chatSessionStore.currentSessionId
     if (sessionId) {
       try {
-        const session = await sendChatMessageApi(sessionId, message)
-        chatSessionStore.updateSessionLocally(session)
+        const steered = await steerChatStream(sessionId, message)
+        if (steered) {
+          // Persist the steering instruction in session history.
+          const session = await sendChatMessageApi(sessionId, message)
+          chatSessionStore.updateSessionLocally(session)
+          return
+        }
       } catch (error) {
         toast.error(error instanceof Error ? error.message : t('chat.sendMessageFailed'))
+        return
       }
     }
+
+    // No active steerable stream: fall back to starting a new streamed turn.
+    lastUserContent.value = message
+    await sendMessageWithStream(message)
     return
   }
 

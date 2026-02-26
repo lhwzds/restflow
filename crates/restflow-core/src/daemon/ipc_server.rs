@@ -8,7 +8,7 @@ use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
     AIModel, AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
     ChatSession, ChatSessionSource, ChatSessionSummary, HookContext, HookEvent, MemoryChunk,
-    MemorySearchQuery, MessageExecution, TerminalSession,
+    MemorySearchQuery, MessageExecution, SteerMessage, SteerSource, TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
@@ -52,6 +52,16 @@ pub struct IpcServer {
 fn active_chat_streams() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
     static STREAMS: OnceLock<Mutex<HashMap<String, JoinHandle<()>>>> = OnceLock::new();
     STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn active_chat_stream_sessions() -> &'static Mutex<HashMap<String, String>> {
+    static SESSION_STREAMS: OnceLock<Mutex<HashMap<String, String>>> = OnceLock::new();
+    SESSION_STREAMS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn active_chat_stream_steers() -> &'static Mutex<HashMap<String, mpsc::Sender<SteerMessage>>> {
+    static STEERS: OnceLock<Mutex<HashMap<String, mpsc::Sender<SteerMessage>>>> = OnceLock::new();
+    STEERS.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
 struct IpcStreamEmitter {
@@ -274,6 +284,33 @@ impl IpcServer {
                 "replaced by a newer stream with the same stream_id",
             );
         }
+        active_chat_stream_steers().lock().await.remove(&stream_id);
+
+        // Ensure at most one active stream per session.
+        if let Some(previous_stream_id) = active_chat_stream_sessions()
+            .lock()
+            .await
+            .insert(session_id.clone(), stream_id.clone())
+            && previous_stream_id != stream_id
+        {
+            if let Some(previous) = active_chat_streams()
+                .lock()
+                .await
+                .remove(&previous_stream_id)
+            {
+                previous.abort();
+                append_turn_cancelled(
+                    &core.storage.chat_execution_events,
+                    &session_id,
+                    &previous_stream_id,
+                    "replaced by a newer stream for the same session",
+                );
+            }
+            active_chat_stream_steers()
+                .lock()
+                .await
+                .remove(&previous_stream_id);
+        }
 
         Self::send_stream_frame(
             stream,
@@ -284,9 +321,11 @@ impl IpcServer {
         .await?;
 
         let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
+        let (steer_tx, steer_rx) = mpsc::channel::<SteerMessage>(64);
         let worker_stream_id = stream_id.clone();
         let worker_turn_id = stream_id.clone();
         let worker_session_id = session_id.clone();
+        let worker_session_registry_id = session_id.clone();
         let worker_user_input = user_input.clone();
         let worker_core = core.clone();
         let handle = tokio::spawn(async move {
@@ -298,6 +337,7 @@ impl IpcServer {
                 worker_user_input,
                 worker_turn_id,
                 Some(Box::new(emitter)),
+                Some(steer_rx),
             )
             .await;
 
@@ -325,12 +365,24 @@ impl IpcServer {
 
             let mut streams = active_chat_streams().lock().await;
             streams.remove(&worker_stream_id);
+            active_chat_stream_steers()
+                .lock()
+                .await
+                .remove(&worker_stream_id);
+            let mut session_streams = active_chat_stream_sessions().lock().await;
+            if session_streams.get(&worker_session_registry_id) == Some(&worker_stream_id) {
+                session_streams.remove(&worker_session_registry_id);
+            }
         });
 
         active_chat_streams()
             .lock()
             .await
             .insert(stream_id.clone(), handle);
+        active_chat_stream_steers()
+            .lock()
+            .await
+            .insert(stream_id.clone(), steer_tx);
 
         let mut reached_terminal = false;
         while let Some(frame) = rx.recv().await {
@@ -364,6 +416,11 @@ impl IpcServer {
             && !handle.is_finished()
         {
             handle.abort();
+        }
+        active_chat_stream_steers().lock().await.remove(&stream_id);
+        let mut session_streams = active_chat_stream_sessions().lock().await;
+        if session_streams.get(&session_id) == Some(&stream_id) {
+            session_streams.remove(&session_id);
         }
 
         Ok(())
@@ -1124,6 +1181,7 @@ impl IpcServer {
                 user_input,
                 Uuid::new_v4().to_string(),
                 None,
+                None,
             )
             .await
             {
@@ -1141,6 +1199,13 @@ impl IpcServer {
             },
             IpcRequest::ExecuteChatSessionStream { .. } => {
                 IpcResponse::error(-3, "Chat session streaming requires direct stream handler")
+            }
+            IpcRequest::SteerChatSessionStream {
+                session_id,
+                instruction,
+            } => {
+                let steered = steer_chat_stream(&session_id, &instruction).await;
+                IpcResponse::success(serde_json::json!({ "steered": steered }))
             }
             IpcRequest::CancelChatSessionStream { stream_id } => {
                 let canceled = cancel_chat_stream(&stream_id).await;
@@ -1647,9 +1712,50 @@ fn create_chat_executor(
 async fn cancel_chat_stream(stream_id: &str) -> bool {
     if let Some(handle) = active_chat_streams().lock().await.remove(stream_id) {
         handle.abort();
+        active_chat_stream_steers().lock().await.remove(stream_id);
+        let mut session_streams = active_chat_stream_sessions().lock().await;
+        if let Some((session_id, _)) = session_streams
+            .iter()
+            .find(|(_, active_stream_id)| active_stream_id.as_str() == stream_id)
+            .map(|(session_id, active_stream_id)| (session_id.clone(), active_stream_id.clone()))
+        {
+            session_streams.remove(&session_id);
+        }
         true
     } else {
         false
+    }
+}
+
+async fn steer_chat_stream(session_id: &str, instruction: &str) -> bool {
+    let stream_id = {
+        let session_streams = active_chat_stream_sessions().lock().await;
+        session_streams.get(session_id).cloned()
+    };
+
+    let Some(stream_id) = stream_id else {
+        return false;
+    };
+
+    let sender = {
+        let steers = active_chat_stream_steers().lock().await;
+        steers.get(&stream_id).cloned()
+    };
+    let Some(sender) = sender else {
+        return false;
+    };
+
+    let steer = SteerMessage::message(instruction.to_string(), SteerSource::User);
+    match sender.send(steer).await {
+        Ok(()) => true,
+        Err(_) => {
+            active_chat_stream_steers().lock().await.remove(&stream_id);
+            let mut session_streams = active_chat_stream_sessions().lock().await;
+            if session_streams.get(session_id) == Some(&stream_id) {
+                session_streams.remove(session_id);
+            }
+            false
+        }
     }
 }
 
@@ -1673,6 +1779,7 @@ async fn execute_chat_session(
     user_input: Option<String>,
     turn_id: String,
     emitter: Option<Box<dyn StreamEmitter>>,
+    steer_rx: Option<mpsc::Receiver<SteerMessage>>,
 ) -> Result<ChatSession> {
     let mut session = core
         .storage
@@ -1704,12 +1811,13 @@ async fn execute_chat_session(
     ));
     let started_at = Instant::now();
     let exec_result = executor
-        .execute_session_turn_with_emitter(
+        .execute_session_turn_with_emitter_and_steer(
             &mut session,
             &input,
             20,
             SessionInputMode::PersistedInSession,
             Some(persisting_emitter),
+            steer_rx,
         )
         .await;
     let exec_result = match exec_result {
@@ -1841,6 +1949,7 @@ fn build_agent_system_prompt(core: &Arc<AppCore>, agent_node: AgentNode) -> Resu
 mod tests {
     use super::*;
     use crate::models::{AgentNode, Skill};
+    use restflow_ai::steer::SteerCommand;
     use tempfile::tempdir;
 
     #[test]
@@ -1885,5 +1994,45 @@ mod tests {
         assert!(prompt.contains("Base prompt"));
         // Skills are now tools, not injected into prompt
         assert!(!prompt.contains("## Skill: Test Skill"));
+    }
+
+    #[tokio::test]
+    async fn steer_chat_stream_delivers_message_to_registered_stream() {
+        let session_id = format!("session-{}", Uuid::new_v4());
+        let stream_id = format!("stream-{}", Uuid::new_v4());
+        let (tx, mut rx) = mpsc::channel::<SteerMessage>(1);
+
+        active_chat_stream_sessions()
+            .lock()
+            .await
+            .insert(session_id.clone(), stream_id.clone());
+        active_chat_stream_steers()
+            .lock()
+            .await
+            .insert(stream_id.clone(), tx);
+
+        let steered = steer_chat_stream(&session_id, "continue with option B").await;
+        assert!(steered);
+
+        let message = rx.recv().await.expect("steer message");
+        match message.command {
+            SteerCommand::Message { instruction } => {
+                assert_eq!(instruction, "continue with option B")
+            }
+            _ => panic!("expected message steer command"),
+        }
+
+        active_chat_stream_sessions()
+            .lock()
+            .await
+            .remove(&session_id);
+        active_chat_stream_steers().lock().await.remove(&stream_id);
+    }
+
+    #[tokio::test]
+    async fn steer_chat_stream_returns_false_when_no_active_session_stream() {
+        let session_id = format!("session-{}", Uuid::new_v4());
+        let steered = steer_chat_stream(&session_id, "test").await;
+        assert!(!steered);
     }
 }

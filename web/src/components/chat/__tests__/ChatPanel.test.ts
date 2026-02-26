@@ -7,6 +7,8 @@ import { useChatStream } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents } from '@/api/agents'
+import { steerChatStream } from '@/api/chat-stream'
+import { sendChatMessage } from '@/api/chat-session'
 
 type SessionLike = {
   id: string
@@ -55,6 +57,8 @@ const mockLoadModels = vi.fn()
 const mockModels: Array<{ model: string; name: string }> = []
 
 let chatBoxMountCount = 0
+const mockSteerChatStream = vi.fn()
+const mockSendChatMessageApi = vi.fn()
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -78,7 +82,8 @@ vi.mock('@/components/workspace/ChatBox.vue', () => ({
         default: '',
       },
     },
-    setup(props) {
+    emits: ['send'],
+    setup(props, { emit }) {
       chatBoxMountCount += 1
       return () =>
         h(
@@ -87,7 +92,17 @@ vi.mock('@/components/workspace/ChatBox.vue', () => ({
             'data-testid': 'chatbox',
             'data-selected-model': props.selectedModel ?? '',
           },
-          props.selectedModel ?? '',
+          [
+            props.selectedModel ?? '',
+            h(
+              'button',
+              {
+                'data-testid': 'chatbox-send',
+                onClick: () => emit('send', 'follow-up'),
+              },
+              'send',
+            ),
+          ],
         )
     },
   }),
@@ -115,6 +130,10 @@ vi.mock('@/api/agents', () => ({
 
 vi.mock('@/api/chat-session', () => ({
   sendChatMessage: vi.fn(),
+}))
+
+vi.mock('@/api/chat-stream', () => ({
+  steerChatStream: vi.fn(),
 }))
 
 vi.mock('@/composables/useToast', () => ({
@@ -217,6 +236,10 @@ describe('ChatPanel', () => {
         name: 'Agent One',
       },
     ] as any)
+    mockSteerChatStream.mockResolvedValue(true)
+    mockSendChatMessageApi.mockResolvedValue(mockCurrentSession.value)
+    vi.mocked(steerChatStream).mockImplementation(mockSteerChatStream)
+    vi.mocked(sendChatMessage).mockImplementation(mockSendChatMessageApi)
   })
 
   it('syncs selected model when current session model changes with same id', async () => {
@@ -257,5 +280,33 @@ describe('ChatPanel', () => {
 
     expect(wrapper.get('[data-testid="chatbox"]').attributes('data-selected-model')).toBe('gpt-4')
     expect(chatBoxMountCount).toBeGreaterThan(1)
+  })
+
+  it('steers active stream and persists user follow-up without starting a new stream', async () => {
+    mockIsStreaming.value = true
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="chatbox-send"]').trigger('click')
+    await flushPromises()
+
+    expect(mockSteerChatStream).toHaveBeenCalledWith('session-1', 'follow-up')
+    expect(mockSendChatMessageApi).toHaveBeenCalledWith('session-1', 'follow-up')
+    expect(mockSendStream).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a new stream when no active steerable stream exists', async () => {
+    mockIsStreaming.value = true
+    mockSteerChatStream.mockResolvedValue(false)
+
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="chatbox-send"]').trigger('click')
+    await flushPromises()
+
+    expect(mockSteerChatStream).toHaveBeenCalledWith('session-1', 'follow-up')
+    expect(mockSendChatMessageApi).not.toHaveBeenCalled()
+    expect(mockSendStream).toHaveBeenCalledWith('follow-up')
   })
 })

@@ -895,6 +895,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
@@ -953,8 +954,11 @@ impl AgentRuntimeExecutor {
             config = config.with_temperature(temp as f32);
         }
 
-        let agent = ReActAgentExecutor::new(swappable.clone(), tools)
+        let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
+        if let Some(rx) = steer_rx {
+            agent = agent.with_steer_channel(rx);
+        }
         let history_messages = Self::session_history_messages(session, max_history, input_mode);
         let force_non_stream = model.is_codex_cli();
         let result = if history_messages.is_empty() {
@@ -1014,6 +1018,7 @@ impl AgentRuntimeExecutor {
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<SessionExecutionResult> {
         let model_specs = AIModel::build_model_specs();
         let api_keys = self
@@ -1055,6 +1060,7 @@ impl AgentRuntimeExecutor {
             emitter,
             factory,
             agent_id,
+            steer_rx,
         )
         .await
     }
@@ -1071,6 +1077,7 @@ impl AgentRuntimeExecutor {
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<SessionExecutionResult> {
         if model.is_codex_cli() || agent_node.api_key_config.is_some() {
             return self
@@ -1084,6 +1091,7 @@ impl AgentRuntimeExecutor {
                     input_mode,
                     emitter,
                     agent_id,
+                    steer_rx,
                 )
                 .await;
         }
@@ -1104,12 +1112,14 @@ impl AgentRuntimeExecutor {
                     input_mode,
                     emitter,
                     agent_id,
+                    steer_rx,
                 )
                 .await;
         }
 
         let mut last_error: Option<anyhow::Error> = None;
         let mut emitter = emitter;
+        let mut steer_rx = steer_rx;
         for profile in profiles {
             let api_key = match profile.get_api_key(self.auth_manager.resolver()) {
                 Ok(key) => key,
@@ -1149,6 +1159,7 @@ impl AgentRuntimeExecutor {
                     emitter.take(),
                     factory,
                     agent_id,
+                    steer_rx.take(),
                 )
                 .await
             {
@@ -1221,6 +1232,28 @@ impl AgentRuntimeExecutor {
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<SessionExecutionResult> {
+        self.execute_session_turn_with_emitter_and_steer(
+            session,
+            user_input,
+            max_history,
+            input_mode,
+            emitter,
+            None,
+        )
+        .await
+    }
+
+    /// Execute a chat turn for an existing chat session with optional stream emitter
+    /// and optional steer channel.
+    pub async fn execute_session_turn_with_emitter_and_steer(
+        &self,
+        session: &mut ChatSession,
+        user_input: &str,
+        max_history: usize,
+        input_mode: SessionInputMode,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    ) -> Result<SessionExecutionResult> {
         let stored_agent = self.resolve_stored_agent_for_session(session)?;
         let agent_node = stored_agent.agent.clone();
         let primary_model = self.resolve_primary_model(&agent_node).await?;
@@ -1234,6 +1267,7 @@ impl AgentRuntimeExecutor {
         let session_snapshot = session.clone();
         let agent_id = session.agent_id.clone();
         let mut emitter = emitter;
+        let mut steer_rx = steer_rx;
 
         loop {
             let node = agent_node.clone();
@@ -1243,6 +1277,7 @@ impl AgentRuntimeExecutor {
                 let session_for_execution = session_for_execution.clone();
                 let agent_id = agent_id.clone();
                 let emitter = emitter.take();
+                let steer_rx = steer_rx.take();
                 async move {
                     self.execute_session_with_profiles(
                         &node,
@@ -1254,6 +1289,7 @@ impl AgentRuntimeExecutor {
                         input_mode,
                         emitter,
                         Some(agent_id.as_str()),
+                        steer_rx,
                     )
                     .await
                 }

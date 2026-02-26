@@ -485,6 +485,24 @@ impl IpcClient {
         Ok(resp.canceled)
     }
 
+    pub async fn steer_chat_session_stream(
+        &mut self,
+        session_id: String,
+        instruction: String,
+    ) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct SteerResponse {
+            steered: bool,
+        }
+        let resp: SteerResponse = self
+            .request_typed(IpcRequest::SteerChatSessionStream {
+                session_id,
+                instruction,
+            })
+            .await?;
+        Ok(resp.steered)
+    }
+
     pub async fn get_session_messages(
         &mut self,
         session_id: String,
@@ -1074,6 +1092,14 @@ impl IpcClient {
     }
 
     pub async fn cancel_chat_session_stream(&mut self, _stream_id: String) -> Result<bool> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn steer_chat_session_stream(
+        &mut self,
+        _session_id: String,
+        _instruction: String,
+    ) -> Result<bool> {
         self.request_typed(IpcRequest::Ping).await
     }
 
