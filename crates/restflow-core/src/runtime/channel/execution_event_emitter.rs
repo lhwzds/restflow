@@ -1,4 +1,4 @@
-use crate::models::ChatExecutionEvent;
+use crate::models::{ChatExecutionEvent, ToolCallCompletion};
 use crate::storage::ChatExecutionEventStorage;
 use async_trait::async_trait;
 use restflow_ai::agent::StreamEmitter;
@@ -185,10 +185,12 @@ impl StreamEmitter for PersistingStreamEmitter {
             self.turn_id.clone(),
             id.to_string(),
             name.to_string(),
-            output,
-            success,
-            duration_ms,
-            error,
+            ToolCallCompletion {
+                output,
+                success,
+                duration_ms,
+                error,
+            },
         );
         self.append_event(event);
     }
