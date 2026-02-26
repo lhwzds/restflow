@@ -99,7 +99,7 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     ]);
     table.add_row(vec![
         Cell::new("agent.max_wall_clock_secs"),
-        Cell::new(config.agent.max_wall_clock_secs),
+        Cell::new(format_optional_u64(config.agent.max_wall_clock_secs)),
     ]);
     table.add_row(vec![
         Cell::new("agent.default_task_timeout_secs"),
@@ -221,7 +221,7 @@ async fn set_config_value(
             config.agent.max_tool_calls = parse_value(value)?;
         }
         "agent.max_wall_clock_secs" => {
-            config.agent.max_wall_clock_secs = parse_value(value)?;
+            config.agent.max_wall_clock_secs = parse_optional_u64(value)?;
         }
         "agent.default_task_timeout_secs" => {
             config.agent.default_task_timeout_secs = parse_value(value)?;
