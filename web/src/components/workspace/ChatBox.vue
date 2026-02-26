@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, useTemplateRef } from 'vue'
+import { ref, watch, nextTick, useTemplateRef, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Send, Square, X, Cpu, Mic, Loader2 } from 'lucide-vue-next'
 import { useVoiceRecorder, getVoiceModel } from '@/composables/workspace/useVoiceRecorder'
@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { useToast } from '@/composables/useToast'
 import SessionAgentSelector from '@/components/workspace/SessionAgentSelector.vue'
 import TokenCounter from '@/components/chat/TokenCounter.vue'
 import type { AgentFile, ModelOption } from '@/types/workspace'
@@ -42,6 +43,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const toast = useToast()
 const inputMessage = ref('')
 const textareaRef = useTemplateRef<InstanceType<typeof Textarea>>('chatTextarea')
 
@@ -57,6 +59,21 @@ const recorder = useVoiceRecorder({
     emit('sendVoiceMessage', filePath)
   },
 })
+
+// Show toast on voice recorder errors
+watch(
+  () => recorder.state.value.error,
+  (error) => {
+    if (!error) return
+    const message =
+      error === 'mic_permission_denied'
+        ? t('voice.micPermissionDenied')
+        : error === 'mic_not_available'
+          ? t('voice.micPermissionDenied')
+          : t('voice.transcriptionFailed')
+    toast.error(message)
+  },
+)
 
 // Track IME composition state manually (WebKit's e.isComposing is unreliable)
 const composing = ref(false)
