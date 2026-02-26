@@ -129,6 +129,9 @@ async function syncSessionFromBackend() {
   const refreshed = await chatSessionStore.refreshSession(sessionId)
   if (refreshed) {
     chatSessionStore.updateSessionLocally(refreshed)
+    // Clear stream content after persisted messages are loaded to prevent
+    // showing both the streaming message and the persisted message.
+    chatStream.reset()
   }
 }
 
@@ -143,7 +146,9 @@ async function sendMessageWithStream(message: string) {
   processedToolIds.value.clear()
   try {
     await chatStream.send(message)
-    await syncSessionFromBackend()
+    // Session sync is handled by the isStreaming watcher when streaming ends.
+    // Do NOT call syncSessionFromBackend() here — send() returns before
+    // the stream completes, so an early sync would fetch stale data.
   } catch (error) {
     const messageText = error instanceof Error ? error.message : t('chat.sendMessageFailed')
     toast.error(messageText)
