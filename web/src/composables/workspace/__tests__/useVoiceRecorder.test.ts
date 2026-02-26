@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+
+declare const global: typeof globalThis
 import { useVoiceRecorder, getVoiceModel, setVoiceModel } from '../useVoiceRecorder'
 
 // Mock voice API

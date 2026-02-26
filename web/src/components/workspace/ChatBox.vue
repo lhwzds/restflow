@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, useTemplateRef, toRef } from 'vue'
+import { ref, watch, nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Send, Square, X, Cpu, Mic, Loader2, AudioLines, Type } from 'lucide-vue-next'
 import { useVoiceRecorder, getVoiceModel } from '@/composables/workspace/useVoiceRecorder'
