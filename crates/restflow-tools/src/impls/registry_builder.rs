@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::SecretResolver;
 use crate::ToolRegistry;
 use crate::impls::batch::BatchTool;
+use crate::impls::browser::BrowserTool;
 use crate::impls::list_agents::ListAgentsTool;
 use crate::impls::monty_python::{PythonTool, RunPythonTool};
 use crate::impls::spawn::SpawnTool;
@@ -216,6 +217,11 @@ impl ToolRegistryBuilder {
         self.registry.register(RunPythonTool::new());
         self.registry.register(PythonTool::new());
         self
+    }
+
+    pub fn with_browser(mut self) -> anyhow::Result<Self> {
+        self.registry.register(BrowserTool::new()?);
+        Ok(self)
     }
 
     pub fn with_transcribe(mut self, resolver: SecretResolver) -> Result<Self, reqwest::Error> {

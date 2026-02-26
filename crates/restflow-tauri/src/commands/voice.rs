@@ -286,12 +286,8 @@ async fn run_streaming_transcription(
     let mut buffer = String::new();
 
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_err(|e| {
-            (
-                format!("Stream read error: {}", e),
-                Some(full_text.clone()),
-            )
-        })?;
+        let chunk =
+            chunk.map_err(|e| (format!("Stream read error: {}", e), Some(full_text.clone())))?;
 
         let chunk_str = String::from_utf8_lossy(&chunk);
         buffer.push_str(&chunk_str);
@@ -315,9 +311,7 @@ async fn run_streaming_transcription(
                         let event_type = json.get("type").and_then(|v| v.as_str());
                         match event_type {
                             Some("transcript.text.delta") => {
-                                if let Some(delta) =
-                                    json.get("delta").and_then(|v| v.as_str())
-                                {
+                                if let Some(delta) = json.get("delta").and_then(|v| v.as_str()) {
                                     full_text.push_str(delta);
                                     let _ = app.emit(
                                         VOICE_TRANSCRIBE_STREAM_EVENT,

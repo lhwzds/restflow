@@ -35,6 +35,7 @@ pub use restflow_traits::security::{SecurityDecision, SecurityGate, ToolAction};
 // Consumers should import them directly from restflow-traits.
 
 // Re-export tool implementations (original 7)
+pub use impls::BrowserTool;
 pub use impls::telegram::send_telegram_notification;
 pub use impls::{BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool};
 

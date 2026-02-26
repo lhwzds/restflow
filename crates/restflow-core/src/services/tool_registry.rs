@@ -94,6 +94,7 @@ pub fn create_tool_registry(
         .with_discord()?
         .with_slack()?
         .with_python()
+        .with_browser()?
         .with_web_fetch()
         .with_jina_reader()?
         .with_web_search_with_resolver(secret_resolver.clone())?
@@ -271,6 +272,7 @@ mod tests {
         // Should have default tools + skill tool
         assert!(registry.has("http_request"));
         assert!(registry.has("send_email"));
+        assert!(registry.has("browser"));
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
         assert!(registry.has("kv_store"));

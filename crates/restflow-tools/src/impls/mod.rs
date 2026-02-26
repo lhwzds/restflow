@@ -5,6 +5,7 @@ pub(crate) mod path_utils;
 
 // Original 7 tools
 mod bash;
+pub mod browser;
 mod discord;
 mod email;
 mod file;
@@ -72,6 +73,7 @@ pub use multiedit::MultiEditTool;
 
 // Re-export original 7
 pub use bash::{BashInput, BashOutput, BashTool};
+pub use browser::BrowserTool;
 pub use discord::DiscordTool;
 pub use email::EmailTool;
 pub use file::{FileAction, FileTool};
