@@ -238,6 +238,7 @@ fn main() {
             commands::auth_clear,
             // Voice
             commands::transcribe_audio,
+            commands::transcribe_audio_stream,
             commands::save_voice_message,
         ])
         .run(tauri::generate_context!())
