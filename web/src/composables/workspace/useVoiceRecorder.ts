@@ -77,8 +77,10 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
   let longPressTimer: ReturnType<typeof setTimeout> | null = null
   let stream: MediaStream | null = null
 
+  // Always show the mic button; check actual support at recording time.
+  // Some webviews (e.g. Tauri) may lazily initialize mediaDevices.
   const isSupported = computed(
-    () => typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getUserMedia,
+    () => typeof navigator !== 'undefined' && typeof MediaRecorder !== 'undefined',
   )
 
   function clearTimers() {
@@ -104,6 +106,11 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
 
     state.value.error = null
     audioChunks = []
+
+    if (!navigator.mediaDevices?.getUserMedia) {
+      state.value.error = 'mic_not_available'
+      return
+    }
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
