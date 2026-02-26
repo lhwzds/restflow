@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, useTemplateRef, toRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Send, Square, X, Cpu, Mic, Loader2 } from 'lucide-vue-next'
+import { Send, Square, X, Cpu, Mic, Loader2, AudioLines, Type } from 'lucide-vue-next'
 import { useVoiceRecorder, getVoiceModel } from '@/composables/workspace/useVoiceRecorder'
+import type { VoiceMode } from '@/composables/workspace/useVoiceRecorder'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -46,6 +47,9 @@ const { t } = useI18n()
 const toast = useToast()
 const inputMessage = ref('')
 const textareaRef = useTemplateRef<InstanceType<typeof Textarea>>('chatTextarea')
+
+// Voice mode selection (persisted in component state)
+const selectedVoiceMode = ref<VoiceMode>('voice-to-text')
 
 // Voice recorder
 const recorder = useVoiceRecorder({
@@ -118,6 +122,14 @@ watch(inputMessage, async (newVal) => {
     }
   }
 })
+
+const handleMicClick = () => {
+  recorder.toggleRecording(selectedVoiceMode.value)
+}
+
+const setVoiceMode = (mode: 'voice-to-text' | 'voice-message') => {
+  selectedVoiceMode.value = mode
+}
 </script>
 
 <template>
@@ -144,25 +156,6 @@ watch(inputMessage, async (newVal) => {
         )
       "
     >
-      <!-- Recording / Transcribing indicator -->
-      <div
-        v-if="recorder.state.value.isRecording || recorder.state.value.isTranscribing"
-        class="flex items-center gap-2 text-xs mb-2"
-        :class="recorder.state.value.isTranscribing ? 'text-muted-foreground' : 'text-destructive'"
-      >
-        <template v-if="recorder.state.value.isRecording">
-          <span class="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-          {{ t('voice.recording') }} {{ recorder.state.value.duration }}s
-          <span v-if="recorder.state.value.mode === 'voice-message'" class="text-muted-foreground">
-            ({{ t('voice.voiceMessage') }})
-          </span>
-        </template>
-        <template v-else>
-          <Loader2 :size="12" class="animate-spin" />
-          {{ t('voice.transcribing') }}
-        </template>
-      </div>
-
       <!-- Textarea -->
       <Textarea
         ref="chatTextarea"
@@ -175,88 +168,175 @@ watch(inputMessage, async (newVal) => {
         @compositionend="onCompositionEnd"
       />
 
-      <!-- Bottom Row: Agent | Model | Send -->
+      <!-- Bottom Row -->
       <div class="flex items-center gap-2 mt-2">
-        <!-- Agent Selector -->
-        <SessionAgentSelector
-          :selected-agent="selectedAgent"
-          :available-agents="availableAgents"
-          :disabled="isExecuting"
-          @update:selected-agent="emit('update:selectedAgent', $event)"
-        />
+        <!-- Recording state: show recording info + cancel + stop -->
+        <template v-if="recorder.state.value.isRecording">
+          <div class="flex-1" />
 
-        <!-- Model Selector -->
-        <Select
-          :model-value="selectedModel"
-          @update:model-value="emit('update:selectedModel', $event)"
-        >
-          <SelectTrigger class="w-[180px] h-8 text-xs">
-            <Cpu :size="14" class="mr-1 text-muted-foreground shrink-0" />
-            <SelectValue :placeholder="t('common.model')" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
-              {{ model.name }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
+          <!-- Recording indicator -->
+          <div class="flex items-center gap-1.5 text-xs text-destructive">
+            <span class="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+            {{ t('voice.recording') }} {{ recorder.state.value.duration }}s
+          </div>
 
-        <!-- Token Counter -->
-        <TokenCounter
-          v-if="totalTokens || isStreaming"
-          :input-tokens="inputTokens"
-          :output-tokens="outputTokens"
-          :total-tokens="totalTokens"
-          :tokens-per-second="tokensPerSecond"
-          :duration-ms="durationMs"
-          :is-streaming="isStreaming"
-          compact
-        />
+          <!-- Cancel button -->
+          <Button
+            size="sm"
+            variant="ghost"
+            class="h-8 px-3 text-xs"
+            @click="recorder.cancelRecording()"
+          >
+            <X :size="14" class="mr-1" />
+            {{ t('common.cancel') }}
+          </Button>
 
-        <!-- Spacer -->
-        <div class="flex-1" />
+          <!-- Voice-message mode: Send button -->
+          <Button
+            v-if="selectedVoiceMode === 'voice-message'"
+            size="sm"
+            class="h-8 px-3 text-xs"
+            @click="recorder.stopRecording()"
+          >
+            <Send :size="14" class="mr-1" />
+            {{ t('common.send') }}
+          </Button>
 
-        <!-- Mic Button -->
-        <Button
-          v-if="!isExecuting && recorder.isSupported.value"
-          size="sm"
-          variant="ghost"
-          class="h-8 w-8 p-0"
-          :class="{
-            'text-destructive animate-pulse': recorder.state.value.isRecording,
-          }"
-          :disabled="recorder.state.value.isTranscribing"
-          @mousedown.prevent="recorder.startRecording()"
-          @mouseup.prevent="recorder.stopRecording()"
-          @mouseleave="recorder.state.value.isRecording && recorder.stopRecording()"
-        >
-          <Mic v-if="!recorder.state.value.isTranscribing" :size="14" />
-          <Loader2 v-else :size="14" class="animate-spin" />
-        </Button>
+          <!-- Voice-to-text mode: Done button -->
+          <Button
+            v-else
+            size="sm"
+            variant="secondary"
+            class="h-8 px-3 text-xs"
+            @click="recorder.stopRecording()"
+          >
+            <Square :size="14" class="mr-1" />
+            {{ t('voice.done') }}
+          </Button>
+        </template>
 
-        <!-- Stop Button (during execution) -->
-        <Button
-          v-if="isExecuting"
-          size="sm"
-          variant="destructive"
-          class="h-8 px-4"
-          @click="emit('cancel')"
-        >
-          <Square :size="14" class="mr-1" />
-          {{ t('common.stop') }}
-        </Button>
+        <!-- Idle / Transcribing state: show normal controls -->
+        <template v-else>
+          <!-- Agent Selector -->
+          <SessionAgentSelector
+            :selected-agent="selectedAgent"
+            :available-agents="availableAgents"
+            :disabled="isExecuting"
+            @update:selected-agent="emit('update:selectedAgent', $event)"
+          />
 
-        <!-- Send Button -->
-        <Button
-          v-else
-          size="sm"
-          class="h-8 px-4"
-          :disabled="!inputMessage.trim()"
-          @click="handleSend"
-        >
-          <Send :size="14" class="mr-1" />
-          {{ t('common.send') }}
-        </Button>
+          <!-- Model Selector -->
+          <Select
+            :model-value="selectedModel"
+            @update:model-value="emit('update:selectedModel', $event)"
+          >
+            <SelectTrigger class="w-[180px] h-8 text-xs">
+              <Cpu :size="14" class="mr-1 text-muted-foreground shrink-0" />
+              <SelectValue :placeholder="t('common.model')" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
+                {{ model.name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+
+          <!-- Token Counter -->
+          <TokenCounter
+            v-if="totalTokens || isStreaming"
+            :input-tokens="inputTokens"
+            :output-tokens="outputTokens"
+            :total-tokens="totalTokens"
+            :tokens-per-second="tokensPerSecond"
+            :duration-ms="durationMs"
+            :is-streaming="isStreaming"
+            compact
+          />
+
+          <!-- Spacer -->
+          <div class="flex-1" />
+
+          <!-- Voice: mode selector + mic button -->
+          <div
+            v-if="!isExecuting && recorder.isSupported.value"
+            class="flex items-center rounded-md border border-border h-8"
+          >
+            <!-- Voice-to-text mode -->
+            <button
+              type="button"
+              :class="cn(
+                'flex items-center gap-1 px-2 h-full text-xs rounded-l-md transition-colors',
+                selectedVoiceMode === 'voice-to-text'
+                  ? 'bg-primary/15 text-primary font-medium'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+              )"
+              :disabled="recorder.state.value.isTranscribing"
+              :title="t('voice.voiceToText')"
+              @click="setVoiceMode('voice-to-text')"
+            >
+              <Type :size="13" />
+              <span class="hidden sm:inline">{{ t('voice.voiceToText') }}</span>
+            </button>
+
+            <!-- Divider -->
+            <div class="w-px h-4 bg-border" />
+
+            <!-- Voice-message mode -->
+            <button
+              type="button"
+              :class="cn(
+                'flex items-center gap-1 px-2 h-full text-xs transition-colors',
+                selectedVoiceMode === 'voice-message'
+                  ? 'bg-primary/15 text-primary font-medium'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+              )"
+              :disabled="recorder.state.value.isTranscribing"
+              :title="t('voice.sendVoice')"
+              @click="setVoiceMode('voice-message')"
+            >
+              <AudioLines :size="13" />
+              <span class="hidden sm:inline">{{ t('voice.sendVoice') }}</span>
+            </button>
+
+            <!-- Divider -->
+            <div class="w-px h-4 bg-border" />
+
+            <!-- Mic button: start recording in selected mode -->
+            <button
+              type="button"
+              class="flex items-center justify-center px-2 h-full rounded-r-md text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              :disabled="recorder.state.value.isTranscribing"
+              @click="handleMicClick"
+            >
+              <Loader2 v-if="recorder.state.value.isTranscribing" :size="14" class="animate-spin" />
+              <Mic v-else :size="14" />
+            </button>
+          </div>
+
+          <!-- Stop Button (during execution) -->
+          <Button
+            v-if="isExecuting"
+            size="sm"
+            variant="destructive"
+            class="h-8 px-4"
+            @click="emit('cancel')"
+          >
+            <Square :size="14" class="mr-1" />
+            {{ t('common.stop') }}
+          </Button>
+
+          <!-- Send Button -->
+          <Button
+            v-else
+            size="sm"
+            class="h-8 px-4"
+            :disabled="!inputMessage.trim()"
+            @click="handleSend"
+          >
+            <Send :size="14" class="mr-1" />
+            {{ t('common.send') }}
+          </Button>
+        </template>
       </div>
     </div>
 
