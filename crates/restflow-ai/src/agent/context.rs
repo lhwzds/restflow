@@ -234,6 +234,9 @@ impl ContextLoader {
             }
         }
 
+        contents = self.prioritize_instruction_sources(contents);
+        total_bytes = contents.iter().map(|(_, content)| content.len()).sum();
+
         let loaded_files: Vec<PathBuf> = contents.iter().map(|(p, _)| p.clone()).collect();
         let content = self.format_content(&contents);
 
@@ -242,6 +245,36 @@ impl ContextLoader {
             loaded_files,
             total_bytes,
         }
+    }
+
+    fn prioritize_instruction_sources(
+        &self,
+        contents: Vec<(PathBuf, String)>,
+    ) -> Vec<(PathBuf, String)> {
+        let has_agents_instructions = contents
+            .iter()
+            .any(|(path, _)| Self::is_agents_instruction_file(path));
+        if !has_agents_instructions {
+            return contents;
+        }
+
+        let prioritized: Vec<(PathBuf, String)> = contents
+            .into_iter()
+            .filter(|(path, _)| Self::is_agents_instruction_file(path))
+            .collect();
+        debug!(
+            selected_files = prioritized.len(),
+            "AGENTS instructions found; skipping fallback instruction files"
+        );
+        prioritized
+    }
+
+    fn is_agents_instruction_file(path: &Path) -> bool {
+        let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
+            return false;
+        };
+        file_name.eq_ignore_ascii_case("AGENTS.md")
+            || file_name.eq_ignore_ascii_case("AGENTS.local.md")
     }
 
     async fn scan_directory(&self, dir: &Path) -> Result<Vec<(PathBuf, String)>, std::io::Error> {
@@ -423,5 +456,45 @@ mod tests {
         // Should not panic
         let result = ctx.format_for_prompt();
         assert!(result.contains("..."));
+    }
+
+    #[tokio::test]
+    async fn test_context_loader_prioritizes_agents_files_over_fallbacks() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp.path().join("AGENTS.md"), "agents-content").expect("write AGENTS");
+        std::fs::write(temp.path().join("CLAUDE.md"), "claude-content").expect("write CLAUDE");
+
+        let config = ContextDiscoveryConfig {
+            paths: vec!["AGENTS.md".into(), "CLAUDE.md".into()],
+            scan_directories: false,
+            case_insensitive_dedup: true,
+            max_total_size: 100_000,
+            max_file_size: 50_000,
+        };
+        let loader = ContextLoader::new(config, temp.path().to_path_buf());
+        let discovered = loader.load().await;
+
+        assert_eq!(discovered.loaded_files, vec![temp.path().join("AGENTS.md")]);
+        assert!(discovered.content.contains("agents-content"));
+        assert!(!discovered.content.contains("claude-content"));
+    }
+
+    #[tokio::test]
+    async fn test_context_loader_falls_back_when_agents_missing() {
+        let temp = tempfile::tempdir().expect("tempdir");
+        std::fs::write(temp.path().join("CLAUDE.md"), "claude-only").expect("write CLAUDE");
+
+        let config = ContextDiscoveryConfig {
+            paths: vec!["AGENTS.md".into(), "CLAUDE.md".into()],
+            scan_directories: false,
+            case_insensitive_dedup: true,
+            max_total_size: 100_000,
+            max_file_size: 50_000,
+        };
+        let loader = ContextLoader::new(config, temp.path().to_path_buf());
+        let discovered = loader.load().await;
+
+        assert_eq!(discovered.loaded_files, vec![temp.path().join("CLAUDE.md")]);
+        assert!(discovered.content.contains("claude-only"));
     }
 }
