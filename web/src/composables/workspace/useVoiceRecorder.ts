@@ -35,6 +35,7 @@ export interface VoiceRecorderOptions {
 
 export interface VoiceRecorderReturn {
   state: Readonly<Ref<VoiceRecorderState>>
+  mediaStream: Readonly<Ref<MediaStream | null>>
   startRecording: (mode: VoiceMode) => void
   stopRecording: () => void
   cancelRecording: () => void
@@ -73,6 +74,8 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     streamingText: '',
   })
 
+  const mediaStream = ref<MediaStream | null>(null)
+
   let mediaRecorder: MediaRecorder | null = null
   let audioChunks: Blob[] = []
   let durationTimer: ReturnType<typeof setInterval> | null = null
@@ -97,6 +100,7 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
       stream.getTracks().forEach((t) => t.stop())
       stream = null
     }
+    mediaStream.value = null
   }
 
   function cleanupStreamListener() {
@@ -124,6 +128,7 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      mediaStream.value = stream
     } catch {
       state.value.error = 'mic_permission_denied'
       return
@@ -264,6 +269,7 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
 
   return {
     state: readonly(state) as Readonly<Ref<VoiceRecorderState>>,
+    mediaStream: readonly(mediaStream) as Readonly<Ref<MediaStream | null>>,
     startRecording,
     stopRecording,
     cancelRecording,

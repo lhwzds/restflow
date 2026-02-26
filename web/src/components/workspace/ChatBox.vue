@@ -2,6 +2,7 @@
 import { ref, watch, nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Send, Square, X, Cpu, Mic, Loader2, AudioLines, Type } from 'lucide-vue-next'
+import AudioWaveform from '@/components/workspace/AudioWaveform.vue'
 import { useVoiceRecorder, getVoiceModel } from '@/composables/workspace/useVoiceRecorder'
 import type { VoiceMode } from '@/composables/workspace/useVoiceRecorder'
 import { Button } from '@/components/ui/button'
@@ -175,10 +176,14 @@ const setVoiceMode = (mode: 'voice-to-text' | 'voice-message') => {
         <template v-if="recorder.state.value.isRecording">
           <div class="flex-1" />
 
-          <!-- Recording indicator -->
+          <!-- Recording indicator with waveform -->
           <div class="flex items-center gap-1.5 text-xs text-destructive">
             <span class="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-            {{ t('voice.recording') }} {{ recorder.state.value.duration }}s
+            <AudioWaveform
+              v-if="recorder.mediaStream.value"
+              :stream="recorder.mediaStream.value"
+            />
+            {{ recorder.state.value.duration }}s
           </div>
 
           <!-- Cancel button -->
