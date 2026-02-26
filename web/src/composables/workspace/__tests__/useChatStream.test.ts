@@ -4,6 +4,7 @@ import { mount } from '@vue/test-utils'
 import { listen } from '@tauri-apps/api/event'
 import { useChatStream } from '../useChatStream'
 import { sendChatMessageStream, cancelChatStream } from '@/api/chat-stream'
+import { listChatExecutionEvents } from '@/api/chat-execution-events'
 import type { ChatStreamEvent } from '@/types/generated/ChatStreamEvent'
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -15,6 +16,10 @@ vi.mock('@/api/chat-stream', () => ({
   cancelChatStream: vi.fn(),
 }))
 
+vi.mock('@/api/chat-execution-events', () => ({
+  listChatExecutionEvents: vi.fn(),
+}))
+
 describe('useChatStream', () => {
   let streamListener: ((event: { payload: ChatStreamEvent }) => void) | null = null
   const unlistenMock = vi.fn()
@@ -22,6 +27,7 @@ describe('useChatStream', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     streamListener = null
+    vi.mocked(listChatExecutionEvents).mockResolvedValue([])
     vi.mocked(listen).mockImplementation(async (_event, handler) => {
       streamListener = handler as (event: { payload: ChatStreamEvent }) => void
       return unlistenMock
@@ -104,11 +110,13 @@ describe('useChatStream', () => {
         total_tokens: 12,
       },
     })
+    await new Promise((r) => setTimeout(r, 0))
 
     expect(vm.stream.state.value.content).toBe('Hello world')
     expect(vm.stream.state.value.tokenCount).toBe(12)
     expect(vm.stream.state.value.steps).toHaveLength(1)
     expect(vm.stream.state.value.steps[0]?.status).toBe('failed')
+    expect(listChatExecutionEvents).toHaveBeenCalledWith('session-1', 'msg-1', 200)
     expect(vm.stream.isStreaming.value).toBe(false)
 
     wrapper.unmount()
@@ -170,6 +178,68 @@ describe('useChatStream', () => {
 
     await vm.stream.cancel()
     expect(cancelChatStream).toHaveBeenCalledWith('session-1', 'msg-2')
+
+    wrapper.unmount()
+  })
+
+  it('replays persisted tool steps after completion', async () => {
+    vi.mocked(sendChatMessageStream).mockResolvedValue('msg-3')
+    vi.mocked(listChatExecutionEvents).mockResolvedValue([
+      {
+        id: 'evt-1',
+        session_id: 'session-1',
+        turn_id: 'msg-3',
+        message_id: null,
+        event_type: 'tool_call_started',
+        tool_call_id: 'tool-42',
+        tool_name: 'web_search',
+        input: '{"query":"restflow"}',
+        output: null,
+        success: null,
+        duration_ms: null,
+        error: null,
+        created_at: 1,
+      },
+      {
+        id: 'evt-2',
+        session_id: 'session-1',
+        turn_id: 'msg-3',
+        message_id: null,
+        event_type: 'tool_call_completed',
+        tool_call_id: 'tool-42',
+        tool_name: 'web_search',
+        input: null,
+        output: '{"items":1}',
+        success: true,
+        duration_ms: 10,
+        error: null,
+        created_at: 2,
+      },
+    ])
+
+    const wrapper = createHarness()
+    const vm = wrapper.vm as unknown as {
+      stream: ReturnType<typeof useChatStream>
+    }
+
+    await vm.stream.send('persisted')
+    emitEvent({
+      session_id: 'session-1',
+      message_id: 'msg-3',
+      timestamp: BigInt(Date.now()),
+      kind: {
+        type: 'completed',
+        full_content: 'done',
+        duration_ms: 10n,
+        total_tokens: 2,
+      },
+    })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(vm.stream.state.value.steps).toHaveLength(1)
+    expect(vm.stream.state.value.steps[0]?.toolId).toBe('tool-42')
+    expect(vm.stream.state.value.steps[0]?.status).toBe('completed')
+    expect(vm.stream.state.value.steps[0]?.result).toBe('{"items":1}')
 
     wrapper.unmount()
   })
