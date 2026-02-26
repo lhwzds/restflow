@@ -64,30 +64,50 @@ describe('useVoiceRecorder', () => {
     expect(state.value.error).toBeNull()
   })
 
-  it('should start recording and default to voice-to-text mode', async () => {
+  it('should start recording with explicit voice-to-text mode', async () => {
     const { state, startRecording } = useVoiceRecorder()
 
-    await startRecording()
+    await startRecording('voice-to-text')
 
     expect(state.value.isRecording).toBe(true)
     expect(state.value.mode).toBe('voice-to-text')
   })
 
-  it('should switch to voice-message mode after long press threshold', async () => {
-    const { state, startRecording } = useVoiceRecorder({ longPressThreshold: 500 })
+  it('should start recording with explicit voice-message mode', async () => {
+    const { state, startRecording } = useVoiceRecorder()
 
-    await startRecording()
+    await startRecording('voice-message')
+
+    expect(state.value.isRecording).toBe(true)
+    expect(state.value.mode).toBe('voice-message')
+  })
+
+  it('should not start recording with null mode', async () => {
+    const { state, startRecording } = useVoiceRecorder()
+
+    await startRecording(null)
+
+    expect(state.value.isRecording).toBe(false)
+  })
+
+  it('should toggle recording on and off', async () => {
+    const { state, toggleRecording } = useVoiceRecorder()
+
+    // Toggle on
+    await toggleRecording('voice-to-text')
+    expect(state.value.isRecording).toBe(true)
     expect(state.value.mode).toBe('voice-to-text')
 
-    // Advance past threshold
-    vi.advanceTimersByTime(600)
-    expect(state.value.mode).toBe('voice-message')
+    // Toggle off (stops recording)
+    toggleRecording('voice-to-text')
+    // After stop, isRecording becomes false via onstop handler
+    expect(state.value.isRecording).toBe(false)
   })
 
   it('should increment duration every second', async () => {
     const { state, startRecording } = useVoiceRecorder()
 
-    await startRecording()
+    await startRecording('voice-to-text')
     expect(state.value.duration).toBe(0)
 
     vi.advanceTimersByTime(1000)
@@ -103,7 +123,7 @@ describe('useVoiceRecorder', () => {
 
     const { state, startRecording } = useVoiceRecorder()
 
-    await startRecording()
+    await startRecording('voice-to-text')
     expect(state.value.error).toBe('mic_permission_denied')
     expect(state.value.isRecording).toBe(false)
   })
@@ -112,7 +132,7 @@ describe('useVoiceRecorder', () => {
     const onTranscribed = vi.fn()
     const { state, startRecording, cancelRecording } = useVoiceRecorder({ onTranscribed })
 
-    await startRecording()
+    await startRecording('voice-to-text')
     expect(state.value.isRecording).toBe(true)
 
     cancelRecording()
