@@ -191,9 +191,14 @@ mod tests {
             assert_eq!(prompt, "You are a helpful assistant");
         }
 
-        let prompt_on_disk = prompt_files::load_agent_prompt(&created.id).unwrap();
+        let prompt_on_disk = prompt_files::load_agent_prompt_for_agent(
+            &created.id,
+            &created.name,
+            created.prompt_file.as_deref(),
+        )
+        .unwrap();
         assert_eq!(
-            prompt_on_disk,
+            prompt_on_disk.content,
             Some("You are a helpful assistant".to_string())
         );
 
@@ -250,8 +255,13 @@ mod tests {
         if let Some(prompt) = &updated.agent.prompt {
             assert_eq!(prompt, "Test prompt");
         }
-        let prompt_on_disk = prompt_files::load_agent_prompt(&created.id).unwrap();
-        assert_eq!(prompt_on_disk, Some("Test prompt".to_string()));
+        let prompt_on_disk = prompt_files::load_agent_prompt_for_agent(
+            &updated.id,
+            &updated.name,
+            updated.prompt_file.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(prompt_on_disk.content, Some("Test prompt".to_string()));
     }
 
     #[tokio::test]
@@ -276,8 +286,13 @@ mod tests {
         if let Some(prompt) = &updated.agent.prompt {
             assert_eq!(prompt, "Updated prompt");
         }
-        let prompt_on_disk = prompt_files::load_agent_prompt(&created.id).unwrap();
-        assert_eq!(prompt_on_disk, Some("Updated prompt".to_string()));
+        let prompt_on_disk = prompt_files::load_agent_prompt_for_agent(
+            &updated.id,
+            &updated.name,
+            updated.prompt_file.as_deref(),
+        )
+        .unwrap();
+        assert_eq!(prompt_on_disk.content, Some("Updated prompt".to_string()));
         assert_eq!(updated.agent.temperature, Some(0.9));
         assert_eq!(updated.agent.model, Some(AIModel::DeepseekChat));
     }
