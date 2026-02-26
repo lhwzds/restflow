@@ -25,12 +25,18 @@ export interface VoiceRecorderState {
   streamingText: string
 }
 
+export interface VoiceMessageInfo {
+  filePath: string
+  audioBlobUrl: string
+  durationSec: number
+}
+
 export interface VoiceRecorderOptions {
   model?: string
   language?: string
   onTranscribed?: (text: string) => void
   onTranscribeDelta?: (delta: string, accumulated: string) => void
-  onVoiceMessage?: (filePath: string) => void
+  onVoiceMessage?: (info: VoiceMessageInfo) => void
 }
 
 export interface VoiceRecorderReturn {
@@ -257,7 +263,8 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
       state.value.isTranscribing = true
       try {
         const filePath = await saveVoiceMessage(base64)
-        onVoiceMessage?.(filePath)
+        const audioBlobUrl = URL.createObjectURL(blob)
+        onVoiceMessage?.({ filePath, audioBlobUrl, durationSec: state.value.duration })
       } catch (err) {
         state.value.error = err instanceof Error ? err.message : 'save_failed'
       } finally {
