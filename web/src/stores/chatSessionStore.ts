@@ -520,17 +520,6 @@ export const useChatSessionStore = defineStore('chatSession', {
     },
 
     /**
-     * Append a message to a session's local message list without an API call.
-     * Used for optimistic UI updates (e.g., showing the user message immediately).
-     */
-    appendLocalMessage(sessionId: string, message: ChatMessage): void {
-      const session = this.sessions.get(sessionId)
-      if (!session) return
-      session.messages.push(message)
-      this.version++
-    },
-
-    /**
      * Update a session in local state (for real-time updates)
      */
     updateSessionLocally(session: ChatSession): void {
