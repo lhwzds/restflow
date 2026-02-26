@@ -22,7 +22,7 @@ function createMockRouter(titleKey?: string) {
 function createMockI18n(initialLocale = 'zh-CN') {
   const locale = ref(initialLocale)
   const messages: Record<string, Record<string, string>> = {
-    'zh-CN': { 'common.brandName': '浮流 RestFlow' },
+    'zh-CN': { 'common.brandName': 'RestFlow' },
     en: { 'common.brandName': 'RestFlow' },
   }
 
@@ -39,7 +39,7 @@ describe('page title plugin', () => {
     const router = createMockRouter('common.brandName')
     const i18n = createMockI18n()
 
-    expect(resolveDocumentTitle(router, i18n)).toBe('浮流 RestFlow')
+    expect(resolveDocumentTitle(router, i18n)).toBe('RestFlow')
   })
 
   it('falls back to default brand title when translation is empty', () => {
@@ -54,7 +54,7 @@ describe('page title plugin', () => {
     const i18n = createMockI18n()
 
     syncDocumentTitle(router, i18n)
-    expect(document.title).toBe('浮流 RestFlow')
+    expect(document.title).toBe('RestFlow')
 
     i18n.global.locale.value = 'en'
     await vi.waitFor(() => {
