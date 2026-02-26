@@ -45,7 +45,8 @@
     "holdForVoiceMessage": "长按发送语音消息",
     "voiceToText": "语音转文字",
     "sendVoice": "发送语音消息",
-    "stop": "停止"
+    "stop": "停止",
+    "done": "完成"
   },
   "settings": {
     "auth": {
