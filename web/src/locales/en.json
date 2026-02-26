@@ -36,6 +36,14 @@
     "updateSessionModelFailed": "Failed to update session model",
     "collapseInput": "Collapse chat input"
   },
+  "voice": {
+    "recording": "Recording",
+    "voiceMessage": "Voice message",
+    "transcribing": "Transcribing...",
+    "micPermissionDenied": "Microphone permission denied",
+    "transcriptionFailed": "Transcription failed",
+    "holdForVoiceMessage": "Hold for voice message"
+  },
   "settings": {
     "auth": {
       "title": "Auth Profiles",

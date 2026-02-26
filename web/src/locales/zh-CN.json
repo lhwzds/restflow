@@ -36,6 +36,14 @@
     "updateSessionModelFailed": "更新会话模型失败",
     "collapseInput": "收起输入框"
   },
+  "voice": {
+    "recording": "录音中",
+    "voiceMessage": "语音消息",
+    "transcribing": "转写中...",
+    "micPermissionDenied": "麦克风权限被拒绝",
+    "transcriptionFailed": "语音转写失败",
+    "holdForVoiceMessage": "长按发送语音消息"
+  },
   "settings": {
     "auth": {
       "title": "认证配置",
