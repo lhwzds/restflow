@@ -15,6 +15,7 @@ pub mod pty;
 pub mod secrets;
 pub mod skills;
 pub mod terminal_sessions;
+pub mod voice;
 
 // Re-export all commands for easy registration
 pub use agents::*;
@@ -29,3 +30,4 @@ pub use pty::*;
 pub use secrets::*;
 pub use skills::*;
 pub use terminal_sessions::*;
+pub use voice::*;
