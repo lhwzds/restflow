@@ -5,9 +5,9 @@ use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse, StreamFrame};
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
-    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessageSource, ChatMessage, ChatRole,
-    ChatSession, ChatSessionSummary, ChatSessionUpdate, Hook, MemoryChunk, MemorySearchResult,
-    MemorySession, MemoryStats, Skill, TerminalSession,
+    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessageSource, ChatExecutionEvent,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, Hook, MemoryChunk,
+    MemorySearchResult, MemorySession, MemoryStats, Skill, TerminalSession,
 };
 use restflow_core::paths;
 use restflow_core::runtime::TaskStreamEvent;
@@ -560,6 +560,20 @@ impl TauriExecutor {
     ) -> Result<Vec<ChatMessage>> {
         self.request(IpcRequest::GetSessionMessages { session_id, limit })
             .await
+    }
+
+    pub async fn list_chat_execution_events(
+        &self,
+        session_id: String,
+        turn_id: Option<String>,
+        limit: Option<usize>,
+    ) -> Result<Vec<ChatExecutionEvent>> {
+        self.request(IpcRequest::ListChatExecutionEvents {
+            session_id,
+            turn_id,
+            limit,
+        })
+        .await
     }
 
     pub async fn list_terminal_sessions(&self) -> Result<Vec<TerminalSession>> {
