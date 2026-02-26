@@ -50,7 +50,7 @@ pub use audit::{
     AuditEvent, AuditEventCategory, AuditEventSource, AuditQuery, AuditStats, AuditTimeRange,
     LifecycleAudit, LlmCallAudit, MessageAudit, ModelSwitchAudit, ToolCallAudit,
 };
-pub use chat_execution_event::{ChatExecutionEvent, ChatExecutionEventType};
+pub use chat_execution_event::{ChatExecutionEvent, ChatExecutionEventType, ToolCallCompletion};
 pub use chat_session::{
     ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
     ChatSessionSource, ChatSessionSummary, ChatSessionUpdate, ExecutionStepInfo, MessageExecution,

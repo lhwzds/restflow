@@ -141,10 +141,7 @@ impl ChatExecutionEvent {
         turn_id: impl Into<String>,
         tool_call_id: impl Into<String>,
         tool_name: impl Into<String>,
-        output: Option<String>,
-        success: bool,
-        duration_ms: Option<u64>,
-        error: Option<String>,
+        completion: ToolCallCompletion,
     ) -> Self {
         let mut event = Self::base(
             session_id,
@@ -153,12 +150,29 @@ impl ChatExecutionEvent {
         );
         event.tool_call_id = Some(tool_call_id.into());
         event.tool_name = Some(tool_name.into());
-        event.output = output;
-        event.success = Some(success);
-        event.duration_ms = duration_ms;
-        event.error = error;
+        event.output = completion.output;
+        event.success = Some(completion.success);
+        event.duration_ms = completion.duration_ms;
+        event.error = completion.error;
         event
     }
+}
+
+/// Tool completion payload used for ToolCallCompleted events.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct ToolCallCompletion {
+    /// Optional tool output payload (JSON string or raw text).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
+    /// Whether the tool call succeeded.
+    pub success: bool,
+    /// Optional duration in milliseconds.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<u64>,
+    /// Optional error text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[cfg(test)]
@@ -180,10 +194,12 @@ mod tests {
             "turn-1",
             "call-1",
             "bash",
-            Some("{\"ok\":true}".to_string()),
-            true,
-            Some(120),
-            None,
+            ToolCallCompletion {
+                output: Some("{\"ok\":true}".to_string()),
+                success: true,
+                duration_ms: Some(120),
+                error: None,
+            },
         );
         assert_eq!(event.event_type, ChatExecutionEventType::ToolCallCompleted);
         assert_eq!(event.tool_call_id.as_deref(), Some("call-1"));
@@ -200,5 +216,10 @@ mod tests {
     #[test]
     fn export_bindings_chat_execution_event() {
         ChatExecutionEvent::export_to_string(&ts_rs::Config::default()).expect("ts export");
+    }
+
+    #[test]
+    fn export_bindings_tool_call_completion() {
+        ToolCallCompletion::export_to_string(&ts_rs::Config::default()).expect("ts export");
     }
 }
