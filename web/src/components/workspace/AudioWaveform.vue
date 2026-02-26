@@ -11,9 +11,13 @@ let audioCtx: AudioContext | null = null
 let analyser: AnalyserNode | null = null
 let source: MediaStreamAudioSourceNode | null = null
 let animationId: number | null = null
+let sampleTimer: ReturnType<typeof setInterval> | null = null
 
-const BAR_COUNT = 32
-const BAR_GAP = 1.5
+// Rolling history buffer: each entry is one amplitude sample.
+// At ~15 samples/sec with 64 slots = ~4 seconds of visible history.
+const BAR_COUNT = 64
+const SAMPLE_INTERVAL_MS = 66
+const BAR_GAP = 1
 const MIN_BAR_HEIGHT = 2
 
 function setup() {
@@ -25,8 +29,7 @@ function setup() {
   audioCtx = new AudioContext()
   analyser = audioCtx.createAnalyser()
   analyser.fftSize = 256
-  // Low smoothing = more responsive to real-time changes
-  analyser.smoothingTimeConstant = 0.4
+  analyser.smoothingTimeConstant = 0.3
   analyser.minDecibels = -90
   analyser.maxDecibels = -10
 
@@ -34,14 +37,32 @@ function setup() {
   source.connect(analyser)
 
   const timeData = new Uint8Array(analyser.fftSize)
+  // History ring buffer: stores amplitude [0..1] for each bar slot
+  const history = new Float32Array(BAR_COUNT)
   let cachedColor = ''
 
-  function draw() {
-    if (!analyser || !canvas) return
-    animationId = requestAnimationFrame(draw)
-
-    // Use time-domain data for real-time waveform feel
+  // Sample amplitude at a fixed interval and push into history
+  sampleTimer = setInterval(() => {
+    if (!analyser) return
     analyser.getByteTimeDomainData(timeData)
+
+    // Compute RMS amplitude over the entire buffer
+    let sum = 0
+    for (let i = 0; i < timeData.length; i++) {
+      const v = (timeData[i] - 128) / 128
+      sum += v * v
+    }
+    const rms = Math.sqrt(sum / timeData.length)
+    const amplitude = Math.min(1, rms * 3.5)
+
+    // Shift history left and append new sample
+    history.copyWithin(0, 1)
+    history[BAR_COUNT - 1] = amplitude
+  }, SAMPLE_INTERVAL_MS)
+
+  function draw() {
+    if (!canvas) return
+    animationId = requestAnimationFrame(draw)
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -58,7 +79,6 @@ function setup() {
 
     ctx.clearRect(0, 0, width, height)
 
-    // Cache the resolved color
     if (!cachedColor) {
       const style = getComputedStyle(canvas)
       const hsl = style.getPropertyValue('--destructive').trim()
@@ -68,28 +88,13 @@ function setup() {
     const barWidth = (width - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT
     const halfHeight = height / 2
 
-    // Sample time-domain data into bars: compute amplitude per segment
-    const samplesPerBar = Math.floor(timeData.length / BAR_COUNT)
+    ctx.fillStyle = cachedColor
 
     for (let i = 0; i < BAR_COUNT; i++) {
-      // Compute RMS amplitude for this segment
-      let sum = 0
-      const offset = i * samplesPerBar
-      for (let j = 0; j < samplesPerBar; j++) {
-        // 128 = silence center point in byte time-domain data
-        const v = (timeData[offset + j] - 128) / 128
-        sum += v * v
-      }
-      const rms = Math.sqrt(sum / samplesPerBar)
-
-      // Scale amplitude to bar height (boost low values for visibility)
-      const amplitude = Math.min(1, rms * 3)
-      const barHeight = Math.max(MIN_BAR_HEIGHT, amplitude * height)
-
+      const barHeight = Math.max(MIN_BAR_HEIGHT, history[i] * height)
       const x = i * (barWidth + BAR_GAP)
       const y = halfHeight - barHeight / 2
 
-      ctx.fillStyle = cachedColor
       ctx.beginPath()
       ctx.roundRect(x, y, barWidth, barHeight, barWidth / 2)
       ctx.fill()
@@ -103,6 +108,10 @@ function cleanup() {
   if (animationId !== null) {
     cancelAnimationFrame(animationId)
     animationId = null
+  }
+  if (sampleTimer !== null) {
+    clearInterval(sampleTimer)
+    sampleTimer = null
   }
   if (source) {
     source.disconnect()
@@ -141,7 +150,7 @@ onUnmounted(() => {
 
 <style scoped>
 .audio-waveform {
-  width: 120px;
+  width: 140px;
   height: 28px;
   display: block;
   flex-shrink: 0;
