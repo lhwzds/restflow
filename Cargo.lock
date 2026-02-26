@@ -5099,7 +5099,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-ai"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-stream",
@@ -5128,7 +5128,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-cli"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "assert_cmd",
@@ -5166,7 +5166,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-core"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5227,7 +5227,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-sandbox"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "landlock",
@@ -5240,7 +5240,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-storage"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -5264,7 +5264,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-tauri"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -5274,8 +5274,10 @@ dependencies = [
  "clap",
  "constant_time_eq",
  "dashmap",
+ "futures",
  "portable-pty",
  "redb",
+ "reqwest",
  "restflow-ai",
  "restflow-core",
  "restflow-storage",
@@ -5300,7 +5302,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-tools"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-recursion",
@@ -5340,7 +5342,7 @@ dependencies = [
 
 [[package]]
 name = "restflow-traits"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
