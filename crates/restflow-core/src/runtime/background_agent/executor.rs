@@ -358,6 +358,20 @@ impl AgentRuntimeExecutor {
         }
     }
 
+    fn chat_resource_limits(
+        max_tool_calls: usize,
+        max_wall_clock_secs: Option<u64>,
+    ) -> AgentResourceLimits {
+        AgentResourceLimits {
+            max_tool_calls,
+            max_wall_clock: max_wall_clock_secs
+                .map(Duration::from_secs)
+                .unwrap_or(Duration::ZERO),
+            max_depth: AgentResourceLimits::default().max_depth,
+            max_cost_usd: None,
+        }
+    }
+
     fn effective_max_tool_result_length(
         requested_max_output_bytes: usize,
         context_window: usize,
@@ -923,6 +937,10 @@ impl AgentRuntimeExecutor {
             .with_tool_timeout(Duration::from_secs(agent_defaults.tool_timeout_secs))
             .with_max_iterations(agent_defaults.max_iterations)
             .with_context_window(context_window)
+            .with_resource_limits(Self::chat_resource_limits(
+                agent_defaults.max_tool_calls,
+                agent_defaults.max_wall_clock_secs,
+            ))
             .with_max_tool_result_length(max_tool_result_length);
         if let Some(entry) = model_entry
             && !model.is_cli_model()
@@ -2030,6 +2048,22 @@ mod tests {
         assert_eq!(mapped.max_tool_calls, 12);
         assert_eq!(mapped.max_wall_clock, Duration::from_secs(34));
         assert_eq!(mapped.max_cost_usd, Some(7.5));
+    }
+
+    #[test]
+    fn test_chat_resource_limits_disable_wall_clock_when_unset() {
+        let mapped = AgentRuntimeExecutor::chat_resource_limits(88, None);
+        assert_eq!(mapped.max_tool_calls, 88);
+        assert_eq!(mapped.max_wall_clock, Duration::ZERO);
+        assert_eq!(mapped.max_cost_usd, None);
+    }
+
+    #[test]
+    fn test_chat_resource_limits_enable_wall_clock_when_set() {
+        let mapped = AgentRuntimeExecutor::chat_resource_limits(99, Some(123));
+        assert_eq!(mapped.max_tool_calls, 99);
+        assert_eq!(mapped.max_wall_clock, Duration::from_secs(123));
+        assert_eq!(mapped.max_cost_usd, None);
     }
 
     #[test]
