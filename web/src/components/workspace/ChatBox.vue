@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Send, Square, X, Cpu } from 'lucide-vue-next'
+import { Send, Square, X, Cpu, Mic, Loader2 } from 'lucide-vue-next'
+import { useVoiceRecorder, getVoiceModel } from '@/composables/workspace/useVoiceRecorder'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import {
@@ -35,6 +36,7 @@ const emit = defineEmits<{
   send: [message: string]
   cancel: []
   close: []
+  sendVoiceMessage: [filePath: string]
   'update:selectedAgent': [value: string | null]
   'update:selectedModel': [value: string]
 }>()
@@ -42,6 +44,19 @@ const emit = defineEmits<{
 const { t } = useI18n()
 const inputMessage = ref('')
 const textareaRef = useTemplateRef<InstanceType<typeof Textarea>>('chatTextarea')
+
+// Voice recorder
+const recorder = useVoiceRecorder({
+  model: getVoiceModel(),
+  onTranscribed: (text) => {
+    if (text.trim()) {
+      inputMessage.value += text
+    }
+  },
+  onVoiceMessage: (filePath) => {
+    emit('sendVoiceMessage', filePath)
+  },
+})
 
 // Track IME composition state manually (WebKit's e.isComposing is unreliable)
 const composing = ref(false)
@@ -112,6 +127,25 @@ watch(inputMessage, async (newVal) => {
         )
       "
     >
+      <!-- Recording / Transcribing indicator -->
+      <div
+        v-if="recorder.state.value.isRecording || recorder.state.value.isTranscribing"
+        class="flex items-center gap-2 text-xs mb-2"
+        :class="recorder.state.value.isTranscribing ? 'text-muted-foreground' : 'text-destructive'"
+      >
+        <template v-if="recorder.state.value.isRecording">
+          <span class="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+          {{ t('voice.recording') }} {{ recorder.state.value.duration }}s
+          <span v-if="recorder.state.value.mode === 'voice-message'" class="text-muted-foreground">
+            ({{ t('voice.voiceMessage') }})
+          </span>
+        </template>
+        <template v-else>
+          <Loader2 :size="12" class="animate-spin" />
+          {{ t('voice.transcribing') }}
+        </template>
+      </div>
+
       <!-- Textarea -->
       <Textarea
         ref="chatTextarea"
@@ -164,6 +198,24 @@ watch(inputMessage, async (newVal) => {
 
         <!-- Spacer -->
         <div class="flex-1" />
+
+        <!-- Mic Button -->
+        <Button
+          v-if="!isExecuting && recorder.isSupported.value"
+          size="sm"
+          variant="ghost"
+          class="h-8 w-8 p-0"
+          :class="{
+            'text-destructive animate-pulse': recorder.state.value.isRecording,
+          }"
+          :disabled="recorder.state.value.isTranscribing"
+          @mousedown.prevent="recorder.startRecording()"
+          @mouseup.prevent="recorder.stopRecording()"
+          @mouseleave="recorder.state.value.isRecording && recorder.stopRecording()"
+        >
+          <Mic v-if="!recorder.state.value.isTranscribing" :size="14" />
+          <Loader2 v-else :size="14" class="animate-spin" />
+        </Button>
 
         <!-- Stop Button (during execution) -->
         <Button
