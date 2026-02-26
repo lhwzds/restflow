@@ -215,6 +215,7 @@ fn main() {
             commands::get_chat_session_count,
             commands::clear_old_chat_sessions,
             commands::execute_chat_session,
+            commands::list_chat_execution_events,
             commands::send_chat_message_stream,
             commands::cancel_chat_stream,
             // Auth Profiles
