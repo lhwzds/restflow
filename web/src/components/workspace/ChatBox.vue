@@ -54,10 +54,11 @@ const selectedVoiceMode = ref<VoiceMode>('voice-to-text')
 // Voice recorder
 const recorder = useVoiceRecorder({
   model: getVoiceModel(),
-  onTranscribed: (text) => {
-    if (text.trim()) {
-      inputMessage.value += text
-    }
+  onTranscribeDelta: (delta) => {
+    inputMessage.value += delta
+  },
+  onTranscribed: (_text) => {
+    // Full text already accumulated via deltas; no extra action needed
   },
   onVoiceMessage: (filePath) => {
     emit('sendVoiceMessage', filePath)
