@@ -236,6 +236,9 @@ fn main() {
             commands::auth_get_api_key,
             commands::auth_get_summary,
             commands::auth_clear,
+            // Voice
+            commands::transcribe_audio,
+            commands::save_voice_message,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
