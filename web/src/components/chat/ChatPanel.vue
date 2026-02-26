@@ -19,6 +19,7 @@ import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage as sendChatMessageApi } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
+import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 
 const emit = defineEmits<{
@@ -33,6 +34,9 @@ const modelsStore = useModelsStore()
 
 // Track last user message content for regeneration
 const lastUserContent = ref('')
+
+// Map voice message file paths to blob URLs for audio playback
+const voiceAudioUrls = ref<Map<string, { blobUrl: string; duration: number }>>(new Map())
 
 const {
   currentSession,
@@ -144,6 +148,19 @@ watch(isStreaming, (streaming, prevStreaming) => {
 async function sendMessageWithStream(message: string) {
   chatStream.reset()
   processedToolIds.value.clear()
+
+  // Optimistically show the user message immediately
+  const sessionId = chatSessionStore.currentSessionId
+  if (sessionId) {
+    chatSessionStore.appendLocalMessage(sessionId, {
+      id: `optimistic-${Date.now()}`,
+      role: 'user',
+      content: message,
+      timestamp: BigInt(Date.now()),
+      execution: null,
+    })
+  }
+
   try {
     await chatStream.send(message)
     // Session sync is handled by the isStreaming watcher when streaming ends.
@@ -298,8 +315,15 @@ async function handleRegenerate() {
   }
 }
 
-async function onSendVoiceMessage(filePath: string) {
-  const message = `[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: ${filePath}\ninstruction: Use the transcribe tool with this file_path before answering.`
+async function onSendVoiceMessage(info: VoiceMessageInfo) {
+  const message = `[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: ${info.filePath}\ninstruction: Use the transcribe tool with this file_path before answering.`
+
+  // Cache the blob URL for audio playback in the UI
+  voiceAudioUrls.value.set(info.filePath, {
+    blobUrl: info.audioBlobUrl,
+    duration: info.durationSec,
+  })
+
   const canSend = await ensureChatSession()
   if (!canSend) return
   await sendMessageWithStream(message)
@@ -339,6 +363,7 @@ defineExpose({
       :stream-content="streamContent"
       :stream-thinking="streamThinking"
       :steps="streamSteps"
+      :voice-audio-urls="voiceAudioUrls"
       @view-tool-result="onViewToolResult"
       @regenerate="handleRegenerate"
     />
