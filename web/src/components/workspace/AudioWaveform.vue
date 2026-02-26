@@ -12,8 +12,8 @@ let analyser: AnalyserNode | null = null
 let source: MediaStreamAudioSourceNode | null = null
 let animationId: number | null = null
 
-const BAR_COUNT = 24
-const BAR_GAP = 2
+const BAR_COUNT = 32
+const BAR_GAP = 1.5
 const MIN_BAR_HEIGHT = 2
 
 function setup() {
@@ -24,19 +24,24 @@ function setup() {
 
   audioCtx = new AudioContext()
   analyser = audioCtx.createAnalyser()
-  analyser.fftSize = 64
-  analyser.smoothingTimeConstant = 0.7
+  analyser.fftSize = 256
+  // Low smoothing = more responsive to real-time changes
+  analyser.smoothingTimeConstant = 0.4
+  analyser.minDecibels = -90
+  analyser.maxDecibels = -10
 
   source = audioCtx.createMediaStreamSource(props.stream)
   source.connect(analyser)
 
-  const dataArray = new Uint8Array(analyser.frequencyBinCount)
+  const timeData = new Uint8Array(analyser.fftSize)
+  let cachedColor = ''
 
   function draw() {
     if (!analyser || !canvas) return
     animationId = requestAnimationFrame(draw)
 
-    analyser.getByteFrequencyData(dataArray)
+    // Use time-domain data for real-time waveform feel
+    analyser.getByteTimeDomainData(timeData)
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
@@ -45,7 +50,6 @@ function setup() {
     const width = canvas.clientWidth
     const height = canvas.clientHeight
 
-    // Resize canvas buffer to match CSS size at device pixel ratio
     if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
       canvas.width = width * dpr
       canvas.height = height * dpr
@@ -54,24 +58,38 @@ function setup() {
 
     ctx.clearRect(0, 0, width, height)
 
+    // Cache the resolved color
+    if (!cachedColor) {
+      const style = getComputedStyle(canvas)
+      const hsl = style.getPropertyValue('--destructive').trim()
+      cachedColor = hsl ? `hsl(${hsl})` : '#ef4444'
+    }
+
     const barWidth = (width - BAR_GAP * (BAR_COUNT - 1)) / BAR_COUNT
+    const halfHeight = height / 2
 
-    // Compute the CSS color from the destructive HSL variable
-    const style = getComputedStyle(canvas)
-    const hsl = style.getPropertyValue('--destructive').trim()
-    const fillColor = hsl ? `hsl(${hsl})` : '#ef4444'
+    // Sample time-domain data into bars: compute amplitude per segment
+    const samplesPerBar = Math.floor(timeData.length / BAR_COUNT)
 
-    // Map frequency bins to bars (pick evenly spaced bins)
-    const binCount = analyser.frequencyBinCount
     for (let i = 0; i < BAR_COUNT; i++) {
-      const binIndex = Math.floor((i / BAR_COUNT) * binCount)
-      const value = dataArray[binIndex] / 255
-      const barHeight = Math.max(MIN_BAR_HEIGHT, value * height)
+      // Compute RMS amplitude for this segment
+      let sum = 0
+      const offset = i * samplesPerBar
+      for (let j = 0; j < samplesPerBar; j++) {
+        // 128 = silence center point in byte time-domain data
+        const v = (timeData[offset + j] - 128) / 128
+        sum += v * v
+      }
+      const rms = Math.sqrt(sum / samplesPerBar)
+
+      // Scale amplitude to bar height (boost low values for visibility)
+      const amplitude = Math.min(1, rms * 3)
+      const barHeight = Math.max(MIN_BAR_HEIGHT, amplitude * height)
 
       const x = i * (barWidth + BAR_GAP)
-      const y = (height - barHeight) / 2
+      const y = halfHeight - barHeight / 2
 
-      ctx.fillStyle = fillColor
+      ctx.fillStyle = cachedColor
       ctx.beginPath()
       ctx.roundRect(x, y, barWidth, barHeight, barWidth / 2)
       ctx.fill()
@@ -123,7 +141,7 @@ onUnmounted(() => {
 
 <style scoped>
 .audio-waveform {
-  width: 96px;
+  width: 120px;
   height: 28px;
   display: block;
   flex-shrink: 0;
