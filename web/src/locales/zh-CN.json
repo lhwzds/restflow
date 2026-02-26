@@ -1,6 +1,6 @@
 {
   "common": {
-    "brandName": "浮流 RestFlow",
+    "brandName": "RestFlow",
     "settings": "设置",
     "theme": "主题",
     "agent": "Agent",
@@ -42,7 +42,10 @@
     "transcribing": "转写中...",
     "micPermissionDenied": "麦克风权限被拒绝",
     "transcriptionFailed": "语音转写失败",
-    "holdForVoiceMessage": "长按发送语音消息"
+    "holdForVoiceMessage": "长按发送语音消息",
+    "voiceToText": "语音转文字",
+    "sendVoice": "发送语音消息",
+    "stop": "停止"
   },
   "settings": {
     "auth": {
