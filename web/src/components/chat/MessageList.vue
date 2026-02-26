@@ -20,9 +20,12 @@ import {
 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import StreamingMarkdown from '@/components/shared/StreamingMarkdown.vue'
+import VoiceMessageBubble from '@/components/chat/VoiceMessageBubble.vue'
 import { useToast } from '@/composables/useToast'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
+
+const VOICE_MSG_PATTERN = /^\[Voice message\]\n\n\[Media Context\]\nmedia_type: voice\nlocal_file_path: (.+)\ninstruction:/
 
 const props = defineProps<{
   messages: ChatMessage[]
@@ -30,6 +33,7 @@ const props = defineProps<{
   streamContent: string
   streamThinking: string
   steps: StreamStep[]
+  voiceAudioUrls?: Map<string, { blobUrl: string; duration: number }>
 }>()
 
 const emit = defineEmits<{
@@ -72,6 +76,13 @@ async function copyMessage(content: string) {
   }
 }
 
+function getVoiceAudio(msg: ChatMessage): { blobUrl: string; duration: number } | null {
+  if (msg.role !== 'user') return null
+  const match = msg.content.match(VOICE_MSG_PATTERN)
+  if (!match?.[1]) return null
+  return props.voiceAudioUrls?.get(match[1]) ?? null
+}
+
 function scrollToBottom() {
   if (scrollContainer.value) {
     scrollContainer.value.scrollTop = scrollContainer.value.scrollHeight
@@ -108,7 +119,14 @@ onMounted(() => {
           <div class="text-xs text-muted-foreground mb-1">
             {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Assistant' : 'System' }}
           </div>
-          <StreamingMarkdown :content="msg.content || ''" />
+          <!-- Voice message: show audio player -->
+          <VoiceMessageBubble
+            v-if="getVoiceAudio(msg)"
+            :blob-url="getVoiceAudio(msg)!.blobUrl"
+            :duration="getVoiceAudio(msg)!.duration"
+          />
+          <!-- Regular message -->
+          <StreamingMarkdown v-else :content="msg.content || ''" />
         </div>
         <!-- Hover action buttons -->
         <div
