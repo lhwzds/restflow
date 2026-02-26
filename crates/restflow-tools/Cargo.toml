@@ -20,6 +20,7 @@ uuid = { workspace = true }
 # Crate dependencies
 restflow-traits = { workspace = true, features = ["http-client"] }
 restflow-storage = { path = "../restflow-storage" }
+restflow-browser = { workspace = true }
 
 # Tool implementations
 reqwest = { version = "0.13.2", features = ["json", "stream", "multipart"] }

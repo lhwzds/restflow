@@ -46,6 +46,7 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "discord",
         "slack",
         "run_python",
+        "browser",
         "transcribe",
         "vision",
         "spawn_agent",
@@ -179,6 +180,9 @@ pub fn registry_from_allowlist(
             }
             "python" | "run_python" => {
                 builder = builder.with_python();
+            }
+            "browser" => {
+                builder = builder.with_browser()?;
             }
             "transcribe" => {
                 if let Some(resolver) = secret_resolver.clone() {
@@ -532,6 +536,7 @@ mod tests {
     fn test_main_agent_default_tools_include_transcribe_and_switch_model() {
         let tools = main_agent_default_tool_names();
         assert!(tools.iter().any(|name| name == "run_python"));
+        assert!(tools.iter().any(|name| name == "browser"));
         assert!(tools.iter().any(|name| name == "transcribe"));
         assert!(tools.iter().any(|name| name == "vision"));
         assert!(tools.iter().any(|name| name == "switch_model"));

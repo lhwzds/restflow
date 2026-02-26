@@ -5127,6 +5127,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "restflow-browser"
+version = "0.3.5"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "restflow-cli"
 version = "0.3.5"
 dependencies = [
@@ -5323,6 +5338,7 @@ dependencies = [
  "regex",
  "reqwest",
  "restflow-ai",
+ "restflow-browser",
  "restflow-sandbox",
  "restflow-storage",
  "restflow-traits",
