@@ -6,9 +6,10 @@ use std::sync::Arc;
 use tracing::warn;
 
 use crate::models::AgentNode;
-use crate::prompt_files;
 use crate::storage::Storage;
 use restflow_ai::agent::DEFAULT_AGENT_PROMPT;
+
+const DEFAULT_MAIN_AGENT_PROMPT: &str = include_str!("../../../assets/agents/default_agent.md");
 
 pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool,
@@ -49,7 +50,7 @@ pub fn build_agent_system_prompt(
                 .clone()
                 .filter(|prompt| !prompt.trim().is_empty())
         })
-        .or_else(|| prompt_files::load_default_main_agent_prompt().ok())
+        .or_else(|| Some(DEFAULT_MAIN_AGENT_PROMPT.to_string()))
         .unwrap_or_else(|| DEFAULT_AGENT_PROMPT.to_string());
     Ok(base)
 }

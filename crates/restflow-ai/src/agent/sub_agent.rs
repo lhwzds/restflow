@@ -1,5 +1,6 @@
 //! Sub-agent spawning support for tool-based execution.
 
+use crate::agent::PromptFlags;
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory};
@@ -561,17 +562,32 @@ async fn execute_subagent(
         .map(|value| value as usize)
         .unwrap_or(config.max_iterations);
 
-    let mut agent_config = AgentConfig::new(task.clone());
-    agent_config.system_prompt = Some(agent_def.system_prompt.clone());
-    agent_config.max_iterations = max_iterations;
-    // Subagents run autonomously — there is no approval channel from the
-    // parent, so security-gated tools must be auto-approved.
-    agent_config.yolo_mode = true;
+    let agent_config = build_subagent_agent_config(
+        task.clone(),
+        agent_def.system_prompt.clone(),
+        max_iterations,
+    );
 
     let executor = AgentExecutor::new(llm_client, registry);
     let result = executor.run(agent_config).await?;
 
     Ok(result)
+}
+
+fn build_subagent_agent_config(
+    task: String,
+    system_prompt: String,
+    max_iterations: usize,
+) -> AgentConfig {
+    let mut agent_config = AgentConfig::new(task);
+    agent_config.system_prompt = Some(system_prompt);
+    agent_config.max_iterations = max_iterations;
+    // AGENTS/workspace instructions should only be injected for the main agent.
+    agent_config.prompt_flags = PromptFlags::new().without_workspace_context();
+    // Subagents run autonomously — there is no approval channel from the
+    // parent, so security-gated tools must be auto-approved.
+    agent_config.yolo_mode = true;
+    agent_config
 }
 
 fn build_registry_for_agent(
@@ -1008,5 +1024,15 @@ mod tests {
         let names: Vec<String> = registry.list_tools().into_iter().map(|s| s.name).collect();
         assert!(names.contains(&"spawn_agent".to_string()));
         assert!(names.contains(&"wait_agents".to_string()));
+    }
+
+    #[test]
+    fn test_subagent_config_disables_workspace_instruction_injection() {
+        let config =
+            build_subagent_agent_config("task".to_string(), "You are subagent".to_string(), 7);
+        assert_eq!(config.max_iterations, 7);
+        assert_eq!(config.system_prompt.as_deref(), Some("You are subagent"));
+        assert!(!config.prompt_flags.include_workspace_context);
+        assert!(config.yolo_mode);
     }
 }

@@ -26,7 +26,7 @@ use crate::{
 };
 use restflow_ai::agent::{
     CheckpointDurability, ModelRoutingConfig as AiModelRoutingConfig,
-    ModelSwitcher as AiModelSwitcher, StreamEmitter,
+    ModelSwitcher as AiModelSwitcher, PromptFlags, StreamEmitter,
 };
 use restflow_ai::llm::Message;
 use restflow_ai::{
@@ -370,6 +370,10 @@ impl AgentRuntimeExecutor {
             max_depth: AgentResourceLimits::default().max_depth,
             max_cost_usd: None,
         }
+    }
+
+    fn non_main_agent_prompt_flags() -> PromptFlags {
+        PromptFlags::new().without_workspace_context()
     }
 
     fn effective_max_tool_result_length(
@@ -1381,6 +1385,7 @@ impl AgentRuntimeExecutor {
 
         let mut config = ReActAgentConfig::new(goal.to_string())
             .with_system_prompt(system_prompt)
+            .with_prompt_flags(Self::non_main_agent_prompt_flags())
             .with_tool_timeout(Duration::from_secs(agent_defaults.tool_timeout_secs))
             .with_max_iterations(agent_defaults.max_iterations)
             .with_context_window(context_window)
@@ -2158,6 +2163,14 @@ mod tests {
 
         assert!(filtered.iter().any(|name| name == "reply"));
         assert!(filtered.iter().any(|name| name == "bash"));
+    }
+
+    #[test]
+    fn test_non_main_agent_prompt_flags_disable_workspace_injection() {
+        let flags = AgentRuntimeExecutor::non_main_agent_prompt_flags();
+        assert!(!flags.include_workspace_context);
+        assert!(flags.include_base);
+        assert!(flags.include_tools);
     }
 
     /// Skills are now registered as callable tools, not injected into the prompt.

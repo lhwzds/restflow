@@ -130,7 +130,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             description: "Conducts research, gathers information, and synthesizes findings. \
                          Use for tasks requiring information gathering and analysis."
                 .to_string(),
-            system_prompt: RESEARCHER_PROMPT.to_string(),
+            system_prompt: compose_subagent_system_prompt(RESEARCHER_PROMPT),
             allowed_tools: vec!["http_request".to_string(), "read".to_string()],
             model: None,
             max_iterations: Some(15),
@@ -143,7 +143,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             description: "Writes, modifies, and debugs code. \
                          Use for programming tasks and code generation."
                 .to_string(),
-            system_prompt: CODER_PROMPT.to_string(),
+            system_prompt: compose_subagent_system_prompt(CODER_PROMPT),
             allowed_tools: vec![
                 "read".to_string(),
                 "write".to_string(),
@@ -161,7 +161,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             description: "Reviews code, documents, or content for quality and issues. \
                          Use for review and quality assurance tasks."
                 .to_string(),
-            system_prompt: REVIEWER_PROMPT.to_string(),
+            system_prompt: compose_subagent_system_prompt(REVIEWER_PROMPT),
             allowed_tools: vec!["read".to_string(), "grep".to_string()],
             model: None,
             max_iterations: Some(10),
@@ -174,7 +174,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             description: "Creates written content, documentation, and reports. \
                          Use for content creation and documentation tasks."
                 .to_string(),
-            system_prompt: WRITER_PROMPT.to_string(),
+            system_prompt: compose_subagent_system_prompt(WRITER_PROMPT),
             allowed_tools: vec!["read".to_string(), "write".to_string()],
             model: None,
             max_iterations: Some(10),
@@ -187,7 +187,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
             description: "Analyzes data and provides insights. \
                          Use for data analysis and interpretation tasks."
                 .to_string(),
-            system_prompt: ANALYST_PROMPT.to_string(),
+            system_prompt: compose_subagent_system_prompt(ANALYST_PROMPT),
             allowed_tools: vec!["read".to_string(), "python".to_string()],
             model: None,
             max_iterations: Some(15),
@@ -199,11 +199,20 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
 
 // Agent system prompts — loaded from .md files at compile time
 
+const DEFAULT_MAIN_AGENT_PROMPT: &str = include_str!("../../../assets/agents/default_agent.md");
 const RESEARCHER_PROMPT: &str = include_str!("../../../assets/agents/subagent_researcher.md");
 const CODER_PROMPT: &str = include_str!("../../../assets/agents/subagent_coder.md");
 const REVIEWER_PROMPT: &str = include_str!("../../../assets/agents/subagent_reviewer.md");
 const WRITER_PROMPT: &str = include_str!("../../../assets/agents/subagent_writer.md");
 const ANALYST_PROMPT: &str = include_str!("../../../assets/agents/subagent_analyst.md");
+
+fn compose_subagent_system_prompt(role_prompt: &str) -> String {
+    format!(
+        "{base}\n\n## Subagent Role Override\n\n{role}\n\nWhen role-specific instructions conflict with the base prompt, follow role-specific instructions.",
+        base = DEFAULT_MAIN_AGENT_PROMPT.trim(),
+        role = role_prompt.trim(),
+    )
+}
 
 #[cfg(test)]
 mod tests {
@@ -240,5 +249,26 @@ mod tests {
         let coding_agents = registry.by_tag("coding");
         assert!(!coding_agents.is_empty());
         assert!(coding_agents.iter().any(|a| a.id == "coder"));
+    }
+
+    #[test]
+    fn test_subagent_prompt_extends_default_prompt() {
+        let agents = builtin_agents();
+        let coder = agents
+            .iter()
+            .find(|agent| agent.id == "coder")
+            .expect("coder agent should exist");
+
+        assert!(
+            coder
+                .system_prompt
+                .contains("You are a helpful AI assistant powered by RestFlow")
+        );
+        assert!(
+            coder
+                .system_prompt
+                .contains("You are an expert coding agent.")
+        );
+        assert!(coder.system_prompt.contains("Subagent Role Override"));
     }
 }

@@ -55,6 +55,8 @@ use tokio::sync::{Mutex, mpsc};
 use tokio::task::AbortHandle;
 use tracing::debug;
 
+const USER_INSTRUCTIONS_PREFIX: &str = "# AGENTS.md instructions for ";
+
 /// Truncate tool output with middle-truncation and optional disk persistence.
 /// Returns the (possibly truncated) string with a retrieval hint if the full output was saved.
 fn truncate_tool_output(
@@ -135,6 +137,53 @@ impl AgentExecutor {
     pub fn with_subagent_tracker(mut self, tracker: Arc<SubagentTracker>) -> Self {
         self.subagent_tracker = Some(tracker);
         self
+    }
+
+    async fn build_workspace_instruction_user_message(&self) -> Option<String> {
+        let cache = self.context_cache.as_ref()?;
+        let context = cache.get().await;
+        let instructions = context.content.trim();
+        if instructions.is_empty() {
+            return None;
+        }
+
+        debug!(
+            files = ?context.loaded_files,
+            bytes = context.total_bytes,
+            "Loaded workspace instructions for user-role injection"
+        );
+
+        let directory = std::env::current_dir()
+            .ok()
+            .map(|path| path.to_string_lossy().into_owned())
+            .unwrap_or_else(|| ".".to_string());
+
+        Some(format!(
+            "{USER_INSTRUCTIONS_PREFIX}{directory}\n\n<INSTRUCTIONS>\n{instructions}\n</INSTRUCTIONS>"
+        ))
+    }
+
+    fn has_workspace_instruction_message(state: &AgentState) -> bool {
+        state.messages.iter().any(|message| {
+            message.role == Role::User
+                && message.content.starts_with(USER_INSTRUCTIONS_PREFIX)
+                && message.content.contains("<INSTRUCTIONS>")
+        })
+    }
+
+    fn inject_workspace_instruction_message(state: &mut AgentState, message: String) {
+        if Self::has_workspace_instruction_message(state) {
+            return;
+        }
+
+        let insert_index = if matches!(state.messages.first().map(|m| &m.role), Some(Role::System))
+        {
+            1
+        } else {
+            0
+        };
+        state.messages.insert(insert_index, Message::user(message));
+        state.version += 1;
     }
 
     /// Execute agent - simplified Swarm-style loop
@@ -221,6 +270,11 @@ impl AgentExecutor {
 
             state.add_message(system_msg);
             state.add_message(user_msg);
+        }
+        if config.prompt_flags.include_workspace_context
+            && let Some(message) = self.build_workspace_instruction_user_message().await
+        {
+            Self::inject_workspace_instruction_message(&mut state, message);
         }
 
         // Core loop (Swarm-inspired simplicity)

@@ -2,6 +2,7 @@ use super::steer::parse_approval_resolution;
 use super::*;
 use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
+use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::llm::{
     CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
 };
@@ -441,7 +442,9 @@ async fn test_executor_uses_working_memory() {
     let tools = Arc::new(ToolRegistry::new());
     let executor = AgentExecutor::new(mock_llm.clone(), tools);
 
-    let config = AgentConfig::new("Test task").with_system_prompt("You are a test assistant");
+    let config = AgentConfig::new("Test task")
+        .with_system_prompt("You are a test assistant")
+        .with_prompt_flags(PromptFlags::new().without_workspace_context());
 
     let result = executor.run(config).await.unwrap();
     assert!(result.success);
@@ -485,7 +488,8 @@ async fn test_executor_multi_turn_with_tool_calls() {
     let tools = Arc::new(ToolRegistry::new());
     let executor = AgentExecutor::new(mock_llm.clone(), tools);
 
-    let config = AgentConfig::new("Multi-turn task");
+    let config = AgentConfig::new("Multi-turn task")
+        .with_prompt_flags(PromptFlags::new().without_workspace_context());
 
     let result = executor.run(config).await.unwrap();
     assert!(result.success);
@@ -524,13 +528,78 @@ async fn test_executor_state_tracks_full_history() {
     let tools = Arc::new(ToolRegistry::new());
     let executor = AgentExecutor::new(mock_llm, tools);
 
-    let config = AgentConfig::new("Test");
+    let config =
+        AgentConfig::new("Test").with_prompt_flags(PromptFlags::new().without_workspace_context());
 
     let result = executor.run(config).await.unwrap();
 
     // State should have full history
     // system + user + assistant(tool_call) + tool_result + assistant(final)
     assert_eq!(result.state.messages.len(), 5);
+}
+
+#[tokio::test]
+async fn test_executor_injects_workspace_instructions_as_user_message() {
+    let response = CompletionResponse {
+        content: Some("Done".to_string()),
+        tool_calls: vec![],
+        finish_reason: FinishReason::Stop,
+        usage: None,
+    };
+
+    let llm = Arc::new(MockLlmClient::new(vec![response]));
+    let tools = Arc::new(ToolRegistry::new());
+    let mut executor = AgentExecutor::new(llm.clone(), tools);
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        temp.path().join("AGENTS.md"),
+        "System-like instruction from AGENTS file.",
+    )
+    .expect("write AGENTS.md");
+
+    executor.context_cache = Some(WorkspaceContextCache::new(
+        ContextDiscoveryConfig {
+            paths: vec!["AGENTS.md".into()],
+            scan_directories: false,
+            case_insensitive_dedup: true,
+            max_total_size: 100_000,
+            max_file_size: 50_000,
+        },
+        temp.path().to_path_buf(),
+    ));
+
+    let config = AgentConfig::new("primary user goal");
+    let result = executor.run(config).await.unwrap();
+    assert!(result.success);
+
+    let requests = llm.captured_requests();
+    assert_eq!(requests.len(), 1);
+    let messages = &requests[0];
+
+    assert_eq!(messages[0].role, Role::System);
+    assert!(
+        !messages[0]
+            .content
+            .contains("System-like instruction from AGENTS file.")
+    );
+
+    let injected = messages.iter().find(|message| {
+        message.role == Role::User && message.content.starts_with("# AGENTS.md instructions for ")
+    });
+    let injected = injected.expect("workspace instructions should be injected as a user message");
+    assert!(
+        injected
+            .content
+            .contains("System-like instruction from AGENTS file.")
+    );
+
+    let goal = messages
+        .iter()
+        .rev()
+        .find(|message| message.role == Role::User)
+        .expect("missing user goal message");
+    assert!(goal.content.contains("primary user goal"));
 }
 
 #[tokio::test]
