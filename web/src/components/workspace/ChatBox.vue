@@ -172,18 +172,56 @@ const setVoiceMode = (mode: 'voice-to-text' | 'voice-message') => {
 
       <!-- Bottom Row -->
       <div class="flex items-center gap-2 mt-2">
-        <!-- Recording state: show recording info + cancel + stop -->
-        <template v-if="recorder.state.value.isRecording">
-          <div class="flex-1" />
+        <!-- Agent Selector (always visible) -->
+        <SessionAgentSelector
+          :selected-agent="selectedAgent"
+          :available-agents="availableAgents"
+          :disabled="isExecuting || recorder.state.value.isRecording"
+          @update:selected-agent="emit('update:selectedAgent', $event)"
+        />
 
+        <!-- Model Selector (always visible) -->
+        <Select
+          :model-value="selectedModel"
+          :disabled="recorder.state.value.isRecording"
+          @update:model-value="emit('update:selectedModel', $event)"
+        >
+          <SelectTrigger class="w-[180px] h-8 text-xs">
+            <Cpu :size="14" class="mr-1 text-muted-foreground shrink-0" />
+            <SelectValue :placeholder="t('common.model')" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
+              {{ model.name }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+
+        <!-- Token Counter (idle only) -->
+        <TokenCounter
+          v-if="!recorder.state.value.isRecording && (totalTokens || isStreaming)"
+          :input-tokens="inputTokens"
+          :output-tokens="outputTokens"
+          :total-tokens="totalTokens"
+          :tokens-per-second="tokensPerSecond"
+          :duration-ms="durationMs"
+          :is-streaming="isStreaming"
+          compact
+        />
+
+        <!-- Spacer -->
+        <div class="flex-1" />
+
+        <!-- Recording state: waveform + controls -->
+        <template v-if="recorder.state.value.isRecording">
           <!-- Recording indicator with waveform -->
           <div class="flex items-center gap-1.5 text-xs text-destructive">
-            <span class="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+            <span class="w-2 h-2 rounded-full bg-destructive animate-pulse shrink-0" />
             <AudioWaveform
               v-if="recorder.mediaStream.value"
               :stream="recorder.mediaStream.value"
             />
-            {{ recorder.state.value.duration }}s
+            <span class="tabular-nums">{{ recorder.state.value.duration }}s</span>
           </div>
 
           <!-- Cancel button -->
@@ -221,47 +259,8 @@ const setVoiceMode = (mode: 'voice-to-text' | 'voice-message') => {
           </Button>
         </template>
 
-        <!-- Idle / Transcribing state: show normal controls -->
+        <!-- Idle / Transcribing state: voice controls + send -->
         <template v-else>
-          <!-- Agent Selector -->
-          <SessionAgentSelector
-            :selected-agent="selectedAgent"
-            :available-agents="availableAgents"
-            :disabled="isExecuting"
-            @update:selected-agent="emit('update:selectedAgent', $event)"
-          />
-
-          <!-- Model Selector -->
-          <Select
-            :model-value="selectedModel"
-            @update:model-value="emit('update:selectedModel', $event)"
-          >
-            <SelectTrigger class="w-[180px] h-8 text-xs">
-              <Cpu :size="14" class="mr-1 text-muted-foreground shrink-0" />
-              <SelectValue :placeholder="t('common.model')" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
-                {{ model.name }}
-              </SelectItem>
-            </SelectContent>
-          </Select>
-
-          <!-- Token Counter -->
-          <TokenCounter
-            v-if="totalTokens || isStreaming"
-            :input-tokens="inputTokens"
-            :output-tokens="outputTokens"
-            :total-tokens="totalTokens"
-            :tokens-per-second="tokensPerSecond"
-            :duration-ms="durationMs"
-            :is-streaming="isStreaming"
-            compact
-          />
-
-          <!-- Spacer -->
-          <div class="flex-1" />
-
           <!-- Voice: mode selector + mic button -->
           <div
             v-if="!isExecuting && recorder.isSupported.value"
