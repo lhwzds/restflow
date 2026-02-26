@@ -293,6 +293,13 @@ async function handleRegenerate() {
   }
 }
 
+async function onSendVoiceMessage(filePath: string) {
+  const message = `[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: ${filePath}\ninstruction: Use the transcribe tool with this file_path before answering.`
+  const canSend = await ensureChatSession()
+  if (!canSend) return
+  await sendMessageWithStream(message)
+}
+
 function onViewToolResult(step: StreamStep) {
   if (step.result) {
     emit('toolResult', step)
@@ -348,6 +355,7 @@ defineExpose({
         :tokens-per-second="tokensPerSecond"
         :duration-ms="durationMs"
         @send="onSendMessage"
+        @send-voice-message="onSendVoiceMessage"
         @cancel="handleCancel"
         @close="() => {}"
         @update:selected-agent="onUpdateSelectedAgent"
