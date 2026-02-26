@@ -42,7 +42,11 @@
     "transcribing": "Transcribing...",
     "micPermissionDenied": "Microphone permission denied",
     "transcriptionFailed": "Transcription failed",
-    "holdForVoiceMessage": "Hold for voice message"
+    "holdForVoiceMessage": "Hold for voice message",
+    "voiceToText": "Voice to text",
+    "sendVoice": "Send voice message",
+    "stop": "Stop",
+    "done": "Done"
   },
   "settings": {
     "auth": {
