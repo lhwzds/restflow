@@ -171,11 +171,8 @@ impl ConfigTool {
                         })? as usize;
                     }
                     "max_wall_clock_secs" => {
-                        config.agent.max_wall_clock_secs = value.as_u64().ok_or_else(|| {
-                            ToolError::Tool(
-                                "agent.max_wall_clock_secs must be a number".to_string(),
-                            )
-                        })?;
+                        config.agent.max_wall_clock_secs =
+                            Self::parse_optional_timeout(value, "agent.max_wall_clock_secs")?;
                     }
                     "default_task_timeout_secs" => {
                         config.agent.default_task_timeout_secs =
@@ -439,6 +436,31 @@ mod tests {
             output
                 .result
                 .get("background_api_timeout_seconds")
+                .is_some_and(|v| v.is_null())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_agent_max_wall_clock_with_null() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let output = tool
+            .execute(json!({
+                "operation": "set",
+                "key": "agent.max_wall_clock_secs",
+                "value": null
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        let agent = output
+            .result
+            .get("agent")
+            .expect("agent block should exist");
+        assert!(
+            agent
+                .get("max_wall_clock_secs")
                 .is_some_and(|v| v.is_null())
         );
     }
