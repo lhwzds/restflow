@@ -9,8 +9,10 @@
  * Mode is chosen explicitly by the caller.
  */
 
-import { ref, computed, readonly, type Ref, type ComputedRef } from 'vue'
-import { transcribeAudio, saveVoiceMessage } from '@/api/voice'
+import { ref, computed, readonly, onUnmounted, type Ref, type ComputedRef } from 'vue'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import { transcribeAudioStream, saveVoiceMessage } from '@/api/voice'
+import type { TranscribeStreamEvent } from '@/types/generated/TranscribeStreamEvent'
 
 export type VoiceMode = 'voice-to-text' | 'voice-message' | null
 
@@ -20,12 +22,14 @@ export interface VoiceRecorderState {
   duration: number
   mode: VoiceMode
   error: string | null
+  streamingText: string
 }
 
 export interface VoiceRecorderOptions {
   model?: string
   language?: string
   onTranscribed?: (text: string) => void
+  onTranscribeDelta?: (delta: string, accumulated: string) => void
   onVoiceMessage?: (filePath: string) => void
 }
 
@@ -58,7 +62,7 @@ export function setVoiceModel(model: string): void {
 }
 
 export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecorderReturn {
-  const { model, language, onTranscribed, onVoiceMessage } = options
+  const { model, language, onTranscribed, onTranscribeDelta, onVoiceMessage } = options
 
   const state = ref<VoiceRecorderState>({
     isRecording: false,
@@ -66,12 +70,14 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     duration: 0,
     mode: null,
     error: null,
+    streamingText: '',
   })
 
   let mediaRecorder: MediaRecorder | null = null
   let audioChunks: Blob[] = []
   let durationTimer: ReturnType<typeof setInterval> | null = null
   let stream: MediaStream | null = null
+  let streamUnlisten: UnlistenFn | null = null
 
   // Always show the mic button; check actual support at recording time.
   // Some webviews (e.g. Tauri) may lazily initialize mediaDevices.
@@ -92,6 +98,17 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
       stream = null
     }
   }
+
+  function cleanupStreamListener() {
+    if (streamUnlisten) {
+      streamUnlisten()
+      streamUnlisten = null
+    }
+  }
+
+  onUnmounted(() => {
+    cleanupStreamListener()
+  })
 
   async function startRecording(mode: VoiceMode) {
     if (state.value.isRecording || state.value.isTranscribing) return
@@ -154,6 +171,7 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     if (!state.value.isRecording || !mediaRecorder) return
 
     clearTimers()
+    cleanupStreamListener()
 
     // Detach handler to prevent processing
     mediaRecorder.onstop = null
@@ -163,6 +181,7 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     state.value.isRecording = false
     state.value.mode = null
     state.value.duration = 0
+    state.value.streamingText = ''
   }
 
   function toggleRecording(mode: VoiceMode) {
@@ -192,13 +211,40 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
 
     if (mode === 'voice-to-text') {
       state.value.isTranscribing = true
+      state.value.streamingText = ''
       try {
         const effectiveModel = model || getVoiceModel()
-        const result = await transcribeAudio(base64, effectiveModel, language)
-        onTranscribed?.(result.text)
+        const transcribeId = await transcribeAudioStream(base64, effectiveModel, language)
+
+        // Listen for streaming transcription events
+        streamUnlisten = await listen<TranscribeStreamEvent>(
+          'voice:transcribe-stream',
+          (event) => {
+            const data = event.payload
+            if (data.transcribe_id !== transcribeId) return
+
+            switch (data.kind.type) {
+              case 'delta':
+                state.value.streamingText += data.kind.text
+                onTranscribeDelta?.(data.kind.text, state.value.streamingText)
+                break
+              case 'completed':
+                onTranscribed?.(data.kind.full_text)
+                cleanupStreamListener()
+                state.value.isTranscribing = false
+                state.value.mode = null
+                break
+              case 'failed':
+                state.value.error = data.kind.error
+                cleanupStreamListener()
+                state.value.isTranscribing = false
+                state.value.mode = null
+                break
+            }
+          },
+        )
       } catch (err) {
         state.value.error = err instanceof Error ? err.message : 'transcription_failed'
-      } finally {
         state.value.isTranscribing = false
         state.value.mode = null
       }
