@@ -264,6 +264,11 @@ pub enum IpcRequest {
         session_id: String,
         limit: Option<usize>,
     },
+    ListChatExecutionEvents {
+        session_id: String,
+        turn_id: Option<String>,
+        limit: Option<usize>,
+    },
 
     ListTerminalSessions,
     GetTerminalSession {
