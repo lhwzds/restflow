@@ -5,9 +5,9 @@ use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, Profi
 use crate::memory::ExportResult;
 use crate::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
-    BackgroundAgentPatch, BackgroundAgentSpec, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession,
-    MemoryStats, Skill, TerminalSession,
+    BackgroundAgentPatch, BackgroundAgentSpec, ChatExecutionEvent, ChatMessage, ChatRole,
+    ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult,
+    MemorySession, MemoryStats, Skill, TerminalSession,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
@@ -492,6 +492,20 @@ impl IpcClient {
     ) -> Result<Vec<ChatMessage>> {
         self.request_typed(IpcRequest::GetSessionMessages { session_id, limit })
             .await
+    }
+
+    pub async fn list_chat_execution_events(
+        &mut self,
+        session_id: String,
+        turn_id: Option<String>,
+        limit: Option<usize>,
+    ) -> Result<Vec<ChatExecutionEvent>> {
+        self.request_typed(IpcRequest::ListChatExecutionEvents {
+            session_id,
+            turn_id,
+            limit,
+        })
+        .await
     }
 
     pub async fn list_terminal_sessions(&mut self) -> Result<Vec<TerminalSession>> {
@@ -1068,6 +1082,15 @@ impl IpcClient {
         _session_id: String,
         _limit: Option<usize>,
     ) -> Result<Vec<ChatMessage>> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn list_chat_execution_events(
+        &mut self,
+        _session_id: String,
+        _turn_id: Option<String>,
+        _limit: Option<usize>,
+    ) -> Result<Vec<ChatExecutionEvent>> {
         self.request_typed(IpcRequest::Ping).await
     }
 
