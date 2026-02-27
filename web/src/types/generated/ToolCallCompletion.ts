@@ -9,6 +9,10 @@ export type ToolCallCompletion = {
  */
 output: string | null, 
 /**
+ * Optional file reference for full output payload.
+ */
+output_ref: string | null, 
+/**
  * Whether the tool call succeeded.
  */
 success: boolean, 

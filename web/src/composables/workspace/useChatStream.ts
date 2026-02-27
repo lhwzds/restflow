@@ -8,7 +8,7 @@
 import { ref, computed, onUnmounted, type ComputedRef } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { sendChatMessageStream, cancelChatStream } from '@/api/chat-stream'
-import { listChatExecutionEvents, type ChatExecutionEvent } from '@/api/chat-execution-events'
+import { listToolTraces, type ToolTrace } from '@/api/tool-traces'
 import type { ChatStreamEvent } from '@/types/generated/ChatStreamEvent'
 import type { ChatStreamKind } from '@/types/generated/ChatStreamKind'
 import type { StepStatus } from '@/types/generated/StepStatus'
@@ -89,7 +89,7 @@ export function useChatStream(sessionId: () => string | null) {
   let unlistenFn: UnlistenFn | null = null
   let disposed = false
 
-  function buildStepsFromExecutionEvents(events: ChatExecutionEvent[]): StreamStep[] {
+  function buildStepsFromExecutionEvents(events: ToolTrace[]): StreamStep[] {
     const sortedEvents = [...events].sort(
       (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
     )
@@ -150,7 +150,7 @@ export function useChatStream(sessionId: () => string | null) {
     if (!sid) return
 
     try {
-      const events = await listChatExecutionEvents(sid, turnId, 200)
+      const events = await listToolTraces(sid, turnId, 200)
       if (disposed || state.value.messageId !== turnId) return
 
       const steps = buildStepsFromExecutionEvents(events)
