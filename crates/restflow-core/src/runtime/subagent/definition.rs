@@ -199,12 +199,12 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
 
 // Agent system prompts — loaded from .md files at compile time
 
-const DEFAULT_MAIN_AGENT_PROMPT: &str = include_str!("../../../assets/agents/default_agent.md");
-const RESEARCHER_PROMPT: &str = include_str!("../../../assets/agents/subagent_researcher.md");
-const CODER_PROMPT: &str = include_str!("../../../assets/agents/subagent_coder.md");
-const REVIEWER_PROMPT: &str = include_str!("../../../assets/agents/subagent_reviewer.md");
-const WRITER_PROMPT: &str = include_str!("../../../assets/agents/subagent_writer.md");
-const ANALYST_PROMPT: &str = include_str!("../../../assets/agents/subagent_analyst.md");
+const DEFAULT_MAIN_AGENT_PROMPT: &str = include_str!("../../../assets/agents/default.md");
+const RESEARCHER_PROMPT: &str = include_str!("../../../assets/agents/Researcher.md");
+const CODER_PROMPT: &str = include_str!("../../../assets/agents/Coder.md");
+const REVIEWER_PROMPT: &str = include_str!("../../../assets/agents/Reviewer.md");
+const WRITER_PROMPT: &str = include_str!("../../../assets/agents/Writer.md");
+const ANALYST_PROMPT: &str = include_str!("../../../assets/agents/Analyst.md");
 
 fn compose_subagent_system_prompt(role_prompt: &str) -> String {
     format!(
