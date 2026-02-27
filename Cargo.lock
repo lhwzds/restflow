@@ -5132,11 +5132,15 @@ version = "0.3.5"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
+ "futures-util",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-tungstenite",
  "tracing",
  "uuid",
 ]
