@@ -6,6 +6,7 @@ import HttpPanel from '@/components/tool-panel/panels/HttpPanel.vue'
 import FilePanel from '@/components/tool-panel/panels/FilePanel.vue'
 import SearchPanel from '@/components/tool-panel/panels/SearchPanel.vue'
 import PythonPanel from '@/components/tool-panel/panels/PythonPanel.vue'
+import BrowserPanel from '@/components/tool-panel/panels/BrowserPanel.vue'
 import GenericJsonPanel from '@/components/tool-panel/panels/GenericJsonPanel.vue'
 import {
   detectLanguage,
@@ -160,6 +161,37 @@ describe('tool panel components', () => {
     await copyOutputButton.trigger('click')
     expect(writeText).toHaveBeenCalledWith('print("ok")')
     expect(writeText).toHaveBeenCalledWith('{"ok":true}')
+  })
+
+  it('renders BrowserPanel for browser tool output', async () => {
+    const step = createStep({
+      name: 'browser',
+      result: JSON.stringify({
+        runtime: 'cdp_chromium',
+        exit_code: 0,
+        duration_ms: 1234,
+        payload: {
+          success: true,
+          result: [
+            { type: 'navigate', url: 'https://example.com' },
+            { type: 'screenshot', path: '/tmp/browser-shot.png' },
+          ],
+        },
+      }),
+      arguments: JSON.stringify({
+        action: 'run_actions',
+        session_id: 'session-1',
+      }),
+    } as Partial<StreamStep> & { arguments: string })
+
+    const wrapper = mount(BrowserPanel, { props: { step } })
+    expect(wrapper.text()).toContain('run_actions')
+    expect(wrapper.text()).toContain('session-1')
+    expect(wrapper.text()).toContain('cdp_chromium')
+    expect(wrapper.text()).toContain('https://example.com')
+    expect(wrapper.text()).toContain('/tmp/browser-shot.png')
+    await wrapper.get('button').trigger('click')
+    expect(writeText).toHaveBeenCalled()
   })
 
   it('renders GenericJsonPanel and toggles raw mode', async () => {

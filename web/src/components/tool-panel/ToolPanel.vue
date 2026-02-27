@@ -8,6 +8,7 @@ import FilePanel from './panels/FilePanel.vue'
 import SearchPanel from './panels/SearchPanel.vue'
 import PythonPanel from './panels/PythonPanel.vue'
 import WebPanel from './panels/WebPanel.vue'
+import BrowserPanel from './panels/BrowserPanel.vue'
 import NotificationPanel from './panels/NotificationPanel.vue'
 import GenericJsonPanel from './panels/GenericJsonPanel.vue'
 import LegacyCanvasPanel from './panels/LegacyCanvasPanel.vue'
@@ -62,6 +63,7 @@ const panelComponent = computed(() => {
     search: SearchPanel,
     python: PythonPanel,
     web: WebPanel,
+    browser: BrowserPanel,
     notification: NotificationPanel,
     generic: GenericJsonPanel,
     canvas: LegacyCanvasPanel,
