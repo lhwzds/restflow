@@ -4,7 +4,7 @@ import { mount } from '@vue/test-utils'
 import { listen } from '@tauri-apps/api/event'
 import { useChatStream } from '../useChatStream'
 import { sendChatMessageStream, cancelChatStream } from '@/api/chat-stream'
-import { listChatExecutionEvents } from '@/api/chat-execution-events'
+import { listToolTraces } from '@/api/tool-traces'
 import type { ChatStreamEvent } from '@/types/generated/ChatStreamEvent'
 
 vi.mock('@tauri-apps/api/event', () => ({
@@ -16,8 +16,8 @@ vi.mock('@/api/chat-stream', () => ({
   cancelChatStream: vi.fn(),
 }))
 
-vi.mock('@/api/chat-execution-events', () => ({
-  listChatExecutionEvents: vi.fn(),
+vi.mock('@/api/tool-traces', () => ({
+  listToolTraces: vi.fn(),
 }))
 
 describe('useChatStream', () => {
@@ -27,7 +27,7 @@ describe('useChatStream', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     streamListener = null
-    vi.mocked(listChatExecutionEvents).mockResolvedValue([])
+    vi.mocked(listToolTraces).mockResolvedValue([])
     vi.mocked(listen).mockImplementation(async (_event, handler) => {
       streamListener = handler as (event: { payload: ChatStreamEvent }) => void
       return unlistenMock
@@ -123,7 +123,7 @@ describe('useChatStream', () => {
     expect(vm.stream.state.value.tokenCount).toBe(12)
     expect(vm.stream.state.value.steps).toHaveLength(1)
     expect(vm.stream.state.value.steps[0]?.status).toBe('failed')
-    expect(listChatExecutionEvents).toHaveBeenCalledWith('session-1', 'msg-1', 200)
+    expect(listToolTraces).toHaveBeenCalledWith('session-1', 'msg-1', 200)
     expect(vm.stream.isStreaming.value).toBe(false)
 
     wrapper.unmount()
@@ -191,7 +191,7 @@ describe('useChatStream', () => {
 
   it('replays persisted tool steps after completion', async () => {
     vi.mocked(sendChatMessageStream).mockResolvedValue('msg-3')
-    vi.mocked(listChatExecutionEvents).mockResolvedValue([
+    vi.mocked(listToolTraces).mockResolvedValue([
       {
         id: 'evt-1',
         session_id: 'session-1',
@@ -202,6 +202,7 @@ describe('useChatStream', () => {
         tool_name: 'web_search',
         input: '{"query":"restflow"}',
         output: null,
+        output_ref: null,
         success: null,
         duration_ms: null,
         error: null,
@@ -217,6 +218,7 @@ describe('useChatStream', () => {
         tool_name: 'web_search',
         input: null,
         output: '{"items":1}',
+        output_ref: null,
         success: true,
         duration_ms: 10,
         error: null,
