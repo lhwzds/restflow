@@ -26,5 +26,8 @@ __pycache__/
 # redb database files
 :memory:
 
+# WebKit temp files from MediaRecorder
+.tmp-voice*
+
 # Claude Code
 .claude/

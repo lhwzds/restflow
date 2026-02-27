@@ -36,6 +36,12 @@ fn main() {
 
     info!("Starting RestFlow Desktop Application");
 
+    // Change CWD to ~/.restflow/ so that WebKit temp files (e.g. from MediaRecorder)
+    // don't land in the project or user home directory.
+    if let Ok(dir) = restflow_core::paths::ensure_restflow_dir() {
+        let _ = std::env::set_current_dir(&dir);
+    }
+
     if let Ok(rt) = tokio::runtime::Runtime::new() {
         rt.block_on(async {
             if let Err(err) = ensure_daemon_running().await {
