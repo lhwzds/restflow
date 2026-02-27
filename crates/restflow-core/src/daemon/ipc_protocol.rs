@@ -408,6 +408,9 @@ pub enum StreamFrame {
     Start {
         stream_id: String,
     },
+    Ack {
+        content: String,
+    },
     Data {
         content: String,
     },
@@ -878,6 +881,21 @@ mod tests {
 
         if let StreamFrame::Start { stream_id } = parsed {
             assert_eq!(stream_id, "stream-1");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_stream_frame_ack() {
+        let frame = StreamFrame::Ack {
+            content: "Acknowledged".to_string(),
+        };
+        let json = serde_json::to_string(&frame).unwrap();
+        let parsed: StreamFrame = serde_json::from_str(&json).unwrap();
+
+        if let StreamFrame::Ack { content } = parsed {
+            assert_eq!(content, "Acknowledged");
         } else {
             panic!("Wrong variant");
         }

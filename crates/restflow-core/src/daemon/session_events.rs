@@ -58,10 +58,7 @@ mod tests {
         let received = receiver.recv().await.unwrap();
 
         match received {
-            ChatSessionEvent::MessageAdded {
-                session_id,
-                source,
-            } => {
+            ChatSessionEvent::MessageAdded { session_id, source } => {
                 assert_eq!(session_id, "session-1");
                 assert_eq!(source, "telegram");
             }

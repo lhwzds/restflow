@@ -1629,6 +1629,15 @@ impl BackgroundAgentRunner {
                     error!("Failed to record task completion: {}", e);
                 }
 
+                // Persist input/output to the bound chat session
+                self.persist_to_chat_session(
+                    &task,
+                    resolved_input.as_deref(),
+                    &exec_result.output,
+                    false,
+                    duration_ms,
+                );
+
                 if let Some(compaction) = exec_result.compaction.as_ref() {
                     let compaction_message = format!(
                         "Compacted {} messages ({} -> {} tokens) across {} event(s)",
@@ -1705,6 +1714,15 @@ impl BackgroundAgentRunner {
                     error!("Failed to record task failure: {}", e);
                 }
 
+                // Persist error to the bound chat session
+                self.persist_to_chat_session(
+                    &task,
+                    resolved_input.as_deref(),
+                    &error_msg,
+                    true,
+                    duration_ms,
+                );
+
                 // Send failure notification
                 self.send_notification(&task, false, &error_msg).await;
             }
@@ -1745,6 +1763,15 @@ impl BackgroundAgentRunner {
                 {
                     error!("Failed to record task timeout: {}", e);
                 }
+
+                // Persist timeout error to the bound chat session
+                self.persist_to_chat_session(
+                    &task,
+                    resolved_input.as_deref(),
+                    &error_msg,
+                    true,
+                    duration_ms,
+                );
 
                 // Send timeout notification
                 self.send_notification(&task, false, &error_msg).await;
@@ -1826,6 +1853,75 @@ impl BackgroundAgentRunner {
     /// When None, the task runs without cancellation support (uses `pending()` in select).
     async fn take_cancel_receiver(&self, task_id: &str) -> Option<oneshot::Receiver<()>> {
         self.pending_cancel_receivers.write().await.remove(task_id)
+    }
+
+    /// Persist input and output as messages in the task's bound chat session.
+    ///
+    /// This bridges background agent execution into the chat session history so
+    /// the sidebar shows execution results as regular chat messages.
+    fn persist_to_chat_session(
+        &self,
+        task: &BackgroundAgent,
+        input: Option<&str>,
+        output: &str,
+        is_error: bool,
+        duration_ms: i64,
+    ) {
+        use crate::models::{ChatExecutionStatus, ChatMessage, MessageExecution};
+
+        let session_id = task.chat_session_id.trim();
+        if session_id.is_empty() {
+            debug!(
+                "No chat session bound to task '{}', skipping persist",
+                task.name
+            );
+            return;
+        }
+
+        let mut session = match self.storage.chat_sessions().get(session_id) {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                warn!(
+                    "Bound chat session '{}' not found for task '{}'",
+                    session_id, task.name
+                );
+                return;
+            }
+            Err(e) => {
+                warn!("Failed to load chat session '{}': {}", session_id, e);
+                return;
+            }
+        };
+
+        // Add user message (the input prompt)
+        if let Some(input_text) = input
+            && !input_text.trim().is_empty()
+        {
+            session.add_message(ChatMessage::user(input_text));
+        }
+
+        // Add assistant message (the output) with execution metadata
+        let execution = MessageExecution {
+            steps: Vec::new(),
+            duration_ms: duration_ms as u64,
+            tokens_used: 0,
+            cost_usd: None,
+            input_tokens: None,
+            output_tokens: None,
+            status: if is_error {
+                ChatExecutionStatus::Failed
+            } else {
+                ChatExecutionStatus::Completed
+            },
+        };
+        session.add_message(ChatMessage::assistant(output).with_execution(execution));
+
+        // Update timestamp
+        session.updated_at = chrono::Utc::now().timestamp_millis();
+
+        if let Err(e) = self.storage.chat_sessions().save(&session) {
+            warn!("Failed to save chat session '{}': {}", session_id, e);
+        }
     }
 
     /// Persist conversation messages to long-term memory.

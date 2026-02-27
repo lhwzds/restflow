@@ -14,7 +14,6 @@ mod supervisor;
 
 pub use background_events::{publish_background_event, subscribe_background_events};
 pub use core_access::CoreAccess;
-pub use session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 pub use health::{HealthChecker, HealthStatus, check_health};
 pub use ipc_client::{IpcClient, is_daemon_available};
 pub use ipc_protocol::{
@@ -28,4 +27,5 @@ pub use launcher::{
 pub use logging::{LogPaths, open_daemon_log_append, resolve_log_paths};
 pub use mcp::run_mcp_http_server;
 pub use process::{DaemonConfig, ProcessManager};
+pub use session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 pub use supervisor::{Supervisor, SupervisorConfig};

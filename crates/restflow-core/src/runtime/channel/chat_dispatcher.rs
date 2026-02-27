@@ -10,10 +10,10 @@ use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
-use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::channel::{
     ChannelReplySender, ChannelRouter, ChannelType, InboundMessage, OutboundMessage,
 };
+use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::models::{AIModel, ChatMessage, ChatSession, ChatSessionSource};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};

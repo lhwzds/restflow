@@ -5,6 +5,7 @@ import ChatPanel from '../ChatPanel.vue'
 import { useChatSession } from '@/composables/workspace/useChatSession'
 import { useChatStream } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
+import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
@@ -73,6 +74,13 @@ vi.mock('@/components/chat/MessageList.vue', () => ({
   },
 }))
 
+vi.mock('@/components/background-agent/AgentStatusBadge.vue', () => ({
+  default: {
+    name: 'AgentStatusBadge',
+    template: '<span data-testid="agent-status-badge" />',
+  },
+}))
+
 vi.mock('@/components/workspace/ChatBox.vue', () => ({
   default: defineComponent({
     name: 'ChatBox',
@@ -118,6 +126,10 @@ vi.mock('@/composables/workspace/useChatStream', () => ({
 
 vi.mock('@/stores/chatSessionStore', () => ({
   useChatSessionStore: vi.fn(),
+}))
+
+vi.mock('@/stores/backgroundAgentStore', () => ({
+  useBackgroundAgentStore: vi.fn(),
 }))
 
 vi.mock('@/stores/modelsStore', () => ({
@@ -222,6 +234,12 @@ describe('ChatPanel', () => {
       updateSessionAgent: mockUpdateSessionAgent,
       updateSessionModel: mockUpdateSessionModel,
       currentSession: mockCurrentSession.value,
+    } as any)
+
+    vi.mocked(useBackgroundAgentStore).mockReturnValue({
+      agents: [],
+      fetchAgents: vi.fn(),
+      agentBySessionId: () => null,
     } as any)
 
     vi.mocked(useModelsStore).mockReturnValue({

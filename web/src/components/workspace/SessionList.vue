@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Plus, MessageSquare, Check, Loader2, Bot, Cog, ChevronDown } from 'lucide-vue-next'
+import { Plus, MessageSquare, Check, Loader2, Bot, ChevronDown } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import {
@@ -38,8 +38,6 @@ const emit = defineEmits<{
 const CHANNEL_SESSION_PREFIX = 'channel:'
 
 function displaySessionName(session: SessionItem): string {
-  if (session.isBackgroundAgent) return session.name
-
   if (session.name.startsWith(CHANNEL_SESSION_PREFIX)) {
     const displayName = session.name.slice(CHANNEL_SESSION_PREFIX.length).trim()
     return displayName || session.name
@@ -139,19 +137,8 @@ const formatTime = (timestamp: number) => {
         <div class="flex items-start gap-2">
           <!-- Status Icon -->
           <div class="mt-0.5">
-            <Cog
-              v-if="session.isBackgroundAgent && session.status === 'running'"
-              :size="14"
-              class="animate-spin text-green-500"
-            />
-            <Cog
-              v-else-if="session.isBackgroundAgent && session.status === 'failed'"
-              :size="14"
-              class="text-red-500"
-            />
-            <Cog v-else-if="session.isBackgroundAgent" :size="14" class="text-blue-500" />
             <Loader2
-              v-else-if="session.status === 'running'"
+              v-if="session.status === 'running'"
               :size="14"
               class="animate-spin text-primary"
             />
@@ -163,25 +150,19 @@ const formatTime = (timestamp: number) => {
           <div class="flex-1 min-w-0">
             <div class="text-sm truncate">{{ displaySessionName(session) }}</div>
             <div class="text-xs text-muted-foreground truncate">
-              <template v-if="session.isBackgroundAgent">
-                <span class="text-blue-500 font-medium">{{ t('workspace.background') }}</span>
-                <span v-if="session.agentName"> · {{ session.agentName }}</span>
-              </template>
-              <template v-else>
-                <span
-                  v-if="session.sourceChannel"
-                  class="inline-flex items-center rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wide"
-                >
-                  {{ sourceLabel(session.sourceChannel) }}
-                </span>
-                <span v-if="session.agentName">
-                  <span v-if="session.sourceChannel"> · </span>
-                  {{ session.agentName }}
-                </span>
-                <span v-else-if="!session.sourceChannel">
-                  {{ t('common.unknownAgent') }}
-                </span>
-              </template>
+              <span
+                v-if="session.sourceChannel"
+                class="inline-flex items-center rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wide"
+              >
+                {{ sourceLabel(session.sourceChannel) }}
+              </span>
+              <span v-if="session.agentName">
+                <span v-if="session.sourceChannel"> · </span>
+                {{ session.agentName }}
+              </span>
+              <span v-else-if="!session.sourceChannel">
+                {{ t('common.unknownAgent') }}
+              </span>
             </div>
             <div class="text-xs text-muted-foreground">
               {{ formatTime(session.updatedAt) }}

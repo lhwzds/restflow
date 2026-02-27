@@ -41,6 +41,12 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     runningCount(): number {
       return this.agents.filter((a) => a.status === 'running').length
     },
+
+    /** Look up a background agent by its bound chat session ID. */
+    agentBySessionId() {
+      return (sessionId: string): BackgroundAgent | null =>
+        this.agents.find((a) => a.chat_session_id === sessionId) ?? null
+    },
   },
 
   actions: {

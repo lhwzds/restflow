@@ -129,7 +129,6 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
 }
 
 mod tests {
-    
 
     #[test]
     fn test_builtin_agents_empty() {

@@ -39,6 +39,8 @@ export interface StreamState {
   completedAt: bigint | null
   /** Thinking/reasoning content */
   thinking: string
+  /** Early assistant acknowledgement message */
+  acknowledgement: string
 }
 
 /**
@@ -72,6 +74,7 @@ function createInitialState(): StreamState {
     startedAt: null,
     completedAt: null,
     thinking: '',
+    acknowledgement: '',
   }
 }
 
@@ -207,6 +210,15 @@ export function useChatStream(sessionId: () => string | null) {
           if ('text' in kind && 'token_count' in kind) {
             state.value.content += kind.text
             state.value.tokenCount = kind.token_count
+          }
+          break
+
+        case 'ack':
+          if ('content' in kind) {
+            state.value.acknowledgement = kind.content
+            if (!state.value.content) {
+              state.value.content = `${kind.content}\n\n`
+            }
           }
           break
 

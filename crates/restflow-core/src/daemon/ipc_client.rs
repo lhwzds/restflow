@@ -2,6 +2,7 @@ use super::ipc_protocol::{
     IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
 };
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
+use crate::daemon::session_events::ChatSessionEvent;
 use crate::memory::ExportResult;
 use crate::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
@@ -9,7 +10,6 @@ use crate::models::{
     ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult,
     MemorySession, MemoryStats, Skill, TerminalSession,
 };
-use crate::daemon::session_events::ChatSessionEvent;
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
 use anyhow::{Context, Result, bail};

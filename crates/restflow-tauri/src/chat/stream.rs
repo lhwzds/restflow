@@ -135,6 +135,15 @@ impl ChatStreamState {
         ));
     }
 
+    /// Emit an acknowledgement event
+    pub fn emit_acknowledgement(&self, content: &str) {
+        self.emit_event(ChatStreamEvent::ack(
+            &self.session_id,
+            &self.message_id,
+            content,
+        ));
+    }
+
     /// Emit a thinking event
     pub fn emit_thinking(&self, content: &str) {
         self.emit_event(ChatStreamEvent::thinking(

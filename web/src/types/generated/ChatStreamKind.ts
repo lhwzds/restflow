@@ -8,7 +8,11 @@ export type ChatStreamKind = { "type": "started",
 /**
  * Model being used
  */
-model: string, } | { "type": "token", 
+model: string, } | { "type": "ack", 
+/**
+ * A short assistant confirmation message
+ */
+content: string, } | { "type": "token", 
 /**
  * The text chunk
  */

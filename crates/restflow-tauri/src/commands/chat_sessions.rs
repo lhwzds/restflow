@@ -30,10 +30,10 @@ async fn ensure_session_event_bridge(
     app_handle: AppHandle,
 ) -> Result<(), String> {
     let mut bridge = active_session_event_bridge().lock().await;
-    if let Some(handle) = bridge.as_ref() {
-        if !handle.is_finished() {
-            return Ok(());
-        }
+    if let Some(handle) = bridge.as_ref()
+        && !handle.is_finished()
+    {
+        return Ok(());
     }
     if let Some(old) = bridge.take() {
         old.abort();
@@ -44,14 +44,12 @@ async fn ensure_session_event_bridge(
 
     let handle = tokio::spawn(async move {
         let result: Result<(), anyhow::Error> = executor
-            .subscribe_session_events(
-                |event: ChatSessionEvent| -> anyhow::Result<()> {
-                    emitter
-                        .emit(SESSION_CHANGE_EVENT, &event)
-                        .map_err(|e| anyhow::anyhow!("{}", e))?;
-                    Ok(())
-                },
-            )
+            .subscribe_session_events(|event: ChatSessionEvent| -> anyhow::Result<()> {
+                emitter
+                    .emit(SESSION_CHANGE_EVENT, &event)
+                    .map_err(|e| anyhow::anyhow!("{}", e))?;
+                Ok(())
+            })
             .await;
 
         match result {
@@ -407,6 +405,7 @@ pub async fn send_chat_message_stream(
                 |frame| {
                     match frame {
                         StreamFrame::Start { .. } => {}
+                        StreamFrame::Ack { content } => stream_state.emit_acknowledgement(&content),
                         StreamFrame::Data { content } => stream_state.emit_token(&content),
                         StreamFrame::ToolCall {
                             id,

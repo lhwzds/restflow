@@ -14,8 +14,7 @@ const METADATA_SUFFIX: &str = " -->";
 pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
 const DEFAULT_AGENT_PROMPT_ASSET: &str = include_str!("../assets/agents/default.md");
-const BACKGROUND_AGENT_POLICY_ASSET: &str =
-    include_str!("../assets/agents/background_agent.md");
+const BACKGROUND_AGENT_POLICY_ASSET: &str = include_str!("../assets/agents/background_agent.md");
 
 pub fn ensure_prompt_templates() -> Result<()> {
     ensure_prompt_template_file(BACKGROUND_AGENT_POLICY_FILE, BACKGROUND_AGENT_POLICY_ASSET)?;
