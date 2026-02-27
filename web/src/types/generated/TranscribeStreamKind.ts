@@ -3,4 +3,4 @@
 /**
  * Types of transcribe stream events
  */
-export type TranscribeStreamKind = { "type": "started", model: string, } | { "type": "delta", text: string, } | { "type": "completed", full_text: string, duration_ms: bigint, } | { "type": "failed", error: string, partial_text: string | null, };
+export type TranscribeStreamKind = { "type": "started", model: string, } | { "type": "delta", text: string, } | { "type": "segment_done", corrected_text: string, } | { "type": "completed", full_text: string, duration_ms: bigint, } | { "type": "failed", error: string, partial_text: string | null, };
