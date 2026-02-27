@@ -14,7 +14,7 @@ import { useChatSession } from '@/composables/workspace/useChatSession'
 import { useChatStream, type StreamStep } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useModelsStore } from '@/stores/modelsStore'
-import { listAgents } from '@/api/agents'
+import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage as sendChatMessageApi } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
@@ -296,6 +296,19 @@ async function onUpdateSelectedModel(model: string) {
   }
 
   selectedModel.value = updated.model
+
+  // Also persist the model to the agent's default so future sessions use it
+  const agentId = session.agent_id
+  if (agentId) {
+    try {
+      const stored = await getAgent(agentId)
+      await updateAgent(agentId, {
+        agent: { ...stored.agent, model: model as any },
+      })
+    } catch {
+      // Non-critical: session model was updated, agent default is best-effort
+    }
+  }
 }
 
 async function handleCancel() {

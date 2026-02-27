@@ -1260,7 +1260,17 @@ impl AgentRuntimeExecutor {
     ) -> Result<SessionExecutionResult> {
         let stored_agent = self.resolve_stored_agent_for_session(session)?;
         let agent_node = stored_agent.agent.clone();
-        let primary_model = self.resolve_primary_model(&agent_node).await?;
+        // Prefer the session's model (user override) over the agent's default
+        let primary_model = if !session.model.is_empty() {
+            match AIModel::from_api_name(&session.model)
+                .or_else(|| AIModel::from_canonical_id(&session.model))
+            {
+                Some(model) => model,
+                None => self.resolve_primary_model(&agent_node).await?,
+            }
+        } else {
+            self.resolve_primary_model(&agent_node).await?
+        };
         let primary_provider = primary_model.provider();
         let failover_config = self
             .build_failover_config(primary_model, agent_node.api_key_config.as_ref())
