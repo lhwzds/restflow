@@ -11,7 +11,13 @@
 
 import { ref, computed, readonly, onUnmounted, type Ref, type ComputedRef } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { transcribeAudioStream, saveVoiceMessage } from '@/api/voice'
+import {
+  transcribeAudioStream,
+  saveVoiceMessage,
+  startLiveTranscription,
+  sendLiveAudioChunk,
+  stopLiveTranscription,
+} from '@/api/voice'
 import type { TranscribeStreamEvent } from '@/types/generated/TranscribeStreamEvent'
 
 export type VoiceMode = 'voice-to-text' | 'voice-message' | null
@@ -82,14 +88,21 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
 
   const mediaStream = ref<MediaStream | null>(null)
 
-  let mediaRecorder: MediaRecorder | null = null
-  let audioChunks: Blob[] = []
+  // --- Shared state ---
   let durationTimer: ReturnType<typeof setInterval> | null = null
   let stream: MediaStream | null = null
   let streamUnlisten: UnlistenFn | null = null
 
-  // Always show the mic button; check actual support at recording time.
-  // Some webviews (e.g. Tauri) may lazily initialize mediaDevices.
+  // --- MediaRecorder state (voice-message mode) ---
+  let mediaRecorder: MediaRecorder | null = null
+  let audioChunks: Blob[] = []
+
+  // --- AudioWorklet state (voice-to-text live mode) ---
+  let audioContext: AudioContext | null = null
+  let workletNode: AudioWorkletNode | null = null
+  let sourceNode: MediaStreamAudioSourceNode | null = null
+  let liveTranscribeId: string | null = null
+
   const isSupported = computed(
     () => typeof navigator !== 'undefined' && typeof MediaRecorder !== 'undefined',
   )
@@ -116,8 +129,24 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     }
   }
 
+  function cleanupAudioWorklet() {
+    if (workletNode) {
+      workletNode.disconnect()
+      workletNode = null
+    }
+    if (sourceNode) {
+      sourceNode.disconnect()
+      sourceNode = null
+    }
+    if (audioContext) {
+      audioContext.close().catch(() => {})
+      audioContext = null
+    }
+  }
+
   onUnmounted(() => {
     cleanupStreamListener()
+    cleanupAudioWorklet()
   })
 
   async function startRecording(mode: VoiceMode) {
@@ -125,12 +154,155 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     if (!mode) return
 
     state.value.error = null
-    audioChunks = []
 
     if (!navigator.mediaDevices?.getUserMedia) {
       state.value.error = 'mic_not_available'
       return
     }
+
+    if (mode === 'voice-to-text') {
+      await startLiveRecording()
+    } else if (mode === 'voice-message') {
+      await startMediaRecording()
+    }
+  }
+
+  // ===== Live Transcription (voice-to-text) =====
+
+  async function startLiveRecording() {
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1 },
+      })
+      mediaStream.value = stream
+    } catch {
+      state.value.error = 'mic_permission_denied'
+      return
+    }
+
+    try {
+      // Create AudioContext at default sample rate (browser decides)
+      audioContext = new AudioContext()
+
+      // Load the AudioWorklet processor
+      await audioContext.audioWorklet.addModule('/pcm-processor.js')
+
+      // Create source from microphone stream
+      sourceNode = audioContext.createMediaStreamSource(stream)
+
+      // Create worklet node
+      workletNode = new AudioWorkletNode(audioContext, 'pcm-processor')
+
+      // Start live transcription session on the backend
+      const effectiveModel = model || getVoiceModel()
+      liveTranscribeId = await startLiveTranscription(effectiveModel, language)
+
+      // Listen for transcription events from the backend
+      streamUnlisten = await listen<TranscribeStreamEvent>(
+        'voice:transcribe-stream',
+        (event) => {
+          const data = event.payload
+          if (data.transcribe_id !== liveTranscribeId) return
+
+          switch (data.kind.type) {
+            case 'delta':
+              state.value.streamingText += data.kind.text
+              onTranscribeDelta?.(data.kind.text, state.value.streamingText)
+              break
+            case 'segment_done':
+              // Replace streamingText with the de-duplicated authoritative text.
+              // This corrects any word duplication at VAD segment boundaries.
+              state.value.streamingText = data.kind.corrected_text
+              break
+            case 'completed':
+              onTranscribed?.(data.kind.full_text)
+              cleanupStreamListener()
+              state.value.isTranscribing = false
+              state.value.mode = null
+              liveTranscribeId = null
+              break
+            case 'failed':
+              state.value.error = data.kind.error
+              cleanupStreamListener()
+              cleanupAudioWorklet()
+              stopStream()
+              state.value.isRecording = false
+              state.value.isTranscribing = false
+              state.value.mode = null
+              liveTranscribeId = null
+              break
+          }
+        },
+      )
+
+      // Forward PCM16 audio chunks from worklet to backend
+      workletNode.port.onmessage = (event) => {
+        if (event.data.type === 'audio' && liveTranscribeId) {
+          const base64 = int16BufferToBase64(event.data.buffer)
+          sendLiveAudioChunk(liveTranscribeId, base64).catch((err) => {
+            console.warn('Failed to send audio chunk:', err)
+          })
+        }
+      }
+
+      // Connect: source → worklet (no need to connect to destination)
+      sourceNode.connect(workletNode)
+
+      state.value.isRecording = true
+      state.value.isTranscribing = true
+      state.value.duration = 0
+      state.value.mode = 'voice-to-text'
+      state.value.streamingText = ''
+
+      durationTimer = setInterval(() => {
+        state.value.duration++
+      }, 1000)
+    } catch (err) {
+      cleanupAudioWorklet()
+      stopStream()
+      state.value.error = err instanceof Error ? err.message : 'live_transcription_failed'
+    }
+  }
+
+  async function stopLiveRecording() {
+    clearTimers()
+    cleanupAudioWorklet()
+    stopStream()
+
+    state.value.isRecording = false
+    // Keep isTranscribing = true until we get the Completed event
+
+    if (liveTranscribeId) {
+      try {
+        await stopLiveTranscription(liveTranscribeId)
+      } catch (err) {
+        console.warn('Failed to stop live transcription:', err)
+      }
+    }
+  }
+
+  function cancelLiveRecording() {
+    clearTimers()
+    cleanupStreamListener()
+    cleanupAudioWorklet()
+    stopStream()
+
+    if (liveTranscribeId) {
+      stopLiveTranscription(liveTranscribeId).catch(() => {})
+      liveTranscribeId = null
+    }
+
+    state.value.isRecording = false
+    state.value.isTranscribing = false
+    state.value.mode = null
+    state.value.duration = 0
+    state.value.streamingText = ''
+  }
+
+  // ===== MediaRecorder (voice-message mode) =====
+
+  async function startMediaRecording() {
+    audioChunks = []
 
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true })
@@ -140,7 +312,6 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
       return
     }
 
-    // Determine supported mime type
     const mimeType = MediaRecorder.isTypeSupported('audio/webm')
       ? 'audio/webm'
       : MediaRecorder.isTypeSupported('audio/mp4')
@@ -156,35 +327,30 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     }
 
     mediaRecorder.onstop = () => {
-      handleRecordingComplete()
+      handleMediaRecordingComplete()
     }
 
     mediaRecorder.start()
 
     state.value.isRecording = true
     state.value.duration = 0
-    state.value.mode = mode
+    state.value.mode = 'voice-message'
 
-    // Duration counter
     durationTimer = setInterval(() => {
       state.value.duration++
     }, 1000)
   }
 
-  function stopRecording() {
-    if (!state.value.isRecording || !mediaRecorder) return
-
+  function stopMediaRecording() {
+    if (!mediaRecorder) return
     clearTimers()
     mediaRecorder.stop()
   }
 
-  function cancelRecording() {
-    if (!state.value.isRecording || !mediaRecorder) return
-
+  function cancelMediaRecording() {
+    if (!mediaRecorder) return
     clearTimers()
     cleanupStreamListener()
-
-    // Detach handler to prevent processing
     mediaRecorder.onstop = null
     mediaRecorder.stop()
     stopStream()
@@ -195,16 +361,7 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     state.value.streamingText = ''
   }
 
-  function toggleRecording(mode: VoiceMode) {
-    if (state.value.isRecording) {
-      stopRecording()
-    } else {
-      startRecording(mode)
-    }
-  }
-
-  async function handleRecordingComplete() {
-    const mode = state.value.mode
+  async function handleMediaRecordingComplete() {
     state.value.isRecording = false
     stopStream()
 
@@ -220,57 +377,46 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
 
     const base64 = await blobToBase64(blob)
 
-    if (mode === 'voice-to-text') {
-      state.value.isTranscribing = true
-      state.value.streamingText = ''
-      try {
-        const effectiveModel = model || getVoiceModel()
-        const transcribeId = await transcribeAudioStream(base64, effectiveModel, language)
+    state.value.isTranscribing = true
+    try {
+      const filePath = await saveVoiceMessage(base64)
+      const audioBlobUrl = URL.createObjectURL(blob)
+      onVoiceMessage?.({ filePath, audioBlobUrl, durationSec: state.value.duration })
+    } catch (err) {
+      state.value.error = err instanceof Error ? err.message : 'save_failed'
+    } finally {
+      state.value.isTranscribing = false
+      state.value.mode = null
+    }
+  }
 
-        // Listen for streaming transcription events
-        streamUnlisten = await listen<TranscribeStreamEvent>(
-          'voice:transcribe-stream',
-          (event) => {
-            const data = event.payload
-            if (data.transcribe_id !== transcribeId) return
+  // ===== Unified controls =====
 
-            switch (data.kind.type) {
-              case 'delta':
-                state.value.streamingText += data.kind.text
-                onTranscribeDelta?.(data.kind.text, state.value.streamingText)
-                break
-              case 'completed':
-                onTranscribed?.(data.kind.full_text)
-                cleanupStreamListener()
-                state.value.isTranscribing = false
-                state.value.mode = null
-                break
-              case 'failed':
-                state.value.error = data.kind.error
-                cleanupStreamListener()
-                state.value.isTranscribing = false
-                state.value.mode = null
-                break
-            }
-          },
-        )
-      } catch (err) {
-        state.value.error = err instanceof Error ? err.message : 'transcription_failed'
-        state.value.isTranscribing = false
-        state.value.mode = null
-      }
-    } else if (mode === 'voice-message') {
-      state.value.isTranscribing = true
-      try {
-        const filePath = await saveVoiceMessage(base64)
-        const audioBlobUrl = URL.createObjectURL(blob)
-        onVoiceMessage?.({ filePath, audioBlobUrl, durationSec: state.value.duration })
-      } catch (err) {
-        state.value.error = err instanceof Error ? err.message : 'save_failed'
-      } finally {
-        state.value.isTranscribing = false
-        state.value.mode = null
-      }
+  function stopRecording() {
+    if (!state.value.isRecording) return
+
+    if (state.value.mode === 'voice-to-text') {
+      stopLiveRecording()
+    } else if (state.value.mode === 'voice-message') {
+      stopMediaRecording()
+    }
+  }
+
+  function cancelRecording() {
+    if (!state.value.isRecording) return
+
+    if (state.value.mode === 'voice-to-text') {
+      cancelLiveRecording()
+    } else if (state.value.mode === 'voice-message') {
+      cancelMediaRecording()
+    }
+  }
+
+  function toggleRecording(mode: VoiceMode) {
+    if (state.value.isRecording) {
+      stopRecording()
+    } else {
+      startRecording(mode)
     }
   }
 
@@ -283,6 +429,16 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
     toggleRecording,
     isSupported,
   }
+}
+
+/** Convert an Int16Array ArrayBuffer to a base64 string. */
+function int16BufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
 }
 
 function blobToBase64(blob: Blob): Promise<string> {

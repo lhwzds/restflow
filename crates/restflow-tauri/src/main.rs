@@ -241,6 +241,9 @@ fn main() {
             commands::transcribe_audio,
             commands::transcribe_audio_stream,
             commands::save_voice_message,
+            commands::start_live_transcription,
+            commands::send_live_audio_chunk,
+            commands::stop_live_transcription,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

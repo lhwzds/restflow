@@ -53,3 +53,39 @@ export function transcribeAudioStream(
 export function saveVoiceMessage(audioBase64: string): Promise<string> {
   return tauriInvoke<string>('save_voice_message', { audioBase64 })
 }
+
+/**
+ * Start a live transcription session via OpenAI Realtime WebSocket API.
+ * Returns a transcribe_id; text deltas arrive via Tauri `voice:transcribe-stream` events.
+ */
+export function startLiveTranscription(
+  model?: string,
+  language?: string,
+): Promise<string> {
+  return tauriInvoke<string>('start_live_transcription', {
+    model: model ?? null,
+    language: language ?? null,
+  })
+}
+
+/**
+ * Send a PCM16 audio chunk to an active live transcription session.
+ * The audioBase64 should be base64-encoded Int16Array PCM data at 24kHz.
+ */
+export function sendLiveAudioChunk(
+  transcribeId: string,
+  audioBase64: string,
+): Promise<void> {
+  return tauriInvoke<void>('send_live_audio_chunk', {
+    transcribeId,
+    audioBase64,
+  })
+}
+
+/**
+ * Stop a live transcription session gracefully.
+ * The final Completed event will be emitted via Tauri events.
+ */
+export function stopLiveTranscription(transcribeId: string): Promise<void> {
+  return tauriInvoke<void>('stop_live_transcription', { transcribeId })
+}

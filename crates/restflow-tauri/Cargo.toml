@@ -47,6 +47,10 @@ base64 = "0.22"
 reqwest = { version = "0.13.2", features = ["json", "stream", "multipart"] }
 futures = "0.3"
 
+# WebSocket client (for live transcription via OpenAI Realtime API)
+tokio-tungstenite = { version = "0.26", features = ["rustls-tls-webpki-roots"] }
+http = "1"
+
 # TypeScript bindings
 ts-rs = "12.0"
 
