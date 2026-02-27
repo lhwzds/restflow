@@ -328,4 +328,28 @@ describe('ChatPanel', () => {
     expect(mockSendChatMessageApi).not.toHaveBeenCalled()
     expect(mockSendStream).toHaveBeenCalledWith('follow-up')
   })
+
+  it('emits toolResult for failed tool calls with result payload', async () => {
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    mockStreamState.value.steps = [
+      {
+        type: 'tool_call',
+        name: 'browser',
+        status: 'failed',
+        toolId: 'tool-1',
+        result: 'Error: Chromium executable not found',
+      },
+    ]
+    await nextTick()
+
+    const emitted = wrapper.emitted('toolResult')
+    expect(emitted).toBeTruthy()
+    expect(emitted![0]?.[0]).toMatchObject({
+      name: 'browser',
+      status: 'failed',
+      toolId: 'tool-1',
+    })
+  })
 })

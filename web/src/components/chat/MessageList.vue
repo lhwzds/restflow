@@ -26,7 +26,8 @@ import { useToast } from '@/composables/useToast'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 
-const VOICE_MSG_PATTERN = /^\[Voice message\]\n\n\[Media Context\]\nmedia_type: voice\nlocal_file_path: (.+)\ninstruction:/
+const VOICE_MSG_PATTERN =
+  /^\[Voice message\]\n\n\[Media Context\]\nmedia_type: voice\nlocal_file_path: (.+)\ninstruction:/
 
 const props = defineProps<{
   messages: ChatMessage[]
@@ -56,7 +57,11 @@ function toggleToolCall(index: number) {
 }
 
 function canViewStep(step: StreamStep): boolean {
-  return step.type === 'tool_call' && step.status === 'completed' && !!step.result
+  return (
+    step.type === 'tool_call' &&
+    (step.status === 'completed' || step.status === 'failed') &&
+    !!step.result
+  )
 }
 
 function isLastAssistantMessage(idx: number): boolean {

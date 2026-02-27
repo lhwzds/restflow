@@ -93,8 +93,7 @@ const linkedBgAgent = computed(() => {
 const bgCanPause = computed(() => linkedBgAgent.value?.status === 'active')
 const bgCanResume = computed(() => linkedBgAgent.value?.status === 'paused')
 const bgCanRun = computed(
-  () =>
-    linkedBgAgent.value?.status === 'active' || linkedBgAgent.value?.status === 'paused',
+  () => linkedBgAgent.value?.status === 'active' || linkedBgAgent.value?.status === 'paused',
 )
 const bgCanCancel = computed(() => linkedBgAgent.value?.status === 'running')
 
@@ -121,18 +120,22 @@ async function handleBgCancel() {
 // Track processed tool call IDs to avoid duplicate emits
 const processedToolIds = ref<Set<string>>(new Set())
 
-// Completed tool steps (computed avoids deep-watching entire steps array)
-const completedToolSteps = computed(() =>
+// Finished tool steps (computed avoids deep-watching entire steps array)
+const finishedToolSteps = computed(() =>
   chatStream.state.value.steps.filter(
-    (s) => s.type === 'tool_call' && s.status === 'completed' && s.result && s.toolId,
+    (s) =>
+      s.type === 'tool_call' &&
+      (s.status === 'completed' || s.status === 'failed') &&
+      s.result &&
+      s.toolId,
   ),
 )
 
 // Watch only when new tool steps complete (by length change)
 watch(
-  () => completedToolSteps.value.length,
+  () => finishedToolSteps.value.length,
   () => {
-    for (const step of completedToolSteps.value) {
+    for (const step of finishedToolSteps.value) {
       if (!processedToolIds.value.has(step.toolId!)) {
         processedToolIds.value.add(step.toolId!)
         emit('toolResult', step)
@@ -464,10 +467,10 @@ defineExpose({
     <!-- Message List -->
     <MessageList
       :messages="messages"
-        :is-streaming="isStreaming"
-        :stream-content="streamContent"
-        :stream-thinking="streamThinking"
-        :steps="streamSteps"
+      :is-streaming="isStreaming"
+      :stream-content="streamContent"
+      :stream-thinking="streamThinking"
+      :steps="streamSteps"
       :voice-audio-urls="voiceAudioUrls"
       @view-tool-result="onViewToolResult"
       @regenerate="handleRegenerate"
