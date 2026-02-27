@@ -5,13 +5,71 @@
 
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
-use restflow_core::daemon::StreamFrame;
+use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{
     ChatExecutionEvent, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
 };
 use serde::Deserialize;
-use tauri::{AppHandle, State};
+use std::sync::OnceLock;
+use tauri::{AppHandle, Emitter, State};
+use tokio::sync::Mutex;
+use tokio::task::JoinHandle;
+use tracing::{debug, warn};
 use uuid::Uuid;
+
+/// Tauri event name for session change notifications.
+const SESSION_CHANGE_EVENT: &str = "chat-session:changed";
+
+fn active_session_event_bridge() -> &'static Mutex<Option<JoinHandle<()>>> {
+    static BRIDGE: OnceLock<Mutex<Option<JoinHandle<()>>>> = OnceLock::new();
+    BRIDGE.get_or_init(|| Mutex::new(None))
+}
+
+async fn ensure_session_event_bridge(
+    state: &AppState,
+    app_handle: AppHandle,
+) -> Result<(), String> {
+    let mut bridge = active_session_event_bridge().lock().await;
+    if let Some(handle) = bridge.as_ref() {
+        if !handle.is_finished() {
+            return Ok(());
+        }
+    }
+    if let Some(old) = bridge.take() {
+        old.abort();
+    }
+
+    let executor = state.executor();
+    let emitter = app_handle.clone();
+
+    let handle = tokio::spawn(async move {
+        let result: Result<(), anyhow::Error> = executor
+            .subscribe_session_events(
+                |event: ChatSessionEvent| -> anyhow::Result<()> {
+                    emitter
+                        .emit(SESSION_CHANGE_EVENT, &event)
+                        .map_err(|e| anyhow::anyhow!("{}", e))?;
+                    Ok(())
+                },
+            )
+            .await;
+
+        match result {
+            Ok(()) => {
+                debug!("Session event bridge finished");
+            }
+            Err(err) => {
+                warn!(error = %err, "Session event bridge terminated");
+            }
+        }
+
+        let mut guard = active_session_event_bridge().lock().await;
+        *guard = None;
+    });
+
+    *bridge = Some(handle);
+    Ok(())
+}
 
 #[cfg(test)]
 use crate::agent::effective_main_agent_tool_names;
@@ -224,6 +282,34 @@ pub async fn clear_old_chat_sessions(
 }
 
 // ============================================================================
+// Session Event Subscription
+// ============================================================================
+
+/// Get the session change event name and start the event bridge.
+///
+/// Frontend should call this once at startup to begin receiving session change
+/// events from the daemon (e.g. when Telegram adds a message).
+///
+/// # Usage
+///
+/// ```typescript
+/// import { listen, invoke } from '@tauri-apps/api';
+///
+/// const eventName = await invoke<string>('get_session_change_event_name');
+/// const unlisten = await listen<ChatSessionEvent>(eventName, (event) => {
+///   // Refresh session list or specific session
+/// });
+/// ```
+#[tauri::command]
+pub async fn get_session_change_event_name(
+    state: State<'_, AppState>,
+    app_handle: AppHandle,
+) -> Result<String, String> {
+    ensure_session_event_bridge(&state, app_handle).await?;
+    Ok(SESSION_CHANGE_EVENT.to_string())
+}
+
+// ============================================================================
 // Agent Execution Commands
 // ============================================================================
 
@@ -339,6 +425,7 @@ pub async fn send_chat_message_stream(
                             stream_state.emit_completed();
                         }
                         StreamFrame::BackgroundAgentEvent { .. } => {}
+                        StreamFrame::SessionEvent { .. } => {}
                         StreamFrame::Error { code, message } => {
                             if code == 499 {
                                 stream_state.emit_cancelled();

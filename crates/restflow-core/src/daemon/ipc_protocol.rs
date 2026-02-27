@@ -1,4 +1,5 @@
 use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
+use crate::daemon::session_events::ChatSessionEvent;
 use crate::models::{
     AgentNode, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
     BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, Hook, ItemQuery,
@@ -376,6 +377,7 @@ pub enum IpcRequest {
     SubscribeBackgroundAgentEvents {
         background_agent_id: String,
     },
+    SubscribeSessionEvents,
 
     GetSystemInfo,
     GetAvailableModels,
@@ -421,6 +423,9 @@ pub enum StreamFrame {
     },
     BackgroundAgentEvent {
         event: TaskStreamEvent,
+    },
+    SessionEvent {
+        event: ChatSessionEvent,
     },
     Done {
         total_tokens: Option<u32>,

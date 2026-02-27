@@ -1,6 +1,7 @@
 use super::ipc_protocol::{
     IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
 };
+use super::session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 use super::subscribe_background_events;
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
@@ -223,6 +224,17 @@ impl IpcServer {
                         background_agent_id,
                     )
                     .await
+                    {
+                        let frame = StreamFrame::Error {
+                            code: 500,
+                            message: err.to_string(),
+                        };
+                        let _ = Self::send_stream_frame(&mut stream, &frame).await;
+                    }
+                }
+                Ok(IpcRequest::SubscribeSessionEvents) => {
+                    if let Err(err) =
+                        Self::handle_subscribe_session_events(&mut stream).await
                     {
                         let frame = StreamFrame::Error {
                             code: 500,
@@ -479,6 +491,53 @@ impl IpcServer {
         }
 
         debug!(stream_id = %stream_id, "Background event subscription ended");
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    async fn handle_subscribe_session_events(stream: &mut UnixStream) -> Result<()> {
+        let stream_id = format!("session-events-{}", Uuid::new_v4());
+        Self::send_stream_frame(
+            stream,
+            &StreamFrame::Start {
+                stream_id: stream_id.clone(),
+            },
+        )
+        .await?;
+
+        let mut receiver = subscribe_session_events();
+
+        loop {
+            let event = match receiver.recv().await {
+                Ok(event) => event,
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                    warn!(
+                        skipped,
+                        "Session event stream lagged; dropping oldest events"
+                    );
+                    continue;
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                    let _ = Self::send_stream_frame(
+                        stream,
+                        &StreamFrame::Error {
+                            code: 500,
+                            message: "Session event stream closed".to_string(),
+                        },
+                    )
+                    .await;
+                    break;
+                }
+            };
+
+            let frame = StreamFrame::SessionEvent { event };
+            if let Err(err) = Self::send_stream_frame(stream, &frame).await {
+                debug!(error = %err, "Session event subscriber disconnected");
+                break;
+            }
+        }
+
+        debug!(stream_id = %stream_id, "Session event subscription ended");
         Ok(())
     }
 
@@ -1010,7 +1069,12 @@ impl IpcServer {
                     session = session.with_skill(skill_id);
                 }
                 match core.storage.chat_sessions.create(&session) {
-                    Ok(()) => IpcResponse::success(session),
+                    Ok(()) => {
+                        publish_session_event(ChatSessionEvent::Created {
+                            session_id: session.id.clone(),
+                        });
+                        IpcResponse::success(session)
+                    }
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
@@ -1057,6 +1121,9 @@ impl IpcServer {
                     if let Err(err) = core.storage.chat_sessions.update(&session) {
                         return IpcResponse::error(500, err.to_string());
                     }
+                    publish_session_event(ChatSessionEvent::Updated {
+                        session_id: session.id.clone(),
+                    });
                 }
 
                 IpcResponse::success(session)
@@ -1069,21 +1136,30 @@ impl IpcServer {
                 };
                 session.rename(name);
                 match core.storage.chat_sessions.update(&session) {
-                    Ok(()) => IpcResponse::success(session),
+                    Ok(()) => {
+                        publish_session_event(ChatSessionEvent::Updated {
+                            session_id: session.id.clone(),
+                        });
+                        IpcResponse::success(session)
+                    }
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
             IpcRequest::DeleteSession { id } => match core.storage.chat_sessions.delete(&id) {
                 Ok(deleted) => {
-                    if deleted
-                        && let Err(error) =
+                    if deleted {
+                        if let Err(error) =
                             core.storage.chat_execution_events.delete_by_session(&id)
-                    {
-                        warn!(
-                            session_id = %id,
-                            error = %error,
-                            "Failed to clean up chat execution events after session delete"
-                        );
+                        {
+                            warn!(
+                                session_id = %id,
+                                error = %error,
+                                "Failed to clean up chat execution events after session delete"
+                            );
+                        }
+                        publish_session_event(ChatSessionEvent::Deleted {
+                            session_id: id.clone(),
+                        });
                     }
                     IpcResponse::success(serde_json::json!({ "deleted": deleted }))
                 }
@@ -1138,7 +1214,13 @@ impl IpcServer {
                     session.auto_name_from_first_message();
                 }
                 match core.storage.chat_sessions.update(&session) {
-                    Ok(()) => IpcResponse::success(session),
+                    Ok(()) => {
+                        publish_session_event(ChatSessionEvent::MessageAdded {
+                            session_id: session.id.clone(),
+                            source: "ipc".to_string(),
+                        });
+                        IpcResponse::success(session)
+                    }
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
@@ -1168,7 +1250,13 @@ impl IpcServer {
                     session.auto_name_from_first_message();
                 }
                 match core.storage.chat_sessions.update(&session) {
-                    Ok(()) => IpcResponse::success(session),
+                    Ok(()) => {
+                        publish_session_event(ChatSessionEvent::MessageAdded {
+                            session_id: session.id.clone(),
+                            source: "ipc".to_string(),
+                        });
+                        IpcResponse::success(session)
+                    }
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
@@ -1613,6 +1701,9 @@ impl IpcServer {
                 // into `process`, so this branch should only be reached if the
                 // request is routed through the non-stream path by mistake.
                 IpcResponse::error(-3, "Background agent event streaming requires stream mode")
+            }
+            IpcRequest::SubscribeSessionEvents => {
+                IpcResponse::error(-3, "Session event streaming requires stream mode")
             }
             IpcRequest::GetSystemInfo => IpcResponse::success(serde_json::json!({
                 "pid": std::process::id(),

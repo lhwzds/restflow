@@ -219,6 +219,7 @@ fn main() {
             commands::send_chat_message_stream,
             commands::steer_chat_stream,
             commands::cancel_chat_stream,
+            commands::get_session_change_event_name,
             // Auth Profiles
             commands::auth_initialize,
             commands::auth_discover,
