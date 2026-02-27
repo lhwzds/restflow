@@ -19,7 +19,7 @@ success: boolean,
 /**
  * Optional duration in milliseconds.
  */
-duration_ms: bigint | null, 
+duration_ms: number | null, 
 /**
  * Optional error text.
  */

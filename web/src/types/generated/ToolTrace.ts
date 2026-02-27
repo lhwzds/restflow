@@ -52,7 +52,7 @@ success: boolean | null,
 /**
  * Optional duration in milliseconds.
  */
-duration_ms: bigint | null, 
+duration_ms: number | null, 
 /**
  * Optional error text.
  */
@@ -60,4 +60,4 @@ error: string | null,
 /**
  * Event timestamp (Unix milliseconds).
  */
-created_at: bigint, };
+created_at: number, };

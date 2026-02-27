@@ -60,11 +60,13 @@ pub struct ToolTrace {
     pub success: Option<bool>,
     /// Optional duration in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub duration_ms: Option<u64>,
     /// Optional error text.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
     /// Event timestamp (Unix milliseconds).
+    #[ts(type = "number")]
     pub created_at: i64,
 }
 
@@ -173,6 +175,7 @@ pub struct ToolCallCompletion {
     pub success: bool,
     /// Optional duration in milliseconds.
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(type = "number | null")]
     pub duration_ms: Option<u64>,
     /// Optional error text.
     #[serde(skip_serializing_if = "Option::is_none")]

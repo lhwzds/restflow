@@ -23,6 +23,7 @@ pub struct ChatStreamEvent {
     /// Message ID being generated
     pub message_id: String,
     /// Event timestamp (Unix ms)
+    #[ts(type = "number")]
     pub timestamp: i64,
     /// Event payload
     pub kind: ChatStreamKind,
@@ -104,6 +105,7 @@ pub enum ChatStreamKind {
         /// Full response content
         full_content: String,
         /// Total duration in milliseconds
+        #[ts(type = "number")]
         duration_ms: u64,
         /// Total tokens used
         total_tokens: u32,
