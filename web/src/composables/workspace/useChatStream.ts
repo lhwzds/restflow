@@ -202,7 +202,7 @@ export function useChatStream(sessionId: () => string | null) {
             ...createInitialState(),
             messageId: event.message_id,
             isStreaming: true,
-            startedAt: Number(event.timestamp),
+            startedAt: event.timestamp,
           }
           break
 
@@ -282,7 +282,7 @@ export function useChatStream(sessionId: () => string | null) {
             state.value.isStreaming = false
             state.value.content = kind.full_content
             state.value.tokenCount = kind.total_tokens
-            state.value.completedAt = Number(event.timestamp)
+            state.value.completedAt = event.timestamp
             void syncPersistedExecutionEvents(event.message_id)
           }
           break
