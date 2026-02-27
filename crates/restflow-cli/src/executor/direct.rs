@@ -7,7 +7,7 @@ use crate::setup;
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundProgress, Deliverable, SharedEntry,
+    BackgroundAgentSpec, BackgroundProgress, Deliverable, SharedEntry, ToolTrace,
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -302,6 +302,15 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn send_background_agent_message(&self, _id: &str, _message: &str) -> Result<()> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn list_tool_traces(
+        &self,
+        _session_id: &str,
+        _turn_id: Option<String>,
+        _limit: Option<usize>,
+    ) -> Result<Vec<ToolTrace>> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 

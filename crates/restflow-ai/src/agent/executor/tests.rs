@@ -917,33 +917,6 @@ fn test_parse_approval_resolution() {
 }
 
 #[tokio::test]
-async fn test_run_writes_jsonl_scratchpad_events() {
-    let response = CompletionResponse {
-        content: Some("done".to_string()),
-        tool_calls: vec![],
-        finish_reason: FinishReason::Stop,
-        usage: None,
-    };
-
-    let llm = Arc::new(MockLlmClient::new(vec![response]));
-    let tools = Arc::new(ToolRegistry::new());
-    let executor = AgentExecutor::new(llm, tools);
-
-    let dir = tempfile::tempdir().unwrap();
-    let scratchpad_path = dir.path().join("exec.jsonl");
-    let scratchpad = Arc::new(Scratchpad::new(scratchpad_path.clone()).unwrap());
-    let config = AgentConfig::new("scratchpad").with_scratchpad(scratchpad);
-
-    let result = executor.run(config).await.unwrap();
-    assert!(result.success);
-
-    let content = std::fs::read_to_string(scratchpad_path).unwrap();
-    assert!(content.contains("\"event_type\":\"execution_start\""));
-    assert!(content.contains("\"event_type\":\"iteration_begin\""));
-    assert!(content.contains("\"event_type\":\"execution_complete\""));
-}
-
-#[tokio::test]
 async fn test_prompt_flags_disable_tools() {
     let response = CompletionResponse {
         content: Some("Done".to_string()),
@@ -1336,31 +1309,29 @@ fn test_truncate_tool_output_short_content_unchanged() {
 }
 
 #[test]
-fn test_truncate_tool_output_middle_truncation_no_scratchpad() {
+fn test_truncate_tool_output_middle_truncation_without_output_dir() {
     let long = "a".repeat(500);
     let result = truncate_tool_output(&long, 100, None, "c1", "bash");
     // Should contain the middle-truncation marker
     assert!(result.contains("chars truncated"));
-    // Should not contain file hint (no scratchpad)
+    // Should not contain file hint (no output dir configured)
     assert!(!result.contains("saved to"));
     assert!(result.len() <= 100);
 }
 
 #[test]
-fn test_truncate_tool_output_with_scratchpad_saves_and_hints() {
+fn test_truncate_tool_output_with_tool_output_dir_saves_and_hints() {
     let dir = tempfile::tempdir().unwrap();
-    let sp_path = dir.path().join("scratch.jsonl");
-    let scratchpad = Scratchpad::new(sp_path).unwrap();
+    let output_dir = dir.path().join("tool-output");
 
     let long = "x".repeat(1000);
-    let result = truncate_tool_output(&long, 200, Some(&scratchpad), "call-7", "bash");
+    let result = truncate_tool_output(&long, 200, Some(output_dir.as_path()), "call-7", "bash");
 
     // Should contain the retrieval hint
     assert!(result.contains("Full output (1000 chars) saved to:"));
     assert!(result.contains("bash-call-7.txt"));
 
     // Verify the file was actually created with full content
-    let output_dir = dir.path().join("tool-output");
     let saved = std::fs::read_to_string(output_dir.join("bash-call-7.txt")).unwrap();
     assert_eq!(saved.len(), 1000);
 }

@@ -32,6 +32,7 @@ pub use config::*;
 
 use std::sync::Arc;
 use std::time::Duration;
+use std::{fs, path::Path};
 
 use serde_json::Value;
 
@@ -40,7 +41,6 @@ use crate::agent::context_manager::{self, ContextManagerConfig, TokenEstimator};
 use crate::agent::deferred::DeferredExecutionManager;
 use crate::agent::model_router::{classify_task, select_model};
 use crate::agent::resource::ResourceTracker;
-use crate::agent::scratchpad::Scratchpad;
 use crate::agent::state::{AgentState, AgentStatus};
 use crate::agent::stream::{NullEmitter, StreamEmitter};
 use crate::agent::streaming_buffer::StreamingBuffer;
@@ -59,10 +59,38 @@ const USER_INSTRUCTIONS_PREFIX: &str = "# AGENTS.md instructions for ";
 
 /// Truncate tool output with middle-truncation and optional disk persistence.
 /// Returns the (possibly truncated) string with a retrieval hint if the full output was saved.
+fn save_tool_output(
+    output_dir: &Path,
+    call_id: &str,
+    tool_name: &str,
+    content: &str,
+) -> Option<std::path::PathBuf> {
+    if fs::create_dir_all(output_dir).is_err() {
+        return None;
+    }
+
+    let safe_name: String = tool_name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let filename = format!("{safe_name}-{call_id}.txt");
+    let path = output_dir.join(filename);
+    match fs::write(&path, content) {
+        Ok(()) => Some(path),
+        Err(_) => None,
+    }
+}
+
 fn truncate_tool_output(
     content: &str,
     max_len: usize,
-    scratchpad: Option<&Scratchpad>,
+    tool_output_dir: Option<&Path>,
     call_id: &str,
     tool_name: &str,
 ) -> String {
@@ -73,7 +101,8 @@ fn truncate_tool_output(
     let total_len = content.len();
 
     // Save full output to disk before truncating
-    let saved_path = scratchpad.and_then(|sp| sp.save_full_output(call_id, tool_name, content));
+    let saved_path =
+        tool_output_dir.and_then(|dir| save_tool_output(dir, call_id, tool_name, content));
 
     // Build the retrieval hint
     let hint = if let Some(ref path) = saved_path {
@@ -244,9 +273,6 @@ impl AgentExecutor {
         let mut streaming_buffer = StreamingBuffer::default();
         let mut state =
             initial_state.unwrap_or_else(|| AgentState::new(execution_id, config.max_iterations));
-        if let Some(scratchpad) = &config.scratchpad {
-            scratchpad.log_start(&state.execution_id, self.llm.model(), &config.goal);
-        }
         state.max_iterations = config.max_iterations;
         state.context.extend(config.context.clone());
         let mut total_tokens: u32 = 0;
@@ -279,9 +305,6 @@ impl AgentExecutor {
 
         // Core loop (Swarm-inspired simplicity)
         while state.iteration < state.max_iterations && !state.is_terminal() {
-            if let Some(scratchpad) = &config.scratchpad {
-                scratchpad.log_iteration_begin(state.iteration + 1);
-            }
             self.apply_steer_messages(&mut state, &deferred_manager)
                 .await;
             self.poll_subagent_completions(&mut state, config.max_tool_result_length)
@@ -291,7 +314,7 @@ impl AgentExecutor {
                 &mut state,
                 config.tool_timeout,
                 config.max_tool_result_length,
-                config.scratchpad.as_deref(),
+                config.tool_output_dir.as_deref(),
             )
             .await;
 
@@ -392,7 +415,6 @@ impl AgentExecutor {
                 self.get_streaming_completion(
                     request,
                     emitter,
-                    config.scratchpad.as_deref(),
                     state.iteration + 1,
                     &state.execution_id,
                     &mut streaming_buffer,
@@ -423,11 +445,6 @@ impl AgentExecutor {
             // 2. No tool calls → check finish reason and complete
             if response.tool_calls.is_empty() {
                 let answer = response.content.unwrap_or_default();
-                if let Some(scratchpad) = &config.scratchpad
-                    && !answer.is_empty()
-                {
-                    scratchpad.log_text_delta(state.iteration + 1, &answer);
-                }
                 let assistant_msg = Message::assistant(&answer);
                 state.add_message(assistant_msg);
                 last_tool_names.clear();
@@ -435,19 +452,10 @@ impl AgentExecutor {
                 match response.finish_reason {
                     FinishReason::MaxTokens => {
                         state.fail("Response truncated due to max token limit");
-                        if let Some(scratchpad) = &config.scratchpad {
-                            scratchpad.log_error(
-                                state.iteration + 1,
-                                "Response truncated due to max token limit",
-                            );
-                        }
                         break;
                     }
                     FinishReason::Error => {
                         state.fail("LLM returned an error");
-                        if let Some(scratchpad) = &config.scratchpad {
-                            scratchpad.log_error(state.iteration + 1, "LLM returned an error");
-                        }
                         break;
                     }
                     _ => {
@@ -474,17 +482,7 @@ impl AgentExecutor {
             // Check all resource limits before tool execution
             if let Err(e) = tracker.check() {
                 state.resource_exhaust(e.to_string());
-                if let Some(scratchpad) = &config.scratchpad {
-                    scratchpad.log_error(state.iteration + 1, &e.to_string());
-                }
                 break;
-            }
-
-            if let Some(scratchpad) = &config.scratchpad {
-                for call in &response.tool_calls {
-                    let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
-                    scratchpad.log_tool_call(state.iteration + 1, &call.id, &call.name, &arguments);
-                }
             }
 
             // 3. Execute tools with timeout and optional stream events.
@@ -557,7 +555,7 @@ impl AgentExecutor {
                 result_str = truncate_tool_output(
                     &result_str,
                     config.max_tool_result_length,
-                    config.scratchpad.as_deref(),
+                    config.tool_output_dir.as_deref(),
                     &tool_call_id,
                     tool_name_for_truncate,
                 );
@@ -569,19 +567,6 @@ impl AgentExecutor {
                         .unwrap_or_default();
                     let tool_name = tool_call.map(|tc| tc.name.as_str()).unwrap_or("unknown");
                     detector.record(tool_name, &args_json);
-                }
-
-                if let Some(scratchpad) = &config.scratchpad {
-                    let (tool_name, success) = tool_call
-                        .map(|tc| (tc.name.as_str(), !result_str.starts_with("Error: ")))
-                        .unwrap_or(("unknown", !result_str.starts_with("Error: ")));
-                    scratchpad.log_tool_result(
-                        state.iteration + 1,
-                        &tool_call_id,
-                        tool_name,
-                        success,
-                        &result_str,
-                    );
                 }
 
                 // Add tool result to state
@@ -614,15 +599,6 @@ impl AgentExecutor {
                             "Agent stuck: repeated '{}' {} times",
                             stuck_info.repeated_tool, stuck_info.repeat_count
                         ));
-                        if let Some(scratchpad) = &config.scratchpad {
-                            scratchpad.log_error(
-                                state.iteration + 1,
-                                &format!(
-                                    "Agent stuck: repeated '{}' {} times",
-                                    stuck_info.repeated_tool, stuck_info.repeat_count
-                                ),
-                            );
-                        }
                         break;
                     }
                 }
@@ -652,9 +628,6 @@ impl AgentExecutor {
 
         // Build result
         let resource_usage = tracker.usage_snapshot();
-        if let Some(scratchpad) = &config.scratchpad {
-            scratchpad.log_complete(state.iteration, total_tokens, total_cost_usd);
-        }
         self.maybe_checkpoint(&config, &state, true).await?;
         Ok(AgentResult {
             success: matches!(state.status, AgentStatus::Completed),

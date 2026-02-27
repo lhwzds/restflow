@@ -1,5 +1,6 @@
 use anyhow::Result;
 use comfy_table::{Cell, Table};
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::cli::{BackgroundAgentCommands, OutputFormat};
@@ -10,8 +11,6 @@ use crate::output::table::print_table;
 use restflow_core::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, TaskSchedule,
 };
-use restflow_core::paths;
-use restflow_core::runtime::background_agent::EventLog;
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -77,7 +76,7 @@ pub async fn run(
             show_progress(executor, &id, limit, format).await
         }
         BackgroundAgentCommands::RunLog { id, run_id, limit } => {
-            show_run_log(&id, run_id.as_deref(), limit, format).await
+            show_run_log(executor, &id, run_id.as_deref(), limit, format).await
         }
         BackgroundAgentCommands::Send { id, message } => {
             send_message(executor, &id, &message, format).await
@@ -348,71 +347,71 @@ async fn send_message(
 }
 
 async fn show_run_log(
+    executor: Arc<dyn CommandExecutor>,
     task_id: &str,
     run_id: Option<&str>,
     limit: usize,
     format: OutputFormat,
 ) -> Result<()> {
-    let log_dir = paths::ensure_restflow_dir()?.join("task_logs");
+    let task = executor.get_background_agent(task_id).await?;
+    let session_id = if task.chat_session_id.trim().is_empty() {
+        task.id.clone()
+    } else {
+        task.chat_session_id.clone()
+    };
 
     if let Some(run_id) = run_id {
-        let path = if run_id == "legacy" {
-            EventLog::legacy_log_path(task_id, &log_dir)?
-        } else {
-            EventLog::run_log_path(task_id, run_id, &log_dir)?
-        };
-        let events = EventLog::read_all(&path)?;
-        let total = events.len();
-        let start = total.saturating_sub(limit);
-        let tail = &events[start..];
+        let traces = executor
+            .list_tool_traces(&session_id, Some(run_id.to_string()), Some(limit))
+            .await?;
 
         if format.is_json() {
             return print_json(&serde_json::json!({
                 "task_id": task_id,
+                "session_id": session_id,
                 "run_id": run_id,
-                "path": path,
-                "total_events": total,
-                "returned_events": tail.len(),
-                "events": tail,
+                "total_events": traces.len(),
+                "events": traces,
             }));
         }
 
         println!("Task: {}", task_id);
-        println!("Run:  {}", run_id);
-        println!("Path: {}", path.display());
-        println!("Events: {} (showing last {})", total, tail.len());
-        for event in tail {
-            println!("{}", serde_json::to_string(event)?);
+        println!("Session: {}", session_id);
+        println!("Run (turn_id): {}", run_id);
+        println!("Events: {} (showing up to {})", traces.len(), limit);
+        for trace in traces {
+            println!("{}", serde_json::to_string(&trace)?);
         }
         return Ok(());
     }
 
-    let runs = EventLog::list_run_ids(task_id, &log_dir)?;
-    let legacy_path = EventLog::legacy_log_path(task_id, &log_dir)?;
-    let legacy_exists = legacy_path.exists();
+    let traces = executor.list_tool_traces(&session_id, None, None).await?;
+    let mut seen = HashSet::new();
+    let mut runs = Vec::new();
+    for trace in traces.iter().rev() {
+        if seen.insert(trace.turn_id.clone()) {
+            runs.push(trace.turn_id.clone());
+        }
+    }
 
     if format.is_json() {
         return print_json(&serde_json::json!({
             "task_id": task_id,
+            "session_id": session_id,
             "run_count": runs.len(),
             "runs": runs,
-            "legacy_exists": legacy_exists,
-            "legacy_path": legacy_path,
         }));
     }
 
     println!("Task: {}", task_id);
-    println!("Run logs: {}", runs.len());
+    println!("Session: {}", session_id);
+    println!("Runs: {}", runs.len());
     if runs.is_empty() {
-        println!("No per-run logs found.");
+        println!("No runs found.");
     } else {
         for run in runs {
             println!("  {}", run);
         }
-    }
-    if legacy_exists {
-        println!("Legacy log available: {}", legacy_path.display());
-        println!("Use --run-id legacy to read it.");
     }
     Ok(())
 }

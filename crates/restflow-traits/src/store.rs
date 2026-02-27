@@ -185,7 +185,7 @@ pub struct BackgroundAgentDeliverableListRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentScratchpadListRequest {
+pub struct BackgroundAgentTraceListRequest {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
@@ -193,8 +193,8 @@ pub struct BackgroundAgentScratchpadListRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentScratchpadReadRequest {
-    pub scratchpad: String,
+pub struct BackgroundAgentTraceReadRequest {
+    pub trace_id: String,
     #[serde(default)]
     pub line_limit: Option<usize>,
 }
@@ -221,13 +221,13 @@ pub trait BackgroundAgentStore: Send + Sync {
         &self,
         request: BackgroundAgentDeliverableListRequest,
     ) -> Result<Value>;
-    fn list_background_agent_scratchpads(
+    fn list_background_agent_traces(
         &self,
-        request: BackgroundAgentScratchpadListRequest,
+        request: BackgroundAgentTraceListRequest,
     ) -> Result<Value>;
-    fn read_background_agent_scratchpad(
+    fn read_background_agent_trace(
         &self,
-        request: BackgroundAgentScratchpadReadRequest,
+        request: BackgroundAgentTraceReadRequest,
     ) -> Result<Value>;
 }
 

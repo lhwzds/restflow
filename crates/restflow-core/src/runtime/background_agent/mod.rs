@@ -159,8 +159,6 @@
 
 pub mod broadcast_emitter;
 pub mod cli_executor;
-pub mod event_log;
-pub mod event_logging_emitter;
 pub mod events;
 pub mod executor;
 pub mod failover;
@@ -177,8 +175,6 @@ pub mod testkit;
 pub mod transactional_checkpoint;
 
 pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
-pub use event_log::{AgentEvent, EventLog};
-pub use event_logging_emitter::EventLoggingEmitter;
 #[cfg(feature = "tauri-runtime")]
 pub use events::TauriEventEmitter;
 pub use events::{

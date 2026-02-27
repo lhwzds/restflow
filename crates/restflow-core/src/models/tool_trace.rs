@@ -1,16 +1,16 @@
-//! Chat execution event models.
+//! Tool trace models.
 //!
-//! Provides append-only structured events for chat turn debugging and visualization.
+//! Provides append-only structured events for execution tracing and visualization.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
-/// Event type for a persisted chat execution record.
+/// Event type for a persisted tool trace record.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
-pub enum ChatExecutionEventType {
+pub enum ToolTraceEvent {
     /// A turn started execution.
     TurnStarted,
     /// A tool call started.
@@ -28,7 +28,7 @@ pub enum ChatExecutionEventType {
 /// Append-only execution event for chat turns.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
 #[ts(export)]
-pub struct ChatExecutionEvent {
+pub struct ToolTrace {
     /// Event ID.
     pub id: String,
     /// Session ID this event belongs to.
@@ -39,7 +39,7 @@ pub struct ChatExecutionEvent {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message_id: Option<String>,
     /// Event type.
-    pub event_type: ChatExecutionEventType,
+    pub event_type: ToolTraceEvent,
     /// Optional tool call ID.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_id: Option<String>,
@@ -52,6 +52,9 @@ pub struct ChatExecutionEvent {
     /// Optional tool output payload (JSON string or raw text).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// Optional file reference for full output payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_ref: Option<String>,
     /// Optional success flag (typically for tool completion).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub success: Option<bool>,
@@ -65,11 +68,11 @@ pub struct ChatExecutionEvent {
     pub created_at: i64,
 }
 
-impl ChatExecutionEvent {
+impl ToolTrace {
     fn base(
         session_id: impl Into<String>,
         turn_id: impl Into<String>,
-        event_type: ChatExecutionEventType,
+        event_type: ToolTraceEvent,
     ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
@@ -81,6 +84,7 @@ impl ChatExecutionEvent {
             tool_name: None,
             input: None,
             output: None,
+            output_ref: None,
             success: None,
             duration_ms: None,
             error: None,
@@ -90,12 +94,12 @@ impl ChatExecutionEvent {
 
     /// Create a turn started event.
     pub fn turn_started(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
-        Self::base(session_id, turn_id, ChatExecutionEventType::TurnStarted)
+        Self::base(session_id, turn_id, ToolTraceEvent::TurnStarted)
     }
 
     /// Create a turn completed event.
     pub fn turn_completed(session_id: impl Into<String>, turn_id: impl Into<String>) -> Self {
-        Self::base(session_id, turn_id, ChatExecutionEventType::TurnCompleted)
+        Self::base(session_id, turn_id, ToolTraceEvent::TurnCompleted)
     }
 
     /// Create a turn failed event.
@@ -104,7 +108,7 @@ impl ChatExecutionEvent {
         turn_id: impl Into<String>,
         error: impl Into<String>,
     ) -> Self {
-        let mut event = Self::base(session_id, turn_id, ChatExecutionEventType::TurnFailed);
+        let mut event = Self::base(session_id, turn_id, ToolTraceEvent::TurnFailed);
         event.error = Some(error.into());
         event
     }
@@ -115,7 +119,7 @@ impl ChatExecutionEvent {
         turn_id: impl Into<String>,
         reason: impl Into<String>,
     ) -> Self {
-        let mut event = Self::base(session_id, turn_id, ChatExecutionEventType::TurnCancelled);
+        let mut event = Self::base(session_id, turn_id, ToolTraceEvent::TurnCancelled);
         event.error = Some(reason.into());
         event
     }
@@ -128,7 +132,7 @@ impl ChatExecutionEvent {
         tool_name: impl Into<String>,
         input: Option<String>,
     ) -> Self {
-        let mut event = Self::base(session_id, turn_id, ChatExecutionEventType::ToolCallStarted);
+        let mut event = Self::base(session_id, turn_id, ToolTraceEvent::ToolCallStarted);
         event.tool_call_id = Some(tool_call_id.into());
         event.tool_name = Some(tool_name.into());
         event.input = input;
@@ -143,14 +147,11 @@ impl ChatExecutionEvent {
         tool_name: impl Into<String>,
         completion: ToolCallCompletion,
     ) -> Self {
-        let mut event = Self::base(
-            session_id,
-            turn_id,
-            ChatExecutionEventType::ToolCallCompleted,
-        );
+        let mut event = Self::base(session_id, turn_id, ToolTraceEvent::ToolCallCompleted);
         event.tool_call_id = Some(tool_call_id.into());
         event.tool_name = Some(tool_name.into());
         event.output = completion.output;
+        event.output_ref = completion.output_ref;
         event.success = Some(completion.success);
         event.duration_ms = completion.duration_ms;
         event.error = completion.error;
@@ -165,6 +166,9 @@ pub struct ToolCallCompletion {
     /// Optional tool output payload (JSON string or raw text).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output: Option<String>,
+    /// Optional file reference for full output payload.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_ref: Option<String>,
     /// Whether the tool call succeeded.
     pub success: bool,
     /// Optional duration in milliseconds.
@@ -181,27 +185,28 @@ mod tests {
 
     #[test]
     fn test_turn_started_constructor() {
-        let event = ChatExecutionEvent::turn_started("session-1", "turn-1");
+        let event = ToolTrace::turn_started("session-1", "turn-1");
         assert_eq!(event.session_id, "session-1");
         assert_eq!(event.turn_id, "turn-1");
-        assert_eq!(event.event_type, ChatExecutionEventType::TurnStarted);
+        assert_eq!(event.event_type, ToolTraceEvent::TurnStarted);
     }
 
     #[test]
     fn test_tool_call_completed_constructor() {
-        let event = ChatExecutionEvent::tool_call_completed(
+        let event = ToolTrace::tool_call_completed(
             "session-1",
             "turn-1",
             "call-1",
             "bash",
             ToolCallCompletion {
                 output: Some("{\"ok\":true}".to_string()),
+                output_ref: None,
                 success: true,
                 duration_ms: Some(120),
                 error: None,
             },
         );
-        assert_eq!(event.event_type, ChatExecutionEventType::ToolCallCompleted);
+        assert_eq!(event.event_type, ToolTraceEvent::ToolCallCompleted);
         assert_eq!(event.tool_call_id.as_deref(), Some("call-1"));
         assert_eq!(event.tool_name.as_deref(), Some("bash"));
         assert_eq!(event.success, Some(true));
@@ -209,13 +214,13 @@ mod tests {
     }
 
     #[test]
-    fn export_bindings_chat_execution_event_type() {
-        ChatExecutionEventType::export_to_string(&ts_rs::Config::default()).expect("ts export");
+    fn export_bindings_tool_trace_event_type() {
+        ToolTraceEvent::export_to_string(&ts_rs::Config::default()).expect("ts export");
     }
 
     #[test]
-    fn export_bindings_chat_execution_event() {
-        ChatExecutionEvent::export_to_string(&ts_rs::Config::default()).expect("ts export");
+    fn export_bindings_tool_trace() {
+        ToolTrace::export_to_string(&ts_rs::Config::default()).expect("ts export");
     }
 
     #[test]

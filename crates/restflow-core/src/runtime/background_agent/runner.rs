@@ -30,10 +30,12 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use super::broadcast_emitter::BroadcastStreamEmitter;
-use super::event_log::{AgentEvent, EventLog};
-use super::event_logging_emitter::EventLoggingEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
+use crate::runtime::channel::tool_trace_emitter::{
+    ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
+    append_turn_started,
+};
 
 use super::heartbeat::{
     HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, NoopHeartbeatEmitter, RunnerStatus,
@@ -600,26 +602,9 @@ impl BackgroundAgentRunner {
         self.steer_registry.clone()
     }
 
-    /// Create an EventLog for recording one task run.
-    fn create_event_log(
-        &self,
-        task_id: &str,
-        run_id: &str,
-    ) -> Option<Arc<std::sync::Mutex<EventLog>>> {
-        let log_dir = crate::paths::ensure_restflow_dir()
-            .map(|dir| dir.join("task_logs"))
-            .ok()?;
-
-        match EventLog::new_for_run(task_id, run_id, &log_dir) {
-            Ok(log) => Some(Arc::new(std::sync::Mutex::new(log))),
-            Err(e) => {
-                warn!(
-                    "Failed to create event log for task {} run {}: {}",
-                    task_id, run_id, e
-                );
-                None
-            }
-        }
+    /// Get the tool trace storage for persisting execution events.
+    fn tool_trace_storage(&self) -> crate::storage::ToolTraceStorage {
+        self.storage.tool_traces().clone()
     }
 
     /// Install RestFlow git hooks in the given repository.
@@ -1249,6 +1234,22 @@ impl BackgroundAgentRunner {
         };
 
         let resolved_input = self.resolve_task_input(&task);
+        let trace_session_id = {
+            let session_id = task.chat_session_id.trim();
+            if session_id.is_empty() {
+                task.id.clone()
+            } else {
+                session_id.to_string()
+            }
+        };
+        let trace_turn_id = format!(
+            "{}-{}",
+            chrono::Utc::now().timestamp_millis(),
+            uuid::Uuid::new_v4()
+        );
+        let tool_trace_storage = self.tool_trace_storage();
+        append_turn_started(&tool_trace_storage, &trace_session_id, &trace_turn_id);
+
         if resolved_input
             .as_deref()
             .is_none_or(|value| value.trim().is_empty())
@@ -1256,6 +1257,12 @@ impl BackgroundAgentRunner {
             let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
             let reason = "Background task requires non-empty input or input_template";
             let error_msg = format!("Execution error: {}", reason);
+            append_turn_failed(
+                &tool_trace_storage,
+                &trace_session_id,
+                &trace_turn_id,
+                &error_msg,
+            );
 
             error!("Task '{}' failed preflight: {}", task.name, reason);
             pump_cancel.cancel();
@@ -1287,30 +1294,6 @@ impl BackgroundAgentRunner {
             return Ok(false);
         }
 
-        // Create EventLog for this run
-        let run_id = format!(
-            "{}-{}",
-            chrono::Utc::now().timestamp_millis(),
-            uuid::Uuid::new_v4()
-        );
-        let event_log = self.create_event_log(&task.id, &run_id);
-
-        // Record TaskStarted event
-        if let Some(ref log) = event_log {
-            match log.lock() {
-                Ok(mut l) => {
-                    if let Err(e) = l.append(&AgentEvent::TaskStarted {
-                        timestamp: chrono::Utc::now().timestamp_millis(),
-                        task_id: task.id.clone(),
-                        agent_id: task.agent_id.clone(),
-                    }) {
-                        warn!("Failed to log TaskStarted event: {}", e);
-                    }
-                }
-                Err(e) => warn!("EventLog mutex poisoned: {}", e),
-            }
-        }
-
         let broadcast_emitter = if matches!(task.execution_mode, ExecutionMode::Api)
             && task.notification.broadcast_steps
         {
@@ -1327,24 +1310,19 @@ impl BackgroundAgentRunner {
             None
         };
 
-        // Keep a dedicated handle for lifecycle event logging without forcing stream mode.
-        let event_log_for_events = event_log.clone();
-
-        // Always attach an EventLoggingEmitter when event_log exists, even when
-        // step broadcasting is disabled, so tool-call traces are persisted.
-        let step_emitter = match event_log.clone() {
-            Some(log) => {
-                let inner: Box<dyn StreamEmitter> = match broadcast_emitter {
-                    Some(emitter) => emitter,
-                    None => Box::new(NoopStreamEmitter),
-                };
-                Some(Box::new(EventLoggingEmitter::with_shared_log(
-                    inner,
-                    log,
-                    task.id.clone(),
-                )) as Box<dyn StreamEmitter>)
-            }
-            None => broadcast_emitter,
+        let step_emitter = if matches!(task.execution_mode, ExecutionMode::Api) {
+            let inner: Box<dyn StreamEmitter> = match broadcast_emitter {
+                Some(emitter) => emitter,
+                None => Box::new(NoopStreamEmitter),
+            };
+            Some(Box::new(ToolTraceEmitter::new(
+                inner,
+                tool_trace_storage.clone(),
+                trace_session_id.clone(),
+                trace_turn_id.clone(),
+            )) as Box<dyn StreamEmitter>)
+        } else {
+            broadcast_emitter
         };
 
         let execution_timeout_secs = match &task.execution_mode {
@@ -1487,6 +1465,12 @@ impl BackgroundAgentRunner {
                     "Task '{}' cancelled by user (duration={}ms)",
                     task.name, duration_ms
                 );
+                append_turn_cancelled(
+                    &tool_trace_storage,
+                    &trace_session_id,
+                    &trace_turn_id,
+                    "Cancelled by user",
+                );
                 pump_cancel.cancel();
                 if let Some(pump) = message_pump.take() {
                     let _ = pump.await;
@@ -1544,6 +1528,12 @@ impl BackgroundAgentRunner {
                             "Task '{}' interrupted by pause request (duration={}ms)",
                             task.name, duration_ms
                         );
+                        append_turn_cancelled(
+                            &tool_trace_storage,
+                            &trace_session_id,
+                            &trace_turn_id,
+                            "Paused by user",
+                        );
                         self.event_emitter
                             .emit(TaskStreamEvent::cancelled(
                                 task_id,
@@ -1565,6 +1555,12 @@ impl BackgroundAgentRunner {
                         info!(
                             "Task '{}' stopped because task record was deleted (duration={}ms)",
                             task.name, duration_ms
+                        );
+                        append_turn_cancelled(
+                            &tool_trace_storage,
+                            &trace_session_id,
+                            &trace_turn_id,
+                            "Task deleted",
                         );
                         self.event_emitter
                             .emit(TaskStreamEvent::cancelled(
@@ -1603,21 +1599,7 @@ impl BackgroundAgentRunner {
                     "Task '{}' completed successfully (duration={}ms)",
                     task.name, duration_ms
                 );
-
-                // Record TaskCompleted event
-                if let Some(ref log) = event_log_for_events {
-                    match log.lock() {
-                        Ok(mut l) => {
-                            if let Err(e) = l.append(&AgentEvent::TaskCompleted {
-                                timestamp: chrono::Utc::now().timestamp_millis(),
-                                result: truncate_event_output(&exec_result.output, 5000),
-                            }) {
-                                warn!("Failed to log TaskCompleted event: {}", e);
-                            }
-                        }
-                        Err(e) => warn!("EventLog mutex poisoned: {}", e),
-                    }
-                }
+                append_turn_completed(&tool_trace_storage, &trace_session_id, &trace_turn_id);
 
                 self.event_emitter
                     .emit(TaskStreamEvent::completed(
@@ -1692,21 +1674,12 @@ impl BackgroundAgentRunner {
                 // Execution error
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
-
-                // Record Error event
-                if let Some(ref log) = event_log_for_events {
-                    match log.lock() {
-                        Ok(mut l) => {
-                            if let Err(e) = l.append(&AgentEvent::Error {
-                                timestamp: chrono::Utc::now().timestamp_millis(),
-                                error: error_msg.clone(),
-                            }) {
-                                warn!("Failed to log Error event: {}", e);
-                            }
-                        }
-                        Err(e) => warn!("EventLog mutex poisoned: {}", e),
-                    }
-                }
+                append_turn_failed(
+                    &tool_trace_storage,
+                    &trace_session_id,
+                    &trace_turn_id,
+                    &error_msg,
+                );
 
                 self.event_emitter
                     .emit(TaskStreamEvent::failed(
@@ -1747,21 +1720,12 @@ impl BackgroundAgentRunner {
                     "Task timed out".to_string()
                 };
                 error!("Task '{}' timed out", task.name);
-
-                // Record Error event
-                if let Some(ref log) = event_log_for_events {
-                    match log.lock() {
-                        Ok(mut l) => {
-                            if let Err(e) = l.append(&AgentEvent::Error {
-                                timestamp: chrono::Utc::now().timestamp_millis(),
-                                error: error_msg.clone(),
-                            }) {
-                                warn!("Failed to log timeout Error event: {}", e);
-                            }
-                        }
-                        Err(e) => warn!("EventLog mutex poisoned: {}", e),
-                    }
-                }
+                append_turn_failed(
+                    &tool_trace_storage,
+                    &trace_session_id,
+                    &trace_turn_id,
+                    &error_msg,
+                );
 
                 self.event_emitter
                     .emit(TaskStreamEvent::timeout(task_id, timeout_secs, duration_ms))
@@ -1813,24 +1777,18 @@ impl BackgroundAgentRunner {
     fn cleanup_agent_resources(task_id: &str) {
         use std::fs;
 
-        // Clean up scratchpad files for this task
+        // Clean up tool-output directory for this task.
         if let Ok(restflow_dir) = crate::paths::resolve_restflow_dir() {
-            let scratchpad_dir = restflow_dir.join("scratchpads");
-            if scratchpad_dir.exists()
-                && let Ok(entries) = fs::read_dir(&scratchpad_dir)
+            let task_output_dir = restflow_dir.join("tool-output").join(task_id);
+            if task_output_dir.exists()
+                && let Err(e) = fs::remove_dir_all(&task_output_dir)
             {
-                for entry in entries.flatten() {
-                    let file_name = entry.file_name();
-                    let name = file_name.to_string_lossy();
-                    // Match files starting with task_id
-                    if name.starts_with(task_id) && name.ends_with(".jsonl") {
-                        if let Err(e) = fs::remove_file(entry.path()) {
-                            warn!("Failed to remove scratchpad file {:?}: {}", entry.path(), e);
-                        } else {
-                            debug!("Cleaned up scratchpad file for task {}", task_id);
-                        }
-                    }
-                }
+                warn!(
+                    "Failed to remove tool output directory {:?}: {}",
+                    task_output_dir, e
+                );
+            } else if task_output_dir.exists() {
+                debug!("Cleaned up tool output directory for task {}", task_id);
             }
         }
 
@@ -2223,27 +2181,6 @@ impl TaskExecutor for RunnerTaskExecutor {
     async fn execute(&self, task: &BackgroundAgent) -> Result<bool> {
         let cancel_rx = self.runner.take_cancel_receiver(&task.id).await;
         self.runner.execute_task(&task.id, cancel_rx).await
-    }
-}
-
-/// Truncate output for event log to prevent large log files.
-/// Safe for UTF-8: will not panic on multi-byte character boundaries.
-fn truncate_event_output(output: &str, max_len: usize) -> String {
-    if output.len() > max_len {
-        // Find a safe truncation point that doesn't split a multi-byte character
-        let truncate_at = output
-            .char_indices()
-            .take_while(|(idx, _)| *idx < max_len)
-            .last()
-            .map(|(idx, c)| idx + c.len_utf8())
-            .unwrap_or(0);
-        format!(
-            "{}... [truncated, total {} bytes]",
-            &output[..truncate_at],
-            output.len()
-        )
-    } else {
-        output.to_string()
     }
 }
 
@@ -3932,13 +3869,17 @@ mod tests {
 
         // Create a temporary directory to act as RESTFLOW_DIR
         let temp_dir = tempdir().expect("Failed to create temp dir");
-        let scratchpad_dir = temp_dir.path().join("scratchpads");
-        fs::create_dir_all(&scratchpad_dir).expect("Failed to create scratchpad dir");
+        let tool_output_base_dir = temp_dir.path().join("tool-output");
+        fs::create_dir_all(&tool_output_base_dir).expect("Failed to create tool output dir");
 
-        // Create some test files
+        // Create per-task output directories and files.
         let task_id = "test-task-123";
-        let orphan_file = scratchpad_dir.join(format!("{}-20260217.jsonl", task_id));
-        let other_file = scratchpad_dir.join("other-task-456-20260217.jsonl");
+        let task_output_dir = tool_output_base_dir.join(task_id);
+        let other_output_dir = tool_output_base_dir.join("other-task-456");
+        fs::create_dir_all(&task_output_dir).expect("Failed to create task output dir");
+        fs::create_dir_all(&other_output_dir).expect("Failed to create other output dir");
+        let orphan_file = task_output_dir.join("tool-call.txt");
+        let other_file = other_output_dir.join("tool-call.txt");
 
         fs::write(&orphan_file, "orphan content").expect("Failed to write orphan file");
         fs::write(&other_file, "other content").expect("Failed to write other file");
@@ -3954,9 +3895,17 @@ mod tests {
         // Call cleanup
         BackgroundAgentRunner::cleanup_agent_resources(task_id);
 
-        // Orphan file should be removed, other file should remain
-        assert!(!orphan_file.exists(), "Orphan file should be removed");
-        assert!(other_file.exists(), "Other file should remain");
+        // Target task output dir should be removed, other dir should remain.
+        assert!(
+            !task_output_dir.exists(),
+            "Task output dir should be removed"
+        );
+        assert!(
+            other_output_dir.exists(),
+            "Other task output dir should remain"
+        );
+        assert!(!orphan_file.exists(), "Task output file should be removed");
+        assert!(other_file.exists(), "Other task file should remain");
 
         // Cleanup env var
         unsafe {

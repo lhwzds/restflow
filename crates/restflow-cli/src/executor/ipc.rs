@@ -9,8 +9,8 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
-    WorkItemPatch, WorkItemSpec,
+    ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, ToolTrace,
+    WorkItem, WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -428,6 +428,18 @@ impl CommandExecutor for IpcExecutor {
             .await?;
         self.decode_response::<serde_json::Value>(response)
             .map(|_| ())
+    }
+
+    async fn list_tool_traces(
+        &self,
+        session_id: &str,
+        turn_id: Option<String>,
+        limit: Option<usize>,
+    ) -> Result<Vec<ToolTrace>> {
+        let mut client = self.client.lock().await;
+        client
+            .list_tool_traces(session_id.to_string(), turn_id, limit)
+            .await
     }
 
     // Shared Space operations - not yet in IPC protocol

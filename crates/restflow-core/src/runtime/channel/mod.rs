@@ -64,23 +64,23 @@
 mod chat_dispatcher;
 mod commands;
 mod debounce;
-mod execution_event_emitter;
 mod forwarder;
 mod handler;
 mod router;
+pub mod tool_trace_emitter;
 mod trigger;
 
 pub use chat_dispatcher::{ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager};
 pub use debounce::MessageDebouncer;
-pub use execution_event_emitter::{
-    PersistingStreamEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
-    append_turn_started,
-};
 pub use handler::{
     MessageHandlerConfig, MessageHandlerHandle, start_message_handler,
     start_message_handler_with_chat, start_message_handler_with_pairing,
 };
 pub use router::{MessageRouter, RouteDecision};
+pub use tool_trace_emitter::{
+    ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
+    append_turn_started,
+};
 pub use trigger::{BackgroundAgentTrigger, SystemStatus};
 
 // Re-export for convenience

@@ -17,7 +17,7 @@ pub struct CleanupReport {
     pub memory_sessions: usize,
     pub vector_orphans: usize,
     pub daemon_log_files: usize,
-    pub event_log_files: usize,
+    pub legacy_log_files: usize,
 }
 
 pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
@@ -69,11 +69,12 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
         tokio::task::spawn_blocking(move || cleanup_daemon_log_files(retention_days).unwrap_or(0))
             .await
             .unwrap_or(0);
-    let event_retention = config.log_file_retention_days;
-    let event_log_files =
-        tokio::task::spawn_blocking(move || cleanup_event_log_files(event_retention).unwrap_or(0))
-            .await
-            .unwrap_or(0);
+    let legacy_retention = config.log_file_retention_days;
+    let legacy_log_files = tokio::task::spawn_blocking(move || {
+        cleanup_legacy_log_files(legacy_retention).unwrap_or(0)
+    })
+    .await
+    .unwrap_or(0);
 
     Ok(CleanupReport {
         chat_sessions,
@@ -83,7 +84,7 @@ pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
         memory_sessions,
         vector_orphans,
         daemon_log_files,
-        event_log_files,
+        legacy_log_files,
     })
 }
 
@@ -153,20 +154,35 @@ fn cleanup_daemon_log_files(retention_days: u32) -> Result<usize> {
     })
 }
 
-/// L1: Delete event log files older than retention_days.
+/// L1: Delete legacy event log and scratchpad files older than retention_days.
 ///
-/// Scans `~/.restflow/logs/` for `.jsonl` files (task event logs).
-fn cleanup_event_log_files(retention_days: u32) -> Result<usize> {
+/// Scans `~/.restflow/logs/` for `.jsonl` files (legacy task event logs)
+/// and `~/.restflow/scratchpads/` for `.jsonl` files.
+/// These are now superseded by DB-based ToolTrace records.
+fn cleanup_legacy_log_files(retention_days: u32) -> Result<usize> {
     if retention_days == 0 {
         return Ok(0);
     }
 
-    let logs_dir = match crate::paths::logs_dir() {
-        Ok(dir) => dir,
-        Err(_) => return Ok(0),
-    };
+    let mut total = 0;
 
-    cleanup_old_files_in_dir(&logs_dir, retention_days, |name| name.ends_with(".jsonl"))
+    // Clean up legacy event log JSONL files in logs dir
+    if let Ok(logs_dir) = crate::paths::logs_dir() {
+        total +=
+            cleanup_old_files_in_dir(&logs_dir, retention_days, |name| name.ends_with(".jsonl"))?;
+    }
+
+    // Clean up legacy scratchpad JSONL files
+    if let Ok(restflow_dir) = crate::paths::resolve_restflow_dir() {
+        let scratchpad_dir = restflow_dir.join("scratchpads");
+        if scratchpad_dir.is_dir() {
+            total += cleanup_old_files_in_dir(&scratchpad_dir, retention_days, |name| {
+                name.ends_with(".jsonl")
+            })?;
+        }
+    }
+
+    Ok(total)
 }
 
 /// Delete files older than `retention_days` in `dir` that match the `filter` predicate.
@@ -256,7 +272,7 @@ mod tests {
         assert_eq!(report.memory_sessions, 0);
         assert_eq!(report.vector_orphans, 0);
         assert_eq!(report.daemon_log_files, 0);
-        assert_eq!(report.event_log_files, 0);
+        assert_eq!(report.legacy_log_files, 0);
     }
 
     #[test]
