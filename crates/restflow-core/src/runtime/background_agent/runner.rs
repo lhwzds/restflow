@@ -573,6 +573,18 @@ impl BackgroundAgentRunner {
         self
     }
 
+    /// Replace the internal channel-router handle with a shared pointer.
+    ///
+    /// This is useful when other runtime components (for example reply senders)
+    /// need to observe the same router availability/updates.
+    pub fn with_channel_router_handle(
+        mut self,
+        channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
+    ) -> Self {
+        self.channel_router = channel_router;
+        self
+    }
+
     /// Set the channel router for broadcasting notifications to all configured channels.
     ///
     /// When a channel router is set, task notifications are broadcast through

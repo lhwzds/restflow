@@ -8,6 +8,7 @@ use restflow_core::hooks::HookExecutor;
 use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
+use restflow_core::runtime::background_agent::BackgroundReplySenderFactory;
 use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::{
     AgentDefinitionRegistry, AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger,
@@ -90,6 +91,14 @@ impl CliBackgroundAgentRunner {
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let subagent_config = SubagentConfig::default();
+        let event_emitter: Arc<dyn TaskEventEmitter> = Arc::new(DaemonIpcEventEmitter);
+        let channel_router = Arc::new(RwLock::new(None));
+
+        let reply_sender_factory = Arc::new(BackgroundReplySenderFactory::new(
+            Arc::new(storage.background_agents.clone()),
+            event_emitter.clone(),
+            channel_router.clone(),
+        ));
 
         let executor = AgentRuntimeExecutor::new(
             storage.clone(),
@@ -98,7 +107,8 @@ impl CliBackgroundAgentRunner {
             subagent_tracker.clone(),
             subagent_definitions.clone(),
             subagent_config.clone(),
-        );
+        )
+        .with_reply_sender_factory(reply_sender_factory);
         let notifier = TelegramNotifier::new(secrets);
         let steer_registry = Arc::new(SteerRegistry::new());
         let system_config = storage.config.get_config()?.unwrap_or_default();
@@ -119,7 +129,8 @@ impl CliBackgroundAgentRunner {
                 storage.memory.clone(),
                 steer_registry,
             )
-            .with_event_emitter(Arc::new(DaemonIpcEventEmitter))
+            .with_event_emitter(event_emitter)
+            .with_channel_router_handle(channel_router.clone())
             .with_hook_executor(hook_executor),
         );
 

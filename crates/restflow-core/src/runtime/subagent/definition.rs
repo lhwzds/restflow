@@ -128,7 +128,9 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
     vec![]
 }
 
+#[cfg(test)]
 mod tests {
+    use super::{AgentDefinitionRegistry, builtin_agents};
 
     #[test]
     fn test_builtin_agents_empty() {

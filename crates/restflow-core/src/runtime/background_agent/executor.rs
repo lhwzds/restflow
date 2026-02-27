@@ -70,6 +70,15 @@ pub struct AgentRuntimeExecutor {
     subagent_definitions: Arc<dyn SubagentDefLookup>,
     subagent_config: SubagentConfig,
     reply_sender: Option<Arc<dyn ReplySender>>,
+    reply_sender_factory: Option<Arc<dyn ReplySenderFactory>>,
+}
+
+/// Factory for constructing execution-scoped reply senders.
+///
+/// Background-agent execution needs a sender bound to the current task ID,
+/// while interactive chat execution usually uses a static sender per session.
+pub trait ReplySenderFactory: Send + Sync {
+    fn for_background_task(&self, task_id: &str, agent_id: &str) -> Option<Arc<dyn ReplySender>>;
 }
 
 const TOOL_RESULT_CONTEXT_RATIO: f64 = 0.08;
@@ -242,12 +251,20 @@ impl AgentRuntimeExecutor {
             subagent_definitions,
             subagent_config,
             reply_sender: None,
+            reply_sender_factory: None,
         }
     }
 
     /// Set a reply sender so the agent can send intermediate messages.
     pub fn with_reply_sender(mut self, sender: Arc<dyn ReplySender>) -> Self {
         self.reply_sender = Some(sender);
+        self
+    }
+
+    /// Set a reply sender factory for execution-scoped contexts (for example
+    /// background agents where each task has distinct routing semantics).
+    pub fn with_reply_sender_factory(mut self, factory: Arc<dyn ReplySenderFactory>) -> Self {
+        self.reply_sender_factory = Some(factory);
         self
     }
 
@@ -748,6 +765,7 @@ impl AgentRuntimeExecutor {
     ///
     /// If the agent has specific tools configured, only those tools are registered.
     /// Otherwise, an empty registry is used (secure default).
+    #[allow(clippy::too_many_arguments)]
     fn build_tool_registry(
         &self,
         tool_names: Option<&[String]>,
@@ -756,8 +774,10 @@ impl AgentRuntimeExecutor {
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
         bash_config: Option<BashConfig>,
+        reply_sender: Option<Arc<dyn ReplySender>>,
     ) -> anyhow::Result<Arc<ToolRegistry>> {
-        let filtered_tool_names = self.filter_requested_tool_names(tool_names);
+        let has_reply_sender = reply_sender.is_some();
+        let filtered_tool_names = self.filter_requested_tool_names(tool_names, has_reply_sender);
         let filtered_tool_names_ref = filtered_tool_names.as_deref();
         let secret_resolver = Some(secret_resolver_from_storage(&self.storage));
         let subagent_tool_registry = Arc::new(registry_from_allowlist(
@@ -797,17 +817,20 @@ impl AgentRuntimeExecutor {
         }
 
         if requested("reply")
-            && let Some(sender) = &self.reply_sender
+            && let Some(sender) = reply_sender
         {
-            registry.register(ReplyTool::new(sender.clone()));
+            registry.register(ReplyTool::new(sender));
         }
 
         Ok(Arc::new(registry))
     }
 
-    fn filter_requested_tool_names(&self, tool_names: Option<&[String]>) -> Option<Vec<String>> {
+    fn filter_requested_tool_names(
+        &self,
+        tool_names: Option<&[String]>,
+        has_reply_sender: bool,
+    ) -> Option<Vec<String>> {
         let names = tool_names?;
-        let has_reply_sender = self.reply_sender.is_some();
 
         Some(
             names
@@ -824,6 +847,23 @@ impl AgentRuntimeExecutor {
                 })
                 .collect(),
         )
+    }
+
+    fn resolve_reply_sender(
+        &self,
+        background_task_id: Option<&str>,
+        agent_id: Option<&str>,
+    ) -> Option<Arc<dyn ReplySender>> {
+        if let Some(task_id) = background_task_id
+            && let Some(factory) = &self.reply_sender_factory
+        {
+            let current_agent_id = agent_id.unwrap_or_default();
+            if let Some(sender) = factory.for_background_task(task_id, current_agent_id) {
+                return Some(sender);
+            }
+        }
+
+        self.reply_sender.clone()
     }
 
     /// Resolve the stored agent referenced by a chat session.
@@ -1029,6 +1069,7 @@ impl AgentRuntimeExecutor {
             timeout_secs: agent_defaults.bash_timeout_secs,
             ..BashConfig::default()
         };
+        let reply_sender = self.resolve_reply_sender(None, agent_id);
         let tools = self.build_tool_registry(
             Some(&effective_tools),
             swappable.clone(),
@@ -1036,6 +1077,7 @@ impl AgentRuntimeExecutor {
             factory.clone(),
             agent_id,
             Some(bash_config),
+            reply_sender,
         )?;
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
 
@@ -1515,6 +1557,7 @@ impl AgentRuntimeExecutor {
             timeout_secs: agent_defaults.bash_timeout_secs,
             ..BashConfig::default()
         };
+        let reply_sender = self.resolve_reply_sender(background_task_id, agent_id);
         let tools = self.build_tool_registry(
             Some(&effective_tools),
             swappable.clone(),
@@ -1522,6 +1565,7 @@ impl AgentRuntimeExecutor {
             factory.clone(),
             agent_id,
             Some(bash_config),
+            reply_sender,
         )?;
         let system_prompt =
             self.build_background_system_prompt(agent_node, agent_id, background_task_id, input)?;
@@ -2310,7 +2354,7 @@ mod tests {
         let requested = vec!["bash".to_string(), "reply".to_string(), "file".to_string()];
 
         let filtered = executor
-            .filter_requested_tool_names(Some(&requested))
+            .filter_requested_tool_names(Some(&requested), false)
             .expect("filtered tool list");
 
         assert!(filtered.iter().any(|name| name == "bash"));
@@ -2325,7 +2369,7 @@ mod tests {
         let requested = vec!["reply".to_string(), "bash".to_string()];
 
         let filtered = executor
-            .filter_requested_tool_names(Some(&requested))
+            .filter_requested_tool_names(Some(&requested), true)
             .expect("filtered tool list");
 
         assert!(filtered.iter().any(|name| name == "reply"));

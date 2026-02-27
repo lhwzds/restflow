@@ -169,6 +169,7 @@ pub mod model_catalog;
 pub mod notifier;
 pub mod persist;
 pub mod preflight;
+pub mod reply_sender;
 pub mod retry;
 pub mod runner;
 #[cfg(any(test, feature = "test-utils"))]
@@ -194,6 +195,7 @@ pub use heartbeat::{
 };
 pub use notifier::TelegramNotifier;
 pub use persist::{MemoryPersister, PersistConfig, PersistResult};
+pub use reply_sender::BackgroundReplySenderFactory;
 pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
 pub use runner::{
     AgentExecutor, BackgroundAgentRunner, ExecutionResult, NoopNotificationSender,
