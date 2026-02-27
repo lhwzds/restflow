@@ -16,7 +16,6 @@ mod executor;
 pub mod model_router;
 mod prompt_flags;
 mod resource;
-mod scratchpad;
 mod state;
 mod step;
 mod stream;
@@ -37,7 +36,6 @@ pub use executor::{AgentConfig, AgentExecutor, AgentResult, CheckpointDurability
 pub use model_router::{ModelRoutingConfig, ModelSwitcher, TaskTier, classify_task, select_model};
 pub use prompt_flags::PromptFlags;
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};
-pub use scratchpad::Scratchpad;
 pub use state::{AgentState, AgentStatus};
 pub use step::ExecutionStep;
 pub use stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};

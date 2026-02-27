@@ -6,7 +6,6 @@
 pub mod agent;
 pub mod audit;
 pub mod background_agent;
-pub mod chat_execution_event;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
@@ -15,6 +14,7 @@ pub mod kv_store;
 pub mod memory;
 pub mod skill;
 pub mod terminal_session;
+pub mod tool_trace;
 pub mod trigger;
 pub mod work_item;
 
@@ -33,7 +33,6 @@ pub use restflow_storage::{
 pub use agent::AgentStorage;
 pub use audit::AuditStorage;
 pub use background_agent::BackgroundAgentStorage;
-pub use chat_execution_event::ChatExecutionEventStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use deliverable::DeliverableStorage;
@@ -42,6 +41,7 @@ pub use kv_store::KvStoreStorage;
 pub use memory::MemoryStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
+pub use tool_trace::ToolTraceStorage;
 pub use trigger::TriggerStorage;
 pub use work_item::WorkItemStorage;
 
@@ -62,7 +62,7 @@ pub struct Storage {
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
-    pub chat_execution_events: ChatExecutionEventStorage,
+    pub tool_traces: ToolTraceStorage,
     pub deliverables: DeliverableStorage,
     pub hooks: HookStorage,
     pub work_items: WorkItemStorage,
@@ -107,7 +107,7 @@ impl Storage {
         let memory = MemoryStorage::with_index(db.clone(), index)?;
         memory.rebuild_text_index_if_empty()?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
-        let chat_execution_events = ChatExecutionEventStorage::new(db.clone())?;
+        let tool_traces = ToolTraceStorage::new(db.clone())?;
         let deliverables = DeliverableStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
         let work_items = WorkItemStorage::new(db.clone())?;
@@ -128,7 +128,7 @@ impl Storage {
             terminal_sessions,
             memory,
             chat_sessions,
-            chat_execution_events,
+            tool_traces,
             deliverables,
             hooks,
             work_items,

@@ -32,7 +32,7 @@ use restflow_ai::llm::{CompletionRequest, Message};
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    ResourceLimits as AgentResourceLimits, Scratchpad, SwappableLlm,
+    ResourceLimits as AgentResourceLimits, SwappableLlm,
 };
 use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool};
 use restflow_traits::ReplySender;
@@ -226,12 +226,12 @@ impl AgentRuntimeExecutor {
         Ok(())
     }
 
-    fn create_scratchpad_for_task(background_task_id: &str) -> Result<Arc<Scratchpad>> {
-        let base_dir = crate::paths::ensure_restflow_dir()?.join("scratchpads");
+    fn create_tool_output_dir_for_task(background_task_id: &str) -> Result<std::path::PathBuf> {
+        let base_dir = crate::paths::ensure_restflow_dir()?.join("tool-output");
         std::fs::create_dir_all(&base_dir)?;
-        let timestamp = Utc::now().format("%Y%m%d-%H%M%S");
-        let path = base_dir.join(format!("{background_task_id}-{timestamp}.jsonl"));
-        Ok(Arc::new(Scratchpad::new(path)?))
+        let path = base_dir.join(background_task_id);
+        std::fs::create_dir_all(&path)?;
+        Ok(path)
     }
 
     /// Create a new AgentRuntimeExecutor with access to storage.
@@ -1609,9 +1609,9 @@ impl AgentRuntimeExecutor {
             config = config.with_max_output_tokens(entry.capabilities.output_limit as u32);
         }
         if let Some(task_id) = background_task_id
-            && let Ok(scratchpad) = Self::create_scratchpad_for_task(task_id)
+            && let Ok(tool_output_dir) = Self::create_tool_output_dir_for_task(task_id)
         {
-            config = config.with_scratchpad(scratchpad);
+            config = config.with_tool_output_dir(tool_output_dir);
         }
         if model.supports_temperature()
             && let Some(temp) = agent_node.temperature

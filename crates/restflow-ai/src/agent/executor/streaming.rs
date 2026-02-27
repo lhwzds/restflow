@@ -5,7 +5,6 @@ use futures::{Stream, StreamExt};
 use tokio::sync::mpsc;
 
 use crate::agent::ExecutionStep;
-use crate::agent::scratchpad::Scratchpad;
 use crate::agent::stream::{ChannelEmitter, StreamEmitter, ToolCallAccumulator};
 use crate::agent::streaming_buffer::{BufferMode, StreamingBuffer};
 use crate::error::Result;
@@ -76,22 +75,18 @@ impl AgentExecutor {
         &self,
         request: CompletionRequest,
         emitter: &mut dyn StreamEmitter,
-        scratchpad: Option<&Scratchpad>,
         iteration: usize,
         execution_id: &str,
         streaming_buffer: &mut StreamingBuffer,
     ) -> Result<crate::llm::CompletionResponse> {
+        let _ = iteration;
         if !self.llm.supports_streaming() {
             let response = self.llm.complete(request).await?;
-            if let Some(content) = &response.content {
-                if let Some(flushed) =
+            if let Some(content) = &response.content
+                && let Some(flushed) =
                     streaming_buffer.append(execution_id, content, BufferMode::Replace)
-                {
-                    emitter.emit_text_delta(&flushed).await;
-                }
-                if let Some(scratchpad) = scratchpad {
-                    scratchpad.log_text_delta(iteration, content);
-                }
+            {
+                emitter.emit_text_delta(&flushed).await;
             }
             if let Some(flushed) = streaming_buffer.flush(execution_id) {
                 emitter.emit_text_delta(&flushed).await;
@@ -115,16 +110,10 @@ impl AgentExecutor {
                 {
                     emitter.emit_text_delta(&flushed).await;
                 }
-                if let Some(scratchpad) = scratchpad {
-                    scratchpad.log_text_delta(iteration, &chunk.text);
-                }
             }
 
             if let Some(thinking) = &chunk.thinking {
                 emitter.emit_thinking_delta(thinking).await;
-                if let Some(scratchpad) = scratchpad {
-                    scratchpad.log_thinking(iteration, thinking);
-                }
             }
 
             if let Some(delta) = &chunk.tool_call_delta {

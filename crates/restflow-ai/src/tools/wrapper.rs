@@ -1,31 +1,52 @@
-//! LoggingWrapper — logs tool execution to agent scratchpad.
+//! LoggingWrapper — logs tool execution to a JSONL file.
 //!
 //! Core wrappers (ToolWrapper, WrappedTool, TimeoutWrapper, RateLimitWrapper)
 //! live in restflow-traits and are re-exported via tools/mod.rs.
 
-use std::sync::Arc;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
 use std::time::Instant;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use serde_json::{Value, json};
 
 use restflow_traits::error::Result;
 use restflow_traits::tool::{Tool, ToolOutput};
 use restflow_traits::wrapper::ToolWrapper;
 
-use crate::agent::Scratchpad;
-
-/// Wrapper that logs tool execution and outcome to scratchpad.
+/// Wrapper that logs tool execution and outcome to a JSONL file.
 pub struct LoggingWrapper {
-    scratchpad: Arc<Scratchpad>,
+    log_path: PathBuf,
     iteration: usize,
 }
 
 impl LoggingWrapper {
-    pub fn new(scratchpad: Arc<Scratchpad>, iteration: usize) -> Self {
+    pub fn new(log_path: PathBuf, iteration: usize) -> Self {
         Self {
-            scratchpad,
+            log_path,
             iteration,
+        }
+    }
+
+    fn append(&self, event_type: &'static str, data: Value) {
+        if let Some(parent) = self.log_path.parent() {
+            let _ = fs::create_dir_all(parent);
+        }
+        let entry = json!({
+            "timestamp": Utc::now().to_rfc3339(),
+            "iteration": self.iteration,
+            "event_type": event_type,
+            "data": data,
+        });
+        if let Ok(mut file) = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.log_path)
+            && let Ok(line) = serde_json::to_string(&entry)
+        {
+            let _ = writeln!(file, "{line}");
         }
     }
 }
@@ -42,8 +63,7 @@ impl ToolWrapper for LoggingWrapper {
         input: Value,
         next: &dyn Tool,
     ) -> Result<ToolOutput> {
-        self.scratchpad.append(
-            self.iteration,
+        self.append(
             "tool_wrapper_start",
             json!({
                 "tool": tool_name,
@@ -57,8 +77,7 @@ impl ToolWrapper for LoggingWrapper {
         let duration_ms = start.elapsed().as_millis();
 
         match &result {
-            Ok(output) => self.scratchpad.append(
-                self.iteration,
+            Ok(output) => self.append(
                 "tool_wrapper_result",
                 json!({
                     "tool": tool_name,
@@ -67,8 +86,7 @@ impl ToolWrapper for LoggingWrapper {
                     "duration_ms": duration_ms,
                 }),
             ),
-            Err(error) => self.scratchpad.append(
-                self.iteration,
+            Err(error) => self.append(
                 "tool_wrapper_result",
                 json!({
                     "tool": tool_name,
@@ -117,13 +135,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn logging_wrapper_appends_to_scratchpad() {
+    async fn logging_wrapper_appends_to_trace_file() {
         let dir = tempfile::tempdir().expect("temp dir should be created");
         let path = dir.path().join("tool-wrapper.jsonl");
-        let scratchpad = Arc::new(Scratchpad::new(path.clone()).expect("scratchpad should create"));
         let wrapped = WrappedTool::new(
             Arc::new(EchoTool),
-            vec![Arc::new(LoggingWrapper::new(scratchpad, 7))],
+            vec![Arc::new(LoggingWrapper::new(path.clone(), 7))],
         );
 
         let output = wrapped
@@ -132,7 +149,7 @@ mod tests {
             .expect("wrapped execution should succeed");
         assert!(output.success);
 
-        let content = std::fs::read_to_string(path).expect("scratchpad should be readable");
+        let content = std::fs::read_to_string(path).expect("trace file should be readable");
         assert!(content.contains("tool_wrapper_start"));
         assert!(content.contains("tool_wrapper_result"));
         assert!(content.contains("\"tool\":\"echo\""));

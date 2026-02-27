@@ -1,14 +1,14 @@
-//! Chat execution event storage - byte-level API for tool-call timeline persistence.
+//! Tool trace storage - byte-level API for execution timeline persistence.
 //!
-//! Stores append-only execution events (tool start/end, turn status) for chat sessions.
+//! Stores append-only execution events (tool start/end, turn status) for executions.
 
 use crate::define_simple_storage;
 
 define_simple_storage! {
-    /// Low-level chat execution event storage with byte-level API.
+    /// Low-level Tool trace storage with byte-level API.
     ///
     /// Events are append-only records used for timeline visualization and debugging.
-    pub struct ChatExecutionEventStorage { table: "chat_execution_events" }
+    pub struct ToolTraceStorage { table: "tool_traces" }
 }
 
 #[cfg(test)]
@@ -24,7 +24,7 @@ mod tests {
         let temp_dir = tempdir().expect("tempdir");
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).expect("db"));
-        let storage = ChatExecutionEventStorage::new(db);
+        let storage = ToolTraceStorage::new(db);
         assert!(storage.is_ok());
     }
 
@@ -33,7 +33,7 @@ mod tests {
         let temp_dir = tempdir().expect("tempdir");
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).expect("db"));
-        let storage = ChatExecutionEventStorage::new(db).expect("storage");
+        let storage = ToolTraceStorage::new(db).expect("storage");
 
         storage
             .put_raw("session-1:event-1", br#"{"ok":true}"#)
@@ -47,7 +47,7 @@ mod tests {
         let temp_dir = tempdir().expect("tempdir");
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).expect("db"));
-        let storage = ChatExecutionEventStorage::new(db).expect("storage");
+        let storage = ToolTraceStorage::new(db).expect("storage");
 
         storage.put_raw("a", b"1").expect("put a");
         storage.put_raw("b", b"2").expect("put b");

@@ -10,9 +10,8 @@ use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
-    BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
-    BackgroundAgentStore, BackgroundAgentUpdateRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
 };
 
 #[derive(Clone)]
@@ -131,14 +130,14 @@ enum BackgroundAgentAction {
     ListDeliverables {
         id: String,
     },
-    ListScratchpads {
+    ListTraces {
         #[serde(default)]
         id: Option<String>,
         #[serde(default)]
         limit: Option<usize>,
     },
-    ReadScratchpad {
-        scratchpad: String,
+    ReadTrace {
+        trace_id: String,
         #[serde(default)]
         line_limit: Option<usize>,
     },
@@ -163,7 +162,7 @@ impl Tool for BackgroundAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (typed outputs), list_scratchpads/read_scratchpad (diagnose execution traces)."
+        "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -182,8 +181,8 @@ impl Tool for BackgroundAgentTool {
                         "send_message",
                         "list_messages",
                         "list_deliverables",
-                        "list_scratchpads",
-                        "read_scratchpad",
+                        "list_traces",
+                        "read_trace",
                         "pause",
                         "resume",
                         "cancel",
@@ -279,13 +278,13 @@ impl Tool for BackgroundAgentTool {
                     "type": "integer",
                     "description": "Message list limit for list_messages"
                 },
-                "scratchpad": {
+                "trace_id": {
                     "type": "string",
-                    "description": "Scratchpad filename returned by list_scratchpads (for read_scratchpad)"
+                    "description": "Trace ID returned by list_traces (for read_trace)"
                 },
                 "line_limit": {
                     "type": "integer",
-                    "description": "Maximum number of trailing lines returned by read_scratchpad"
+                    "description": "Maximum number of trailing lines returned by read_trace"
                 }
             },
             "required": ["operation"]
@@ -501,29 +500,24 @@ impl Tool for BackgroundAgentTool {
                         ))
                     })?,
             ),
-            BackgroundAgentAction::ListScratchpads { id, limit } => ToolOutput::success(
+            BackgroundAgentAction::ListTraces { id, limit } => ToolOutput::success(
                 self.store
-                    .list_background_agent_scratchpads(BackgroundAgentScratchpadListRequest {
-                        id,
-                        limit,
-                    })
+                    .list_background_agent_traces(BackgroundAgentTraceListRequest { id, limit })
                     .map_err(|e| {
-                        ToolError::Tool(format!(
-                            "Failed to list scratchpads background agent: {e}."
-                        ))
+                        ToolError::Tool(format!("Failed to list traces for background agent: {e}."))
                     })?,
             ),
-            BackgroundAgentAction::ReadScratchpad {
-                scratchpad,
+            BackgroundAgentAction::ReadTrace {
+                trace_id,
                 line_limit,
             } => ToolOutput::success(
                 self.store
-                    .read_background_agent_scratchpad(BackgroundAgentScratchpadReadRequest {
-                        scratchpad,
+                    .read_background_agent_trace(BackgroundAgentTraceReadRequest {
+                        trace_id,
                         line_limit,
                     })
                     .map_err(|e| {
-                        ToolError::Tool(format!("Failed to read scratchpad background agent: {e}."))
+                        ToolError::Tool(format!("Failed to read trace for background agent: {e}."))
                     })?,
             ),
         };
@@ -607,27 +601,27 @@ mod tests {
             }]))
         }
 
-        fn list_background_agent_scratchpads(
+        fn list_background_agent_traces(
             &self,
-            request: BackgroundAgentScratchpadListRequest,
+            request: BackgroundAgentTraceListRequest,
         ) -> Result<Value> {
             Ok(json!([{
                 "id": request.id,
-                "scratchpad": "task-1-20260214-000000.jsonl",
-                "size_bytes": 128,
+                "trace_id": "trace-001",
+                "event_type": "tool_call_completed",
             }]))
         }
 
-        fn read_background_agent_scratchpad(
+        fn read_background_agent_trace(
             &self,
-            request: BackgroundAgentScratchpadReadRequest,
+            request: BackgroundAgentTraceReadRequest,
         ) -> Result<Value> {
             Ok(json!({
-                "scratchpad": request.scratchpad,
+                "trace_id": request.trace_id,
                 "line_limit": request.line_limit.unwrap_or(200),
-                "lines": [
-                    "{\"event_type\":\"execution_start\"}",
-                    "{\"event_type\":\"execution_complete\"}"
+                "events": [
+                    {"event_type": "turn_started"},
+                    {"event_type": "turn_completed"}
                 ]
             }))
         }
@@ -701,21 +695,21 @@ mod tests {
             }]))
         }
 
-        fn list_background_agent_scratchpads(
+        fn list_background_agent_traces(
             &self,
-            _request: BackgroundAgentScratchpadListRequest,
+            _request: BackgroundAgentTraceListRequest,
         ) -> Result<Value> {
             Ok(json!([]))
         }
 
-        fn read_background_agent_scratchpad(
+        fn read_background_agent_trace(
             &self,
-            request: BackgroundAgentScratchpadReadRequest,
+            request: BackgroundAgentTraceReadRequest,
         ) -> Result<Value> {
             Ok(json!({
-                "scratchpad": request.scratchpad,
+                "trace_id": request.trace_id,
                 "line_limit": request.line_limit.unwrap_or(200),
-                "lines": []
+                "events": []
             }))
         }
     }
@@ -800,11 +794,11 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_list_scratchpads_operation() {
+    async fn test_list_traces_operation() {
         let tool = BackgroundAgentTool::new(Arc::new(MockStore));
         let output = tool
             .execute(json!({
-                "operation": "list_scratchpads",
+                "operation": "list_traces",
                 "id": "task-1",
                 "limit": 5
             }))
@@ -815,12 +809,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_read_scratchpad_operation() {
+    async fn test_read_trace_operation() {
         let tool = BackgroundAgentTool::new(Arc::new(MockStore));
         let output = tool
             .execute(json!({
-                "operation": "read_scratchpad",
-                "scratchpad": "task-1-20260214-000000.jsonl",
+                "operation": "read_trace",
+                "trace_id": "trace-task-1-20260214-000000",
                 "line_limit": 2
             }))
             .await
@@ -829,9 +823,9 @@ mod tests {
         assert_eq!(
             output
                 .result
-                .get("scratchpad")
+                .get("trace_id")
                 .and_then(|value| value.as_str()),
-            Some("task-1-20260214-000000.jsonl")
+            Some("trace-task-1-20260214-000000")
         );
     }
 

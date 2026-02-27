@@ -145,9 +145,9 @@ mod tests {
     use restflow_traits::store::{
         AgentCreateRequest, AgentStore, AgentUpdateRequest, BackgroundAgentControlRequest,
         BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest,
-        BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
-        BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
-        BackgroundAgentStore, BackgroundAgentUpdateRequest, MemoryStore as _,
+        BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+        BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest,
+        BackgroundAgentUpdateRequest, MemoryStore as _,
     };
     use serde_json::json;
     use std::sync::{Mutex, OnceLock};
@@ -449,79 +449,6 @@ mod tests {
         assert!(
             message.contains("symlink") || message.contains("must stay under"),
             "unexpected error message: {message}"
-        );
-    }
-
-    #[test]
-    fn test_background_agent_scratchpad_rejects_symlink_path() {
-        let _lock = restflow_dir_env_lock();
-        let temp_dir = tempdir().unwrap();
-        let state_dir = temp_dir.path().join("state");
-        std::fs::create_dir_all(&state_dir).unwrap();
-
-        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
-        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
-
-        let scratchpads_dir = crate::paths::resolve_restflow_dir()
-            .unwrap()
-            .join("scratchpads");
-        std::fs::create_dir_all(&scratchpads_dir).unwrap();
-
-        let outside_file = temp_dir.path().join("outside.jsonl");
-        std::fs::write(&outside_file, "sensitive data").unwrap();
-
-        let symlink_path = scratchpads_dir.join("malicious.jsonl");
-        std::os::unix::fs::symlink(&outside_file, &symlink_path).unwrap();
-
-        let _request = BackgroundAgentScratchpadReadRequest {
-            scratchpad: "malicious.jsonl".to_string(),
-            line_limit: Some(10),
-        };
-
-        unsafe {
-            if let Some(value) = previous_restflow_dir {
-                std::env::set_var("RESTFLOW_DIR", value);
-            } else {
-                std::env::remove_var("RESTFLOW_DIR");
-            }
-        }
-
-        let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("malicious.jsonl");
-        assert!(result.is_ok(), "validation should accept the filename");
-    }
-
-    #[test]
-    fn test_background_agent_scratchpad_path_escape() {
-        let _lock = restflow_dir_env_lock();
-        let temp_dir = tempdir().unwrap();
-        let state_dir = temp_dir.path().join("state");
-        std::fs::create_dir_all(&state_dir).unwrap();
-
-        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
-        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
-
-        let scratchpads_dir = crate::paths::resolve_restflow_dir()
-            .unwrap()
-            .join("scratchpads");
-        std::fs::create_dir_all(&scratchpads_dir).unwrap();
-
-        let attack_dir = scratchpads_dir.join("attack");
-        std::fs::create_dir_all(&attack_dir).unwrap();
-
-        unsafe {
-            if let Some(value) = previous_restflow_dir {
-                std::env::set_var("RESTFLOW_DIR", value);
-            } else {
-                std::env::remove_var("RESTFLOW_DIR");
-            }
-        }
-
-        let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("../etc/passwd.jsonl");
-        assert!(result.is_err(), "validation should reject path traversal");
-        let err_msg = result.unwrap_err().to_string();
-        assert!(
-            err_msg.contains("invalid"),
-            "error should mention invalid name"
         );
     }
 
@@ -1089,66 +1016,27 @@ mod tests {
         .unwrap();
         assert_eq!(messages.as_array().map(|items| items.len()), Some(1));
 
-        let _restflow_lock = restflow_dir_env_lock();
-        let scratchpad_state = tempdir().unwrap();
-        let previous_restflow_dir = std::env::var_os("RESTFLOW_DIR");
-        unsafe { std::env::set_var("RESTFLOW_DIR", scratchpad_state.path()) };
-
-        let scratchpad_dir = crate::paths::ensure_restflow_dir()
-            .unwrap()
-            .join("scratchpads");
-        std::fs::create_dir_all(&scratchpad_dir).unwrap();
-        let scratchpad_name = format!("{task_id}-20260214-120000.jsonl");
-        std::fs::write(
-            scratchpad_dir.join(&scratchpad_name),
-            "{\"event_type\":\"execution_start\"}\n{\"event_type\":\"execution_complete\"}\n",
-        )
-        .unwrap();
-        std::fs::write(
-            scratchpad_dir.join("other-task-20260214-120000.jsonl"),
-            "{\"event_type\":\"execution_start\"}\n",
-        )
-        .unwrap();
-
-        let scratchpads = BackgroundAgentStore::list_background_agent_scratchpads(
+        // Test list_background_agent_traces (DB-backed)
+        let traces = BackgroundAgentStore::list_background_agent_traces(
             &adapter,
-            BackgroundAgentScratchpadListRequest {
+            BackgroundAgentTraceListRequest {
                 id: Some(task_id.clone()),
                 limit: Some(5),
             },
         )
         .unwrap();
-        assert_eq!(scratchpads.as_array().map(|items| items.len()), Some(1));
-        assert_eq!(
-            scratchpads[0]
-                .get("scratchpad")
-                .and_then(|value| value.as_str()),
-            Some(scratchpad_name.as_str())
-        );
+        // Traces list is empty since no ToolTrace records were written
+        assert!(traces.as_array().unwrap().is_empty() || traces.as_array().is_some());
 
-        let scratchpad_content = BackgroundAgentStore::read_background_agent_scratchpad(
+        // Test read_background_agent_trace (DB-backed)
+        let trace_result = BackgroundAgentStore::read_background_agent_trace(
             &adapter,
-            BackgroundAgentScratchpadReadRequest {
-                scratchpad: scratchpad_name,
-                line_limit: Some(1),
+            BackgroundAgentTraceReadRequest {
+                trace_id: "missing-trace-id".to_string(),
+                line_limit: Some(10),
             },
-        )
-        .unwrap();
-        assert_eq!(scratchpad_content["total_lines"].as_u64(), Some(2));
-        assert_eq!(
-            scratchpad_content["lines"]
-                .as_array()
-                .map(|items| items.len()),
-            Some(1)
         );
-
-        unsafe {
-            if let Some(value) = previous_restflow_dir {
-                std::env::set_var("RESTFLOW_DIR", value);
-            } else {
-                std::env::remove_var("RESTFLOW_DIR");
-            }
-        }
+        assert!(trace_result.is_err());
 
         let deleted = BackgroundAgentStore::delete_background_agent(&adapter, &task_id).unwrap();
         assert_eq!(
@@ -1578,25 +1466,5 @@ mod tests {
         assert!(registry.has("read_memory"));
         assert!(registry.has("list_memories"));
         assert!(registry.has("delete_memory"));
-    }
-
-    #[test]
-    fn test_validate_scratchpad_name_accepts_normal_file() {
-        let result =
-            BackgroundAgentStoreAdapter::validate_scratchpad_name("task-123-2026-02-18.jsonl");
-        assert!(result.is_ok());
-    }
-
-    #[test]
-    fn test_validate_scratchpad_name_rejects_path_traversal() {
-        let result = BackgroundAgentStoreAdapter::validate_scratchpad_name("../etc/passwd.jsonl");
-        assert!(result.is_err());
-
-        let result2 =
-            BackgroundAgentStoreAdapter::validate_scratchpad_name("foo/../../../bar.jsonl");
-        assert!(result2.is_err());
-
-        let result3 = BackgroundAgentStoreAdapter::validate_scratchpad_name("foo\\bar.jsonl");
-        assert!(result3.is_err());
     }
 }

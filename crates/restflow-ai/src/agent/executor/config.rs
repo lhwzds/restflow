@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::future::Future;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
@@ -10,7 +11,6 @@ use crate::agent::PromptFlags;
 use crate::agent::context::AgentContext;
 use crate::agent::model_router::{ModelRoutingConfig, ModelSwitcher};
 use crate::agent::resource::{ResourceLimits, ResourceUsage};
-use crate::agent::scratchpad::Scratchpad;
 use crate::agent::state::AgentState;
 use crate::agent::stuck::StuckDetectorConfig;
 use crate::error::Result;
@@ -71,8 +71,8 @@ pub struct AgentConfig {
     /// When enabled, detects when the agent repeatedly calls the same tool
     /// with the same arguments and either nudges or stops execution.
     pub stuck_detection: Option<StuckDetectorConfig>,
-    /// Optional append-only JSONL scratchpad for execution diagnostics.
-    pub scratchpad: Option<Arc<Scratchpad>>,
+    /// Optional directory for persisting full tool outputs.
+    pub tool_output_dir: Option<PathBuf>,
     /// Optional model routing configuration for dynamic tier-based switching.
     pub model_routing: Option<ModelRoutingConfig>,
     /// Optional model switcher used when model routing is enabled.
@@ -106,7 +106,7 @@ impl AgentConfig {
             inject_agent_context: true,
             resource_limits: ResourceLimits::default(),
             stuck_detection: Some(StuckDetectorConfig::default()),
-            scratchpad: None,
+            tool_output_dir: None,
             model_routing: None,
             model_switcher: None,
             yolo_mode: false,
@@ -198,9 +198,9 @@ impl AgentConfig {
         self
     }
 
-    /// Set scratchpad for append-only JSONL execution tracing.
-    pub fn with_scratchpad(mut self, scratchpad: Arc<Scratchpad>) -> Self {
-        self.scratchpad = Some(scratchpad);
+    /// Set directory for saving full tool outputs.
+    pub fn with_tool_output_dir(mut self, tool_output_dir: impl Into<PathBuf>) -> Self {
+        self.tool_output_dir = Some(tool_output_dir.into());
         self
     }
 

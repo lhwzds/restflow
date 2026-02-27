@@ -6,18 +6,16 @@ use crate::models::{
     MemoryConfig, MemoryScope, ResourceLimits,
 };
 use crate::storage::{AgentStorage, BackgroundAgentStorage};
-use chrono::Utc;
 use restflow_tools::ToolError;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
-    BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
-    BackgroundAgentStore, BackgroundAgentUpdateRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use std::path::PathBuf;
+use std::collections::HashSet;
 
 #[derive(Clone)]
 pub struct BackgroundAgentStoreAdapter {
@@ -144,28 +142,33 @@ impl BackgroundAgentStoreAdapter {
         Ok(self.storage.resolve_existing_task_id(id_or_prefix)?)
     }
 
-    fn scratchpad_dir() -> Result<PathBuf, ToolError> {
-        let dir = crate::paths::ensure_restflow_dir()?.join("scratchpads");
-        std::fs::create_dir_all(&dir)?;
-        Ok(dir)
+    fn task_session_id(&self, task_id_or_prefix: &str) -> Result<String, ToolError> {
+        let resolved_id = self.resolve_task_id(task_id_or_prefix)?;
+        let task = self.storage.get_task(&resolved_id)?.ok_or_else(|| {
+            ToolError::Tool(format!("background agent {} not found", resolved_id))
+        })?;
+        let session_id = task.chat_session_id.trim();
+        if session_id.is_empty() {
+            Ok(task.id)
+        } else {
+            Ok(session_id.to_string())
+        }
     }
 
-    pub(crate) fn validate_scratchpad_name(name: &str) -> Result<(), ToolError> {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            return Err(ToolError::Tool(
-                "scratchpad name must not be empty".to_string(),
-            ));
+    fn all_session_ids(&self) -> Result<Vec<String>, ToolError> {
+        let mut seen = HashSet::new();
+        let mut session_ids = Vec::new();
+        for task in self.storage.list_tasks()? {
+            let session_id = if task.chat_session_id.trim().is_empty() {
+                task.id
+            } else {
+                task.chat_session_id
+            };
+            if seen.insert(session_id.clone()) {
+                session_ids.push(session_id);
+            }
         }
-        if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains("..") {
-            return Err(ToolError::Tool("invalid scratchpad name".to_string()));
-        }
-        if !trimmed.ends_with(".jsonl") {
-            return Err(ToolError::Tool(
-                "scratchpad must be a .jsonl file".to_string(),
-            ));
-        }
-        Ok(())
+        Ok(session_ids)
     }
 }
 
@@ -312,115 +315,111 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         Ok(serde_json::to_value(items)?)
     }
 
-    fn list_background_agent_scratchpads(
+    fn list_background_agent_traces(
         &self,
-        request: BackgroundAgentScratchpadListRequest,
+        request: BackgroundAgentTraceListRequest,
     ) -> restflow_tools::Result<Value> {
-        let dir = Self::scratchpad_dir()?;
-        let prefix = request.id.map(|id| format!("{id}-"));
-        let mut entries: Vec<(std::time::SystemTime, Value)> = Vec::new();
-        for entry in std::fs::read_dir(&dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if !path.is_file() {
-                continue;
-            }
-            if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                continue;
-            }
-            let file_name = match path.file_name().and_then(|name| name.to_str()) {
-                Some(name) => name.to_string(),
-                None => continue,
-            };
-            if let Some(prefix) = &prefix
-                && !file_name.starts_with(prefix)
-            {
-                continue;
-            }
-
-            let metadata = entry.metadata()?;
-            let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
-            let modified_at = chrono::DateTime::<Utc>::from(modified).to_rfc3339();
-            let task_id = file_name.strip_suffix(".jsonl").and_then(|name| {
-                let mut parts = name.rsplitn(3, '-');
-                let _time = parts.next();
-                let _date = parts.next();
-                parts.next().map(ToString::to_string)
-            });
-            entries.push((
-                modified,
-                json!({
-                    "scratchpad": file_name,
-                    "task_id": task_id,
-                    "size_bytes": metadata.len(),
-                    "modified_at": modified_at,
-                }),
-            ));
-        }
-
-        entries.sort_by(|a, b| b.0.cmp(&a.0));
         let limit = request.limit.unwrap_or(50).max(1);
-        let data: Vec<Value> = entries
+        let session_ids = if let Some(task_id) = request.id.as_deref() {
+            vec![self.task_session_id(task_id)?]
+        } else {
+            self.all_session_ids()?
+        };
+
+        let mut traces = Vec::new();
+        for session_id in session_ids {
+            let mut session_traces = self
+                .storage
+                .tool_traces()
+                .list_by_session(&session_id, None)?;
+            traces.append(&mut session_traces);
+        }
+        traces.sort_by(|a, b| {
+            b.created_at
+                .cmp(&a.created_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        traces.truncate(limit);
+
+        let data = traces
             .into_iter()
-            .take(limit)
-            .map(|(_, value)| value)
-            .collect();
+            .map(|trace| {
+                json!({
+                    "trace_id": trace.id,
+                    "session_id": trace.session_id,
+                    "turn_id": trace.turn_id,
+                    "event_type": trace.event_type,
+                    "tool_call_id": trace.tool_call_id,
+                    "tool_name": trace.tool_name,
+                    "success": trace.success,
+                    "duration_ms": trace.duration_ms,
+                    "created_at": trace.created_at,
+                    "output_ref": trace.output_ref,
+                })
+            })
+            .collect::<Vec<_>>();
         Ok(Value::Array(data))
     }
 
-    #[allow(clippy::blocks_in_conditions)]
-    fn read_background_agent_scratchpad(
+    fn read_background_agent_trace(
         &self,
-        request: BackgroundAgentScratchpadReadRequest,
+        request: BackgroundAgentTraceReadRequest,
     ) -> restflow_tools::Result<Value> {
-        Self::validate_scratchpad_name(&request.scratchpad)?;
-        let dir = Self::scratchpad_dir()?;
-        let path = dir.join(&request.scratchpad);
-        // Reject symlinks to prevent path traversal attacks.
-        if let Ok(metadata) = std::fs::symlink_metadata(&path)
-            && metadata.file_type().is_symlink()
-        {
-            return Err(ToolError::Tool(
-                "scratchpad does not allow symlink paths".to_string(),
-            ));
+        let trace_id = request.trace_id.trim();
+        if trace_id.is_empty() {
+            return Err(ToolError::Tool("trace_id must not be empty".to_string()));
         }
 
-        // Canonicalize and verify path stays within scratchpad directory.
-        let canonical_dir = dir
-            .canonicalize()
-            .map_err(|e| ToolError::Tool(format!("failed to resolve scratchpad dir: {}", e)))?;
-        let canonical_path = path
-            .canonicalize()
-            .map_err(|e| ToolError::Tool(format!("failed to resolve scratchpad path: {}", e)))?;
-        if !canonical_path.starts_with(&canonical_dir) {
-            return Err(ToolError::Tool(
-                "scratchpad path escapes scratchpad directory".to_string(),
-            ));
+        let limit = request.line_limit.unwrap_or(200).max(1);
+        let mut found = None;
+        for session_id in self.all_session_ids()? {
+            if let Some(trace) = self
+                .storage
+                .tool_traces()
+                .list_by_session(&session_id, None)?
+                .into_iter()
+                .find(|trace| trace.id == trace_id)
+            {
+                found = Some(trace);
+                break;
+            }
+        }
+        let trace =
+            found.ok_or_else(|| ToolError::Tool(format!("trace {} not found", trace_id)))?;
+
+        let mut response = serde_json::Map::new();
+        response.insert("trace".to_string(), serde_json::to_value(&trace)?);
+        response.insert("line_limit".to_string(), json!(limit));
+
+        if let Some(path) = trace.output_ref.as_deref() {
+            match std::fs::read_to_string(path) {
+                Ok(content) => {
+                    let lines = content.lines().collect::<Vec<_>>();
+                    let total_lines = lines.len();
+                    let start = total_lines.saturating_sub(limit);
+                    let tail = lines[start..]
+                        .iter()
+                        .map(|line| (*line).to_string())
+                        .collect::<Vec<_>>();
+                    response.insert(
+                        "output".to_string(),
+                        json!({
+                            "path": path,
+                            "total_lines": total_lines,
+                            "lines": tail,
+                        }),
+                    );
+                }
+                Err(error) => {
+                    response.insert(
+                        "output_error".to_string(),
+                        json!(format!("failed to read output_ref {}: {}", path, error)),
+                    );
+                }
+            }
         }
 
-        if !path.is_file() {
-            return Err(ToolError::Tool(format!(
-                "scratchpad {} not found",
-                request.scratchpad
-            )));
-        }
-
-        let content = std::fs::read_to_string(&path)?;
-        let lines: Vec<&str> = content.lines().collect();
-        let total_lines = lines.len();
-        let line_limit = request.line_limit.unwrap_or(200).max(1);
-        let start = total_lines.saturating_sub(line_limit);
-        let tail: Vec<String> = lines[start..]
-            .iter()
-            .map(|line| (*line).to_string())
-            .collect();
-        Ok(json!({
-            "scratchpad": request.scratchpad,
-            "path": path.to_string_lossy().into_owned(),
-            "total_lines": total_lines,
-            "line_limit": line_limit,
-            "lines": tail,
-        }))
+        Ok(Value::Object(response))
     }
 }
 
@@ -587,10 +586,66 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_scratchpad_name() {
-        assert!(BackgroundAgentStoreAdapter::validate_scratchpad_name("task-123.jsonl").is_ok());
-        assert!(BackgroundAgentStoreAdapter::validate_scratchpad_name("").is_err());
-        assert!(BackgroundAgentStoreAdapter::validate_scratchpad_name("../escape.jsonl").is_err());
-        assert!(BackgroundAgentStoreAdapter::validate_scratchpad_name("bad.txt").is_err());
+    fn test_read_trace_requires_non_empty_trace_id() {
+        let (adapter, _dir, _guard) = setup();
+        let result = adapter.read_background_agent_trace(BackgroundAgentTraceReadRequest {
+            trace_id: String::new(),
+            line_limit: None,
+        });
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_read_trace_includes_output_ref_tail_lines() {
+        let (adapter, temp_dir, _guard) = setup();
+        let agent_id = get_agent_id(&adapter);
+
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Trace Reader".to_string(),
+                agent_id,
+                chat_session_id: None,
+                input: Some("trace task".to_string()),
+                input_template: None,
+                schedule: None,
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+            })
+            .unwrap();
+        let session_id = created["chat_session_id"].as_str().unwrap().to_string();
+
+        let output_path = temp_dir.path().join("trace-output.txt");
+        std::fs::write(&output_path, "line-1\nline-2\nline-3\nline-4\n").unwrap();
+
+        let mut trace = crate::models::ToolTrace::tool_call_completed(
+            &session_id,
+            "turn-1",
+            "call-1",
+            "bash",
+            crate::models::ToolCallCompletion {
+                output: None,
+                output_ref: Some(output_path.to_string_lossy().to_string()),
+                success: true,
+                duration_ms: Some(8),
+                error: None,
+            },
+        );
+        trace.id = "trace-id-1".to_string();
+        adapter.storage.tool_traces().append(&trace).unwrap();
+
+        let value = adapter
+            .read_background_agent_trace(BackgroundAgentTraceReadRequest {
+                trace_id: "trace-id-1".to_string(),
+                line_limit: Some(2),
+            })
+            .unwrap();
+
+        assert_eq!(value["trace"]["id"], "trace-id-1");
+        assert_eq!(value["output"]["total_lines"], 4);
+        assert_eq!(value["output"]["lines"][0], "line-3");
+        assert_eq!(value["output"]["lines"][1], "line-4");
     }
 }

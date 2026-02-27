@@ -4,7 +4,6 @@ pub mod agent_meta;
 pub mod ai_model;
 pub mod audit;
 pub mod background_agent;
-pub mod chat_execution_event;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
@@ -19,6 +18,7 @@ pub mod skill_meta;
 pub mod steer;
 pub mod storage_mode;
 pub mod terminal_session;
+pub mod tool_trace;
 pub mod trigger;
 pub mod validation;
 pub mod webhook;
@@ -50,7 +50,6 @@ pub use audit::{
     AuditEvent, AuditEventCategory, AuditEventSource, AuditQuery, AuditStats, AuditTimeRange,
     LifecycleAudit, LlmCallAudit, MessageAudit, ModelSwitchAudit, ToolCallAudit,
 };
-pub use chat_execution_event::{ChatExecutionEvent, ChatExecutionEventType, ToolCallCompletion};
 pub use chat_session::{
     ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
     ChatSessionSource, ChatSessionSummary, ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
@@ -71,5 +70,6 @@ pub use skill_marketplace::{
 pub use skill_meta::SkillMeta;
 pub use storage_mode::StorageMode;
 pub use terminal_session::{TerminalSession, TerminalStatus};
+pub use tool_trace::{ToolCallCompletion, ToolTrace, ToolTraceEvent};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use validation::{ValidationError, ValidationErrorResponse, encode_validation_error};

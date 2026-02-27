@@ -2,7 +2,6 @@ use std::time::Duration;
 
 use crate::agent::context_manager;
 use crate::agent::deferred::{DeferredExecutionManager, DeferredStatus};
-use crate::agent::scratchpad::Scratchpad;
 use crate::agent::state::AgentState;
 use crate::error::AiError;
 use crate::llm::Message;
@@ -171,7 +170,7 @@ impl AgentExecutor {
         state: &mut AgentState,
         tool_timeout: Duration,
         max_tool_result_length: usize,
-        scratchpad: Option<&Scratchpad>,
+        tool_output_dir: Option<&std::path::Path>,
     ) {
         let resolved_calls = deferred_manager.drain_resolved().await;
         if resolved_calls.is_empty() {
@@ -209,7 +208,7 @@ impl AgentExecutor {
                     text = truncate_tool_output(
                         &text,
                         max_tool_result_length,
-                        scratchpad,
+                        tool_output_dir,
                         &deferred.call_id,
                         &deferred.tool_name,
                     );

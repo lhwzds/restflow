@@ -6,9 +6,9 @@ use crate::daemon::session_events::ChatSessionEvent;
 use crate::memory::ExportResult;
 use crate::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
-    BackgroundAgentPatch, BackgroundAgentSpec, ChatExecutionEvent, ChatMessage, ChatRole,
-    ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult,
-    MemorySession, MemoryStats, Skill, TerminalSession,
+    BackgroundAgentPatch, BackgroundAgentSpec, ChatMessage, ChatRole, ChatSession,
+    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession,
+    MemoryStats, Skill, TerminalSession,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
@@ -513,13 +513,13 @@ impl IpcClient {
             .await
     }
 
-    pub async fn list_chat_execution_events(
+    pub async fn list_tool_traces(
         &mut self,
         session_id: String,
         turn_id: Option<String>,
         limit: Option<usize>,
-    ) -> Result<Vec<ChatExecutionEvent>> {
-        self.request_typed(IpcRequest::ListChatExecutionEvents {
+    ) -> Result<Vec<crate::models::ToolTrace>> {
+        self.request_typed(IpcRequest::ListToolTraces {
             session_id,
             turn_id,
             limit,
@@ -1150,12 +1150,12 @@ impl IpcClient {
         self.request_typed(IpcRequest::Ping).await
     }
 
-    pub async fn list_chat_execution_events(
+    pub async fn list_tool_traces(
         &mut self,
         _session_id: String,
         _turn_id: Option<String>,
         _limit: Option<usize>,
-    ) -> Result<Vec<ChatExecutionEvent>> {
+    ) -> Result<Vec<crate::models::ToolTrace>> {
         self.request_typed(IpcRequest::Ping).await
     }
 

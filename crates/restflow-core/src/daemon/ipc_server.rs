@@ -14,7 +14,7 @@ use crate::models::{
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
-    PersistingStreamEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
+    ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
     append_turn_started,
 };
 use crate::runtime::subagent::AgentDefinitionRegistry;
@@ -327,7 +327,7 @@ impl IpcServer {
         if let Some(existing) = active_chat_streams().lock().await.remove(&stream_id) {
             existing.abort();
             append_turn_cancelled(
-                &core.storage.chat_execution_events,
+                &core.storage.tool_traces,
                 &session_id,
                 &stream_id,
                 "replaced by a newer stream with the same stream_id",
@@ -349,7 +349,7 @@ impl IpcServer {
             {
                 previous.abort();
                 append_turn_cancelled(
-                    &core.storage.chat_execution_events,
+                    &core.storage.tool_traces,
                     &session_id,
                     &previous_stream_id,
                     "replaced by a newer stream for the same session",
@@ -447,7 +447,7 @@ impl IpcServer {
         if !reached_terminal {
             // Worker stopped unexpectedly (usually canceled).
             append_turn_cancelled(
-                &core.storage.chat_execution_events,
+                &core.storage.tool_traces,
                 &session_id,
                 &stream_id,
                 "chat stream cancelled",
@@ -1045,10 +1045,8 @@ impl IpcServer {
                             match core.storage.chat_sessions.delete(&session.id) {
                                 Ok(true) => {
                                     deleted += 1;
-                                    if let Err(error) = core
-                                        .storage
-                                        .chat_execution_events
-                                        .delete_by_session(&session.id)
+                                    if let Err(error) =
+                                        core.storage.tool_traces.delete_by_session(&session.id)
                                     {
                                         warn!(
                                             session_id = %session.id,
@@ -1186,9 +1184,7 @@ impl IpcServer {
             IpcRequest::DeleteSession { id } => match core.storage.chat_sessions.delete(&id) {
                 Ok(deleted) => {
                     if deleted {
-                        if let Err(error) =
-                            core.storage.chat_execution_events.delete_by_session(&id)
-                        {
+                        if let Err(error) = core.storage.tool_traces.delete_by_session(&id) {
                             warn!(
                                 session_id = %id,
                                 error = %error,
@@ -1357,21 +1353,18 @@ impl IpcServer {
                     .collect::<Vec<_>>();
                 IpcResponse::success(messages)
             }
-            IpcRequest::ListChatExecutionEvents {
+            IpcRequest::ListToolTraces {
                 session_id,
                 turn_id,
                 limit,
             } => {
                 let result = match turn_id {
-                    Some(turn_id) => core.storage.chat_execution_events.list_by_session_turn(
-                        &session_id,
-                        &turn_id,
-                        limit,
-                    ),
-                    None => core
-                        .storage
-                        .chat_execution_events
-                        .list_by_session(&session_id, limit),
+                    Some(turn_id) => {
+                        core.storage
+                            .tool_traces
+                            .list_by_session_turn(&session_id, &turn_id, limit)
+                    }
+                    None => core.storage.tool_traces.list_by_session(&session_id, limit),
                 };
                 match result {
                     Ok(events) => IpcResponse::success(events),
@@ -1978,12 +1971,12 @@ async fn execute_chat_session(
         }
     }
 
-    append_turn_started(&core.storage.chat_execution_events, &session.id, &turn_id);
+    append_turn_started(&core.storage.tool_traces, &session.id, &turn_id);
 
     let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
-    let persisting_emitter: Box<dyn StreamEmitter> = Box::new(PersistingStreamEmitter::new(
+    let persisting_emitter: Box<dyn StreamEmitter> = Box::new(ToolTraceEmitter::new(
         inner_emitter,
-        core.storage.chat_execution_events.clone(),
+        core.storage.tool_traces.clone(),
         session.id.clone(),
         turn_id.clone(),
     ));
@@ -2002,7 +1995,7 @@ async fn execute_chat_session(
         Ok(result) => result,
         Err(error) => {
             append_turn_failed(
-                &core.storage.chat_execution_events,
+                &core.storage.tool_traces,
                 &session.id,
                 &turn_id,
                 &error.to_string(),
@@ -2026,7 +2019,7 @@ async fn execute_chat_session(
         session.model = normalized_model.clone();
         session.metadata.last_model = Some(normalized_model);
     }
-    append_turn_completed(&core.storage.chat_execution_events, &session.id, &turn_id);
+    append_turn_completed(&core.storage.tool_traces, &session.id, &turn_id);
 
     // Auto-persist chat session conversation to long-term memory
     persist_chat_session_memory(core, &session);

@@ -7,7 +7,7 @@ use crate::chat::ChatStreamState;
 use crate::state::AppState;
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::models::{
-    ChatExecutionEvent, ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, ToolTrace,
 };
 use serde::Deserialize;
 use std::sync::OnceLock;
@@ -331,17 +331,17 @@ pub async fn execute_chat_session(
         .map_err(|e| e.to_string())
 }
 
-/// List persisted execution events for a chat session turn.
+/// List persisted tool traces for a chat session turn.
 #[tauri::command]
-pub async fn list_chat_execution_events(
+pub async fn list_tool_traces(
     state: State<'_, AppState>,
     session_id: String,
     turn_id: Option<String>,
     limit: Option<usize>,
-) -> Result<Vec<ChatExecutionEvent>, String> {
+) -> Result<Vec<ToolTrace>, String> {
     state
         .executor()
-        .list_chat_execution_events(session_id, turn_id, limit)
+        .list_tool_traces(session_id, turn_id, limit)
         .await
         .map_err(|e| e.to_string())
 }

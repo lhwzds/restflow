@@ -2,7 +2,7 @@
 //!
 //! Core abstractions (Tool trait, ToolError, ToolRegistry, SecurityGate, etc.)
 //! are defined in `restflow-traits`. This module re-exports them and adds
-//! runtime wrappers (LoggingWrapper) that depend on agent internals.
+//! runtime wrappers such as `LoggingWrapper`.
 
 pub mod wrapper;
 
@@ -27,13 +27,12 @@ pub use restflow_traits::store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
     AuthProfileTestRequest, BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest,
-    BackgroundAgentScratchpadListRequest, BackgroundAgentScratchpadReadRequest,
-    BackgroundAgentStore, BackgroundAgentUpdateRequest, CredentialInput, DeliverableStore,
-    DiagnosticsProvider, KvStore, MarketplaceStore, MemoryClearRequest, MemoryCompactRequest,
-    MemoryExportRequest, MemoryManager, MemoryStore, OpsProvider, ProcessLog, ProcessManager,
-    ProcessPollResult, ProcessSessionInfo, ReplySender, SecurityQueryProvider,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, TerminalStore,
-    TriggerStore, UnifiedMemorySearch, WorkItemPatch, WorkItemProvider, WorkItemQuery,
-    WorkItemRecord, WorkItemSpec, WorkItemStatus,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    CredentialInput, DeliverableStore, DiagnosticsProvider, KvStore, MarketplaceStore,
+    MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
+    OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender,
+    SecurityQueryProvider, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
+    SessionStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch,
+    WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };

@@ -126,6 +126,19 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<Vec<BackgroundMessage>, String>;
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String>;
 
+    async fn list_tool_traces(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ToolTrace>, String>;
+    async fn list_tool_traces_by_turn(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ToolTrace>, String>;
+    async fn get_background_agent(&self, id: &str) -> Result<Value, String>;
+
     async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
     async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String>;
@@ -426,6 +439,42 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
+    async fn list_tool_traces(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ToolTrace>, String> {
+        self.core
+            .storage
+            .tool_traces
+            .list_by_session(session_id, Some(limit))
+            .map_err(|e| e.to_string())
+    }
+
+    async fn list_tool_traces_by_turn(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ToolTrace>, String> {
+        self.core
+            .storage
+            .tool_traces
+            .list_by_session_turn(session_id, turn_id, Some(limit))
+            .map_err(|e| e.to_string())
+    }
+
+    async fn get_background_agent(&self, id: &str) -> Result<Value, String> {
+        let task = self
+            .core
+            .storage
+            .background_agents
+            .get_task(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Task {} not found", id))?;
+        serde_json::to_value(task).map_err(|e| e.to_string())
+    }
+
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
         self.core.storage.hooks.list().map_err(|e| e.to_string())
     }
@@ -723,6 +772,69 @@ impl McpBackend for IpcBackend {
                 .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
         }
         serde_json::from_value(result.result).map_err(|e| e.to_string())
+    }
+
+    async fn list_tool_traces(
+        &self,
+        session_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ToolTrace>, String> {
+        let result = self
+            .execute_runtime_tool(
+                "manage_background_agents",
+                serde_json::json!({
+                    "operation": "list_traces",
+                    "id": session_id,
+                    "limit": limit,
+                }),
+            )
+            .await?;
+        if !result.success {
+            return Err(result
+                .error
+                .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
+        }
+        serde_json::from_value(result.result).map_err(|e| e.to_string())
+    }
+
+    async fn list_tool_traces_by_turn(
+        &self,
+        session_id: &str,
+        turn_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ToolTrace>, String> {
+        let trace_id = format!("{}:{}", session_id, turn_id);
+        let result = self
+            .execute_runtime_tool(
+                "manage_background_agents",
+                serde_json::json!({
+                    "operation": "read_trace",
+                    "trace_id": trace_id,
+                    "line_limit": limit,
+                }),
+            )
+            .await?;
+        if !result.success {
+            return Err(result
+                .error
+                .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
+        }
+        // The read_trace result has { events: [...] }
+        let events = result
+            .result
+            .get("events")
+            .cloned()
+            .unwrap_or(Value::Array(vec![]));
+        serde_json::from_value(events).map_err(|e| e.to_string())
+    }
+
+    async fn get_background_agent(&self, id: &str) -> Result<Value, String> {
+        self.request_typed(IpcRequest::GetBackgroundAgentProgress {
+            id: id.to_string(),
+            event_limit: Some(0),
+        })
+        .await
+        .map(|progress: BackgroundProgress| serde_json::to_value(progress).unwrap_or_default())
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
@@ -1037,10 +1149,10 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional message list limit
     #[serde(default)]
     pub limit: Option<usize>,
-    /// Scratchpad filename returned by list_scratchpads
+    /// Trace ID for read_trace
     #[serde(default)]
-    pub scratchpad: Option<String>,
-    /// Optional trailing line limit for read_scratchpad
+    pub trace_id: Option<String>,
+    /// Optional trailing line limit for read_trace
     #[serde(default)]
     pub line_limit: Option<usize>,
 }
@@ -1224,26 +1336,6 @@ impl RestFlowMcpServer {
             })),
             (None, None) => Ok(None),
         }
-    }
-
-    fn scratchpad_dir() -> Result<std::path::PathBuf, String> {
-        let dir = crate::paths::ensure_restflow_dir()
-            .map_err(|e| format!("Failed to resolve restflow dir: {}", e))?
-            .join("scratchpads");
-        std::fs::create_dir_all(&dir)
-            .map_err(|e| format!("Failed to prepare scratchpad dir: {}", e))?;
-        Ok(dir)
-    }
-
-    fn validate_scratchpad_name(value: Option<String>) -> Result<String, String> {
-        let name = Self::required_string(value, "scratchpad")?;
-        if name.contains('/') || name.contains('\\') || name.contains("..") {
-            return Err("invalid scratchpad name".to_string());
-        }
-        if !name.ends_with(".jsonl") {
-            return Err("scratchpad must be a .jsonl file".to_string());
-        }
-        Ok(name)
     }
 
     fn runtime_alias_target(name: &str) -> Option<&'static str> {
@@ -1793,89 +1885,52 @@ impl RestFlowMcpServer {
                 serde_json::to_value(self.backend.list_deliverables(&id).await?)
                     .map_err(|e| e.to_string())?
             }
-            "list_scratchpads" => {
-                let dir = Self::scratchpad_dir()?;
-                let prefix = params.id.map(|id| format!("{id}-"));
-                let mut entries: Vec<(std::time::SystemTime, Value)> = Vec::new();
-                for entry in std::fs::read_dir(&dir)
-                    .map_err(|e| format!("Failed to read scratchpad dir: {}", e))?
-                {
-                    let entry = entry.map_err(|e| format!("Failed to read entry: {}", e))?;
-                    let path = entry.path();
-                    if !path.is_file() {
-                        continue;
-                    }
-                    if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-                        continue;
-                    }
-                    let file_name = match path.file_name().and_then(|name| name.to_str()) {
-                        Some(name) => name.to_string(),
-                        None => continue,
-                    };
-                    if let Some(prefix) = &prefix
-                        && !file_name.starts_with(prefix)
-                    {
-                        continue;
-                    }
-                    let metadata = entry
-                        .metadata()
-                        .map_err(|e| format!("Failed to read metadata: {}", e))?;
-                    let modified = metadata.modified().unwrap_or(std::time::UNIX_EPOCH);
-                    let modified_at = chrono::DateTime::<chrono::Utc>::from(modified).to_rfc3339();
-                    let task_id = file_name.strip_suffix(".jsonl").and_then(|name| {
-                        let mut parts = name.rsplitn(3, '-');
-                        let _time = parts.next();
-                        let _date = parts.next();
-                        parts.next().map(ToString::to_string)
-                    });
-                    entries.push((
-                        modified,
-                        serde_json::json!({
-                            "scratchpad": file_name,
-                            "task_id": task_id,
-                            "size_bytes": metadata.len(),
-                            "modified_at": modified_at,
-                        }),
-                    ));
-                }
-                entries.sort_by(|a, b| b.0.cmp(&a.0));
+            "list_traces" => {
                 let limit = params.limit.unwrap_or(50).max(1);
-                Value::Array(
-                    entries
-                        .into_iter()
-                        .take(limit)
-                        .map(|(_, value)| value)
-                        .collect(),
-                )
-            }
-            "read_scratchpad" => {
-                let file_name = Self::validate_scratchpad_name(params.scratchpad)?;
-                let dir = Self::scratchpad_dir()?;
-                let path = dir.join(&file_name);
-                if !path.is_file() {
-                    return Err(format!("scratchpad {} not found", file_name));
+                if let Some(task_id) = &params.id {
+                    let task = self
+                        .backend
+                        .get_background_agent(task_id)
+                        .await
+                        .map_err(|e| format!("Failed to get task: {}", e))?;
+                    let session_id = task
+                        .get("chat_session_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or(task_id);
+                    let traces = self
+                        .backend
+                        .list_tool_traces(session_id, limit)
+                        .await
+                        .map_err(|e| format!("Failed to list traces: {}", e))?;
+                    serde_json::to_value(traces).map_err(|e| e.to_string())?
+                } else {
+                    Value::Array(vec![])
                 }
-                let content = std::fs::read_to_string(&path)
-                    .map_err(|e| format!("Failed to read scratchpad {}: {}", file_name, e))?;
-                let lines: Vec<&str> = content.lines().collect();
-                let total_lines = lines.len();
-                let line_limit = params.line_limit.unwrap_or(200).max(1);
-                let start = total_lines.saturating_sub(line_limit);
-                let tail: Vec<String> = lines[start..]
-                    .iter()
-                    .map(|line| (*line).to_string())
-                    .collect();
+            }
+            "read_trace" => {
+                let trace_id = params.trace_id.ok_or("trace_id is required")?;
+                let limit = params.line_limit.unwrap_or(200).max(1);
+                let parts: Vec<&str> = trace_id.splitn(2, ':').collect();
+                let traces = if parts.len() == 2 {
+                    self.backend
+                        .list_tool_traces_by_turn(parts[0], parts[1], limit)
+                        .await
+                        .map_err(|e| format!("Failed to read trace: {}", e))?
+                } else {
+                    self.backend
+                        .list_tool_traces(&trace_id, limit)
+                        .await
+                        .map_err(|e| format!("Failed to read trace: {}", e))?
+                };
                 serde_json::json!({
-                    "scratchpad": file_name,
-                    "path": path.to_string_lossy().into_owned(),
-                    "total_lines": total_lines,
-                    "line_limit": line_limit,
-                    "lines": tail,
+                    "trace_id": trace_id,
+                    "total": traces.len(),
+                    "events": serde_json::to_value(&traces).map_err(|e| e.to_string())?,
                 })
             }
             _ => {
                 return Err(format!(
-                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_scratchpads, read_scratchpad, pause, resume, cancel, run",
+                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, cancel, run",
                     operation
                 ));
             }
@@ -2132,7 +2187,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_background_agents",
-                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_scratchpads/read_scratchpad (diagnose execution traces).",
+                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).",
                 schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
             Tool::new(
@@ -3403,6 +3458,30 @@ mod tests {
             Ok(Vec::new())
         }
 
+        async fn list_tool_traces(
+            &self,
+            _session_id: &str,
+            _limit: usize,
+        ) -> Result<Vec<crate::models::ToolTrace>, String> {
+            Ok(Vec::new())
+        }
+
+        async fn list_tool_traces_by_turn(
+            &self,
+            _session_id: &str,
+            _turn_id: &str,
+            _limit: usize,
+        ) -> Result<Vec<crate::models::ToolTrace>, String> {
+            Ok(Vec::new())
+        }
+
+        async fn get_background_agent(&self, id: &str) -> Result<Value, String> {
+            Ok(serde_json::json!({
+                "id": id,
+                "chat_session_id": id,
+            }))
+        }
+
         async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
             Ok(Vec::new())
         }
@@ -3501,7 +3580,7 @@ mod tests {
             message: None,
             source: None,
             limit: None,
-            scratchpad: None,
+            trace_id: None,
             line_limit: None,
         };
 
@@ -3905,7 +3984,7 @@ mod tests {
             message: None,
             source: None,
             limit: None,
-            scratchpad: None,
+            trace_id: None,
             line_limit: None,
         }
     }
