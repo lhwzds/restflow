@@ -28,7 +28,7 @@ use restflow_ai::agent::{
     CheckpointDurability, ModelRoutingConfig as AiModelRoutingConfig,
     ModelSwitcher as AiModelSwitcher, PromptFlags, StreamEmitter,
 };
-use restflow_ai::llm::Message;
+use restflow_ai::llm::{CompletionRequest, Message};
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
@@ -76,6 +76,23 @@ const TOOL_RESULT_CONTEXT_RATIO: f64 = 0.08;
 const TOOL_RESULT_MIN_CHARS: usize = 512;
 const TOOL_RESULT_MAX_CHARS: usize = 24_000;
 const TOOL_RESULT_CHARS_PER_TOKEN_ESTIMATE: usize = 4;
+const ACK_PHASE_MAX_HISTORY: usize = 6;
+const ACK_PHASE_MAX_TOKENS: u32 = 96;
+const ACK_PHASE_TIMEOUT_SECS: u64 = 4;
+const ACK_PHASE_MAX_CHARS: usize = 280;
+const ACK_PHASE_SYSTEM_DIRECTIVE: &str = r#"You are in a temporary acknowledgement phase.
+
+Reply with exactly one short assistant message that:
+1. Confirms you received the user's latest message.
+2. States you are starting the task.
+
+Rules:
+- Do not solve the task yet.
+- Do not mention tools or internal reasoning.
+- Keep it concise and concrete.
+- Match the user's language.
+- Output plain text only.
+"#;
 
 /// Result of executing a chat turn for a persisted chat session.
 #[derive(Debug, Clone)]
@@ -843,6 +860,32 @@ impl AgentRuntimeExecutor {
         }
     }
 
+    fn truncate_ack_message(content: &str) -> String {
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            return String::new();
+        }
+
+        let chars = trimmed.chars().count();
+        if chars <= ACK_PHASE_MAX_CHARS {
+            return trimmed.to_string();
+        }
+
+        let truncated: String = trimmed.chars().take(ACK_PHASE_MAX_CHARS).collect();
+        format!("{truncated}...")
+    }
+
+    fn build_ack_system_prompt(
+        &self,
+        agent_node: &AgentNode,
+        agent_id: Option<&str>,
+    ) -> Result<String> {
+        let base_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
+        Ok(format!(
+            "{base_prompt}\n\n## Temporary Acknowledgement Phase\n{ACK_PHASE_SYSTEM_DIRECTIVE}"
+        ))
+    }
+
     fn session_messages_for_context(session: &ChatSession) -> Vec<ChatMessage> {
         if session.messages.is_empty() {
             return Vec::new();
@@ -884,6 +927,77 @@ impl AgentRuntimeExecutor {
             .iter()
             .map(Self::chat_message_to_llm_message)
             .collect()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn generate_ack_with_model(
+        &self,
+        agent_node: &AgentNode,
+        model: AIModel,
+        session: &ChatSession,
+        user_input: &str,
+        primary_provider: Provider,
+        input_mode: SessionInputMode,
+        agent_id: Option<&str>,
+    ) -> Result<Option<String>> {
+        let model_specs = AIModel::build_model_specs();
+        let api_keys = self
+            .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
+            .await;
+        let factory = Arc::new(DefaultLlmClientFactory::new(api_keys, model_specs));
+
+        let api_key = if model.is_codex_cli() {
+            None
+        } else if model.is_gemini_cli() {
+            self.resolve_api_key_for_model(
+                model.provider(),
+                agent_node.api_key_config.as_ref(),
+                primary_provider,
+            )
+            .await
+            .ok()
+        } else {
+            Some(
+                self.resolve_api_key_for_model(
+                    model.provider(),
+                    agent_node.api_key_config.as_ref(),
+                    primary_provider,
+                )
+                .await?,
+            )
+        };
+
+        let llm_client =
+            Self::create_llm_client(factory.as_ref(), model, api_key.as_deref(), agent_node)?;
+
+        let mut messages = Vec::new();
+        messages.push(Message::system(
+            self.build_ack_system_prompt(agent_node, agent_id)?,
+        ));
+        messages.extend(Self::session_history_messages(
+            session,
+            ACK_PHASE_MAX_HISTORY,
+            input_mode,
+        ));
+        messages.push(Message::user(user_input.to_string()));
+
+        let mut request = CompletionRequest::new(messages).with_max_tokens(ACK_PHASE_MAX_TOKENS);
+        if model.supports_temperature() {
+            request = request.with_temperature(0.2);
+        }
+
+        let response = tokio::time::timeout(
+            Duration::from_secs(ACK_PHASE_TIMEOUT_SECS),
+            llm_client.complete(request),
+        )
+        .await
+        .map_err(|_| anyhow!("Acknowledgement phase timed out"))??;
+
+        let content = Self::truncate_ack_message(response.content.unwrap_or_default().as_str());
+        if content.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(content))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1210,6 +1324,49 @@ impl AgentRuntimeExecutor {
         Err(last_error.unwrap_or_else(|| {
             anyhow!("All profiles exhausted for provider {:?}", model.provider())
         }))
+    }
+
+    /// Generate a short assistant acknowledgement for the latest user message.
+    ///
+    /// This phase runs before the main tool-enabled execution to provide fast
+    /// user feedback. It uses a temporary system prompt and a direct LLM
+    /// completion request with strict limits.
+    pub async fn generate_session_acknowledgement(
+        &self,
+        session: &mut ChatSession,
+        user_input: &str,
+        input_mode: SessionInputMode,
+    ) -> Result<Option<String>> {
+        let input = user_input.trim();
+        if input.is_empty() {
+            return Ok(None);
+        }
+
+        let stored_agent = self.resolve_stored_agent_for_session(session)?;
+        let agent_node = stored_agent.agent.clone();
+
+        // Prefer the session's model (user override) over the agent's default.
+        let primary_model = if !session.model.is_empty() {
+            match AIModel::from_api_name(&session.model)
+                .or_else(|| AIModel::from_canonical_id(&session.model))
+            {
+                Some(model) => model,
+                None => self.resolve_primary_model(&agent_node).await?,
+            }
+        } else {
+            self.resolve_primary_model(&agent_node).await?
+        };
+
+        self.generate_ack_with_model(
+            &agent_node,
+            primary_model,
+            session,
+            input,
+            primary_model.provider(),
+            input_mode,
+            Some(session.agent_id.as_str()),
+        )
+        .await
     }
 
     /// Execute a chat turn for an existing chat session.
@@ -2181,6 +2338,32 @@ mod tests {
         assert!(!flags.include_workspace_context);
         assert!(flags.include_base);
         assert!(flags.include_tools);
+    }
+
+    #[test]
+    fn test_truncate_ack_message_limits_length() {
+        let short = AgentRuntimeExecutor::truncate_ack_message("  ok  ");
+        assert_eq!(short, "ok");
+
+        let long_input = "a".repeat(ACK_PHASE_MAX_CHARS + 20);
+        let truncated = AgentRuntimeExecutor::truncate_ack_message(&long_input);
+        assert_eq!(truncated.chars().count(), ACK_PHASE_MAX_CHARS + 3);
+        assert!(truncated.ends_with("..."));
+    }
+
+    #[test]
+    fn test_build_ack_system_prompt_appends_phase_directive() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage);
+        let node = AgentNode {
+            prompt: Some("Base prompt".to_string()),
+            ..AgentNode::new()
+        };
+
+        let prompt = executor.build_ack_system_prompt(&node, None).unwrap();
+        assert!(prompt.contains("Base prompt"));
+        assert!(prompt.contains("Temporary Acknowledgement Phase"));
+        assert!(prompt.contains("Reply with exactly one short assistant message"));
     }
 
     /// Skills are now registered as callable tools, not injected into the prompt.

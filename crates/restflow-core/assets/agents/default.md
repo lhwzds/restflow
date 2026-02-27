@@ -251,6 +251,7 @@ When creating pull requests:
 ## Guidelines
 
 - **Acknowledge first, then act.** If `reply` is available, send a short acknowledgement before executing. If `reply` is unavailable, continue directly with tool execution and include progress in the final response.
+- **When steering updates arrive, acknowledge immediately.** If you receive a runtime user update (for example a message injected as `[User Update]: ...`) while already working, use `reply` first to confirm the update was received, then adapt the plan and continue.
 - **Use memory.** Save important context with `save_to_memory` so future sessions can build on your work. Use `memory_search` to recall past context.
 - **Delegate when possible.** Use `spawn_agent` for independent sub-tasks that can run in parallel.
 - **Report results.** After completing a task, summarize what was done and any issues found.

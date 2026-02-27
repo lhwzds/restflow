@@ -8,11 +8,15 @@
  */
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Play, Pause, RotateCcw, XCircle } from 'lucide-vue-next'
+import { Button } from '@/components/ui/button'
 import MessageList from './MessageList.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
+import AgentStatusBadge from '@/components/background-agent/AgentStatusBadge.vue'
 import { useChatSession } from '@/composables/workspace/useChatSession'
 import { useChatStream, type StreamStep } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
+import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
@@ -30,6 +34,7 @@ const emit = defineEmits<{
 const toast = useToast()
 const { t } = useI18n()
 const chatSessionStore = useChatSessionStore()
+const backgroundAgentStore = useBackgroundAgentStore()
 const modelsStore = useModelsStore()
 
 // Track last user message content for regeneration
@@ -78,6 +83,40 @@ const outputTokens = computed(() => chatStream.state.value.outputTokens)
 const totalTokens = computed(() => chatStream.state.value.tokenCount)
 const tokensPerSecond = computed(() => chatStream.tokensPerSecond.value)
 const durationMs = computed(() => chatStream.duration.value)
+
+// Background agent linked to current session (if any)
+const linkedBgAgent = computed(() => {
+  const sessionId = chatSessionStore.currentSessionId
+  if (!sessionId) return null
+  return backgroundAgentStore.agentBySessionId(sessionId)
+})
+const bgCanPause = computed(() => linkedBgAgent.value?.status === 'active')
+const bgCanResume = computed(() => linkedBgAgent.value?.status === 'paused')
+const bgCanRun = computed(
+  () =>
+    linkedBgAgent.value?.status === 'active' || linkedBgAgent.value?.status === 'paused',
+)
+const bgCanCancel = computed(() => linkedBgAgent.value?.status === 'running')
+
+async function handleBgPause() {
+  if (!linkedBgAgent.value) return
+  await backgroundAgentStore.pauseAgent(linkedBgAgent.value.id)
+}
+
+async function handleBgResume() {
+  if (!linkedBgAgent.value) return
+  await backgroundAgentStore.resumeAgent(linkedBgAgent.value.id)
+}
+
+async function handleBgRun() {
+  if (!linkedBgAgent.value) return
+  await backgroundAgentStore.runAgentNow(linkedBgAgent.value.id)
+}
+
+async function handleBgCancel() {
+  if (!linkedBgAgent.value) return
+  await backgroundAgentStore.cancelAgent(linkedBgAgent.value.id)
+}
 
 // Track processed tool call IDs to avoid duplicate emits
 const processedToolIds = ref<Set<string>>(new Set())
@@ -354,6 +393,7 @@ function onViewToolResult(step: StreamStep) {
 onMounted(() => {
   loadAgents()
   loadModels()
+  backgroundAgentStore.fetchAgents()
 })
 
 // Expose for parent (Workspace.vue needs session list data)
@@ -366,16 +406,64 @@ defineExpose({
 
 <template>
   <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-    <!-- Invisible drag region (replaces removed ChatHeader) -->
-    <div class="h-8 shrink-0" data-tauri-drag-region />
+    <!-- Header: Background agent control bar or plain drag region -->
+    <div
+      v-if="linkedBgAgent"
+      class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground"
+      data-tauri-drag-region
+    >
+      <AgentStatusBadge :status="linkedBgAgent.status" />
+      <div class="flex-1" />
+      <Button
+        v-if="bgCanPause"
+        variant="ghost"
+        size="icon"
+        class="h-6 w-6"
+        :title="t('backgroundAgent.pause')"
+        @click="handleBgPause"
+      >
+        <Pause :size="12" />
+      </Button>
+      <Button
+        v-if="bgCanResume"
+        variant="ghost"
+        size="icon"
+        class="h-6 w-6"
+        :title="t('backgroundAgent.resume')"
+        @click="handleBgResume"
+      >
+        <RotateCcw :size="12" />
+      </Button>
+      <Button
+        v-if="bgCanRun"
+        variant="ghost"
+        size="icon"
+        class="h-6 w-6"
+        :title="t('backgroundAgent.runNow')"
+        @click="handleBgRun"
+      >
+        <Play :size="12" />
+      </Button>
+      <Button
+        v-if="bgCanCancel"
+        variant="ghost"
+        size="icon"
+        class="h-6 w-6"
+        :title="t('backgroundAgent.cancel')"
+        @click="handleBgCancel"
+      >
+        <XCircle :size="12" />
+      </Button>
+    </div>
+    <div v-else class="h-8 shrink-0" data-tauri-drag-region />
 
     <!-- Message List -->
     <MessageList
       :messages="messages"
-      :is-streaming="isStreaming"
-      :stream-content="streamContent"
-      :stream-thinking="streamThinking"
-      :steps="streamSteps"
+        :is-streaming="isStreaming"
+        :stream-content="streamContent"
+        :stream-thinking="streamThinking"
+        :steps="streamSteps"
       :voice-audio-urls="voiceAudioUrls"
       @view-tool-result="onViewToolResult"
       @regenerate="handleRegenerate"

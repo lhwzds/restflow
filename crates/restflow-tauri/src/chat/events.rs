@@ -39,6 +39,12 @@ pub enum ChatStreamKind {
         model: String,
     },
 
+    /// Assistant acknowledgement generated before full execution
+    Ack {
+        /// A short assistant confirmation message
+        content: String,
+    },
+
     /// Token chunk received
     Token {
         /// The text chunk
@@ -147,6 +153,18 @@ impl ChatStreamEvent {
             timestamp: Self::now(),
             kind: ChatStreamKind::Started {
                 model: model.to_string(),
+            },
+        }
+    }
+
+    /// Create an acknowledgement event
+    pub fn ack(session_id: &str, message_id: &str, content: &str) -> Self {
+        Self {
+            session_id: session_id.to_string(),
+            message_id: message_id.to_string(),
+            timestamp: Self::now(),
+            kind: ChatStreamKind::Ack {
+                content: content.to_string(),
             },
         }
     }

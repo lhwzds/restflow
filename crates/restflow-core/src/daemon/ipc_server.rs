@@ -29,8 +29,11 @@ use chrono::Utc;
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::agent::{NullEmitter, SubagentConfig, SubagentTracker};
 use restflow_storage::AuthProfileStorage;
-use std::collections::HashMap;
+use restflow_traits::store::ReplySender;
+use std::collections::{HashMap, VecDeque};
+use std::future::Future;
 use std::path::PathBuf;
+use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -76,6 +79,42 @@ impl IpcStreamEmitter {
             tx,
             has_text_streamed,
         }
+    }
+}
+
+struct SessionReplySender {
+    buffered_messages: Arc<Mutex<VecDeque<String>>>,
+    stream_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
+}
+
+impl SessionReplySender {
+    fn new(
+        buffered_messages: Arc<Mutex<VecDeque<String>>>,
+        stream_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
+    ) -> Self {
+        Self {
+            buffered_messages,
+            stream_tx,
+        }
+    }
+}
+
+impl ReplySender for SessionReplySender {
+    fn send(&self, message: String) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
+        let buffered_messages = self.buffered_messages.clone();
+        let stream_tx = self.stream_tx.clone();
+
+        Box::pin(async move {
+            buffered_messages.lock().await.push_back(message.clone());
+
+            if let Some(tx) = stream_tx {
+                let _ = tx.send(StreamFrame::Ack {
+                    content: message.clone(),
+                });
+            }
+
+            Ok(())
+        })
     }
 }
 
@@ -233,9 +272,7 @@ impl IpcServer {
                     }
                 }
                 Ok(IpcRequest::SubscribeSessionEvents) => {
-                    if let Err(err) =
-                        Self::handle_subscribe_session_events(&mut stream).await
-                    {
+                    if let Err(err) = Self::handle_subscribe_session_events(&mut stream).await {
                         let frame = StreamFrame::Error {
                             code: 500,
                             message: err.to_string(),
@@ -348,6 +385,7 @@ impl IpcServer {
                 worker_session_id,
                 worker_user_input,
                 worker_turn_id,
+                Some(tx.clone()),
                 Some(Box::new(emitter)),
                 Some(steer_rx),
             )
@@ -1270,6 +1308,7 @@ impl IpcServer {
                 Uuid::new_v4().to_string(),
                 None,
                 None,
+                None,
             )
             .await
             {
@@ -1869,6 +1908,7 @@ async fn execute_chat_session(
     session_id: String,
     user_input: Option<String>,
     turn_id: String,
+    ack_frame_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
     emitter: Option<Box<dyn StreamEmitter>>,
     steer_rx: Option<mpsc::Receiver<SteerMessage>>,
 ) -> Result<ChatSession> {
@@ -1889,10 +1929,57 @@ async fn execute_chat_session(
             .ok_or_else(|| anyhow::anyhow!("No user message found in session"))?,
     };
 
+    let reply_buffer = Arc::new(Mutex::new(VecDeque::<String>::new()));
+    let auth_manager = Arc::new(build_auth_manager(core).await?);
+    let reply_sender = Arc::new(SessionReplySender::new(
+        reply_buffer.clone(),
+        ack_frame_tx.clone(),
+    ));
+    let executor = create_chat_executor(core, auth_manager).with_reply_sender(reply_sender);
+
+    match executor
+        .generate_session_acknowledgement(
+            &mut session,
+            &input,
+            SessionInputMode::PersistedInSession,
+        )
+        .await
+    {
+        Ok(Some(ack_content)) => {
+            session.add_message(ChatMessage::assistant(&ack_content));
+            match core.storage.chat_sessions.update(&session) {
+                Ok(()) => {
+                    publish_session_event(ChatSessionEvent::MessageAdded {
+                        session_id: session.id.clone(),
+                        source: "ipc".to_string(),
+                    });
+                    if let Some(tx) = ack_frame_tx.as_ref() {
+                        let _ = tx.send(StreamFrame::Ack {
+                            content: ack_content,
+                        });
+                    }
+                }
+                Err(err) => {
+                    warn!(
+                        session_id = %session.id,
+                        error = %err,
+                        "Failed to persist acknowledgement message"
+                    );
+                }
+            }
+        }
+        Ok(None) => {}
+        Err(err) => {
+            warn!(
+                session_id = %session.id,
+                error = %err,
+                "Failed to generate acknowledgement message"
+            );
+        }
+    }
+
     append_turn_started(&core.storage.chat_execution_events, &session.id, &turn_id);
 
-    let auth_manager = Arc::new(build_auth_manager(core).await?);
-    let executor = create_chat_executor(core, auth_manager);
     let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
     let persisting_emitter: Box<dyn StreamEmitter> = Box::new(PersistingStreamEmitter::new(
         inner_emitter,
@@ -1926,6 +2013,13 @@ async fn execute_chat_session(
     let duration_ms = started_at.elapsed().as_millis() as u64;
 
     let execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
+    let buffered_replies = {
+        let mut guard = reply_buffer.lock().await;
+        std::mem::take(&mut *guard)
+    };
+    for reply in buffered_replies {
+        session.add_message(ChatMessage::assistant(&reply));
+    }
     let assistant_message = ChatMessage::assistant(&exec_result.output).with_execution(execution);
     session.add_message(assistant_message);
     if let Some(normalized_model) = AIModel::normalize_model_id(&exec_result.active_model) {
@@ -2041,6 +2135,7 @@ mod tests {
     use super::*;
     use crate::models::{AgentNode, Skill};
     use restflow_ai::steer::SteerCommand;
+    use restflow_traits::store::ReplySender;
     use tempfile::tempdir;
 
     #[test]
@@ -2125,5 +2220,25 @@ mod tests {
         let session_id = format!("session-{}", Uuid::new_v4());
         let steered = steer_chat_stream(&session_id, "test").await;
         assert!(!steered);
+    }
+
+    #[tokio::test]
+    async fn session_reply_sender_buffers_message_and_emits_ack_frame() {
+        let buffer = Arc::new(Mutex::new(VecDeque::new()));
+        let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
+        let sender = SessionReplySender::new(buffer.clone(), Some(tx));
+        ReplySender::send(&sender, "Working on it".to_string())
+            .await
+            .unwrap();
+
+        let mut guard = buffer.lock().await;
+        assert_eq!(guard.pop_front(), Some("Working on it".to_string()));
+        drop(guard);
+
+        let frame = rx.recv().await.expect("ack stream frame");
+        match frame {
+            StreamFrame::Ack { content } => assert_eq!(content, "Working on it"),
+            _ => panic!("expected ack frame"),
+        }
     }
 }

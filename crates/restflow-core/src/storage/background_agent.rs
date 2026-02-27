@@ -181,6 +181,11 @@ impl BackgroundAgentStorage {
         })
     }
 
+    /// Access the underlying chat session storage.
+    pub fn chat_sessions(&self) -> &ChatSessionStorage {
+        &self.chat_sessions
+    }
+
     // ============== Agent Task Operations ==============
 
     /// Create a new agent task

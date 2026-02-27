@@ -75,6 +75,12 @@ describe('useChatStream', () => {
       session_id: 'session-1',
       message_id: 'msg-1',
       timestamp: BigInt(Date.now()),
+      kind: { type: 'ack', content: '收到，我开始处理。' },
+    })
+    emitEvent({
+      session_id: 'session-1',
+      message_id: 'msg-1',
+      timestamp: BigInt(Date.now()),
       kind: { type: 'token', text: 'Hel', token_count: 1 },
     })
     emitEvent({
@@ -113,6 +119,7 @@ describe('useChatStream', () => {
     await new Promise((r) => setTimeout(r, 0))
 
     expect(vm.stream.state.value.content).toBe('Hello world')
+    expect(vm.stream.state.value.acknowledgement).toBe('收到，我开始处理。')
     expect(vm.stream.state.value.tokenCount).toBe(12)
     expect(vm.stream.state.value.steps).toHaveLength(1)
     expect(vm.stream.state.value.steps[0]?.status).toBe('failed')

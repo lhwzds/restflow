@@ -3,8 +3,8 @@
  * Workspace View
  *
  * Main application layout with three columns:
- * - Left: Session list (chat sessions + background agents mixed)
- * - Center: Chat panel or Background agent panel
+ * - Left: Session list (chat sessions)
+ * - Center: Chat panel
  * - Right: AI-controlled Canvas panel (hideable)
  */
 import { ref, computed, onMounted, watch } from 'vue'
@@ -15,9 +15,7 @@ import SessionList from '@/components/workspace/SessionList.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
 import ToolPanel from '@/components/tool-panel/ToolPanel.vue'
-import BackgroundAgentPanel from '@/components/background-agent/BackgroundAgentPanel.vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
-import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { listAgents } from '@/api/agents'
@@ -29,11 +27,7 @@ import type { StreamStep } from '@/composables/workspace/useChatStream'
 const toast = useToast()
 const { t } = useI18n()
 const chatSessionStore = useChatSessionStore()
-const backgroundAgentStore = useBackgroundAgentStore()
 const { isDark, toggleDark } = useTheme()
-
-// Prefix to distinguish background agent IDs from session IDs
-const BG_PREFIX = 'bg:'
 
 // Settings panel toggle
 const showSettings = ref(false)
@@ -41,16 +35,8 @@ const showSettings = ref(false)
 // Agent data for SessionList
 const availableAgents = ref<AgentFile[]>([])
 
-// Track which item is selected: a chat session or a background agent
+// Track selected chat session
 const selectedItemId = ref<string | null>(null)
-
-const isBackgroundAgentSelected = computed(
-  () => selectedItemId.value !== null && selectedItemId.value.startsWith(BG_PREFIX),
-)
-
-const currentSessionId = computed(() =>
-  isBackgroundAgentSelected.value ? null : selectedItemId.value,
-)
 
 const agentFilter = computed(() => chatSessionStore.agentFilter)
 const isSending = computed(() => chatSessionStore.isSending)
@@ -58,47 +44,24 @@ const isSending = computed(() => chatSessionStore.isSending)
 // Tool panel
 const toolPanel = useToolPanel()
 
-// Map background agent status to session status
-function mapBgStatus(status: string): 'running' | 'completed' | 'failed' | 'pending' {
-  if (status === 'running') return 'running'
-  if (status === 'completed') return 'completed'
-  if (status === 'failed') return 'failed'
-  return 'pending'
-}
-
-// Build unified session list: chat sessions + background agents
+// Build session list from chat sessions only
 const sessions = computed<SessionItem[]>(() => {
   const agentLookup = new Map(availableAgents.value.map((a) => [a.id, a.name]))
 
-  const chatSessions: SessionItem[] = chatSessionStore.filteredSummaries.map(
-    (session: ChatSessionSummary) => ({
-      id: session.id,
-      name: session.name,
-      status:
-        session.id === currentSessionId.value && isSending.value
-          ? 'running'
-          : session.message_count > 0
-            ? 'completed'
-            : 'pending',
-      updatedAt: Number(session.updated_at),
-      agentId: session.agent_id,
-      agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
-      sourceChannel: session.source_channel,
-    }),
-  )
-
-  const bgAgents: SessionItem[] = backgroundAgentStore.agents.map((agent) => ({
-    id: BG_PREFIX + agent.id,
-    name: agent.name,
-    status: mapBgStatus(agent.status),
-    updatedAt: agent.updated_at,
-    agentId: agent.agent_id,
-    agentName: agentLookup.get(agent.agent_id) ?? agent.agent_id,
-    isBackgroundAgent: true,
+  return chatSessionStore.filteredSummaries.map((session: ChatSessionSummary) => ({
+    id: session.id,
+    name: session.name,
+    status:
+      session.id === selectedItemId.value && isSending.value
+        ? 'running'
+        : session.message_count > 0
+          ? 'completed'
+          : 'pending',
+    updatedAt: Number(session.updated_at),
+    agentId: session.agent_id,
+    agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
+    sourceChannel: session.source_channel,
   }))
-
-  // Chat sessions first, then background agents at the bottom
-  return [...chatSessions, ...bgAgents]
 })
 
 async function loadAgents() {
@@ -122,17 +85,7 @@ async function onNewSession() {
 
 async function onSelectItem(id: string) {
   selectedItemId.value = id
-
-  if (id.startsWith(BG_PREFIX)) {
-    // Background agent selected — update bg store, clear chat selection
-    const bgId = id.slice(BG_PREFIX.length)
-    backgroundAgentStore.selectAgent(bgId)
-    await chatSessionStore.selectSession(null)
-  } else {
-    // Chat session selected — update chat store, clear bg selection
-    backgroundAgentStore.selectAgent(null)
-    await chatSessionStore.selectSession(id)
-  }
+  await chatSessionStore.selectSession(id)
 }
 
 function onUpdateAgentFilter(agentId: string | null) {
@@ -147,27 +100,22 @@ function onToolResult(step: StreamStep) {
   toolPanel.handleToolResult(step)
 }
 
-function onRefreshAgents() {
-  backgroundAgentStore.fetchAgents()
-}
-
 // Sync selectedItemId when chat store changes externally
 watch(
   () => chatSessionStore.currentSessionId,
   (newId) => {
-    if (newId && !isBackgroundAgentSelected.value) {
+    if (newId) {
       selectedItemId.value = newId
     }
   },
 )
 
-watch(currentSessionId, () => {
+watch(selectedItemId, () => {
   toolPanel.clearHistory()
 })
 
 onMounted(() => {
   loadAgents()
-  backgroundAgentStore.fetchAgents()
 })
 </script>
 
@@ -216,22 +164,15 @@ onMounted(() => {
       </div>
 
       <!-- Center Panel -->
-      <BackgroundAgentPanel
-        v-if="isBackgroundAgentSelected && backgroundAgentStore.selectedAgent"
-        :agent="backgroundAgentStore.selectedAgent"
-        class="flex-1 min-w-0"
-        @refresh="onRefreshAgents"
-      />
       <ChatPanel
-        v-else
         class="flex-1 min-w-0"
         @show-panel="onShowPanel"
         @tool-result="onToolResult"
       />
 
-      <!-- Right: Tool Panel (hidden when background agent overlay is active) -->
+      <!-- Right: Tool Panel -->
       <ToolPanel
-        v-if="!isBackgroundAgentSelected && toolPanel.visible.value && toolPanel.activeEntry.value"
+        v-if="toolPanel.visible.value && toolPanel.activeEntry.value"
         :panel-type="toolPanel.state.value.panelType"
         :title="toolPanel.state.value.title"
         :tool-name="toolPanel.state.value.toolName"
