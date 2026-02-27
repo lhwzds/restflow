@@ -83,7 +83,7 @@ impl Tool for BrowserTool {
     }
 
     fn description(&self) -> &str {
-        "Chromium browser automation for AI agents. Supports session lifecycle, JS/TS script execution, and structured action plans (navigate/click/fill/extract/screenshot)."
+        "Chromium browser automation for AI agents using native CDP. Supports session lifecycle, JS script execution in page context (TS not yet supported), and structured action plans (navigate/click/fill/extract/screenshot)."
     }
 
     fn parameters_schema(&self) -> Value {

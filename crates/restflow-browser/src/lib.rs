@@ -1,29 +1,36 @@
 //! AI-first browser runtime for RestFlow.
 //!
-//! This crate provides a session-oriented browser automation service that is
-//! designed for agent tool usage. It supports:
-//! - Runtime probing for JavaScript/TypeScript execution prerequisites
+//! This crate provides a session-oriented browser automation service designed
+//! for agent tool usage. The current implementation uses Chromium CDP directly
+//! (without Playwright runtime dependency) and exposes:
+//! - Runtime probing
 //! - Session lifecycle management
-//! - Direct JS/TS script execution against Chromium (via Playwright)
-//! - Structured action plans for common browser workflows
+//! - JavaScript execution in page context
+//! - Structured browser action plans
 
 use anyhow::{Result, anyhow, bail};
 use async_trait::async_trait;
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use chrono::Utc;
+use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::process::Command;
+use tokio::process::{Child, Command};
 use tokio::sync::RwLock;
-use tokio::time::timeout;
+use tokio::time::{sleep, timeout};
+use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
 use uuid::Uuid;
 
-const RESULT_MARKER: &str = "__RESTFLOW_BROWSER_RESULT__=";
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
+const CDP_POLL_INTERVAL_MS: u64 = 100;
+const CDP_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -233,7 +240,7 @@ pub struct BrowserService {
 impl BrowserService {
     pub fn new() -> Result<Self> {
         let root = resolve_default_root_dir()?;
-        Self::new_with_executor(root, Arc::new(PlaywrightExecutor::new()))
+        Self::new_with_executor(root, Arc::new(CdpExecutor::new()))
     }
 
     pub fn new_with_executor(
@@ -322,21 +329,71 @@ impl BrowserService {
 }
 
 #[derive(Default)]
-pub struct PlaywrightExecutor;
+pub struct CdpExecutor;
 
-impl PlaywrightExecutor {
+impl CdpExecutor {
     pub fn new() -> Self {
         Self
+    }
+
+    async fn run_script_inner(
+        &self,
+        session: &BrowserSession,
+        request: &RunScriptRequest,
+    ) -> Result<Value> {
+        if request.language == ScriptLanguage::Ts {
+            bail!("TypeScript is not supported in CDP mode yet");
+        }
+
+        let mut runtime =
+            CdpRuntime::start(session.headless, &session.profile_dir, request.timeout_secs).await?;
+
+        let eval_script = build_user_script_wrapper(&request.code)?;
+        let value = runtime
+            .evaluate_page_script(&eval_script)
+            .await
+            .and_then(extract_action_result)?;
+
+        let shutdown_result = runtime.shutdown().await;
+        if let Err(error) = shutdown_result {
+            tracing::warn!("CDP runtime shutdown error: {}", error);
+        }
+
+        Ok(value)
+    }
+
+    async fn run_actions_inner(
+        &self,
+        session: &BrowserSession,
+        request: &RunActionsRequest,
+    ) -> Result<Vec<Value>> {
+        let mut runtime =
+            CdpRuntime::start(session.headless, &session.profile_dir, request.timeout_secs).await?;
+
+        let mut outputs = Vec::with_capacity(request.actions.len());
+
+        for action in &request.actions {
+            let output = runtime
+                .execute_action(action, &session.artifacts_dir)
+                .await?;
+            outputs.push(output);
+        }
+
+        let shutdown_result = runtime.shutdown().await;
+        if let Err(error) = shutdown_result {
+            tracing::warn!("CDP runtime shutdown error: {}", error);
+        }
+
+        Ok(outputs)
     }
 }
 
 #[async_trait]
-impl BrowserExecutor for PlaywrightExecutor {
+impl BrowserExecutor for CdpExecutor {
     async fn probe_runtime(&self) -> Result<RuntimeProbe> {
         let mut probe = RuntimeProbe::empty();
 
         let node_probe = run_command_capture("node", &["--version".to_string()], None, 10).await;
-
         if let Ok(output) = node_probe
             && output.exit_code == 0
         {
@@ -369,7 +426,7 @@ impl BrowserExecutor for PlaywrightExecutor {
                         .to_string(),
                 ],
                 None,
-                15,
+                10,
             )
             .await;
             probe.playwright_package_available = playwright_probe
@@ -377,33 +434,24 @@ impl BrowserExecutor for PlaywrightExecutor {
                 .unwrap_or(false);
         }
 
-        probe.chromium_cache_detected = detect_chromium_cache();
-        probe.ready = probe.node_available && probe.playwright_package_available;
+        let chromium_path = resolve_chromium_binary();
+        probe.chromium_cache_detected = chromium_path.is_some();
+        probe.ready = probe.chromium_cache_detected;
 
-        if !probe.node_available {
-            probe.notes.push(
-                "Node.js not found. Install Node.js 20+ to enable browser runtime.".to_string(),
-            );
-        }
-
-        if probe.node_available && !probe.playwright_package_available {
+        if let Some(path) = chromium_path {
             probe
                 .notes
-                .push("Playwright npm package not found. Run: npm i -D playwright".to_string());
-        }
-
-        if probe.ready && !probe.chromium_cache_detected {
+                .push(format!("Chromium executable detected: {}", path));
+        } else {
             probe.notes.push(
-                "Chromium browser binary not found in Playwright cache. Run: npx playwright install chromium".to_string(),
-            );
-        }
-
-        if !probe.node_typescript_available {
-            probe.notes.push(
-                "TypeScript direct execution is unavailable in current Node runtime (requires --experimental-strip-types)."
+                "Chromium executable not found. Set RESTFLOW_CHROMIUM_PATH or install Chrome/Chromium in PATH."
                     .to_string(),
             );
         }
+
+        probe
+            .notes
+            .push("Runtime mode: native CDP (Playwright package not required).".to_string());
 
         Ok(probe)
     }
@@ -413,17 +461,25 @@ impl BrowserExecutor for PlaywrightExecutor {
         session: &BrowserSession,
         request: &RunScriptRequest,
     ) -> Result<BrowserExecutionResult> {
-        let probe = self.probe_runtime().await?;
-        ensure_probe_ready(&probe, request.language)?;
-        run_node_job(
-            build_script_runner(session, request)?,
-            request.language,
-            request.runtime,
-            request.timeout_secs,
-            request.cwd.as_deref(),
-            &probe,
-        )
-        .await
+        let started = Instant::now();
+        match self.run_script_inner(session, request).await {
+            Ok(value) => Ok(BrowserExecutionResult {
+                runtime: "cdp_chromium".to_string(),
+                exit_code: 0,
+                duration_ms: started.elapsed().as_millis() as u64,
+                stdout: String::new(),
+                stderr: String::new(),
+                payload: Some(json!({"success": true, "result": value})),
+            }),
+            Err(error) => Ok(BrowserExecutionResult {
+                runtime: "cdp_chromium".to_string(),
+                exit_code: 1,
+                duration_ms: started.elapsed().as_millis() as u64,
+                stdout: String::new(),
+                stderr: error.to_string(),
+                payload: Some(json!({"success": false, "error": error.to_string()})),
+            }),
+        }
     }
 
     async fn run_actions(
@@ -431,369 +487,609 @@ impl BrowserExecutor for PlaywrightExecutor {
         session: &BrowserSession,
         request: &RunActionsRequest,
     ) -> Result<BrowserExecutionResult> {
-        let probe = self.probe_runtime().await?;
-        ensure_probe_ready(&probe, ScriptLanguage::Js)?;
-        run_node_job(
-            build_action_runner(session, request)?,
-            ScriptLanguage::Js,
-            request.runtime,
-            request.timeout_secs,
-            request.cwd.as_deref(),
-            &probe,
-        )
-        .await
-    }
-}
-
-fn ensure_probe_ready(probe: &RuntimeProbe, language: ScriptLanguage) -> Result<()> {
-    if !probe.node_available {
-        bail!("Node.js is required for browser execution");
-    }
-    if !probe.playwright_package_available {
-        bail!("Playwright npm package is not available. Install it with: npm i -D playwright");
-    }
-    if language == ScriptLanguage::Ts && !probe.node_typescript_available {
-        bail!("TypeScript execution requires Node.js support for --experimental-strip-types");
-    }
-    Ok(())
-}
-
-fn build_script_runner(session: &BrowserSession, request: &RunScriptRequest) -> Result<String> {
-    let session_literal = json!({
-        "id": session.id,
-        "headless": session.headless,
-        "profileDir": session.profile_dir,
-        "artifactsDir": session.artifacts_dir,
-    })
-    .to_string();
-
-    let user_code = indent_code(&request.code, 4);
-
-    let mut script = String::new();
-    script.push_str("import fs from 'node:fs';\n");
-    script.push_str("import path from 'node:path';\n\n");
-    script.push_str("const RESULT_MARKER = '__RESTFLOW_BROWSER_RESULT__=';\n");
-    script.push_str(&format!("const session = {};%n", session_literal).replace("%n", "\n"));
-    script.push_str(
-        "const storageStatePath = path.join(session.profileDir, 'storage-state.json');\n",
-    );
-    script.push_str("await fs.promises.mkdir(session.profileDir, { recursive: true });\n");
-    script.push_str("await fs.promises.mkdir(session.artifactsDir, { recursive: true });\n\n");
-
-    script.push_str("let chromium;\n");
-    script.push_str("try {\n");
-    script.push_str("  ({ chromium } = await import('playwright'));\n");
-    script.push_str("} catch (error) {\n");
-    script.push_str("  const message = error && error.stack ? error.stack : String(error);\n");
-    script.push_str("  process.stderr.write(message + '\\n');\n");
-    script.push_str("  process.stdout.write(`${RESULT_MARKER}${JSON.stringify({ success: false, error: message })}\\n`);\n");
-    script.push_str("  process.exitCode = 1;\n");
-    script.push_str("  process.exit();\n");
-    script.push_str("}\n\n");
-
-    script.push_str("const browser = await chromium.launch({ headless: session.headless });\n");
-    script.push_str("const contextOptions = {};\n");
-    script.push_str("if (fs.existsSync(storageStatePath)) {\n");
-    script.push_str("  contextOptions.storageState = storageStatePath;\n");
-    script.push_str("}\n");
-    script.push_str("const context = await browser.newContext(contextOptions);\n");
-    script.push_str("const page = await context.newPage();\n\n");
-
-    script.push_str("const rf = {\n");
-    script.push_str("  sessionId: session.id,\n");
-    script.push_str("  page,\n");
-    script.push_str("  context,\n");
-    script.push_str("  browser,\n");
-    script.push_str("  artifactsDir: session.artifactsDir,\n");
-    script.push_str("  storageStatePath,\n");
-    script.push_str("  async saveState() {\n");
-    script.push_str("    await context.storageState({ path: storageStatePath });\n");
-    script.push_str("  },\n");
-    script.push_str("};\n\n");
-
-    script.push_str("globalThis.rf = rf;\n");
-    script.push_str("globalThis.__restflowResult = null;\n");
-    script.push_str("globalThis.setRestflowResult = (value) => {\n");
-    script.push_str("  globalThis.__restflowResult = value;\n");
-    script.push_str("};\n\n");
-
-    script.push_str("try {\n");
-    script.push_str("  const __userMain = async (rf) => {\n");
-    script.push_str(&user_code);
-    script.push_str("\n  };\n");
-    script.push_str("  const returned = await __userMain(rf);\n");
-    script.push_str("  if (returned !== undefined) {\n");
-    script.push_str("    globalThis.__restflowResult = returned;\n");
-    script.push_str("  }\n");
-    script.push_str("  await rf.saveState();\n");
-    script.push_str("  process.stdout.write(`${RESULT_MARKER}${JSON.stringify({ success: true, result: globalThis.__restflowResult })}\\n`);\n");
-    script.push_str("} catch (error) {\n");
-    script.push_str("  const message = error && error.stack ? error.stack : String(error);\n");
-    script.push_str("  process.stderr.write(message + '\\n');\n");
-    script.push_str("  process.stdout.write(`${RESULT_MARKER}${JSON.stringify({ success: false, error: message })}\\n`);\n");
-    script.push_str("  process.exitCode = 1;\n");
-    script.push_str("} finally {\n");
-    script.push_str("  await context.close().catch(() => {});\n");
-    script.push_str("  await browser.close().catch(() => {});\n");
-    script.push_str("}\n");
-
-    Ok(script)
-}
-
-fn build_action_runner(session: &BrowserSession, request: &RunActionsRequest) -> Result<String> {
-    let session_literal = json!({
-        "id": session.id,
-        "headless": session.headless,
-        "profileDir": session.profile_dir,
-        "artifactsDir": session.artifacts_dir,
-    })
-    .to_string();
-
-    let actions_literal = serde_json::to_string(&request.actions)?;
-
-    let mut script = String::new();
-    script.push_str("import fs from 'node:fs';\n");
-    script.push_str("import path from 'node:path';\n\n");
-    script.push_str("const RESULT_MARKER = '__RESTFLOW_BROWSER_RESULT__=';\n");
-    script.push_str(&format!("const session = {};%n", session_literal).replace("%n", "\n"));
-    script.push_str(&format!("const actions = {};%n", actions_literal).replace("%n", "\n"));
-    script.push_str(
-        "const storageStatePath = path.join(session.profileDir, 'storage-state.json');\n",
-    );
-    script.push_str("await fs.promises.mkdir(session.profileDir, { recursive: true });\n");
-    script.push_str("await fs.promises.mkdir(session.artifactsDir, { recursive: true });\n\n");
-
-    script.push_str("let chromium;\n");
-    script.push_str("try {\n");
-    script.push_str("  ({ chromium } = await import('playwright'));\n");
-    script.push_str("} catch (error) {\n");
-    script.push_str("  const message = error && error.stack ? error.stack : String(error);\n");
-    script.push_str("  process.stderr.write(message + '\\n');\n");
-    script.push_str("  process.stdout.write(`${RESULT_MARKER}${JSON.stringify({ success: false, error: message })}\\n`);\n");
-    script.push_str("  process.exitCode = 1;\n");
-    script.push_str("  process.exit();\n");
-    script.push_str("}\n\n");
-
-    script.push_str("const browser = await chromium.launch({ headless: session.headless });\n");
-    script.push_str("const contextOptions = {};\n");
-    script.push_str("if (fs.existsSync(storageStatePath)) {\n");
-    script.push_str("  contextOptions.storageState = storageStatePath;\n");
-    script.push_str("}\n");
-    script.push_str("const context = await browser.newContext(contextOptions);\n");
-    script.push_str("const page = await context.newPage();\n\n");
-
-    script.push_str("const rf = {\n");
-    script.push_str("  page,\n");
-    script.push_str("  context,\n");
-    script.push_str("  browser,\n");
-    script.push_str("  session,\n");
-    script.push_str("  storageStatePath,\n");
-    script.push_str("  async saveState() {\n");
-    script.push_str("    await context.storageState({ path: storageStatePath });\n");
-    script.push_str("  },\n");
-    script.push_str("};\n\n");
-
-    script.push_str("async function executeAction(action) {\n");
-    script.push_str("  const timeoutMs = action.timeout_ms ?? 10000;\n");
-    script.push_str("  switch (action.type) {\n");
-    script.push_str("    case 'navigate': {\n");
-    script.push_str(
-        "      await rf.page.goto(action.url, { waitUntil: action.wait_until ?? 'load' });\n",
-    );
-    script.push_str("      return { type: action.type, url: action.url };\n");
-    script.push_str("    }\n");
-    script.push_str("    case 'click': {\n");
-    script.push_str("      const locator = rf.page.locator(action.selector).first();\n");
-    script.push_str("      await locator.waitFor({ state: 'visible', timeout: timeoutMs });\n");
-    script.push_str("      await locator.click({ timeout: timeoutMs });\n");
-    script.push_str("      return { type: action.type, selector: action.selector };\n");
-    script.push_str("    }\n");
-    script.push_str("    case 'fill': {\n");
-    script.push_str("      const locator = rf.page.locator(action.selector).first();\n");
-    script.push_str("      await locator.waitFor({ state: 'visible', timeout: timeoutMs });\n");
-    script.push_str("      await locator.fill(action.text, { timeout: timeoutMs });\n");
-    script.push_str("      return { type: action.type, selector: action.selector };\n");
-    script.push_str("    }\n");
-    script.push_str("    case 'type': {\n");
-    script.push_str("      const locator = rf.page.locator(action.selector).first();\n");
-    script.push_str("      await locator.waitFor({ state: 'visible', timeout: timeoutMs });\n");
-    script.push_str("      await locator.type(action.text, { delay: action.delay_ms ?? 0, timeout: timeoutMs });\n");
-    script.push_str("      return { type: action.type, selector: action.selector };\n");
-    script.push_str("    }\n");
-    script.push_str("    case 'press': {\n");
-    script.push_str("      if (action.selector) {\n");
-    script.push_str("        const locator = rf.page.locator(action.selector).first();\n");
-    script.push_str("        await locator.waitFor({ state: 'visible', timeout: timeoutMs });\n");
-    script.push_str("        await locator.press(action.key, { timeout: timeoutMs });\n");
-    script.push_str("      } else {\n");
-    script.push_str("        await rf.page.keyboard.press(action.key);\n");
-    script.push_str("      }\n");
-    script.push_str("      return { type: action.type, key: action.key };\n");
-    script.push_str("    }\n");
-    script.push_str("    case 'wait_for_selector': {\n");
-    script.push_str("      const locator = rf.page.locator(action.selector).first();\n");
-    script.push_str(
-        "      await locator.waitFor({ state: action.state ?? 'visible', timeout: timeoutMs });\n",
-    );
-    script.push_str("      return { type: action.type, selector: action.selector };\n");
-    script.push_str("    }\n");
-    script.push_str("    case 'extract_text': {\n");
-    script.push_str("      if (action.all) {\n");
-    script.push_str(
-        "        const values = await rf.page.locator(action.selector).allTextContents();\n",
-    );
-    script.push_str(
-        "        return { type: action.type, selector: action.selector, value: values };\n",
-    );
-    script.push_str("      }\n");
-    script.push_str(
-        "      const value = await rf.page.locator(action.selector).first().textContent();\n",
-    );
-    script.push_str("      return { type: action.type, selector: action.selector, value };\n");
-    script.push_str("    }\n");
-    script.push_str("    case 'screenshot': {\n");
-    script.push_str("      const target = path.isAbsolute(action.path) ? action.path : path.join(session.artifactsDir, action.path);\n");
-    script.push_str("      await fs.promises.mkdir(path.dirname(target), { recursive: true });\n");
-    script.push_str(
-        "      await rf.page.screenshot({ path: target, fullPage: action.full_page ?? false });\n",
-    );
-    script.push_str("      return { type: action.type, path: target };\n");
-    script.push_str("    }\n");
-    script.push_str("    case 'evaluate': {\n");
-    script.push_str(
-        "      const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;\n",
-    );
-    script.push_str("      let value;\n");
-    script.push_str("      try {\n");
-    script.push_str("        const exprFn = new AsyncFunction('page', 'context', 'browser', `return (${action.expression});`);\n");
-    script.push_str("        value = await exprFn(rf.page, rf.context, rf.browser);\n");
-    script.push_str("      } catch (_) {\n");
-    script.push_str("        const stmtFn = new AsyncFunction('page', 'context', 'browser', action.expression);\n");
-    script.push_str("        value = await stmtFn(rf.page, rf.context, rf.browser);\n");
-    script.push_str("      }\n");
-    script.push_str("      return { type: action.type, value };\n");
-    script.push_str("    }\n");
-    script.push_str("    default:\n");
-    script.push_str("      throw new Error(`Unsupported action type: ${action.type}`);\n");
-    script.push_str("  }\n");
-    script.push_str("}\n\n");
-
-    script.push_str("const outputs = [];\n");
-    script.push_str("try {\n");
-    script.push_str("  for (const action of actions) {\n");
-    script.push_str("    const value = await executeAction(action);\n");
-    script.push_str("    outputs.push(value);\n");
-    script.push_str("  }\n");
-    script.push_str("  await rf.saveState();\n");
-    script.push_str("  process.stdout.write(`${RESULT_MARKER}${JSON.stringify({ success: true, result: outputs })}\\n`);\n");
-    script.push_str("} catch (error) {\n");
-    script.push_str("  const message = error && error.stack ? error.stack : String(error);\n");
-    script.push_str("  process.stderr.write(message + '\\n');\n");
-    script.push_str("  process.stdout.write(`${RESULT_MARKER}${JSON.stringify({ success: false, error: message })}\\n`);\n");
-    script.push_str("  process.exitCode = 1;\n");
-    script.push_str("} finally {\n");
-    script.push_str("  await context.close().catch(() => {});\n");
-    script.push_str("  await browser.close().catch(() => {});\n");
-    script.push_str("}\n");
-
-    Ok(script)
-}
-
-async fn run_node_job(
-    script_content: String,
-    language: ScriptLanguage,
-    runtime: ScriptRuntime,
-    timeout_secs: u64,
-    cwd: Option<&str>,
-    probe: &RuntimeProbe,
-) -> Result<BrowserExecutionResult> {
-    if runtime != ScriptRuntime::Auto && runtime != ScriptRuntime::Node {
-        bail!("Only node runtime is supported");
-    }
-
-    let timeout_secs = timeout_secs.max(1);
-    let mut args = Vec::new();
-
-    if language == ScriptLanguage::Ts {
-        if !probe.node_typescript_available {
-            bail!("TypeScript execution requires Node.js support for --experimental-strip-types");
+        let started = Instant::now();
+        match self.run_actions_inner(session, request).await {
+            Ok(values) => Ok(BrowserExecutionResult {
+                runtime: "cdp_chromium".to_string(),
+                exit_code: 0,
+                duration_ms: started.elapsed().as_millis() as u64,
+                stdout: String::new(),
+                stderr: String::new(),
+                payload: Some(json!({"success": true, "result": values})),
+            }),
+            Err(error) => Ok(BrowserExecutionResult {
+                runtime: "cdp_chromium".to_string(),
+                exit_code: 1,
+                duration_ms: started.elapsed().as_millis() as u64,
+                stdout: String::new(),
+                stderr: error.to_string(),
+                payload: Some(json!({"success": false, "error": error.to_string()})),
+            }),
         }
-        args.push("--experimental-strip-types".to_string());
+    }
+}
+
+struct CdpRuntime {
+    process: ChromiumProcess,
+    cdp: CdpClient,
+    page_session_id: String,
+}
+
+impl CdpRuntime {
+    async fn start(headless: bool, profile_dir: &str, timeout_secs: u64) -> Result<Self> {
+        let process = ChromiumProcess::launch(headless, profile_dir, timeout_secs).await?;
+        let mut cdp = CdpClient::connect(&process.ws_endpoint).await?;
+
+        let create_result = cdp
+            .send_command(None, "Target.createTarget", json!({"url": "about:blank"}))
+            .await?;
+        let target_id = create_result
+            .get("targetId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("CDP Target.createTarget did not return targetId"))?
+            .to_string();
+
+        let attach_result = cdp
+            .send_command(
+                None,
+                "Target.attachToTarget",
+                json!({"targetId": target_id, "flatten": true}),
+            )
+            .await?;
+        let page_session_id = attach_result
+            .get("sessionId")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("CDP Target.attachToTarget did not return sessionId"))?
+            .to_string();
+
+        cdp.send_command(Some(&page_session_id), "Runtime.enable", json!({}))
+            .await?;
+        cdp.send_command(Some(&page_session_id), "Page.enable", json!({}))
+            .await?;
+
+        Ok(Self {
+            process,
+            cdp,
+            page_session_id,
+        })
     }
 
-    let temp_dir = tempfile::Builder::new()
-        .prefix("restflow-browser-script-")
-        .tempdir()?;
+    async fn shutdown(mut self) -> Result<()> {
+        let _ = self
+            .cdp
+            .send_command(None, "Browser.close", json!({}))
+            .await;
+        self.process.shutdown().await
+    }
 
-    let extension = if language == ScriptLanguage::Ts {
-        "ts"
-    } else {
-        "mjs"
-    };
-    let script_path = temp_dir.path().join(format!("runner.{}", extension));
-    std::fs::write(&script_path, script_content)?;
+    async fn execute_action(
+        &mut self,
+        action: &BrowserAction,
+        artifacts_dir: &str,
+    ) -> Result<Value> {
+        match action {
+            BrowserAction::Navigate { url, wait_until } => {
+                let result = self
+                    .cdp
+                    .send_command(
+                        Some(&self.page_session_id),
+                        "Page.navigate",
+                        json!({"url": url}),
+                    )
+                    .await?;
 
-    args.push(script_path.display().to_string());
+                if let Some(error_text) = result.get("errorText").and_then(Value::as_str) {
+                    bail!("Navigation failed: {}", error_text);
+                }
 
-    let cwd_path = match cwd {
-        Some(path) => {
-            let parsed = PathBuf::from(path);
-            if !parsed.exists() || !parsed.is_dir() {
-                bail!("Invalid working directory: {}", parsed.display());
+                let state = wait_until.as_deref().unwrap_or("load").to_ascii_lowercase();
+                if state != "commit" {
+                    self.wait_for_readiness(&state, Duration::from_secs(30))
+                        .await?;
+                }
+
+                Ok(json!({"type": "navigate", "url": url}))
             }
-            Some(parsed)
+            BrowserAction::Click {
+                selector,
+                timeout_ms,
+            } => {
+                self.wait_for_selector(selector, "visible", timeout_ms.unwrap_or(10_000))
+                    .await?;
+                let script = format!(
+                    "(function() {{\n  const selector = {};\n  const element = document.querySelector(selector);\n  if (!element) return {{ ok: false, error: `Selector not found: ${{selector}}` }};\n  element.click();\n  return {{ ok: true }};\n}})()",
+                    serde_json::to_string(selector)?
+                );
+                let result = self.evaluate_page_script(&script).await?;
+                extract_action_result(result)?;
+                Ok(json!({"type": "click", "selector": selector}))
+            }
+            BrowserAction::Fill {
+                selector,
+                text,
+                timeout_ms,
+            } => {
+                self.wait_for_selector(selector, "visible", timeout_ms.unwrap_or(10_000))
+                    .await?;
+                let script = format!(
+                    "(function() {{\n  const selector = {};\n  const value = {};\n  const element = document.querySelector(selector);\n  if (!element) return {{ ok: false, error: `Selector not found: ${{selector}}` }};\n  element.focus?.();\n  element.value = value;\n  element.dispatchEvent(new Event('input', {{ bubbles: true }}));\n  element.dispatchEvent(new Event('change', {{ bubbles: true }}));\n  return {{ ok: true }};\n}})()",
+                    serde_json::to_string(selector)?,
+                    serde_json::to_string(text)?
+                );
+                let result = self.evaluate_page_script(&script).await?;
+                extract_action_result(result)?;
+                Ok(json!({"type": "fill", "selector": selector}))
+            }
+            BrowserAction::Type {
+                selector,
+                text,
+                delay_ms,
+            } => {
+                let _ = delay_ms;
+                self.wait_for_selector(selector, "visible", 10_000).await?;
+                let script = format!(
+                    "(function() {{\n  const selector = {};\n  const value = {};\n  const element = document.querySelector(selector);\n  if (!element) return {{ ok: false, error: `Selector not found: ${{selector}}` }};\n  element.focus?.();\n  const existing = typeof element.value === 'string' ? element.value : '';\n  element.value = existing + value;\n  element.dispatchEvent(new Event('input', {{ bubbles: true }}));\n  element.dispatchEvent(new Event('change', {{ bubbles: true }}));\n  return {{ ok: true }};\n}})()",
+                    serde_json::to_string(selector)?,
+                    serde_json::to_string(text)?
+                );
+                let result = self.evaluate_page_script(&script).await?;
+                extract_action_result(result)?;
+                Ok(json!({"type": "type", "selector": selector}))
+            }
+            BrowserAction::Press { key, selector } => {
+                if let Some(selector) = selector {
+                    self.wait_for_selector(selector, "visible", 10_000).await?;
+                    let focus_script = format!(
+                        "(function() {{\n  const selector = {};\n  const element = document.querySelector(selector);\n  if (!element) return {{ ok: false, error: `Selector not found: ${{selector}}` }};\n  element.focus?.();\n  return {{ ok: true }};\n}})()",
+                        serde_json::to_string(selector)?
+                    );
+                    let result = self.evaluate_page_script(&focus_script).await?;
+                    extract_action_result(result)?;
+                }
+
+                self.dispatch_key(key).await?;
+                Ok(json!({"type": "press", "key": key}))
+            }
+            BrowserAction::WaitForSelector {
+                selector,
+                state,
+                timeout_ms,
+            } => {
+                let state = state.as_deref().unwrap_or("visible");
+                self.wait_for_selector(selector, state, timeout_ms.unwrap_or(10_000))
+                    .await?;
+                Ok(json!({"type": "wait_for_selector", "selector": selector, "state": state}))
+            }
+            BrowserAction::ExtractText { selector, all } => {
+                let script = format!(
+                    "(function() {{\n  const selector = {};\n  if ({}) {{\n    const values = Array.from(document.querySelectorAll(selector)).map(e => e.textContent ?? '');\n    return {{ ok: true, value: values }};\n  }}\n  const element = document.querySelector(selector);\n  if (!element) return {{ ok: false, error: `Selector not found: ${{selector}}` }};\n  return {{ ok: true, value: element.textContent ?? null }};\n}})()",
+                    serde_json::to_string(selector)?,
+                    if *all { "true" } else { "false" }
+                );
+                let result = self.evaluate_page_script(&script).await?;
+                let value = extract_action_result(result)?;
+                Ok(json!({"type": "extract_text", "selector": selector, "value": value}))
+            }
+            BrowserAction::Screenshot { path, full_page } => {
+                let target = resolve_artifact_path(artifacts_dir, path);
+                if let Some(parent) = target.parent() {
+                    std::fs::create_dir_all(parent)?;
+                }
+
+                let result = self
+                    .cdp
+                    .send_command(
+                        Some(&self.page_session_id),
+                        "Page.captureScreenshot",
+                        json!({
+                            "format": "png",
+                            "captureBeyondViewport": full_page,
+                            "fromSurface": true
+                        }),
+                    )
+                    .await?;
+
+                let data = result
+                    .get("data")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| anyhow!("Page.captureScreenshot did not return image data"))?;
+                let bytes = BASE64_STANDARD
+                    .decode(data)
+                    .map_err(|error| anyhow!("Failed to decode screenshot data: {}", error))?;
+                std::fs::write(&target, bytes)?;
+
+                Ok(json!({
+                    "type": "screenshot",
+                    "path": target.display().to_string()
+                }))
+            }
+            BrowserAction::Evaluate { expression } => {
+                let script = build_dynamic_eval_script(expression)?;
+                let result = self.evaluate_page_script(&script).await?;
+                let value = extract_action_result(result)?;
+                Ok(json!({"type": "evaluate", "value": value}))
+            }
         }
-        None => None,
-    };
+    }
+
+    async fn evaluate_page_script(&mut self, expression: &str) -> Result<Value> {
+        let result = self
+            .cdp
+            .send_command(
+                Some(&self.page_session_id),
+                "Runtime.evaluate",
+                json!({
+                    "expression": expression,
+                    "awaitPromise": true,
+                    "returnByValue": true,
+                    "replMode": false,
+                }),
+            )
+            .await?;
+
+        if let Some(exception) = result.get("exceptionDetails") {
+            let message = exception
+                .get("text")
+                .and_then(Value::as_str)
+                .unwrap_or("JavaScript execution failed")
+                .to_string();
+            bail!("{}", message);
+        }
+
+        let remote = result.get("result").cloned().unwrap_or(Value::Null);
+        if let Some(value) = remote.get("value") {
+            return Ok(value.clone());
+        }
+
+        if remote.get("type").and_then(Value::as_str) == Some("undefined") {
+            return Ok(Value::Null);
+        }
+
+        if let Some(description) = remote.get("description").and_then(Value::as_str) {
+            return Ok(Value::String(description.to_string()));
+        }
+
+        Ok(Value::Null)
+    }
+
+    async fn wait_for_readiness(
+        &mut self,
+        wait_until: &str,
+        timeout_window: Duration,
+    ) -> Result<()> {
+        let start = Instant::now();
+        loop {
+            let ready_state = self
+                .evaluate_page_script("document.readyState")
+                .await
+                .unwrap_or(Value::String("loading".to_string()));
+            let ready_state = ready_state.as_str().unwrap_or("loading");
+
+            let done = match wait_until {
+                "domcontentloaded" => ready_state == "interactive" || ready_state == "complete",
+                "networkidle" => ready_state == "complete",
+                _ => ready_state == "complete",
+            };
+
+            if done {
+                return Ok(());
+            }
+
+            if start.elapsed() > timeout_window {
+                bail!("Timed out waiting for page readiness ({})", wait_until);
+            }
+
+            sleep(Duration::from_millis(CDP_POLL_INTERVAL_MS)).await;
+        }
+    }
+
+    async fn wait_for_selector(
+        &mut self,
+        selector: &str,
+        state: &str,
+        timeout_ms: u64,
+    ) -> Result<()> {
+        let start = Instant::now();
+        let timeout_window = Duration::from_millis(timeout_ms.max(1));
+
+        loop {
+            let script = format!(
+                "(function() {{\n  const selector = {};\n  const element = document.querySelector(selector);\n  const present = !!element;\n  let visible = false;\n  if (element) {{\n    const style = window.getComputedStyle(element);\n    const rect = element.getBoundingClientRect();\n    visible = style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;\n  }}\n  return {{ present, visible }};\n}})()",
+                serde_json::to_string(selector)?
+            );
+
+            let result = self.evaluate_page_script(&script).await?;
+            let present = result
+                .get("present")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+            let visible = result
+                .get("visible")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
+
+            if selector_state_matches(state, present, visible) {
+                return Ok(());
+            }
+
+            if start.elapsed() > timeout_window {
+                bail!(
+                    "Timed out waiting for selector '{}' in state '{}'",
+                    selector,
+                    state
+                );
+            }
+
+            sleep(Duration::from_millis(CDP_POLL_INTERVAL_MS)).await;
+        }
+    }
+
+    async fn dispatch_key(&mut self, key: &str) -> Result<()> {
+        self.cdp
+            .send_command(
+                Some(&self.page_session_id),
+                "Input.dispatchKeyEvent",
+                json!({"type": "keyDown", "key": key, "text": key}),
+            )
+            .await?;
+        self.cdp
+            .send_command(
+                Some(&self.page_session_id),
+                "Input.dispatchKeyEvent",
+                json!({"type": "keyUp", "key": key}),
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+struct ChromiumProcess {
+    child: Child,
+    ws_endpoint: String,
+}
+
+impl ChromiumProcess {
+    async fn launch(headless: bool, profile_dir: &str, timeout_secs: u64) -> Result<Self> {
+        let chromium = resolve_chromium_binary()
+            .ok_or_else(|| anyhow!("Chromium executable not found. Set RESTFLOW_CHROMIUM_PATH"))?;
+        let debug_port = allocate_free_port()?;
+
+        let mut args = vec![
+            format!("--remote-debugging-port={}", debug_port),
+            format!("--user-data-dir={}", profile_dir),
+            "--no-first-run".to_string(),
+            "--no-default-browser-check".to_string(),
+            "--disable-background-networking".to_string(),
+            "--disable-popup-blocking".to_string(),
+            "--disable-dev-shm-usage".to_string(),
+            "about:blank".to_string(),
+        ];
+
+        if headless {
+            args.push("--headless=new".to_string());
+            args.push("--hide-scrollbars".to_string());
+        }
+
+        if cfg!(target_os = "linux") {
+            args.push("--no-sandbox".to_string());
+        }
+
+        let mut command = Command::new(&chromium);
+        command
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
+
+        let mut child = command.spawn().map_err(|error| {
+            anyhow!(
+                "Failed to launch chromium executable '{}': {}",
+                chromium,
+                error
+            )
+        })?;
+
+        let ws_endpoint = wait_for_debugger_ws_url(debug_port, timeout_secs, &mut child).await?;
+
+        Ok(Self { child, ws_endpoint })
+    }
+
+    async fn shutdown(&mut self) -> Result<()> {
+        let wait_result = timeout(
+            Duration::from_secs(CDP_SHUTDOWN_TIMEOUT_SECS),
+            self.child.wait(),
+        )
+        .await;
+
+        match wait_result {
+            Ok(_) => Ok(()),
+            Err(_) => {
+                self.child.kill().await?;
+                Ok(())
+            }
+        }
+    }
+}
+
+type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
+
+struct CdpClient {
+    socket: WsStream,
+    next_id: i64,
+}
+
+impl CdpClient {
+    async fn connect(ws_endpoint: &str) -> Result<Self> {
+        let (socket, _) = connect_async(ws_endpoint)
+            .await
+            .map_err(|error| anyhow!("Failed to connect to CDP endpoint: {}", error))?;
+        Ok(Self { socket, next_id: 0 })
+    }
+
+    async fn send_command(
+        &mut self,
+        session_id: Option<&str>,
+        method: &str,
+        params: Value,
+    ) -> Result<Value> {
+        self.next_id += 1;
+        let request_id = self.next_id;
+
+        let mut request = serde_json::Map::new();
+        request.insert("id".to_string(), json!(request_id));
+        request.insert("method".to_string(), Value::String(method.to_string()));
+        request.insert("params".to_string(), params);
+        if let Some(session_id) = session_id {
+            request.insert(
+                "sessionId".to_string(),
+                Value::String(session_id.to_string()),
+            );
+        }
+
+        self.socket
+            .send(Message::Text(Value::Object(request).to_string().into()))
+            .await
+            .map_err(|error| anyhow!("Failed to send CDP command '{}': {}", method, error))?;
+
+        loop {
+            let payload = self.read_json_message().await?;
+
+            let Some(response_id) = payload.get("id").and_then(Value::as_i64) else {
+                continue;
+            };
+            if response_id != request_id {
+                continue;
+            }
+
+            if let Some(error) = payload.get("error") {
+                let message = error
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("Unknown CDP error")
+                    .to_string();
+                bail!("CDP command '{}' failed: {}", method, message);
+            }
+
+            return Ok(payload.get("result").cloned().unwrap_or_else(|| json!({})));
+        }
+    }
+
+    async fn read_json_message(&mut self) -> Result<Value> {
+        loop {
+            let message = self
+                .socket
+                .next()
+                .await
+                .ok_or_else(|| anyhow!("CDP websocket stream ended"))?
+                .map_err(|error| anyhow!("CDP websocket read failed: {}", error))?;
+
+            let text = match message {
+                Message::Text(text) => text.to_string(),
+                Message::Binary(bytes) => String::from_utf8(bytes.to_vec())
+                    .map_err(|error| anyhow!("Invalid UTF-8 CDP payload: {}", error))?,
+                Message::Ping(payload) => {
+                    self.socket.send(Message::Pong(payload)).await?;
+                    continue;
+                }
+                Message::Pong(_) => continue,
+                Message::Close(_) => bail!("CDP websocket closed by peer"),
+                Message::Frame(_) => continue,
+            };
+
+            let value = serde_json::from_str::<Value>(&text)
+                .map_err(|error| anyhow!("Invalid CDP JSON payload: {}", error))?;
+            return Ok(value);
+        }
+    }
+}
+
+async fn wait_for_debugger_ws_url(
+    port: u16,
+    timeout_secs: u64,
+    child: &mut Child,
+) -> Result<String> {
+    let endpoint = format!("http://127.0.0.1:{}/json/version", port);
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()?;
 
     let started = Instant::now();
-    let output = run_command_capture("node", &args, cwd_path.as_deref(), timeout_secs).await?;
-    let duration_ms = started.elapsed().as_millis() as u64;
-    let (stdout, payload) = extract_result_payload(&output.stdout);
+    let timeout_window = Duration::from_secs(timeout_secs.max(1));
 
-    Ok(BrowserExecutionResult {
-        runtime: "node".to_string(),
-        exit_code: output.exit_code,
-        duration_ms,
-        stdout,
-        stderr: output.stderr,
-        payload,
-    })
-}
-
-fn indent_code(code: &str, spaces: usize) -> String {
-    let prefix = " ".repeat(spaces);
-    if code.is_empty() {
-        return prefix;
-    }
-
-    code.lines()
-        .map(|line| format!("{}{}", prefix, line))
-        .collect::<Vec<_>>()
-        .join("\n")
-}
-
-fn extract_result_payload(stdout: &str) -> (String, Option<Value>) {
-    let mut payload: Option<Value> = None;
-    let mut clean_lines = Vec::new();
-
-    for line in stdout.lines() {
-        if let Some(rest) = line.strip_prefix(RESULT_MARKER) {
-            if let Ok(value) = serde_json::from_str::<Value>(rest.trim()) {
-                payload = Some(value);
-            }
-            continue;
+    loop {
+        if let Some(status) = child.try_wait()? {
+            bail!(
+                "Chromium exited before CDP endpoint became available: {}",
+                status
+            );
         }
-        clean_lines.push(line.to_string());
-    }
 
-    (clean_lines.join("\n"), payload)
+        if let Ok(response) = client.get(&endpoint).send().await
+            && response.status().is_success()
+        {
+            let body: Value = response.json().await?;
+            if let Some(ws_url) = body.get("webSocketDebuggerUrl").and_then(Value::as_str) {
+                return Ok(ws_url.to_string());
+            }
+        }
+
+        if started.elapsed() > timeout_window {
+            bail!("Timed out waiting for CDP endpoint at {}", endpoint);
+        }
+
+        sleep(Duration::from_millis(CDP_POLL_INTERVAL_MS)).await;
+    }
 }
 
-struct CommandCapture {
-    exit_code: i32,
-    stdout: String,
-    stderr: String,
+fn build_user_script_wrapper(source: &str) -> Result<String> {
+    let source = serde_json::to_string(source)?;
+    Ok(format!(
+        "(async () => {{\n  const rf = {{\n    url: () => location.href,\n    title: () => document.title,\n    text: (selector) => document.querySelector(selector)?.textContent ?? null,\n    click: (selector) => {{ const el = document.querySelector(selector); if (!el) throw new Error(`Selector not found: ${{selector}}`); el.click(); return true; }},\n    fill: (selector, value) => {{ const el = document.querySelector(selector); if (!el) throw new Error(`Selector not found: ${{selector}}`); el.focus?.(); el.value = value; el.dispatchEvent(new Event('input', {{ bubbles: true }})); el.dispatchEvent(new Event('change', {{ bubbles: true }})); return true; }},\n  }};\n  let __restflowResult = null;\n  const setRestflowResult = (value) => {{ __restflowResult = value; }};\n  const __source = {};\n  const __userMain = new Function('rf', 'setRestflowResult', `return (async () => {{\\n${{__source}}\\n}})();`);\n  const returned = await __userMain(rf, setRestflowResult);\n  return {{ ok: true, value: returned === undefined ? __restflowResult : returned }};\n}})()",
+        source
+    ))
+}
+
+fn build_dynamic_eval_script(source: &str) -> Result<String> {
+    let source = serde_json::to_string(source)?;
+    Ok(format!(
+        "(async () => {{\n  const __source = {};\n  try {{\n    const expressionResult = await (0, eval)('(' + __source + ')');\n    return {{ ok: true, value: expressionResult }};\n  }} catch (_ignored) {{}}\n  try {{\n    const statementResult = await (0, eval)(__source);\n    return {{ ok: true, value: statementResult }};\n  }} catch (error) {{\n    return {{ ok: false, error: error?.stack ?? String(error) }};\n  }}\n}})()",
+        source
+    ))
+}
+
+fn extract_action_result(value: Value) -> Result<Value> {
+    if let Some(ok) = value.get("ok").and_then(Value::as_bool) {
+        if ok {
+            return Ok(value.get("value").cloned().unwrap_or(Value::Null));
+        }
+
+        let message = value
+            .get("error")
+            .and_then(Value::as_str)
+            .unwrap_or("Unknown browser action error");
+        bail!("{}", message);
+    }
+
+    Ok(value)
+}
+
+fn selector_state_matches(state: &str, present: bool, visible: bool) -> bool {
+    match state {
+        "attached" => present,
+        "detached" => !present,
+        "hidden" => !present || !visible,
+        _ => present && visible,
+    }
+}
+
+fn resolve_artifact_path(artifacts_dir: &str, path: &str) -> PathBuf {
+    let target = PathBuf::from(path);
+    if target.is_absolute() {
+        target
+    } else {
+        PathBuf::from(artifacts_dir).join(target)
+    }
 }
 
 async fn run_command_capture(
@@ -826,26 +1122,95 @@ async fn run_command_capture(
     })
 }
 
-fn detect_chromium_cache() -> bool {
-    if let Ok(path) = std::env::var("PLAYWRIGHT_BROWSERS_PATH") {
-        let parsed = PathBuf::from(path);
-        if parsed.exists() {
-            return true;
+struct CommandCapture {
+    exit_code: i32,
+    stdout: String,
+    stderr: String,
+}
+
+fn resolve_chromium_binary() -> Option<String> {
+    let env_candidates = ["RESTFLOW_CHROMIUM_PATH", "CHROMIUM_PATH", "CHROME_PATH"];
+    for key in env_candidates {
+        if let Ok(value) = std::env::var(key)
+            && !value.trim().is_empty()
+        {
+            let path = PathBuf::from(value.trim());
+            if path.exists() {
+                return Some(path.display().to_string());
+            }
         }
     }
 
-    let mut candidates = Vec::new();
-
-    if let Ok(home) = std::env::var("HOME") {
-        candidates.push(PathBuf::from(&home).join(".cache/ms-playwright"));
-        candidates.push(PathBuf::from(&home).join("Library/Caches/ms-playwright"));
+    if cfg!(target_os = "macos") {
+        let app_paths = [
+            "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+            "/Applications/Chromium.app/Contents/MacOS/Chromium",
+            "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+        ];
+        for path in app_paths {
+            if Path::new(path).exists() {
+                return Some(path.to_string());
+            }
+        }
     }
 
-    if let Ok(user_profile) = std::env::var("USERPROFILE") {
-        candidates.push(PathBuf::from(user_profile).join("AppData/Local/ms-playwright"));
+    if cfg!(target_os = "windows") {
+        let windows_paths = [
+            r"C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
+            r"C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
+            r"C:\\Program Files\\Chromium\\Application\\chrome.exe",
+        ];
+        for path in windows_paths {
+            if Path::new(path).exists() {
+                return Some(path.to_string());
+            }
+        }
     }
 
-    candidates.into_iter().any(|path| path.exists())
+    let command_candidates = [
+        "google-chrome",
+        "google-chrome-stable",
+        "chromium",
+        "chromium-browser",
+        "chrome",
+        "msedge",
+    ];
+
+    for name in command_candidates {
+        if is_executable_in_path(name) {
+            return Some(name.to_string());
+        }
+    }
+
+    None
+}
+
+fn is_executable_in_path(name: &str) -> bool {
+    let Some(path_var) = std::env::var_os("PATH") else {
+        return false;
+    };
+
+    for path in std::env::split_paths(&path_var) {
+        let candidate = path.join(name);
+        if candidate.exists() {
+            return true;
+        }
+        if cfg!(target_os = "windows") {
+            let exe_candidate = path.join(format!("{}.exe", name));
+            if exe_candidate.exists() {
+                return true;
+            }
+        }
+    }
+
+    false
+}
+
+fn allocate_free_port() -> Result<u16> {
+    let listener = TcpListener::bind("127.0.0.1:0")?;
+    let port = listener.local_addr()?.port();
+    drop(listener);
+    Ok(port)
 }
 
 fn resolve_default_root_dir() -> Result<PathBuf> {
@@ -1008,41 +1373,28 @@ mod tests {
     }
 
     #[test]
-    fn extract_payload_marker_parses_json() {
-        let stdout = "line1\n__RESTFLOW_BROWSER_RESULT__={\"success\":true,\"result\":123}\nline2";
-        let (cleaned, payload) = extract_result_payload(stdout);
-        assert_eq!(cleaned, "line1\nline2");
-        assert_eq!(payload.unwrap()["result"], json!(123));
+    fn selector_state_matching_behaves_as_expected() {
+        assert!(selector_state_matches("attached", true, false));
+        assert!(selector_state_matches("detached", false, false));
+        assert!(selector_state_matches("visible", true, true));
+        assert!(selector_state_matches("hidden", false, false));
+        assert!(selector_state_matches("hidden", true, false));
+        assert!(!selector_state_matches("visible", true, false));
     }
 
     #[test]
-    fn build_action_runner_contains_switch_cases() {
-        let session = BrowserSession {
-            id: "s1".to_string(),
-            browser: BrowserKind::Chromium,
-            headless: true,
-            created_at_ms: 0,
-            session_dir: "/tmp/s1".to_string(),
-            profile_dir: "/tmp/s1/profile".to_string(),
-            artifacts_dir: "/tmp/s1/artifacts".to_string(),
-        };
+    fn artifact_path_resolves_relative_and_absolute() {
+        let relative = resolve_artifact_path("/tmp/artifacts", "shots/page.png");
+        assert_eq!(relative, PathBuf::from("/tmp/artifacts/shots/page.png"));
 
-        let script = build_action_runner(
-            &session,
-            &RunActionsRequest {
-                session_id: "s1".to_string(),
-                actions: vec![BrowserAction::Navigate {
-                    url: "https://example.com".to_string(),
-                    wait_until: None,
-                }],
-                runtime: ScriptRuntime::Auto,
-                timeout_secs: 60,
-                cwd: None,
-            },
-        )
-        .unwrap();
+        let absolute = resolve_artifact_path("/tmp/artifacts", "/var/tmp/page.png");
+        assert_eq!(absolute, PathBuf::from("/var/tmp/page.png"));
+    }
 
-        assert!(script.contains("case 'navigate'"));
-        assert!(script.contains("case 'screenshot'"));
+    #[test]
+    fn dynamic_eval_script_contains_user_source() {
+        let script = build_dynamic_eval_script("1 + 2").unwrap();
+        assert!(script.contains("1 + 2"));
+        assert!(script.contains("eval"));
     }
 }
