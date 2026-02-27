@@ -16,7 +16,7 @@ message_id: string,
 /**
  * Event timestamp (Unix ms)
  */
-timestamp: bigint, 
+timestamp: number, 
 /**
  * Event payload
  */

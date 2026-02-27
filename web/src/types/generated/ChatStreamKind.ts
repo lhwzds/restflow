@@ -80,7 +80,7 @@ full_content: string,
 /**
  * Total duration in milliseconds
  */
-duration_ms: bigint, 
+duration_ms: number, 
 /**
  * Total tokens used
  */
