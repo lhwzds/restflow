@@ -15,7 +15,7 @@ use chrono::Utc;
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -31,6 +31,7 @@ use uuid::Uuid;
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 const CDP_POLL_INTERVAL_MS: u64 = 100;
 const CDP_SHUTDOWN_TIMEOUT_SECS: u64 = 5;
+const NETWORK_IDLE_GRACE_MS: u64 = 500;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -546,6 +547,14 @@ impl CdpRuntime {
             .await?;
         cdp.send_command(Some(&page_session_id), "Page.enable", json!({}))
             .await?;
+        cdp.send_command(
+            Some(&page_session_id),
+            "Page.setLifecycleEventsEnabled",
+            json!({"enabled": true}),
+        )
+        .await?;
+        cdp.send_command(Some(&page_session_id), "Network.enable", json!({}))
+            .await?;
 
         Ok(Self {
             process,
@@ -758,6 +767,10 @@ impl CdpRuntime {
         timeout_window: Duration,
     ) -> Result<()> {
         let start = Instant::now();
+        let mut readiness = NavigationReadinessState::default();
+        let mut last_network_activity = Instant::now();
+        let state = wait_until.to_ascii_lowercase();
+
         loop {
             let ready_state = self
                 .evaluate_page_script("document.readyState")
@@ -765,10 +778,16 @@ impl CdpRuntime {
                 .unwrap_or(Value::String("loading".to_string()));
             let ready_state = ready_state.as_str().unwrap_or("loading");
 
-            let done = match wait_until {
-                "domcontentloaded" => ready_state == "interactive" || ready_state == "complete",
-                "networkidle" => ready_state == "complete",
-                _ => ready_state == "complete",
+            update_readiness_from_document_state(&mut readiness, ready_state);
+
+            let network_idle = readiness.saw_load
+                && readiness.inflight_requests == 0
+                && last_network_activity.elapsed() >= Duration::from_millis(NETWORK_IDLE_GRACE_MS);
+
+            let done = match state.as_str() {
+                "domcontentloaded" => readiness.saw_domcontentloaded,
+                "networkidle" => network_idle,
+                _ => readiness.saw_load,
             };
 
             if done {
@@ -779,7 +798,14 @@ impl CdpRuntime {
                 bail!("Timed out waiting for page readiness ({})", wait_until);
             }
 
-            sleep(Duration::from_millis(CDP_POLL_INTERVAL_MS)).await;
+            let remaining = timeout_window.saturating_sub(start.elapsed());
+            let event_timeout = remaining.min(Duration::from_millis(CDP_POLL_INTERVAL_MS));
+
+            if let Some(event) = self.cdp.poll_event(event_timeout).await?
+                && apply_navigation_event(&mut readiness, &event, &self.page_session_id)
+            {
+                last_network_activity = Instant::now();
+            }
         }
     }
 
@@ -917,6 +943,8 @@ type WsStream = WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>;
 struct CdpClient {
     socket: WsStream,
     next_id: i64,
+    queued_events: VecDeque<Value>,
+    queued_responses: HashMap<i64, Value>,
 }
 
 impl CdpClient {
@@ -924,7 +952,12 @@ impl CdpClient {
         let (socket, _) = connect_async(ws_endpoint)
             .await
             .map_err(|error| anyhow!("Failed to connect to CDP endpoint: {}", error))?;
-        Ok(Self { socket, next_id: 0 })
+        Ok(Self {
+            socket,
+            next_id: 0,
+            queued_events: VecDeque::new(),
+            queued_responses: HashMap::new(),
+        })
     }
 
     async fn send_command(
@@ -952,27 +985,56 @@ impl CdpClient {
             .await
             .map_err(|error| anyhow!("Failed to send CDP command '{}': {}", method, error))?;
 
+        if let Some(payload) = self.queued_responses.remove(&request_id) {
+            return Self::extract_command_result(method, payload);
+        }
+
         loop {
             let payload = self.read_json_message().await?;
 
             let Some(response_id) = payload.get("id").and_then(Value::as_i64) else {
+                self.queued_events.push_back(payload);
                 continue;
             };
+
             if response_id != request_id {
+                self.queued_responses.insert(response_id, payload);
                 continue;
             }
 
-            if let Some(error) = payload.get("error") {
-                let message = error
-                    .get("message")
-                    .and_then(Value::as_str)
-                    .unwrap_or("Unknown CDP error")
-                    .to_string();
-                bail!("CDP command '{}' failed: {}", method, message);
-            }
-
-            return Ok(payload.get("result").cloned().unwrap_or_else(|| json!({})));
+            return Self::extract_command_result(method, payload);
         }
+    }
+
+    async fn poll_event(&mut self, timeout_window: Duration) -> Result<Option<Value>> {
+        if let Some(event) = self.queued_events.pop_front() {
+            return Ok(Some(event));
+        }
+
+        let payload = match timeout(timeout_window, self.read_json_message()).await {
+            Ok(result) => result?,
+            Err(_) => return Ok(None),
+        };
+
+        if let Some(response_id) = payload.get("id").and_then(Value::as_i64) {
+            self.queued_responses.insert(response_id, payload);
+            return Ok(None);
+        }
+
+        Ok(Some(payload))
+    }
+
+    fn extract_command_result(method: &str, payload: Value) -> Result<Value> {
+        if let Some(error) = payload.get("error") {
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .unwrap_or("Unknown CDP error")
+                .to_string();
+            bail!("CDP command '{}' failed: {}", method, message);
+        }
+
+        Ok(payload.get("result").cloned().unwrap_or_else(|| json!({})))
     }
 
     async fn read_json_message(&mut self) -> Result<Value> {
@@ -1001,6 +1063,91 @@ impl CdpClient {
                 .map_err(|error| anyhow!("Invalid CDP JSON payload: {}", error))?;
             return Ok(value);
         }
+    }
+}
+
+fn cdp_event_matches_session(event: &Value, expected_session: &str) -> bool {
+    match event.get("sessionId").and_then(Value::as_str) {
+        Some(session_id) => session_id == expected_session,
+        None => true,
+    }
+}
+
+#[derive(Debug, Default)]
+struct NavigationReadinessState {
+    saw_domcontentloaded: bool,
+    saw_load: bool,
+    inflight_requests: usize,
+    inflight_request_ids: HashSet<String>,
+}
+
+fn update_readiness_from_document_state(state: &mut NavigationReadinessState, ready_state: &str) {
+    if ready_state == "complete" {
+        state.saw_domcontentloaded = true;
+        state.saw_load = true;
+    } else if ready_state == "interactive" {
+        state.saw_domcontentloaded = true;
+    }
+}
+
+fn apply_navigation_event(
+    state: &mut NavigationReadinessState,
+    event: &Value,
+    expected_session: &str,
+) -> bool {
+    if !cdp_event_matches_session(event, expected_session) {
+        return false;
+    }
+
+    let Some(method) = event.get("method").and_then(Value::as_str) else {
+        return false;
+    };
+
+    match method {
+        "Page.lifecycleEvent" => {
+            let lifecycle_name = event.get("params").and_then(|params| params.get("name"));
+            match lifecycle_name.and_then(Value::as_str) {
+                Some("DOMContentLoaded") => {
+                    state.saw_domcontentloaded = true;
+                    false
+                }
+                Some("load") => {
+                    state.saw_domcontentloaded = true;
+                    state.saw_load = true;
+                    false
+                }
+                _ => false,
+            }
+        }
+        "Network.requestWillBeSent" => {
+            if let Some(request_id) = event
+                .get("params")
+                .and_then(|params| params.get("requestId"))
+                .and_then(Value::as_str)
+            {
+                if state.inflight_request_ids.insert(request_id.to_string()) {
+                    state.inflight_requests = state.inflight_requests.saturating_add(1);
+                }
+            } else {
+                state.inflight_requests = state.inflight_requests.saturating_add(1);
+            }
+            true
+        }
+        "Network.loadingFinished" | "Network.loadingFailed" => {
+            if let Some(request_id) = event
+                .get("params")
+                .and_then(|params| params.get("requestId"))
+                .and_then(Value::as_str)
+            {
+                if state.inflight_request_ids.remove(request_id) {
+                    state.inflight_requests = state.inflight_requests.saturating_sub(1);
+                }
+            } else {
+                state.inflight_requests = state.inflight_requests.saturating_sub(1);
+            }
+            true
+        }
+        _ => false,
     }
 }
 
@@ -1396,5 +1543,157 @@ mod tests {
         let script = build_dynamic_eval_script("1 + 2").unwrap();
         assert!(script.contains("1 + 2"));
         assert!(script.contains("eval"));
+    }
+
+    #[test]
+    fn cdp_event_session_matching_behaves_as_expected() {
+        let sessioned = json!({"sessionId": "abc", "method": "Page.loadEventFired"});
+        let without_session = json!({"method": "Browser.downloadProgress"});
+
+        assert!(cdp_event_matches_session(&sessioned, "abc"));
+        assert!(!cdp_event_matches_session(&sessioned, "xyz"));
+        assert!(cdp_event_matches_session(&without_session, "xyz"));
+    }
+
+    #[test]
+    fn update_readiness_tracks_document_ready_state() {
+        let mut state = NavigationReadinessState::default();
+
+        update_readiness_from_document_state(&mut state, "loading");
+        assert!(!state.saw_domcontentloaded);
+        assert!(!state.saw_load);
+
+        update_readiness_from_document_state(&mut state, "interactive");
+        assert!(state.saw_domcontentloaded);
+        assert!(!state.saw_load);
+
+        update_readiness_from_document_state(&mut state, "complete");
+        assert!(state.saw_domcontentloaded);
+        assert!(state.saw_load);
+    }
+
+    #[test]
+    fn apply_navigation_event_tracks_lifecycle_and_network() {
+        let mut state = NavigationReadinessState::default();
+
+        let dom_event = json!({
+            "sessionId": "page-session",
+            "method": "Page.lifecycleEvent",
+            "params": {"name": "DOMContentLoaded"}
+        });
+        assert!(!apply_navigation_event(
+            &mut state,
+            &dom_event,
+            "page-session"
+        ));
+        assert!(state.saw_domcontentloaded);
+        assert!(!state.saw_load);
+
+        let request_event = json!({
+            "sessionId": "page-session",
+            "method": "Network.requestWillBeSent"
+        });
+        assert!(apply_navigation_event(
+            &mut state,
+            &request_event,
+            "page-session"
+        ));
+        assert_eq!(state.inflight_requests, 1);
+
+        let load_event = json!({
+            "sessionId": "page-session",
+            "method": "Page.lifecycleEvent",
+            "params": {"name": "load"}
+        });
+        assert!(!apply_navigation_event(
+            &mut state,
+            &load_event,
+            "page-session"
+        ));
+        assert!(state.saw_load);
+
+        let finished_event = json!({
+            "sessionId": "page-session",
+            "method": "Network.loadingFinished"
+        });
+        assert!(apply_navigation_event(
+            &mut state,
+            &finished_event,
+            "page-session"
+        ));
+        assert_eq!(state.inflight_requests, 0);
+
+        let failed_event = json!({
+            "sessionId": "page-session",
+            "method": "Network.loadingFailed"
+        });
+        assert!(apply_navigation_event(
+            &mut state,
+            &failed_event,
+            "page-session"
+        ));
+        assert_eq!(state.inflight_requests, 0);
+    }
+
+    #[test]
+    fn apply_navigation_event_ignores_other_sessions() {
+        let mut state = NavigationReadinessState::default();
+        let event = json!({
+            "sessionId": "other-session",
+            "method": "Network.requestWillBeSent"
+        });
+
+        assert!(!apply_navigation_event(&mut state, &event, "page-session"));
+        assert_eq!(state.inflight_requests, 0);
+    }
+
+    #[test]
+    fn apply_navigation_event_deduplicates_request_ids() {
+        let mut state = NavigationReadinessState::default();
+
+        let first = json!({
+            "sessionId": "page-session",
+            "method": "Network.requestWillBeSent",
+            "params": {"requestId": "req-1"}
+        });
+        let duplicate = json!({
+            "sessionId": "page-session",
+            "method": "Network.requestWillBeSent",
+            "params": {"requestId": "req-1"}
+        });
+        let unknown_finish = json!({
+            "sessionId": "page-session",
+            "method": "Network.loadingFinished",
+            "params": {"requestId": "unknown"}
+        });
+        let matched_finish = json!({
+            "sessionId": "page-session",
+            "method": "Network.loadingFinished",
+            "params": {"requestId": "req-1"}
+        });
+
+        assert!(apply_navigation_event(&mut state, &first, "page-session"));
+        assert_eq!(state.inflight_requests, 1);
+
+        assert!(apply_navigation_event(
+            &mut state,
+            &duplicate,
+            "page-session"
+        ));
+        assert_eq!(state.inflight_requests, 1);
+
+        assert!(apply_navigation_event(
+            &mut state,
+            &unknown_finish,
+            "page-session"
+        ));
+        assert_eq!(state.inflight_requests, 1);
+
+        assert!(apply_navigation_event(
+            &mut state,
+            &matched_finish,
+            "page-session"
+        ));
+        assert_eq!(state.inflight_requests, 0);
     }
 }
