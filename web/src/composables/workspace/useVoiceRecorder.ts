@@ -12,7 +12,6 @@
 import { ref, computed, readonly, onUnmounted, type Ref, type ComputedRef } from 'vue'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import {
-  transcribeAudioStream,
   saveVoiceMessage,
   startLiveTranscription,
   sendLiveAudioChunk,
@@ -439,7 +438,7 @@ function int16BufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer)
   let binary = ''
   for (let i = 0; i < bytes.length; i++) {
-    binary += String.fromCharCode(bytes[i])
+    binary += String.fromCharCode(bytes[i]!)
   }
   return btoa(binary)
 }

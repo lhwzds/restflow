@@ -49,7 +49,7 @@ function setup() {
     // Compute RMS amplitude over the entire buffer
     let sum = 0
     for (let i = 0; i < timeData.length; i++) {
-      const v = (timeData[i] - 128) / 128
+      const v = (timeData[i]! - 128) / 128
       sum += v * v
     }
     const rms = Math.sqrt(sum / timeData.length)
@@ -91,7 +91,7 @@ function setup() {
     ctx.fillStyle = cachedColor
 
     for (let i = 0; i < BAR_COUNT; i++) {
-      const barHeight = Math.max(MIN_BAR_HEIGHT, history[i] * height)
+      const barHeight = Math.max(MIN_BAR_HEIGHT, (history[i] ?? 0) * height)
       const x = i * (barWidth + BAR_GAP)
       const y = halfHeight - barHeight / 2
 
