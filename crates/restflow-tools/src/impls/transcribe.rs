@@ -27,7 +27,11 @@ pub struct TranscribeConfig {
 impl Default for TranscribeConfig {
     fn default() -> Self {
         let mut allowed = vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))];
-        // Always allow the Telegram media download directory
+        // Allow the persistent media directory (~/.restflow/media/)
+        if let Ok(restflow_dir) = restflow_storage::paths::ensure_restflow_dir() {
+            allowed.push(restflow_dir.join("media"));
+        }
+        // Keep /tmp/restflow-media for backward compatibility with old files
         allowed.push(PathBuf::from("/tmp/restflow-media"));
         Self {
             allowed_paths: allowed,

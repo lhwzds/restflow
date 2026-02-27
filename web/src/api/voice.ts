@@ -48,10 +48,23 @@ export function transcribeAudioStream(
 /**
  * Save voice message audio file for AI processing.
  * Used for voice message mode (long press mic button).
+ * If sessionId is provided, saves directly to ~/.restflow/media/{sessionId}/.
  * Returns the file path where the audio was saved.
  */
-export function saveVoiceMessage(audioBase64: string): Promise<string> {
-  return tauriInvoke<string>('save_voice_message', { audioBase64 })
+export function saveVoiceMessage(audioBase64: string, sessionId?: string): Promise<string> {
+  return tauriInvoke<string>('save_voice_message', {
+    audioBase64,
+    sessionId: sessionId ?? null,
+  })
+}
+
+/**
+ * Read a media file from persistent storage (~/.restflow/media/).
+ * Returns the file contents as base64.
+ * Used for replaying voice messages after page reload.
+ */
+export function readMediaFile(filePath: string): Promise<string> {
+  return tauriInvoke<string>('read_media_file', { filePath })
 }
 
 /**

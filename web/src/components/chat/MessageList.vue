@@ -21,6 +21,7 @@ import {
 import { Button } from '@/components/ui/button'
 import StreamingMarkdown from '@/components/shared/StreamingMarkdown.vue'
 import VoiceMessageBubble from '@/components/chat/VoiceMessageBubble.vue'
+import { readMediaFile } from '@/api/voice'
 import { useToast } from '@/composables/useToast'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
@@ -76,11 +77,52 @@ async function copyMessage(content: string) {
   }
 }
 
-function getVoiceAudio(msg: ChatMessage): { blobUrl: string; duration: number } | null {
+/** Cache for blob URLs loaded from persistent storage */
+const loadedMediaUrls = ref<Map<string, { blobUrl: string; duration: number }>>(new Map())
+/** Tracks file paths currently being loaded to avoid duplicate requests */
+const loadingMediaPaths = ref<Set<string>>(new Set())
+
+function getVoiceFilePath(msg: ChatMessage): string | null {
   if (msg.role !== 'user') return null
   const match = msg.content.match(VOICE_MSG_PATTERN)
-  if (!match?.[1]) return null
-  return props.voiceAudioUrls?.get(match[1]) ?? null
+  return match?.[1] ?? null
+}
+
+function getVoiceAudio(msg: ChatMessage): { blobUrl: string; duration: number } | null {
+  const filePath = getVoiceFilePath(msg)
+  if (!filePath) return null
+  // Check in-memory cache first (fresh recordings from this session)
+  const cached = props.voiceAudioUrls?.get(filePath)
+  if (cached) return cached
+  // Check persistent storage cache (loaded from disk after page reload)
+  const loaded = loadedMediaUrls.value.get(filePath)
+  if (loaded) return loaded
+  // Trigger async load if not already loading
+  if (!loadingMediaPaths.value.has(filePath)) {
+    loadingMediaPaths.value.add(filePath)
+    loadMediaFromDisk(filePath)
+  }
+  return null
+}
+
+async function loadMediaFromDisk(filePath: string) {
+  try {
+    const base64 = await readMediaFile(filePath)
+    const binary = atob(base64)
+    const bytes = new Uint8Array(binary.length)
+    for (let i = 0; i < binary.length; i++) {
+      bytes[i] = binary.charCodeAt(i)
+    }
+    const ext = filePath.split('.').pop()?.toLowerCase() ?? 'webm'
+    const mimeType = ext === 'ogg' || ext === 'oga' ? 'audio/ogg' : `audio/${ext}`
+    const blob = new Blob([bytes], { type: mimeType })
+    const blobUrl = URL.createObjectURL(blob)
+    loadedMediaUrls.value.set(filePath, { blobUrl, duration: 0 })
+  } catch {
+    // File not found or not readable — silently ignore
+  } finally {
+    loadingMediaPaths.value.delete(filePath)
+  }
 }
 
 function scrollToBottom() {
@@ -119,12 +161,19 @@ onMounted(() => {
           <div class="text-xs text-muted-foreground mb-1">
             {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Assistant' : 'System' }}
           </div>
-          <!-- Voice message: show audio player -->
+          <!-- Voice message: show audio player or loading state -->
           <VoiceMessageBubble
             v-if="getVoiceAudio(msg)"
             :blob-url="getVoiceAudio(msg)!.blobUrl"
             :duration="getVoiceAudio(msg)!.duration"
           />
+          <div
+            v-else-if="getVoiceFilePath(msg) && loadingMediaPaths.has(getVoiceFilePath(msg)!)"
+            class="flex items-center gap-2 text-xs text-muted-foreground py-1"
+          >
+            <Loader2 :size="12" class="animate-spin" />
+            Loading voice message...
+          </div>
           <!-- Regular message -->
           <StreamingMarkdown v-else :content="msg.content || ''" />
         </div>

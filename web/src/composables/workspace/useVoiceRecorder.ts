@@ -43,6 +43,8 @@ export interface VoiceRecorderOptions {
   onTranscribed?: (text: string) => void
   onTranscribeDelta?: (delta: string, accumulated: string) => void
   onVoiceMessage?: (info: VoiceMessageInfo) => void
+  /** Optional getter for the current session ID. If provided, voice messages are saved directly to the session media directory. */
+  getSessionId?: () => string | undefined
 }
 
 export interface VoiceRecorderReturn {
@@ -75,7 +77,8 @@ export function setVoiceModel(model: string): void {
 }
 
 export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecorderReturn {
-  const { model, language, onTranscribed, onTranscribeDelta, onVoiceMessage } = options
+  const { model, language, onTranscribed, onTranscribeDelta, onVoiceMessage, getSessionId } =
+    options
 
   const state = ref<VoiceRecorderState>({
     isRecording: false,
@@ -379,7 +382,7 @@ export function useVoiceRecorder(options: VoiceRecorderOptions = {}): VoiceRecor
 
     state.value.isTranscribing = true
     try {
-      const filePath = await saveVoiceMessage(base64)
+      const filePath = await saveVoiceMessage(base64, getSessionId?.())
       const audioBlobUrl = URL.createObjectURL(blob)
       onVoiceMessage?.({ filePath, audioBlobUrl, durationSec: state.value.duration })
     } catch (err) {

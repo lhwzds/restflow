@@ -8,6 +8,7 @@ const DB_FILE: &str = "restflow.db";
 const CONFIG_FILE: &str = "config.json";
 const LOGS_DIR: &str = "logs";
 const SKILLS_DIR: &str = "skills";
+const MEDIA_DIR: &str = "media";
 
 /// Get the database path: ~/.restflow/restflow.db
 pub fn database_path() -> Result<PathBuf> {
@@ -39,6 +40,20 @@ pub fn logs_dir() -> Result<PathBuf> {
 /// User-global skills directory: ~/.restflow/skills/
 pub fn user_skills_dir() -> Result<PathBuf> {
     let dir = ensure_restflow_dir()?.join(SKILLS_DIR);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Media directory: ~/.restflow/media/
+pub fn media_dir() -> Result<PathBuf> {
+    let dir = ensure_restflow_dir()?.join(MEDIA_DIR);
+    std::fs::create_dir_all(&dir)?;
+    Ok(dir)
+}
+
+/// Session-scoped media directory: ~/.restflow/media/{session_id}/
+pub fn session_media_dir(session_id: &str) -> Result<PathBuf> {
+    let dir = media_dir()?.join(session_id);
     std::fs::create_dir_all(&dir)?;
     Ok(dir)
 }
