@@ -68,25 +68,25 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: BigInt(Date.now()),
+      timestamp: Date.now(),
       kind: { type: 'started', model: 'gpt-5' },
     })
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: BigInt(Date.now()),
+      timestamp: Date.now(),
       kind: { type: 'ack', content: '收到，我开始处理。' },
     })
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: BigInt(Date.now()),
+      timestamp: Date.now(),
       kind: { type: 'token', text: 'Hel', token_count: 1 },
     })
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: BigInt(Date.now()),
+      timestamp: Date.now(),
       kind: {
         type: 'tool_call_start',
         tool_id: 'tool-1',
@@ -97,7 +97,7 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: BigInt(Date.now()),
+      timestamp: Date.now(),
       kind: {
         type: 'tool_call_end',
         tool_id: 'tool-1',
@@ -108,11 +108,11 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-1',
-      timestamp: BigInt(Date.now()),
+      timestamp: Date.now(),
       kind: {
         type: 'completed',
         full_content: 'Hello world',
-        duration_ms: 120n,
+        duration_ms: 120,
         total_tokens: 12,
       },
     })
@@ -177,7 +177,7 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-other',
       message_id: 'msg-2',
-      timestamp: BigInt(Date.now()),
+      timestamp: Date.now(),
       kind: { type: 'token', text: 'ignored', token_count: 1 },
     })
 
@@ -235,11 +235,11 @@ describe('useChatStream', () => {
     emitEvent({
       session_id: 'session-1',
       message_id: 'msg-3',
-      timestamp: BigInt(Date.now()),
+      timestamp: Date.now(),
       kind: {
         type: 'completed',
         full_content: 'done',
-        duration_ms: 10n,
+        duration_ms: 10,
         total_tokens: 2,
       },
     })
