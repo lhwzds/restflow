@@ -25,42 +25,27 @@ use uuid::Uuid;
 const RESULT_MARKER: &str = "__RESTFLOW_BROWSER_RESULT__=";
 const DEFAULT_TIMEOUT_SECS: u64 = 120;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum BrowserKind {
+    #[default]
     Chromium,
 }
 
-impl Default for BrowserKind {
-    fn default() -> Self {
-        Self::Chromium
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptLanguage {
+    #[default]
     Js,
     Ts,
 }
 
-impl Default for ScriptLanguage {
-    fn default() -> Self {
-        Self::Js
-    }
-}
-
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum ScriptRuntime {
+    #[default]
     Auto,
     Node,
-}
-
-impl Default for ScriptRuntime {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
