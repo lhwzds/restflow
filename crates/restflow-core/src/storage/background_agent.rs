@@ -759,6 +759,30 @@ impl BackgroundAgentStorage {
         Ok(bg_message)
     }
 
+    /// Persist an agent-originated reply message for a background task.
+    ///
+    /// The message is stored directly as consumed to avoid re-injection into
+    /// the pending message pump (which only processes queued entries).
+    pub fn log_background_agent_reply(
+        &self,
+        background_agent_id: &str,
+        message: String,
+    ) -> Result<BackgroundMessage> {
+        if self.get_task(background_agent_id)?.is_none() {
+            return Err(anyhow::anyhow!("Task {} not found", background_agent_id));
+        }
+
+        let mut bg_message = BackgroundMessage::new(
+            background_agent_id.to_string(),
+            BackgroundMessageSource::Agent,
+            message,
+        );
+        bg_message.mark_delivered();
+        bg_message.mark_consumed();
+        self.persist_background_message(&bg_message, None)?;
+        Ok(bg_message)
+    }
+
     /// Get a background message by ID.
     pub fn get_background_message(&self, message_id: &str) -> Result<Option<BackgroundMessage>> {
         if let Some(bytes) = self.inner.get_background_message_raw(message_id)? {
@@ -1845,6 +1869,31 @@ mod tests {
         let progress = storage.get_background_agent_progress(&task.id, 5).unwrap();
         assert_eq!(progress.background_agent_id, task.id);
         assert_eq!(progress.pending_message_count, 0);
+    }
+
+    #[test]
+    fn test_log_background_agent_reply_is_not_queued() {
+        let storage = create_test_storage();
+        let task = storage
+            .create_task(
+                "Reply Task".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        let reply = storage
+            .log_background_agent_reply(&task.id, "ack".to_string())
+            .unwrap();
+        assert_eq!(reply.source, BackgroundMessageSource::Agent);
+        assert_eq!(reply.status, BackgroundMessageStatus::Consumed);
+        assert!(reply.delivered_at.is_some());
+        assert!(reply.consumed_at.is_some());
+
+        let pending = storage
+            .list_pending_background_messages(&task.id, 10)
+            .unwrap();
+        assert!(pending.is_empty());
     }
 
     #[test]
