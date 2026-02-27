@@ -33,10 +33,10 @@ export interface StreamState {
   steps: StreamStep[]
   /** Error message if failed */
   error: string | null
-  /** Stream start timestamp */
-  startedAt: bigint | null
-  /** Stream completion timestamp */
-  completedAt: bigint | null
+  /** Stream start timestamp (Unix ms) */
+  startedAt: number | null
+  /** Stream completion timestamp (Unix ms) */
+  completedAt: number | null
   /** Thinking/reasoning content */
   thinking: string
   /** Early assistant acknowledgement message */
@@ -202,7 +202,7 @@ export function useChatStream(sessionId: () => string | null) {
             ...createInitialState(),
             messageId: event.message_id,
             isStreaming: true,
-            startedAt: event.timestamp,
+            startedAt: Number(event.timestamp),
           }
           break
 
@@ -282,7 +282,7 @@ export function useChatStream(sessionId: () => string | null) {
             state.value.isStreaming = false
             state.value.content = kind.full_content
             state.value.tokenCount = kind.total_tokens
-            state.value.completedAt = event.timestamp
+            state.value.completedAt = Number(event.timestamp)
             void syncPersistedExecutionEvents(event.message_id)
           }
           break
@@ -358,8 +358,8 @@ export function useChatStream(sessionId: () => string | null) {
   const hasError: ComputedRef<boolean> = computed(() => state.value.error !== null)
   const duration: ComputedRef<number> = computed(() => {
     if (!state.value.startedAt) return 0
-    const end = state.value.completedAt ?? BigInt(Date.now())
-    return Number(end - state.value.startedAt)
+    const end = state.value.completedAt ?? Date.now()
+    return end - state.value.startedAt
   })
   const tokensPerSecond: ComputedRef<number> = computed(() => {
     const ms = duration.value
