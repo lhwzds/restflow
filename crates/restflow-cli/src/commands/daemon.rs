@@ -306,7 +306,6 @@ async fn run_and_log_cleanup(core: Arc<AppCore>) -> Result<()> {
         memory_sessions = report.memory_sessions,
         vector_orphans = report.vector_orphans,
         daemon_logs = report.daemon_log_files,
-        event_logs = report.legacy_log_files,
         "Storage cleanup completed"
     );
     Ok(())
