@@ -9,6 +9,7 @@ export type ToolPanelType =
   | 'search'
   | 'python'
   | 'web'
+  | 'browser'
   | 'notification'
   | 'generic'
 
@@ -48,6 +49,7 @@ const TOOL_PANEL_MAP: Record<string, ToolPanelType> = {
   python: 'python',
   web_fetch: 'web',
   jina_reader: 'web',
+  browser: 'browser',
   send_email: 'notification',
   email: 'notification',
   telegram_send: 'notification',
@@ -97,6 +99,10 @@ function toTitle(
   }
   if (panelType === 'http' && typeof data.url === 'string') {
     return `${toolName}: ${data.url}`
+  }
+  if (panelType === 'browser') {
+    const action = typeof data.action === 'string' ? data.action : ''
+    return action ? `browser: ${action}` : 'browser'
   }
   return toolName || 'Tool Result'
 }
@@ -168,7 +174,13 @@ export function useToolPanel() {
       panelType: 'canvas',
       title: toTitle('show_panel', 'canvas', data),
       data,
-      step: { type: 'tool_call', name: 'show_panel', status: 'completed', toolId, result: resultJson },
+      step: {
+        type: 'tool_call',
+        name: 'show_panel',
+        status: 'completed',
+        toolId,
+        result: resultJson,
+      },
       timestamp: Date.now(),
       status: 'completed',
     })

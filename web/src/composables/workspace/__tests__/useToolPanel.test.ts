@@ -31,6 +31,23 @@ describe('useToolPanel', () => {
     expect(panel.state.value.toolName).toBe('http_request')
   })
 
+  it('routes browser tool to browser panel type', () => {
+    const panel = useToolPanel()
+
+    panel.handleToolResult(
+      createStep({
+        name: 'browser',
+        toolId: 'tool-browser',
+        arguments: '{"action":"run_actions","session_id":"session-1"}',
+        result: '{"runtime":"cdp_chromium","exit_code":0}',
+      }),
+    )
+
+    expect(panel.state.value.panelType).toBe('browser')
+    expect(panel.state.value.title).toBe('browser: run_actions')
+    expect(panel.state.value.data.session_id).toBe('session-1')
+  })
+
   it('falls back to generic panel for unknown tool', () => {
     const panel = useToolPanel()
 
