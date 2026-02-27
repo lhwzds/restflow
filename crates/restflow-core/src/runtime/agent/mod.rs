@@ -9,7 +9,7 @@ use crate::models::AgentNode;
 use crate::storage::Storage;
 use restflow_ai::agent::DEFAULT_AGENT_PROMPT;
 
-const DEFAULT_MAIN_AGENT_PROMPT: &str = include_str!("../../../assets/agents/default_agent.md");
+const DEFAULT_MAIN_AGENT_PROMPT: &str = include_str!("../../../assets/agents/default.md");
 
 pub use tools::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool,

@@ -6,16 +6,16 @@ use tracing::warn;
 use uuid::Uuid;
 
 const AGENTS_DIR: &str = "agents";
-const DEFAULT_AGENT_PROMPT_FILE: &str = "default_agent.md";
-const BACKGROUND_AGENT_POLICY_FILE: &str = "background_agent_policy.md";
+const DEFAULT_AGENT_PROMPT_FILE: &str = "default.md";
+const BACKGROUND_AGENT_POLICY_FILE: &str = "background_agent.md";
 const AGENT_ID_METADATA_PREFIX: &str = "<!-- restflow-agent-id: ";
 const METADATA_SUFFIX: &str = " -->";
 /// Environment variable to override the agents directory path (used in tests).
 pub const AGENTS_DIR_ENV: &str = "RESTFLOW_AGENTS_DIR";
 
-const DEFAULT_AGENT_PROMPT_ASSET: &str = include_str!("../assets/agents/default_agent.md");
+const DEFAULT_AGENT_PROMPT_ASSET: &str = include_str!("../assets/agents/default.md");
 const BACKGROUND_AGENT_POLICY_ASSET: &str =
-    include_str!("../assets/agents/background_agent_policy.md");
+    include_str!("../assets/agents/background_agent.md");
 
 pub fn ensure_prompt_templates() -> Result<()> {
     ensure_prompt_template_file(BACKGROUND_AGENT_POLICY_FILE, BACKGROUND_AGENT_POLICY_ASSET)?;
