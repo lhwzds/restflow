@@ -10,6 +10,7 @@ use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
 use crate::auth::AuthProfileManager;
+use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::channel::{
     ChannelReplySender, ChannelRouter, ChannelType, InboundMessage, OutboundMessage,
 };
@@ -334,6 +335,12 @@ impl ChatSessionManager {
         );
 
         self.storage.chat_sessions.save(&session)?;
+
+        publish_session_event(ChatSessionEvent::MessageAdded {
+            session_id: session_id.to_string(),
+            source: "channel".to_string(),
+        });
+
         Ok(())
     }
 

@@ -9,6 +9,7 @@ use crate::models::{
     ChatSession, ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult,
     MemorySession, MemoryStats, Skill, TerminalSession,
 };
+use crate::daemon::session_events::ChatSessionEvent;
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
 use anyhow::{Context, Result, bail};
@@ -798,6 +799,44 @@ impl IpcClient {
                 }
                 IpcResponse::Pong => {
                     bail!("Unexpected Pong response while reading background stream")
+                }
+            }
+        }
+    }
+
+    pub async fn subscribe_session_events<F>(&mut self, mut on_event: F) -> Result<()>
+    where
+        F: FnMut(ChatSessionEvent) -> Result<()>,
+    {
+        self.send_request_frame(&IpcRequest::SubscribeSessionEvents)
+            .await?;
+
+        loop {
+            let buf = self.read_raw_frame().await?;
+
+            if let Ok(frame) = serde_json::from_slice::<StreamFrame>(&buf) {
+                match frame {
+                    StreamFrame::Start { .. } => {}
+                    StreamFrame::SessionEvent { event } => {
+                        on_event(event)?;
+                    }
+                    StreamFrame::Error { code, message } => {
+                        bail!("Session event stream error {}: {}", code, message);
+                    }
+                    StreamFrame::Done { .. } => break Ok(()),
+                    _ => {}
+                }
+                continue;
+            }
+
+            let response: IpcResponse = serde_json::from_slice(&buf)
+                .context("Failed to deserialize session event stream frame")?;
+            match response {
+                IpcResponse::Error { code, message } => {
+                    bail!("IPC error {}: {}", code, message);
+                }
+                _ => {
+                    bail!("Unexpected response while reading session event stream")
                 }
             }
         }

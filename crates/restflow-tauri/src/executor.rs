@@ -1,7 +1,7 @@
 use crate::daemon_manager::DaemonManager;
 use anyhow::Result;
 use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
-use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse, StreamFrame};
+use restflow_core::daemon::{ChatSessionEvent, IpcClient, IpcRequest, IpcResponse, StreamFrame};
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
@@ -217,6 +217,20 @@ impl TauriExecutor {
         client
             .subscribe_background_agent_events(background_agent_id, on_event)
             .await
+    }
+
+    pub async fn subscribe_session_events<F>(&self, on_event: F) -> Result<()>
+    where
+        F: FnMut(ChatSessionEvent) -> Result<()>,
+    {
+        {
+            let mut daemon = self.daemon.lock().await;
+            let _ = daemon.ensure_connected().await?;
+        }
+
+        let socket_path = paths::socket_path()?;
+        let mut client = IpcClient::connect(&socket_path).await?;
+        client.subscribe_session_events(on_event).await
     }
 
     pub async fn send_background_agent_message(

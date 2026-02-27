@@ -9,10 +9,12 @@ mod logging;
 mod mcp;
 mod process;
 pub mod recovery;
+pub(crate) mod session_events;
 mod supervisor;
 
 pub use background_events::{publish_background_event, subscribe_background_events};
 pub use core_access::CoreAccess;
+pub use session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 pub use health::{HealthChecker, HealthStatus, check_health};
 pub use ipc_client::{IpcClient, is_daemon_available};
 pub use ipc_protocol::{
