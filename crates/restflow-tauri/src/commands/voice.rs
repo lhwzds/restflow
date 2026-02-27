@@ -4,6 +4,7 @@
 //! - `transcribe_audio`: Voice-to-text via daemon's transcribe tool
 //! - `transcribe_audio_stream`: Streaming voice-to-text via OpenAI API directly
 //! - `save_voice_message`: Save audio file for AI transcribe tool usage
+//! - `read_media_file`: Read a media file from persistent storage as base64
 //! - `start_live_transcription`: Live transcription via OpenAI Realtime WebSocket API
 //! - `send_live_audio_chunk`: Forward PCM16 audio chunks to an active live session
 //! - `stop_live_transcription`: Stop a live transcription session
@@ -145,12 +146,35 @@ pub async fn transcribe_audio(
     }
 }
 
-/// Save audio as a file for AI to process with transcribe tool
+/// Save audio as a file for AI to process with transcribe tool.
+/// If `session_id` is provided, saves directly to `~/.restflow/media/{session_id}/`.
+/// Otherwise saves to `~/.restflow/media/` (will be relocated by ChatDispatcher later).
 #[tauri::command]
-pub async fn save_voice_message(audio_base64: String) -> Result<String, String> {
-    let file_path = save_audio_to_temp(&audio_base64)?;
+pub async fn save_voice_message(
+    audio_base64: String,
+    session_id: Option<String>,
+) -> Result<String, String> {
+    let file_path = save_audio_to_session(&audio_base64, session_id.as_deref())?;
     debug!(path = %file_path, "Saved voice message file");
     Ok(file_path)
+}
+
+/// Read a media file from `~/.restflow/media/` and return its contents as base64.
+/// Path must be under the media directory for security.
+#[tauri::command]
+pub async fn read_media_file(file_path: String) -> Result<String, String> {
+    let media_dir = restflow_core::paths::media_dir()
+        .map_err(|e| format!("Failed to resolve media dir: {}", e))?;
+    let requested = std::path::Path::new(&file_path);
+
+    // Security: ensure the path is under ~/.restflow/media/
+    if !requested.starts_with(&media_dir) {
+        return Err("Path is not within the media directory".to_string());
+    }
+
+    let bytes =
+        std::fs::read(requested).map_err(|e| format!("Failed to read media file: {}", e))?;
+    Ok(base64::engine::general_purpose::STANDARD.encode(&bytes))
 }
 
 /// Streaming voice-to-text: calls OpenAI API directly with stream=true,
@@ -805,6 +829,27 @@ fn emit_failed(
 fn cleanup_session(transcribe_id: &str) {
     let mut sessions = live_sessions().write().unwrap();
     sessions.remove(transcribe_id);
+}
+
+/// Decode base64 audio and write to `~/.restflow/media/{session_id}/` (or `~/.restflow/media/` if no session).
+fn save_audio_to_session(audio_base64: &str, session_id: Option<&str>) -> Result<String, String> {
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(audio_base64)
+        .map_err(|e| format!("Failed to decode base64 audio: {}", e))?;
+
+    let dir = match session_id {
+        Some(sid) => restflow_core::paths::session_media_dir(sid)
+            .map_err(|e| format!("Failed to create session media dir: {}", e))?,
+        None => restflow_core::paths::media_dir()
+            .map_err(|e| format!("Failed to create media dir: {}", e))?,
+    };
+
+    let filename = format!("voice-{}.webm", uuid::Uuid::new_v4());
+    let file_path = dir.join(&filename);
+
+    std::fs::write(&file_path, &bytes).map_err(|e| format!("Failed to write audio file: {}", e))?;
+
+    Ok(file_path.to_string_lossy().to_string())
 }
 
 /// Decode base64 audio and write to a temp file under /tmp/restflow-media/

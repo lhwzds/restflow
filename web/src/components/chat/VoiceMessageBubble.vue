@@ -10,11 +10,12 @@ const props = defineProps<{
 const audio = ref<HTMLAudioElement | null>(null)
 const isPlaying = ref(false)
 const currentTime = ref(0)
+const audioDuration = ref(props.duration)
 
-const displayDuration = computed(() => formatTime(props.duration))
+const displayDuration = computed(() => formatTime(audioDuration.value))
 const displayCurrent = computed(() => formatTime(Math.floor(currentTime.value)))
 const progress = computed(() =>
-  props.duration > 0 ? (currentTime.value / props.duration) * 100 : 0,
+  audioDuration.value > 0 ? (currentTime.value / audioDuration.value) * 100 : 0,
 )
 
 function formatTime(sec: number): string {
@@ -49,6 +50,11 @@ onMounted(() => {
   audio.value.addEventListener('play', () => (isPlaying.value = true))
   audio.value.addEventListener('pause', () => (isPlaying.value = false))
   audio.value.addEventListener('ended', onEnded)
+  audio.value.addEventListener('loadedmetadata', () => {
+    if (audio.value && isFinite(audio.value.duration) && audio.value.duration > 0) {
+      audioDuration.value = Math.floor(audio.value.duration)
+    }
+  })
 })
 
 onUnmounted(() => {

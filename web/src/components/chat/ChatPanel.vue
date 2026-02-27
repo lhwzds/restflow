@@ -367,6 +367,10 @@ async function handleRegenerate() {
   }
 }
 
+function getSessionId(): string | undefined {
+  return chatSessionStore.currentSessionId ?? undefined
+}
+
 async function onSendVoiceMessage(info: VoiceMessageInfo) {
   const message = `[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: ${info.filePath}\ninstruction: Use the transcribe tool with this file_path before answering.`
 
@@ -485,6 +489,7 @@ defineExpose({
         :total-tokens="totalTokens"
         :tokens-per-second="tokensPerSecond"
         :duration-ms="durationMs"
+        :get-session-id="getSessionId"
         @send="onSendMessage"
         @send-voice-message="onSendVoiceMessage"
         @cancel="handleCancel"

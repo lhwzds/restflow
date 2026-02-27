@@ -33,6 +33,8 @@ const props = defineProps<{
   totalTokens?: number
   tokensPerSecond?: number
   durationMs?: number
+  /** Optional getter for session ID, used to save voice messages to the correct session directory */
+  getSessionId?: () => string | undefined
 }>()
 
 const emit = defineEmits<{
@@ -64,6 +66,7 @@ const recorder = useVoiceRecorder({
   onVoiceMessage: (info) => {
     emit('sendVoiceMessage', info)
   },
+  getSessionId: () => props.getSessionId?.(),
 })
 
 // Show toast on voice recorder errors

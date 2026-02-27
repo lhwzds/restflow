@@ -18,7 +18,7 @@ use crate::models::{AIModel, ChatMessage, ChatSession, ChatSessionSource};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
-    PersistingStreamEmitter, append_turn_completed, append_turn_failed, append_turn_started,
+    ToolTraceEmitter, append_turn_completed, append_turn_failed, append_turn_started,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
@@ -505,13 +505,14 @@ impl ChatDispatcher {
     ///
     /// For voice messages, we attach a media context block so the main agent
     /// can call the `transcribe` tool with a concrete local file path.
-    fn build_agent_input(message: &InboundMessage) -> String {
+    fn build_agent_input(message: &InboundMessage, file_path_override: Option<&str>) -> String {
         let Some(metadata) = message.metadata.as_ref() else {
             return message.content.clone();
         };
 
         let media_type = metadata.get("media_type").and_then(|value| value.as_str());
-        let file_path = metadata.get("file_path").and_then(|value| value.as_str());
+        let file_path = file_path_override
+            .or_else(|| metadata.get("file_path").and_then(|value| value.as_str()));
 
         match (media_type, file_path) {
             (Some("voice"), Some(path)) => format!(
@@ -523,14 +524,58 @@ impl ChatDispatcher {
         }
     }
 
+    /// Relocate a media file from `~/.restflow/media/` to `~/.restflow/media/{session_id}/`
+    /// if it's not already in a session subdirectory.
+    /// Returns the new path if relocated, or None if no relocation was needed.
+    fn relocate_media_to_session(
+        metadata: Option<&serde_json::Value>,
+        session_id: &str,
+    ) -> Option<String> {
+        let metadata = metadata?;
+        let file_path_str = metadata.get("file_path").and_then(|v| v.as_str())?;
+        let file_path = std::path::Path::new(file_path_str);
+
+        let media_dir = crate::paths::media_dir().ok()?;
+
+        // Only relocate files that are directly in ~/.restflow/media/ (not already in a session subdir)
+        if file_path.parent()? != media_dir {
+            return None;
+        }
+
+        let session_dir = crate::paths::session_media_dir(session_id).ok()?;
+        let file_name = file_path.file_name()?;
+        let new_path = session_dir.join(file_name);
+
+        match std::fs::rename(file_path, &new_path) {
+            Ok(()) => {
+                debug!(
+                    old_path = %file_path_str,
+                    new_path = %new_path.display(),
+                    session_id,
+                    "Relocated media file to session directory"
+                );
+                Some(new_path.to_string_lossy().to_string())
+            }
+            Err(e) => {
+                warn!(
+                    error = %e,
+                    old_path = %file_path_str,
+                    "Failed to relocate media file to session directory"
+                );
+                None
+            }
+        }
+    }
+
     /// Dispatch a message to the AI agent.
     pub async fn dispatch(&self, message: &InboundMessage) -> Result<()> {
-        let agent_input = Self::build_agent_input(message);
+        // 1. Build initial agent input (before session is known)
+        let initial_input = Self::build_agent_input(message, None);
 
-        // 1. Debounce messages
-        let input = match self
+        // 2. Debounce messages
+        let debounced = match self
             .debouncer
-            .debounce(&message.conversation_id, &agent_input)
+            .debounce(&message.conversation_id, &initial_input)
             .await
         {
             Some(text) => text,
@@ -544,7 +589,7 @@ impl ChatDispatcher {
             }
         };
 
-        // 2. Get or create session
+        // 3. Get or create session
         let mut session = match self
             .sessions
             .get_or_create_session(
@@ -561,6 +606,16 @@ impl ChatDispatcher {
                     .await?;
                 return Ok(());
             }
+        };
+
+        // 4. Relocate media to session directory and rebuild input if path changed
+        let relocated_path =
+            Self::relocate_media_to_session(message.metadata.as_ref(), &session.id);
+        let input = if relocated_path.is_some() {
+            // Rebuild the agent input with the relocated file path
+            Self::build_agent_input(message, relocated_path.as_deref())
+        } else {
+            debounced
         };
 
         info!(
@@ -586,10 +641,10 @@ impl ChatDispatcher {
         ));
         let executor = self.create_executor().with_reply_sender(reply_sender);
         let turn_id = uuid::Uuid::new_v4().to_string();
-        append_turn_started(&self.storage.chat_execution_events, &session.id, &turn_id);
-        let mut tool_event_emitter = Some(Box::new(PersistingStreamEmitter::new(
+        append_turn_started(&self.storage.tool_traces, &session.id, &turn_id);
+        let mut tool_event_emitter = Some(Box::new(ToolTraceEmitter::new(
             Box::new(NullEmitter),
-            self.storage.chat_execution_events.clone(),
+            self.storage.tool_traces.clone(),
             session.id.clone(),
             turn_id.clone(),
         )) as Box<dyn StreamEmitter>);
@@ -609,7 +664,7 @@ impl ChatDispatcher {
                 Ok(result) => result,
                 Err(_) => {
                     append_turn_failed(
-                        &self.storage.chat_execution_events,
+                        &self.storage.tool_traces,
                         &session.id,
                         &turn_id,
                         &format!("execution timed out after {} seconds", timeout_secs),
@@ -636,7 +691,7 @@ impl ChatDispatcher {
             Ok(result) => result,
             Err(error) => {
                 append_turn_failed(
-                    &self.storage.chat_execution_events,
+                    &self.storage.tool_traces,
                     &session.id,
                     &turn_id,
                     &error.to_string(),
@@ -647,7 +702,7 @@ impl ChatDispatcher {
                 return Ok(());
             }
         };
-        append_turn_completed(&self.storage.chat_execution_events, &session.id, &turn_id);
+        append_turn_completed(&self.storage.tool_traces, &session.id, &turn_id);
 
         if session.agent_id != original_agent_id {
             match self
@@ -785,7 +840,7 @@ mod tests {
     #[test]
     fn test_build_agent_input_plain_text_unchanged() {
         let message = create_message("hello");
-        let input = ChatDispatcher::build_agent_input(&message);
+        let input = ChatDispatcher::build_agent_input(&message, None);
         assert_eq!(input, "hello");
     }
 
@@ -796,7 +851,7 @@ mod tests {
             "file_path": "/tmp/restflow-media/tg-voice.ogg"
         }));
 
-        let input = ChatDispatcher::build_agent_input(&message);
+        let input = ChatDispatcher::build_agent_input(&message, None);
         assert!(input.contains("media_type: voice"));
         assert!(input.contains("local_file_path: /tmp/restflow-media/tg-voice.ogg"));
         assert!(input.contains("Use the transcribe tool with this file_path"));
@@ -808,7 +863,7 @@ mod tests {
             "media_type": "voice"
         }));
 
-        let input = ChatDispatcher::build_agent_input(&message);
+        let input = ChatDispatcher::build_agent_input(&message, None);
         assert_eq!(input, "[Voice message, 6s]");
     }
 

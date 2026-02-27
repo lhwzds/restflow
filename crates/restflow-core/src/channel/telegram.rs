@@ -251,7 +251,8 @@ impl TelegramChannel {
     async fn download_telegram_file(&self, file_id: &str) -> Result<Option<String>> {
         #[cfg(test)]
         if file_id.starts_with("test-") {
-            return Ok(Some(format!("/tmp/restflow-media/{}", file_id)));
+            let dir = crate::paths::media_dir()?;
+            return Ok(Some(dir.join(file_id).to_string_lossy().to_string()));
         }
 
         let url = self.api_url("getFile");
@@ -303,8 +304,7 @@ impl TelegramChannel {
         }
 
         let bytes = response.bytes().await?;
-        let dir = "/tmp/restflow-media";
-        fs::create_dir_all(dir).await?;
+        let dir = crate::paths::media_dir()?;
 
         let extension = Path::new(&file_path)
             .extension()
@@ -313,11 +313,11 @@ impl TelegramChannel {
             .unwrap_or_default();
 
         let filename = format!("tg-{}{}", Uuid::new_v4(), extension);
-        let local_path = format!("{}/{}", dir, filename);
+        let local_path = dir.join(&filename);
 
         fs::write(&local_path, bytes).await?;
 
-        Ok(Some(local_path))
+        Ok(Some(local_path.to_string_lossy().to_string()))
     }
 
     /// Convert Telegram update to InboundMessage
@@ -1081,7 +1081,9 @@ mod tests {
         assert_eq!(inbound.content, "[Voice message, 5s]");
         let metadata = inbound.metadata.unwrap();
         assert_eq!(metadata["media_type"], "voice");
-        assert_eq!(metadata["file_path"], "/tmp/restflow-media/test-voice");
+        let media_dir = crate::paths::media_dir().unwrap();
+        let expected_path = media_dir.join("test-voice").to_string_lossy().to_string();
+        assert_eq!(metadata["file_path"], expected_path);
     }
 
     #[tokio::test]
@@ -1137,10 +1139,12 @@ mod tests {
         assert_eq!(inbound.content, "[Photo] Look");
         let metadata = inbound.metadata.unwrap();
         assert_eq!(metadata["media_type"], "photo");
-        assert_eq!(
-            metadata["file_path"],
-            "/tmp/restflow-media/test-photo-large"
-        );
+        let media_dir = crate::paths::media_dir().unwrap();
+        let expected_path = media_dir
+            .join("test-photo-large")
+            .to_string_lossy()
+            .to_string();
+        assert_eq!(metadata["file_path"], expected_path);
     }
 
     #[tokio::test]
@@ -1189,7 +1193,9 @@ mod tests {
         assert_eq!(inbound.content, "[Video, 12s]");
         let metadata = inbound.metadata.unwrap();
         assert_eq!(metadata["media_type"], "video");
-        assert_eq!(metadata["file_path"], "/tmp/restflow-media/test-video");
+        let media_dir = crate::paths::media_dir().unwrap();
+        let expected_path = media_dir.join("test-video").to_string_lossy().to_string();
+        assert_eq!(metadata["file_path"], expected_path);
     }
 }
 
