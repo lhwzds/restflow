@@ -222,6 +222,19 @@ impl AgentExecutor {
             .await
     }
 
+    /// Execute agent in non-stream mode while still emitting execution events.
+    ///
+    /// This preserves non-streaming LLM behavior and is intended for runtimes that
+    /// require tool call traces even when token streaming is disabled.
+    pub async fn run_with_emitter(
+        &self,
+        config: AgentConfig,
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<AgentResult> {
+        self.execute_with_mode(config, emitter, false, None, None)
+            .await
+    }
+
     #[deprecated(note = "Use run() or stream-based execution APIs")]
     pub async fn execute_streaming(
         &self,
@@ -257,6 +270,21 @@ impl AgentExecutor {
         let execution_id = state.execution_id.clone();
         let mut emitter = NullEmitter;
         self.execute_with_mode(config, &mut emitter, false, Some(execution_id), Some(state))
+            .await
+    }
+
+    /// Resume execution from an existing state snapshot in non-stream mode while
+    /// emitting execution events.
+    pub async fn run_from_state_with_emitter(
+        &self,
+        config: AgentConfig,
+        mut state: AgentState,
+        emitter: &mut dyn StreamEmitter,
+    ) -> Result<AgentResult> {
+        state.status = AgentStatus::Running;
+        state.ended_at = None;
+        let execution_id = state.execution_id.clone();
+        self.execute_with_mode(config, emitter, false, Some(execution_id), Some(state))
             .await
     }
 
