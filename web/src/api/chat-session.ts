@@ -87,6 +87,13 @@ export async function deleteChatSession(id: string): Promise<boolean> {
 }
 
 /**
+ * Rebuild an externally managed session (Telegram/Discord/Slack) with a fresh history.
+ */
+export async function rebuildExternalChatSession(id: string): Promise<ChatSession> {
+  return tauriInvoke<ChatSession>('rebuild_external_chat_session', { id })
+}
+
+/**
  * Add a message to a chat session.
  */
 export async function addChatMessage(
