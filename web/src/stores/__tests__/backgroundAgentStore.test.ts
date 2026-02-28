@@ -11,6 +11,7 @@ vi.mock('@/api/background-agents', () => ({
   cancelBackgroundAgent: vi.fn(),
   runBackgroundAgentStreaming: vi.fn(),
   deleteBackgroundAgent: vi.fn(),
+  convertSessionToBackgroundAgent: vi.fn(),
 }))
 
 /**
@@ -183,7 +184,10 @@ describe('backgroundAgentStore', () => {
       it('toggles isLoading while fetching', async () => {
         let resolveFetch: (value: BackgroundAgent[]) => void
         vi.mocked(api.listBackgroundAgents).mockImplementation(
-          () => new Promise((resolve) => { resolveFetch = resolve }),
+          () =>
+            new Promise((resolve) => {
+              resolveFetch = resolve
+            }),
         )
 
         const store = useBackgroundAgentStore()
@@ -296,6 +300,45 @@ describe('backgroundAgentStore', () => {
 
         expect(result).toBe(false)
         expect(store.error).toBe('Delete failed')
+      })
+    })
+
+    describe('convertSessionToAgent', () => {
+      it('calls API, appends converted agent, and returns it on success', async () => {
+        const converted = createMockAgent('a-converted', 'active')
+        vi.mocked(api.convertSessionToBackgroundAgent).mockResolvedValue(converted)
+
+        const store = useBackgroundAgentStore()
+        store.agents = [createMockAgent('a1')]
+
+        const result = await store.convertSessionToAgent({
+          session_id: 'session-1',
+          name: 'Background: Session 1',
+          run_now: true,
+        })
+
+        expect(api.convertSessionToBackgroundAgent).toHaveBeenCalledWith({
+          session_id: 'session-1',
+          name: 'Background: Session 1',
+          run_now: true,
+        })
+        expect(result).toEqual(converted)
+        expect(store.agents.map((agent) => agent.id)).toEqual(['a1', 'a-converted'])
+        expect(store.error).toBeNull()
+      })
+
+      it('returns null and sets error on failure', async () => {
+        vi.mocked(api.convertSessionToBackgroundAgent).mockRejectedValue(
+          new Error('Convert failed'),
+        )
+
+        const store = useBackgroundAgentStore()
+        const result = await store.convertSessionToAgent({
+          session_id: 'session-1',
+        })
+
+        expect(result).toBeNull()
+        expect(store.error).toBe('Convert failed')
       })
     })
 
