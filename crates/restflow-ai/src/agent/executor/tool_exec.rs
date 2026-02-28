@@ -16,6 +16,23 @@ use crate::tools::{ToolErrorCategory, ToolRegistry};
 use super::{AgentExecutor, MAX_TOOL_RETRIES};
 
 impl AgentExecutor {
+    fn inject_spawn_parent_execution_id(
+        tool_name: &str,
+        args: &mut Value,
+        parent_execution_id: Option<&str>,
+    ) {
+        if tool_name != "spawn_agent" {
+            return;
+        }
+        let Some(parent_execution_id) = parent_execution_id else {
+            return;
+        };
+        if let Some(map) = args.as_object_mut() {
+            map.entry("parent_execution_id".to_string())
+                .or_insert_with(|| Value::String(parent_execution_id.to_string()));
+        }
+    }
+
     pub(crate) async fn execute_tools_with_events(
         &self,
         tool_calls: &[ToolCall],
@@ -23,6 +40,7 @@ impl AgentExecutor {
         tool_timeout: Duration,
         yolo_mode: bool,
         max_tool_concurrency: usize,
+        parent_execution_id: Option<&str>,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         self.execute_tools_parallel(
             tool_calls,
@@ -30,6 +48,7 @@ impl AgentExecutor {
             tool_timeout,
             yolo_mode,
             max_tool_concurrency,
+            parent_execution_id,
         )
         .await
     }
@@ -175,10 +194,13 @@ impl AgentExecutor {
         tool_timeout: Duration,
         yolo_mode: bool,
         max_concurrency: usize,
+        parent_execution_id: Option<&str>,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         // 1. Emit start events for all tool calls upfront
         for call in tool_calls {
-            let arguments = serde_json::to_string(&call.arguments).unwrap_or_default();
+            let mut args = call.arguments.clone();
+            Self::inject_spawn_parent_execution_id(&call.name, &mut args, parent_execution_id);
+            let arguments = serde_json::to_string(&args).unwrap_or_default();
             emitter
                 .emit_tool_call_start(&call.id, &call.name, &arguments)
                 .await;
@@ -192,7 +214,8 @@ impl AgentExecutor {
             let tools = Arc::clone(&self.tools);
             let sem = Arc::clone(&semaphore);
             let name = call.name.clone();
-            let args = call.arguments.clone();
+            let mut args = call.arguments.clone();
+            Self::inject_spawn_parent_execution_id(&call.name, &mut args, parent_execution_id);
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
 

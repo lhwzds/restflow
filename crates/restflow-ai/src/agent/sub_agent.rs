@@ -426,6 +426,7 @@ pub fn spawn_subagent(
     let agent_name_for_register = agent_def.name.clone();
     let agent_name_for_return = agent_def.name.clone();
     let task_for_register = request.task.clone();
+    let parent_execution_id = request.parent_execution_id.clone();
 
     let task = request.task.clone();
     let tracker_clone = tracker.clone();
@@ -463,6 +464,7 @@ pub fn spawn_subagent(
                 agent_def,
                 task.clone(),
                 config_clone,
+                parent_execution_id.clone(),
             ),
         )
         .await;
@@ -548,6 +550,7 @@ async fn execute_subagent(
     agent_def: SubagentDefSnapshot,
     task: String,
     config: SubagentConfig,
+    parent_execution_id: Option<String>,
 ) -> Result<AgentResult> {
     // depth=1: direct child of the parent agent
     let registry = build_registry_for_agent(
@@ -567,6 +570,7 @@ async fn execute_subagent(
         task.clone(),
         agent_def.system_prompt.clone(),
         max_iterations,
+        parent_execution_id.as_deref(),
     );
 
     let executor = AgentExecutor::new(llm_client, registry);
@@ -579,6 +583,7 @@ fn build_subagent_agent_config(
     task: String,
     system_prompt: String,
     max_iterations: usize,
+    parent_execution_id: Option<&str>,
 ) -> AgentConfig {
     let mut agent_config = AgentConfig::new(task);
     agent_config.system_prompt = Some(system_prompt);
@@ -592,7 +597,7 @@ fn build_subagent_agent_config(
         "execution_context",
         json!({
             "role": "subagent",
-            "parent_execution_id": null,
+            "parent_execution_id": parent_execution_id,
         }),
     );
     agent_config = agent_config.with_context("execution_role", json!("subagent"));
@@ -719,14 +724,33 @@ mod tests {
 
     #[test]
     fn build_subagent_agent_config_sets_execution_context() {
-        let config =
-            build_subagent_agent_config("Sub-task".to_string(), "System prompt".to_string(), 3);
+        let config = build_subagent_agent_config(
+            "Sub-task".to_string(),
+            "System prompt".to_string(),
+            3,
+            None,
+        );
 
         assert_eq!(
             config.context.get("execution_role"),
             Some(&serde_json::Value::String("subagent".to_string()))
         );
         assert_eq!(config.context["execution_context"]["role"], "subagent");
+    }
+
+    #[test]
+    fn build_subagent_agent_config_sets_parent_execution_id_when_provided() {
+        let config = build_subagent_agent_config(
+            "Sub-task".to_string(),
+            "System prompt".to_string(),
+            3,
+            Some("exec-parent-1"),
+        );
+
+        assert_eq!(
+            config.context["execution_context"]["parent_execution_id"],
+            "exec-parent-1"
+        );
     }
 
     /// Minimal mock for sub-agent definitions used in integration tests.
@@ -768,6 +792,7 @@ mod tests {
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
             model: None,
+            parent_execution_id: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -947,6 +972,7 @@ mod tests {
                 timeout_secs: Some(10),
                 priority: None,
                 model: None,
+                parent_execution_id: None,
             },
             None,
         );
@@ -965,6 +991,7 @@ mod tests {
                 timeout_secs: Some(10),
                 priority: None,
                 model: None,
+                parent_execution_id: None,
             },
             None,
         );
@@ -1049,8 +1076,12 @@ mod tests {
 
     #[test]
     fn test_subagent_config_disables_workspace_instruction_injection() {
-        let config =
-            build_subagent_agent_config("task".to_string(), "You are subagent".to_string(), 7);
+        let config = build_subagent_agent_config(
+            "task".to_string(),
+            "You are subagent".to_string(),
+            7,
+            None,
+        );
         assert_eq!(config.max_iterations, 7);
         assert_eq!(config.system_prompt.as_deref(), Some("You are subagent"));
         assert!(!config.prompt_flags.include_workspace_context);
