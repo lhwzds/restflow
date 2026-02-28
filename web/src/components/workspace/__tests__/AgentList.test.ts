@@ -129,4 +129,41 @@ describe('AgentList', () => {
     expect(deleteButton).toBeUndefined()
     expect(wrapper.emitted('delete')).toBeUndefined()
   })
+
+  it('renders a larger menu trigger hit area for delete actions', () => {
+    const wrapper = mount(AgentList, {
+      props: {
+        agents: [{ id: 'agent-1', name: 'Agent One', path: 'agents/agent-1' }],
+        selectedAgentId: 'agent-1',
+      },
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenu: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuTrigger: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuContent: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuItem: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
+        },
+      },
+    })
+
+    const triggerButton = wrapper
+      .findAll('button')
+      .find((button) => button.classes().includes('h-8') && button.classes().includes('w-8'))
+
+    expect(triggerButton).toBeDefined()
+  })
 })

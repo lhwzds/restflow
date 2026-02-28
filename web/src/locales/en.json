@@ -52,6 +52,8 @@
       "deleteSuccess": "Agent deleted",
       "deleteFailed": "Failed to delete agent",
       "deleteDefaultBlocked": "Default assistant cannot be deleted",
+      "deleteBlockedByTasks": "Cannot delete this agent while it has active background tasks",
+      "deleteBlockedByExternalSessions": "Cannot delete this agent while external channel sessions are still linked",
       "viewDetails": "View details",
       "detailsTitle": "Agent Details",
       "loadDetailsFailed": "Failed to load agent details",

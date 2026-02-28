@@ -147,11 +147,11 @@ const formatTime = (timestamp: number) => {
           </div>
 
           <!-- Context menu trigger (visible on hover) -->
-          <div class="absolute right-1 top-1" @click.stop>
+          <div class="shrink-0 self-start" @click.stop>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
-                  class="p-1 opacity-0 group-hover:opacity-100 transition-opacity rounded hover:bg-muted-foreground/10"
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
                 >
                   <MoreHorizontal :size="14" class="text-muted-foreground" />
                 </button>
