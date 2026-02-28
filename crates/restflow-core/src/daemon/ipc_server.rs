@@ -15,7 +15,7 @@ use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
     ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
-    append_turn_started,
+    append_turn_started, build_execution_steps,
 };
 use crate::runtime::subagent::AgentDefinitionRegistry;
 use crate::services::tool_registry::create_tool_registry;
@@ -2005,7 +2005,16 @@ async fn execute_chat_session(
     };
     let duration_ms = started_at.elapsed().as_millis() as u64;
 
-    let execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
+    let mut execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
+    if let Ok(traces) = core
+        .storage
+        .tool_traces
+        .list_by_session_turn(&session.id, &turn_id, None)
+    {
+        for step in build_execution_steps(&traces) {
+            execution.add_step(step);
+        }
+    }
     let buffered_replies = {
         let mut guard = reply_buffer.lock().await;
         std::mem::take(&mut *guard)

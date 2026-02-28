@@ -1,4 +1,5 @@
-use crate::models::{ToolCallCompletion, ToolTrace};
+use crate::models::chat_session::ExecutionStepInfo;
+use crate::models::{ToolCallCompletion, ToolTrace, ToolTraceEvent};
 use crate::storage::ToolTraceStorage;
 use async_trait::async_trait;
 use regex::Regex;
@@ -110,6 +111,33 @@ fn maybe_persist_full_output(
     }
 
     Some(path.to_string_lossy().to_string())
+}
+
+/// Build execution step info from completed tool traces.
+pub fn build_execution_steps(traces: &[ToolTrace]) -> Vec<ExecutionStepInfo> {
+    traces
+        .iter()
+        .filter(|t| t.event_type == ToolTraceEvent::ToolCallCompleted)
+        .map(|t| {
+            let status = if t.success.unwrap_or(true) {
+                "completed"
+            } else {
+                "failed"
+            };
+            let tool_name = t
+                .tool_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+                .unwrap_or("unknown_tool");
+            let mut step =
+                ExecutionStepInfo::new("tool_call", tool_name.to_string()).with_status(status);
+            if let Some(ms) = t.duration_ms {
+                step = step.with_duration(ms);
+            }
+            step
+        })
+        .collect()
 }
 
 /// Append turn-start event to tool trace storage.
@@ -294,6 +322,7 @@ impl StreamEmitter for ToolTraceEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::ToolCallCompletion;
     use redb::Database;
     use restflow_ai::agent::NullEmitter;
     use std::sync::Arc;
@@ -329,5 +358,89 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].tool_name.as_deref(), Some("bash"));
         assert_eq!(events[1].success, Some(true));
+    }
+
+    #[test]
+    fn test_build_execution_steps_filters_and_maps_completed_tool_calls() {
+        let traces = vec![
+            ToolTrace::turn_started("session-1", "turn-1"),
+            ToolTrace::tool_call_completed(
+                "session-1",
+                "turn-1",
+                "call-1",
+                "web_search",
+                ToolCallCompletion {
+                    output: None,
+                    output_ref: None,
+                    success: true,
+                    duration_ms: Some(1250),
+                    error: None,
+                },
+            ),
+            ToolTrace::tool_call_completed(
+                "session-1",
+                "turn-1",
+                "call-2",
+                "transcribe",
+                ToolCallCompletion {
+                    output: None,
+                    output_ref: None,
+                    success: false,
+                    duration_ms: None,
+                    error: Some("tool failed".to_string()),
+                },
+            ),
+        ];
+
+        let steps = build_execution_steps(&traces);
+        assert_eq!(steps.len(), 2);
+
+        assert_eq!(steps[0].step_type, "tool_call");
+        assert_eq!(steps[0].name, "web_search");
+        assert_eq!(steps[0].status, "completed");
+        assert_eq!(steps[0].duration_ms, Some(1250));
+
+        assert_eq!(steps[1].step_type, "tool_call");
+        assert_eq!(steps[1].name, "transcribe");
+        assert_eq!(steps[1].status, "failed");
+        assert_eq!(steps[1].duration_ms, None);
+    }
+
+    #[test]
+    fn test_build_execution_steps_uses_unknown_tool_when_name_missing_or_blank() {
+        let mut missing_name = ToolTrace::tool_call_completed(
+            "session-1",
+            "turn-1",
+            "call-1",
+            "placeholder",
+            ToolCallCompletion {
+                output: None,
+                output_ref: None,
+                success: true,
+                duration_ms: None,
+                error: None,
+            },
+        );
+        missing_name.tool_name = None;
+
+        let mut blank_name = ToolTrace::tool_call_completed(
+            "session-1",
+            "turn-1",
+            "call-2",
+            "placeholder",
+            ToolCallCompletion {
+                output: None,
+                output_ref: None,
+                success: false,
+                duration_ms: Some(12),
+                error: Some("failed".to_string()),
+            },
+        );
+        blank_name.tool_name = Some("   ".to_string());
+
+        let steps = build_execution_steps(&[missing_name, blank_name]);
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].name, "unknown_tool");
+        assert_eq!(steps[1].name, "unknown_tool");
     }
 }
