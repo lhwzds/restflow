@@ -52,6 +52,8 @@
       "deleteSuccess": "Agent 已删除",
       "deleteFailed": "删除 Agent 失败",
       "deleteDefaultBlocked": "默认 Assistant 不可删除",
+      "deleteBlockedByTasks": "该 Agent 仍有运行中的后台任务，暂时不能删除",
+      "deleteBlockedByExternalSessions": "该 Agent 仍关联外部频道会话，暂时不能删除",
       "viewDetails": "查看详情",
       "detailsTitle": "Agent 详情",
       "loadDetailsFailed": "加载 Agent 详情失败",

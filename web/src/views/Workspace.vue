@@ -266,8 +266,7 @@ async function onDeleteAgent(id: string, name: string) {
     toast.success(t('workspace.agent.deleteSuccess'))
     await chatSessionStore.fetchSummaries()
   } catch (error) {
-    const message = error instanceof Error ? error.message : t('workspace.agent.deleteFailed')
-    toast.error(message)
+    toast.error(resolveAgentDeleteErrorMessage(error))
   }
 }
 
@@ -290,6 +289,27 @@ function isProtectedDefaultAssistant(agentId: string): boolean {
   const target = availableAgents.value.find((item) => item.id === agentId)
   const normalized = target?.name?.trim().toLowerCase()
   return normalized === 'default assistant' || normalized === 'default'
+}
+
+function resolveAgentDeleteErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) {
+    return t('workspace.agent.deleteFailed')
+  }
+
+  const message = error.message.trim()
+  const normalized = message.toLowerCase()
+
+  if (normalized.includes('cannot delete default assistant agent')) {
+    return t('workspace.agent.deleteDefaultBlocked')
+  }
+  if (normalized.includes('active background tasks exist')) {
+    return t('workspace.agent.deleteBlockedByTasks')
+  }
+  if (normalized.includes('external channel sessions exist')) {
+    return t('workspace.agent.deleteBlockedByExternalSessions')
+  }
+
+  return message || t('workspace.agent.deleteFailed')
 }
 
 watch(

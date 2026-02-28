@@ -129,4 +129,50 @@ describe('SessionList', () => {
     ])
     expect(wrapper.emitted('delete')).toEqual([['session-workspace', 'Workspace Session']])
   })
+
+  it('renders a larger menu trigger hit area for session actions', () => {
+    const wrapper = mount(SessionList, {
+      props: {
+        sessions: [
+          {
+            id: 'session-workspace',
+            name: 'Workspace Session',
+            status: 'completed',
+            updatedAt: Date.now(),
+            agentName: 'Agent One',
+            sourceChannel: 'workspace',
+          },
+        ],
+        currentSessionId: null,
+      },
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenu: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuTrigger: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuContent: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuItem: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
+        },
+      },
+    })
+
+    const triggerButton = wrapper
+      .findAll('button')
+      .find((button) => button.classes().includes('h-8') && button.classes().includes('w-8'))
+
+    expect(triggerButton).toBeDefined()
+  })
 })
