@@ -6,7 +6,7 @@ function createTaskEvent(overrides: Partial<TaskEvent> = {}): TaskEvent {
   return {
     id: overrides.id ?? 'event-1',
     task_id: overrides.task_id ?? 'task-1',
-    event_type: overrides.event_type ?? 'output',
+    event_type: overrides.event_type ?? 'started',
     timestamp: overrides.timestamp ?? Date.now(),
     message: overrides.message ?? null,
     output: overrides.output ?? null,
