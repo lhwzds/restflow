@@ -143,6 +143,7 @@ fn main() {
             commands::create_background_agent,
             commands::update_background_agent,
             commands::delete_background_agent,
+            commands::convert_session_to_background_agent,
             commands::pause_background_agent,
             commands::resume_background_agent,
             commands::cancel_background_agent,

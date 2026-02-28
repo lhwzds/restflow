@@ -9,13 +9,40 @@
     "stop": "Stop",
     "cancel": "Cancel",
     "remove": "Remove",
-    "unknownAgent": "Unknown agent"
+    "unknownAgent": "Unknown agent",
+    "confirm": "Confirm"
   },
   "workspace": {
     "newSession": "New Session",
     "allAgents": "All agents",
     "noSessions": "No sessions yet",
     "background": "background",
+    "session": {
+      "rename": "Rename",
+      "delete": "Delete",
+      "deleteSuccess": "Session deleted",
+      "deleteFailed": "Failed to delete session",
+      "renameSuccess": "Session renamed",
+      "convertToBackground": "Convert to Background Agent",
+      "convertDescription": "Convert this chat session into a scheduled background agent task.",
+      "convertSuccess": "Session converted to background agent",
+      "convertFailed": "Failed to convert session",
+      "backgroundName": "Background Agent Name",
+      "inputOverride": "Input Override (optional)",
+      "inputOverridePlaceholder": "Override the input derived from the last message...",
+      "runImmediately": "Run immediately after creation",
+      "convert": "Convert"
+    },
+    "agent": {
+      "create": "Create Agent",
+      "createSuccess": "Agent created",
+      "createFailed": "Failed to create agent",
+      "nameLabel": "Agent Name",
+      "namePlaceholder": "My Agent",
+      "modelLabel": "Model",
+      "modelPlaceholder": "Select a model",
+      "createButton": "Create"
+    },
     "askAgent": "Ask the agent to do something...",
     "pressEnterToSend": "Press {shortcut} to send",
     "shiftEnterForNewLine": "{shortcut} for new line",

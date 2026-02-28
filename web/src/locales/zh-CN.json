@@ -9,13 +9,40 @@
     "stop": "停止",
     "cancel": "取消",
     "remove": "删除",
-    "unknownAgent": "未知 Agent"
+    "unknownAgent": "未知 Agent",
+    "confirm": "确认"
   },
   "workspace": {
     "newSession": "新会话",
     "allAgents": "全部 Agent",
     "noSessions": "暂无会话",
     "background": "后台",
+    "session": {
+      "rename": "重命名",
+      "delete": "删除",
+      "deleteSuccess": "会话已删除",
+      "deleteFailed": "删除会话失败",
+      "renameSuccess": "会话已重命名",
+      "convertToBackground": "转为后台 Agent",
+      "convertDescription": "将此聊天会话转为定时后台 Agent 任务。",
+      "convertSuccess": "会话已转为后台 Agent",
+      "convertFailed": "转换会话失败",
+      "backgroundName": "后台 Agent 名称",
+      "inputOverride": "输入覆盖（可选）",
+      "inputOverridePlaceholder": "覆盖从最后一条消息推导的输入...",
+      "runImmediately": "创建后立即运行",
+      "convert": "转换"
+    },
+    "agent": {
+      "create": "创建 Agent",
+      "createSuccess": "Agent 已创建",
+      "createFailed": "创建 Agent 失败",
+      "nameLabel": "Agent 名称",
+      "namePlaceholder": "我的 Agent",
+      "modelLabel": "模型",
+      "modelPlaceholder": "选择模型",
+      "createButton": "创建"
+    },
     "askAgent": "让 Agent 帮你执行任务...",
     "pressEnterToSend": "按 {shortcut} 发送",
     "shiftEnterForNewLine": "{shortcut} 换行",
