@@ -5,6 +5,7 @@
  */
 
 import { tauriInvoke } from './tauri-client'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { ChatSession } from '@/types/generated/ChatSession'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
@@ -121,4 +122,24 @@ export async function listChatSessionsBySkill(skillId: string): Promise<ChatSess
  */
 export async function executeChatSession(sessionId: string): Promise<ChatSession> {
   return tauriInvoke<ChatSession>('execute_chat_session', { sessionId })
+}
+
+/**
+ * Session change event from the daemon (e.g. Telegram message added).
+ */
+export interface ChatSessionEvent {
+  type: 'Created' | 'Updated' | 'MessageAdded' | 'Deleted'
+  session_id: string
+  source?: string
+}
+
+/**
+ * Subscribe to real-time session change events from the daemon.
+ * Call once at startup; returns an unlisten function.
+ */
+export async function subscribeSessionEvents(
+  callback: (event: ChatSessionEvent) => void,
+): Promise<UnlistenFn> {
+  const eventName = await tauriInvoke<string>('get_session_change_event_name')
+  return listen<ChatSessionEvent>(eventName, (e) => callback(e.payload))
 }

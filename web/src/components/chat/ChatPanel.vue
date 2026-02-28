@@ -6,7 +6,7 @@
  * Integrates with useChatStream for real-time streaming and
  * detects show_panel tool calls for Canvas panel display.
  */
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Play, Pause, RotateCcw, XCircle } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -20,7 +20,8 @@ import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
-import { sendChatMessage as sendChatMessageApi } from '@/api/chat-session'
+import { sendChatMessage as sendChatMessageApi, subscribeSessionEvents } from '@/api/chat-session'
+import type { UnlistenFn } from '@tauri-apps/api/event'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
@@ -397,10 +398,33 @@ function onViewToolResult(step: StreamStep) {
   }
 }
 
-onMounted(() => {
+// Subscribe to daemon session events (e.g. Telegram messages)
+let unlistenSessionEvents: UnlistenFn | null = null
+
+onMounted(async () => {
   loadAgents()
   loadModels()
   backgroundAgentStore.fetchAgents()
+
+  try {
+    unlistenSessionEvents = await subscribeSessionEvents((event) => {
+      if (event.type === 'MessageAdded' || event.type === 'Updated') {
+        const sessionId = event.session_id
+        // Refresh if it's the currently viewed session
+        if (sessionId === chatSessionStore.currentSessionId) {
+          chatSessionStore.refreshSession(sessionId)
+        }
+        // Also refresh summaries so the sidebar stays up to date
+        chatSessionStore.fetchSummaries()
+      }
+    })
+  } catch {
+    // Non-critical: session events just won't auto-refresh
+  }
+})
+
+onUnmounted(() => {
+  unlistenSessionEvents?.()
 })
 
 // Expose for parent (Workspace.vue needs session list data)
