@@ -2016,7 +2016,8 @@ async fn execute_chat_session(
     let assistant_message = ChatMessage::assistant(&exec_result.output).with_execution(execution);
     session.add_message(assistant_message);
     if let Some(normalized_model) = AIModel::normalize_model_id(&exec_result.active_model) {
-        session.model = normalized_model.clone();
+        // Only update last_model metadata; preserve the user's chosen session model
+        // so that switch_model calls during execution don't permanently override it.
         session.metadata.last_model = Some(normalized_model);
     }
     append_turn_completed(&core.storage.tool_traces, &session.id, &turn_id);
