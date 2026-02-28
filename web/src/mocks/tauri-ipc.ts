@@ -237,7 +237,22 @@ async function runMockChatStream(
     role: 'assistant',
     content: finalContent,
     timestamp: BigInt(Date.now()),
-    execution: null,
+    execution: {
+      steps: [
+        {
+          step_type: 'tool_call',
+          name: 'web_search',
+          status: 'completed',
+          duration_ms: 60n,
+        },
+      ],
+      duration_ms: BigInt(Date.now() - startedAt),
+      tokens_used: tokenCount,
+      cost_usd: null,
+      input_tokens: null,
+      output_tokens: null,
+      status: 'completed',
+    },
   })
   session.updated_at = BigInt(Date.now())
   updateChatSessionSummary(session)
