@@ -87,27 +87,42 @@ mod tests {
     fn test_serialization_all_variants() {
         let cases: Vec<(ChatSessionEvent, &str)> = vec![
             (
-                ChatSessionEvent::Created { session_id: "s1".into() },
+                ChatSessionEvent::Created {
+                    session_id: "s1".into(),
+                },
                 "Created",
             ),
             (
-                ChatSessionEvent::Updated { session_id: "s2".into() },
+                ChatSessionEvent::Updated {
+                    session_id: "s2".into(),
+                },
                 "Updated",
             ),
             (
-                ChatSessionEvent::MessageAdded { session_id: "s3".into(), source: "ipc".into() },
+                ChatSessionEvent::MessageAdded {
+                    session_id: "s3".into(),
+                    source: "ipc".into(),
+                },
                 "MessageAdded",
             ),
             (
-                ChatSessionEvent::Deleted { session_id: "s4".into() },
+                ChatSessionEvent::Deleted {
+                    session_id: "s4".into(),
+                },
                 "Deleted",
             ),
         ];
 
         for (event, expected_type) in cases {
             let json: serde_json::Value = serde_json::to_value(&event).unwrap();
-            assert_eq!(json["type"], expected_type, "wrong type for {expected_type}");
-            assert!(json["session_id"].is_string(), "missing session_id for {expected_type}");
+            assert_eq!(
+                json["type"], expected_type,
+                "wrong type for {expected_type}"
+            );
+            assert!(
+                json["session_id"].is_string(),
+                "missing session_id for {expected_type}"
+            );
         }
     }
 
