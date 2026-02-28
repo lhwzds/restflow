@@ -79,7 +79,7 @@ pub use handler::{
 pub use router::{MessageRouter, RouteDecision};
 pub use tool_trace_emitter::{
     ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
-    append_turn_started,
+    append_turn_started, build_execution_steps,
 };
 pub use trigger::{BackgroundAgentTrigger, SystemStatus};
 

@@ -6,6 +6,7 @@
 use anyhow::{Result, anyhow};
 use parking_lot::Mutex;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
@@ -14,11 +15,12 @@ use crate::channel::{
     ChannelReplySender, ChannelRouter, ChannelType, InboundMessage, OutboundMessage,
 };
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
-use crate::models::{AIModel, ChatMessage, ChatSession, ChatSessionSource};
+use crate::models::{AIModel, ChatMessage, ChatSession, ChatSessionSource, MessageExecution};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
     ToolTraceEmitter, append_turn_completed, append_turn_failed, append_turn_started,
+    build_execution_steps,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
@@ -293,6 +295,7 @@ impl ChatSessionManager {
         user_message: &str,
         assistant_message: &str,
         active_model: Option<&str>,
+        execution: Option<MessageExecution>,
     ) -> Result<()> {
         // Get or create a per-session lock to serialize append operations.
         // This ensures atomic read-modify-write for each session.
@@ -317,8 +320,13 @@ impl ChatSessionManager {
         // Add user message
         session.add_message(ChatMessage::user(user_message));
 
-        // Add assistant message
-        session.add_message(ChatMessage::assistant(assistant_message));
+        // Add assistant message (with execution info if provided)
+        let msg = if let Some(exec) = execution {
+            ChatMessage::assistant(assistant_message).with_execution(exec)
+        } else {
+            ChatMessage::assistant(assistant_message)
+        };
+        session.add_message(msg);
 
         if let Some(model) = active_model
             && let Some(normalized) = AIModel::normalize_model_id(model)
@@ -643,6 +651,7 @@ impl ChatDispatcher {
         let executor = self.create_executor().with_reply_sender(reply_sender);
         let turn_id = uuid::Uuid::new_v4().to_string();
         append_turn_started(&self.storage.tool_traces, &session.id, &turn_id);
+        let started_at = Instant::now();
         let mut tool_event_emitter = Some(Box::new(ToolTraceEmitter::new(
             Box::new(NullEmitter),
             self.storage.tool_traces.clone(),
@@ -731,11 +740,23 @@ impl ChatDispatcher {
         );
 
         // 5. Save exchange to session (use `input` which includes [Media Context] for voice messages)
+        let duration_ms = started_at.elapsed().as_millis() as u64;
+        let mut execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
+        if let Ok(traces) =
+            self.storage
+                .tool_traces
+                .list_by_session_turn(&session.id, &turn_id, None)
+        {
+            for step in build_execution_steps(&traces) {
+                execution.add_step(step);
+            }
+        }
         if let Err(e) = self.sessions.append_exchange(
             &session.id,
             &input,
             &structured_output,
             Some(&exec_result.active_model),
+            Some(execution),
         ) {
             warn!("Failed to save exchange to session: {}", e);
         } else {
@@ -1061,7 +1082,7 @@ mod tests {
             .unwrap();
 
         manager
-            .append_exchange(&session.id, "Hello!", "Hi there!", None)
+            .append_exchange(&session.id, "Hello!", "Hi there!", None, None)
             .unwrap();
 
         let history = manager.get_history(&session.id).unwrap();
@@ -1103,6 +1124,7 @@ mod tests {
                 "Hello!",
                 "Switched to Codex.",
                 Some("gpt-5.3-codex"),
+                None,
             )
             .unwrap();
 
@@ -1139,13 +1161,13 @@ mod tests {
             .unwrap();
 
         manager
-            .append_exchange(&session.id, "u1", "a1", None)
+            .append_exchange(&session.id, "u1", "a1", None, None)
             .unwrap();
         manager
-            .append_exchange(&session.id, "u2", "a2", None)
+            .append_exchange(&session.id, "u2", "a2", None, None)
             .unwrap();
         manager
-            .append_exchange(&session.id, "u3", "a3", None)
+            .append_exchange(&session.id, "u3", "a3", None, None)
             .unwrap();
 
         let history = manager.get_history(&session.id).unwrap();
