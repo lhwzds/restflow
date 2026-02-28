@@ -22,8 +22,8 @@ pub enum RouteDecision {
 /// Message router that determines how to handle inbound messages.
 ///
 /// The router checks:
-/// 1. Is the conversation linked to an active task? → Forward to task
-/// 2. Is the message a command (starts with prefix)? → Handle as command
+/// 1. Is the message a command (starts with prefix)? → Handle as command
+/// 2. Is the conversation linked to an active task? → Forward to task
 /// 3. Otherwise → Dispatch to AI chat
 pub struct MessageRouter {
     channel_router: Arc<ChannelRouter>,
@@ -51,7 +51,14 @@ impl MessageRouter {
 
     /// Route an inbound message to the appropriate handler.
     pub async fn route(&self, message: &InboundMessage) -> RouteDecision {
-        // 1. Check if conversation is linked to an active task
+        // 1. Commands take precedence, even when conversation is task-linked.
+        if message.content.starts_with(&self.command_prefix)
+            && let Some((command, args)) = self.parse_command(&message.content)
+        {
+            return RouteDecision::HandleCommand { command, args };
+        }
+
+        // 2. Check if conversation is linked to an active task.
         if let Some(ctx) = self
             .channel_router
             .get_conversation(&message.conversation_id)
@@ -69,13 +76,6 @@ impl MessageRouter {
             return RouteDecision::ForwardToBackgroundAgent {
                 background_agent_id: task_id,
             };
-        }
-
-        // 2. Check for commands
-        if message.content.starts_with(&self.command_prefix)
-            && let Some((command, args)) = self.parse_command(&message.content)
-        {
-            return RouteDecision::HandleCommand { command, args };
         }
 
         // 3. Default: dispatch to AI chat
@@ -159,9 +159,27 @@ mod tests {
 
         let router = MessageRouter::new(channel_router, "/");
 
-        // Even a command should be forwarded to task if linked
+        // Commands should take precedence even when linked to a task
         let cmd_message = create_message("/help");
         let decision = router.route(&cmd_message).await;
+
+        assert!(matches!(
+            decision, RouteDecision::HandleCommand { command, args }
+            if command == "help" && args.is_empty()
+        ));
+    }
+
+    #[tokio::test]
+    async fn test_route_task_linked_natural_language_still_forwards() {
+        let channel_router = Arc::new(ChannelRouter::new());
+
+        let message = create_message("test");
+        channel_router
+            .record_conversation(&message, Some("task-1".to_string()))
+            .await;
+
+        let router = MessageRouter::new(channel_router, "/");
+        let decision = router.route(&create_message("continue the task")).await;
 
         assert!(matches!(
             decision,
