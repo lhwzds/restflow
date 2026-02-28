@@ -83,7 +83,7 @@ impl Tool for BrowserTool {
     }
 
     fn description(&self) -> &str {
-        "Chromium browser automation for AI agents using native CDP. Supports session lifecycle, JS script execution in page context (TS not yet supported), and structured action plans (navigate/click/fill/extract/screenshot)."
+        "Chromium browser automation for AI agents using native CDP. Supports session lifecycle, direct JS/TS execution in page context, and structured actions including navigation, form interactions, keyboard/mouse input, extraction, and screenshots."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -111,11 +111,31 @@ impl Tool for BrowserTool {
                 "cwd": { "type": "string", "description": "Optional working directory" },
                 "actions": {
                     "type": "array",
-                    "description": "Structured browser action list for run_actions",
+                    "description": "Structured browser actions for run_actions: navigate, click, fill, type, press, key_down, key_up, mouse_move, mouse_down, mouse_up, mouse_click, mouse_wheel, wait_for_selector, extract_text, screenshot, evaluate.",
                     "items": {
                         "type": "object",
                         "properties": {
-                            "type": { "type": "string" }
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "navigate",
+                                    "click",
+                                    "fill",
+                                    "type",
+                                    "press",
+                                    "key_down",
+                                    "key_up",
+                                    "mouse_move",
+                                    "mouse_down",
+                                    "mouse_up",
+                                    "mouse_click",
+                                    "mouse_wheel",
+                                    "wait_for_selector",
+                                    "extract_text",
+                                    "screenshot",
+                                    "evaluate"
+                                ]
+                            }
                         },
                         "required": ["type"]
                     }
@@ -347,6 +367,59 @@ mod tests {
                 "session_id": session_id,
                 "code": "setRestflowResult({ ok: true });",
                 "language": "js"
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["runtime"], json!("mock"));
+    }
+
+    #[tokio::test]
+    async fn run_script_accepts_typescript_language() {
+        let tool = test_tool();
+
+        let created = tool
+            .execute(json!({ "action": "new_session" }))
+            .await
+            .unwrap();
+        let session_id = created.result["id"].as_str().unwrap();
+
+        let output = tool
+            .execute(json!({
+                "action": "run_script",
+                "session_id": session_id,
+                "code": "const value: number = 1; setRestflowResult({ value });",
+                "language": "ts"
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["runtime"], json!("mock"));
+    }
+
+    #[tokio::test]
+    async fn run_actions_accepts_keyboard_and_mouse_inputs() {
+        let tool = test_tool();
+
+        let created = tool
+            .execute(json!({ "action": "new_session" }))
+            .await
+            .unwrap();
+        let session_id = created.result["id"].as_str().unwrap();
+
+        let output = tool
+            .execute(json!({
+                "action": "run_actions",
+                "session_id": session_id,
+                "actions": [
+                    { "type": "mouse_move", "x": 10.0, "y": 20.0 },
+                    { "type": "mouse_click", "x": 10.0, "y": 20.0, "button": "left" },
+                    { "type": "mouse_wheel", "x": 10.0, "y": 20.0, "delta_x": 0.0, "delta_y": 120.0 },
+                    { "type": "key_down", "key": "a", "modifiers": ["control"] },
+                    { "type": "key_up", "key": "a", "modifiers": ["control"] }
+                ]
             }))
             .await
             .unwrap();

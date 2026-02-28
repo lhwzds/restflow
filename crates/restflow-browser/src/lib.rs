@@ -5,7 +5,7 @@
 //! (without Playwright runtime dependency) and exposes:
 //! - Runtime probing
 //! - Session lifecycle management
-//! - JavaScript execution in page context
+//! - JavaScript/TypeScript execution in page context
 //! - Structured browser action plans
 
 use anyhow::{Result, anyhow, bail};
@@ -54,6 +54,26 @@ pub enum ScriptRuntime {
     #[default]
     Auto,
     Node,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum InputModifier {
+    Alt,
+    Control,
+    Meta,
+    Shift,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MouseButton {
+    #[default]
+    Left,
+    Right,
+    Middle,
+    Back,
+    Forward,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -164,6 +184,64 @@ pub enum BrowserAction {
         key: String,
         #[serde(default)]
         selector: Option<String>,
+    },
+    KeyDown {
+        key: String,
+        #[serde(default)]
+        selector: Option<String>,
+        #[serde(default)]
+        modifiers: Vec<InputModifier>,
+    },
+    KeyUp {
+        key: String,
+        #[serde(default)]
+        selector: Option<String>,
+        #[serde(default)]
+        modifiers: Vec<InputModifier>,
+    },
+    MouseMove {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        modifiers: Vec<InputModifier>,
+    },
+    MouseDown {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        button: MouseButton,
+        #[serde(default = "default_click_count")]
+        click_count: u32,
+        #[serde(default)]
+        modifiers: Vec<InputModifier>,
+    },
+    MouseUp {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        button: MouseButton,
+        #[serde(default = "default_click_count")]
+        click_count: u32,
+        #[serde(default)]
+        modifiers: Vec<InputModifier>,
+    },
+    MouseClick {
+        x: f64,
+        y: f64,
+        #[serde(default)]
+        button: MouseButton,
+        #[serde(default = "default_click_count")]
+        click_count: u32,
+        #[serde(default)]
+        modifiers: Vec<InputModifier>,
+    },
+    MouseWheel {
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        #[serde(default)]
+        modifiers: Vec<InputModifier>,
     },
     WaitForSelector {
         selector: String,
@@ -342,14 +420,17 @@ impl CdpExecutor {
         session: &BrowserSession,
         request: &RunScriptRequest,
     ) -> Result<Value> {
-        if request.language == ScriptLanguage::Ts {
-            bail!("TypeScript is not supported in CDP mode yet");
-        }
+        let script_source = if request.language == ScriptLanguage::Ts {
+            let cwd = request.cwd.as_deref().map(Path::new);
+            transpile_typescript_source(&request.code, cwd, request.timeout_secs).await?
+        } else {
+            request.code.clone()
+        };
 
         let mut runtime =
             CdpRuntime::start(session.headless, &session.profile_dir, request.timeout_secs).await?;
 
-        let eval_script = build_user_script_wrapper(&request.code)?;
+        let eval_script = build_user_script_wrapper(&script_source)?;
         let value = runtime
             .evaluate_page_script(&eval_script)
             .await
@@ -647,17 +728,127 @@ impl CdpRuntime {
             }
             BrowserAction::Press { key, selector } => {
                 if let Some(selector) = selector {
-                    self.wait_for_selector(selector, "visible", 10_000).await?;
-                    let focus_script = format!(
-                        "(function() {{\n  const selector = {};\n  const element = document.querySelector(selector);\n  if (!element) return {{ ok: false, error: `Selector not found: ${{selector}}` }};\n  element.focus?.();\n  return {{ ok: true }};\n}})()",
-                        serde_json::to_string(selector)?
-                    );
-                    let result = self.evaluate_page_script(&focus_script).await?;
-                    extract_action_result(result)?;
+                    self.focus_selector(selector, 10_000).await?;
                 }
 
-                self.dispatch_key(key).await?;
+                self.dispatch_key_down(key, &[]).await?;
+                self.dispatch_key_up(key, &[]).await?;
                 Ok(json!({"type": "press", "key": key}))
+            }
+            BrowserAction::KeyDown {
+                key,
+                selector,
+                modifiers,
+            } => {
+                if let Some(selector) = selector {
+                    self.focus_selector(selector, 10_000).await?;
+                }
+
+                self.dispatch_key_down(key, modifiers).await?;
+                Ok(json!({
+                    "type": "key_down",
+                    "key": key,
+                    "modifiers": modifiers
+                }))
+            }
+            BrowserAction::KeyUp {
+                key,
+                selector,
+                modifiers,
+            } => {
+                if let Some(selector) = selector {
+                    self.focus_selector(selector, 10_000).await?;
+                }
+
+                self.dispatch_key_up(key, modifiers).await?;
+                Ok(json!({
+                    "type": "key_up",
+                    "key": key,
+                    "modifiers": modifiers
+                }))
+            }
+            BrowserAction::MouseMove { x, y, modifiers } => {
+                self.dispatch_mouse_move(*x, *y, modifiers).await?;
+                Ok(json!({
+                    "type": "mouse_move",
+                    "x": x,
+                    "y": y,
+                    "modifiers": modifiers
+                }))
+            }
+            BrowserAction::MouseDown {
+                x,
+                y,
+                button,
+                click_count,
+                modifiers,
+            } => {
+                self.dispatch_mouse_down(*x, *y, *button, *click_count, modifiers)
+                    .await?;
+                Ok(json!({
+                    "type": "mouse_down",
+                    "x": x,
+                    "y": y,
+                    "button": button,
+                    "click_count": click_count,
+                    "modifiers": modifiers
+                }))
+            }
+            BrowserAction::MouseUp {
+                x,
+                y,
+                button,
+                click_count,
+                modifiers,
+            } => {
+                self.dispatch_mouse_up(*x, *y, *button, *click_count, modifiers)
+                    .await?;
+                Ok(json!({
+                    "type": "mouse_up",
+                    "x": x,
+                    "y": y,
+                    "button": button,
+                    "click_count": click_count,
+                    "modifiers": modifiers
+                }))
+            }
+            BrowserAction::MouseClick {
+                x,
+                y,
+                button,
+                click_count,
+                modifiers,
+            } => {
+                self.dispatch_mouse_down(*x, *y, *button, *click_count, modifiers)
+                    .await?;
+                self.dispatch_mouse_up(*x, *y, *button, *click_count, modifiers)
+                    .await?;
+                Ok(json!({
+                    "type": "mouse_click",
+                    "x": x,
+                    "y": y,
+                    "button": button,
+                    "click_count": click_count,
+                    "modifiers": modifiers
+                }))
+            }
+            BrowserAction::MouseWheel {
+                x,
+                y,
+                delta_x,
+                delta_y,
+                modifiers,
+            } => {
+                self.dispatch_mouse_wheel(*x, *y, *delta_x, *delta_y, modifiers)
+                    .await?;
+                Ok(json!({
+                    "type": "mouse_wheel",
+                    "x": x,
+                    "y": y,
+                    "delta_x": delta_x,
+                    "delta_y": delta_y,
+                    "modifiers": modifiers
+                }))
             }
             BrowserAction::WaitForSelector {
                 selector,
@@ -850,19 +1041,184 @@ impl CdpRuntime {
         }
     }
 
-    async fn dispatch_key(&mut self, key: &str) -> Result<()> {
+    async fn focus_selector(&mut self, selector: &str, timeout_ms: u64) -> Result<()> {
+        self.wait_for_selector(selector, "visible", timeout_ms)
+            .await?;
+        let focus_script = format!(
+            "(function() {{\n  const selector = {};\n  const element = document.querySelector(selector);\n  if (!element) return {{ ok: false, error: `Selector not found: ${{selector}}` }};\n  element.focus?.();\n  return {{ ok: true }};\n}})()",
+            serde_json::to_string(selector)?
+        );
+        let result = self.evaluate_page_script(&focus_script).await?;
+        extract_action_result(result)?;
+        Ok(())
+    }
+
+    async fn dispatch_key_down(&mut self, key: &str, modifiers: &[InputModifier]) -> Result<()> {
+        self.dispatch_key_event("keyDown", key, modifiers, true)
+            .await
+    }
+
+    async fn dispatch_key_up(&mut self, key: &str, modifiers: &[InputModifier]) -> Result<()> {
+        self.dispatch_key_event("keyUp", key, modifiers, false)
+            .await
+    }
+
+    async fn dispatch_key_event(
+        &mut self,
+        event_type: &str,
+        key: &str,
+        modifiers: &[InputModifier],
+        include_text: bool,
+    ) -> Result<()> {
+        let descriptor = cdp_key_descriptor(key);
+        let mut params = serde_json::Map::new();
+        params.insert("type".to_string(), Value::String(event_type.to_string()));
+        params.insert("key".to_string(), Value::String(descriptor.key.clone()));
+        params.insert("code".to_string(), Value::String(descriptor.code));
+        params.insert(
+            "windowsVirtualKeyCode".to_string(),
+            Value::from(descriptor.virtual_key_code),
+        );
+        params.insert(
+            "nativeVirtualKeyCode".to_string(),
+            Value::from(descriptor.virtual_key_code),
+        );
+        params.insert(
+            "modifiers".to_string(),
+            Value::from(modifier_mask(modifiers)),
+        );
+        if include_text && let Some(text) = descriptor.text {
+            params.insert("text".to_string(), Value::String(text.clone()));
+            params.insert("unmodifiedText".to_string(), Value::String(text));
+        }
+
         self.cdp
             .send_command(
                 Some(&self.page_session_id),
                 "Input.dispatchKeyEvent",
-                json!({"type": "keyDown", "key": key, "text": key}),
+                Value::Object(params),
             )
             .await?;
+        Ok(())
+    }
+
+    async fn dispatch_mouse_move(
+        &mut self,
+        x: f64,
+        y: f64,
+        modifiers: &[InputModifier],
+    ) -> Result<()> {
+        self.dispatch_mouse_event("mouseMoved", (x, y), MouseButton::Left, 0, modifiers, None)
+            .await
+    }
+
+    async fn dispatch_mouse_down(
+        &mut self,
+        x: f64,
+        y: f64,
+        button: MouseButton,
+        click_count: u32,
+        modifiers: &[InputModifier],
+    ) -> Result<()> {
+        self.dispatch_mouse_event(
+            "mousePressed",
+            (x, y),
+            button,
+            click_count.max(1),
+            modifiers,
+            None,
+        )
+        .await
+    }
+
+    async fn dispatch_mouse_up(
+        &mut self,
+        x: f64,
+        y: f64,
+        button: MouseButton,
+        click_count: u32,
+        modifiers: &[InputModifier],
+    ) -> Result<()> {
+        self.dispatch_mouse_event(
+            "mouseReleased",
+            (x, y),
+            button,
+            click_count.max(1),
+            modifiers,
+            None,
+        )
+        .await
+    }
+
+    async fn dispatch_mouse_wheel(
+        &mut self,
+        x: f64,
+        y: f64,
+        delta_x: f64,
+        delta_y: f64,
+        modifiers: &[InputModifier],
+    ) -> Result<()> {
+        self.dispatch_mouse_event(
+            "mouseWheel",
+            (x, y),
+            MouseButton::Left,
+            0,
+            modifiers,
+            Some((delta_x, delta_y)),
+        )
+        .await
+    }
+
+    async fn dispatch_mouse_event(
+        &mut self,
+        event_type: &str,
+        position: (f64, f64),
+        button: MouseButton,
+        click_count: u32,
+        modifiers: &[InputModifier],
+        wheel_delta: Option<(f64, f64)>,
+    ) -> Result<()> {
+        let (x, y) = position;
+        let mut params = serde_json::Map::new();
+        params.insert("type".to_string(), Value::String(event_type.to_string()));
+        params.insert("x".to_string(), Value::from(x));
+        params.insert("y".to_string(), Value::from(y));
+        params.insert(
+            "modifiers".to_string(),
+            Value::from(modifier_mask(modifiers)),
+        );
+
+        match event_type {
+            "mouseMoved" => {
+                params.insert("button".to_string(), Value::String("none".to_string()));
+                params.insert("buttons".to_string(), Value::from(0));
+            }
+            "mouseWheel" => {
+                params.insert("button".to_string(), Value::String("none".to_string()));
+                params.insert("buttons".to_string(), Value::from(0));
+                if let Some((delta_x, delta_y)) = wheel_delta {
+                    params.insert("deltaX".to_string(), Value::from(delta_x));
+                    params.insert("deltaY".to_string(), Value::from(delta_y));
+                }
+            }
+            _ => {
+                params.insert(
+                    "button".to_string(),
+                    Value::String(mouse_button_name(button).to_string()),
+                );
+                params.insert(
+                    "buttons".to_string(),
+                    Value::from(mouse_button_mask(button)),
+                );
+                params.insert("clickCount".to_string(), Value::from(click_count.max(1)));
+            }
+        }
+
         self.cdp
             .send_command(
                 Some(&self.page_session_id),
-                "Input.dispatchKeyEvent",
-                json!({"type": "keyUp", "key": key}),
+                "Input.dispatchMouseEvent",
+                Value::Object(params),
             )
             .await?;
         Ok(())
@@ -1189,6 +1545,192 @@ async fn wait_for_debugger_ws_url(
     }
 }
 
+async fn transpile_typescript_source(
+    source: &str,
+    cwd: Option<&Path>,
+    timeout_secs: u64,
+) -> Result<String> {
+    let source_json = serde_json::to_string(source)?;
+    let transform_script = "import { stripTypeScriptTypes } from 'node:module';\nconst sourceJson = process.argv[process.argv.length - 1];\nif (!sourceJson) {\n  console.error('Missing TypeScript source argument');\n  process.exit(1);\n}\nconst source = JSON.parse(sourceJson);\nconst output = stripTypeScriptTypes(source, { mode: 'strip' });\nprocess.stdout.write(output);";
+    let args = vec![
+        "--experimental-strip-types".to_string(),
+        "--input-type=module".to_string(),
+        "-e".to_string(),
+        transform_script.to_string(),
+        source_json,
+    ];
+    let output = run_command_capture("node", &args, cwd, timeout_secs)
+        .await
+        .map_err(|error| {
+            anyhow!(
+                "TypeScript transpilation requires Node.js with '--experimental-strip-types': {}",
+                error
+            )
+        })?;
+
+    if output.exit_code != 0 {
+        let stderr = output.stderr.trim();
+        if !stderr.is_empty() {
+            bail!("TypeScript transpilation failed: {}", stderr);
+        }
+
+        let stdout = output.stdout.trim();
+        if !stdout.is_empty() {
+            bail!("TypeScript transpilation failed: {}", stdout);
+        }
+
+        bail!(
+            "TypeScript transpilation failed with exit code {}",
+            output.exit_code
+        );
+    }
+
+    if output.stdout.is_empty() && !source.is_empty() {
+        bail!("TypeScript transpilation produced empty output");
+    }
+
+    Ok(output.stdout)
+}
+
+#[derive(Debug)]
+struct CdpKeyDescriptor {
+    key: String,
+    code: String,
+    virtual_key_code: u32,
+    text: Option<String>,
+}
+
+fn cdp_key_descriptor(key: &str) -> CdpKeyDescriptor {
+    fn descriptor(
+        key: &str,
+        code: &str,
+        virtual_key_code: u32,
+        text: Option<&str>,
+    ) -> CdpKeyDescriptor {
+        CdpKeyDescriptor {
+            key: key.to_string(),
+            code: code.to_string(),
+            virtual_key_code,
+            text: text.map(ToString::to_string),
+        }
+    }
+
+    let normalized = key.trim().to_ascii_lowercase();
+    match normalized.as_str() {
+        "enter" => descriptor("Enter", "Enter", 13, Some("\r")),
+        "tab" => descriptor("Tab", "Tab", 9, Some("\t")),
+        "backspace" => descriptor("Backspace", "Backspace", 8, None),
+        "escape" | "esc" => descriptor("Escape", "Escape", 27, None),
+        "delete" => descriptor("Delete", "Delete", 46, None),
+        "insert" => descriptor("Insert", "Insert", 45, None),
+        "home" => descriptor("Home", "Home", 36, None),
+        "end" => descriptor("End", "End", 35, None),
+        "pageup" => descriptor("PageUp", "PageUp", 33, None),
+        "pagedown" => descriptor("PageDown", "PageDown", 34, None),
+        "arrowleft" | "left" => descriptor("ArrowLeft", "ArrowLeft", 37, None),
+        "arrowup" | "up" => descriptor("ArrowUp", "ArrowUp", 38, None),
+        "arrowright" | "right" => descriptor("ArrowRight", "ArrowRight", 39, None),
+        "arrowdown" | "down" => descriptor("ArrowDown", "ArrowDown", 40, None),
+        "space" => descriptor(" ", "Space", 32, Some(" ")),
+        "shift" | "shiftleft" | "shiftright" => descriptor("Shift", "ShiftLeft", 16, None),
+        "control" | "ctrl" | "controlleft" | "controlright" => {
+            descriptor("Control", "ControlLeft", 17, None)
+        }
+        "alt" | "altleft" | "altright" => descriptor("Alt", "AltLeft", 18, None),
+        "meta" | "command" | "cmd" | "metaleft" | "metaright" => {
+            descriptor("Meta", "MetaLeft", 91, None)
+        }
+        _ => {
+            if key.chars().count() == 1 {
+                let ch = key.chars().next().unwrap_or_default();
+                if ch.is_ascii_alphabetic() {
+                    let upper = ch.to_ascii_uppercase();
+                    return CdpKeyDescriptor {
+                        key: ch.to_string(),
+                        code: format!("Key{}", upper),
+                        virtual_key_code: upper as u32,
+                        text: Some(ch.to_string()),
+                    };
+                }
+
+                if ch.is_ascii_digit() {
+                    return CdpKeyDescriptor {
+                        key: ch.to_string(),
+                        code: format!("Digit{}", ch),
+                        virtual_key_code: ch as u32,
+                        text: Some(ch.to_string()),
+                    };
+                }
+
+                let code = match ch {
+                    '.' => "Period",
+                    ',' => "Comma",
+                    '/' => "Slash",
+                    ';' => "Semicolon",
+                    '\'' => "Quote",
+                    '[' => "BracketLeft",
+                    ']' => "BracketRight",
+                    '\\' => "Backslash",
+                    '-' => "Minus",
+                    '=' => "Equal",
+                    '`' => "Backquote",
+                    _ => "Unidentified",
+                };
+                let text = if ch.is_control() {
+                    None
+                } else {
+                    Some(ch.to_string())
+                };
+
+                return CdpKeyDescriptor {
+                    key: ch.to_string(),
+                    code: code.to_string(),
+                    virtual_key_code: 0,
+                    text,
+                };
+            }
+
+            CdpKeyDescriptor {
+                key: key.to_string(),
+                code: key.to_string(),
+                virtual_key_code: 0,
+                text: None,
+            }
+        }
+    }
+}
+
+fn modifier_mask(modifiers: &[InputModifier]) -> u8 {
+    modifiers.iter().fold(0u8, |mask, modifier| {
+        mask | match modifier {
+            InputModifier::Alt => 1,
+            InputModifier::Control => 2,
+            InputModifier::Meta => 4,
+            InputModifier::Shift => 8,
+        }
+    })
+}
+
+fn mouse_button_name(button: MouseButton) -> &'static str {
+    match button {
+        MouseButton::Left => "left",
+        MouseButton::Right => "right",
+        MouseButton::Middle => "middle",
+        MouseButton::Back => "back",
+        MouseButton::Forward => "forward",
+    }
+}
+
+fn mouse_button_mask(button: MouseButton) -> u8 {
+    match button {
+        MouseButton::Left => 1,
+        MouseButton::Right => 2,
+        MouseButton::Middle => 4,
+        MouseButton::Back => 8,
+        MouseButton::Forward => 16,
+    }
+}
+
 fn build_user_script_wrapper(source: &str) -> Result<String> {
     let source = serde_json::to_string(source)?;
     Ok(format!(
@@ -1373,6 +1915,10 @@ fn default_timeout_secs() -> u64 {
     DEFAULT_TIMEOUT_SECS
 }
 
+fn default_click_count() -> u32 {
+    1
+}
+
 fn default_headless() -> bool {
     true
 }
@@ -1527,6 +2073,97 @@ mod tests {
         assert!(selector_state_matches("hidden", false, false));
         assert!(selector_state_matches("hidden", true, false));
         assert!(!selector_state_matches("visible", true, false));
+    }
+
+    #[test]
+    fn browser_action_deserializes_extended_input_variants() {
+        let key_down: BrowserAction = serde_json::from_value(json!({
+            "type": "key_down",
+            "key": "a",
+            "modifiers": ["control", "shift"]
+        }))
+        .unwrap();
+        match key_down {
+            BrowserAction::KeyDown {
+                key,
+                selector,
+                modifiers,
+            } => {
+                assert_eq!(key, "a");
+                assert!(selector.is_none());
+                assert_eq!(
+                    modifiers,
+                    vec![InputModifier::Control, InputModifier::Shift]
+                );
+            }
+            _ => panic!("expected key_down action"),
+        }
+
+        let click: BrowserAction = serde_json::from_value(json!({
+            "type": "mouse_click",
+            "x": 100.0,
+            "y": 50.0
+        }))
+        .unwrap();
+        match click {
+            BrowserAction::MouseClick {
+                x,
+                y,
+                button,
+                click_count,
+                modifiers,
+            } => {
+                assert_eq!(x, 100.0);
+                assert_eq!(y, 50.0);
+                assert_eq!(button, MouseButton::Left);
+                assert_eq!(click_count, 1);
+                assert!(modifiers.is_empty());
+            }
+            _ => panic!("expected mouse_click action"),
+        }
+    }
+
+    #[test]
+    fn modifier_masks_match_cdp_bitflags() {
+        assert_eq!(modifier_mask(&[]), 0);
+        assert_eq!(modifier_mask(&[InputModifier::Alt]), 1);
+        assert_eq!(modifier_mask(&[InputModifier::Control]), 2);
+        assert_eq!(modifier_mask(&[InputModifier::Meta]), 4);
+        assert_eq!(modifier_mask(&[InputModifier::Shift]), 8);
+        assert_eq!(
+            modifier_mask(&[InputModifier::Control, InputModifier::Shift]),
+            10
+        );
+    }
+
+    #[test]
+    fn key_descriptors_cover_special_and_printable_keys() {
+        let enter = cdp_key_descriptor("Enter");
+        assert_eq!(enter.key, "Enter");
+        assert_eq!(enter.code, "Enter");
+        assert_eq!(enter.virtual_key_code, 13);
+        assert_eq!(enter.text, Some("\r".to_string()));
+
+        let alpha = cdp_key_descriptor("a");
+        assert_eq!(alpha.key, "a");
+        assert_eq!(alpha.code, "KeyA");
+        assert_eq!(alpha.virtual_key_code, 65);
+        assert_eq!(alpha.text, Some("a".to_string()));
+    }
+
+    #[test]
+    fn mouse_button_helpers_match_cdp_values() {
+        assert_eq!(mouse_button_name(MouseButton::Left), "left");
+        assert_eq!(mouse_button_name(MouseButton::Right), "right");
+        assert_eq!(mouse_button_name(MouseButton::Middle), "middle");
+        assert_eq!(mouse_button_name(MouseButton::Back), "back");
+        assert_eq!(mouse_button_name(MouseButton::Forward), "forward");
+
+        assert_eq!(mouse_button_mask(MouseButton::Left), 1);
+        assert_eq!(mouse_button_mask(MouseButton::Right), 2);
+        assert_eq!(mouse_button_mask(MouseButton::Middle), 4);
+        assert_eq!(mouse_button_mask(MouseButton::Back), 8);
+        assert_eq!(mouse_button_mask(MouseButton::Forward), 16);
     }
 
     #[test]
