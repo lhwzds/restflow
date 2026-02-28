@@ -3,13 +3,13 @@
  * Workspace View
  *
  * Main application layout with three columns:
- * - Left: Session list (chat sessions)
- * - Center: Chat panel
- * - Right: AI-controlled Canvas panel (hideable)
+ * - Left: Session/Agent sidebar
+ * - Center: Chat panel or agent editor
+ * - Right: Tool panel (chat mode only)
  */
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { Settings, Moon, Sun } from 'lucide-vue-next'
+import { Settings, Moon, Sun, Bot, MessageSquare } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -20,6 +20,8 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import SessionList from '@/components/workspace/SessionList.vue'
+import AgentList from '@/components/workspace/AgentList.vue'
+import AgentEditorPanel from '@/components/workspace/AgentEditorPanel.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
 import ToolPanel from '@/components/tool-panel/ToolPanel.vue'
@@ -40,40 +42,32 @@ const { t } = useI18n()
 const chatSessionStore = useChatSessionStore()
 const { isDark, toggleDark } = useTheme()
 
-// Settings panel toggle
 const showSettings = ref(false)
 
-// Agent data for SessionList
 const availableAgents = ref<AgentFile[]>([])
 const agentModelById = ref<Map<string, string>>(new Map())
+const sidebarMode = ref<'sessions' | 'agents'>('sessions')
+const selectedAgentId = ref<string | null>(null)
 
-// Track selected chat session
 const selectedItemId = ref<string | null>(null)
-
-const agentFilter = computed(() => chatSessionStore.agentFilter)
 const isSending = computed(() => chatSessionStore.isSending)
 
-// Tool panel
 const toolPanel = useToolPanel()
 
-// Rename dialog state
 const renameDialogOpen = ref(false)
 const renameSessionId = ref('')
 const renameSessionValue = ref('')
 
-// Convert to background agent dialog state
 const convertDialogOpen = ref(false)
 const convertSessionId = ref('')
 const convertSessionName = ref('')
 
-// Create agent dialog state
 const createAgentDialogOpen = ref(false)
 
-// Build session list from chat sessions only
 const sessions = computed<SessionItem[]>(() => {
   const agentLookup = new Map(availableAgents.value.map((a) => [a.id, a.name]))
 
-  return chatSessionStore.filteredSummaries.map((session: ChatSessionSummary) => ({
+  return chatSessionStore.summaries.map((session: ChatSessionSummary) => ({
     id: session.id,
     name: session.name,
     status:
@@ -98,6 +92,10 @@ async function loadAgents() {
       path: `agents/${agent.id}`,
     }))
     agentModelById.value = new Map(agents.map((agent) => [agent.id, agent.agent.model ?? 'gpt-5']))
+
+    if (!selectedAgentId.value && agents.length > 0) {
+      selectedAgentId.value = agents[0]?.id ?? null
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : t('chat.loadAgentsFailed')
     toast.error(message)
@@ -105,11 +103,7 @@ async function loadAgents() {
 }
 
 async function onNewSession() {
-  const referenceSession =
-    chatSessionStore.currentSession ??
-    chatSessionStore.filteredSummaries[0] ??
-    chatSessionStore.summaries[0] ??
-    null
+  const referenceSession = chatSessionStore.currentSession ?? chatSessionStore.summaries[0] ?? null
   const fallbackAgentId = referenceSession?.agent_id ?? availableAgents.value[0]?.id ?? null
   if (!fallbackAgentId) {
     toast.error(t('chat.selectAgentToStart'))
@@ -133,8 +127,20 @@ async function onSelectItem(id: string) {
   await chatSessionStore.selectSession(id)
 }
 
-function onUpdateAgentFilter(agentId: string | null) {
-  chatSessionStore.setAgentFilter(agentId)
+function onSwitchToSessions() {
+  sidebarMode.value = 'sessions'
+}
+
+function onSwitchToAgents() {
+  sidebarMode.value = 'agents'
+  if (!selectedAgentId.value && availableAgents.value.length > 0) {
+    selectedAgentId.value = availableAgents.value[0]?.id ?? null
+  }
+}
+
+function onSelectAgent(agentId: string) {
+  selectedAgentId.value = agentId
+  sidebarMode.value = 'agents'
 }
 
 function onShowPanel(resultJson: string) {
@@ -145,7 +151,6 @@ function onToolResult(step: StreamStep) {
   toolPanel.handleToolResult(step)
 }
 
-// Session context menu handlers
 async function onDeleteSession(id: string, name: string) {
   const confirmed = await confirmDelete(name, 'session')
   if (!confirmed) return
@@ -198,13 +203,15 @@ async function onDeleteAgent(id: string, name: string) {
     availableAgents.value = availableAgents.value.filter((agent) => agent.id !== id)
     agentModelById.value.delete(id)
 
-    if (chatSessionStore.agentFilter === id) {
-      chatSessionStore.setAgentFilter(null)
+    if (selectedAgentId.value === id) {
+      selectedAgentId.value = availableAgents.value[0]?.id ?? null
     }
+
     if (chatSessionStore.currentSession?.agent_id === id) {
       selectedItemId.value = null
       await chatSessionStore.selectSession(null)
     }
+
     toast.success(t('workspace.agent.deleteSuccess'))
     await chatSessionStore.fetchSummaries()
   } catch (error) {
@@ -216,9 +223,18 @@ async function onDeleteAgent(id: string, name: string) {
 function onAgentCreated(agent: { id: string; name: string; model: string }) {
   availableAgents.value.push({ id: agent.id, name: agent.name, path: `agents/${agent.id}` })
   agentModelById.value.set(agent.id, agent.model)
+  selectedAgentId.value = agent.id
+  sidebarMode.value = 'agents'
 }
 
-// Sync selectedItemId when chat store changes externally
+function onAgentUpdated(agent: { id: string; name: string; model: string }) {
+  const target = availableAgents.value.find((item) => item.id === agent.id)
+  if (target) {
+    target.name = agent.name
+  }
+  agentModelById.value.set(agent.id, agent.model)
+}
+
 watch(
   () => chatSessionStore.currentSessionId,
   (newId) => {
@@ -233,37 +249,66 @@ watch(selectedItemId, () => {
 })
 
 onMounted(() => {
-  loadAgents()
+  void loadAgents()
 })
 </script>
 
 <template>
   <div class="h-screen flex bg-background">
-    <!-- Full-screen Settings (replaces entire layout) -->
     <SettingsPanel v-if="showSettings" class="flex-1" @back="showSettings = false" />
 
-    <!-- Normal layout -->
     <div v-show="!showSettings" class="flex flex-1 min-w-0">
-      <!-- Left: Session List (chat sessions + background agents) -->
       <div class="w-56 border-r border-border shrink-0 flex flex-col">
+        <div class="h-8 shrink-0" data-tauri-drag-region />
+
+        <div class="border-b border-border px-2 pt-2 pb-2">
+          <div class="grid grid-cols-2 gap-1">
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-7 justify-start gap-1.5 text-xs"
+              :class="sidebarMode === 'sessions' ? 'bg-muted' : ''"
+              @click="onSwitchToSessions"
+            >
+              <MessageSquare :size="13" />
+              {{ t('workspace.tabs.sessions') }}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              class="h-7 justify-start gap-1.5 text-xs"
+              :class="sidebarMode === 'agents' ? 'bg-muted' : ''"
+              @click="onSwitchToAgents"
+            >
+              <Bot :size="13" />
+              {{ t('workspace.tabs.agents') }}
+            </Button>
+          </div>
+        </div>
+
         <SessionList
+          v-if="sidebarMode === 'sessions'"
           :sessions="sessions"
           :current-session-id="selectedItemId"
-          :available-agents="availableAgents"
-          :agent-filter="agentFilter"
           class="flex-1 min-h-0"
           @select="onSelectItem"
           @new-session="onNewSession"
-          @update-agent-filter="onUpdateAgentFilter"
           @rename="onRenameSession"
           @delete="onDeleteSession"
           @convert-to-background-agent="onConvertToBackgroundAgent"
-          @create-agent="onCreateAgent"
-          @delete-agent="onDeleteAgent"
         />
 
-        <!-- Bottom bar: Settings + Theme -->
-        <div class="p-2 border-t border-border flex items-center gap-1 shrink-0">
+        <AgentList
+          v-else
+          :agents="availableAgents"
+          :selected-agent-id="selectedAgentId"
+          class="flex-1 min-h-0"
+          @select="onSelectAgent"
+          @create="onCreateAgent"
+          @delete="onDeleteAgent"
+        />
+
+        <div class="shrink-0 border-t border-border p-2 flex items-center gap-1">
           <Button
             variant="ghost"
             size="icon"
@@ -286,12 +331,22 @@ onMounted(() => {
         </div>
       </div>
 
-      <!-- Center Panel -->
-      <ChatPanel class="flex-1 min-w-0" @show-panel="onShowPanel" @tool-result="onToolResult" />
+      <ChatPanel
+        v-if="sidebarMode === 'sessions'"
+        class="flex-1 min-w-0"
+        @show-panel="onShowPanel"
+        @tool-result="onToolResult"
+      />
 
-      <!-- Right: Tool Panel -->
+      <AgentEditorPanel
+        v-else
+        :agent-id="selectedAgentId"
+        @back-to-sessions="onSwitchToSessions"
+        @updated="onAgentUpdated"
+      />
+
       <ToolPanel
-        v-if="toolPanel.visible.value && toolPanel.activeEntry.value"
+        v-if="sidebarMode === 'sessions' && toolPanel.visible.value && toolPanel.activeEntry.value"
         :panel-type="toolPanel.state.value.panelType"
         :title="toolPanel.state.value.title"
         :tool-name="toolPanel.state.value.toolName"
@@ -304,7 +359,6 @@ onMounted(() => {
       />
     </div>
 
-    <!-- Rename Session Dialog -->
     <Dialog v-model:open="renameDialogOpen">
       <DialogContent class="max-w-[24rem]">
         <DialogHeader>
@@ -322,14 +376,12 @@ onMounted(() => {
       </DialogContent>
     </Dialog>
 
-    <!-- Convert to Background Agent Dialog -->
     <ConvertToBackgroundAgentDialog
       v-model:open="convertDialogOpen"
       :session-id="convertSessionId"
       :session-name="convertSessionName"
     />
 
-    <!-- Create Agent Dialog -->
     <CreateAgentDialog v-model:open="createAgentDialogOpen" @created="onAgentCreated" />
   </div>
 </template>
