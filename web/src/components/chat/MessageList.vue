@@ -29,14 +29,24 @@ import type { StreamStep } from '@/composables/workspace/useChatStream'
 const VOICE_MSG_PATTERN =
   /^\[Voice message[^\]]*\]\n\n\[Media Context\]\nmedia_type: voice\nlocal_file_path: (.+)\ninstruction:/
 
-const props = defineProps<{
-  messages: ChatMessage[]
-  isStreaming: boolean
-  streamContent: string
-  streamThinking: string
-  steps: StreamStep[]
-  voiceAudioUrls?: Map<string, { blobUrl: string; duration: number }>
-}>()
+const props = withDefaults(
+  defineProps<{
+    messages: ChatMessage[]
+    isStreaming: boolean
+    streamContent: string
+    streamThinking?: string
+    steps?: StreamStep[]
+    voiceAudioUrls?: Map<string, { blobUrl: string; duration: number }>
+    enableCopyAction?: boolean
+    enableRegenerateAction?: boolean
+  }>(),
+  {
+    streamThinking: '',
+    steps: () => [],
+    enableCopyAction: true,
+    enableRegenerateAction: true,
+  },
+)
 
 const emit = defineEmits<{
   viewToolResult: [step: StreamStep]
@@ -214,7 +224,7 @@ onMounted(() => {
           ]"
         >
           <Button
-            v-if="msg.content"
+            v-if="props.enableCopyAction && msg.content"
             variant="outline"
             size="sm"
             class="h-6 px-2 text-[10px] bg-background"
@@ -224,7 +234,7 @@ onMounted(() => {
             Copy
           </Button>
           <Button
-            v-if="isLastAssistantMessage(idx) && !isStreaming"
+            v-if="props.enableRegenerateAction && isLastAssistantMessage(idx) && !isStreaming"
             variant="outline"
             size="sm"
             class="h-6 px-2 text-[10px] bg-background"

@@ -79,4 +79,41 @@ describe('MessageList', () => {
     expect(text).toContain('1.2s')
     expect(text).not.toContain('View')
   })
+
+  it('hides copy and retry actions when action flags are disabled', () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-user-1',
+            role: 'user',
+            content: 'user content',
+            timestamp: 1n,
+            execution: null,
+          },
+          {
+            id: 'msg-assistant-1',
+            role: 'assistant',
+            content: 'assistant content',
+            timestamp: 2n,
+            execution: null,
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+        enableCopyAction: false,
+        enableRegenerateAction: false,
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.text()).not.toContain('Copy')
+    expect(wrapper.text()).not.toContain('Retry')
+  })
 })
