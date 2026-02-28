@@ -50,6 +50,9 @@ describe('SessionList', () => {
           DropdownMenuItem: {
             template: '<div><slot /></div>',
           },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
         },
       },
     })
@@ -59,5 +62,63 @@ describe('SessionList', () => {
     expect(text).toContain('Regular Session')
     expect(text).toContain('Telegram')
     expect(text).not.toContain('channel:7686400336')
+  })
+
+  it('emits session actions from context menu items', async () => {
+    const wrapper = mount(SessionList, {
+      props: {
+        sessions: [
+          {
+            id: 'session-channel',
+            name: 'channel:7686400336',
+            status: 'completed',
+            updatedAt: Date.now(),
+            agentName: 'Agent One',
+            sourceChannel: 'telegram',
+          },
+        ],
+        currentSessionId: null,
+        availableAgents: [],
+        agentFilter: null,
+      },
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenu: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuTrigger: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuContent: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuItem: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
+        },
+      },
+    })
+
+    const findButton = (label: string) => {
+      const button = wrapper.findAll('button').find((item) => item.text().includes(label))
+      expect(button, `Expected button with label: ${label}`).toBeDefined()
+      return button!
+    }
+
+    await findButton('workspace.session.rename').trigger('click')
+    await findButton('workspace.session.convertToBackground').trigger('click')
+    await findButton('workspace.session.delete').trigger('click')
+    await findButton('workspace.agent.create').trigger('click')
+
+    expect(wrapper.emitted('rename')).toEqual([['session-channel', '7686400336']])
+    expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([['session-channel', '7686400336']])
+    expect(wrapper.emitted('delete')).toEqual([['session-channel', '7686400336']])
+    expect(wrapper.emitted('createAgent')).toEqual([[]])
   })
 })
