@@ -6,7 +6,6 @@ import Workspace from '../Workspace.vue'
 const mockListAgents = vi.fn()
 const mockCreateSession = vi.fn()
 const mockSelectSession = vi.fn()
-const mockSetAgentFilter = vi.fn()
 const mockFetchSummaries = vi.fn()
 
 let mockStore: any
@@ -66,6 +65,24 @@ vi.mock('@/components/workspace/SessionList.vue', () => ({
     name: 'SessionList',
     emits: ['newSession'],
     template: '<button data-testid="new-session" @click="$emit(\'newSession\')">new</button>',
+  }),
+}))
+
+vi.mock('@/components/workspace/AgentList.vue', () => ({
+  default: defineComponent({
+    name: 'AgentList',
+    emits: ['select'],
+    template:
+      '<div data-testid="agent-list"><button data-testid="select-agent" @click="$emit(\'select\', \'agent-1\')">select</button></div>',
+  }),
+}))
+
+vi.mock('@/components/workspace/AgentEditorPanel.vue', () => ({
+  default: defineComponent({
+    name: 'AgentEditorPanel',
+    emits: ['backToSessions'],
+    template:
+      '<div data-testid="agent-editor"><button data-testid="back-to-sessions" @click="$emit(\'backToSessions\')">back</button></div>',
   }),
 }))
 
@@ -129,16 +146,13 @@ describe('Workspace', () => {
     vi.clearAllMocks()
 
     mockStore = {
-      filteredSummaries: [],
       summaries: [],
       currentSession: null,
       currentSessionId: null,
       isSending: false,
-      agentFilter: null,
       error: null,
       createSession: mockCreateSession,
       selectSession: mockSelectSession,
-      setAgentFilter: mockSetAgentFilter,
       deleteSession: vi.fn().mockResolvedValue(true),
       renameSession: vi.fn().mockResolvedValue(null),
       fetchSummaries: mockFetchSummaries,
@@ -187,10 +201,55 @@ describe('Workspace', () => {
     })
 
     await flushPromises()
-
     await wrapper.get('[data-testid="new-session"]').trigger('click')
 
     expect(mockCreateSession).toHaveBeenCalledWith('agent-1', 'gpt-5')
     expect(mockSelectSession).toHaveBeenCalledWith('session-new')
+  })
+
+  it('switches to agent tab, opens editor, and can switch back to sessions', async () => {
+    const wrapper = mount(Workspace, {
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          Dialog: {
+            template: '<div><slot /></div>',
+          },
+          DialogContent: {
+            template: '<div><slot /></div>',
+          },
+          DialogHeader: {
+            template: '<div><slot /></div>',
+          },
+          DialogTitle: {
+            template: '<div><slot /></div>',
+          },
+          DialogFooter: {
+            template: '<div><slot /></div>',
+          },
+          Input: {
+            template: '<input />',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const tabAgents = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('workspace.tabs.agents'))
+    expect(tabAgents).toBeDefined()
+    await tabAgents!.trigger('click')
+
+    expect(wrapper.find('[data-testid="agent-list"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="select-agent"]').trigger('click')
+    expect(wrapper.find('[data-testid="agent-editor"]').exists()).toBe(true)
+
+    await wrapper.get('[data-testid="back-to-sessions"]').trigger('click')
+    expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(true)
   })
 })
