@@ -852,16 +852,16 @@ fn save_audio_to_session(audio_base64: &str, session_id: Option<&str>) -> Result
     Ok(file_path.to_string_lossy().to_string())
 }
 
-/// Decode base64 audio and write to a temp file under /tmp/restflow-media/
+/// Decode base64 audio and write to a temp file under ~/.restflow/media/
 fn save_audio_to_temp(audio_base64: &str) -> Result<String, String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(audio_base64)
         .map_err(|e| format!("Failed to decode base64 audio: {}", e))?;
 
-    let dir = std::path::Path::new("/tmp/restflow-media");
-    std::fs::create_dir_all(dir).map_err(|e| format!("Failed to create media dir: {}", e))?;
+    let dir = restflow_core::paths::media_dir()
+        .map_err(|e| format!("Failed to create media dir: {}", e))?;
 
-    let filename = format!("tauri-{}.webm", uuid::Uuid::new_v4());
+    let filename = format!("tmp-{}.webm", uuid::Uuid::new_v4());
     let file_path = dir.join(&filename);
 
     std::fs::write(&file_path, &bytes).map_err(|e| format!("Failed to write audio file: {}", e))?;
@@ -880,7 +880,9 @@ mod tests {
         let encoded = base64::engine::general_purpose::STANDARD.encode(sample);
         let path = save_audio_to_temp(&encoded).unwrap();
 
-        assert!(path.starts_with("/tmp/restflow-media/tauri-"));
+        let media_dir = restflow_core::paths::media_dir().unwrap();
+        assert!(path.starts_with(media_dir.to_str().unwrap()));
+        assert!(path.contains("tmp-"));
         assert!(path.ends_with(".webm"));
 
         // Verify file content
