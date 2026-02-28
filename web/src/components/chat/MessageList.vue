@@ -27,7 +27,7 @@ import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const VOICE_MSG_PATTERN =
-  /^\[Voice message\]\n\n\[Media Context\]\nmedia_type: voice\nlocal_file_path: (.+)\ninstruction:/
+  /^\[Voice message[^\]]*\]\n\n\[Media Context\]\nmedia_type: voice\nlocal_file_path: (.+)\ninstruction:/
 
 const props = defineProps<{
   messages: ChatMessage[]

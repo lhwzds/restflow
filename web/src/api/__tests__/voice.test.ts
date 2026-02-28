@@ -76,14 +76,15 @@ describe('voice API', () => {
     it('should call save_voice_message and return file path', async () => {
       const { invoke } = await import('@tauri-apps/api/core')
       const mockInvoke = vi.mocked(invoke)
-      mockInvoke.mockResolvedValue('/tmp/restflow-media/tauri-abc123.webm')
+      mockInvoke.mockResolvedValue('/home/user/.restflow/media/voice-abc123.webm')
 
       const result = await saveVoiceMessage('base64data')
 
       expect(mockInvoke).toHaveBeenCalledWith('save_voice_message', {
         audioBase64: 'base64data',
+        sessionId: null,
       })
-      expect(result).toBe('/tmp/restflow-media/tauri-abc123.webm')
+      expect(result).toBe('/home/user/.restflow/media/voice-abc123.webm')
     })
   })
 })

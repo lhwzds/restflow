@@ -31,8 +31,6 @@ impl Default for TranscribeConfig {
         if let Ok(restflow_dir) = restflow_storage::paths::ensure_restflow_dir() {
             allowed.push(restflow_dir.join("media"));
         }
-        // Keep /tmp/restflow-media for backward compatibility with old files
-        allowed.push(PathBuf::from("/tmp/restflow-media"));
         Self {
             allowed_paths: allowed,
             max_file_size: 25 * 1024 * 1024, // 25MB

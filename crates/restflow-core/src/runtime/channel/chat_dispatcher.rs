@@ -323,7 +323,8 @@ impl ChatSessionManager {
         if let Some(model) = active_model
             && let Some(normalized) = AIModel::normalize_model_id(model)
         {
-            session.model = normalized.clone();
+            // Only update last_model metadata; preserve the user's chosen session model
+            // so that switch_model calls during execution don't permanently override it.
             session.metadata.last_model = Some(normalized);
         }
 
@@ -846,14 +847,18 @@ mod tests {
 
     #[test]
     fn test_build_agent_input_voice_includes_transcribe_hint() {
+        let media_dir = crate::paths::media_dir().unwrap();
+        let voice_path = media_dir.join("tg-voice.ogg");
+        let voice_path_str = voice_path.to_string_lossy().to_string();
+
         let message = create_message("[Voice message, 6s]").with_metadata(json!({
             "media_type": "voice",
-            "file_path": "/tmp/restflow-media/tg-voice.ogg"
+            "file_path": voice_path_str
         }));
 
         let input = ChatDispatcher::build_agent_input(&message, None);
         assert!(input.contains("media_type: voice"));
-        assert!(input.contains("local_file_path: /tmp/restflow-media/tg-voice.ogg"));
+        assert!(input.contains(&format!("local_file_path: {}", voice_path_str)));
         assert!(input.contains("Use the transcribe tool with this file_path"));
     }
 
@@ -1106,7 +1111,9 @@ mod tests {
             .get(&session.id)
             .unwrap()
             .expect("session should exist");
-        assert_eq!(updated.model, "gpt-5.3-codex");
+        // session.model should remain unchanged (user's chosen model)
+        assert_eq!(updated.model, "gpt-5");
+        // only last_model metadata tracks what was actually used
         assert_eq!(
             updated.metadata.last_model.as_deref(),
             Some("gpt-5.3-codex")
