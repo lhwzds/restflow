@@ -521,6 +521,7 @@ pub async fn stop_live_transcription(transcribe_id: String) -> Result<(), String
 }
 
 /// The background WebSocket event loop for a live transcription session.
+#[allow(clippy::too_many_arguments)]
 async fn live_transcription_task(
     app: tauri::AppHandle,
     transcribe_id: String,
@@ -608,10 +609,8 @@ async fn live_transcription_task(
                     Some(Ok(WsMessage::Text(text))) => {
                         if let Some(should_break) = handle_realtime_event(
                             &app, &transcribe_id, &text, &mut full_text, &mut segment_start_idx
-                        ) {
-                            if should_break && stopped {
-                                break;
-                            }
+                        ) && should_break && stopped {
+                            break;
                         }
                     }
                     Some(Ok(WsMessage::Close(_))) => {
