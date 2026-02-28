@@ -649,6 +649,8 @@ impl ChatDispatcher {
             message.channel_type,
         ));
         let executor = self.create_executor().with_reply_sender(reply_sender);
+        self.maybe_send_acknowledgement(&executor, &mut session, &input, message)
+            .await;
         let turn_id = uuid::Uuid::new_v4().to_string();
         append_turn_started(&self.storage.tool_traces, &session.id, &turn_id);
         let started_at = Instant::now();
@@ -811,6 +813,50 @@ impl ChatDispatcher {
         Ok(())
     }
 
+    fn build_ack_outbound_message(conversation_id: &str, content: &str) -> OutboundMessage {
+        let mut response = OutboundMessage::new(conversation_id, content);
+        // Ack text is generated dynamically and may include markdown-reserved
+        // characters. Keep plain text mode to avoid adapter parse failures.
+        response.parse_mode = None;
+        response
+    }
+
+    async fn maybe_send_acknowledgement(
+        &self,
+        executor: &AgentRuntimeExecutor,
+        session: &mut ChatSession,
+        user_input: &str,
+        message: &InboundMessage,
+    ) {
+        match executor
+            .generate_session_acknowledgement(session, user_input, SessionInputMode::EphemeralInput)
+            .await
+        {
+            Ok(Some(content)) => {
+                let response = Self::build_ack_outbound_message(&message.conversation_id, &content);
+                if let Err(error) = self
+                    .channel_router
+                    .send_to(message.channel_type, response)
+                    .await
+                {
+                    warn!(
+                        session_id = %session.id,
+                        error = %error,
+                        "Failed to send acknowledgement to channel"
+                    );
+                }
+            }
+            Ok(None) => {}
+            Err(error) => {
+                warn!(
+                    session_id = %session.id,
+                    error = %error,
+                    "Failed to generate acknowledgement message"
+                );
+            }
+        }
+    }
+
     /// Send typing indicator to the conversation.
     async fn send_typing_indicator(&self, message: &InboundMessage) -> Result<()> {
         self.channel_router
@@ -938,6 +984,14 @@ mod tests {
         assert!(message.contains("Agent execution failed:"));
         assert!(message.contains("tool call failed: invalid argument"));
         assert!(!message.contains("stacktrace"));
+    }
+
+    #[test]
+    fn test_build_ack_outbound_message_disables_parse_mode() {
+        let message = ChatDispatcher::build_ack_outbound_message("chat-1", "收到，开始处理。");
+        assert_eq!(message.conversation_id, "chat-1");
+        assert_eq!(message.content, "收到，开始处理。");
+        assert_eq!(message.parse_mode, None);
     }
 
     #[tokio::test]
