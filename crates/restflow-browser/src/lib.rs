@@ -22,7 +22,7 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::process::{Child, Command};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::{sleep, timeout};
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, connect_async};
@@ -307,6 +307,10 @@ pub trait BrowserExecutor: Send + Sync {
         session: &BrowserSession,
         request: &RunActionsRequest,
     ) -> Result<BrowserExecutionResult>;
+
+    async fn close_session(&self, _session_id: &str) -> Result<()> {
+        Ok(())
+    }
 }
 
 /// Browser automation service with session lifecycle and executor delegation.
@@ -380,6 +384,8 @@ impl BrowserService {
             return Ok(false);
         };
 
+        self.executor.close_session(session_id).await?;
+
         let session_dir = PathBuf::from(session.session_dir);
         if session_dir.exists() {
             std::fs::remove_dir_all(session_dir)?;
@@ -407,12 +413,67 @@ impl BrowserService {
     }
 }
 
-#[derive(Default)]
-pub struct CdpExecutor;
+pub struct CdpExecutor {
+    runtimes: Mutex<HashMap<String, Arc<Mutex<CdpRuntime>>>>,
+}
 
 impl CdpExecutor {
     pub fn new() -> Self {
-        Self
+        Self {
+            runtimes: Mutex::new(HashMap::new()),
+        }
+    }
+
+    async fn get_or_start_runtime(
+        &self,
+        session: &BrowserSession,
+        timeout_secs: u64,
+    ) -> Result<Arc<Mutex<CdpRuntime>>> {
+        if let Some(existing) = self.runtimes.lock().await.get(&session.id).cloned() {
+            return Ok(existing);
+        }
+
+        let started = Arc::new(Mutex::new(
+            CdpRuntime::start(session.headless, &session.profile_dir, timeout_secs).await?,
+        ));
+
+        let mut runtimes = self.runtimes.lock().await;
+        if let Some(existing) = runtimes.get(&session.id).cloned() {
+            drop(runtimes);
+            if let Ok(runtime) = Arc::try_unwrap(started) {
+                let shutdown_result = runtime.into_inner().shutdown().await;
+                if let Err(error) = shutdown_result {
+                    tracing::warn!(
+                        "CDP runtime shutdown error after duplicate start: {}",
+                        error
+                    );
+                }
+            }
+            return Ok(existing);
+        }
+
+        runtimes.insert(session.id.clone(), started.clone());
+        Ok(started)
+    }
+
+    async fn close_runtime(&self, session_id: &str) -> Result<()> {
+        let runtime = self.runtimes.lock().await.remove(session_id);
+        let Some(runtime) = runtime else {
+            return Ok(());
+        };
+
+        if let Ok(runtime) = Arc::try_unwrap(runtime) {
+            let shutdown_result = runtime.into_inner().shutdown().await;
+            if let Err(error) = shutdown_result {
+                tracing::warn!("CDP runtime shutdown error: {}", error);
+            }
+            return Ok(());
+        }
+
+        bail!(
+            "Browser session '{}' is busy and cannot be closed right now",
+            session_id
+        );
     }
 
     async fn run_script_inner(
@@ -427,19 +488,16 @@ impl CdpExecutor {
             request.code.clone()
         };
 
-        let mut runtime =
-            CdpRuntime::start(session.headless, &session.profile_dir, request.timeout_secs).await?;
+        let runtime = self
+            .get_or_start_runtime(session, request.timeout_secs)
+            .await?;
+        let mut runtime = runtime.lock().await;
 
         let eval_script = build_user_script_wrapper(&script_source)?;
         let value = runtime
             .evaluate_page_script(&eval_script)
             .await
             .and_then(extract_action_result)?;
-
-        let shutdown_result = runtime.shutdown().await;
-        if let Err(error) = shutdown_result {
-            tracing::warn!("CDP runtime shutdown error: {}", error);
-        }
 
         Ok(value)
     }
@@ -449,8 +507,10 @@ impl CdpExecutor {
         session: &BrowserSession,
         request: &RunActionsRequest,
     ) -> Result<Vec<Value>> {
-        let mut runtime =
-            CdpRuntime::start(session.headless, &session.profile_dir, request.timeout_secs).await?;
+        let runtime = self
+            .get_or_start_runtime(session, request.timeout_secs)
+            .await?;
+        let mut runtime = runtime.lock().await;
 
         let mut outputs = Vec::with_capacity(request.actions.len());
 
@@ -461,12 +521,13 @@ impl CdpExecutor {
             outputs.push(output);
         }
 
-        let shutdown_result = runtime.shutdown().await;
-        if let Err(error) = shutdown_result {
-            tracing::warn!("CDP runtime shutdown error: {}", error);
-        }
-
         Ok(outputs)
+    }
+}
+
+impl Default for CdpExecutor {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -588,6 +649,10 @@ impl BrowserExecutor for CdpExecutor {
                 payload: Some(json!({"success": false, "error": error.to_string()})),
             }),
         }
+    }
+
+    async fn close_session(&self, session_id: &str) -> Result<()> {
+        self.close_runtime(session_id).await
     }
 }
 
@@ -1933,6 +1998,7 @@ mod tests {
     struct MockExecutor {
         script_calls: AtomicUsize,
         action_calls: AtomicUsize,
+        close_calls: AtomicUsize,
     }
 
     #[async_trait]
@@ -1980,6 +2046,11 @@ mod tests {
                 payload: Some(json!({"success": true, "result": [{"ok": true}]})),
             })
         }
+
+        async fn close_session(&self, _session_id: &str) -> Result<()> {
+            self.close_calls.fetch_add(1, Ordering::Relaxed);
+            Ok(())
+        }
     }
 
     #[tokio::test]
@@ -2004,6 +2075,24 @@ mod tests {
         let closed = service.close_session(&session.id).await.unwrap();
         assert!(closed);
         assert!(service.list_sessions().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn close_session_forwards_cleanup_to_executor() {
+        let temp = tempdir().unwrap();
+        let executor = Arc::new(MockExecutor::default());
+        let service =
+            BrowserService::new_with_executor(temp.path().join("browser"), executor.clone())
+                .unwrap();
+
+        let session = service
+            .new_session(NewSessionRequest::default())
+            .await
+            .unwrap();
+
+        let closed = service.close_session(&session.id).await.unwrap();
+        assert!(closed);
+        assert_eq!(executor.close_calls.load(Ordering::Relaxed), 1);
     }
 
     #[tokio::test]

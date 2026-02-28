@@ -287,6 +287,8 @@ impl Tool for NonRetryableTool {
 
 struct CapturingEmitter {
     text: Arc<AsyncMutex<Vec<String>>>,
+    tool_starts: Arc<AsyncMutex<Vec<(String, String, String)>>>,
+    tool_results: Arc<AsyncMutex<Vec<(String, String, String, bool)>>>,
     completed: Arc<AtomicUsize>,
 }
 
@@ -294,6 +296,8 @@ impl CapturingEmitter {
     fn new() -> Self {
         Self {
             text: Arc::new(AsyncMutex::new(Vec::new())),
+            tool_starts: Arc::new(AsyncMutex::new(Vec::new())),
+            tool_results: Arc::new(AsyncMutex::new(Vec::new())),
             completed: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -307,15 +311,21 @@ impl StreamEmitter for CapturingEmitter {
 
     async fn emit_thinking_delta(&mut self, _text: &str) {}
 
-    async fn emit_tool_call_start(&mut self, _id: &str, _name: &str, _arguments: &str) {}
+    async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
+        self.tool_starts.lock().await.push((
+            id.to_string(),
+            name.to_string(),
+            arguments.to_string(),
+        ));
+    }
 
-    async fn emit_tool_call_result(
-        &mut self,
-        _id: &str,
-        _name: &str,
-        _result: &str,
-        _success: bool,
-    ) {
+    async fn emit_tool_call_result(&mut self, id: &str, name: &str, result: &str, success: bool) {
+        self.tool_results.lock().await.push((
+            id.to_string(),
+            name.to_string(),
+            result.to_string(),
+            success,
+        ));
     }
 
     async fn emit_complete(&mut self) {
@@ -901,6 +911,87 @@ async fn test_backward_compat_execute_streaming_emits_complete() {
 
     assert!(result.success);
     assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn test_non_stream_run_with_emitter_emits_tool_trace() {
+    let responses = vec![
+        CompletionResponse {
+            content: None,
+            tool_calls: vec![ToolCall {
+                id: "call_1".to_string(),
+                name: "echo".to_string(),
+                arguments: serde_json::json!({"message":"hello"}),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: None,
+        },
+        CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        },
+    ];
+
+    let llm = Arc::new(MockLlmClient::new(responses));
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+    let mut emitter = CapturingEmitter::new();
+
+    let result = executor
+        .run_with_emitter(AgentConfig::new("non-stream trace"), &mut emitter)
+        .await
+        .unwrap();
+
+    assert!(result.success);
+    assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
+    assert_eq!(emitter.tool_starts.lock().await.len(), 1);
+    assert_eq!(emitter.tool_results.lock().await.len(), 1);
+    let tool_result = emitter.tool_results.lock().await;
+    assert!(tool_result[0].3);
+}
+
+#[tokio::test]
+async fn test_non_stream_run_from_state_with_emitter_emits_tool_trace() {
+    let responses = vec![
+        CompletionResponse {
+            content: None,
+            tool_calls: vec![ToolCall {
+                id: "call_1".to_string(),
+                name: "echo".to_string(),
+                arguments: serde_json::json!({"message":"resume"}),
+            }],
+            finish_reason: FinishReason::ToolCalls,
+            usage: None,
+        },
+        CompletionResponse {
+            content: Some("done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        },
+    ];
+
+    let llm = Arc::new(MockLlmClient::new(responses));
+    let mut tools = ToolRegistry::new();
+    tools.register(EchoTool);
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+    let mut emitter = CapturingEmitter::new();
+    let mut state = AgentState::new("resume-exec".to_string(), 8);
+    state.add_message(Message::system("system"));
+    state.add_message(Message::user("resume"));
+
+    let result = executor
+        .run_from_state_with_emitter(AgentConfig::new("unused-goal"), state, &mut emitter)
+        .await
+        .unwrap();
+
+    assert!(result.success);
+    assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
+    assert_eq!(emitter.tool_starts.lock().await.len(), 1);
+    assert_eq!(emitter.tool_results.lock().await.len(), 1);
 }
 
 #[test]

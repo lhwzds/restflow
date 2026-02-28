@@ -1157,7 +1157,11 @@ impl AgentRuntimeExecutor {
         let force_non_stream = model.is_codex_cli();
         let result = if history_messages.is_empty() {
             if force_non_stream {
-                agent.run(config).await?
+                if let Some(mut emitter) = emitter {
+                    agent.run_with_emitter(config, emitter.as_mut()).await?
+                } else {
+                    agent.run(config).await?
+                }
             } else if let Some(mut emitter) = emitter {
                 #[allow(deprecated)]
                 {
@@ -1177,7 +1181,13 @@ impl AgentRuntimeExecutor {
             }
             state.add_message(Message::user(user_input.to_string()));
             if force_non_stream {
-                agent.run_from_state(config, state).await?
+                if let Some(mut emitter) = emitter {
+                    agent
+                        .run_from_state_with_emitter(config, state, emitter.as_mut())
+                        .await?
+                } else {
+                    agent.run_from_state(config, state).await?
+                }
             } else if let Some(mut emitter) = emitter {
                 agent
                     .execute_from_state(config, state, emitter.as_mut())
@@ -1748,7 +1758,13 @@ impl AgentRuntimeExecutor {
 
         let result = if let Some(state) = initial_state {
             if force_non_stream {
-                agent.run_from_state(config, state).await?
+                if let Some(mut emitter) = emitter {
+                    agent
+                        .run_from_state_with_emitter(config, state, emitter.as_mut())
+                        .await?
+                } else {
+                    agent.run_from_state(config, state).await?
+                }
             } else if let Some(mut emitter) = emitter {
                 agent
                     .execute_from_state(config, state, emitter.as_mut())
@@ -1757,7 +1773,11 @@ impl AgentRuntimeExecutor {
                 agent.run_from_state(config, state).await?
             }
         } else if force_non_stream {
-            agent.run(config).await?
+            if let Some(mut emitter) = emitter {
+                agent.run_with_emitter(config, emitter.as_mut()).await?
+            } else {
+                agent.run(config).await?
+            }
         } else if let Some(mut emitter) = emitter {
             #[allow(deprecated)]
             {
