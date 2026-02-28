@@ -42,6 +42,9 @@ vi.mock('@/composables/useToast', () => ({
 }))
 
 vi.mock('@/composables/useConfirm', () => ({
+  useConfirm: () => ({
+    confirm: vi.fn().mockResolvedValue(true),
+  }),
   confirmDelete: vi.fn().mockResolvedValue(true),
 }))
 

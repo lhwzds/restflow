@@ -74,6 +74,14 @@ describe('SessionList', () => {
             agentName: 'Agent One',
             sourceChannel: 'telegram',
           },
+          {
+            id: 'session-workspace',
+            name: 'Workspace Session',
+            status: 'completed',
+            updatedAt: Date.now(),
+            agentName: 'Agent One',
+            sourceChannel: 'workspace',
+          },
         ],
         currentSessionId: null,
       },
@@ -108,13 +116,17 @@ describe('SessionList', () => {
     }
 
     await findButton('workspace.newSession').trigger('click')
+    await findButton('workspace.session.rebuild').trigger('click')
     await findButton('workspace.session.rename').trigger('click')
     await findButton('workspace.session.convertToBackground').trigger('click')
     await findButton('workspace.session.delete').trigger('click')
 
     expect(wrapper.emitted('newSession')).toEqual([[]])
-    expect(wrapper.emitted('rename')).toEqual([['session-channel', '7686400336']])
-    expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([['session-channel', '7686400336']])
-    expect(wrapper.emitted('delete')).toEqual([['session-channel', '7686400336']])
+    expect(wrapper.emitted('rebuild')).toEqual([['session-channel', '7686400336']])
+    expect(wrapper.emitted('rename')).toEqual([['session-workspace', 'Workspace Session']])
+    expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([
+      ['session-workspace', 'Workspace Session'],
+    ])
+    expect(wrapper.emitted('delete')).toEqual([['session-workspace', 'Workspace Session']])
   })
 })

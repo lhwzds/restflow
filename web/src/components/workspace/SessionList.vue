@@ -8,6 +8,7 @@ import {
   Pencil,
   Trash2,
   ArrowRightFromLine,
+  RotateCcw,
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
@@ -36,6 +37,7 @@ const emit = defineEmits<{
   rename: [id: string, currentName: string]
   delete: [id: string, name: string]
   convertToBackgroundAgent: [id: string, name: string]
+  rebuild: [id: string, name: string]
 }>()
 
 const CHANNEL_SESSION_PREFIX = 'channel:'
@@ -47,6 +49,10 @@ function displaySessionName(session: SessionItem): string {
   }
 
   return session.name
+}
+
+function isExternallyManagedSession(session: SessionItem): boolean {
+  return !!session.sourceChannel && session.sourceChannel !== 'workspace'
 }
 
 function sourceLabel(source: ChatSessionSource | null | undefined): string | null {
@@ -151,24 +157,32 @@ const formatTime = (timestamp: number) => {
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" class="w-48">
-                <DropdownMenuItem @click="emit('rename', session.id, displaySessionName(session))">
-                  <Pencil :size="14" class="mr-2" />
-                  {{ t('workspace.session.rename') }}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  @click="emit('convertToBackgroundAgent', session.id, displaySessionName(session))"
-                >
-                  <ArrowRightFromLine :size="14" class="mr-2" />
-                  {{ t('workspace.session.convertToBackground') }}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  class="text-destructive focus:text-destructive"
-                  @click="emit('delete', session.id, displaySessionName(session))"
-                >
-                  <Trash2 :size="14" class="mr-2" />
-                  {{ t('workspace.session.delete') }}
-                </DropdownMenuItem>
+                <template v-if="isExternallyManagedSession(session)">
+                  <DropdownMenuItem @click="emit('rebuild', session.id, displaySessionName(session))">
+                    <RotateCcw :size="14" class="mr-2" />
+                    {{ t('workspace.session.rebuild') }}
+                  </DropdownMenuItem>
+                </template>
+                <template v-else>
+                  <DropdownMenuItem @click="emit('rename', session.id, displaySessionName(session))">
+                    <Pencil :size="14" class="mr-2" />
+                    {{ t('workspace.session.rename') }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    @click="emit('convertToBackgroundAgent', session.id, displaySessionName(session))"
+                  >
+                    <ArrowRightFromLine :size="14" class="mr-2" />
+                    {{ t('workspace.session.convertToBackground') }}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    class="text-destructive focus:text-destructive"
+                    @click="emit('delete', session.id, displaySessionName(session))"
+                  >
+                    <Trash2 :size="14" class="mr-2" />
+                    {{ t('workspace.session.delete') }}
+                  </DropdownMenuItem>
+                </template>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>

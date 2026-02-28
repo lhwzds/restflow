@@ -91,6 +91,10 @@ const linkedBgAgent = computed(() => {
   if (!sessionId) return null
   return backgroundAgentStore.agentBySessionId(sessionId)
 })
+const isExternalSessionManaged = computed(() => {
+  const source = currentSession.value?.source_channel
+  return !!source && source !== 'workspace'
+})
 const bgCanPause = computed(() => linkedBgAgent.value?.status === 'active')
 const bgCanResume = computed(() => linkedBgAgent.value?.status === 'paused')
 const bgCanRun = computed(
@@ -313,6 +317,11 @@ async function onUpdateSelectedAgent(agentId: string | null) {
 
   const session = currentSession.value
   if (!session || session.agent_id === agentId) return
+  if (isExternalSessionManaged.value) {
+    selectedAgent.value = oldAgent
+    toast.error(t('workspace.session.managedExternally'))
+    return
+  }
 
   const updated = await chatSessionStore.updateSessionAgent(session.id, agentId)
   if (!updated) {
@@ -330,6 +339,11 @@ async function onUpdateSelectedModel(model: string) {
 
   const session = currentSession.value
   if (!session || session.model === model) return
+  if (isExternalSessionManaged.value) {
+    selectedModel.value = oldModel
+    toast.error(t('workspace.session.managedExternally'))
+    return
+  }
 
   const updated = await chatSessionStore.updateSessionModel(session.id, model)
   if (!updated) {
@@ -516,6 +530,7 @@ defineExpose({
         :total-tokens="totalTokens"
         :tokens-per-second="tokensPerSecond"
         :duration-ms="durationMs"
+        :session-locked="isExternalSessionManaged"
         :get-session-id="getSessionId"
         @send="onSendMessage"
         @send-voice-message="onSendVoiceMessage"

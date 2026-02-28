@@ -14,6 +14,8 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { getAgent, updateAgent } from '@/api/agents'
+import { listSkills } from '@/api/skills'
+import { tauriInvoke } from '@/api/config'
 import { useModelsStore } from '@/stores/modelsStore'
 import { useToast } from '@/composables/useToast'
 import type { AIModel } from '@/types/generated/AIModel'
@@ -39,9 +41,27 @@ const name = ref('')
 const model = ref('')
 const temperature = ref('')
 const prompt = ref('')
+const availableToolCount = ref(0)
+const availableSkillCount = ref(0)
 
 const models = computed(() => modelsStore.getAllModels)
 const hasAgent = computed(() => !!props.agentId)
+const effectiveToolCount = computed(() => {
+  const configured = current.value?.agent.tools
+  if (configured && configured.length > 0) return configured.length
+  return availableToolCount.value
+})
+const effectiveSkillCount = computed(() => {
+  const configured = current.value?.agent.skills
+  if (configured && configured.length > 0) return configured.length
+  return availableSkillCount.value
+})
+const templateType = computed(() => {
+  const promptFile = current.value?.prompt_file?.toLowerCase()
+  if (promptFile === 'default.md') return t('workspace.agent.templateDefault')
+  if (promptFile === 'background_agent.md') return t('workspace.agent.templateBackground')
+  return t('workspace.agent.templateCustom')
+})
 
 function applyForm(agent: StoredAgent) {
   current.value = agent
@@ -81,7 +101,22 @@ onMounted(() => {
   void modelsStore.loadModels().catch(() => {
     toast.error(t('chat.loadModelsFailed'))
   })
+  void loadReferenceCounts()
 })
+
+async function loadReferenceCounts() {
+  try {
+    const [tools, skills] = await Promise.all([
+      tauriInvoke<Array<{ name: string; description: string }>>('get_available_tools'),
+      listSkills(),
+    ])
+    availableToolCount.value = tools.length
+    availableSkillCount.value = skills.length
+  } catch (error) {
+    const message = error instanceof Error ? error.message : t('workspace.agent.loadDetailsFailed')
+    toast.error(message)
+  }
+}
 
 async function save() {
   if (!props.agentId || !current.value) return
@@ -185,14 +220,18 @@ async function save() {
           />
         </div>
 
-        <div class="grid grid-cols-2 gap-3 text-sm">
+        <div class="grid grid-cols-3 gap-3 text-sm">
           <div class="rounded-md border border-border px-3 py-2">
             <div class="text-xs text-muted-foreground">{{ t('workspace.agent.tools') }}</div>
-            <div class="font-medium">{{ current.agent.tools?.length ?? 0 }}</div>
+            <div data-testid="agent-tool-count" class="font-medium">{{ effectiveToolCount }}</div>
           </div>
           <div class="rounded-md border border-border px-3 py-2">
             <div class="text-xs text-muted-foreground">{{ t('workspace.agent.skills') }}</div>
-            <div class="font-medium">{{ current.agent.skills?.length ?? 0 }}</div>
+            <div data-testid="agent-skill-count" class="font-medium">{{ effectiveSkillCount }}</div>
+          </div>
+          <div class="rounded-md border border-border px-3 py-2">
+            <div class="text-xs text-muted-foreground">{{ t('workspace.agent.templateType') }}</div>
+            <div data-testid="agent-template-type" class="font-medium">{{ templateType }}</div>
           </div>
         </div>
 

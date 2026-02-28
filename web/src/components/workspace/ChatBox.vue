@@ -33,6 +33,7 @@ const props = defineProps<{
   totalTokens?: number
   tokensPerSecond?: number
   durationMs?: number
+  sessionLocked?: boolean
   /** Optional getter for session ID, used to save voice messages to the correct session directory */
   getSessionId?: () => string | undefined
 }>()
@@ -179,14 +180,14 @@ const setVoiceMode = (mode: 'voice-to-text' | 'voice-message') => {
         <SessionAgentSelector
           :selected-agent="selectedAgent"
           :available-agents="availableAgents"
-          :disabled="isExecuting || recorder.state.value.isRecording"
+          :disabled="sessionLocked || isExecuting || recorder.state.value.isRecording"
           @update:selected-agent="emit('update:selectedAgent', $event)"
         />
 
         <!-- Model Selector (always visible) -->
         <Select
           :model-value="selectedModel"
-          :disabled="recorder.state.value.isRecording"
+          :disabled="sessionLocked || recorder.state.value.isRecording"
           @update:model-value="emit('update:selectedModel', $event)"
         >
           <SelectTrigger class="w-[180px] h-8 text-xs">

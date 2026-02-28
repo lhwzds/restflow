@@ -30,8 +30,9 @@ import CreateAgentDialog from '@/components/workspace/CreateAgentDialog.vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
-import { confirmDelete } from '@/composables/useConfirm'
+import { confirmDelete, useConfirm } from '@/composables/useConfirm'
 import { deleteAgent as deleteAgentApi, listAgents } from '@/api/agents'
+import { rebuildExternalChatSession } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, SessionItem } from '@/types/workspace'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
@@ -39,6 +40,7 @@ import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const toast = useToast()
 const { t } = useI18n()
+const { confirm } = useConfirm()
 const chatSessionStore = useChatSessionStore()
 const { isDark, toggleDark } = useTheme()
 
@@ -82,6 +84,11 @@ const sessions = computed<SessionItem[]>(() => {
     sourceChannel: session.source_channel,
   }))
 })
+
+function isExternallyManagedSession(sessionId: string): boolean {
+  const target = sessions.value.find((item) => item.id === sessionId)
+  return !!target?.sourceChannel && target.sourceChannel !== 'workspace'
+}
 
 async function loadAgents() {
   try {
@@ -152,6 +159,10 @@ function onToolResult(step: StreamStep) {
 }
 
 async function onDeleteSession(id: string, name: string) {
+  if (isExternallyManagedSession(id)) {
+    toast.error(t('workspace.session.managedExternally'))
+    return
+  }
   const confirmed = await confirmDelete(name, 'session')
   if (!confirmed) return
 
@@ -168,6 +179,10 @@ async function onDeleteSession(id: string, name: string) {
 }
 
 function onRenameSession(id: string, currentName: string) {
+  if (isExternallyManagedSession(id)) {
+    toast.error(t('workspace.session.managedExternally'))
+    return
+  }
   renameSessionId.value = id
   renameSessionValue.value = currentName
   renameDialogOpen.value = true
@@ -185,9 +200,40 @@ async function submitRename() {
 }
 
 function onConvertToBackgroundAgent(id: string, name: string) {
+  if (isExternallyManagedSession(id)) {
+    toast.error(t('workspace.session.managedExternally'))
+    return
+  }
   convertSessionId.value = id
   convertSessionName.value = name
   convertDialogOpen.value = true
+}
+
+async function onRebuildSession(id: string, name: string) {
+  if (!isExternallyManagedSession(id)) {
+    toast.error(t('workspace.session.rebuildFailed'))
+    return
+  }
+
+  const confirmed = await confirm({
+    title: t('workspace.session.rebuild'),
+    description: t('workspace.session.rebuildDescription', { name }),
+    confirmText: t('workspace.session.rebuildConfirm'),
+    cancelText: t('common.cancel'),
+    variant: 'destructive',
+  })
+  if (!confirmed) return
+
+  try {
+    const rebuilt = await rebuildExternalChatSession(id)
+    await chatSessionStore.fetchSummaries()
+    selectedItemId.value = rebuilt.id
+    await chatSessionStore.selectSession(rebuilt.id)
+    toast.success(t('workspace.session.rebuildSuccess'))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : t('workspace.session.rebuildFailed')
+    toast.error(message)
+  }
 }
 
 function onCreateAgent() {
@@ -296,6 +342,7 @@ onMounted(() => {
           @rename="onRenameSession"
           @delete="onDeleteSession"
           @convert-to-background-agent="onConvertToBackgroundAgent"
+          @rebuild="onRebuildSession"
         />
 
         <AgentList
