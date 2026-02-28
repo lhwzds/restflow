@@ -98,6 +98,21 @@ export async function deleteBackgroundAgent(id: string): Promise<boolean> {
   return tauriInvoke<boolean>('delete_background_agent', { id })
 }
 
+/** Request payload for converting a session to background agent */
+export interface ConvertSessionToBackgroundAgentRequest {
+  session_id: string
+  name?: string
+  input?: string
+  run_now?: boolean
+}
+
+/** Convert a chat session into a background agent */
+export async function convertSessionToBackgroundAgent(
+  request: ConvertSessionToBackgroundAgentRequest,
+): Promise<BackgroundAgent> {
+  return tauriInvoke<BackgroundAgent>('convert_session_to_background_agent', { request })
+}
+
 /** List memory sessions for a memory namespace (agent ID) */
 export async function listMemorySessions(agentId: string): Promise<MemorySession[]> {
   return tauriInvoke<MemorySession[]>('list_memory_sessions', { agentId })

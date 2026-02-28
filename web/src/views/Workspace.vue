@@ -11,13 +11,24 @@ import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Settings, Moon, Sun } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
 import SessionList from '@/components/workspace/SessionList.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
 import ToolPanel from '@/components/tool-panel/ToolPanel.vue'
+import ConvertToBackgroundAgentDialog from '@/components/workspace/ConvertToBackgroundAgentDialog.vue'
+import CreateAgentDialog from '@/components/workspace/CreateAgentDialog.vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
+import { confirmDelete } from '@/composables/useConfirm'
 import { listAgents } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, SessionItem } from '@/types/workspace'
@@ -43,6 +54,19 @@ const isSending = computed(() => chatSessionStore.isSending)
 
 // Tool panel
 const toolPanel = useToolPanel()
+
+// Rename dialog state
+const renameDialogOpen = ref(false)
+const renameSessionId = ref('')
+const renameSessionValue = ref('')
+
+// Convert to background agent dialog state
+const convertDialogOpen = ref(false)
+const convertSessionId = ref('')
+const convertSessionName = ref('')
+
+// Create agent dialog state
+const createAgentDialogOpen = ref(false)
 
 // Build session list from chat sessions only
 const sessions = computed<SessionItem[]>(() => {
@@ -100,6 +124,54 @@ function onToolResult(step: StreamStep) {
   toolPanel.handleToolResult(step)
 }
 
+// Session context menu handlers
+async function onDeleteSession(id: string, name: string) {
+  const confirmed = await confirmDelete(name, 'session')
+  if (!confirmed) return
+
+  const success = await chatSessionStore.deleteSession(id)
+  if (success) {
+    toast.success(t('workspace.session.deleteSuccess'))
+    if (selectedItemId.value === id) {
+      selectedItemId.value = null
+      await chatSessionStore.selectSession(null)
+    }
+  } else {
+    toast.error(t('workspace.session.deleteFailed'))
+  }
+}
+
+function onRenameSession(id: string, currentName: string) {
+  renameSessionId.value = id
+  renameSessionValue.value = currentName
+  renameDialogOpen.value = true
+}
+
+async function submitRename() {
+  const trimmed = renameSessionValue.value.trim()
+  if (!trimmed) return
+
+  const result = await chatSessionStore.renameSession(renameSessionId.value, trimmed)
+  if (result) {
+    toast.success(t('workspace.session.renameSuccess'))
+  }
+  renameDialogOpen.value = false
+}
+
+function onConvertToBackgroundAgent(id: string, name: string) {
+  convertSessionId.value = id
+  convertSessionName.value = name
+  convertDialogOpen.value = true
+}
+
+function onCreateAgent() {
+  createAgentDialogOpen.value = true
+}
+
+function onAgentCreated(agent: { id: string; name: string }) {
+  availableAgents.value.push({ id: agent.id, name: agent.name, path: `agents/${agent.id}` })
+}
+
 // Sync selectedItemId when chat store changes externally
 watch(
   () => chatSessionStore.currentSessionId,
@@ -137,6 +209,10 @@ onMounted(() => {
           @select="onSelectItem"
           @new-session="onNewSession"
           @update-agent-filter="onUpdateAgentFilter"
+          @rename="onRenameSession"
+          @delete="onDeleteSession"
+          @convert-to-background-agent="onConvertToBackgroundAgent"
+          @create-agent="onCreateAgent"
         />
 
         <!-- Bottom bar: Settings + Theme -->
@@ -164,11 +240,7 @@ onMounted(() => {
       </div>
 
       <!-- Center Panel -->
-      <ChatPanel
-        class="flex-1 min-w-0"
-        @show-panel="onShowPanel"
-        @tool-result="onToolResult"
-      />
+      <ChatPanel class="flex-1 min-w-0" @show-panel="onShowPanel" @tool-result="onToolResult" />
 
       <!-- Right: Tool Panel -->
       <ToolPanel
@@ -184,5 +256,33 @@ onMounted(() => {
         @close="toolPanel.closePanel()"
       />
     </div>
+
+    <!-- Rename Session Dialog -->
+    <Dialog v-model:open="renameDialogOpen">
+      <DialogContent class="max-w-[24rem]">
+        <DialogHeader>
+          <DialogTitle>{{ t('workspace.session.rename') }}</DialogTitle>
+        </DialogHeader>
+        <Input v-model="renameSessionValue" @keydown.enter="submitRename" />
+        <DialogFooter>
+          <Button variant="outline" @click="renameDialogOpen = false">
+            {{ t('common.cancel') }}
+          </Button>
+          <Button :disabled="!renameSessionValue.trim()" @click="submitRename">
+            {{ t('common.confirm') }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+
+    <!-- Convert to Background Agent Dialog -->
+    <ConvertToBackgroundAgentDialog
+      v-model:open="convertDialogOpen"
+      :session-id="convertSessionId"
+      :session-name="convertSessionName"
+    />
+
+    <!-- Create Agent Dialog -->
+    <CreateAgentDialog v-model:open="createAgentDialogOpen" @created="onAgentCreated" />
   </div>
 </template>

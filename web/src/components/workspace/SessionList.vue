@@ -1,6 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Plus, MessageSquare, Check, Loader2, Bot, ChevronDown } from 'lucide-vue-next'
+import {
+  Plus,
+  MessageSquare,
+  Check,
+  Loader2,
+  Bot,
+  ChevronDown,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  ArrowRightFromLine,
+} from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
 import {
@@ -8,6 +19,7 @@ import {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { TIME_THRESHOLDS, TIME_UNITS } from '@/constants'
@@ -33,6 +45,10 @@ const emit = defineEmits<{
   select: [id: string]
   newSession: []
   updateAgentFilter: [value: string | null]
+  rename: [id: string, currentName: string]
+  delete: [id: string, name: string]
+  convertToBackgroundAgent: [id: string, name: string]
+  createAgent: []
 }>()
 
 const CHANNEL_SESSION_PREFIX = 'channel:'
@@ -117,18 +133,23 @@ const formatTime = (timestamp: number) => {
           >
             {{ agent.name }}
           </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem @click="emit('createAgent')">
+            <Plus :size="14" class="mr-2" />
+            {{ t('workspace.agent.create') }}
+          </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
     </div>
 
     <!-- Session List -->
     <div class="flex-1 overflow-auto py-2">
-      <button
+      <div
         v-for="session in sessions"
         :key="session.id"
         :class="
           cn(
-            'w-full px-3 py-2 text-left transition-colors hover:bg-muted/50',
+            'group relative w-full px-3 py-2 text-left transition-colors hover:bg-muted/50 cursor-pointer',
             currentSessionId === session.id && 'bg-muted',
           )
         "
@@ -168,8 +189,41 @@ const formatTime = (timestamp: number) => {
               {{ formatTime(session.updatedAt) }}
             </div>
           </div>
+
+          <!-- Context menu trigger (visible on hover) -->
+          <div class="absolute right-1 top-1" @click.stop>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <button
+                  class="p-1 opacity-0 group-hover:opacity-100 transition-opacity rounded hover:bg-muted-foreground/10"
+                >
+                  <MoreHorizontal :size="14" class="text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-48">
+                <DropdownMenuItem @click="emit('rename', session.id, displaySessionName(session))">
+                  <Pencil :size="14" class="mr-2" />
+                  {{ t('workspace.session.rename') }}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  @click="emit('convertToBackgroundAgent', session.id, displaySessionName(session))"
+                >
+                  <ArrowRightFromLine :size="14" class="mr-2" />
+                  {{ t('workspace.session.convertToBackground') }}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  class="text-destructive focus:text-destructive"
+                  @click="emit('delete', session.id, displaySessionName(session))"
+                >
+                  <Trash2 :size="14" class="mr-2" />
+                  {{ t('workspace.session.delete') }}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
         </div>
-      </button>
+      </div>
 
       <!-- Empty State -->
       <div v-if="sessions.length === 0" class="px-3 py-8 text-center text-sm text-muted-foreground">
