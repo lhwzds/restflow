@@ -26,6 +26,9 @@ use restflow_core::models::{
 use restflow_core::runtime::background_agent::{
     HEARTBEAT_EVENT, TASK_STREAM_EVENT, TaskStreamEvent,
 };
+use restflow_core::services::background_agent_conversion::{
+    ConvertSessionSpecOptions, build_convert_session_spec,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -411,6 +414,57 @@ fn merge_memory_scope(
     }
 }
 
+/// Request to convert a chat session into a background agent
+#[derive(Debug, Deserialize)]
+pub struct ConvertSessionToBackgroundAgentRequest {
+    /// Source chat session ID
+    pub session_id: String,
+    /// Optional name override (defaults to "Background: {session_name}")
+    #[serde(default)]
+    pub name: Option<String>,
+    /// Optional input override (defaults to last user message)
+    #[serde(default)]
+    pub input: Option<String>,
+    /// Whether to trigger immediate execution (default false)
+    #[serde(default)]
+    pub run_now: Option<bool>,
+}
+
+/// Convert a chat session into a background agent
+#[tauri::command]
+pub async fn convert_session_to_background_agent(
+    state: State<'_, AppState>,
+    request: ConvertSessionToBackgroundAgentRequest,
+) -> Result<BackgroundAgent, String> {
+    let session = state
+        .executor()
+        .get_session(request.session_id.clone())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let spec = build_convert_session_spec(
+        &session,
+        ConvertSessionSpecOptions {
+            name: request.name,
+            input: request.input,
+            ..ConvertSessionSpecOptions::default()
+        },
+    )
+    .map_err(|e| e.to_string())?;
+
+    let agent = state
+        .executor()
+        .create_background_agent(spec)
+        .await
+        .map_err(|e| e.to_string())?;
+
+    if request.run_now.unwrap_or(false) {
+        let _ = state.run_task_now(agent.id.clone()).await;
+    }
+
+    Ok(agent)
+}
+
 // ============================================================================
 // Streaming Event Commands
 // ============================================================================
@@ -664,6 +718,36 @@ mod tests {
         assert!(request.input.is_none());
         assert!(request.schedule.is_none());
         assert!(request.notification.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_convert_session_request_deserialize() {
+        let json = r#"{
+            "session_id": "session-123",
+            "name": "My Background Task"
+        }"#;
+
+        let request: ConvertSessionToBackgroundAgentRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.session_id, "session-123");
+        assert_eq!(request.name, Some("My Background Task".to_string()));
+        assert!(request.input.is_none());
+        assert!(request.run_now.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_convert_session_request_with_all_fields() {
+        let json = r#"{
+            "session_id": "session-456",
+            "name": "Full Convert",
+            "input": "Do this task",
+            "run_now": true
+        }"#;
+
+        let request: ConvertSessionToBackgroundAgentRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(request.session_id, "session-456");
+        assert_eq!(request.name, Some("Full Convert".to_string()));
+        assert_eq!(request.input, Some("Do this task".to_string()));
+        assert_eq!(request.run_now, Some(true));
     }
 
     #[tokio::test]
