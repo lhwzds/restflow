@@ -295,6 +295,27 @@ mod tests {
     }
 
     #[test]
+    fn parses_background_agent_convert_session_command() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "background-agent",
+            "convert-session",
+            "session-123",
+            "--run-now",
+            "false",
+        ]);
+        assert!(matches!(
+            cli,
+            Ok(Cli {
+                command: Some(super::Commands::BackgroundAgent {
+                    command: super::BackgroundAgentCommands::ConvertSession { .. }
+                }),
+                ..
+            })
+        ));
+    }
+
+    #[test]
     fn rejects_agent_exec_command() {
         let cli = Cli::try_parse_from(["restflow", "agent", "exec", "agent-1"]);
         assert!(cli.is_err());
@@ -1037,6 +1058,36 @@ pub enum BackgroundAgentCommands {
         /// Enable Telegram notification
         #[arg(long)]
         notify: bool,
+    },
+
+    /// Convert an existing chat session into a background agent
+    ConvertSession {
+        /// Source chat session ID
+        session_id: String,
+
+        /// Optional background agent name
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Optional input override (defaults to the latest non-empty user message in session)
+        #[arg(short, long)]
+        input: Option<String>,
+
+        /// Optional schedule type: once, interval, cron
+        #[arg(long)]
+        schedule: Option<String>,
+
+        /// Optional schedule value (required when --schedule is provided)
+        #[arg(long)]
+        schedule_value: Option<String>,
+
+        /// Optional timeout in seconds
+        #[arg(long)]
+        timeout: Option<u64>,
+
+        /// Trigger immediate run after conversion
+        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        run_now: bool,
     },
 
     /// Update a background agent

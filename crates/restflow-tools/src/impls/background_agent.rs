@@ -8,10 +8,11 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
-    BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
+    BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
+    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
+    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
 };
 
 #[derive(Clone)]
@@ -68,6 +69,27 @@ enum BackgroundAgentAction {
         memory_scope: Option<String>,
         #[serde(default)]
         resource_limits: Option<Value>,
+    },
+    ConvertSession {
+        session_id: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        schedule: Option<Value>,
+        #[serde(default)]
+        input: Option<String>,
+        #[serde(default)]
+        timeout_secs: Option<u64>,
+        #[serde(default)]
+        durability_mode: Option<String>,
+        #[serde(default)]
+        memory: Option<Value>,
+        #[serde(default)]
+        memory_scope: Option<String>,
+        #[serde(default)]
+        resource_limits: Option<Value>,
+        #[serde(default)]
+        run_now: Option<bool>,
     },
     Update {
         id: String,
@@ -162,7 +184,7 @@ impl Tool for BackgroundAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces)."
+        "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), convert_session (convert an existing chat session into a background agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces)."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -173,6 +195,7 @@ impl Tool for BackgroundAgentTool {
                     "type": "string",
                     "enum": [
                         "create",
+                        "convert_session",
                         "update",
                         "delete",
                         "list",
@@ -200,6 +223,10 @@ impl Tool for BackgroundAgentTool {
                 "agent_id": {
                     "type": "string",
                     "description": "Agent ID (for create/update)"
+                },
+                "session_id": {
+                    "type": "string",
+                    "description": "Source chat session ID (for convert_session)"
                 },
                 "description": {
                     "type": "string",
@@ -250,7 +277,11 @@ impl Tool for BackgroundAgentTool {
                 },
                 "resource_limits": {
                     "type": "object",
-                    "description": "Resource limits payload (for create/update)"
+                    "description": "Resource limits payload (for create/update/convert_session)"
+                },
+                "run_now": {
+                    "type": "boolean",
+                    "description": "Whether to trigger immediate run after convert_session (default: true)"
                 },
                 "status": {
                     "type": "string",
@@ -296,7 +327,7 @@ impl Tool for BackgroundAgentTool {
             Ok(action) => action,
             Err(e) => {
                 return Ok(ToolOutput::error(format!(
-                    "Invalid input: {e}. Required: operation (create|list|get|update|delete|progress)."
+                    "Invalid input: {e}. Required: operation (create|convert_session|list|update|delete|progress)."
                 )));
             }
         };
@@ -339,6 +370,40 @@ impl Tool for BackgroundAgentTool {
                     })
                     .map_err(|e| {
                         ToolError::Tool(format!("Failed to create background agent: {e}."))
+                    })?;
+                ToolOutput::success(result)
+            }
+            BackgroundAgentAction::ConvertSession {
+                session_id,
+                name,
+                schedule,
+                input,
+                timeout_secs,
+                durability_mode,
+                memory,
+                memory_scope,
+                resource_limits,
+                run_now,
+            } => {
+                self.write_guard()?;
+                let result = self
+                    .store
+                    .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+                        session_id,
+                        name,
+                        schedule,
+                        input,
+                        timeout_secs,
+                        durability_mode,
+                        memory,
+                        memory_scope,
+                        resource_limits,
+                        run_now,
+                    })
+                    .map_err(|e| {
+                        ToolError::Tool(format!(
+                            "Failed to convert session into background agent: {e}."
+                        ))
                     })?;
                 ToolOutput::success(result)
             }
@@ -538,6 +603,20 @@ mod tests {
             Ok(json!({ "id": "task-1" }))
         }
 
+        fn convert_session_to_background_agent(
+            &self,
+            request: BackgroundAgentConvertSessionRequest,
+        ) -> Result<Value> {
+            Ok(json!({
+                "task": {
+                    "id": "task-1",
+                    "chat_session_id": request.session_id,
+                    "name": request.name.unwrap_or_else(|| "converted".to_string()),
+                },
+                "run_now": request.run_now.unwrap_or(true)
+            }))
+        }
+
         fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
             Ok(json!({ "id": "task-1", "updated": true }))
         }
@@ -630,6 +709,19 @@ mod tests {
     impl BackgroundAgentStore for FailingListStore {
         fn create_background_agent(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
             Ok(json!({ "id": "task-1" }))
+        }
+
+        fn convert_session_to_background_agent(
+            &self,
+            request: BackgroundAgentConvertSessionRequest,
+        ) -> Result<Value> {
+            Ok(json!({
+                "task": {
+                    "id": "task-1",
+                    "chat_session_id": request.session_id,
+                },
+                "run_now": request.run_now.unwrap_or(true)
+            }))
         }
 
         fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
@@ -749,10 +841,39 @@ mod tests {
             .expect("tool should return error output");
         assert!(!output.success);
         assert!(
+            output.error.expect("expected error").contains(
+                "Required: operation (create|convert_session|list|update|delete|progress)"
+            )
+        );
+    }
+
+    #[tokio::test]
+    async fn test_convert_session_operation() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+        let output = tool
+            .execute(json!({
+                "operation": "convert_session",
+                "session_id": "session-1",
+                "name": "Converted Task",
+                "run_now": true
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(
             output
-                .error
-                .expect("expected error")
-                .contains("Required: operation (create|list|get|update|delete|progress)")
+                .result
+                .get("task")
+                .and_then(|task| task.get("chat_session_id"))
+                .and_then(|value| value.as_str()),
+            Some("session-1")
+        );
+        assert_eq!(
+            output
+                .result
+                .get("run_now")
+                .and_then(|value| value.as_bool()),
+            Some(true)
         );
     }
 

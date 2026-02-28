@@ -8,10 +8,10 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig,
-    MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider,
-    ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
+    BackgroundMessageSource, BackgroundProgress, ChatRole, ChatSession, ChatSessionSummary,
+    Deliverable, DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk,
+    MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
+    Provider, ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -1083,6 +1083,9 @@ pub struct ChatSessionGetParams {
 pub struct ManageBackgroundAgentsParams {
     /// Operation to perform
     pub operation: String,
+    /// Source chat session ID (for convert_session)
+    #[serde(default)]
+    pub session_id: Option<String>,
     /// Task/background agent ID
     #[serde(default)]
     pub id: Option<String>,
@@ -1155,6 +1158,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional trailing line limit for read_trace
     #[serde(default)]
     pub line_limit: Option<usize>,
+    /// Whether to trigger immediate run after convert_session (default true)
+    #[serde(default)]
+    pub run_now: Option<bool>,
 }
 
 /// Parameters for manage_hooks tool
@@ -1336,6 +1342,59 @@ impl RestFlowMcpServer {
             })),
             (None, None) => Ok(None),
         }
+    }
+
+    fn normalize_optional_text(value: Option<String>) -> Option<String> {
+        value.and_then(|text| {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    }
+
+    fn default_conversion_schedule() -> BackgroundAgentSchedule {
+        let now = chrono::Utc::now().timestamp_millis();
+        BackgroundAgentSchedule::Once {
+            run_at: now.saturating_add(1_000),
+        }
+    }
+
+    fn derive_conversion_name(
+        session_name: &str,
+        session_id: &str,
+        name: Option<String>,
+    ) -> String {
+        if let Some(name) = Self::normalize_optional_text(name) {
+            return name;
+        }
+        let base = session_name.trim();
+        if base.is_empty() {
+            format!("Background from {}", session_id)
+        } else {
+            format!("Background: {}", base)
+        }
+    }
+
+    fn derive_conversion_input(
+        session: &ChatSession,
+        input: Option<String>,
+    ) -> Result<String, String> {
+        if let Some(input) = Self::normalize_optional_text(input) {
+            return Ok(input);
+        }
+        session
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == ChatRole::User)
+            .and_then(|message| Self::normalize_optional_text(Some(message.content.clone())))
+            .ok_or_else(|| {
+                "Cannot convert session: no non-empty user message found; please provide input."
+                    .to_string()
+            })
     }
 
     fn runtime_alias_target(name: &str) -> Option<&'static str> {
@@ -1774,6 +1833,68 @@ impl RestFlowMcpServer {
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
                     .map_err(|e| e.to_string())?
             }
+            "convert_session" => {
+                let session_id = Self::required_string(params.session_id, "session_id")?;
+                let session = self
+                    .backend
+                    .get_session(&session_id)
+                    .await
+                    .map_err(|e| format!("Failed to get session: {}", e))?;
+                let schedule = Self::parse_optional_value::<BackgroundAgentSchedule>(
+                    "schedule",
+                    params.schedule,
+                )?
+                .unwrap_or_else(Self::default_conversion_schedule);
+                let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
+                let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
+                let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
+                let resource_limits = Self::parse_optional_value::<ResourceLimits>(
+                    "resource_limits",
+                    params.resource_limits,
+                )?;
+                let input = Self::derive_conversion_input(&session, params.input)?;
+                let name = Self::derive_conversion_name(&session.name, &session.id, params.name);
+                let spec = BackgroundAgentSpec {
+                    name,
+                    agent_id: session.agent_id.clone(),
+                    chat_session_id: Some(session.id.clone()),
+                    description: params
+                        .description
+                        .or_else(|| Some(format!("Converted from chat session {}", session.id))),
+                    input: Some(input),
+                    input_template: None,
+                    schedule,
+                    notification: Self::parse_optional_value("notification", params.notification)?,
+                    execution_mode: Self::parse_optional_value(
+                        "execution_mode",
+                        params.execution_mode,
+                    )?,
+                    timeout_secs: params.timeout_secs,
+                    memory,
+                    durability_mode,
+                    resource_limits,
+                    prerequisites: params.prerequisites.unwrap_or_default(),
+                    continuation: None,
+                };
+
+                let run_now = params.run_now.unwrap_or(true);
+                let mut task = self.backend.create_background_agent(spec).await?;
+                if run_now {
+                    task = self
+                        .backend
+                        .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)
+                        .await?;
+                }
+
+                serde_json::json!({
+                    "task": serde_json::to_value(task).map_err(|e| e.to_string())?,
+                    "source_session": {
+                        "id": session.id,
+                        "agent_id": session.agent_id,
+                    },
+                    "run_now": run_now,
+                })
+            }
             "update" => {
                 let id = Self::required_string(params.id, "id")?;
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
@@ -1930,7 +2051,7 @@ impl RestFlowMcpServer {
             }
             _ => {
                 return Err(format!(
-                    "Unknown operation: {}. Supported: create, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, cancel, run",
+                    "Unknown operation: {}. Supported: create, convert_session, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, cancel, run",
                     operation
                 ));
             }
@@ -2101,7 +2222,7 @@ impl ServerHandler for RestFlowMcpServer {
                 Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
                 memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
                 manage_hooks for lifecycle hook automation, \
-                and manage_background_agents for background agent lifecycle, progress, and messaging operations."
+                and manage_background_agents for background agent lifecycle, session conversion, progress, and messaging operations."
                     .to_string(),
             ),
         }
@@ -2187,7 +2308,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_background_agents",
-                "Manage background agents. Operations: create (define new agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).",
+                "Manage background agents. Operations: create (define new agent), convert_session (convert existing chat session into background agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).",
                 schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
             Tool::new(
@@ -3404,9 +3525,39 @@ mod tests {
 
         async fn create_background_agent(
             &self,
-            _spec: BackgroundAgentSpec,
+            spec: BackgroundAgentSpec,
         ) -> Result<BackgroundAgent, String> {
-            Err("not implemented in mock backend".to_string())
+            let mut task = BackgroundAgent::new(
+                "mock-task".to_string(),
+                spec.name,
+                spec.agent_id,
+                spec.schedule,
+            );
+            task.chat_session_id = spec.chat_session_id.unwrap_or_default();
+            task.description = spec.description;
+            task.input = spec.input;
+            task.input_template = spec.input_template;
+            if let Some(notification) = spec.notification {
+                task.notification = notification;
+            }
+            if let Some(execution_mode) = spec.execution_mode {
+                task.execution_mode = execution_mode;
+            }
+            task.timeout_secs = spec.timeout_secs;
+            if let Some(memory) = spec.memory {
+                task.memory = memory;
+            }
+            if let Some(durability_mode) = spec.durability_mode {
+                task.durability_mode = durability_mode;
+            }
+            if let Some(resource_limits) = spec.resource_limits {
+                task.resource_limits = resource_limits;
+            }
+            task.prerequisites = spec.prerequisites;
+            if let Some(continuation) = spec.continuation {
+                task.continuation = continuation;
+            }
+            Ok(task)
         }
 
         async fn update_background_agent(
@@ -3423,10 +3574,23 @@ mod tests {
 
         async fn control_background_agent(
             &self,
-            _id: &str,
-            _action: BackgroundAgentControlAction,
+            id: &str,
+            action: BackgroundAgentControlAction,
         ) -> Result<BackgroundAgent, String> {
-            Err("not implemented in mock backend".to_string())
+            let mut task = BackgroundAgent::new(
+                id.to_string(),
+                "Mock Controlled Task".to_string(),
+                "mock-agent".to_string(),
+                BackgroundAgentSchedule::default(),
+            );
+            task.status = match action {
+                BackgroundAgentControlAction::Start
+                | BackgroundAgentControlAction::Resume
+                | BackgroundAgentControlAction::RunNow => BackgroundAgentStatus::Running,
+                BackgroundAgentControlAction::Pause => BackgroundAgentStatus::Paused,
+                BackgroundAgentControlAction::Stop => BackgroundAgentStatus::Completed,
+            };
+            Ok(task)
         }
 
         async fn get_background_agent_progress(
@@ -3558,6 +3722,7 @@ mod tests {
         let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
         let params = ManageBackgroundAgentsParams {
             operation: "list".to_string(),
+            session_id: None,
             id: None,
             name: None,
             agent_id: None,
@@ -3582,6 +3747,7 @@ mod tests {
             limit: None,
             trace_id: None,
             line_limit: None,
+            run_now: None,
         };
 
         let json = server
@@ -3604,6 +3770,26 @@ mod tests {
             .unwrap();
         let deliverables: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         assert!(deliverables.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_convert_session_operation() {
+        let backend = Arc::new(MockBackend::new());
+        let session_id = backend.session.id.clone();
+        let server = RestFlowMcpServer::with_backend(backend);
+        let mut params = base_manage_background_params("convert_session");
+        params.session_id = Some(session_id.clone());
+        params.input = Some("Continue in background".to_string());
+        params.run_now = Some(false);
+
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["source_session"]["id"], session_id);
+        assert_eq!(value["task"]["chat_session_id"], session_id);
+        assert_eq!(value["run_now"], false);
     }
 
     #[tokio::test]
@@ -3962,6 +4148,7 @@ mod tests {
     fn base_manage_background_params(operation: &str) -> ManageBackgroundAgentsParams {
         ManageBackgroundAgentsParams {
             operation: operation.to_string(),
+            session_id: None,
             id: None,
             name: None,
             agent_id: None,
@@ -3986,6 +4173,7 @@ mod tests {
             limit: None,
             trace_id: None,
             line_limit: None,
+            run_now: None,
         }
     }
 
