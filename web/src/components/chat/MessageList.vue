@@ -181,6 +181,30 @@ onMounted(() => {
           </div>
           <!-- Regular message -->
           <StreamingMarkdown v-else :content="msg.content || ''" />
+
+          <!-- Persisted tool steps -->
+          <div
+            v-if="msg.role === 'assistant' && msg.execution?.steps?.length"
+            class="mt-3 space-y-1"
+          >
+            <div
+              v-for="(step, si) in msg.execution.steps"
+              :key="si"
+              class="text-xs border border-border rounded-md px-2 py-1.5 flex items-center gap-2"
+            >
+              <Check
+                v-if="step.status === 'completed'"
+                :size="12"
+                class="text-green-500 shrink-0"
+              />
+              <X v-else-if="step.status === 'failed'" :size="12" class="text-red-500 shrink-0" />
+              <Wrench :size="12" class="text-muted-foreground shrink-0" />
+              <span class="font-mono truncate flex-1">{{ step.name }}</span>
+              <span v-if="step.duration_ms" class="text-muted-foreground">
+                {{ (Number(step.duration_ms) / 1000).toFixed(1) }}s
+              </span>
+            </div>
+          </div>
         </div>
         <!-- Hover action buttons -->
         <div
