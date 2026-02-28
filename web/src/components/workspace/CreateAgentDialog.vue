@@ -43,6 +43,14 @@ const isSubmitting = ref(false)
 
 const models = computed(() => modelsStore.getAllModels)
 
+function generateDefaultAgentName(): string {
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[-:TZ.]/g, '')
+    .slice(0, 14)
+  return `Agent ${timestamp}`
+}
+
 watch(
   () => props.open,
   (open) => {
@@ -54,15 +62,21 @@ watch(
 )
 
 async function submit() {
-  if (!name.value.trim() || !model.value) return
   isSubmitting.value = true
   try {
+    const selectedModel = model.value.trim()
+    const resolvedName = name.value.trim() || generateDefaultAgentName()
     const agent = await createAgent({
-      name: name.value.trim(),
-      agent: { model: model.value as AIModel },
+      name: resolvedName,
+      agent: selectedModel ? { model: selectedModel as AIModel } : {},
     })
     toast.success(t('workspace.agent.createSuccess'))
-    emit('created', { id: agent.id, name: agent.name, model: agent.agent.model ?? model.value })
+    const emittedModel = agent.agent.model || selectedModel || models.value[0]?.model || 'gpt-5'
+    emit('created', {
+      id: agent.id,
+      name: agent.name,
+      model: emittedModel,
+    })
     emit('update:open', false)
   } catch {
     toast.error(t('workspace.agent.createFailed'))
@@ -80,7 +94,9 @@ async function submit() {
       </DialogHeader>
       <div class="space-y-4">
         <div class="space-y-2">
-          <Label>{{ t('workspace.agent.nameLabel') }}</Label>
+          <Label>
+            {{ t('workspace.agent.nameLabel') }} ({{ t('workspace.agent.optional') }})
+          </Label>
           <Input
             v-model="name"
             :placeholder="t('workspace.agent.namePlaceholder')"
@@ -88,7 +104,9 @@ async function submit() {
           />
         </div>
         <div class="space-y-2">
-          <Label>{{ t('workspace.agent.modelLabel') }}</Label>
+          <Label>
+            {{ t('workspace.agent.modelLabel') }} ({{ t('workspace.agent.optional') }})
+          </Label>
           <Select v-model="model">
             <SelectTrigger>
               <SelectValue :placeholder="t('workspace.agent.modelPlaceholder')" />
@@ -105,7 +123,7 @@ async function submit() {
         <Button variant="outline" @click="emit('update:open', false)">
           {{ t('common.cancel') }}
         </Button>
-        <Button :disabled="!name.trim() || !model || isSubmitting" @click="submit">
+        <Button :disabled="isSubmitting" @click="submit">
           {{ t('workspace.agent.createButton') }}
         </Button>
       </DialogFooter>

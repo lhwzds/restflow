@@ -1,12 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
 import {
   Plus,
   MessageSquare,
   Check,
   Loader2,
-  Bot,
-  ChevronDown,
   MoreHorizontal,
   Pencil,
   Trash2,
@@ -23,38 +20,22 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { cn } from '@/lib/utils'
 import { TIME_THRESHOLDS, TIME_UNITS } from '@/constants'
-import type { AgentFile, SessionItem } from '@/types/workspace'
+import type { SessionItem } from '@/types/workspace'
 import type { ChatSessionSource } from '@/types/generated/ChatSessionSource'
 
 const props = defineProps<{
   sessions: SessionItem[]
   currentSessionId: string | null
-  availableAgents: AgentFile[]
-  agentFilter: string | null
 }>()
 
 const { t } = useI18n()
 
-const filterLabel = computed(() => {
-  if (!props.agentFilter) return t('workspace.allAgents')
-  const agent = props.availableAgents.find((a) => a.id === props.agentFilter)
-  return agent?.name || props.agentFilter
-})
-
-const selectedAgent = computed(() => {
-  if (!props.agentFilter) return null
-  return props.availableAgents.find((a) => a.id === props.agentFilter) ?? null
-})
-
 const emit = defineEmits<{
   select: [id: string]
   newSession: []
-  updateAgentFilter: [value: string | null]
   rename: [id: string, currentName: string]
   delete: [id: string, name: string]
   convertToBackgroundAgent: [id: string, name: string]
-  createAgent: []
-  deleteAgent: [id: string, name: string]
 }>()
 
 const CHANNEL_SESSION_PREFIX = 'channel:'
@@ -103,57 +84,12 @@ const formatTime = (timestamp: number) => {
 
 <template>
   <div class="flex flex-col min-h-0 bg-muted/30">
-    <!-- Drag region for window title bar -->
-    <div class="h-8 shrink-0" data-tauri-drag-region />
     <!-- Header -->
-    <div class="px-3 pb-3 space-y-2">
+    <div class="px-3 pt-2 pb-3 space-y-2">
       <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newSession')">
         <Plus :size="16" />
         <span>{{ t('workspace.newSession') }}</span>
       </Button>
-
-      <DropdownMenu>
-        <DropdownMenuTrigger as-child>
-          <button
-            class="flex h-8 w-full items-center justify-between rounded-md border border-input bg-transparent px-3 py-2 text-xs shadow-sm ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
-          >
-            <span class="flex items-center gap-1 truncate">
-              <Bot :size="14" class="text-muted-foreground shrink-0" />
-              <span class="truncate">{{ filterLabel }}</span>
-            </span>
-            <ChevronDown :size="14" class="opacity-50 shrink-0" />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" class="w-[var(--radix-dropdown-menu-trigger-width)]">
-          <DropdownMenuItem
-            :class="cn(!agentFilter && 'bg-accent')"
-            @click="emit('updateAgentFilter', null)"
-          >
-            {{ t('workspace.allAgents') }}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            v-for="agent in availableAgents"
-            :key="agent.id"
-            :class="cn(agentFilter === agent.id && 'bg-accent')"
-            @click="emit('updateAgentFilter', agent.id)"
-          >
-            {{ agent.name }}
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem @click="emit('createAgent')">
-            <Plus :size="14" class="mr-2" />
-            {{ t('workspace.agent.create') }}
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            v-if="selectedAgent"
-            class="text-destructive focus:text-destructive"
-            @click="emit('deleteAgent', selectedAgent.id, selectedAgent.name)"
-          >
-            <Trash2 :size="14" class="mr-2" />
-            {{ t('workspace.agent.deleteSelected') }}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
     </div>
 
     <!-- Session List -->

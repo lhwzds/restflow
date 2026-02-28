@@ -1,3 +1,5 @@
 export { default as SessionList } from './SessionList.vue'
+export { default as AgentList } from './AgentList.vue'
+export { default as AgentEditorPanel } from './AgentEditorPanel.vue'
 export { default as ChatBox } from './ChatBox.vue'
 export { default as SessionAgentSelector } from './SessionAgentSelector.vue'
