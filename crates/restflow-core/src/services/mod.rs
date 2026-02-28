@@ -1,5 +1,6 @@
 pub mod adapters;
 pub mod agent;
+pub mod background_agent_conversion;
 pub mod cleanup;
 pub mod config;
 pub mod secrets;

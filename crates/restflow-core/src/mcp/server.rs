@@ -8,10 +8,13 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatRole, ChatSession, ChatSessionSummary,
-    Deliverable, DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk,
-    MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
-    Provider, ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
+    DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig,
+    MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider,
+    ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
+};
+use crate::services::background_agent_conversion::{
+    ConvertSessionSpecOptions, build_convert_session_spec, default_conversion_schedule,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::SecretStorage;
@@ -1344,59 +1347,6 @@ impl RestFlowMcpServer {
         }
     }
 
-    fn normalize_optional_text(value: Option<String>) -> Option<String> {
-        value.and_then(|text| {
-            let trimmed = text.trim();
-            if trimmed.is_empty() {
-                None
-            } else {
-                Some(trimmed.to_string())
-            }
-        })
-    }
-
-    fn default_conversion_schedule() -> BackgroundAgentSchedule {
-        let now = chrono::Utc::now().timestamp_millis();
-        BackgroundAgentSchedule::Once {
-            run_at: now.saturating_add(1_000),
-        }
-    }
-
-    fn derive_conversion_name(
-        session_name: &str,
-        session_id: &str,
-        name: Option<String>,
-    ) -> String {
-        if let Some(name) = Self::normalize_optional_text(name) {
-            return name;
-        }
-        let base = session_name.trim();
-        if base.is_empty() {
-            format!("Background from {}", session_id)
-        } else {
-            format!("Background: {}", base)
-        }
-    }
-
-    fn derive_conversion_input(
-        session: &ChatSession,
-        input: Option<String>,
-    ) -> Result<String, String> {
-        if let Some(input) = Self::normalize_optional_text(input) {
-            return Ok(input);
-        }
-        session
-            .messages
-            .iter()
-            .rev()
-            .find(|message| message.role == ChatRole::User)
-            .and_then(|message| Self::normalize_optional_text(Some(message.content.clone())))
-            .ok_or_else(|| {
-                "Cannot convert session: no non-empty user message found; please provide input."
-                    .to_string()
-            })
-    }
-
     fn runtime_alias_target(name: &str) -> Option<&'static str> {
         match name {
             "http" => Some("http_request"),
@@ -1844,7 +1794,7 @@ impl RestFlowMcpServer {
                     "schedule",
                     params.schedule,
                 )?
-                .unwrap_or_else(Self::default_conversion_schedule);
+                .unwrap_or_else(default_conversion_schedule);
                 let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
                 let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
                 let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
@@ -1852,30 +1802,30 @@ impl RestFlowMcpServer {
                     "resource_limits",
                     params.resource_limits,
                 )?;
-                let input = Self::derive_conversion_input(&session, params.input)?;
-                let name = Self::derive_conversion_name(&session.name, &session.id, params.name);
-                let spec = BackgroundAgentSpec {
-                    name,
-                    agent_id: session.agent_id.clone(),
-                    chat_session_id: Some(session.id.clone()),
-                    description: params
-                        .description
-                        .or_else(|| Some(format!("Converted from chat session {}", session.id))),
-                    input: Some(input),
-                    input_template: None,
-                    schedule,
-                    notification: Self::parse_optional_value("notification", params.notification)?,
-                    execution_mode: Self::parse_optional_value(
-                        "execution_mode",
-                        params.execution_mode,
-                    )?,
-                    timeout_secs: params.timeout_secs,
-                    memory,
-                    durability_mode,
-                    resource_limits,
-                    prerequisites: params.prerequisites.unwrap_or_default(),
-                    continuation: None,
-                };
+                let spec = build_convert_session_spec(
+                    &session,
+                    ConvertSessionSpecOptions {
+                        name: params.name,
+                        description: params.description,
+                        schedule: Some(schedule),
+                        input: params.input,
+                        notification: Self::parse_optional_value(
+                            "notification",
+                            params.notification,
+                        )?,
+                        execution_mode: Self::parse_optional_value(
+                            "execution_mode",
+                            params.execution_mode,
+                        )?,
+                        timeout_secs: params.timeout_secs,
+                        memory,
+                        durability_mode,
+                        resource_limits,
+                        prerequisites: params.prerequisites.unwrap_or_default(),
+                        continuation: None,
+                    },
+                )
+                .map_err(|e| e.to_string())?;
 
                 let run_now = params.run_now.unwrap_or(true);
                 let mut task = self.backend.create_background_agent(spec).await?;
