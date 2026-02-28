@@ -92,4 +92,41 @@ describe('AgentList', () => {
 
     expect(wrapper.emitted('create')).toEqual([[]])
   })
+
+  it('does not show delete action for default assistant', () => {
+    const wrapper = mount(AgentList, {
+      props: {
+        agents: [{ id: 'agent-default', name: 'Default Assistant', path: 'agents/agent-default' }],
+        selectedAgentId: 'agent-default',
+      },
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenu: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuTrigger: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuContent: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuItem: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
+        },
+      },
+    })
+
+    const deleteButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('workspace.agent.deleteWithName'))
+    expect(deleteButton).toBeUndefined()
+    expect(wrapper.emitted('delete')).toBeUndefined()
+  })
 })

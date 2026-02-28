@@ -51,6 +51,7 @@
       "deleteWithName": "删除 {name}",
       "deleteSuccess": "Agent 已删除",
       "deleteFailed": "删除 Agent 失败",
+      "deleteDefaultBlocked": "默认 Assistant 不可删除",
       "viewDetails": "查看详情",
       "detailsTitle": "Agent 详情",
       "loadDetailsFailed": "加载 Agent 详情失败",

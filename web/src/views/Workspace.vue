@@ -241,6 +241,11 @@ function onCreateAgent() {
 }
 
 async function onDeleteAgent(id: string, name: string) {
+  if (isProtectedDefaultAssistant(id)) {
+    toast.error(t('workspace.agent.deleteDefaultBlocked'))
+    return
+  }
+
   const confirmed = await confirmDelete(name, 'agent')
   if (!confirmed) return
 
@@ -279,6 +284,12 @@ function onAgentUpdated(agent: { id: string; name: string; model: string }) {
     target.name = agent.name
   }
   agentModelById.value.set(agent.id, agent.model)
+}
+
+function isProtectedDefaultAssistant(agentId: string): boolean {
+  const target = availableAgents.value.find((item) => item.id === agentId)
+  const normalized = target?.name?.trim().toLowerCase()
+  return normalized === 'default assistant' || normalized === 'default'
 }
 
 watch(

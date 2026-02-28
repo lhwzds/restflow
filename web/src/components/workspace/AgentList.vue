@@ -23,6 +23,13 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+
+function isDefaultAssistant(agentName: string): boolean {
+  return (
+    agentName.trim().toLowerCase() === 'default assistant' ||
+    agentName.trim().toLowerCase() === 'default'
+  )
+}
 </script>
 
 <template>
@@ -55,7 +62,7 @@ const { t } = useI18n()
             <div class="truncate text-xs text-muted-foreground font-mono">{{ agent.id }}</div>
           </div>
 
-          <div class="absolute right-1 top-1" @click.stop>
+          <div v-if="!isDefaultAssistant(agent.name)" class="absolute right-1 top-1" @click.stop>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button

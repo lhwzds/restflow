@@ -6,7 +6,10 @@
 use crate::{
     AppCore,
     models::{AgentNode, ChatSessionSource, encode_validation_error},
-    storage::{BackgroundAgentStorage, ChatSessionStorage, agent::StoredAgent},
+    storage::{
+        BackgroundAgentStorage, ChatSessionStorage,
+        agent::{DEFAULT_ASSISTANT_NAME, StoredAgent},
+    },
 };
 use anyhow::{Context, Result};
 use std::collections::BTreeSet;
@@ -110,30 +113,52 @@ pub(crate) fn check_agent_has_external_channel_sessions(
 }
 
 pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
-    if let Some(task_names) = check_agent_has_active_tasks(&core.storage.background_agents, id)
-        .with_context(|| format!("Failed to query background tasks for agent {}", id))?
+    let resolved_id = core
+        .storage
+        .agents
+        .resolve_existing_agent_id(id)
+        .with_context(|| format!("Failed to resolve agent {}", id))?;
+
+    let resolved_default_id = core.storage.agents.resolve_default_agent_id().ok();
+    if resolved_default_id.as_deref() == Some(resolved_id.as_str()) {
+        let agent_name = core
+            .storage
+            .agents
+            .get_agent(resolved_id.clone())?
+            .map(|agent| agent.name)
+            .unwrap_or_else(|| DEFAULT_ASSISTANT_NAME.to_string());
+        anyhow::bail!(
+            "Cannot delete default assistant agent {} ({})",
+            resolved_id,
+            agent_name
+        );
+    }
+
+    if let Some(task_names) =
+        check_agent_has_active_tasks(&core.storage.background_agents, &resolved_id)
+            .with_context(|| format!("Failed to query background tasks for agent {}", id))?
     {
         anyhow::bail!(
             "Cannot delete agent {}: active background tasks exist ({})",
-            id,
+            resolved_id,
             task_names
         );
     }
 
     if let Some(sources) =
-        check_agent_has_external_channel_sessions(&core.storage.chat_sessions, id)
+        check_agent_has_external_channel_sessions(&core.storage.chat_sessions, &resolved_id)
             .with_context(|| format!("Failed to query chat sessions for agent {}", id))?
     {
         anyhow::bail!(
             "Cannot delete agent {}: external channel sessions exist ({})",
-            id,
+            resolved_id,
             sources
         );
     }
 
     core.storage
         .agents
-        .delete_agent(id.to_string())
+        .delete_agent(resolved_id)
         .with_context(|| format!("Failed to delete agent {}", id))
 }
 
@@ -155,6 +180,7 @@ mod tests {
         AIModel, ApiKeyConfig, ChatSession, ChatSessionSource, ValidationErrorResponse,
     };
     use crate::prompt_files;
+    use crate::storage::agent::LEGACY_DEFAULT_ASSISTANT_NAME;
     use restflow_storage::time_utils;
     use tempfile::tempdir;
 
@@ -390,6 +416,23 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Cannot delete agent"));
         assert!(msg.contains("Integrity Task"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_default_assistant_is_blocked() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+
+        let default = core.storage.agents.resolve_default_agent().unwrap();
+        assert!(
+            default.name.eq_ignore_ascii_case(DEFAULT_ASSISTANT_NAME)
+                || default
+                    .name
+                    .eq_ignore_ascii_case(LEGACY_DEFAULT_ASSISTANT_NAME)
+        );
+
+        let err = delete_agent(&core, &default.id).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Cannot delete default assistant agent"));
     }
 
     #[tokio::test]

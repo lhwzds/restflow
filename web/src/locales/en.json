@@ -51,6 +51,7 @@
       "deleteWithName": "Delete {name}",
       "deleteSuccess": "Agent deleted",
       "deleteFailed": "Failed to delete agent",
+      "deleteDefaultBlocked": "Default assistant cannot be deleted",
       "viewDetails": "View details",
       "detailsTitle": "Agent Details",
       "loadDetailsFailed": "Failed to load agent details",
