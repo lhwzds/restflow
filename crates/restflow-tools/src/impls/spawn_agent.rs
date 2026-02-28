@@ -31,6 +31,11 @@ pub struct SpawnAgentParams {
     /// Optional model override for this spawn (e.g., "minimax/coding-plan").
     #[cfg_attr(feature = "ts", ts(optional))]
     pub model: Option<String>,
+
+    /// Optional parent execution ID (runtime-injected, internal use).
+    #[cfg_attr(feature = "ts", ts(optional))]
+    #[serde(default)]
+    pub parent_execution_id: Option<String>,
 }
 
 /// spawn_agent tool for the shared agent execution engine.
@@ -80,6 +85,10 @@ impl Tool for SpawnAgentTool {
                 "model": {
                     "type": "string",
                     "description": "Optional model override for this sub-agent (e.g., 'minimax/coding-plan')"
+                },
+                "parent_execution_id": {
+                    "type": "string",
+                    "description": "Optional parent execution ID for context propagation (runtime-injected)"
                 }
             },
             "required": ["agent", "task"]
@@ -96,6 +105,7 @@ impl Tool for SpawnAgentTool {
             timeout_secs: params.timeout_secs,
             priority: None,
             model: params.model.clone(),
+            parent_execution_id: params.parent_execution_id.clone(),
         };
 
         let handle = self.manager.spawn(request)?;

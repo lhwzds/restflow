@@ -94,6 +94,13 @@ pub struct SpawnRequest {
     /// Optional model override for this spawn (e.g., "minimax/coding-plan").
     #[serde(default)]
     pub model: Option<String>,
+
+    /// Optional parent execution ID used for context propagation.
+    ///
+    /// This is injected by runtime when sub-agents are spawned from another
+    /// agent execution loop.
+    #[serde(default)]
+    pub parent_execution_id: Option<String>,
 }
 
 /// Priority level for sub-agent spawning.
@@ -231,6 +238,7 @@ mod tests {
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
             model: None,
+            parent_execution_id: None,
         };
 
         let json = serde_json::to_string(&request).unwrap();

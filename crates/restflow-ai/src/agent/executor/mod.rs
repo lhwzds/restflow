@@ -493,6 +493,7 @@ impl AgentExecutor {
                     config.tool_timeout,
                     config.yolo_mode,
                     config.max_tool_concurrency,
+                    Some(state.execution_id.as_str()),
                 )
                 .await;
             tracker.record_tool_calls(results.len());
