@@ -5,10 +5,11 @@
 
 use crate::{
     AppCore,
-    models::{AgentNode, encode_validation_error},
-    storage::{BackgroundAgentStorage, agent::StoredAgent},
+    models::{AgentNode, ChatSessionSource, encode_validation_error},
+    storage::{BackgroundAgentStorage, ChatSessionStorage, agent::StoredAgent},
 };
 use anyhow::{Context, Result};
+use std::collections::BTreeSet;
 use std::sync::Arc;
 
 pub async fn list_agents(core: &Arc<AppCore>) -> Result<Vec<StoredAgent>> {
@@ -72,6 +73,42 @@ pub(crate) fn check_agent_has_active_tasks(
     }
 }
 
+/// Check whether an agent has externally managed chat sessions.
+///
+/// Returns `Ok(Some(source_list))` when linked channel sessions exist,
+/// `Ok(None)` otherwise.
+pub(crate) fn check_agent_has_external_channel_sessions(
+    chat_storage: &ChatSessionStorage,
+    agent_id: &str,
+) -> Result<Option<String>> {
+    let sessions = chat_storage.list_by_agent(agent_id)?;
+    let mut sources = BTreeSet::new();
+
+    for session in sessions {
+        match session.source_channel {
+            Some(ChatSessionSource::Workspace) | None => {}
+            Some(ChatSessionSource::Telegram) => {
+                sources.insert("telegram");
+            }
+            Some(ChatSessionSource::Discord) => {
+                sources.insert("discord");
+            }
+            Some(ChatSessionSource::Slack) => {
+                sources.insert("slack");
+            }
+            Some(ChatSessionSource::ExternalLegacy) => {
+                sources.insert("external_legacy");
+            }
+        }
+    }
+
+    if sources.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(sources.into_iter().collect::<Vec<_>>().join(", ")))
+    }
+}
+
 pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
     if let Some(task_names) = check_agent_has_active_tasks(&core.storage.background_agents, id)
         .with_context(|| format!("Failed to query background tasks for agent {}", id))?
@@ -80,6 +117,17 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
             "Cannot delete agent {}: active background tasks exist ({})",
             id,
             task_names
+        );
+    }
+
+    if let Some(sources) =
+        check_agent_has_external_channel_sessions(&core.storage.chat_sessions, id)
+            .with_context(|| format!("Failed to query chat sessions for agent {}", id))?
+    {
+        anyhow::bail!(
+            "Cannot delete agent {}: external channel sessions exist ({})",
+            id,
+            sources
         );
     }
 
@@ -103,7 +151,9 @@ async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<(
 #[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use crate::models::{AIModel, ApiKeyConfig, ValidationErrorResponse};
+    use crate::models::{
+        AIModel, ApiKeyConfig, ChatSession, ChatSessionSource, ValidationErrorResponse,
+    };
     use crate::prompt_files;
     use restflow_storage::time_utils;
     use tempfile::tempdir;
@@ -340,6 +390,50 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("Cannot delete agent"));
         assert!(msg.contains("Integrity Task"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_agent_blocked_by_external_channel_session() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+
+        let agent_node = create_test_agent_node("Channel owner");
+        let created = create_agent(&core, "Channel Owner".to_string(), agent_node)
+            .await
+            .unwrap();
+
+        let session = ChatSession::new(
+            created.id.clone(),
+            AIModel::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("channel:chat-1")
+        .with_source(ChatSessionSource::Telegram, "chat-1");
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        let err = delete_agent(&core, &created.id).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Cannot delete agent"));
+        assert!(msg.contains("external channel sessions"));
+        assert!(msg.contains("telegram"));
+    }
+
+    #[tokio::test]
+    async fn test_delete_agent_allows_workspace_sessions() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+
+        let agent_node = create_test_agent_node("Workspace owner");
+        let created = create_agent(&core, "Workspace Owner".to_string(), agent_node)
+            .await
+            .unwrap();
+
+        let mut session = ChatSession::new(
+            created.id.clone(),
+            AIModel::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("Workspace Session");
+        session.source_channel = Some(ChatSessionSource::Workspace);
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        delete_agent(&core, &created.id).await.unwrap();
     }
 
     #[tokio::test]

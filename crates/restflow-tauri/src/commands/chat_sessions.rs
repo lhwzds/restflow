@@ -187,6 +187,21 @@ pub async fn delete_chat_session(state: State<'_, AppState>, id: String) -> Resu
         .map_err(|e| e.to_string())
 }
 
+/// Rebuild an externally managed chat session (Telegram/Discord/Slack).
+///
+/// This resets conversation history while preserving channel binding.
+#[tauri::command]
+pub async fn rebuild_external_chat_session(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<ChatSession, String> {
+    state
+        .executor()
+        .rebuild_external_session(id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Add a message to a chat session.
 ///
 /// This adds a user message to the session. The assistant response should be

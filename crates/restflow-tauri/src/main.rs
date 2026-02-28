@@ -215,6 +215,7 @@ fn main() {
             commands::update_chat_session,
             commands::rename_chat_session,
             commands::delete_chat_session,
+            commands::rebuild_external_chat_session,
             commands::add_chat_message,
             commands::send_chat_message,
             commands::list_chat_sessions_by_agent,
