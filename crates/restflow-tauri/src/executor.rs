@@ -490,6 +490,11 @@ impl TauriExecutor {
         Ok(response.deleted)
     }
 
+    pub async fn rebuild_external_session(&self, id: String) -> Result<ChatSession> {
+        self.request(IpcRequest::RebuildExternalSession { id })
+            .await
+    }
+
     pub async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>> {
         self.request(IpcRequest::SearchSessions { query }).await
     }

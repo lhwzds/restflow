@@ -133,6 +133,41 @@ fn normalize_model_input(model: &str) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("Unsupported model identifier: {}", model))
 }
 
+fn is_workspace_managed_session(session: &ChatSession) -> bool {
+    matches!(
+        session.source_channel,
+        None | Some(ChatSessionSource::Workspace)
+    )
+}
+
+fn build_rebuilt_external_session(source: &ChatSession) -> Result<ChatSession> {
+    let source_channel = match source.source_channel {
+        Some(ChatSessionSource::Workspace) | None => {
+            anyhow::bail!("Session is not externally managed")
+        }
+        Some(channel) => channel,
+    };
+    let conversation_id = source
+        .source_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| anyhow::anyhow!("External session is missing conversation_id"))?;
+
+    let mut rebuilt = ChatSession::new(source.agent_id.clone(), source.model.clone())
+        .with_name(format!("channel:{}", conversation_id))
+        .with_source(source_channel, conversation_id.to_string());
+
+    if let Some(skill_id) = source.skill_id.clone() {
+        rebuilt = rebuilt.with_skill(skill_id);
+    }
+    if let Some(retention) = source.retention.clone() {
+        rebuilt = rebuilt.with_retention(retention);
+    }
+
+    Ok(rebuilt)
+}
+
 #[async_trait]
 impl StreamEmitter for IpcStreamEmitter {
     async fn emit_text_delta(&mut self, text: &str) {
@@ -1121,6 +1156,19 @@ impl IpcServer {
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
 
+                if !is_workspace_managed_session(&session) {
+                    return IpcResponse::error(
+                        403,
+                        format!(
+                            "Session {} is managed by {:?} and cannot be updated from workspace",
+                            session.id,
+                            session
+                                .source_channel
+                                .unwrap_or(ChatSessionSource::ExternalLegacy),
+                        ),
+                    );
+                }
+
                 let mut updated = false;
                 let mut name_updated = false;
 
@@ -1170,6 +1218,18 @@ impl IpcServer {
                     Ok(None) => return IpcResponse::not_found("Session"),
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
+                if !is_workspace_managed_session(&session) {
+                    return IpcResponse::error(
+                        403,
+                        format!(
+                            "Session {} is managed by {:?} and cannot be renamed from workspace",
+                            session.id,
+                            session
+                                .source_channel
+                                .unwrap_or(ChatSessionSource::ExternalLegacy),
+                        ),
+                    );
+                }
                 session.rename(name);
                 match core.storage.chat_sessions.update(&session) {
                     Ok(()) => {
@@ -1181,24 +1241,90 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
-            IpcRequest::DeleteSession { id } => match core.storage.chat_sessions.delete(&id) {
-                Ok(deleted) => {
-                    if deleted {
-                        if let Err(error) = core.storage.tool_traces.delete_by_session(&id) {
-                            warn!(
-                                session_id = %id,
-                                error = %error,
-                                "Failed to clean up chat execution events after session delete"
-                            );
-                        }
-                        publish_session_event(ChatSessionEvent::Deleted {
-                            session_id: id.clone(),
-                        });
+            IpcRequest::DeleteSession { id } => {
+                let session = match core.storage.chat_sessions.get(&id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => {
+                        return IpcResponse::success(serde_json::json!({ "deleted": false }));
                     }
-                    IpcResponse::success(serde_json::json!({ "deleted": deleted }))
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                if !is_workspace_managed_session(&session) {
+                    return IpcResponse::error(
+                        403,
+                        format!(
+                            "Session {} is managed by {:?} and cannot be deleted from workspace",
+                            session.id,
+                            session
+                                .source_channel
+                                .unwrap_or(ChatSessionSource::ExternalLegacy),
+                        ),
+                    );
                 }
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+
+                match core.storage.chat_sessions.delete(&id) {
+                    Ok(deleted) => {
+                        if deleted {
+                            if let Err(error) = core.storage.tool_traces.delete_by_session(&id) {
+                                warn!(
+                                    session_id = %id,
+                                    error = %error,
+                                    "Failed to clean up chat execution events after session delete"
+                                );
+                            }
+                            publish_session_event(ChatSessionEvent::Deleted {
+                                session_id: id.clone(),
+                            });
+                        }
+                        IpcResponse::success(serde_json::json!({ "deleted": deleted }))
+                    }
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::RebuildExternalSession { id } => {
+                let session = match core.storage.chat_sessions.get(&id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => return IpcResponse::not_found("Session"),
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                let rebuilt = match build_rebuilt_external_session(&session) {
+                    Ok(rebuilt) => rebuilt,
+                    Err(err) => return IpcResponse::error(400, err.to_string()),
+                };
+
+                if let Err(err) = core.storage.chat_sessions.create(&rebuilt) {
+                    return IpcResponse::error(500, err.to_string());
+                }
+
+                let deleted_old = match core.storage.chat_sessions.delete(&id) {
+                    Ok(deleted) => deleted,
+                    Err(err) => {
+                        let _ = core.storage.chat_sessions.delete(&rebuilt.id);
+                        return IpcResponse::error(500, err.to_string());
+                    }
+                };
+                if !deleted_old {
+                    let _ = core.storage.chat_sessions.delete(&rebuilt.id);
+                    return IpcResponse::not_found("Session");
+                }
+
+                if let Err(error) = core.storage.tool_traces.delete_by_session(&id) {
+                    warn!(
+                        session_id = %id,
+                        error = %error,
+                        "Failed to clean up chat execution events after external session rebuild"
+                    );
+                }
+
+                publish_session_event(ChatSessionEvent::Deleted {
+                    session_id: id.clone(),
+                });
+                publish_session_event(ChatSessionEvent::Created {
+                    session_id: rebuilt.id.clone(),
+                });
+
+                IpcResponse::success(rebuilt)
+            }
             IpcRequest::SearchSessions { query } => match core.storage.chat_sessions.list() {
                 Ok(sessions) => {
                     let query = query.to_lowercase();
@@ -2153,6 +2279,52 @@ mod tests {
     #[test]
     fn normalize_model_input_rejects_unknown_value() {
         assert!(normalize_model_input("not-a-real-model").is_err());
+    }
+
+    #[test]
+    fn is_workspace_managed_session_accepts_workspace_and_legacy_sessions() {
+        let mut workspace = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        workspace.source_channel = Some(ChatSessionSource::Workspace);
+        assert!(is_workspace_managed_session(&workspace));
+
+        let legacy = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        assert!(is_workspace_managed_session(&legacy));
+    }
+
+    #[test]
+    fn is_workspace_managed_session_rejects_external_channel_sessions() {
+        let mut telegram = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        telegram.source_channel = Some(ChatSessionSource::Telegram);
+        assert!(!is_workspace_managed_session(&telegram));
+    }
+
+    #[test]
+    fn build_rebuilt_external_session_preserves_binding_and_runtime_config() {
+        let mut source = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
+            .with_source(ChatSessionSource::Telegram, "chat-123")
+            .with_name("channel:chat-123")
+            .with_skill("skill-1")
+            .with_retention("7d");
+        source.source_conversation_id = Some("chat-123".to_string());
+
+        let rebuilt = build_rebuilt_external_session(&source).expect("rebuilt session");
+        assert_ne!(rebuilt.id, source.id);
+        assert_eq!(rebuilt.agent_id, source.agent_id);
+        assert_eq!(rebuilt.model, source.model);
+        assert_eq!(rebuilt.skill_id, source.skill_id);
+        assert_eq!(rebuilt.retention, source.retention);
+        assert_eq!(rebuilt.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(rebuilt.source_conversation_id.as_deref(), Some("chat-123"));
+        assert_eq!(rebuilt.name, "channel:chat-123");
+    }
+
+    #[test]
+    fn build_rebuilt_external_session_rejects_workspace_session() {
+        let mut source = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        source.source_channel = Some(ChatSessionSource::Workspace);
+        source.source_conversation_id = Some("chat-123".to_string());
+        let err = build_rebuilt_external_session(&source).expect_err("should fail");
+        assert!(err.to_string().contains("not externally managed"));
     }
 
     #[tokio::test]

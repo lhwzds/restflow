@@ -237,6 +237,9 @@ pub enum IpcRequest {
     DeleteSession {
         id: String,
     },
+    RebuildExternalSession {
+        id: String,
+    },
     SearchSessions {
         query: String,
     },
