@@ -28,6 +28,7 @@ import AgentOverviewOverlay from './AgentOverviewOverlay.vue'
 import { useToast } from '@/composables/useToast'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useBackgroundAgentStream } from '@/composables/workspace/useBackgroundAgentStream'
+import { shouldShowLiveStreamBubble } from './streamVisibility'
 import {
   getBackgroundAgentEvents,
   listMemoryChunksByTag,
@@ -89,6 +90,14 @@ const canRun = computed(() => props.agent.status === 'active' || props.agent.sta
 const canCancel = computed(() => props.agent.status === 'running')
 const canSteer = computed(() => isStreaming.value || props.agent.status === 'running')
 const hasMemoryPersistence = computed(() => props.agent.memory.persist_on_complete)
+const showLiveStreamBubble = computed(() =>
+  shouldShowLiveStreamBubble({
+    streamTaskId: streamTaskId.value,
+    isStreaming: isStreaming.value,
+    outputText: outputText.value,
+    events: events.value,
+  }),
+)
 
 async function handlePause() {
   await store.pauseAgent(props.agent.id)
@@ -524,10 +533,7 @@ onMounted(() => {
         </template>
 
         <!-- Live stream output (assistant bubble style) -->
-        <div
-          v-if="streamTaskId && (outputText || isStreaming)"
-          class="bg-muted mr-auto max-w-[90%] p-4 rounded-lg"
-        >
+        <div v-if="showLiveStreamBubble" class="bg-muted mr-auto max-w-[90%] p-4 rounded-lg">
           <div class="text-xs text-muted-foreground mb-1">{{ t('backgroundAgent.agent') }}</div>
 
           <!-- Thinking indicator -->
