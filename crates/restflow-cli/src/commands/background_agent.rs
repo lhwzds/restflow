@@ -9,8 +9,15 @@ use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
 use restflow_core::models::{
-    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, ChatMessage, ChatRole,
-    TaskSchedule,
+    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, TaskSchedule,
+};
+use restflow_core::services::background_agent_conversion::{
+    ConvertSessionSpecOptions, MISSING_CONVERSION_INPUT_ERROR, build_convert_session_spec,
+    default_conversion_schedule,
+};
+#[cfg(test)]
+use restflow_core::services::background_agent_conversion::{
+    derive_conversion_input, derive_conversion_name,
 };
 
 pub async fn run(
@@ -200,26 +207,33 @@ async fn convert_session_to_background_agent(
     }
     .unwrap_or_else(default_conversion_schedule);
 
-    let name = derive_conversion_name(name, &session.name, &session.id);
-    let input = derive_conversion_input(input, &session.messages)?;
-
-    let spec = BackgroundAgentSpec {
-        name,
-        agent_id: session.agent_id.clone(),
-        chat_session_id: Some(session.id.clone()),
-        description: Some(format!("Converted from chat session {}", session.id)),
-        input: Some(input),
-        input_template: None,
-        schedule,
-        notification: None,
-        execution_mode: None,
-        timeout_secs,
-        memory: None,
-        durability_mode: None,
-        resource_limits: None,
-        prerequisites: vec![],
-        continuation: None,
-    };
+    let spec = build_convert_session_spec(
+        &session,
+        ConvertSessionSpecOptions {
+            name,
+            description: None,
+            schedule: Some(schedule),
+            input,
+            notification: None,
+            execution_mode: None,
+            timeout_secs,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: vec![],
+            continuation: None,
+        },
+    )
+    .map_err(|e| {
+        if e == MISSING_CONVERSION_INPUT_ERROR {
+            anyhow::anyhow!(
+                "{} use --input to provide one.",
+                MISSING_CONVERSION_INPUT_ERROR.trim_end_matches('.')
+            )
+        } else {
+            anyhow::anyhow!("{e}")
+        }
+    })?;
 
     let agent = executor.create_background_agent(spec).await?;
     if run_now {
@@ -541,53 +555,6 @@ fn parse_schedule(schedule_type: &str, schedule_value: Option<String>) -> Result
     }
 }
 
-fn default_conversion_schedule() -> TaskSchedule {
-    let now = chrono::Utc::now().timestamp_millis();
-    TaskSchedule::Once {
-        run_at: now.saturating_add(1_000),
-    }
-}
-
-fn normalize_optional_text(value: Option<String>) -> Option<String> {
-    value.and_then(|text| {
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            None
-        } else {
-            Some(trimmed.to_string())
-        }
-    })
-}
-
-fn derive_conversion_name(name: Option<String>, session_name: &str, session_id: &str) -> String {
-    if let Some(name) = normalize_optional_text(name) {
-        return name;
-    }
-    let base = session_name.trim();
-    if base.is_empty() {
-        format!("Background from {}", session_id)
-    } else {
-        format!("Background: {}", base)
-    }
-}
-
-fn derive_conversion_input(input: Option<String>, messages: &[ChatMessage]) -> Result<String> {
-    if let Some(input) = normalize_optional_text(input) {
-        return Ok(input);
-    }
-
-    messages
-        .iter()
-        .rev()
-        .find(|message| message.role == ChatRole::User)
-        .and_then(|message| normalize_optional_text(Some(message.content.clone())))
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "Cannot convert session: no non-empty user message found; use --input to provide one."
-            )
-        })
-}
-
 fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction> {
     match action.to_lowercase().as_str() {
         "start" => Ok(BackgroundAgentControlAction::Start),
@@ -605,6 +572,7 @@ fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_core::models::ChatMessage;
 
     #[test]
     fn derive_conversion_name_prefers_explicit_name() {
@@ -629,8 +597,8 @@ mod tests {
             ChatMessage::user(""),
             ChatMessage::user(" latest request "),
         ];
-        let input = derive_conversion_input(None, &messages).expect("input should be resolved");
-        assert_eq!(input, "latest request");
+        let input = derive_conversion_input(None, &messages);
+        assert_eq!(input.as_deref(), Some("latest request"));
     }
 }
 
