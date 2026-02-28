@@ -2,16 +2,17 @@
 
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, DurabilityMode,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, ChatRole, DurabilityMode,
     MemoryConfig, MemoryScope, ResourceLimits,
 };
 use crate::storage::{AgentStorage, BackgroundAgentStorage};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
-    BackgroundAgentControlRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
-    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
+    BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
+    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
+    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
@@ -170,6 +171,63 @@ impl BackgroundAgentStoreAdapter {
         }
         Ok(session_ids)
     }
+
+    fn normalize_optional_text(value: Option<String>) -> Option<String> {
+        value.and_then(|text| {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+    }
+
+    fn derive_conversion_name(
+        request_name: Option<String>,
+        session_name: &str,
+        session_id: &str,
+    ) -> String {
+        if let Some(name) = Self::normalize_optional_text(request_name) {
+            return name;
+        }
+
+        let base = session_name.trim();
+        if base.is_empty() {
+            format!("Background from {}", session_id)
+        } else {
+            format!("Background: {}", base)
+        }
+    }
+
+    fn derive_conversion_input(
+        request_input: Option<String>,
+        session: &crate::models::ChatSession,
+    ) -> Result<String, ToolError> {
+        if let Some(input) = Self::normalize_optional_text(request_input) {
+            return Ok(input);
+        }
+
+        session
+            .messages
+            .iter()
+            .rev()
+            .find(|message| message.role == ChatRole::User)
+            .and_then(|message| Self::normalize_optional_text(Some(message.content.clone())))
+            .ok_or_else(|| {
+                ToolError::Tool(
+                    "Cannot convert session: no non-empty user message found; please provide input."
+                        .to_string(),
+                )
+            })
+    }
+
+    fn default_conversion_schedule() -> BackgroundAgentSchedule {
+        let now = chrono::Utc::now().timestamp_millis();
+        BackgroundAgentSchedule::Once {
+            run_at: now.saturating_add(1_000),
+        }
+    }
 }
 
 impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
@@ -204,6 +262,67 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             continuation: None,
         })?;
         Ok(serde_json::to_value(task)?)
+    }
+
+    fn convert_session_to_background_agent(
+        &self,
+        request: BackgroundAgentConvertSessionRequest,
+    ) -> restflow_tools::Result<Value> {
+        let session_id = request.session_id.trim();
+        if session_id.is_empty() {
+            return Err(ToolError::Tool("session_id must not be empty".to_string()));
+        }
+
+        let session = self
+            .storage
+            .chat_sessions()
+            .get(session_id)?
+            .ok_or_else(|| ToolError::Tool(format!("Session not found: {}", session_id)))?;
+        let schedule =
+            Self::parse_optional_value::<BackgroundAgentSchedule>("schedule", request.schedule)?
+                .unwrap_or_else(Self::default_conversion_schedule);
+        let memory = Self::parse_optional_value("memory", request.memory)?;
+        let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
+        let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
+        let resource_limits: Option<ResourceLimits> =
+            Self::parse_optional_value("resource_limits", request.resource_limits)?;
+
+        let name = Self::derive_conversion_name(request.name, &session.name, &session.id);
+        let input = Self::derive_conversion_input(request.input, &session)?;
+        let spec = BackgroundAgentSpec {
+            name,
+            agent_id: session.agent_id.clone(),
+            chat_session_id: Some(session.id.clone()),
+            description: Some(format!("Converted from chat session {}", session.id)),
+            input: Some(input),
+            input_template: None,
+            schedule,
+            notification: None,
+            execution_mode: None,
+            timeout_secs: request.timeout_secs,
+            memory,
+            durability_mode,
+            resource_limits,
+            prerequisites: Vec::new(),
+            continuation: None,
+        };
+
+        let mut task = self.storage.create_background_agent(spec)?;
+        let run_now = request.run_now.unwrap_or(true);
+        if run_now {
+            task = self
+                .storage
+                .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)?;
+        }
+
+        Ok(json!({
+            "task": task,
+            "source_session": {
+                "id": session.id,
+                "agent_id": session.agent_id,
+            },
+            "run_now": run_now,
+        }))
     }
 
     fn update_background_agent(
@@ -505,6 +624,81 @@ mod tests {
         let list = adapter.list_background_agents(None).unwrap();
         let tasks = list.as_array().unwrap();
         assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_convert_session_to_background_agent_binds_existing_session() {
+        let (adapter, _dir, _guard) = setup();
+        let agent_id = get_agent_id(&adapter);
+
+        let mut session = crate::models::ChatSession::new(
+            agent_id.clone(),
+            crate::models::AIModel::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("Session to Convert");
+        session.add_message(crate::models::ChatMessage::user(
+            "Please continue this task.",
+        ));
+        adapter.storage.chat_sessions().create(&session).unwrap();
+
+        let converted = adapter
+            .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+                session_id: session.id.clone(),
+                name: Some("Converted Task".to_string()),
+                schedule: None,
+                input: None,
+                timeout_secs: Some(120),
+                durability_mode: Some("async".to_string()),
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: Some(false),
+            })
+            .unwrap();
+
+        assert_eq!(converted["source_session"]["id"], session.id);
+        assert_eq!(converted["source_session"]["agent_id"], agent_id);
+        assert_eq!(converted["run_now"], false);
+        assert_eq!(converted["task"]["chat_session_id"], session.id);
+        assert_eq!(converted["task"]["agent_id"], agent_id);
+        assert_eq!(converted["task"]["input"], "Please continue this task.");
+        assert_eq!(converted["task"]["name"], "Converted Task");
+    }
+
+    #[test]
+    fn test_convert_session_requires_input_or_existing_user_message() {
+        let (adapter, _dir, _guard) = setup();
+        let agent_id = get_agent_id(&adapter);
+
+        let session = crate::models::ChatSession::new(
+            agent_id,
+            crate::models::AIModel::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("Empty Session");
+        adapter.storage.chat_sessions().create(&session).unwrap();
+
+        let error = adapter
+            .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+                session_id: session.id,
+                name: None,
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: Some(false),
+            })
+            .expect_err("expected conversion to fail without user input");
+
+        assert!(
+            error
+                .to_string()
+                .contains("no non-empty user message found"),
+            "unexpected error: {}",
+            error
+        );
     }
 
     #[test]

@@ -9,7 +9,8 @@ use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
 use restflow_core::models::{
-    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, TaskSchedule,
+    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, ChatMessage, ChatRole,
+    TaskSchedule,
 };
 
 pub async fn run(
@@ -42,6 +43,28 @@ pub async fn run(
                 input_template,
                 timeout,
                 notify,
+                format,
+            )
+            .await
+        }
+        BackgroundAgentCommands::ConvertSession {
+            session_id,
+            name,
+            input,
+            schedule,
+            schedule_value,
+            timeout,
+            run_now,
+        } => {
+            convert_session_to_background_agent(
+                executor,
+                &session_id,
+                name,
+                input,
+                schedule,
+                schedule_value,
+                timeout,
+                run_now,
                 format,
             )
             .await
@@ -154,6 +177,77 @@ async fn show_background_agent(
     println!("Success:     {}", agent.success_count);
     println!("Failed:      {}", agent.failure_count);
 
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn convert_session_to_background_agent(
+    executor: Arc<dyn CommandExecutor>,
+    session_id: &str,
+    name: Option<String>,
+    input: Option<String>,
+    schedule_type: Option<String>,
+    schedule_value: Option<String>,
+    timeout_secs: Option<u64>,
+    run_now: bool,
+    format: OutputFormat,
+) -> Result<()> {
+    let session = executor.get_session(session_id).await?;
+    let schedule = if let Some(schedule_type) = schedule_type {
+        Some(parse_schedule(&schedule_type, schedule_value)?)
+    } else {
+        None
+    }
+    .unwrap_or_else(default_conversion_schedule);
+
+    let name = derive_conversion_name(name, &session.name, &session.id);
+    let input = derive_conversion_input(input, &session.messages)?;
+
+    let spec = BackgroundAgentSpec {
+        name,
+        agent_id: session.agent_id.clone(),
+        chat_session_id: Some(session.id.clone()),
+        description: Some(format!("Converted from chat session {}", session.id)),
+        input: Some(input),
+        input_template: None,
+        schedule,
+        notification: None,
+        execution_mode: None,
+        timeout_secs,
+        memory: None,
+        durability_mode: None,
+        resource_limits: None,
+        prerequisites: vec![],
+        continuation: None,
+    };
+
+    let agent = executor.create_background_agent(spec).await?;
+    if run_now {
+        executor
+            .control_background_agent(&agent.id, BackgroundAgentControlAction::RunNow)
+            .await?;
+    }
+
+    if format.is_json() {
+        return print_json(&serde_json::json!({
+            "task": agent,
+            "source_session": {
+                "id": session.id,
+                "agent_id": session.agent_id,
+            },
+            "run_now": run_now,
+        }));
+    }
+
+    println!(
+        "Converted session {} -> background agent {} ({})",
+        session_id,
+        agent.name,
+        &agent.id[..8.min(agent.id.len())]
+    );
+    if run_now {
+        println!("Triggered immediate run.");
+    }
     Ok(())
 }
 
@@ -447,6 +541,53 @@ fn parse_schedule(schedule_type: &str, schedule_value: Option<String>) -> Result
     }
 }
 
+fn default_conversion_schedule() -> TaskSchedule {
+    let now = chrono::Utc::now().timestamp_millis();
+    TaskSchedule::Once {
+        run_at: now.saturating_add(1_000),
+    }
+}
+
+fn normalize_optional_text(value: Option<String>) -> Option<String> {
+    value.and_then(|text| {
+        let trimmed = text.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed.to_string())
+        }
+    })
+}
+
+fn derive_conversion_name(name: Option<String>, session_name: &str, session_id: &str) -> String {
+    if let Some(name) = normalize_optional_text(name) {
+        return name;
+    }
+    let base = session_name.trim();
+    if base.is_empty() {
+        format!("Background from {}", session_id)
+    } else {
+        format!("Background: {}", base)
+    }
+}
+
+fn derive_conversion_input(input: Option<String>, messages: &[ChatMessage]) -> Result<String> {
+    if let Some(input) = normalize_optional_text(input) {
+        return Ok(input);
+    }
+
+    messages
+        .iter()
+        .rev()
+        .find(|message| message.role == ChatRole::User)
+        .and_then(|message| normalize_optional_text(Some(message.content.clone())))
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "Cannot convert session: no non-empty user message found; use --input to provide one."
+            )
+        })
+}
+
 fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction> {
     match action.to_lowercase().as_str() {
         "start" => Ok(BackgroundAgentControlAction::Start),
@@ -458,6 +599,38 @@ fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction> {
             "Invalid action: {}. Use: start, pause, resume, stop, run_now",
             action
         ),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derive_conversion_name_prefers_explicit_name() {
+        let name = derive_conversion_name(
+            Some("  Explicit Name  ".to_string()),
+            "Session Name",
+            "session-1",
+        );
+        assert_eq!(name, "Explicit Name");
+    }
+
+    #[test]
+    fn derive_conversion_name_falls_back_to_session_name() {
+        let name = derive_conversion_name(None, "Session Name", "session-1");
+        assert_eq!(name, "Background: Session Name");
+    }
+
+    #[test]
+    fn derive_conversion_input_uses_latest_non_empty_user_message() {
+        let messages = vec![
+            ChatMessage::assistant("hello"),
+            ChatMessage::user(""),
+            ChatMessage::user(" latest request "),
+        ];
+        let input = derive_conversion_input(None, &messages).expect("input should be resolved");
+        assert_eq!(input, "latest request");
     }
 }
 

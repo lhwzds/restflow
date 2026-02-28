@@ -18,6 +18,11 @@ You can create and manage **autonomous background agents** that run independentl
     - `notification`: `{notify_on_failure_only, include_output, broadcast_steps}` (all optional booleans)
     - `execution_mode`: `{"type": "api"}` (default) or `{"type": "cli", "binary": "claude", "args": [], "working_dir": "/path", "timeout_secs": 300}`
     - `memory`: `{max_messages, persist_on_complete, memory_scope, enable_compaction}` (see Memory Config below)
+  - **convert_session**: Convert an existing chat session into a background agent
+    - `session_id` (required): Source chat session
+    - `name`: Optional new background agent name
+    - `input`: Optional input override (defaults to latest user message from the session)
+    - `run_now`: Whether to trigger immediate execution (default `true`)
   - **list**: List all background agents (optional `status` filter: active, paused, running, completed, failed, interrupted)
   - **update**: Update an existing agent by `id` (same params as create)
   - **delete**: Delete by `id`

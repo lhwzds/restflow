@@ -119,6 +119,29 @@ pub struct BackgroundAgentCreateRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackgroundAgentConvertSessionRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub schedule: Option<Value>,
+    #[serde(default)]
+    pub input: Option<String>,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub durability_mode: Option<String>,
+    #[serde(default)]
+    pub memory: Option<Value>,
+    #[serde(default)]
+    pub memory_scope: Option<String>,
+    #[serde(default)]
+    pub resource_limits: Option<Value>,
+    #[serde(default)]
+    pub run_now: Option<bool>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackgroundAgentUpdateRequest {
     pub id: String,
     #[serde(default)]
@@ -201,6 +224,10 @@ pub struct BackgroundAgentTraceReadRequest {
 
 pub trait BackgroundAgentStore: Send + Sync {
     fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value>;
+    fn convert_session_to_background_agent(
+        &self,
+        request: BackgroundAgentConvertSessionRequest,
+    ) -> Result<Value>;
     fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value>;
     fn delete_background_agent(&self, id: &str) -> Result<Value>;
     fn list_background_agents(&self, status: Option<String>) -> Result<Value>;
