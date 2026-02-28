@@ -255,4 +255,42 @@ describe('Workspace', () => {
     await wrapper.get('[data-testid="back-to-sessions"]').trigger('click')
     expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(true)
   })
+
+  it('renders brand area with traffic-lights safe zone in sidebar top bar', async () => {
+    const wrapper = mount(Workspace, {
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          Dialog: {
+            template: '<div><slot /></div>',
+          },
+          DialogContent: {
+            template: '<div><slot /></div>',
+          },
+          DialogHeader: {
+            template: '<div><slot /></div>',
+          },
+          DialogTitle: {
+            template: '<div><slot /></div>',
+          },
+          DialogFooter: {
+            template: '<div><slot /></div>',
+          },
+          Input: {
+            template: '<input />',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    const brand = wrapper.get('[data-testid="workspace-brand"]')
+    const safeZone = wrapper.get('[data-testid="workspace-traffic-safe-zone"]')
+
+    expect(brand.text()).toContain('RestFlow')
+    expect(safeZone.classes()).toContain('w-[5rem]')
+  })
 })
