@@ -730,10 +730,10 @@ impl ChatDispatcher {
             &verification,
         );
 
-        // 5. Save exchange to session
+        // 5. Save exchange to session (use `input` which includes [Media Context] for voice messages)
         if let Err(e) = self.sessions.append_exchange(
             &session.id,
-            &message.content,
+            &input,
             &structured_output,
             Some(&exec_result.active_model),
         ) {
