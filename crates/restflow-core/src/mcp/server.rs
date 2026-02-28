@@ -24,6 +24,9 @@ use restflow_ai::llm::{
 };
 use restflow_ai::tools::Tool as RuntimeTool;
 use restflow_tools::SwitchModelTool;
+use restflow_traits::store::{
+    MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
+};
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -2001,8 +2004,8 @@ impl RestFlowMcpServer {
             }
             _ => {
                 return Err(format!(
-                    "Unknown operation: {}. Supported: create, convert_session, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, cancel, run",
-                    operation
+                    "Unknown operation: {}. Supported: {}",
+                    operation, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV
                 ));
             }
         };
@@ -2258,7 +2261,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_background_agents",
-                "Manage background agents. Operations: create (define new agent), convert_session (convert existing chat session into background agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).",
+                MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
                 schema_for_type::<ManageBackgroundAgentsParams>(),
             ),
             Tool::new(

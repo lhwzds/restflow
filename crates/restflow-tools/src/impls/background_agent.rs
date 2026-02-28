@@ -13,6 +13,8 @@ use restflow_traits::store::{
     BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
     BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    MANAGE_BACKGROUND_AGENT_OPERATIONS, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
+    MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
 };
 
 #[derive(Clone)]
@@ -184,7 +186,7 @@ impl Tool for BackgroundAgentTool {
     }
 
     fn description(&self) -> &str {
-        "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), convert_session (convert an existing chat session into a background agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces)."
+        MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION
     }
 
     fn parameters_schema(&self) -> Value {
@@ -193,24 +195,7 @@ impl Tool for BackgroundAgentTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": [
-                        "create",
-                        "convert_session",
-                        "update",
-                        "delete",
-                        "list",
-                        "control",
-                        "progress",
-                        "send_message",
-                        "list_messages",
-                        "list_deliverables",
-                        "list_traces",
-                        "read_trace",
-                        "pause",
-                        "resume",
-                        "cancel",
-                        "run"
-                    ],
+                    "enum": MANAGE_BACKGROUND_AGENT_OPERATIONS,
                     "description": "Background agent operation to perform"
                 },
                 "id": {
@@ -327,7 +312,8 @@ impl Tool for BackgroundAgentTool {
             Ok(action) => action,
             Err(e) => {
                 return Ok(ToolOutput::error(format!(
-                    "Invalid input: {e}. Required: operation (create|convert_session|list|update|delete|progress)."
+                    "Invalid input: {e}. Supported operations: {}.",
+                    MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV
                 )));
             }
         };
@@ -841,9 +827,10 @@ mod tests {
             .expect("tool should return error output");
         assert!(!output.success);
         assert!(
-            output.error.expect("expected error").contains(
-                "Required: operation (create|convert_session|list|update|delete|progress)"
-            )
+            output
+                .error
+                .expect("expected error")
+                .contains(MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV)
         );
     }
 

@@ -15,6 +15,29 @@ use serde_json::Value;
 
 use crate::error::Result;
 
+pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = &[
+    "create",
+    "convert_session",
+    "update",
+    "delete",
+    "list",
+    "control",
+    "progress",
+    "send_message",
+    "list_messages",
+    "list_deliverables",
+    "list_traces",
+    "read_trace",
+    "pause",
+    "resume",
+    "cancel",
+    "run",
+];
+
+pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = "create, convert_session, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, cancel, run";
+
+pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), convert_session (convert an existing chat session into a background agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
+
 // ── MemoryStore ──────────────────────────────────────────────────────
 
 pub trait MemoryStore: Send + Sync {
