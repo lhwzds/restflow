@@ -6,6 +6,7 @@ use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::{FilteredToolset, ToolRegistry, Toolset};
 use dashmap::DashMap;
+use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::{AbortHandle, JoinHandle};
@@ -587,6 +588,14 @@ fn build_subagent_agent_config(
     // Subagents run autonomously — there is no approval channel from the
     // parent, so security-gated tools must be auto-approved.
     agent_config.yolo_mode = true;
+    agent_config = agent_config.with_context(
+        "execution_context",
+        json!({
+            "role": "subagent",
+            "parent_execution_id": null,
+        }),
+    );
+    agent_config = agent_config.with_context("execution_role", json!("subagent"));
     agent_config
 }
 
@@ -707,6 +716,18 @@ mod tests {
     use super::*;
     use crate::llm::{MockLlmClient, MockStep};
     use std::collections::HashMap;
+
+    #[test]
+    fn build_subagent_agent_config_sets_execution_context() {
+        let config =
+            build_subagent_agent_config("Sub-task".to_string(), "System prompt".to_string(), 3);
+
+        assert_eq!(
+            config.context.get("execution_role"),
+            Some(&serde_json::Value::String("subagent".to_string()))
+        );
+        assert_eq!(config.context["execution_context"]["role"], "subagent");
+    }
 
     /// Minimal mock for sub-agent definitions used in integration tests.
     struct MockDefLookup {

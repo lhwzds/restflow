@@ -12,6 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::runtime::ExecutionContext;
 use crate::{
     AIModel, Provider,
     auth::{AuthProfileManager, AuthProvider},
@@ -404,6 +405,36 @@ impl AgentRuntimeExecutor {
             max_depth: AgentResourceLimits::default().max_depth,
             max_cost_usd: None,
         }
+    }
+
+    fn apply_execution_context(
+        mut config: ReActAgentConfig,
+        context: &ExecutionContext,
+    ) -> ReActAgentConfig {
+        config = config.with_context("execution_context", context.to_value());
+        config = config.with_context(
+            "execution_role",
+            serde_json::Value::String(context.role.as_str().to_string()),
+        );
+        if let Some(session_id) = &context.chat_session_id {
+            config = config.with_context(
+                "chat_session_id",
+                serde_json::Value::String(session_id.clone()),
+            );
+        }
+        if let Some(task_id) = &context.background_task_id {
+            config = config.with_context(
+                "background_task_id",
+                serde_json::Value::String(task_id.clone()),
+            );
+        }
+        if let Some(parent_execution_id) = &context.parent_execution_id {
+            config = config.with_context(
+                "parent_execution_id",
+                serde_json::Value::String(parent_execution_id.clone()),
+            );
+        }
+        config
     }
 
     fn non_main_agent_prompt_flags() -> PromptFlags {
@@ -1092,6 +1123,8 @@ impl AgentRuntimeExecutor {
             })
             .unwrap_or_else(|| Self::context_window_for_model(model));
         let max_tool_result_length = Self::effective_max_tool_result_length(4_000, context_window);
+        let execution_context =
+            ExecutionContext::main(agent_id.unwrap_or(&session.agent_id), &session.id);
 
         let mut config = ReActAgentConfig::new(user_input.to_string())
             .with_system_prompt(system_prompt.clone())
@@ -1113,6 +1146,7 @@ impl AgentRuntimeExecutor {
         {
             config = config.with_temperature(temp as f32);
         }
+        config = Self::apply_execution_context(config, &execution_context);
 
         let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
@@ -1584,6 +1618,33 @@ impl AgentRuntimeExecutor {
             resource_limits.max_output_bytes,
             context_window,
         );
+        let background_task_snapshot = if let Some(task_id) = background_task_id {
+            match self.storage.background_agents.get_task(task_id) {
+                Ok(task) => task,
+                Err(error) => {
+                    warn!(
+                        task_id,
+                        error = %error,
+                        "Failed to load background task for execution context"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let execution_context = background_task_id.map(|task_id| {
+            let chat_session_id = background_task_snapshot
+                .as_ref()
+                .map(|task| task.chat_session_id.trim().to_string())
+                .filter(|session_id| !session_id.is_empty())
+                .unwrap_or_else(|| "unknown".to_string());
+            ExecutionContext::background(
+                agent_id.unwrap_or("unknown-agent"),
+                chat_session_id,
+                task_id,
+            )
+        });
         if max_tool_result_length < resource_limits.max_output_bytes {
             debug!(
                 model = ?model,
@@ -1629,9 +1690,10 @@ impl AgentRuntimeExecutor {
                 config = config.with_model_switcher(switcher);
             }
         }
-        if let Some(task_id) = background_task_id
-            && let Ok(Some(task)) = self.storage.background_agents.get_task(task_id)
-        {
+        if let Some(context) = execution_context.as_ref() {
+            config = Self::apply_execution_context(config, context);
+        }
+        if let Some(task) = background_task_snapshot.as_ref() {
             let checkpoint_durability = match task.durability_mode {
                 DurabilityMode::Sync => CheckpointDurability::PerTurn,
                 DurabilityMode::Async => CheckpointDurability::Periodic { interval: 5 },
@@ -2316,6 +2378,24 @@ mod tests {
         assert_eq!(mapped.max_tool_calls, 99);
         assert_eq!(mapped.max_wall_clock, Duration::from_secs(123));
         assert_eq!(mapped.max_cost_usd, None);
+    }
+
+    #[test]
+    fn test_apply_execution_context_populates_context_keys() {
+        let context = ExecutionContext::background("agent-1", "session-1", "task-1");
+        let config = ReActAgentConfig::new("goal".to_string());
+        let config = AgentRuntimeExecutor::apply_execution_context(config, &context);
+
+        assert_eq!(
+            config.context.get("execution_role"),
+            Some(&serde_json::Value::String("background_agent".to_string()))
+        );
+        assert_eq!(config.context["chat_session_id"], "session-1");
+        assert_eq!(config.context["background_task_id"], "task-1");
+        assert_eq!(
+            config.context["execution_context"]["role"],
+            "background_agent"
+        );
     }
 
     #[test]
