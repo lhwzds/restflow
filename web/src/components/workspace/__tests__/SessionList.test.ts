@@ -30,8 +30,6 @@ describe('SessionList', () => {
           },
         ],
         currentSessionId: null,
-        availableAgents: [],
-        agentFilter: null,
       },
       global: {
         stubs: {
@@ -64,7 +62,7 @@ describe('SessionList', () => {
     expect(text).not.toContain('channel:7686400336')
   })
 
-  it('emits session actions from context menu items', async () => {
+  it('emits session actions from list controls', async () => {
     const wrapper = mount(SessionList, {
       props: {
         sessions: [
@@ -78,8 +76,6 @@ describe('SessionList', () => {
           },
         ],
         currentSessionId: null,
-        availableAgents: [{ id: 'agent-1', name: 'Agent One', path: 'agents/agent-1' }],
-        agentFilter: null,
       },
       global: {
         stubs: {
@@ -111,55 +107,14 @@ describe('SessionList', () => {
       return button!
     }
 
+    await findButton('workspace.newSession').trigger('click')
     await findButton('workspace.session.rename').trigger('click')
     await findButton('workspace.session.convertToBackground').trigger('click')
     await findButton('workspace.session.delete').trigger('click')
-    await findButton('workspace.agent.create').trigger('click')
 
+    expect(wrapper.emitted('newSession')).toEqual([[]])
     expect(wrapper.emitted('rename')).toEqual([['session-channel', '7686400336']])
     expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([['session-channel', '7686400336']])
     expect(wrapper.emitted('delete')).toEqual([['session-channel', '7686400336']])
-    expect(wrapper.emitted('createAgent')).toEqual([[]])
-  })
-
-  it('emits deleteAgent for selected filter agent', async () => {
-    const wrapper = mount(SessionList, {
-      props: {
-        sessions: [],
-        currentSessionId: null,
-        availableAgents: [{ id: 'agent-1', name: 'Agent One', path: 'agents/agent-1' }],
-        agentFilter: 'agent-1',
-      },
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenu: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuTrigger: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuContent: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuItem: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenuSeparator: {
-            template: '<div />',
-          },
-        },
-      },
-    })
-
-    const deleteAgentButton = wrapper
-      .findAll('button')
-      .find((button) => button.text().includes('workspace.agent.deleteSelected'))
-    expect(deleteAgentButton).toBeDefined()
-    await deleteAgentButton!.trigger('click')
-
-    expect(wrapper.emitted('deleteAgent')).toEqual([['agent-1', 'Agent One']])
   })
 })
