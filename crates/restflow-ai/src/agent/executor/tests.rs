@@ -1069,6 +1069,65 @@ impl Tool for HangTool {
     }
 }
 
+/// A spawn_agent-shaped tool that returns input as output so tests can verify argument injection.
+struct SpawnAgentCaptureTool;
+
+#[async_trait]
+impl Tool for SpawnAgentCaptureTool {
+    fn name(&self) -> &str {
+        "spawn_agent"
+    }
+
+    fn description(&self) -> &str {
+        "Capture spawn_agent input payload"
+    }
+
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({"type": "object"})
+    }
+
+    async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
+        Ok(ToolOutput::success(input))
+    }
+}
+
+struct ToolStartCaptureEmitter {
+    start_arguments: Arc<AsyncMutex<Vec<String>>>,
+}
+
+impl ToolStartCaptureEmitter {
+    fn new() -> Self {
+        Self {
+            start_arguments: Arc::new(AsyncMutex::new(Vec::new())),
+        }
+    }
+}
+
+#[async_trait]
+impl StreamEmitter for ToolStartCaptureEmitter {
+    async fn emit_text_delta(&mut self, _text: &str) {}
+
+    async fn emit_thinking_delta(&mut self, _text: &str) {}
+
+    async fn emit_tool_call_start(&mut self, _id: &str, _name: &str, arguments: &str) {
+        self.start_arguments
+            .lock()
+            .await
+            .push(arguments.to_string());
+    }
+
+    async fn emit_tool_call_result(
+        &mut self,
+        _id: &str,
+        _name: &str,
+        _result: &str,
+        _success: bool,
+    ) {
+    }
+
+    async fn emit_complete(&mut self) {}
+}
+
 #[tokio::test]
 async fn test_parallel_tools_returns_results_in_submission_order() {
     // Tool A sleeps 100ms, Tool B sleeps 10ms, Tool C sleeps 50ms.
@@ -1117,6 +1176,7 @@ async fn test_parallel_tools_returns_results_in_submission_order() {
             timeout,
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
+            None,
         )
         .await;
 
@@ -1174,6 +1234,7 @@ async fn test_parallel_tools_true_concurrency() {
             Duration::from_secs(10),
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
+            None,
         )
         .await;
     let elapsed = start.elapsed();
@@ -1222,6 +1283,7 @@ async fn test_parallel_tools_panic_recovery() {
             Duration::from_secs(10),
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
+            None,
         )
         .await;
 
@@ -1279,6 +1341,7 @@ async fn test_parallel_tools_timeout_in_spawned_task() {
             Duration::from_millis(200),
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
+            None,
         )
         .await;
 
@@ -1299,6 +1362,86 @@ async fn test_parallel_tools_timeout_in_spawned_task() {
     assert_eq!(id, "fast_call");
     assert!(result.is_ok());
     assert!(result.as_ref().unwrap().success);
+}
+
+#[tokio::test]
+async fn test_spawn_agent_tool_call_injects_parent_execution_id() {
+    let mut tools = ToolRegistry::new();
+    tools.register(SpawnAgentCaptureTool);
+
+    let llm = Arc::new(MockLlmClient::new(vec![]));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+    let calls = vec![ToolCall {
+        id: "spawn_call".to_string(),
+        name: "spawn_agent".to_string(),
+        arguments: serde_json::json!({
+            "agent": "default",
+            "task": "Investigate"
+        }),
+    }];
+
+    let mut emitter = ToolStartCaptureEmitter::new();
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            Duration::from_secs(5),
+            false,
+            DEFAULT_MAX_TOOL_CONCURRENCY,
+            Some("exec-parent-1"),
+        )
+        .await;
+
+    assert_eq!(results.len(), 1);
+    let (_, result) = &results[0];
+    let output = result
+        .as_ref()
+        .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
+    assert_eq!(output.result["parent_execution_id"], "exec-parent-1");
+
+    let start_arguments = emitter.start_arguments.lock().await;
+    assert_eq!(start_arguments.len(), 1);
+    let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
+    assert_eq!(start_payload["parent_execution_id"], "exec-parent-1");
+}
+
+#[tokio::test]
+async fn test_spawn_agent_tool_call_preserves_explicit_parent_execution_id() {
+    let mut tools = ToolRegistry::new();
+    tools.register(SpawnAgentCaptureTool);
+
+    let llm = Arc::new(MockLlmClient::new(vec![]));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+    let calls = vec![ToolCall {
+        id: "spawn_call".to_string(),
+        name: "spawn_agent".to_string(),
+        arguments: serde_json::json!({
+            "agent": "default",
+            "task": "Investigate",
+            "parent_execution_id": "explicit-parent"
+        }),
+    }];
+
+    let mut emitter = NullEmitter;
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            Duration::from_secs(5),
+            false,
+            DEFAULT_MAX_TOOL_CONCURRENCY,
+            Some("runtime-parent"),
+        )
+        .await;
+
+    assert_eq!(results.len(), 1);
+    let (_, result) = &results[0];
+    let output = result
+        .as_ref()
+        .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
+    assert_eq!(output.result["parent_execution_id"], "explicit-parent");
 }
 
 #[test]
