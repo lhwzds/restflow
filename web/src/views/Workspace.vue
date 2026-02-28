@@ -29,7 +29,7 @@ import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { confirmDelete } from '@/composables/useConfirm'
-import { listAgents } from '@/api/agents'
+import { deleteAgent as deleteAgentApi, listAgents } from '@/api/agents'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, SessionItem } from '@/types/workspace'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
@@ -45,6 +45,7 @@ const showSettings = ref(false)
 
 // Agent data for SessionList
 const availableAgents = ref<AgentFile[]>([])
+const agentModelById = ref<Map<string, string>>(new Map())
 
 // Track selected chat session
 const selectedItemId = ref<string | null>(null)
@@ -96,6 +97,7 @@ async function loadAgents() {
       name: agent.name,
       path: `agents/${agent.id}`,
     }))
+    agentModelById.value = new Map(agents.map((agent) => [agent.id, agent.agent.model ?? 'gpt-5']))
   } catch (error) {
     const message = error instanceof Error ? error.message : t('chat.loadAgentsFailed')
     toast.error(message)
@@ -103,8 +105,27 @@ async function loadAgents() {
 }
 
 async function onNewSession() {
-  selectedItemId.value = null
-  await chatSessionStore.selectSession(null)
+  const referenceSession =
+    chatSessionStore.currentSession ??
+    chatSessionStore.filteredSummaries[0] ??
+    chatSessionStore.summaries[0] ??
+    null
+  const fallbackAgentId = referenceSession?.agent_id ?? availableAgents.value[0]?.id ?? null
+  if (!fallbackAgentId) {
+    toast.error(t('chat.selectAgentToStart'))
+    return
+  }
+  const fallbackModel =
+    referenceSession?.model ?? agentModelById.value.get(fallbackAgentId) ?? 'gpt-5'
+
+  const session = await chatSessionStore.createSession(fallbackAgentId, fallbackModel)
+  if (!session) {
+    toast.error(chatSessionStore.error || t('chat.createSessionFailed'))
+    return
+  }
+
+  selectedItemId.value = session.id
+  await chatSessionStore.selectSession(session.id)
 }
 
 async function onSelectItem(id: string) {
@@ -168,8 +189,33 @@ function onCreateAgent() {
   createAgentDialogOpen.value = true
 }
 
-function onAgentCreated(agent: { id: string; name: string }) {
+async function onDeleteAgent(id: string, name: string) {
+  const confirmed = await confirmDelete(name, 'agent')
+  if (!confirmed) return
+
+  try {
+    await deleteAgentApi(id)
+    availableAgents.value = availableAgents.value.filter((agent) => agent.id !== id)
+    agentModelById.value.delete(id)
+
+    if (chatSessionStore.agentFilter === id) {
+      chatSessionStore.setAgentFilter(null)
+    }
+    if (chatSessionStore.currentSession?.agent_id === id) {
+      selectedItemId.value = null
+      await chatSessionStore.selectSession(null)
+    }
+    toast.success(t('workspace.agent.deleteSuccess'))
+    await chatSessionStore.fetchSummaries()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : t('workspace.agent.deleteFailed')
+    toast.error(message)
+  }
+}
+
+function onAgentCreated(agent: { id: string; name: string; model: string }) {
   availableAgents.value.push({ id: agent.id, name: agent.name, path: `agents/${agent.id}` })
+  agentModelById.value.set(agent.id, agent.model)
 }
 
 // Sync selectedItemId when chat store changes externally
@@ -213,6 +259,7 @@ onMounted(() => {
           @delete="onDeleteSession"
           @convert-to-background-agent="onConvertToBackgroundAgent"
           @create-agent="onCreateAgent"
+          @delete-agent="onDeleteAgent"
         />
 
         <!-- Bottom bar: Settings + Theme -->

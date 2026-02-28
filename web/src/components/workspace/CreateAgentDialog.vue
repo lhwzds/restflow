@@ -30,7 +30,7 @@ const props = defineProps<{ open: boolean }>()
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
-  created: [agent: { id: string; name: string }]
+  created: [agent: { id: string; name: string; model: string }]
 }>()
 
 const { t } = useI18n()
@@ -62,7 +62,7 @@ async function submit() {
       agent: { model: model.value as AIModel },
     })
     toast.success(t('workspace.agent.createSuccess'))
-    emit('created', { id: agent.id, name: agent.name })
+    emit('created', { id: agent.id, name: agent.name, model: agent.agent.model ?? model.value })
     emit('update:open', false)
   } catch {
     toast.error(t('workspace.agent.createFailed'))

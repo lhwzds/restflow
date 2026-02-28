@@ -41,6 +41,11 @@ const filterLabel = computed(() => {
   return agent?.name || props.agentFilter
 })
 
+const selectedAgent = computed(() => {
+  if (!props.agentFilter) return null
+  return props.availableAgents.find((a) => a.id === props.agentFilter) ?? null
+})
+
 const emit = defineEmits<{
   select: [id: string]
   newSession: []
@@ -49,6 +54,7 @@ const emit = defineEmits<{
   delete: [id: string, name: string]
   convertToBackgroundAgent: [id: string, name: string]
   createAgent: []
+  deleteAgent: [id: string, name: string]
 }>()
 
 const CHANNEL_SESSION_PREFIX = 'channel:'
@@ -137,6 +143,14 @@ const formatTime = (timestamp: number) => {
           <DropdownMenuItem @click="emit('createAgent')">
             <Plus :size="14" class="mr-2" />
             {{ t('workspace.agent.create') }}
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            v-if="selectedAgent"
+            class="text-destructive focus:text-destructive"
+            @click="emit('deleteAgent', selectedAgent.id, selectedAgent.name)"
+          >
+            <Trash2 :size="14" class="mr-2" />
+            {{ t('workspace.agent.deleteSelected') }}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
