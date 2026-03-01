@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Skill } from '@/types/generated/Skill'
-import { tauriInvoke } from '../tauri-client'
+import { invokeCommand } from '../tauri-client'
 
 vi.mock('../tauri-client', () => ({
   isTauri: vi.fn(() => true),
-  tauriInvoke: vi.fn(),
+  invokeCommand: vi.fn(),
 }))
 
-const mockedTauriInvoke = vi.mocked(tauriInvoke)
+const mockedInvokeCommand = vi.mocked(invokeCommand)
 
 describe('skills API', () => {
   const mockSkill: Skill = {
@@ -36,31 +36,31 @@ describe('skills API', () => {
 
   describe('listSkills', () => {
     it('should invoke list_skills', async () => {
-      mockedTauriInvoke.mockResolvedValue([mockSkill])
+      mockedInvokeCommand.mockResolvedValue([mockSkill])
 
       const { listSkills } = await import('../skills')
       const result = await listSkills()
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('list_skills')
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('listSkills')
       expect(result).toEqual([mockSkill])
     })
   })
 
   describe('getSkill', () => {
     it('should invoke get_skill with id', async () => {
-      mockedTauriInvoke.mockResolvedValue(mockSkill)
+      mockedInvokeCommand.mockResolvedValue(mockSkill)
 
       const { getSkill } = await import('../skills')
       const result = await getSkill('skill-1')
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('get_skill', { id: 'skill-1' })
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('getSkill', 'skill-1')
       expect(result).toEqual(mockSkill)
     })
   })
 
   describe('createSkill', () => {
     it('should invoke create_skill with skill data', async () => {
-      mockedTauriInvoke.mockResolvedValue(mockSkill)
+      mockedInvokeCommand.mockResolvedValue(mockSkill)
 
       const { createSkill } = await import('../skills')
       const result = await createSkill({
@@ -68,13 +68,11 @@ describe('skills API', () => {
         content: '# Test Content',
       })
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith(
-        'create_skill',
+      expect(mockedInvokeCommand).toHaveBeenCalledWith(
+        'createSkill',
         expect.objectContaining({
-          skill: expect.objectContaining({
-            name: 'Test Skill',
-            content: '# Test Content',
-          }),
+          name: 'Test Skill',
+          content: '# Test Content',
         }),
       )
       expect(result).toEqual(mockSkill)
@@ -83,12 +81,12 @@ describe('skills API', () => {
 
   describe('deleteSkill', () => {
     it('should invoke delete_skill with id', async () => {
-      mockedTauriInvoke.mockResolvedValue(undefined)
+      mockedInvokeCommand.mockResolvedValue(undefined)
 
       const { deleteSkill } = await import('../skills')
       await deleteSkill('skill-1')
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('delete_skill', { id: 'skill-1' })
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('deleteSkill', 'skill-1')
     })
   })
 })

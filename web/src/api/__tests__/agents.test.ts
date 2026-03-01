@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as agentsApi from '@/api/agents'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
-import { tauriInvoke } from '../tauri-client'
+import { invokeCommand } from '../tauri-client'
 
 vi.mock('../tauri-client', () => ({
   isTauri: vi.fn(() => true),
-  tauriInvoke: vi.fn(),
+  invokeCommand: vi.fn(),
 }))
 
-const mockedTauriInvoke = vi.mocked(tauriInvoke)
+const mockedInvokeCommand = vi.mocked(invokeCommand)
 
 describe('Agents API', () => {
   beforeEach(() => {
@@ -30,11 +30,11 @@ describe('Agents API', () => {
   describe('listAgents', () => {
     it('should invoke list_agents', async () => {
       const mockAgents = [createMockAgent('agent1'), createMockAgent('agent2')]
-      mockedTauriInvoke.mockResolvedValue(mockAgents)
+      mockedInvokeCommand.mockResolvedValue(mockAgents)
 
       const result = await agentsApi.listAgents()
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('list_agents')
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('listAgents')
       expect(result).toEqual(mockAgents)
     })
   })
@@ -42,11 +42,11 @@ describe('Agents API', () => {
   describe('getAgent', () => {
     it('should invoke get_agent with id', async () => {
       const mockAgent = createMockAgent('agent1')
-      mockedTauriInvoke.mockResolvedValue(mockAgent)
+      mockedInvokeCommand.mockResolvedValue(mockAgent)
 
       const result = await agentsApi.getAgent('agent1')
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('get_agent', { id: 'agent1' })
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('getAgent', 'agent1')
       expect(result).toEqual(mockAgent)
     })
   })
@@ -64,11 +64,11 @@ describe('Agents API', () => {
         },
       }
       const mockResponse = createMockAgent('new-agent')
-      mockedTauriInvoke.mockResolvedValue(mockResponse)
+      mockedInvokeCommand.mockResolvedValue(mockResponse)
 
       const result = await agentsApi.createAgent(request)
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('create_agent', { request })
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('createAgent', request)
       expect(result).toEqual(mockResponse)
     })
   })
@@ -78,13 +78,13 @@ describe('Agents API', () => {
       const updateData: agentsApi.UpdateAgentRequest = { name: 'Updated Name' }
       const mockResponse = createMockAgent('agent1')
       mockResponse.name = 'Updated Name'
-      mockedTauriInvoke.mockResolvedValue(mockResponse)
+      mockedInvokeCommand.mockResolvedValue(mockResponse)
 
       const result = await agentsApi.updateAgent('agent1', updateData)
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('update_agent', {
-        id: 'agent1',
-        request: updateData,
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('updateAgent', 'agent1', {
+        name: 'Updated Name',
+        agent: null,
       })
       expect(result.name).toBe('Updated Name')
     })
@@ -92,17 +92,17 @@ describe('Agents API', () => {
 
   describe('deleteAgent', () => {
     it('should invoke delete_agent with id', async () => {
-      mockedTauriInvoke.mockResolvedValue(undefined)
+      mockedInvokeCommand.mockResolvedValue(undefined)
 
       await agentsApi.deleteAgent('agent1')
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('delete_agent', { id: 'agent1' })
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('deleteAgent', 'agent1')
     })
   })
 
   describe('Error Handling', () => {
-    it('should propagate errors from tauriInvoke', async () => {
-      mockedTauriInvoke.mockRejectedValue(new Error('Agent not found'))
+    it('should propagate errors from invokeCommand', async () => {
+      mockedInvokeCommand.mockRejectedValue(new Error('Agent not found'))
 
       await expect(agentsApi.getAgent('missing')).rejects.toThrow('Agent not found')
     })

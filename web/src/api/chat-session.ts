@@ -4,7 +4,7 @@
  * Provides CRUD operations and messaging for workspace chat sessions.
  */
 
-import { tauriInvoke } from './tauri-client'
+import { invokeCommand } from './tauri-client'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import type { ChatSession } from '@/types/generated/ChatSession'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
@@ -33,33 +33,34 @@ export interface UpdateChatSessionRequest {
  * Create a new chat session.
  */
 export async function createChatSession(request: CreateChatSessionRequest): Promise<ChatSession> {
-  return tauriInvoke<ChatSession>('create_chat_session', {
-    agentId: request.agentId,
-    model: request.model,
-    name: request.name,
-    skillId: request.skillId,
-  })
+  return invokeCommand(
+    'createChatSession',
+    request.agentId,
+    request.model,
+    request.name ?? null,
+    request.skillId ?? null,
+  )
 }
 
 /**
  * List all chat sessions.
  */
 export async function listChatSessions(): Promise<ChatSession[]> {
-  return tauriInvoke<ChatSession[]>('list_chat_sessions')
+  return invokeCommand('listChatSessions')
 }
 
 /**
  * List chat session summaries.
  */
 export async function listChatSessionSummaries(): Promise<ChatSessionSummary[]> {
-  return tauriInvoke<ChatSessionSummary[]>('list_chat_session_summaries')
+  return invokeCommand('listChatSessionSummaries')
 }
 
 /**
  * Get a chat session by ID.
  */
 export async function getChatSession(id: string): Promise<ChatSession> {
-  return tauriInvoke<ChatSession>('get_chat_session', { id })
+  return invokeCommand('getChatSession', id)
 }
 
 /**
@@ -69,28 +70,39 @@ export async function updateChatSession(
   id: string,
   updates: UpdateChatSessionRequest,
 ): Promise<ChatSession> {
-  return tauriInvoke<ChatSession>('update_chat_session', { sessionId: id, updates })
+  return invokeCommand('updateChatSession', id, {
+    agentId: updates.agentId ?? null,
+    model: updates.model ?? null,
+    name: updates.name ?? null,
+  })
 }
 
 /**
  * Rename a chat session.
  */
 export async function renameChatSession(id: string, name: string): Promise<ChatSession> {
-  return tauriInvoke<ChatSession>('rename_chat_session', { id, name })
+  return invokeCommand('renameChatSession', id, name)
 }
 
 /**
  * Delete a chat session.
  */
 export async function deleteChatSession(id: string): Promise<boolean> {
-  return tauriInvoke<boolean>('delete_chat_session', { id })
+  return invokeCommand('deleteChatSession', id)
+}
+
+/**
+ * Archive a chat session.
+ */
+export async function archiveChatSession(id: string): Promise<boolean> {
+  return invokeCommand('archiveChatSession', id)
 }
 
 /**
  * Rebuild an externally managed session (Telegram/Discord/Slack) with a fresh history.
  */
 export async function rebuildExternalChatSession(id: string): Promise<ChatSession> {
-  return tauriInvoke<ChatSession>('rebuild_external_chat_session', { id })
+  return invokeCommand('rebuildExternalChatSession', id)
 }
 
 /**
@@ -100,35 +112,35 @@ export async function addChatMessage(
   sessionId: string,
   message: ChatMessage,
 ): Promise<ChatSession> {
-  return tauriInvoke<ChatSession>('add_chat_message', { sessionId, message })
+  return invokeCommand('addChatMessage', sessionId, message)
 }
 
 /**
  * Send a chat message and trigger agent response.
  */
 export async function sendChatMessage(sessionId: string, content: string): Promise<ChatSession> {
-  return tauriInvoke<ChatSession>('send_chat_message', { sessionId, content })
+  return invokeCommand('sendChatMessage', sessionId, content)
 }
 
 /**
  * List chat sessions for a specific agent.
  */
 export async function listChatSessionsByAgent(agentId: string): Promise<ChatSession[]> {
-  return tauriInvoke<ChatSession[]>('list_chat_sessions_by_agent', { agentId })
+  return invokeCommand('listChatSessionsByAgent', agentId)
 }
 
 /**
  * List chat sessions for a specific skill.
  */
 export async function listChatSessionsBySkill(skillId: string): Promise<ChatSession[]> {
-  return tauriInvoke<ChatSession[]>('list_chat_sessions_by_skill', { skillId })
+  return invokeCommand('listChatSessionsBySkill', skillId)
 }
 
 /**
  * Trigger assistant response generation for a chat session.
  */
 export async function executeChatSession(sessionId: string): Promise<ChatSession> {
-  return tauriInvoke<ChatSession>('execute_chat_session', { sessionId })
+  return invokeCommand('executeChatSession', sessionId)
 }
 
 /**
@@ -147,6 +159,6 @@ export interface ChatSessionEvent {
 export async function subscribeSessionEvents(
   callback: (event: ChatSessionEvent) => void,
 ): Promise<UnlistenFn> {
-  const eventName = await tauriInvoke<string>('get_session_change_event_name')
+  const eventName = await invokeCommand<string>('getSessionChangeEventName')
   return listen<ChatSessionEvent>(eventName, (e) => callback(e.payload))
 }

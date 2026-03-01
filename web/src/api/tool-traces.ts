@@ -1,4 +1,4 @@
-import { tauriInvoke } from './tauri-client'
+import { invokeCommand } from './tauri-client'
 
 export type ToolTraceEventType =
   | 'turn_started'
@@ -30,9 +30,5 @@ export async function listToolTraces(
   turnId?: string,
   limit?: number,
 ): Promise<ToolTrace[]> {
-  return tauriInvoke<ToolTrace[]>('list_tool_traces', {
-    sessionId,
-    turnId,
-    limit,
-  })
+  return invokeCommand('listToolTraces', sessionId, turnId ?? null, limit ?? null)
 }

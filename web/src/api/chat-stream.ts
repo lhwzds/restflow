@@ -5,7 +5,7 @@
  * Enables real-time token-by-token AI response streaming.
  */
 
-import { tauriInvoke } from './tauri-client'
+import { invokeCommand } from './tauri-client'
 
 /**
  * Send a chat message with streaming response.
@@ -18,10 +18,7 @@ import { tauriInvoke } from './tauri-client'
  * @returns Message ID for the generated response
  */
 export async function sendChatMessageStream(sessionId: string, message: string): Promise<string> {
-  return tauriInvoke<string>('send_chat_message_stream', {
-    sessionId,
-    message,
-  })
+  return invokeCommand('sendChatMessageStream', sessionId, message)
 }
 
 /**
@@ -31,10 +28,7 @@ export async function sendChatMessageStream(sessionId: string, message: string):
  * @param messageId - Message ID being generated
  */
 export async function cancelChatStream(sessionId: string, messageId: string): Promise<void> {
-  return tauriInvoke<void>('cancel_chat_stream', {
-    sessionId,
-    messageId,
-  })
+  await invokeCommand('cancelChatStream', sessionId, messageId)
 }
 
 /**
@@ -43,8 +37,5 @@ export async function cancelChatStream(sessionId: string, messageId: string): Pr
  * Returns false when no active stream is steerable.
  */
 export async function steerChatStream(sessionId: string, instruction: string): Promise<boolean> {
-  return tauriInvoke<boolean>('steer_chat_stream', {
-    sessionId,
-    instruction,
-  })
+  return invokeCommand('steerChatStream', sessionId, instruction)
 }

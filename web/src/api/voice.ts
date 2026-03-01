@@ -5,7 +5,7 @@
  * for the Tauri desktop application.
  */
 
-import { tauriInvoke } from './tauri-client'
+import { invokeCommand } from './tauri-client'
 
 export interface TranscribeResult {
   text: string
@@ -21,11 +21,7 @@ export function transcribeAudio(
   model?: string,
   language?: string,
 ): Promise<TranscribeResult> {
-  return tauriInvoke<TranscribeResult>('transcribe_audio', {
-    audioBase64,
-    model: model ?? null,
-    language: language ?? null,
-  })
+  return invokeCommand('transcribeAudio', audioBase64, model ?? null, language ?? null)
 }
 
 /**
@@ -38,11 +34,7 @@ export function transcribeAudioStream(
   model?: string,
   language?: string,
 ): Promise<string> {
-  return tauriInvoke<string>('transcribe_audio_stream', {
-    audioBase64,
-    model: model ?? null,
-    language: language ?? null,
-  })
+  return invokeCommand('transcribeAudioStream', audioBase64, model ?? null, language ?? null)
 }
 
 /**
@@ -52,10 +44,7 @@ export function transcribeAudioStream(
  * Returns the file path where the audio was saved.
  */
 export function saveVoiceMessage(audioBase64: string, sessionId?: string): Promise<string> {
-  return tauriInvoke<string>('save_voice_message', {
-    audioBase64,
-    sessionId: sessionId ?? null,
-  })
+  return invokeCommand('saveVoiceMessage', audioBase64, sessionId ?? null)
 }
 
 /**
@@ -64,35 +53,23 @@ export function saveVoiceMessage(audioBase64: string, sessionId?: string): Promi
  * Used for replaying voice messages after page reload.
  */
 export function readMediaFile(filePath: string): Promise<string> {
-  return tauriInvoke<string>('read_media_file', { filePath })
+  return invokeCommand('readMediaFile', filePath)
 }
 
 /**
  * Start a live transcription session via OpenAI Realtime WebSocket API.
  * Returns a transcribe_id; text deltas arrive via Tauri `voice:transcribe-stream` events.
  */
-export function startLiveTranscription(
-  model?: string,
-  language?: string,
-): Promise<string> {
-  return tauriInvoke<string>('start_live_transcription', {
-    model: model ?? null,
-    language: language ?? null,
-  })
+export function startLiveTranscription(model?: string, language?: string): Promise<string> {
+  return invokeCommand('startLiveTranscription', model ?? null, language ?? null)
 }
 
 /**
  * Send a PCM16 audio chunk to an active live transcription session.
  * The audioBase64 should be base64-encoded Int16Array PCM data at 24kHz.
  */
-export function sendLiveAudioChunk(
-  transcribeId: string,
-  audioBase64: string,
-): Promise<void> {
-  return tauriInvoke<void>('send_live_audio_chunk', {
-    transcribeId,
-    audioBase64,
-  })
+export function sendLiveAudioChunk(transcribeId: string, audioBase64: string): Promise<void> {
+  return invokeCommand('sendLiveAudioChunk', transcribeId, audioBase64).then(() => undefined)
 }
 
 /**
@@ -100,5 +77,5 @@ export function sendLiveAudioChunk(
  * The final Completed event will be emitted via Tauri events.
  */
 export function stopLiveTranscription(transcribeId: string): Promise<void> {
-  return tauriInvoke<void>('stop_live_transcription', { transcribeId })
+  return invokeCommand('stopLiveTranscription', transcribeId).then(() => undefined)
 }

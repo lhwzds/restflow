@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as secretsApi from '@/api/secrets'
-import { tauriInvoke } from '../tauri-client'
+import { invokeCommand } from '../tauri-client'
 
 vi.mock('../tauri-client', () => ({
   isTauri: vi.fn(() => true),
-  tauriInvoke: vi.fn(),
+  invokeCommand: vi.fn(),
 }))
 
-const mockedTauriInvoke = vi.mocked(tauriInvoke)
+const mockedInvokeCommand = vi.mocked(invokeCommand)
 
 describe('Secrets API', () => {
   beforeEach(() => {
@@ -20,11 +20,11 @@ describe('Secrets API', () => {
         { key: 'API_KEY_1', description: 'Key 1', created_at: 1000, updated_at: 2000 },
         { key: 'API_KEY_2', description: null, created_at: 3000, updated_at: 4000 },
       ]
-      mockedTauriInvoke.mockResolvedValue(tauriResponse)
+      mockedInvokeCommand.mockResolvedValue(tauriResponse)
 
       const result = await secretsApi.listSecrets()
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('list_secrets')
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('listSecrets')
       expect(result).toEqual([
         { key: 'API_KEY_1', value: '', description: 'Key 1', created_at: 1000, updated_at: 2000 },
         { key: 'API_KEY_2', value: '', description: null, created_at: 3000, updated_at: 4000 },
@@ -34,7 +34,7 @@ describe('Secrets API', () => {
 
   describe('createSecret', () => {
     it('should invoke create_secret with request', async () => {
-      mockedTauriInvoke.mockResolvedValue({
+      mockedInvokeCommand.mockResolvedValue({
         key: 'NEW_KEY',
         description: 'Test description',
         created_at: 1000,
@@ -43,15 +43,17 @@ describe('Secrets API', () => {
 
       const result = await secretsApi.createSecret('NEW_KEY', 'secret-value', 'Test description')
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('create_secret', {
-        request: { key: 'NEW_KEY', value: 'secret-value', description: 'Test description' },
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('createSecret', {
+        key: 'NEW_KEY',
+        value: 'secret-value',
+        description: 'Test description',
       })
       expect(result.key).toBe('NEW_KEY')
       expect(result.value).toBe('')
     })
 
     it('should handle missing description', async () => {
-      mockedTauriInvoke.mockResolvedValue({
+      mockedInvokeCommand.mockResolvedValue({
         key: 'SIMPLE_KEY',
         description: null,
         created_at: 1000,
@@ -60,8 +62,10 @@ describe('Secrets API', () => {
 
       const result = await secretsApi.createSecret('SIMPLE_KEY', 'value')
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('create_secret', {
-        request: { key: 'SIMPLE_KEY', value: 'value', description: null },
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('createSecret', {
+        key: 'SIMPLE_KEY',
+        value: 'value',
+        description: null,
       })
       expect(result.key).toBe('SIMPLE_KEY')
     })
@@ -69,7 +73,7 @@ describe('Secrets API', () => {
 
   describe('updateSecret', () => {
     it('should invoke update_secret', async () => {
-      mockedTauriInvoke.mockResolvedValue({
+      mockedInvokeCommand.mockResolvedValue({
         key: 'EXISTING_KEY',
         description: 'Updated',
         created_at: 1000,
@@ -78,26 +82,26 @@ describe('Secrets API', () => {
 
       await secretsApi.updateSecret('EXISTING_KEY', 'new-value', 'Updated')
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('update_secret', {
-        key: 'EXISTING_KEY',
-        request: { value: 'new-value', description: 'Updated' },
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('updateSecret', 'EXISTING_KEY', {
+        value: 'new-value',
+        description: 'Updated',
       })
     })
   })
 
   describe('deleteSecret', () => {
     it('should invoke delete_secret', async () => {
-      mockedTauriInvoke.mockResolvedValue(undefined)
+      mockedInvokeCommand.mockResolvedValue(undefined)
 
       await secretsApi.deleteSecret('OLD_KEY')
 
-      expect(mockedTauriInvoke).toHaveBeenCalledWith('delete_secret', { key: 'OLD_KEY' })
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('deleteSecret', 'OLD_KEY')
     })
   })
 
   describe('Error Handling', () => {
-    it('should propagate errors from tauriInvoke', async () => {
-      mockedTauriInvoke.mockRejectedValue(new Error('Secret not found'))
+    it('should propagate errors from invokeCommand', async () => {
+      mockedInvokeCommand.mockRejectedValue(new Error('Secret not found'))
 
       await expect(secretsApi.updateSecret('MISSING_KEY', 'value')).rejects.toThrow(
         'Secret not found',

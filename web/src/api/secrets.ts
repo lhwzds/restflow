@@ -1,4 +1,4 @@
-import { tauriInvoke } from './tauri-client'
+import { invokeCommand } from './tauri-client'
 import type { Secret } from '@/types/generated/Secret'
 
 // Tauri returns SecretInfo without value for security
@@ -11,7 +11,7 @@ interface TauriSecretInfo {
 
 // List all secrets (returns keys only, not values)
 export async function listSecrets(): Promise<Secret[]> {
-  const secrets = await tauriInvoke<TauriSecretInfo[]>('list_secrets')
+  const secrets = await invokeCommand<TauriSecretInfo[]>('listSecrets')
   // Convert TauriSecretInfo to Secret format (value is empty for security)
   return secrets.map((s) => ({
     key: s.key,
@@ -27,8 +27,10 @@ export async function createSecret(
   value: string,
   description?: string,
 ): Promise<Secret> {
-  const result = await tauriInvoke<TauriSecretInfo>('create_secret', {
-    request: { key, value, description: description || null },
+  const result = await invokeCommand<TauriSecretInfo>('createSecret', {
+    key,
+    value,
+    description: description || null,
   })
   return {
     key: result.key,
@@ -44,12 +46,9 @@ export async function updateSecret(
   value: string,
   description?: string,
 ): Promise<void> {
-  await tauriInvoke<TauriSecretInfo>('update_secret', {
-    key,
-    request: { value, description: description || null },
-  })
+  await invokeCommand('updateSecret', key, { value, description: description || null })
 }
 
 export async function deleteSecret(key: string): Promise<void> {
-  return tauriInvoke<void>('delete_secret', { key })
+  await invokeCommand('deleteSecret', key)
 }
