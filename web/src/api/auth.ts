@@ -4,8 +4,8 @@
  * TypeScript API for managing authentication profiles in RestFlow.
  */
 
-import { invoke } from '@tauri-apps/api/core'
 import type { AuthProfile, AuthProvider, DiscoverySummary } from '@/types/generated'
+import { invokeCommand } from './tauri-client'
 
 // Local types for manager summary and requests
 export interface ManagerSummary {
@@ -42,56 +42,56 @@ export interface ProfileResponse {
  * Initialize the auth manager and run discovery
  */
 export async function authInitialize(): Promise<DiscoverySummary> {
-  return invoke<DiscoverySummary>('auth_initialize')
+  return invokeCommand('authInitialize')
 }
 
 /**
  * Run credential discovery
  */
 export async function authDiscover(): Promise<DiscoverySummary> {
-  return invoke<DiscoverySummary>('auth_discover')
+  return invokeCommand('authDiscover')
 }
 
 /**
  * List all profiles
  */
 export async function authListProfiles(): Promise<AuthProfile[]> {
-  return invoke<AuthProfile[]>('auth_list_profiles')
+  return invokeCommand('authListProfiles')
 }
 
 /**
  * Get profiles for a specific provider
  */
 export async function authGetProfilesForProvider(provider: AuthProvider): Promise<AuthProfile[]> {
-  return invoke<AuthProfile[]>('auth_get_profiles_for_provider', { provider })
+  return invokeCommand('authGetProfilesForProvider', provider)
 }
 
 /**
  * Get available profiles (enabled, not expired, not in cooldown)
  */
 export async function authGetAvailableProfiles(): Promise<AuthProfile[]> {
-  return invoke<AuthProfile[]>('auth_get_available_profiles')
+  return invokeCommand('authGetAvailableProfiles')
 }
 
 /**
  * Get a specific profile by ID
  */
 export async function authGetProfile(profileId: string): Promise<AuthProfile | null> {
-  return invoke<AuthProfile | null>('auth_get_profile', { profile_id: profileId })
+  return invokeCommand('authGetProfile', profileId)
 }
 
 /**
  * Add a manual profile
  */
 export async function authAddProfile(request: AddProfileRequest): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_add_profile', { request })
+  return invokeCommand('authAddProfile', request)
 }
 
 /**
  * Remove a profile
  */
 export async function authRemoveProfile(profileId: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_remove_profile', { profile_id: profileId })
+  return invokeCommand('authRemoveProfile', profileId)
 }
 
 /**
@@ -101,14 +101,18 @@ export async function authUpdateProfile(
   profileId: string,
   update: ProfileUpdate,
 ): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_update_profile', { profile_id: profileId, update })
+  return invokeCommand('authUpdateProfile', profileId, {
+    name: update.name ?? null,
+    enabled: update.enabled ?? null,
+    priority: update.priority ?? null,
+  })
 }
 
 /**
  * Enable a profile
  */
 export async function authEnableProfile(profileId: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_enable_profile', { profile_id: profileId })
+  return invokeCommand('authEnableProfile', profileId)
 }
 
 /**
@@ -118,40 +122,40 @@ export async function authDisableProfile(
   profileId: string,
   reason: string,
 ): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_disable_profile', { profile_id: profileId, reason })
+  return invokeCommand('authDisableProfile', profileId, reason)
 }
 
 /**
  * Mark a profile as successfully used
  */
 export async function authMarkSuccess(profileId: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_mark_success', { profile_id: profileId })
+  return invokeCommand('authMarkSuccess', profileId)
 }
 
 /**
  * Mark a profile as failed
  */
 export async function authMarkFailure(profileId: string): Promise<ProfileResponse> {
-  return invoke<ProfileResponse>('auth_mark_failure', { profile_id: profileId })
+  return invokeCommand('authMarkFailure', profileId)
 }
 
 /**
  * Check if an API key exists for a provider (selects best available profile)
  */
 export async function authGetApiKey(provider: AuthProvider): Promise<boolean | null> {
-  return invoke<boolean | null>('auth_get_api_key', { provider })
+  return invokeCommand('authGetApiKey', provider)
 }
 
 /**
  * Get manager summary
  */
 export async function authGetSummary(): Promise<ManagerSummary> {
-  return invoke<ManagerSummary>('auth_get_summary')
+  return invokeCommand('authGetSummary')
 }
 
 /**
  * Clear all profiles
  */
 export async function authClear(): Promise<void> {
-  return invoke<void>('auth_clear')
+  await invokeCommand('authClear')
 }

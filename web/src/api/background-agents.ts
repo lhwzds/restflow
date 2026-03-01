@@ -4,18 +4,13 @@
  * Thin wrappers around Tauri commands for background agent management.
  */
 
-import { tauriInvoke } from './tauri-client'
+import { invokeCommand } from './tauri-client'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 import type { MemorySession } from '@/types/generated/MemorySession'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 
 export type { BackgroundAgent, TaskEvent }
-
-interface MemoryListResponse<T> {
-  items: T[]
-  total: number
-}
 
 /** Response from running a background agent with streaming */
 export interface StreamingBackgroundAgentResponse {
@@ -26,34 +21,34 @@ export interface StreamingBackgroundAgentResponse {
 
 /** List all background agents */
 export async function listBackgroundAgents(): Promise<BackgroundAgent[]> {
-  return tauriInvoke<BackgroundAgent[]>('list_background_agents')
+  return invokeCommand('listBackgroundAgents')
 }
 
 /** Pause a background agent */
 export async function pauseBackgroundAgent(id: string): Promise<BackgroundAgent> {
-  return tauriInvoke<BackgroundAgent>('pause_background_agent', { id })
+  return invokeCommand('pauseBackgroundAgent', id)
 }
 
 /** Resume a paused background agent */
 export async function resumeBackgroundAgent(id: string): Promise<BackgroundAgent> {
-  return tauriInvoke<BackgroundAgent>('resume_background_agent', { id })
+  return invokeCommand('resumeBackgroundAgent', id)
 }
 
 /** Cancel a running background agent */
 export async function cancelBackgroundAgent(taskId: string): Promise<boolean> {
-  return tauriInvoke<boolean>('cancel_background_agent', { taskId })
+  return invokeCommand('cancelBackgroundAgent', taskId)
 }
 
 /** Run a background agent immediately with streaming */
 export async function runBackgroundAgentStreaming(
   id: string,
 ): Promise<StreamingBackgroundAgentResponse> {
-  return tauriInvoke<StreamingBackgroundAgentResponse>('run_background_agent_streaming', { id })
+  return invokeCommand('runBackgroundAgentStreaming', id)
 }
 
 /** Steer a running task with a new instruction */
 export async function steerTask(taskId: string, instruction: string): Promise<boolean> {
-  return tauriInvoke<boolean>('steer_task', { taskId, instruction })
+  return invokeCommand('steerTask', taskId, instruction)
 }
 
 /** Get event history for a task */
@@ -61,22 +56,22 @@ export async function getBackgroundAgentEvents(
   taskId: string,
   limit?: number,
 ): Promise<TaskEvent[]> {
-  return tauriInvoke<TaskEvent[]>('get_background_agent_events', { taskId, limit })
+  return invokeCommand('getBackgroundAgentEvents', taskId, limit ?? null)
 }
 
 /** Get the stream event channel name (also activates the Rust bridge) */
 export async function getBackgroundAgentStreamEventName(): Promise<string> {
-  return tauriInvoke<string>('get_background_agent_stream_event_name')
+  return invokeCommand('getBackgroundAgentStreamEventName')
 }
 
 /** Get the heartbeat event channel name */
 export async function getHeartbeatEventName(): Promise<string> {
-  return tauriInvoke<string>('get_heartbeat_event_name')
+  return invokeCommand('getHeartbeatEventName')
 }
 
 /** Delete a background agent */
 export async function deleteBackgroundAgent(id: string): Promise<boolean> {
-  return tauriInvoke<boolean>('delete_background_agent', { id })
+  return invokeCommand('deleteBackgroundAgent', id)
 }
 
 /** Request payload for converting a session to background agent */
@@ -91,24 +86,25 @@ export interface ConvertSessionToBackgroundAgentRequest {
 export async function convertSessionToBackgroundAgent(
   request: ConvertSessionToBackgroundAgentRequest,
 ): Promise<BackgroundAgent> {
-  return tauriInvoke<BackgroundAgent>('convert_session_to_background_agent', { request })
+  return invokeCommand('convertSessionToBackgroundAgent', request)
 }
 
 /** List memory sessions for a memory namespace (agent ID) */
 export async function listMemorySessions(agentId: string): Promise<MemorySession[]> {
-  return tauriInvoke<MemorySession[]>('list_memory_sessions', { agentId })
+  return invokeCommand('listMemorySessions', agentId)
 }
 
 /** List memory chunks for a given session */
 export async function listMemoryChunksForSession(sessionId: string): Promise<MemoryChunk[]> {
-  return tauriInvoke<MemoryChunk[]>('list_memory_chunks_for_session', { sessionId })
+  return invokeCommand('listMemoryChunksForSession', sessionId)
 }
 
 /** List memory chunks by tag (used for task:<background-agent-id>) */
 export async function listMemoryChunksByTag(tag: string, limit?: number): Promise<MemoryChunk[]> {
-  const response = await tauriInvoke<MemoryListResponse<MemoryChunk>>('list_memory_chunks_by_tag', {
+  const response = await invokeCommand<{ items: MemoryChunk[]; total: number }>(
+    'listMemoryChunksByTag',
     tag,
-    limit,
-  })
+    limit ?? null,
+  )
   return response.items
 }

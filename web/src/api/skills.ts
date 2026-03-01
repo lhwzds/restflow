@@ -1,4 +1,4 @@
-import { tauriInvoke } from './tauri-client'
+import { invokeCommand } from './tauri-client'
 import type { Skill } from '@/types/generated/Skill'
 
 export interface CreateSkillRequest {
@@ -24,12 +24,12 @@ export interface ExportSkillResponse {
 
 // List all skills
 export async function listSkills(): Promise<Skill[]> {
-  return tauriInvoke<Skill[]>('list_skills')
+  return invokeCommand<Skill[]>('listSkills')
 }
 
 // Get a single skill by ID
 export async function getSkill(id: string): Promise<Skill> {
-  return tauriInvoke<Skill>('get_skill', { id })
+  return invokeCommand<Skill>('getSkill', id)
 }
 
 // Create a new skill
@@ -54,13 +54,13 @@ export async function createSkill(request: CreateSkillRequest): Promise<Skill> {
     created_at: Date.now(),
     updated_at: Date.now(),
   }
-  return tauriInvoke<Skill>('create_skill', { skill })
+  return invokeCommand<Skill>('createSkill', skill)
 }
 
 // Update an existing skill
 export async function updateSkill(id: string, request: UpdateSkillRequest): Promise<Skill> {
   // First get the existing skill, then merge with updates
-  const existing = await tauriInvoke<Skill>('get_skill', { id })
+  const existing = await invokeCommand<Skill>('getSkill', id)
   const skill: Skill = {
     ...existing,
     name: request.name ?? existing.name,
@@ -69,18 +69,18 @@ export async function updateSkill(id: string, request: UpdateSkillRequest): Prom
     content: request.content ?? existing.content,
     updated_at: Date.now(),
   }
-  return tauriInvoke<Skill>('update_skill', { id, skill })
+  return invokeCommand<Skill>('updateSkill', id, skill)
 }
 
 // Delete a skill
 export async function deleteSkill(id: string): Promise<void> {
-  return tauriInvoke<void>('delete_skill', { id })
+  await invokeCommand('deleteSkill', id)
 }
 
 // Export a skill to markdown format
 export async function exportSkill(id: string): Promise<ExportSkillResponse> {
   // Tauri returns JSON string, parse it to get the skill then format
-  const jsonStr = await tauriInvoke<string>('export_skill', { id })
+  const jsonStr = await invokeCommand<string>('exportSkill', id)
   const skill = JSON.parse(jsonStr) as Skill
   return {
     id: skill.id,

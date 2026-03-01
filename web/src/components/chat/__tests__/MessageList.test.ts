@@ -42,7 +42,7 @@ describe('MessageList', () => {
             },
             transcript: {
               text: 'transcript without audio',
-              model: null,
+              model: undefined,
               updated_at: 1,
             },
           },

@@ -1,4 +1,4 @@
-import { tauriInvoke } from './tauri-client'
+import { invokeCommand } from './tauri-client'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { AgentNode } from '@/types/generated/AgentNode'
 
@@ -13,21 +13,24 @@ export interface UpdateAgentRequest {
 }
 
 export async function listAgents(): Promise<StoredAgent[]> {
-  return tauriInvoke<StoredAgent[]>('list_agents')
+  return invokeCommand('listAgents')
 }
 
 export async function getAgent(id: string): Promise<StoredAgent> {
-  return tauriInvoke<StoredAgent>('get_agent', { id })
+  return invokeCommand('getAgent', id)
 }
 
 export async function createAgent(data: CreateAgentRequest): Promise<StoredAgent> {
-  return tauriInvoke<StoredAgent>('create_agent', { request: data })
+  return invokeCommand('createAgent', data)
 }
 
 export async function updateAgent(id: string, data: UpdateAgentRequest): Promise<StoredAgent> {
-  return tauriInvoke<StoredAgent>('update_agent', { id, request: data })
+  return invokeCommand('updateAgent', id, {
+    name: data.name ?? null,
+    agent: data.agent ?? null,
+  })
 }
 
 export async function deleteAgent(id: string): Promise<void> {
-  return tauriInvoke<void>('delete_agent', { id })
+  await invokeCommand('deleteAgent', id)
 }
