@@ -275,11 +275,6 @@ impl CliBackgroundAgentRunner {
 
         Ok(())
     }
-
-    #[allow(dead_code)]
-    pub async fn is_running(&self) -> bool {
-        self.handle.read().await.is_some()
-    }
 }
 
 fn bootstrap_default_chat_pairing(

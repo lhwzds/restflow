@@ -654,15 +654,6 @@ pub fn get_heartbeat_event_name() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
-
-    #[allow(dead_code)]
-    async fn create_test_state() -> AppState {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db_path_str = db_path.to_str().unwrap();
-        AppState::new(db_path_str).await.unwrap()
-    }
 
     #[tokio::test]
     async fn test_create_background_agent_request_deserialize() {

@@ -1,6 +1,5 @@
 use anyhow::{Result, bail};
 use comfy_table::{Cell, Table};
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::cli::{AllowlistAction, SecurityCommands};
@@ -231,10 +230,4 @@ fn resolve_approval_index(approvals: &[PendingApproval], id: &str) -> Result<usi
     }
 
     Ok(matches[0])
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-struct ApprovalStore {
-    approvals: Vec<PendingApproval>,
 }
