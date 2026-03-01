@@ -380,6 +380,17 @@ impl IpcClient {
             .await
     }
 
+    pub async fn archive_session(&mut self, id: String) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct ArchiveResponse {
+            archived: bool,
+        }
+        let resp: ArchiveResponse = self
+            .request_typed(IpcRequest::ArchiveSession { id })
+            .await?;
+        Ok(resp.archived)
+    }
+
     pub async fn delete_session(&mut self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct DeleteResponse {
@@ -1095,6 +1106,10 @@ impl IpcClient {
     }
 
     pub async fn rename_session(&mut self, _id: String, _name: String) -> Result<ChatSession> {
+        self.request_typed(IpcRequest::Ping).await
+    }
+
+    pub async fn archive_session(&mut self, _id: String) -> Result<bool> {
         self.request_typed(IpcRequest::Ping).await
     }
 

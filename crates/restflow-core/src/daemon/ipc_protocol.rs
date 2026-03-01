@@ -245,6 +245,9 @@ pub enum IpcRequest {
         id: String,
         name: String,
     },
+    ArchiveSession {
+        id: String,
+    },
     DeleteSession {
         id: String,
     },

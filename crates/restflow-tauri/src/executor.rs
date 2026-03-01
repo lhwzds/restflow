@@ -489,6 +489,15 @@ impl TauriExecutor {
         self.request(IpcRequest::RenameSession { id, name }).await
     }
 
+    pub async fn archive_session(&self, id: String) -> Result<bool> {
+        #[derive(serde::Deserialize)]
+        struct ArchiveResponse {
+            archived: bool,
+        }
+        let response: ArchiveResponse = self.request(IpcRequest::ArchiveSession { id }).await?;
+        Ok(response.archived)
+    }
+
     pub async fn delete_session(&self, id: String) -> Result<bool> {
         #[derive(serde::Deserialize)]
         struct DeleteResponse {

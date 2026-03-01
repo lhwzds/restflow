@@ -186,6 +186,24 @@ async function onDeleteSession(id: string, name: string) {
   }
 }
 
+async function onArchiveSession(id: string, _name: string) {
+  if (isExternallyManagedSession(id)) {
+    toast.error(t('workspace.session.managedExternally'))
+    return
+  }
+
+  const success = await chatSessionStore.archiveSession(id)
+  if (success) {
+    toast.success(t('workspace.session.archiveSuccess'))
+    if (selectedItemId.value === id) {
+      selectedItemId.value = null
+      await chatSessionStore.selectSession(null)
+    }
+  } else {
+    toast.error(t('workspace.session.archiveFailed'))
+  }
+}
+
 function onRenameSession(id: string, currentName: string) {
   if (isExternallyManagedSession(id)) {
     toast.error(t('workspace.session.managedExternally'))
@@ -393,6 +411,7 @@ onMounted(() => {
           @select="onSelectItem"
           @new-session="onNewSession"
           @rename="onRenameSession"
+          @archive="onArchiveSession"
           @delete="onDeleteSession"
           @convert-to-background-agent="onConvertToBackgroundAgent"
           @rebuild="onRebuildSession"
