@@ -4,7 +4,6 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use serde_json::{Value, json};
@@ -12,15 +11,10 @@ use tokio::fs;
 
 use super::edit::{EditError, replace};
 use super::file_tracker::FileTracker;
+use super::shared::{LSP_DIAGNOSTIC_TIMEOUT, MAX_LSP_DIAGNOSTIC_ERRORS};
 use crate::{Result, Tool, ToolOutput};
 use restflow_traits::cache::AgentCache;
 use restflow_traits::store::DiagnosticsProvider;
-
-/// Maximum number of LSP diagnostic errors to include in output.
-const MAX_DIAG_ERRORS: usize = 20;
-
-/// Timeout for waiting on LSP diagnostics after edits.
-const LSP_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[derive(Clone)]
 pub struct MultiEditTool {
@@ -83,7 +77,10 @@ impl MultiEditTool {
             let _ = provider.did_change(path, &content).await;
         }
 
-        let diags = match provider.wait_for_diagnostics(path, LSP_TIMEOUT).await {
+        let diags = match provider
+            .wait_for_diagnostics(path, LSP_DIAGNOSTIC_TIMEOUT)
+            .await
+        {
             Ok(d) => d,
             Err(_) => return None,
         };
@@ -96,7 +93,7 @@ impl MultiEditTool {
                     Some(lsp_types::DiagnosticSeverity::ERROR) | None
                 )
             })
-            .take(MAX_DIAG_ERRORS)
+            .take(MAX_LSP_DIAGNOSTIC_ERRORS)
             .map(|d| {
                 format!(
                     "ERROR [{}:{}] {}",
