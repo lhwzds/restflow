@@ -339,6 +339,7 @@ const setVoiceMode = (mode: 'voice-to-text' | 'voice-message') => {
             v-else
             size="sm"
             class="h-8 px-4"
+            data-testid="chat-send-button"
             :disabled="!inputMessage.trim()"
             @click="handleSend"
           >
