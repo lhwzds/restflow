@@ -2,8 +2,6 @@ use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone)]
 pub struct CommandResolution {
-    #[allow(dead_code)]
-    pub raw_executable: String,
     pub resolved_path: Option<PathBuf>,
     pub executable_name: String,
 }
@@ -28,7 +26,6 @@ impl CommandResolution {
             .unwrap_or_else(|| first_token.clone());
 
         Some(Self {
-            raw_executable: first_token,
             resolved_path: resolved,
             executable_name,
         })
