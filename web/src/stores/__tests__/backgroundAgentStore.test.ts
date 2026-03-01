@@ -10,6 +10,7 @@ vi.mock('@/api/background-agents', () => ({
   resumeBackgroundAgent: vi.fn(),
   cancelBackgroundAgent: vi.fn(),
   runBackgroundAgentStreaming: vi.fn(),
+  updateBackgroundAgent: vi.fn(),
   deleteBackgroundAgent: vi.fn(),
   convertSessionToBackgroundAgent: vi.fn(),
 }))
@@ -26,6 +27,7 @@ function createMockAgent(
     name: `Agent ${id}`,
     description: null,
     agent_id: 'test-agent',
+    chat_session_id: `session-${id}`,
     input: null,
     input_template: null,
     schedule: { type: 'manual' },
@@ -339,6 +341,74 @@ describe('backgroundAgentStore', () => {
 
         expect(result).toBeNull()
         expect(store.error).toBe('Convert failed')
+      })
+    })
+
+    describe('convertSessionToWorkspace', () => {
+      it('detaches ownership and deletes background agent while preserving the session', async () => {
+        const store = useBackgroundAgentStore()
+        const target = createMockAgent('bg-1', 'active')
+        target.chat_session_id = 'session-keep'
+        store.agents = [target, createMockAgent('bg-2', 'paused')]
+
+        vi.mocked(api.updateBackgroundAgent).mockResolvedValue(target)
+        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(true)
+
+        const result = await store.convertSessionToWorkspace('session-keep')
+
+        expect(result).toBe(true)
+        expect(api.updateBackgroundAgent).toHaveBeenCalledWith('bg-1', {
+          chat_session_id: 'session-keep',
+        })
+        expect(api.deleteBackgroundAgent).toHaveBeenCalledWith('bg-1')
+        expect(store.agents.map((agent) => agent.id)).toEqual(['bg-2'])
+        expect(store.error).toBeNull()
+      })
+
+      it('refreshes agent list once when session binding is not loaded locally', async () => {
+        const store = useBackgroundAgentStore()
+        const fetched = createMockAgent('bg-3', 'active')
+        fetched.chat_session_id = 'session-fetched'
+
+        vi.mocked(api.listBackgroundAgents).mockResolvedValue([fetched])
+        vi.mocked(api.updateBackgroundAgent).mockResolvedValue(fetched)
+        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(true)
+
+        const result = await store.convertSessionToWorkspace('session-fetched')
+
+        expect(result).toBe(true)
+        expect(api.listBackgroundAgents).toHaveBeenCalledOnce()
+        expect(api.updateBackgroundAgent).toHaveBeenCalledWith('bg-3', {
+          chat_session_id: 'session-fetched',
+        })
+        expect(api.deleteBackgroundAgent).toHaveBeenCalledWith('bg-3')
+      })
+
+      it('returns false when no bound background agent exists for session', async () => {
+        const store = useBackgroundAgentStore()
+        vi.mocked(api.listBackgroundAgents).mockResolvedValue([])
+
+        const result = await store.convertSessionToWorkspace('missing-session')
+
+        expect(result).toBe(false)
+        expect(store.error).toBe('Background agent binding not found for this session')
+        expect(api.updateBackgroundAgent).not.toHaveBeenCalled()
+        expect(api.deleteBackgroundAgent).not.toHaveBeenCalled()
+      })
+
+      it('returns false and sets error when detach update fails', async () => {
+        const store = useBackgroundAgentStore()
+        const target = createMockAgent('bg-4', 'active')
+        target.chat_session_id = 'session-err'
+        store.agents = [target]
+
+        vi.mocked(api.updateBackgroundAgent).mockRejectedValue(new Error('Detach failed'))
+
+        const result = await store.convertSessionToWorkspace('session-err')
+
+        expect(result).toBe(false)
+        expect(store.error).toBe('Detach failed')
+        expect(api.deleteBackgroundAgent).not.toHaveBeenCalled()
       })
     })
 

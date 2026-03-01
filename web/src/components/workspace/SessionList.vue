@@ -8,6 +8,7 @@ import {
   Pencil,
   Trash2,
   Archive,
+  ArrowLeftFromLine,
   ArrowRightFromLine,
   RotateCcw,
 } from 'lucide-vue-next'
@@ -39,14 +40,22 @@ const emit = defineEmits<{
   archive: [id: string, name: string]
   delete: [id: string, name: string]
   convertToBackgroundAgent: [id: string, name: string]
+  convertToWorkspaceSession: [id: string, name: string]
   rebuild: [id: string, name: string]
 }>()
 
-const CHANNEL_SESSION_PREFIX = 'channel:'
+const DISPLAY_PREFIXES = ['channel:', 'background:']
 
 function displaySessionName(session: SessionItem): string {
-  if (session.name.startsWith(CHANNEL_SESSION_PREFIX)) {
-    const displayName = session.name.slice(CHANNEL_SESSION_PREFIX.length).trim()
+  const trimmedName = session.name.trimStart()
+  const normalized = trimmedName.toLowerCase()
+
+  for (const prefix of DISPLAY_PREFIXES) {
+    if (!normalized.startsWith(prefix)) {
+      continue
+    }
+
+    const displayName = trimmedName.slice(prefix.length).trim()
     return displayName || session.name
   }
 
@@ -188,6 +197,16 @@ const formatTime = (timestamp: number) => {
                     {{ t('workspace.session.rename') }}
                   </DropdownMenuItem>
                   <DropdownMenuItem
+                    v-if="session.isBackgroundSession"
+                    @click="
+                      emit('convertToWorkspaceSession', session.id, displaySessionName(session))
+                    "
+                  >
+                    <ArrowLeftFromLine :size="14" class="mr-2" />
+                    {{ t('workspace.session.convertToWorkspace') }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    v-else
                     @click="
                       emit('convertToBackgroundAgent', session.id, displaySessionName(session))
                     "

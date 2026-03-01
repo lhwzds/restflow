@@ -235,6 +235,34 @@ function onConvertToBackgroundAgent(id: string, name: string) {
   convertDialogOpen.value = true
 }
 
+async function onConvertToWorkspaceSession(id: string, name: string) {
+  if (isExternallyManagedSession(id)) {
+    toast.error(t('workspace.session.managedExternally'))
+    return
+  }
+
+  const confirmed = await confirm({
+    title: t('workspace.session.convertToWorkspace'),
+    description: t('workspace.session.convertToWorkspaceDescription', { name }),
+    confirmText: t('workspace.session.convertToWorkspaceConfirm'),
+    cancelText: t('common.cancel'),
+    variant: 'destructive',
+  })
+  if (!confirmed) return
+
+  const success = await backgroundAgentStore.convertSessionToWorkspace(id)
+  if (!success) {
+    toast.error(backgroundAgentStore.error || t('workspace.session.convertToWorkspaceFailed'))
+    return
+  }
+
+  toast.success(t('workspace.session.convertToWorkspaceSuccess'))
+  await chatSessionStore.fetchSummaries()
+  if (selectedItemId.value === id) {
+    await chatSessionStore.selectSession(id)
+  }
+}
+
 async function onRebuildSession(id: string, name: string) {
   if (!isExternallyManagedSession(id)) {
     toast.error(t('workspace.session.rebuildFailed'))
@@ -414,6 +442,7 @@ onMounted(() => {
           @archive="onArchiveSession"
           @delete="onDeleteSession"
           @convert-to-background-agent="onConvertToBackgroundAgent"
+          @convert-to-workspace-session="onConvertToWorkspaceSession"
           @rebuild="onRebuildSession"
         />
 

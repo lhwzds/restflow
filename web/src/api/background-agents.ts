@@ -82,11 +82,30 @@ export interface ConvertSessionToBackgroundAgentRequest {
   run_now?: boolean
 }
 
+/** Request payload for updating an existing background agent. */
+export interface UpdateBackgroundAgentRequest {
+  name?: string
+  description?: string
+  agent_id?: string
+  chat_session_id?: string
+  input?: string
+  input_template?: string
+  timeout_secs?: number
+}
+
 /** Convert a chat session into a background agent */
 export async function convertSessionToBackgroundAgent(
   request: ConvertSessionToBackgroundAgentRequest,
 ): Promise<BackgroundAgent> {
   return invokeCommand('convertSessionToBackgroundAgent', request)
+}
+
+/** Update an existing background agent */
+export async function updateBackgroundAgent(
+  id: string,
+  request: UpdateBackgroundAgentRequest,
+): Promise<BackgroundAgent> {
+  return invokeCommand('updateBackgroundAgent', id, request)
 }
 
 /** List memory sessions for a memory namespace (agent ID) */
