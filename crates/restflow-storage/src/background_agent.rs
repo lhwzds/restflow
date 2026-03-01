@@ -36,6 +36,58 @@ pub struct BackgroundAgentStorage {
 }
 
 impl BackgroundAgentStorage {
+    fn extract_chat_session_id(data: &[u8]) -> Option<String> {
+        let value: serde_json::Value = serde_json::from_slice(data).ok()?;
+        let session_id = value.get("chat_session_id")?.as_str()?.trim();
+        if session_id.is_empty() {
+            None
+        } else {
+            Some(session_id.to_string())
+        }
+    }
+
+    fn extract_task_name(data: &[u8]) -> Option<String> {
+        let value: serde_json::Value = serde_json::from_slice(data).ok()?;
+        value
+            .get("name")
+            .and_then(|name| name.as_str())
+            .map(str::to_string)
+    }
+
+    fn ensure_unique_chat_session_binding(
+        table: &redb::Table<&str, &[u8]>,
+        task_id: &str,
+        target_chat_session_id: Option<&str>,
+    ) -> Result<()> {
+        let Some(target_chat_session_id) = target_chat_session_id else {
+            return Ok(());
+        };
+
+        for item in table.iter()? {
+            let (key, value) = item?;
+            let existing_task_id = key.value();
+            if existing_task_id == task_id {
+                continue;
+            }
+
+            let existing_chat_session_id = Self::extract_chat_session_id(value.value());
+            if existing_chat_session_id.as_deref() != Some(target_chat_session_id) {
+                continue;
+            }
+
+            let existing_task_name =
+                Self::extract_task_name(value.value()).unwrap_or_else(|| "unknown".to_string());
+            return Err(anyhow::anyhow!(
+                "chat_session_id '{}' is already bound to background task '{}' ({})",
+                target_chat_session_id,
+                existing_task_id,
+                existing_task_name
+            ));
+        }
+
+        Ok(())
+    }
+
     /// Create a new BackgroundAgentStorage instance
     pub fn new(db: Arc<Database>) -> Result<Self> {
         // Initialize all tables
@@ -70,9 +122,23 @@ impl BackgroundAgentStorage {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let chat_session_id = Self::extract_chat_session_id(data);
+            Self::ensure_unique_chat_session_binding(&table, id, chat_session_id.as_deref())?;
             table.insert(id, data)?;
 
             let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
+            let task_suffix = format!(":{}", id);
+            let mut stale_keys = Vec::new();
+            for item in status_index.iter()? {
+                let (key, _) = item?;
+                let key_value = key.value();
+                if key_value.ends_with(task_suffix.as_str()) {
+                    stale_keys.push(key_value.to_string());
+                }
+            }
+            for stale_key in stale_keys {
+                status_index.remove(stale_key.as_str())?;
+            }
             let status_key = format!("{}:{}", status, id);
             status_index.insert(status_key.as_str(), id)?;
         }
@@ -91,12 +157,27 @@ impl BackgroundAgentStorage {
         let write_txn = self.db.begin_write()?;
         {
             let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            let chat_session_id = Self::extract_chat_session_id(data);
+            Self::ensure_unique_chat_session_binding(&table, id, chat_session_id.as_deref())?;
             table.insert(id, data)?;
 
             let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
+            let old_key = format!("{}:{}", old_status, id);
             if old_status != new_status {
-                let old_key = format!("{}:{}", old_status, id);
                 status_index.remove(old_key.as_str())?;
+            }
+
+            let task_suffix = format!(":{}", id);
+            let mut stale_keys = Vec::new();
+            for item in status_index.iter()? {
+                let (key, _) = item?;
+                let key_value = key.value();
+                if key_value.ends_with(task_suffix.as_str()) && key_value != old_key.as_str() {
+                    stale_keys.push(key_value.to_string());
+                }
+            }
+            for stale_key in stale_keys {
+                status_index.remove(stale_key.as_str())?;
             }
 
             let new_key = format!("{}:{}", new_status, id);
@@ -533,6 +614,14 @@ mod tests {
     use super::*;
     use tempfile::tempdir;
 
+    fn task_payload(id: &str, name: &str, chat_session_id: &str) -> Vec<u8> {
+        format!(
+            r#"{{"id":"{}","name":"{}","chat_session_id":"{}"}}"#,
+            id, name, chat_session_id
+        )
+        .into_bytes()
+    }
+
     fn create_test_storage() -> BackgroundAgentStorage {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -609,6 +698,25 @@ mod tests {
 
         assert!(active_tasks.is_empty());
         assert_eq!(paused_tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_put_task_raw_with_status_replaces_previous_status_index_entry() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-001", "active", b"data1")
+            .unwrap();
+        storage
+            .put_task_raw_with_status("task-001", "paused", b"data2")
+            .unwrap();
+
+        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
+        let paused_tasks = storage.list_tasks_by_status_indexed("paused").unwrap();
+
+        assert!(active_tasks.is_empty());
+        assert_eq!(paused_tasks.len(), 1);
+        assert_eq!(paused_tasks[0].0, "task-001");
     }
 
     #[test]
@@ -869,6 +977,54 @@ mod tests {
 
         let retrieved = storage.get_task_raw("task-001").unwrap();
         assert_eq!(retrieved.unwrap(), b"updated data");
+    }
+
+    #[test]
+    fn test_put_task_with_status_rejects_duplicate_chat_session_binding() {
+        let storage = create_test_storage();
+
+        let first_task = task_payload("task-1", "Task One", "session-1");
+        let second_task = task_payload("task-2", "Task Two", "session-1");
+
+        storage
+            .put_task_raw_with_status("task-1", "active", &first_task)
+            .unwrap();
+        let result = storage.put_task_raw_with_status("task-2", "active", &second_task);
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("already bound to background task")
+        );
+    }
+
+    #[test]
+    fn test_update_task_with_status_rejects_duplicate_chat_session_binding() {
+        let storage = create_test_storage();
+
+        let task_one = task_payload("task-1", "Task One", "session-1");
+        let task_two = task_payload("task-2", "Task Two", "session-2");
+        let task_two_rebind = task_payload("task-2", "Task Two", "session-1");
+
+        storage
+            .put_task_raw_with_status("task-1", "active", &task_one)
+            .unwrap();
+        storage
+            .put_task_raw_with_status("task-2", "active", &task_two)
+            .unwrap();
+
+        let result =
+            storage.update_task_raw_with_status("task-2", "active", "active", &task_two_rebind);
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("already bound to background task")
+        );
     }
 
     #[test]
