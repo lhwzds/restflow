@@ -104,10 +104,16 @@ impl TaskQueue {
         task: BackgroundAgent,
         priority: TaskPriority,
     ) -> Result<(), QueueError> {
-        let pending = self.stats.pending_count.load(Ordering::Relaxed);
-        if pending >= self.config.max_queue_size {
-            return Err(QueueError::QueueFull);
-        }
+        self.stats
+            .pending_count
+            .fetch_update(Ordering::AcqRel, Ordering::Acquire, |pending| {
+                if pending >= self.config.max_queue_size {
+                    None
+                } else {
+                    Some(pending + 1)
+                }
+            })
+            .map_err(|_| QueueError::QueueFull)?;
 
         let queued = QueuedTask {
             task: task.clone(),
@@ -132,7 +138,6 @@ impl TaskQueue {
             TaskPriority::Low => self.low.push(queued),
         }
 
-        self.stats.pending_count.fetch_add(1, Ordering::Relaxed);
         Ok(())
     }
 
@@ -231,6 +236,8 @@ pub struct QueueStatsSnapshot {
 mod tests {
     use super::*;
     use crate::models::background_agent::TaskSchedule;
+    use std::sync::Arc;
+    use tokio::sync::Barrier;
 
     /// Helper to create a test queue with no persistence.
     fn test_queue(max_queue_size: usize) -> TaskQueue {
@@ -384,4 +391,38 @@ mod tests {
         assert_eq!(stats.avg_exec_time_ms, 0);
         assert_eq!(stats.avg_wait_time_ms, 0);
     }
+
+    #[tokio::test]
+    async fn concurrent_submit_respects_capacity() {
+        let max_queue_size = 5;
+        let total_submitters = 50;
+        let queue = Arc::new(test_queue(max_queue_size));
+        let barrier = Arc::new(Barrier::new(total_submitters));
+
+        let mut join_set = tokio::task::JoinSet::new();
+        for i in 0..total_submitters {
+            let queue = Arc::clone(&queue);
+            let barrier = Arc::clone(&barrier);
+            join_set.spawn(async move {
+                let id = format!("t{i}");
+                barrier.wait().await;
+                queue.submit(test_agent(&id), TaskPriority::Normal).await
+            });
+        }
+
+        let mut accepted = 0;
+        let mut rejected = 0;
+        while let Some(joined) = join_set.join_next().await {
+            match joined.expect("submit task should not panic") {
+                Ok(()) => accepted += 1,
+                Err(QueueError::QueueFull) => rejected += 1,
+                Err(other) => panic!("unexpected submit error: {:?}", other),
+            }
+        }
+
+        assert_eq!(accepted, max_queue_size);
+        assert_eq!(rejected, total_submitters - max_queue_size);
+        assert_eq!(queue.get_stats().pending, max_queue_size);
+    }
 }
+
