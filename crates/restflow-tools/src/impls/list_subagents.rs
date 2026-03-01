@@ -257,6 +257,7 @@ mod tests {
                 timeout_secs: Some(30),
                 priority: None,
                 model: None,
+                model_provider: None,
                 parent_execution_id: None,
             },
             None,
