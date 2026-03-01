@@ -7,6 +7,7 @@ vi.mock('@/api/chat-session', () => ({
   listChatSessionSummaries: vi.fn(),
   getChatSession: vi.fn(),
   createChatSession: vi.fn(),
+  archiveChatSession: vi.fn(),
   deleteChatSession: vi.fn(),
   renameChatSession: vi.fn(),
   updateChatSession: vi.fn(),
@@ -174,6 +175,48 @@ describe('chatSessionStore', () => {
       // executeChatSession should have been called with the captured 'session-1',
       // not the new 'session-2'
       expect(chatSessionApi.executeChatSession).toHaveBeenCalledWith('session-1')
+    })
+  })
+
+  describe('archiveSession', () => {
+    it('removes archived session from summaries and clears current session selection', async () => {
+      const store = useChatSessionStore()
+      store.currentSessionId = 'session-1'
+      store.summaries = [
+        {
+          id: 'session-1',
+          name: 'Session One',
+          agent_id: 'agent-1',
+          model: 'gpt-4',
+          skill_id: null,
+          message_count: 0,
+          updated_at: 1000n,
+          last_message_preview: null,
+          source_channel: null,
+          source_conversation_id: null,
+        },
+        {
+          id: 'session-2',
+          name: 'Session Two',
+          agent_id: 'agent-1',
+          model: 'gpt-4',
+          skill_id: null,
+          message_count: 0,
+          updated_at: 1001n,
+          last_message_preview: null,
+          source_channel: null,
+          source_conversation_id: null,
+        },
+      ]
+
+      vi.mocked(chatSessionApi.archiveChatSession).mockResolvedValue(true)
+
+      const result = await store.archiveSession('session-1')
+
+      expect(result).toBe(true)
+      expect(chatSessionApi.archiveChatSession).toHaveBeenCalledWith('session-1')
+      expect(store.currentSessionId).toBeNull()
+      expect(store.summaries.map((summary) => summary.id)).toEqual(['session-2'])
     })
   })
 })

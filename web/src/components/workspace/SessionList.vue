@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   Pencil,
   Trash2,
+  Archive,
   ArrowRightFromLine,
   RotateCcw,
 } from 'lucide-vue-next'
@@ -35,6 +36,7 @@ const emit = defineEmits<{
   select: [id: string]
   newSession: []
   rename: [id: string, currentName: string]
+  archive: [id: string, name: string]
   delete: [id: string, name: string]
   convertToBackgroundAgent: [id: string, name: string]
   rebuild: [id: string, name: string]
@@ -170,21 +172,33 @@ const formatTime = (timestamp: number) => {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" class="w-48">
                 <template v-if="isExternallyManagedSession(session)">
-                  <DropdownMenuItem @click="emit('rebuild', session.id, displaySessionName(session))">
+                  <DropdownMenuItem
+                    @click="emit('rebuild', session.id, displaySessionName(session))"
+                  >
                     <RotateCcw :size="14" class="mr-2" />
                     {{ t('workspace.session.rebuild') }}
                   </DropdownMenuItem>
                 </template>
                 <template v-else>
-                  <DropdownMenuItem @click="emit('rename', session.id, displaySessionName(session))">
+                  <DropdownMenuItem
+                    @click="emit('rename', session.id, displaySessionName(session))"
+                  >
                     <Pencil :size="14" class="mr-2" />
                     {{ t('workspace.session.rename') }}
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    @click="emit('convertToBackgroundAgent', session.id, displaySessionName(session))"
+                    @click="
+                      emit('convertToBackgroundAgent', session.id, displaySessionName(session))
+                    "
                   >
                     <ArrowRightFromLine :size="14" class="mr-2" />
                     {{ t('workspace.session.convertToBackground') }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    @click="emit('archive', session.id, displaySessionName(session))"
+                  >
+                    <Archive :size="14" class="mr-2" />
+                    {{ t('workspace.session.archive') }}
                   </DropdownMenuItem>
                   <DropdownMenuSeparator />
                   <DropdownMenuItem

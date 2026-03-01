@@ -314,6 +314,29 @@ export const useChatSessionStore = defineStore('chatSession', {
     },
 
     /**
+     * Archive a chat session
+     */
+    async archiveSession(id: string): Promise<boolean> {
+      this.error = null
+      try {
+        const success = await chatSessionApi.archiveChatSession(id)
+        if (success) {
+          this.sessions.delete(id)
+          this.summaries = this.summaries.filter((s) => s.id !== id)
+          if (this.currentSessionId === id) {
+            this.currentSessionId = null
+          }
+          this.version++
+        }
+        return success
+      } catch (err) {
+        this.error = err instanceof Error ? err.message : 'Failed to archive session'
+        console.error('Failed to archive chat session:', err)
+        return false
+      }
+    },
+
+    /**
      * Rename a chat session
      */
     async renameSession(id: string, name: string): Promise<ChatSession | null> {

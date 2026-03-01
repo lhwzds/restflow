@@ -30,7 +30,10 @@
     },
     "session": {
       "rename": "Rename",
+      "archive": "Archive",
       "delete": "Delete",
+      "archiveSuccess": "Session archived",
+      "archiveFailed": "Failed to archive session",
       "deleteSuccess": "Session deleted",
       "deleteFailed": "Failed to delete session",
       "renameSuccess": "Session renamed",

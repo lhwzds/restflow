@@ -209,6 +209,7 @@ describe('SessionList', () => {
     await findButton('workspace.session.rebuild').trigger('click')
     await findButton('workspace.session.rename').trigger('click')
     await findButton('workspace.session.convertToBackground').trigger('click')
+    await findButton('workspace.session.archive').trigger('click')
     await findButton('workspace.session.delete').trigger('click')
 
     expect(wrapper.emitted('newSession')).toEqual([[]])
@@ -217,6 +218,7 @@ describe('SessionList', () => {
     expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([
       ['session-workspace', 'Workspace Session'],
     ])
+    expect(wrapper.emitted('archive')).toEqual([['session-workspace', 'Workspace Session']])
     expect(wrapper.emitted('delete')).toEqual([['session-workspace', 'Workspace Session']])
   })
 
