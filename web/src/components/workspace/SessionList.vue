@@ -117,6 +117,7 @@ const formatTime = (timestamp: number) => {
       <div
         v-for="session in sessions"
         :key="session.id"
+        :data-testid="`session-row-${session.id}`"
         :class="
           cn(
             'group relative w-full px-3 py-2 text-left transition-colors hover:bg-muted/50 cursor-pointer',
@@ -216,7 +217,11 @@ const formatTime = (timestamp: number) => {
       </div>
 
       <!-- Empty State -->
-      <div v-if="sessions.length === 0" class="px-3 py-8 text-center text-sm text-muted-foreground">
+      <div
+        v-if="sessions.length === 0"
+        data-testid="session-empty-state"
+        class="px-3 py-8 text-center text-sm text-muted-foreground"
+      >
         {{ t('workspace.noSessions') }}
       </div>
     </div>
