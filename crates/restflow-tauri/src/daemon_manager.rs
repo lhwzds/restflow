@@ -6,6 +6,7 @@ use restflow_core::paths;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use tokio::time::{Duration, sleep};
+use tracing::warn;
 
 pub struct DaemonManager {
     child_process: Option<Child>,
@@ -44,6 +45,32 @@ impl DaemonManager {
     }
 
     pub async fn ensure_handshake(&mut self) -> Result<IpcDaemonStatus> {
+        match self.handshake_once().await {
+            Ok(status) => Ok(status),
+            Err(err) => {
+                if !Self::should_restart_after_handshake_failure(&err) {
+                    return Err(err);
+                }
+
+                warn!(
+                    error = %err,
+                    "Daemon handshake failed with compatibility error, attempting restart"
+                );
+
+                self.restart_daemon().await?;
+
+                self.handshake_once().await.map_err(|retry_err| {
+                    anyhow::anyhow!(
+                        "Daemon handshake failed after restart attempt: first={}, second={}",
+                        err,
+                        retry_err
+                    )
+                })
+            }
+        }
+    }
+
+    async fn handshake_once(&mut self) -> Result<IpcDaemonStatus> {
         let client = self.ensure_connected().await?;
         let status = client.get_status().await?;
         Self::validate_handshake(&status)?;
@@ -77,6 +104,42 @@ impl DaemonManager {
         self.child_process = Some(child);
         self.wait_for_ready().await?;
         Ok(())
+    }
+
+    async fn restart_daemon(&mut self) -> Result<()> {
+        let cli_bin = Self::find_cli_binary()?;
+
+        // Drop stale IPC connection before restarting daemon.
+        self.client = None;
+
+        // Ask any existing daemon instance to stop.
+        let _ = Command::new(&cli_bin)
+            .args(["daemon", "stop"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+
+        // Clear old child handle if this manager spawned one before.
+        if let Some(mut child) = self.child_process.take() {
+            let _ = child.wait();
+        }
+
+        self.wait_for_socket_shutdown().await;
+        self.start_daemon().await
+    }
+
+    async fn wait_for_socket_shutdown(&self) {
+        let Ok(socket_path) = paths::socket_path() else {
+            return;
+        };
+
+        for _ in 0..30 {
+            if !is_daemon_available(&socket_path).await {
+                return;
+            }
+            sleep(Duration::from_millis(100)).await;
+        }
     }
 
     async fn wait_for_ready(&self) -> Result<()> {
@@ -173,6 +236,14 @@ impl DaemonManager {
         }
         Ok(())
     }
+
+    fn should_restart_after_handshake_failure(err: &anyhow::Error) -> bool {
+        let message = err.to_string();
+        message.contains("Failed to deserialize response")
+            || message.contains("protocol mismatch")
+            || message.contains("Daemon handshake failed: status is")
+            || message.contains("Daemon handshake failed: daemon version is empty")
+    }
 }
 
 #[cfg(test)]
@@ -202,5 +273,24 @@ mod tests {
         status.protocol_version = "999".to_string();
         let err = DaemonManager::validate_handshake(&status).unwrap_err();
         assert!(err.to_string().contains("protocol mismatch"));
+    }
+
+    #[test]
+    fn restart_hint_detects_deserialize_failure() {
+        let err = anyhow::anyhow!("Failed to deserialize response");
+        assert!(DaemonManager::should_restart_after_handshake_failure(&err));
+    }
+
+    #[test]
+    fn restart_hint_detects_protocol_mismatch() {
+        let err =
+            anyhow::anyhow!("Daemon handshake failed: protocol mismatch (daemon=0, expected=1)");
+        assert!(DaemonManager::should_restart_after_handshake_failure(&err));
+    }
+
+    #[test]
+    fn restart_hint_ignores_unrelated_errors() {
+        let err = anyhow::anyhow!("Connection reset by peer");
+        assert!(!DaemonManager::should_restart_after_handshake_failure(&err));
     }
 }
