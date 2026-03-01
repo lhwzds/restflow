@@ -133,4 +133,60 @@ mod tests {
         assert!(execution.steps.is_empty());
         assert_eq!(persisted_input, input);
     }
+
+    #[test]
+    fn payload_records_failed_step_without_transcript_enrichment() {
+        let temp = tempdir().expect("tempdir");
+        let db_path = temp.path().join("turn-persistence-failed.db");
+        let storage = Storage::new(db_path.to_str().expect("db path")).expect("storage");
+
+        let session_id = "session-turn-persist";
+        let turn_id = "turn-failed";
+        let file_path = "/tmp/voice-failed.webm";
+        let input = voice_input(file_path);
+
+        let start = ToolTrace::tool_call_started(
+            session_id,
+            turn_id,
+            "call-2",
+            "transcribe",
+            Some(json!({"file_path": file_path}).to_string()),
+        );
+        let done = ToolTrace::tool_call_completed(
+            session_id,
+            turn_id,
+            "call-2",
+            "transcribe",
+            ToolCallCompletion {
+                output: None,
+                output_ref: None,
+                success: false,
+                duration_ms: Some(15),
+                error: Some("decode failed".to_string()),
+            },
+        );
+        storage
+            .tool_traces
+            .append(&start)
+            .expect("append start trace");
+        storage
+            .tool_traces
+            .append(&done)
+            .expect("append done trace");
+
+        let (execution, persisted_input) = build_turn_persistence_payload(
+            &storage.tool_traces,
+            session_id,
+            turn_id,
+            &input,
+            42,
+            3,
+        );
+
+        assert_eq!(execution.steps.len(), 1);
+        assert_eq!(execution.steps[0].name, "transcribe");
+        assert_eq!(execution.steps[0].status, "failed");
+        assert_eq!(execution.steps[0].duration_ms, Some(15));
+        assert_eq!(persisted_input, input);
+    }
 }
