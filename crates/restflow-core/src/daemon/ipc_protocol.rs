@@ -7,6 +7,7 @@ use crate::models::{
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::SystemConfig;
+use restflow_traits::tool::ToolErrorCategory;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -36,6 +37,12 @@ pub struct ToolExecutionResult {
     pub success: bool,
     pub result: Value,
     pub error: Option<String>,
+    #[serde(default)]
+    pub error_category: Option<ToolErrorCategory>,
+    #[serde(default)]
+    pub retryable: Option<bool>,
+    #[serde(default)]
+    pub retry_after_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -12,6 +12,7 @@ use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
+use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::DiagnosticsProvider;
 
@@ -29,6 +30,8 @@ pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
 pub use restflow_traits::SubagentManager;
 
 pub type ToolResult = ToolOutput;
+const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
+const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
 pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
     let secrets = storage.secrets.clone();
@@ -111,8 +114,34 @@ pub fn registry_from_allowlist(
     subagent_manager: Option<Arc<dyn SubagentManager>>,
     secret_resolver: Option<SecretResolver>,
     storage: Option<&Storage>,
-    _agent_id: Option<&str>,
+    agent_id: Option<&str>,
     bash_config: Option<BashConfig>,
+) -> anyhow::Result<ToolRegistry> {
+    registry_from_allowlist_with_security_gate(
+        tool_names,
+        subagent_manager,
+        secret_resolver,
+        storage,
+        agent_id,
+        bash_config,
+        None,
+    )
+}
+
+/// Build a tool registry filtered by an allowlist with an optional security gate.
+///
+/// When `tool_names` is `None` or empty, returns an empty registry (secure default).
+/// Storage-backed tools are created directly via [`ToolRegistryBuilder`] methods,
+/// avoiding the need to build a full core registry and cherry-pick from it.
+#[allow(clippy::too_many_arguments)]
+pub fn registry_from_allowlist_with_security_gate(
+    tool_names: Option<&[String]>,
+    subagent_manager: Option<Arc<dyn SubagentManager>>,
+    secret_resolver: Option<SecretResolver>,
+    storage: Option<&Storage>,
+    agent_id: Option<&str>,
+    bash_config: Option<BashConfig>,
+    security_gate: Option<Arc<dyn SecurityGate>>,
 ) -> anyhow::Result<ToolRegistry> {
     let Some(tool_names) = tool_names else {
         return Ok(ToolRegistry::new());
@@ -154,7 +183,17 @@ pub fn registry_from_allowlist(
         match raw_name.as_str() {
             // --- Simple tools (no storage required) ---
             "bash" => {
-                builder = builder.with_bash(bash_config.clone().unwrap_or_default());
+                let config = bash_config.clone().unwrap_or_default();
+                if let Some(gate) = security_gate.clone() {
+                    let tool = config.into_bash_tool().with_security(
+                        gate,
+                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                        DEFAULT_SECURITY_TASK_ID,
+                    );
+                    builder.registry.register(tool);
+                } else {
+                    builder = builder.with_bash(config);
+                }
             }
             "file" | "read" => {
                 allow_file = true;
@@ -164,10 +203,26 @@ pub fn registry_from_allowlist(
                 allow_file_write = true;
             }
             "http" | "http_request" => {
-                builder = builder.with_http()?;
+                if let Some(gate) = security_gate.clone() {
+                    builder.registry.register(HttpTool::new()?.with_security(
+                        gate,
+                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                        DEFAULT_SECURITY_TASK_ID,
+                    ));
+                } else {
+                    builder = builder.with_http()?;
+                }
             }
             "send_email" | "email" => {
-                builder = builder.with_email();
+                if let Some(gate) = security_gate.clone() {
+                    builder.registry.register(EmailTool::new().with_security(
+                        gate,
+                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                        DEFAULT_SECURITY_TASK_ID,
+                    ));
+                } else {
+                    builder = builder.with_email();
+                }
             }
             "telegram_send" | "telegram" => {
                 builder = builder.with_telegram()?;
@@ -179,7 +234,20 @@ pub fn registry_from_allowlist(
                 builder = builder.with_slack()?;
             }
             "python" | "run_python" => {
-                builder = builder.with_python();
+                if let Some(gate) = security_gate.clone() {
+                    builder.registry.register(RunPythonTool::new().with_security(
+                        gate.clone(),
+                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                        DEFAULT_SECURITY_TASK_ID,
+                    ));
+                    builder.registry.register(PythonTool::new().with_security(
+                        gate,
+                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                        DEFAULT_SECURITY_TASK_ID,
+                    ));
+                } else {
+                    builder = builder.with_python();
+                }
             }
             "browser" => {
                 builder = builder.with_browser()?;
@@ -436,7 +504,16 @@ pub fn registry_from_allowlist(
         if allow_file_write {
             config.allow_write = true;
         }
-        builder = builder.with_file(config);
+        if let Some(gate) = security_gate {
+            let tool = config.into_file_tool_with_tracker(builder.tracker()).with_security(
+                gate,
+                agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                DEFAULT_SECURITY_TASK_ID,
+            );
+            builder.registry.register(tool);
+        } else {
+            builder = builder.with_file(config);
+        }
     }
 
     // Register skills as callable tools

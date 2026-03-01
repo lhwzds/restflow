@@ -11,6 +11,23 @@ use std::sync::Arc;
 use tokio::time::Duration;
 use tracing::warn;
 
+#[derive(Clone, Debug)]
+struct HookExecutionPolicyConfig {
+    enabled: bool,
+    allow_script: bool,
+    allow_webhook: bool,
+}
+
+impl Default for HookExecutionPolicyConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_script: true,
+            allow_webhook: true,
+        }
+    }
+}
+
 /// Trait for scheduling tasks from hook actions.
 #[async_trait]
 pub trait HookTaskScheduler: Send + Sync {
@@ -66,6 +83,7 @@ pub struct HookExecutor {
     storage: Option<HookStorage>,
     channel_router: Option<Arc<ChannelRouter>>,
     task_scheduler: Option<Arc<dyn HookTaskScheduler>>,
+    policy: HookExecutionPolicyConfig,
     http_client: reqwest::Client,
 }
 
@@ -77,6 +95,7 @@ impl HookExecutor {
             storage: None,
             channel_router: None,
             task_scheduler: None,
+            policy: HookExecutionPolicyConfig::default(),
             http_client: reqwest::Client::new(),
         }
     }
@@ -88,6 +107,7 @@ impl HookExecutor {
             storage: Some(storage),
             channel_router: None,
             task_scheduler: None,
+            policy: HookExecutionPolicyConfig::default(),
             http_client: reqwest::Client::new(),
         }
     }
@@ -99,6 +119,21 @@ impl HookExecutor {
 
     pub fn with_task_scheduler(mut self, scheduler: Arc<dyn HookTaskScheduler>) -> Self {
         self.task_scheduler = Some(scheduler);
+        self
+    }
+
+    /// Enable or disable policy enforcement for hook actions.
+    /// Default is disabled (open behavior).
+    pub fn with_policy_enforcement(mut self, enabled: bool) -> Self {
+        self.policy.enabled = enabled;
+        self
+    }
+
+    /// Configure action permissions used only when policy enforcement is enabled.
+    /// Defaults are open for both script and webhook actions.
+    pub fn with_action_policy(mut self, allow_script: bool, allow_webhook: bool) -> Self {
+        self.policy.allow_script = allow_script;
+        self.policy.allow_webhook = allow_webhook;
         self
     }
 
@@ -163,6 +198,8 @@ impl HookExecutor {
     }
 
     async fn execute_action(&self, action: &HookAction, context: &HookContext) -> Result<()> {
+        self.enforce_action_policy(action)?;
+
         match action {
             HookAction::Webhook {
                 url,
@@ -233,6 +270,22 @@ impl HookExecutor {
                 let input = self.render_template(input_template, context);
                 scheduler.schedule_task(agent_id, &input).await
             }
+        }
+    }
+
+    fn enforce_action_policy(&self, action: &HookAction) -> Result<()> {
+        if !self.policy.enabled {
+            return Ok(());
+        }
+
+        match action {
+            HookAction::Script { .. } if !self.policy.allow_script => {
+                anyhow::bail!("Script hook action is blocked by policy")
+            }
+            HookAction::Webhook { .. } if !self.policy.allow_webhook => {
+                anyhow::bail!("Webhook hook action is blocked by policy")
+            }
+            _ => Ok(()),
         }
     }
 
@@ -540,5 +593,57 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].conversation_id, "chat-1");
         assert_eq!(messages[0].content, "Task task-1");
+    }
+
+    #[test]
+    fn test_policy_defaults_to_open_behavior() {
+        let executor = HookExecutor::new(Vec::new()).with_action_policy(false, false);
+        let script = HookAction::Script {
+            path: "/bin/echo".to_string(),
+            args: None,
+            timeout_secs: None,
+        };
+        let webhook = HookAction::Webhook {
+            url: "http://localhost/hook".to_string(),
+            method: None,
+            headers: None,
+        };
+
+        assert!(executor.enforce_action_policy(&script).is_ok());
+        assert!(executor.enforce_action_policy(&webhook).is_ok());
+    }
+
+    #[test]
+    fn test_policy_blocks_script_when_enabled() {
+        let executor = HookExecutor::new(Vec::new())
+            .with_action_policy(false, true)
+            .with_policy_enforcement(true);
+        let script = HookAction::Script {
+            path: "/bin/echo".to_string(),
+            args: None,
+            timeout_secs: None,
+        };
+
+        let error = executor
+            .enforce_action_policy(&script)
+            .expect_err("script should be blocked");
+        assert!(error.to_string().contains("blocked by policy"));
+    }
+
+    #[test]
+    fn test_policy_blocks_webhook_when_enabled() {
+        let executor = HookExecutor::new(Vec::new())
+            .with_action_policy(true, false)
+            .with_policy_enforcement(true);
+        let webhook = HookAction::Webhook {
+            url: "http://localhost/hook".to_string(),
+            method: None,
+            headers: None,
+        };
+
+        let error = executor
+            .enforce_action_policy(&webhook)
+            .expect_err("webhook should be blocked");
+        assert!(error.to_string().contains("blocked by policy"));
     }
 }

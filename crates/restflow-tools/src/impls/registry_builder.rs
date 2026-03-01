@@ -48,7 +48,7 @@ use crate::impls::memory_store::{
 use crate::impls::multiedit::MultiEditTool;
 use crate::impls::patch::PatchTool;
 use crate::impls::save_deliverable::SaveDeliverableTool;
-use crate::impls::secrets::SecretsTool;
+use crate::impls::secrets::{SecretGetPolicy, SecretsTool};
 use crate::impls::security_query::SecurityQueryTool;
 use crate::impls::session::SessionTool;
 use crate::impls::skill::SkillTool;
@@ -128,6 +128,24 @@ impl Default for FileConfig {
             ],
             allow_write: true,
             max_read_bytes: 1_000_000,
+        }
+    }
+}
+
+/// Configuration for manage_secrets tool behavior.
+#[derive(Debug, Clone, Copy)]
+pub struct SecretsConfig {
+    /// Whether write operations are allowed.
+    pub allow_write: bool,
+    /// Policy for the `get` operation response payload.
+    pub get_policy: SecretGetPolicy,
+}
+
+impl Default for SecretsConfig {
+    fn default() -> Self {
+        Self {
+            allow_write: false,
+            get_policy: SecretGetPolicy::Open,
         }
     }
 }
@@ -350,7 +368,20 @@ impl ToolRegistryBuilder {
     }
 
     pub fn with_secrets(mut self, storage: Arc<SecretStorage>) -> Self {
-        self.registry.register(SecretsTool::new(storage));
+        self = self.with_secrets_config(storage, SecretsConfig::default());
+        self
+    }
+
+    pub fn with_secrets_config(
+        mut self,
+        storage: Arc<SecretStorage>,
+        config: SecretsConfig,
+    ) -> Self {
+        self.registry.register(
+            SecretsTool::new(storage)
+                .with_write(config.allow_write)
+                .with_get_policy(config.get_policy),
+        );
         self
     }
 

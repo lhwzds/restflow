@@ -375,6 +375,7 @@ impl AgentNode {
             core.storage.deliverables.clone(),
             None,
             None,
+            None,
         ) {
             Ok(registry) => registry,
             Err(err) => {

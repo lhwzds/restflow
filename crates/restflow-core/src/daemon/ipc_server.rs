@@ -2215,6 +2215,9 @@ impl IpcServer {
                             success: output.success,
                             result: output.result,
                             error: output.error,
+                            error_category: output.error_category,
+                            retryable: output.retryable,
+                            retry_after_ms: output.retry_after_ms,
                         }),
                         Err(err) => IpcResponse::error(500, err.to_string()),
                     },
@@ -2253,6 +2256,7 @@ fn create_runtime_tool_registry(
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         core.storage.deliverables.clone(),
+        None,
         None,
         None,
     )
