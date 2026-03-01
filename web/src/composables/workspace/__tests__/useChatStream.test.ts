@@ -269,7 +269,7 @@ describe('useChatStream', () => {
       kind: {
         type: 'tool_call_start',
         tool_id: 'tool-spawn',
-        tool_name: 'spawn_agent',
+        tool_name: 'spawn_subagent',
         arguments: '{"agent":"code-planner","task":"plan","model":"zai-coding-plan-glm-5"}',
       },
     })
@@ -286,7 +286,7 @@ describe('useChatStream', () => {
     })
 
     expect(vm.stream.state.value.steps).toHaveLength(1)
-    expect(vm.stream.state.value.steps[0]?.name).toBe('spawn_agent')
+    expect(vm.stream.state.value.steps[0]?.name).toBe('spawn_subagent')
     expect(vm.stream.state.value.steps[0]?.displayName).toContain('code-planner')
     expect(vm.stream.state.value.steps[0]?.displayName).toContain('@zai-coding-plan-glm-5')
     expect(vm.stream.state.value.steps[0]?.displayName).toContain('#12345678')

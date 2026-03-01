@@ -13,16 +13,15 @@ pub use restflow_core::runtime::agent::tools::{
 
 // Shared infrastructure from restflow-core.
 pub use restflow_core::runtime::agent::tools::{
-    ListAgentsTool, SubagentDeps, SubagentManager, SubagentManagerImpl, ToolRegistryBuilder,
-    UseSkillTool, WaitAgentsTool, default_registry, registry_from_allowlist,
-    secret_resolver_from_storage,
+    ListSubagentsTool, SubagentDeps, SubagentManager, SubagentManagerImpl, ToolRegistryBuilder,
+    UseSkillTool, WaitSubagentsTool, default_registry, registry_from_allowlist,
 };
 
 // Local: Tauri-specific tools and LLM-only spawn.
 mod show_panel;
 mod spawn;
 
-pub use restflow_tools::SpawnAgentTool;
+pub use restflow_tools::SpawnSubagentTool;
 pub use show_panel::ShowPanelTool;
 pub use spawn::{SpawnTool, SubagentSpawner};
 

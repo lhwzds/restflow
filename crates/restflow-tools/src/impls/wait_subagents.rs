@@ -1,4 +1,4 @@
-//! wait_agents tool - Wait for sub-agents to finish and return results.
+//! wait_subagents tool - Wait for sub-agents to finish and return results.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -10,9 +10,17 @@ use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::SubagentManager;
 
-/// Parameters for wait_agents tool.
+#[cfg(feature = "ts")]
+const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../web/src/types/generated/"
+);
+
+/// Parameters for wait_subagents tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct WaitAgentsParams {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+pub struct WaitSubagentsParams {
     /// Task IDs to wait for.
     pub task_ids: Vec<String>,
 
@@ -25,21 +33,21 @@ const MIN_WAIT_TIMEOUT_SECS: u64 = 10;
 /// Maximum allowed wait timeout.
 const MAX_WAIT_TIMEOUT_SECS: u64 = 300;
 
-/// wait_agents tool for the shared agent execution engine.
-pub struct WaitAgentsTool {
+/// wait_subagents tool for the shared agent execution engine.
+pub struct WaitSubagentsTool {
     manager: Arc<dyn SubagentManager>,
 }
 
-impl WaitAgentsTool {
+impl WaitSubagentsTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
         Self { manager }
     }
 }
 
 #[async_trait]
-impl Tool for WaitAgentsTool {
+impl Tool for WaitSubagentsTool {
     fn name(&self) -> &str {
-        "wait_agents"
+        "wait_subagents"
     }
 
     fn description(&self) -> &str {
@@ -67,7 +75,7 @@ impl Tool for WaitAgentsTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let params: WaitAgentsParams = serde_json::from_value(input)
+        let params: WaitSubagentsParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
         let wait_timeout = params
@@ -209,7 +217,7 @@ mod tests {
     #[test]
     fn test_params_deserialization() {
         let json = r#"{"task_ids": ["task-1", "task-2"], "timeout_secs": 120}"#;
-        let params: WaitAgentsParams = serde_json::from_str(json).unwrap();
+        let params: WaitSubagentsParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.task_ids.len(), 2);
         assert_eq!(params.timeout_secs, Some(120));
     }
@@ -219,7 +227,7 @@ mod tests {
         let (deps, manager) = make_deps(vec![MockStep::text("done")]);
         let task_id = spawn_test_agent(&deps);
 
-        let tool = WaitAgentsTool::new(manager);
+        let tool = WaitSubagentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": [task_id], "timeout_secs": 5}))
             .await
@@ -233,7 +241,7 @@ mod tests {
     #[tokio::test]
     async fn test_wait_nonexistent_task() {
         let (_deps, manager) = make_deps(vec![]);
-        let tool = WaitAgentsTool::new(manager);
+        let tool = WaitSubagentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": ["no-such-task"], "timeout_secs": 1}))
             .await
@@ -250,7 +258,7 @@ mod tests {
         let (deps, manager) = make_deps(vec![MockStep::text("slow").with_delay(15_000)]);
         let task_id = spawn_test_agent(&deps);
 
-        let tool = WaitAgentsTool::new(manager);
+        let tool = WaitSubagentsTool::new(manager);
         // timeout_secs: 10 (minimum) will timeout before the 15s delay
         let result = tool
             .execute(json!({"task_ids": [task_id], "timeout_secs": 10}))
@@ -268,7 +276,7 @@ mod tests {
         let id1 = spawn_test_agent(&deps);
         let id2 = spawn_test_agent(&deps);
 
-        let tool = WaitAgentsTool::new(manager);
+        let tool = WaitSubagentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": [id1, id2, "missing"], "timeout_secs": 5}))
             .await
@@ -303,7 +311,7 @@ mod tests {
         let (deps, manager) = make_deps(vec![MockStep::error("LLM error")]);
         let task_id = spawn_test_agent(&deps);
 
-        let tool = WaitAgentsTool::new(manager);
+        let tool = WaitSubagentsTool::new(manager);
         let result = tool
             .execute(json!({"task_ids": [task_id], "timeout_secs": 5}))
             .await

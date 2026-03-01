@@ -1,4 +1,4 @@
-//! spawn_agent tool - Spawn a sub-agent to work on a task in parallel.
+//! spawn_subagent tool - Spawn a sub-agent to work on a task in parallel.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -10,18 +10,24 @@ use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::{SpawnRequest, SubagentManager};
 
-/// Parameters for spawn_agent tool.
+#[cfg(feature = "ts")]
+const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../web/src/types/generated/"
+);
+
+/// Parameters for spawn_subagent tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
-#[cfg_attr(feature = "ts", ts(export))]
-pub struct SpawnAgentParams {
+#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+pub struct SpawnSubagentParams {
     /// Agent type to spawn (researcher, coder, reviewer, writer, analyst).
     pub agent: String,
 
     /// Task description for the agent.
     pub task: String,
 
-    /// If true, wait for completion. If false (default), run in background.
+    /// If true, wait for completion. If false (default), run concurrently.
     #[serde(default)]
     pub wait: bool,
 
@@ -38,12 +44,12 @@ pub struct SpawnAgentParams {
     pub parent_execution_id: Option<String>,
 }
 
-/// spawn_agent tool for the shared agent execution engine.
-pub struct SpawnAgentTool {
+/// spawn_subagent tool for the shared agent execution engine.
+pub struct SpawnSubagentTool {
     manager: Arc<dyn SubagentManager>,
 }
 
-impl SpawnAgentTool {
+impl SpawnSubagentTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
         Self { manager }
     }
@@ -132,13 +138,13 @@ impl SpawnAgentTool {
 }
 
 #[async_trait]
-impl Tool for SpawnAgentTool {
+impl Tool for SpawnSubagentTool {
     fn name(&self) -> &str {
-        "spawn_agent"
+        "spawn_subagent"
     }
 
     fn description(&self) -> &str {
-        "Spawn a specialized agent to work on a task in parallel. The agent runs in the background; call wait_agents to check completion."
+        "Spawn a specialized sub-agent to work on a task in parallel. Use wait_subagents to check completion."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -146,7 +152,7 @@ impl Tool for SpawnAgentTool {
         let agent_property = if available.is_empty() {
             json!({
                 "type": "string",
-                "description": "Agent ID or name. Call list_agents to discover available agents."
+                "description": "Agent ID or name. Call list_subagents to discover available agents."
             })
         } else {
             let enum_values: Vec<String> = available.iter().map(|agent| agent.id.clone()).collect();
@@ -173,7 +179,7 @@ impl Tool for SpawnAgentTool {
                 "wait": {
                     "type": "boolean",
                     "default": false,
-                    "description": "If true, wait for completion. If false, run in background."
+                    "description": "If true, wait for completion. If false, run concurrently."
                 },
                 "timeout_secs": {
                     "type": "integer",
@@ -194,7 +200,7 @@ impl Tool for SpawnAgentTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let params: SpawnAgentParams = serde_json::from_value(input)
+        let params: SpawnSubagentParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
         let agent_id = self.resolve_agent_id(&params.agent)?;
 
@@ -253,7 +259,7 @@ impl Tool for SpawnAgentTool {
                 "agent": handle.agent_name,
                 "status": "spawned",
                 "message": format!(
-                    "Agent '{}' is now working on the task in background. Use wait_agents to check completion.",
+                    "Agent '{}' is now working on the task concurrently. Use wait_subagents to check completion.",
                     handle.agent_name
                 )
             })))
@@ -361,7 +367,7 @@ mod tests {
     #[test]
     fn test_params_deserialization() {
         let json = r#"{"agent": "researcher", "task": "Research topic X"}"#;
-        let params: SpawnAgentParams = serde_json::from_str(json).unwrap();
+        let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.agent, "researcher");
         assert!(!params.wait);
     }
@@ -370,18 +376,18 @@ mod tests {
     fn test_params_with_wait() {
         let json =
             r#"{"agent": "coder", "task": "Write function Y", "wait": true, "timeout_secs": 600}"#;
-        let params: SpawnAgentParams = serde_json::from_str(json).unwrap();
+        let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
         assert!(params.wait);
         assert_eq!(params.timeout_secs, Some(600));
     }
 
     #[tokio::test]
-    async fn test_spawn_agent_background() {
+    async fn test_spawn_subagent_background() {
         let deps = make_test_deps(
             vec![("researcher", "Researcher")],
             vec![MockStep::text("research done")],
         );
-        let tool = SpawnAgentTool::new(deps);
+        let tool = SpawnSubagentTool::new(deps);
         let result = tool
             .execute(json!({"agent": "researcher", "task": "Find info", "wait": false}))
             .await
@@ -392,12 +398,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_spawn_agent_wait_success() {
+    async fn test_spawn_subagent_wait_success() {
         let deps = make_test_deps(
             vec![("coder", "Coder")],
             vec![MockStep::text("function written")],
         );
-        let tool = SpawnAgentTool::new(deps);
+        let tool = SpawnSubagentTool::new(deps);
         let result = tool
             .execute(
                 json!({"agent": "coder", "task": "Write code", "wait": true, "timeout_secs": 10}),
@@ -415,9 +421,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_spawn_agent_wait_failure() {
+    async fn test_spawn_subagent_wait_failure() {
         let deps = make_test_deps(vec![("coder", "Coder")], vec![MockStep::error("LLM error")]);
-        let tool = SpawnAgentTool::new(deps);
+        let tool = SpawnSubagentTool::new(deps);
         let result = tool
             .execute(
                 json!({"agent": "coder", "task": "Write code", "wait": true, "timeout_secs": 10}),
@@ -430,9 +436,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_spawn_agent_unknown_agent() {
+    async fn test_spawn_subagent_unknown_agent() {
         let deps = make_test_deps(vec![], vec![]);
-        let tool = SpawnAgentTool::new(deps);
+        let tool = SpawnSubagentTool::new(deps);
         let result = tool
             .execute(json!({"agent": "nonexistent", "task": "Do something"}))
             .await;
@@ -442,21 +448,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_spawn_agent_invalid_params() {
+    async fn test_spawn_subagent_invalid_params() {
         let deps = make_test_deps(vec![], vec![]);
-        let tool = SpawnAgentTool::new(deps);
+        let tool = SpawnSubagentTool::new(deps);
         // Missing required "agent" and "task" fields
         let result = tool.execute(json!({"wait": true})).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
-    async fn test_spawn_agent_resolves_by_name() {
+    async fn test_spawn_subagent_resolves_by_name() {
         let deps = make_test_deps(
             vec![("agent-123", "Code Planner")],
             vec![MockStep::text("planned")],
         );
-        let tool = SpawnAgentTool::new(deps);
+        let tool = SpawnSubagentTool::new(deps);
         let result = tool
             .execute(json!({"agent": "code planner", "task": "plan task", "wait": true}))
             .await
@@ -471,7 +477,7 @@ mod tests {
             vec![("agent-1", "Researcher"), ("agent-2", "Coder")],
             vec![],
         );
-        let tool = SpawnAgentTool::new(deps);
+        let tool = SpawnSubagentTool::new(deps);
         let schema = tool.parameters_schema();
         let values = schema["properties"]["agent"]["enum"]
             .as_array()

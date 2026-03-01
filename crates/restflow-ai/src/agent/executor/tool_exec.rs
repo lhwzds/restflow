@@ -15,13 +15,19 @@ use crate::tools::{ToolErrorCategory, ToolRegistry};
 
 use super::{AgentExecutor, MAX_TOOL_RETRIES};
 
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct ToolInvocationContext<'a> {
+    pub parent_execution_id: Option<&'a str>,
+    pub chat_session_id: Option<&'a str>,
+}
+
 impl AgentExecutor {
     fn inject_spawn_parent_execution_id(
         tool_name: &str,
         args: &mut Value,
         parent_execution_id: Option<&str>,
     ) {
-        if tool_name != "spawn_agent" {
+        if tool_name != "spawn_subagent" {
             return;
         }
         let Some(parent_execution_id) = parent_execution_id else {
@@ -33,6 +39,32 @@ impl AgentExecutor {
         }
     }
 
+    fn inject_promote_session_id(tool_name: &str, args: &mut Value, chat_session_id: Option<&str>) {
+        if tool_name != "manage_background_agents" {
+            return;
+        }
+        let Some(chat_session_id) = chat_session_id else {
+            return;
+        };
+        let Some(map) = args.as_object_mut() else {
+            return;
+        };
+        if map.contains_key("session_id") {
+            return;
+        }
+        let operation = map
+            .get("operation")
+            .and_then(Value::as_str)
+            .map(|value| value.trim().to_ascii_lowercase());
+        if operation.as_deref() != Some("promote_to_background") {
+            return;
+        }
+        map.insert(
+            "session_id".to_string(),
+            Value::String(chat_session_id.to_string()),
+        );
+    }
+
     pub(crate) async fn execute_tools_with_events(
         &self,
         tool_calls: &[ToolCall],
@@ -40,7 +72,7 @@ impl AgentExecutor {
         tool_timeout: Duration,
         yolo_mode: bool,
         max_tool_concurrency: usize,
-        parent_execution_id: Option<&str>,
+        context: ToolInvocationContext<'_>,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         self.execute_tools_parallel(
             tool_calls,
@@ -48,7 +80,7 @@ impl AgentExecutor {
             tool_timeout,
             yolo_mode,
             max_tool_concurrency,
-            parent_execution_id,
+            context,
         )
         .await
     }
@@ -194,12 +226,17 @@ impl AgentExecutor {
         tool_timeout: Duration,
         yolo_mode: bool,
         max_concurrency: usize,
-        parent_execution_id: Option<&str>,
+        context: ToolInvocationContext<'_>,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
         // 1. Emit start events for all tool calls upfront
         for call in tool_calls {
             let mut args = call.arguments.clone();
-            Self::inject_spawn_parent_execution_id(&call.name, &mut args, parent_execution_id);
+            Self::inject_spawn_parent_execution_id(
+                &call.name,
+                &mut args,
+                context.parent_execution_id,
+            );
+            Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
             let arguments = serde_json::to_string(&args).unwrap_or_default();
             emitter
                 .emit_tool_call_start(&call.id, &call.name, &arguments)
@@ -215,7 +252,12 @@ impl AgentExecutor {
             let sem = Arc::clone(&semaphore);
             let name = call.name.clone();
             let mut args = call.arguments.clone();
-            Self::inject_spawn_parent_execution_id(&call.name, &mut args, parent_execution_id);
+            Self::inject_spawn_parent_execution_id(
+                &call.name,
+                &mut args,
+                context.parent_execution_id,
+            );
+            Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
 

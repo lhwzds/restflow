@@ -17,9 +17,9 @@ use restflow_traits::store::DiagnosticsProvider;
 
 // Re-export tool types from restflow-tools
 pub use restflow_tools::impls::{
-    BashConfig, BashTool, DiscordTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool,
-    SlackTool, SpawnAgentTool, SpawnTool, TelegramTool, ToolRegistryBuilder, UseSkillTool,
-    WaitAgentsTool, default_registry,
+    BashConfig, BashTool, DiscordTool, EmailTool, FileConfig, FileTool, HttpTool,
+    ListSubagentsTool, SlackTool, SpawnSubagentTool, SpawnTool, TelegramTool, ToolRegistryBuilder,
+    UseSkillTool, WaitSubagentsTool, default_registry,
 };
 pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeTool, VisionTool};
 
@@ -49,9 +49,9 @@ pub fn main_agent_default_tool_names() -> Vec<String> {
         "browser",
         "transcribe",
         "vision",
-        "spawn_agent",
-        "wait_agents",
-        "list_agents",
+        "spawn_subagent",
+        "wait_subagents",
+        "list_subagents",
         "use_skill",
         "manage_background_agents",
         "manage_agents",
@@ -233,32 +233,32 @@ pub fn registry_from_allowlist(
             }
 
             // --- Subagent tools ---
-            "spawn_agent" => {
+            "spawn_subagent" => {
                 if let Some(manager) = &subagent_manager {
-                    builder = builder.with_spawn_agent(manager.clone());
+                    builder = builder.with_spawn_subagent(manager.clone());
                 } else {
                     debug!(
-                        tool_name = "spawn_agent",
+                        tool_name = "spawn_subagent",
                         "Subagent manager missing, skipping"
                     );
                 }
             }
-            "wait_agents" => {
+            "wait_subagents" => {
                 if let Some(manager) = &subagent_manager {
-                    builder = builder.with_wait_agents(manager.clone());
+                    builder = builder.with_wait_subagents(manager.clone());
                 } else {
                     debug!(
-                        tool_name = "wait_agents",
+                        tool_name = "wait_subagents",
                         "Subagent manager missing, skipping"
                     );
                 }
             }
-            "list_agents" => {
+            "list_subagents" => {
                 if let Some(manager) = &subagent_manager {
-                    builder = builder.with_list_agents(manager.clone());
+                    builder = builder.with_list_subagents(manager.clone());
                 } else {
                     debug!(
-                        tool_name = "list_agents",
+                        tool_name = "list_subagents",
                         "Subagent manager missing, skipping"
                     );
                 }

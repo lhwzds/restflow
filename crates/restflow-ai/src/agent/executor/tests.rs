@@ -1,4 +1,5 @@
 use super::steer::parse_approval_resolution;
+use super::tool_exec::ToolInvocationContext;
 use super::*;
 use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
@@ -1160,17 +1161,40 @@ impl Tool for HangTool {
     }
 }
 
-/// A spawn_agent-shaped tool that returns input as output so tests can verify argument injection.
-struct SpawnAgentCaptureTool;
+/// A spawn_subagent-shaped tool that returns input as output so tests can verify argument injection.
+struct SpawnSubagentCaptureTool;
 
 #[async_trait]
-impl Tool for SpawnAgentCaptureTool {
+impl Tool for SpawnSubagentCaptureTool {
     fn name(&self) -> &str {
-        "spawn_agent"
+        "spawn_subagent"
     }
 
     fn description(&self) -> &str {
-        "Capture spawn_agent input payload"
+        "Capture spawn_subagent input payload"
+    }
+
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({"type": "object"})
+    }
+
+    async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
+        Ok(ToolOutput::success(input))
+    }
+}
+
+/// A manage_background_agents-shaped tool that returns input as output so tests
+/// can verify session_id injection for promote_to_background.
+struct PromoteBackgroundCaptureTool;
+
+#[async_trait]
+impl Tool for PromoteBackgroundCaptureTool {
+    fn name(&self) -> &str {
+        "manage_background_agents"
+    }
+
+    fn description(&self) -> &str {
+        "Capture manage_background_agents input payload"
     }
 
     fn parameters_schema(&self) -> Value {
@@ -1267,7 +1291,7 @@ async fn test_parallel_tools_returns_results_in_submission_order() {
             timeout,
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
-            None,
+            ToolInvocationContext::default(),
         )
         .await;
 
@@ -1325,7 +1349,7 @@ async fn test_parallel_tools_true_concurrency() {
             Duration::from_secs(10),
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
-            None,
+            ToolInvocationContext::default(),
         )
         .await;
     let elapsed = start.elapsed();
@@ -1374,7 +1398,7 @@ async fn test_parallel_tools_panic_recovery() {
             Duration::from_secs(10),
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
-            None,
+            ToolInvocationContext::default(),
         )
         .await;
 
@@ -1432,7 +1456,7 @@ async fn test_parallel_tools_timeout_in_spawned_task() {
             Duration::from_millis(200),
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
-            None,
+            ToolInvocationContext::default(),
         )
         .await;
 
@@ -1456,16 +1480,16 @@ async fn test_parallel_tools_timeout_in_spawned_task() {
 }
 
 #[tokio::test]
-async fn test_spawn_agent_tool_call_injects_parent_execution_id() {
+async fn test_spawn_subagent_tool_call_injects_parent_execution_id() {
     let mut tools = ToolRegistry::new();
-    tools.register(SpawnAgentCaptureTool);
+    tools.register(SpawnSubagentCaptureTool);
 
     let llm = Arc::new(MockLlmClient::new(vec![]));
     let executor = AgentExecutor::new(llm, Arc::new(tools));
 
     let calls = vec![ToolCall {
         id: "spawn_call".to_string(),
-        name: "spawn_agent".to_string(),
+        name: "spawn_subagent".to_string(),
         arguments: serde_json::json!({
             "agent": "default",
             "task": "Investigate"
@@ -1480,7 +1504,10 @@ async fn test_spawn_agent_tool_call_injects_parent_execution_id() {
             Duration::from_secs(5),
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
-            Some("exec-parent-1"),
+            ToolInvocationContext {
+                parent_execution_id: Some("exec-parent-1"),
+                chat_session_id: None,
+            },
         )
         .await;
 
@@ -1498,16 +1525,16 @@ async fn test_spawn_agent_tool_call_injects_parent_execution_id() {
 }
 
 #[tokio::test]
-async fn test_spawn_agent_tool_call_preserves_explicit_parent_execution_id() {
+async fn test_spawn_subagent_tool_call_preserves_explicit_parent_execution_id() {
     let mut tools = ToolRegistry::new();
-    tools.register(SpawnAgentCaptureTool);
+    tools.register(SpawnSubagentCaptureTool);
 
     let llm = Arc::new(MockLlmClient::new(vec![]));
     let executor = AgentExecutor::new(llm, Arc::new(tools));
 
     let calls = vec![ToolCall {
         id: "spawn_call".to_string(),
-        name: "spawn_agent".to_string(),
+        name: "spawn_subagent".to_string(),
         arguments: serde_json::json!({
             "agent": "default",
             "task": "Investigate",
@@ -1523,7 +1550,10 @@ async fn test_spawn_agent_tool_call_preserves_explicit_parent_execution_id() {
             Duration::from_secs(5),
             false,
             DEFAULT_MAX_TOOL_CONCURRENCY,
-            Some("runtime-parent"),
+            ToolInvocationContext {
+                parent_execution_id: Some("runtime-parent"),
+                chat_session_id: None,
+            },
         )
         .await;
 
@@ -1533,6 +1563,92 @@ async fn test_spawn_agent_tool_call_preserves_explicit_parent_execution_id() {
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
     assert_eq!(output.result["parent_execution_id"], "explicit-parent");
+}
+
+#[tokio::test]
+async fn test_promote_to_background_injects_chat_session_id() {
+    let mut tools = ToolRegistry::new();
+    tools.register(PromoteBackgroundCaptureTool);
+
+    let llm = Arc::new(MockLlmClient::new(vec![]));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+    let calls = vec![ToolCall {
+        id: "promote_call".to_string(),
+        name: "manage_background_agents".to_string(),
+        arguments: serde_json::json!({
+            "operation": "promote_to_background",
+            "name": "Promoted Task"
+        }),
+    }];
+
+    let mut emitter = ToolStartCaptureEmitter::new();
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            Duration::from_secs(5),
+            false,
+            DEFAULT_MAX_TOOL_CONCURRENCY,
+            ToolInvocationContext {
+                parent_execution_id: None,
+                chat_session_id: Some("session-main-1"),
+            },
+        )
+        .await;
+
+    assert_eq!(results.len(), 1);
+    let (_, result) = &results[0];
+    let output = result
+        .as_ref()
+        .unwrap_or_else(|e| panic!("promote_call should succeed: {e}"));
+    assert_eq!(output.result["session_id"], "session-main-1");
+
+    let start_arguments = emitter.start_arguments.lock().await;
+    assert_eq!(start_arguments.len(), 1);
+    let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
+    assert_eq!(start_payload["session_id"], "session-main-1");
+}
+
+#[tokio::test]
+async fn test_promote_to_background_keeps_explicit_session_id() {
+    let mut tools = ToolRegistry::new();
+    tools.register(PromoteBackgroundCaptureTool);
+
+    let llm = Arc::new(MockLlmClient::new(vec![]));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+    let calls = vec![ToolCall {
+        id: "promote_call".to_string(),
+        name: "manage_background_agents".to_string(),
+        arguments: serde_json::json!({
+            "operation": "promote_to_background",
+            "session_id": "session-explicit",
+            "name": "Promoted Task"
+        }),
+    }];
+
+    let mut emitter = NullEmitter;
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            Duration::from_secs(5),
+            false,
+            DEFAULT_MAX_TOOL_CONCURRENCY,
+            ToolInvocationContext {
+                parent_execution_id: None,
+                chat_session_id: Some("session-main-1"),
+            },
+        )
+        .await;
+
+    assert_eq!(results.len(), 1);
+    let (_, result) = &results[0];
+    let output = result
+        .as_ref()
+        .unwrap_or_else(|e| panic!("promote_call should succeed: {e}"));
+    assert_eq!(output.result["session_id"], "session-explicit");
 }
 
 #[test]

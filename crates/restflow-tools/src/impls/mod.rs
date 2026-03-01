@@ -61,12 +61,12 @@ pub mod task_list;
 pub mod batch;
 
 // Migrated from restflow-core
-pub mod list_agents;
+pub mod list_subagents;
 pub mod registry_builder;
 pub mod spawn;
-pub mod spawn_agent;
+pub mod spawn_subagent;
 pub mod use_skill;
-pub mod wait_agents;
+pub mod wait_subagents;
 
 // Re-export edit tools
 pub use edit::EditTool;
@@ -125,9 +125,9 @@ pub use task_list::TaskListTool;
 pub use batch::BatchTool;
 
 // Re-export core-migrated tools
-pub use list_agents::ListAgentsTool;
+pub use list_subagents::ListSubagentsTool;
 pub use registry_builder::{BashConfig, FileConfig, ToolRegistryBuilder, default_registry};
 pub use spawn::SpawnTool;
-pub use spawn_agent::SpawnAgentTool;
+pub use spawn_subagent::SpawnSubagentTool;
 pub use use_skill::UseSkillTool;
-pub use wait_agents::WaitAgentsTool;
+pub use wait_subagents::WaitSubagentsTool;

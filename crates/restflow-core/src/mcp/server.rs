@@ -1184,7 +1184,7 @@ pub struct ChatSessionGetParams {
 pub struct ManageBackgroundAgentsParams {
     /// Operation to perform
     pub operation: String,
-    /// Source chat session ID (for convert_session)
+    /// Source chat session ID (for convert_session/promote_to_background)
     #[serde(default)]
     pub session_id: Option<String>,
     /// Task/background agent ID
@@ -1259,7 +1259,7 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional trailing line limit for read_trace
     #[serde(default)]
     pub line_limit: Option<usize>,
-    /// Whether to trigger immediate run after convert_session (default true)
+    /// Whether to trigger immediate run after convert_session/promote_to_background (default true)
     #[serde(default)]
     pub run_now: Option<bool>,
 }
@@ -1506,7 +1506,7 @@ impl RestFlowMcpServer {
     }
 
     /// Runtime tools only available during active agent sessions (not exposed to standalone MCP clients).
-    /// Subagent tools (spawn_agent, wait_agents) are excluded because they require a conversation context.
+    /// Subagent tools (spawn_subagent, wait_subagents, list_subagents) are excluded because they require a conversation context.
     fn session_scoped_runtime_tools() -> Vec<RuntimeToolDefinition> {
         vec![RuntimeToolDefinition {
             name: "switch_model".to_string(),
@@ -1881,7 +1881,7 @@ impl RestFlowMcpServer {
                 serde_json::to_value(self.backend.create_background_agent(spec).await?)
                     .map_err(|e| e.to_string())?
             }
-            "convert_session" => {
+            "convert_session" | "promote_to_background" => {
                 let session_id = Self::required_string(params.session_id, "session_id")?;
                 let session = self
                     .backend
@@ -2270,7 +2270,8 @@ impl ServerHandler for RestFlowMcpServer {
                 Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
                 memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
                 manage_hooks for lifecycle hook automation, \
-                and manage_background_agents for background agent lifecycle, session conversion, progress, and messaging operations."
+                and manage_background_agents for background agent lifecycle, session conversion, progress, and messaging operations. \
+                Note: sub-agent tools (spawn_subagent/wait_subagents/list_subagents) are session-scoped and are not exposed in standalone MCP mode."
                     .to_string(),
             ),
         }
@@ -3727,6 +3728,7 @@ mod tests {
                 BackgroundAgentControlAction::Pause => BackgroundAgentStatus::Paused,
                 BackgroundAgentControlAction::Stop => BackgroundAgentStatus::Completed,
             };
+            task.chat_session_id = self.session.id.clone();
             Ok(task)
         }
 
@@ -3930,6 +3932,26 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_manage_background_agents_promote_to_background_operation() {
+        let backend = Arc::new(MockBackend::new());
+        let session_id = backend.session.id.clone();
+        let server = RestFlowMcpServer::with_backend(backend);
+        let mut params = base_manage_background_params("promote_to_background");
+        params.session_id = Some(session_id.clone());
+        params.input = Some("Promote this chat".to_string());
+        params.run_now = Some(true);
+
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["source_session"]["id"], session_id);
+        assert_eq!(value["task"]["chat_session_id"], session_id);
+        assert_eq!(value["run_now"], true);
+    }
+
+    #[tokio::test]
     async fn test_manage_hooks_list_operation() {
         let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
         let params = ManageHooksParams {
@@ -4078,8 +4100,9 @@ mod tests {
     fn test_session_scoped_runtime_tools_include_switch_model() {
         let tools = RestFlowMcpServer::session_scoped_runtime_tools();
         assert!(tools.iter().any(|tool| tool.name == "switch_model"));
-        assert!(!tools.iter().any(|tool| tool.name == "spawn_agent"));
-        assert!(!tools.iter().any(|tool| tool.name == "wait_agents"));
+        assert!(!tools.iter().any(|tool| tool.name == "spawn_subagent"));
+        assert!(!tools.iter().any(|tool| tool.name == "wait_subagents"));
+        assert!(!tools.iter().any(|tool| tool.name == "list_subagents"));
 
         let switch_model = tools
             .iter()
@@ -4119,16 +4142,29 @@ mod tests {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let runtime_tools = server.backend.list_runtime_tools().await.unwrap();
 
-        assert!(!runtime_tools.iter().any(|tool| tool.name == "spawn_agent"));
-        assert!(!runtime_tools.iter().any(|tool| tool.name == "wait_agents"));
+        assert!(
+            !runtime_tools
+                .iter()
+                .any(|tool| tool.name == "spawn_subagent")
+        );
+        assert!(
+            !runtime_tools
+                .iter()
+                .any(|tool| tool.name == "wait_subagents")
+        );
+        assert!(
+            !runtime_tools
+                .iter()
+                .any(|tool| tool.name == "list_subagents")
+        );
     }
 
     #[tokio::test]
-    async fn test_standalone_runtime_spawn_agent_is_not_callable() {
+    async fn test_standalone_runtime_spawn_subagent_is_not_callable() {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let error = server
             .handle_runtime_tool(
-                "spawn_agent",
+                "spawn_subagent",
                 serde_json::json!({"agent": "coder", "task": "do work"}),
             )
             .await

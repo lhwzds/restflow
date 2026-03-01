@@ -13,7 +13,6 @@ use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
 use std::sync::Arc;
 
-pub mod direct;
 pub mod ipc;
 
 #[async_trait]
@@ -129,13 +128,45 @@ pub trait CommandExecutor: Send + Sync {
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>>;
 }
 
-pub async fn create(db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>> {
+pub async fn create(_db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>> {
     let socket_path = paths::socket_path()?;
     if is_daemon_available(&socket_path).await {
         let executor = ipc::IpcExecutor::connect(&socket_path).await?;
-        Ok(Arc::new(executor))
-    } else {
-        let executor = direct::DirectExecutor::connect(db_path).await?;
-        Ok(Arc::new(executor))
+        return Ok(Arc::new(executor));
+    }
+
+    anyhow::bail!("RestFlow daemon is not running. Start it with 'restflow daemon start'.")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[tokio::test]
+    async fn create_requires_running_daemon() {
+        let _guard = env_lock();
+        let temp = tempdir().expect("tempdir");
+        let prev = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
+
+        let err = match create(None).await {
+            Ok(_) => panic!("create should fail without daemon"),
+            Err(err) => err,
+        };
+        assert!(err.to_string().contains("daemon is not running"));
+
+        match prev {
+            Some(value) => unsafe { std::env::set_var("RESTFLOW_DIR", value) },
+            None => unsafe { std::env::remove_var("RESTFLOW_DIR") },
+        }
     }
 }

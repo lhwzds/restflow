@@ -12,13 +12,14 @@ pub mod error;
 pub mod executor;
 pub mod state;
 pub mod subagent;
-pub mod webhook;
+#[cfg(test)]
+mod webhook;
 
 pub use agent::{
-    BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListAgentsTool,
-    SpawnAgentTool, SpawnTool, SubagentDeps, SubagentManager, SubagentManagerImpl, SubagentSpawner,
-    TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult, UseSkillTool,
-    WaitAgentsTool, build_agent_system_prompt, default_registry, effective_main_agent_tool_names,
+    BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListSubagentsTool,
+    SpawnSubagentTool, SpawnTool, SubagentDeps, SubagentManager, SubagentManagerImpl,
+    SubagentSpawner, TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder, ToolResult,
+    UseSkillTool, WaitSubagentsTool, default_registry, effective_main_agent_tool_names,
     main_agent_default_tool_names, registry_from_allowlist,
 };
 pub use channel::{
@@ -38,9 +39,4 @@ pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, SpawnHandle, SpawnPriority, SpawnRequest,
     SubagentCompletion, SubagentConfig, SubagentResult, SubagentState, SubagentStatus,
     SubagentTracker, builtin_agents, spawn_subagent,
-};
-
-pub use webhook::{
-    WebhookServerBuilder, WebhookServerConfig, WebhookServerError, WebhookServerHandle,
-    WebhookState,
 };

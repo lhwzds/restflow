@@ -29,6 +29,7 @@ mod steer;
 mod streaming;
 mod tool_exec;
 pub use config::*;
+use tool_exec::ToolInvocationContext;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -521,7 +522,13 @@ impl AgentExecutor {
                     config.tool_timeout,
                     config.yolo_mode,
                     config.max_tool_concurrency,
-                    Some(state.execution_id.as_str()),
+                    ToolInvocationContext {
+                        parent_execution_id: Some(state.execution_id.as_str()),
+                        chat_session_id: state
+                            .context
+                            .get("chat_session_id")
+                            .and_then(Value::as_str),
+                    },
                 )
                 .await;
             tracker.record_tool_calls(results.len());

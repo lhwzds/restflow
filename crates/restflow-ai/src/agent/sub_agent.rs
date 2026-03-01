@@ -362,7 +362,7 @@ impl SubagentTracker {
     }
 }
 
-/// Dependencies needed for sub-agent tools (spawn_agent, wait_agents, list_agents).
+/// Dependencies needed for sub-agent tools (spawn_subagent, wait_subagents, list_subagents).
 #[derive(Clone)]
 pub struct SubagentDeps {
     pub tracker: Arc<SubagentTracker>,
@@ -773,9 +773,9 @@ fn build_registry_for_agent(
     // Sub-agent management tools to exclude when at the depth limit,
     // so the LLM won't waste a tool call only to get a runtime error.
     const COLLAB_TOOLS: &[&str] = &[
-        "spawn_agent",
-        "wait_agents",
-        "list_agents",
+        "spawn_subagent",
+        "wait_subagents",
+        "list_subagents",
         "cancel_agent",
         "send_input",
     ];
@@ -1244,9 +1244,9 @@ mod tests {
 
         parent.register(DummyTool("http"));
         parent.register(DummyTool("bash"));
-        parent.register(DummyTool("spawn_agent"));
-        parent.register(DummyTool("wait_agents"));
-        parent.register(DummyTool("list_agents"));
+        parent.register(DummyTool("spawn_subagent"));
+        parent.register(DummyTool("wait_subagents"));
+        parent.register(DummyTool("list_subagents"));
         parent.register(DummyTool("cancel_agent"));
         parent.register(DummyTool("send_input"));
 
@@ -1254,9 +1254,9 @@ mod tests {
         let all_tools: Vec<String> = vec![
             "http",
             "bash",
-            "spawn_agent",
-            "wait_agents",
-            "list_agents",
+            "spawn_subagent",
+            "wait_subagents",
+            "list_subagents",
             "cancel_agent",
             "send_input",
         ]
@@ -1269,17 +1269,17 @@ mod tests {
         let names: Vec<String> = registry.list_tools().into_iter().map(|s| s.name).collect();
         assert!(names.contains(&"http".to_string()));
         assert!(names.contains(&"bash".to_string()));
-        assert!(!names.contains(&"spawn_agent".to_string()));
-        assert!(!names.contains(&"wait_agents".to_string()));
-        assert!(!names.contains(&"list_agents".to_string()));
+        assert!(!names.contains(&"spawn_subagent".to_string()));
+        assert!(!names.contains(&"wait_subagents".to_string()));
+        assert!(!names.contains(&"list_subagents".to_string()));
         assert!(!names.contains(&"cancel_agent".to_string()));
         assert!(!names.contains(&"send_input".to_string()));
 
         // Not at depth limit: all tools should be included
         let registry = build_registry_for_agent(&parent, &all_tools, 0, 2);
         let names: Vec<String> = registry.list_tools().into_iter().map(|s| s.name).collect();
-        assert!(names.contains(&"spawn_agent".to_string()));
-        assert!(names.contains(&"wait_agents".to_string()));
+        assert!(names.contains(&"spawn_subagent".to_string()));
+        assert!(names.contains(&"wait_subagents".to_string()));
     }
 
     #[test]

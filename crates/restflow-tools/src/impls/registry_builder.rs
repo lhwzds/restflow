@@ -10,14 +10,14 @@ use crate::SecretResolver;
 use crate::ToolRegistry;
 use crate::impls::batch::BatchTool;
 use crate::impls::browser::BrowserTool;
-use crate::impls::list_agents::ListAgentsTool;
+use crate::impls::list_subagents::ListSubagentsTool;
 use crate::impls::monty_python::{PythonTool, RunPythonTool};
 use crate::impls::spawn::SpawnTool;
-use crate::impls::spawn_agent::SpawnAgentTool;
+use crate::impls::spawn_subagent::SpawnSubagentTool;
 use crate::impls::transcribe::TranscribeTool;
 use crate::impls::use_skill::UseSkillTool;
 use crate::impls::vision::VisionTool;
-use crate::impls::wait_agents::WaitAgentsTool;
+use crate::impls::wait_subagents::WaitSubagentsTool;
 use crate::impls::{BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool};
 use crate::security::bash_security::BashSecurityConfig;
 use restflow_traits::skill::SkillProvider;
@@ -239,18 +239,18 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_spawn_agent(mut self, manager: Arc<dyn SubagentManager>) -> Self {
-        self.registry.register(SpawnAgentTool::new(manager));
+    pub fn with_spawn_subagent(mut self, manager: Arc<dyn SubagentManager>) -> Self {
+        self.registry.register(SpawnSubagentTool::new(manager));
         self
     }
 
-    pub fn with_wait_agents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
-        self.registry.register(WaitAgentsTool::new(manager));
+    pub fn with_wait_subagents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
+        self.registry.register(WaitSubagentsTool::new(manager));
         self
     }
 
-    pub fn with_list_agents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
-        self.registry.register(ListAgentsTool::new(manager));
+    pub fn with_list_subagents(mut self, manager: Arc<dyn SubagentManager>) -> Self {
+        self.registry.register(ListSubagentsTool::new(manager));
         self
     }
 
