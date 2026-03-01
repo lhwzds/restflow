@@ -17,7 +17,8 @@ use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
     ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
-    append_turn_started, build_execution_steps,
+    append_turn_started, build_execution_steps, enrich_voice_message_with_transcript,
+    replace_latest_user_message_content,
 };
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::tool_registry::create_tool_registry;
@@ -2398,14 +2399,28 @@ async fn execute_chat_session(
     let duration_ms = started_at.elapsed().as_millis() as u64;
 
     let mut execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
-    if let Ok(traces) = core
+    let traces = match core
         .storage
         .tool_traces
         .list_by_session_turn(&session.id, &turn_id, None)
     {
-        for step in build_execution_steps(&traces) {
-            execution.add_step(step);
+        Ok(traces) => traces,
+        Err(error) => {
+            warn!(
+                session_id = %session.id,
+                turn_id = %turn_id,
+                error = %error,
+                "Failed to load tool traces for transcript enrichment"
+            );
+            Vec::new()
         }
+    };
+    for step in build_execution_steps(&traces) {
+        execution.add_step(step);
+    }
+
+    if let Some(enriched_input) = enrich_voice_message_with_transcript(&input, &traces) {
+        replace_latest_user_message_content(&mut session, &input, &enriched_input);
     }
     let buffered_replies = {
         let mut guard = reply_buffer.lock().await;
