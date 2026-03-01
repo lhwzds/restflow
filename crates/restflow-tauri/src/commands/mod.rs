@@ -2,6 +2,9 @@
 //!
 //! This module contains all Tauri IPC command handlers that bridge
 //! the frontend with the RestFlow backend.
+//!
+//! Guardrail: command handlers must use daemon-backed executor paths.
+//! Direct storage writes in Tauri commands are not allowed.
 
 pub mod agents;
 pub mod auth;

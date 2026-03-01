@@ -45,7 +45,10 @@ fn main() {
     if let Ok(rt) = tokio::runtime::Runtime::new() {
         rt.block_on(async {
             if let Err(err) = ensure_daemon_running().await {
-                warn!(error = %err, "Failed to start daemon, continuing with direct access");
+                warn!(
+                    error = %err,
+                    "Failed to start daemon; Tauri remains IPC-only until daemon becomes reachable"
+                );
             }
         });
     } else {
