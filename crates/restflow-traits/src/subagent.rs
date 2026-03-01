@@ -95,6 +95,12 @@ pub struct SpawnRequest {
     #[serde(default)]
     pub model: Option<String>,
 
+    /// Optional provider selector paired with `model` (e.g., "openai-codex").
+    ///
+    /// When provided, runtime validates that the resolved model belongs to this provider.
+    #[serde(default)]
+    pub model_provider: Option<String>,
+
     /// Optional parent execution ID used for context propagation.
     ///
     /// This is injected by runtime when sub-agents are spawned from another
@@ -238,6 +244,7 @@ mod tests {
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
             model: None,
+            model_provider: None,
             parent_execution_id: None,
         };
 

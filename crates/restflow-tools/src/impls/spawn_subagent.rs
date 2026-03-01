@@ -38,6 +38,10 @@ pub struct SpawnSubagentParams {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub model: Option<String>,
 
+    /// Optional provider selector paired with model (e.g., "openai-codex").
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub provider: Option<String>,
+
     /// Optional parent execution ID (runtime-injected, internal use).
     #[cfg_attr(feature = "ts", ts(optional))]
     #[serde(default)]
@@ -190,6 +194,10 @@ impl Tool for SpawnSubagentTool {
                     "type": "string",
                     "description": "Optional model override for this sub-agent (e.g., 'minimax/coding-plan')"
                 },
+                "provider": {
+                    "type": "string",
+                    "description": "Provider selector paired with model override (e.g., 'openai-codex'). Required when model is set."
+                },
                 "parent_execution_id": {
                     "type": "string",
                     "description": "Optional parent execution ID for context propagation (runtime-injected)"
@@ -203,6 +211,21 @@ impl Tool for SpawnSubagentTool {
         let params: SpawnSubagentParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
         let agent_id = self.resolve_agent_id(&params.agent)?;
+        let has_model = params
+            .model
+            .as_ref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+        let has_provider = params
+            .provider
+            .as_ref()
+            .map(|value| !value.trim().is_empty())
+            .unwrap_or(false);
+        if has_model != has_provider {
+            return Err(ToolError::Tool(
+                "Model override requires both 'model' and 'provider' fields.".to_string(),
+            ));
+        }
 
         let request = SpawnRequest {
             agent_id,
@@ -210,6 +233,7 @@ impl Tool for SpawnSubagentTool {
             timeout_secs: params.timeout_secs,
             priority: None,
             model: params.model.clone(),
+            model_provider: params.provider.clone(),
             parent_execution_id: params.parent_execution_id.clone(),
         };
 
@@ -381,6 +405,14 @@ mod tests {
         assert_eq!(params.timeout_secs, Some(600));
     }
 
+    #[test]
+    fn test_params_with_model_and_provider() {
+        let json = r#"{"agent":"coder","task":"Write function","model":"gpt-5.3-codex","provider":"openai-codex"}"#;
+        let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(params.provider.as_deref(), Some("openai-codex"));
+    }
+
     #[tokio::test]
     async fn test_spawn_subagent_background() {
         let deps = make_test_deps(
@@ -454,6 +486,38 @@ mod tests {
         // Missing required "agent" and "task" fields
         let result = tool.execute(json!({"wait": true})).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_rejects_model_without_provider() {
+        let deps = make_test_deps(vec![("coder", "Coder")], vec![MockStep::text("done")]);
+        let tool = SpawnSubagentTool::new(deps);
+        let result = tool
+            .execute(json!({"agent": "coder", "task": "Write code", "model": "gpt-5.3-codex"}))
+            .await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires both 'model' and 'provider'")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_rejects_provider_without_model() {
+        let deps = make_test_deps(vec![("coder", "Coder")], vec![MockStep::text("done")]);
+        let tool = SpawnSubagentTool::new(deps);
+        let result = tool
+            .execute(json!({"agent": "coder", "task": "Write code", "provider": "openai-codex"}))
+            .await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires both 'model' and 'provider'")
+        );
     }
 
     #[tokio::test]

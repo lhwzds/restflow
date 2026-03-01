@@ -3,7 +3,7 @@
 use crate::agent::PromptFlags;
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::error::{AiError, Result};
-use crate::llm::{LlmClient, LlmClientFactory};
+use crate::llm::{LlmClient, LlmClientFactory, LlmProvider};
 use crate::tools::{FilteredToolset, ToolRegistry, Toolset};
 use dashmap::DashMap;
 use serde_json::json;
@@ -379,6 +379,7 @@ pub struct SubagentDeps {
 /// Priority: request.model > agent_def.default_model > parent llm_client.
 fn resolve_llm_client(
     request_model: Option<&str>,
+    request_provider: Option<&str>,
     def_default_model: Option<&str>,
     parent_client: &Arc<dyn LlmClient>,
     factory: Option<&Arc<dyn LlmClientFactory>>,
@@ -392,12 +393,41 @@ fn resolve_llm_client(
         return Ok(parent_client.clone());
     };
 
-    let resolved_model = resolve_model_name(model, factory.as_ref())?;
+    let resolved_model = resolve_model_with_provider(model, request_provider, factory.as_ref())?;
     let provider = factory
         .provider_for_model(&resolved_model)
         .ok_or_else(|| AiError::Agent(format!("Unknown model for sub-agent: {model}")))?;
     let api_key = factory.resolve_api_key(provider);
     factory.create_client(&resolved_model, api_key.as_deref())
+}
+
+fn resolve_model_with_provider(
+    model: &str,
+    provider: Option<&str>,
+    factory: &dyn LlmClientFactory,
+) -> Result<String> {
+    let resolved_model = resolve_model_name(model, factory)?;
+    let Some(provider_selector) = provider.map(str::trim).filter(|value| !value.is_empty()) else {
+        return Ok(resolved_model);
+    };
+
+    let requested_provider = parse_provider_selector(provider_selector).ok_or_else(|| {
+        AiError::Agent(format!(
+            "Unknown provider for sub-agent: {provider_selector}. \
+Try one of: openai-codex, anthropic, deepseek, google, groq, openrouter, xai, qwen, zai, minimax."
+        ))
+    })?;
+    let actual_provider = factory
+        .provider_for_model(&resolved_model)
+        .ok_or_else(|| AiError::Agent(format!("Unknown model for sub-agent: {resolved_model}")))?;
+    if actual_provider != requested_provider {
+        return Err(AiError::Agent(format!(
+            "Model '{resolved_model}' does not belong to provider '{provider_selector}' (actual: '{}').",
+            actual_provider.as_str()
+        )));
+    }
+
+    Ok(resolved_model)
 }
 
 fn resolve_model_name(model: &str, factory: &dyn LlmClientFactory) -> Result<String> {
@@ -536,6 +566,29 @@ fn resolve_model_alias(normalized_query: &str, available: &[String]) -> Option<S
     Some(prefix_matches[0].clone())
 }
 
+fn parse_provider_selector(value: &str) -> Option<LlmProvider> {
+    let normalized = normalize_model_identifier(value);
+    match normalized.as_str() {
+        "openai" | "gpt" | "openai-codex" | "codex" | "codex-cli" => Some(LlmProvider::OpenAI),
+        "anthropic" | "claude" | "claude-code" => Some(LlmProvider::Anthropic),
+        "deepseek" => Some(LlmProvider::DeepSeek),
+        "google" | "gemini" | "gemini-cli" => Some(LlmProvider::Google),
+        "groq" => Some(LlmProvider::Groq),
+        "openrouter" => Some(LlmProvider::OpenRouter),
+        "xai" | "grok" => Some(LlmProvider::XAI),
+        "qwen" => Some(LlmProvider::Qwen),
+        "zai" => Some(LlmProvider::Zai),
+        "zai-coding-plan" | "zai-coding" => Some(LlmProvider::ZaiCodingPlan),
+        "moonshot" | "kimi" => Some(LlmProvider::Moonshot),
+        "doubao" => Some(LlmProvider::Doubao),
+        "yi" => Some(LlmProvider::Yi),
+        "siliconflow" => Some(LlmProvider::SiliconFlow),
+        "minimax" => Some(LlmProvider::MiniMax),
+        "minimax-coding-plan" | "minimax-coding" => Some(LlmProvider::MiniMaxCodingPlan),
+        _ => None,
+    }
+}
+
 fn normalize_model_identifier(value: &str) -> String {
     let mut normalized = String::with_capacity(value.len());
     let mut previous_dash = false;
@@ -572,6 +625,7 @@ pub fn spawn_subagent(
     // Resolve the LLM client: request.model > def.default_model > parent
     let llm_client = resolve_llm_client(
         request.model.as_deref(),
+        request.model_provider.as_deref(),
         agent_def.default_model.as_deref(),
         &llm_client,
         llm_client_factory.as_ref(),
@@ -1000,6 +1054,7 @@ mod tests {
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
             model: None,
+            model_provider: None,
             parent_execution_id: None,
         };
 
@@ -1180,6 +1235,7 @@ mod tests {
                 timeout_secs: Some(10),
                 priority: None,
                 model: None,
+                model_provider: None,
                 parent_execution_id: None,
             },
             None,
@@ -1199,6 +1255,7 @@ mod tests {
                 timeout_secs: Some(10),
                 priority: None,
                 model: None,
+                model_provider: None,
                 parent_execution_id: None,
             },
             None,
@@ -1332,5 +1389,25 @@ mod tests {
         let factory = AliasOnlyFactory::new(vec!["gpt-5", "minimax-coding-plan-m2-5"]);
         let error = resolve_model_name("unknown-model", &factory).unwrap_err();
         assert!(error.to_string().contains("Try one of"));
+    }
+
+    #[test]
+    fn test_resolve_model_with_provider_accepts_codex_provider_alias() {
+        let factory = AliasOnlyFactory::new(vec!["gpt-5.3-codex"]);
+        let resolved =
+            resolve_model_with_provider("gpt-5.3-codex", Some("openai-codex"), &factory).unwrap();
+        assert_eq!(resolved, "gpt-5.3-codex");
+    }
+
+    #[test]
+    fn test_resolve_model_with_provider_rejects_mismatch() {
+        let factory = AliasOnlyFactory::new(vec!["gpt-5.3-codex"]);
+        let error =
+            resolve_model_with_provider("gpt-5.3-codex", Some("anthropic"), &factory).unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("does not belong to provider 'anthropic'")
+        );
     }
 }
