@@ -8,9 +8,10 @@ use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    AIModel, AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
-    ChatSession, ChatSessionSource, ChatSessionSummary, HookContext, HookEvent, MemoryChunk,
-    MemorySearchQuery, MessageExecution, SteerMessage, SteerSource, TerminalSession,
+    AIModel, AgentNode, BackgroundAgentStatus, ChannelSessionBinding, ChatExecutionStatus,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionSummary, HookContext,
+    HookEvent, MemoryChunk, MemorySearchQuery, MessageExecution, SteerMessage, SteerSource,
+    TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
@@ -154,14 +155,50 @@ fn normalize_model_input(model: &str) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("Unsupported model identifier: {}", model))
 }
 
-fn is_workspace_managed_session(session: &ChatSession) -> bool {
-    matches!(
-        session.source_channel,
-        None | Some(ChatSessionSource::Workspace)
-    )
+fn parse_binding_channel_source(channel: &str) -> Option<ChatSessionSource> {
+    match channel.trim().to_ascii_lowercase().as_str() {
+        "telegram" => Some(ChatSessionSource::Telegram),
+        "discord" => Some(ChatSessionSource::Discord),
+        "slack" => Some(ChatSessionSource::Slack),
+        _ => None,
+    }
 }
 
-fn build_rebuilt_external_session(source: &ChatSession) -> Result<ChatSession> {
+fn session_management_owner(
+    storage: &crate::storage::Storage,
+    session: &ChatSession,
+) -> Result<Option<ChatSessionSource>> {
+    let bindings = storage
+        .channel_session_bindings
+        .list_by_session(&session.id)?;
+    if let Some(binding) = bindings.first()
+        && let Some(source) = parse_binding_channel_source(&binding.channel)
+    {
+        return Ok(Some(source));
+    }
+    Ok(None)
+}
+
+fn is_workspace_managed_session(
+    storage: &crate::storage::Storage,
+    session: &ChatSession,
+) -> Result<bool> {
+    Ok(session_management_owner(storage, session)?.is_none())
+}
+
+fn resolve_external_session_route(
+    storage: &crate::storage::Storage,
+    source: &ChatSession,
+) -> Result<(ChatSessionSource, String)> {
+    let bindings = storage
+        .channel_session_bindings
+        .list_by_session(&source.id)?;
+    if let Some(binding) = bindings.first()
+        && let Some(source_channel) = parse_binding_channel_source(&binding.channel)
+    {
+        return Ok((source_channel, binding.conversation_id.trim().to_string()));
+    }
+
     let source_channel = match source.source_channel {
         Some(ChatSessionSource::Workspace) | None => {
             anyhow::bail!("Session is not externally managed")
@@ -173,7 +210,24 @@ fn build_rebuilt_external_session(source: &ChatSession) -> Result<ChatSession> {
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("External session is missing conversation_id"))?;
+        .ok_or_else(|| anyhow::anyhow!("External session is missing conversation_id"))?
+        .to_string();
+
+    Ok((source_channel, conversation_id))
+}
+
+fn build_rebuilt_external_session(
+    source: &ChatSession,
+    source_channel: ChatSessionSource,
+    conversation_id: &str,
+) -> Result<ChatSession> {
+    let conversation_id = conversation_id.trim();
+    if conversation_id.is_empty() {
+        anyhow::bail!("External session is missing conversation_id");
+    }
+    if source_channel == ChatSessionSource::Workspace {
+        anyhow::bail!("Session is not externally managed");
+    }
 
     let mut rebuilt = ChatSession::new(source.agent_id.clone(), source.model.clone())
         .with_name(format!("channel:{}", conversation_id))
@@ -187,6 +241,43 @@ fn build_rebuilt_external_session(source: &ChatSession) -> Result<ChatSession> {
     }
 
     Ok(rebuilt)
+}
+
+fn rebind_external_session_routes(
+    storage: &crate::storage::Storage,
+    from_session_id: &str,
+    to_session_id: &str,
+) -> Result<()> {
+    let bindings = storage
+        .channel_session_bindings
+        .list_by_session(from_session_id)?;
+    for binding in bindings {
+        let rebound = ChannelSessionBinding::new(
+            binding.channel,
+            binding.account_id,
+            binding.conversation_id,
+            to_session_id,
+        );
+        storage.channel_session_bindings.upsert(&rebound)?;
+    }
+    Ok(())
+}
+
+fn cleanup_session_route_bindings(
+    storage: &crate::storage::Storage,
+    session_id: &str,
+) -> Result<()> {
+    let bindings = storage
+        .channel_session_bindings
+        .list_by_session(session_id)?;
+    for binding in bindings {
+        storage.channel_session_bindings.remove_by_route(
+            &binding.channel,
+            binding.account_id.as_deref(),
+            &binding.conversation_id,
+        )?;
+    }
+    Ok(())
 }
 
 #[async_trait]
@@ -1098,6 +1189,15 @@ impl IpcServer {
                                 Ok(true) => {
                                     deleted += 1;
                                     if let Err(error) =
+                                        cleanup_session_route_bindings(&core.storage, &session.id)
+                                    {
+                                        warn!(
+                                            session_id = %session.id,
+                                            error = %error,
+                                            "Failed to clean up channel-session bindings after session retention delete"
+                                        );
+                                    }
+                                    if let Err(error) =
                                         core.storage.tool_traces.delete_by_session(&session.id)
                                     {
                                         warn!(
@@ -1173,15 +1273,25 @@ impl IpcServer {
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
 
-                if !is_workspace_managed_session(&session) {
+                let workspace_managed = match is_workspace_managed_session(&core.storage, &session)
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                if !workspace_managed {
+                    let owner = session_management_owner(&core.storage, &session)
+                        .ok()
+                        .flatten()
+                        .or(match session.source_channel {
+                            Some(ChatSessionSource::Workspace) | None => None,
+                            Some(source) => Some(source),
+                        })
+                        .unwrap_or(ChatSessionSource::ExternalLegacy);
                     return IpcResponse::error(
                         403,
                         format!(
                             "Session {} is managed by {:?} and cannot be updated from workspace",
-                            session.id,
-                            session
-                                .source_channel
-                                .unwrap_or(ChatSessionSource::ExternalLegacy),
+                            session.id, owner,
                         ),
                     );
                 }
@@ -1235,15 +1345,25 @@ impl IpcServer {
                     Ok(None) => return IpcResponse::not_found("Session"),
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
-                if !is_workspace_managed_session(&session) {
+                let workspace_managed = match is_workspace_managed_session(&core.storage, &session)
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                if !workspace_managed {
+                    let owner = session_management_owner(&core.storage, &session)
+                        .ok()
+                        .flatten()
+                        .or(match session.source_channel {
+                            Some(ChatSessionSource::Workspace) | None => None,
+                            Some(source) => Some(source),
+                        })
+                        .unwrap_or(ChatSessionSource::ExternalLegacy);
                     return IpcResponse::error(
                         403,
                         format!(
                             "Session {} is managed by {:?} and cannot be renamed from workspace",
-                            session.id,
-                            session
-                                .source_channel
-                                .unwrap_or(ChatSessionSource::ExternalLegacy),
+                            session.id, owner,
                         ),
                     );
                 }
@@ -1266,15 +1386,25 @@ impl IpcServer {
                     }
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
-                if !is_workspace_managed_session(&session) {
+                let workspace_managed = match is_workspace_managed_session(&core.storage, &session)
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                if !workspace_managed {
+                    let owner = session_management_owner(&core.storage, &session)
+                        .ok()
+                        .flatten()
+                        .or(match session.source_channel {
+                            Some(ChatSessionSource::Workspace) | None => None,
+                            Some(source) => Some(source),
+                        })
+                        .unwrap_or(ChatSessionSource::ExternalLegacy);
                     return IpcResponse::error(
                         403,
                         format!(
                             "Session {} is managed by {:?} and cannot be deleted from workspace",
-                            session.id,
-                            session
-                                .source_channel
-                                .unwrap_or(ChatSessionSource::ExternalLegacy),
+                            session.id, owner,
                         ),
                     );
                 }
@@ -1282,6 +1412,13 @@ impl IpcServer {
                 match core.storage.chat_sessions.delete(&id) {
                     Ok(deleted) => {
                         if deleted {
+                            if let Err(error) = cleanup_session_route_bindings(&core.storage, &id) {
+                                warn!(
+                                    session_id = %id,
+                                    error = %error,
+                                    "Failed to clean up channel-session bindings after session delete"
+                                );
+                            }
                             if let Err(error) = core.storage.tool_traces.delete_by_session(&id) {
                                 warn!(
                                     session_id = %id,
@@ -1304,7 +1441,16 @@ impl IpcServer {
                     Ok(None) => return IpcResponse::not_found("Session"),
                     Err(err) => return IpcResponse::error(500, err.to_string()),
                 };
-                let rebuilt = match build_rebuilt_external_session(&session) {
+                let (source_channel, conversation_id) =
+                    match resolve_external_session_route(&core.storage, &session) {
+                        Ok(route) => route,
+                        Err(err) => return IpcResponse::error(400, err.to_string()),
+                    };
+                let rebuilt = match build_rebuilt_external_session(
+                    &session,
+                    source_channel,
+                    &conversation_id,
+                ) {
                     Ok(rebuilt) => rebuilt,
                     Err(err) => return IpcResponse::error(400, err.to_string()),
                 };
@@ -1323,6 +1469,11 @@ impl IpcServer {
                 if !deleted_old {
                     let _ = core.storage.chat_sessions.delete(&rebuilt.id);
                     return IpcResponse::not_found("Session");
+                }
+
+                if let Err(err) = rebind_external_session_routes(&core.storage, &id, &rebuilt.id) {
+                    let _ = core.storage.chat_sessions.delete(&rebuilt.id);
+                    return IpcResponse::error(500, err.to_string());
                 }
 
                 if let Err(error) = core.storage.tool_traces.delete_by_session(&id) {
@@ -2281,10 +2432,17 @@ fn build_agent_system_prompt(core: &Arc<AppCore>, agent_node: AgentNode) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{AgentNode, Skill};
+    use crate::models::{AgentNode, ChannelSessionBinding, Skill};
     use restflow_ai::steer::SteerCommand;
     use restflow_traits::store::ReplySender;
     use tempfile::tempdir;
+
+    async fn create_test_core() -> (Arc<AppCore>, tempfile::TempDir) {
+        let temp = tempdir().expect("tempdir");
+        let db_path = temp.path().join("ipc-server-test.db");
+        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        (core, temp)
+    }
 
     #[test]
     fn normalize_model_input_converts_to_serialized_form() {
@@ -2300,21 +2458,36 @@ mod tests {
         assert!(normalize_model_input("not-a-real-model").is_err());
     }
 
-    #[test]
-    fn is_workspace_managed_session_accepts_workspace_and_legacy_sessions() {
+    #[tokio::test]
+    async fn is_workspace_managed_session_accepts_sessions_without_channel_bindings() {
+        let (core, _temp) = create_test_core().await;
+
         let mut workspace = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
         workspace.source_channel = Some(ChatSessionSource::Workspace);
-        assert!(is_workspace_managed_session(&workspace));
+        assert!(is_workspace_managed_session(&core.storage, &workspace).unwrap());
 
         let legacy = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
-        assert!(is_workspace_managed_session(&legacy));
+        assert!(is_workspace_managed_session(&core.storage, &legacy).unwrap());
     }
 
-    #[test]
-    fn is_workspace_managed_session_rejects_external_channel_sessions() {
+    #[tokio::test]
+    async fn is_workspace_managed_session_rejects_sessions_with_channel_bindings() {
+        let (core, _temp) = create_test_core().await;
+
         let mut telegram = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
         telegram.source_channel = Some(ChatSessionSource::Telegram);
-        assert!(!is_workspace_managed_session(&telegram));
+        core.storage.chat_sessions.create(&telegram).unwrap();
+        core.storage
+            .channel_session_bindings
+            .upsert(&ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "chat-123",
+                &telegram.id,
+            ))
+            .unwrap();
+
+        assert!(!is_workspace_managed_session(&core.storage, &telegram).unwrap());
     }
 
     #[test]
@@ -2326,7 +2499,9 @@ mod tests {
             .with_retention("7d");
         source.source_conversation_id = Some("chat-123".to_string());
 
-        let rebuilt = build_rebuilt_external_session(&source).expect("rebuilt session");
+        let rebuilt =
+            build_rebuilt_external_session(&source, ChatSessionSource::Telegram, "chat-123")
+                .expect("rebuilt session");
         assert_ne!(rebuilt.id, source.id);
         assert_eq!(rebuilt.agent_id, source.agent_id);
         assert_eq!(rebuilt.model, source.model);
@@ -2342,16 +2517,39 @@ mod tests {
         let mut source = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
         source.source_channel = Some(ChatSessionSource::Workspace);
         source.source_conversation_id = Some("chat-123".to_string());
-        let err = build_rebuilt_external_session(&source).expect_err("should fail");
+        let err = build_rebuilt_external_session(&source, ChatSessionSource::Workspace, "chat-123")
+            .expect_err("should fail");
         assert!(err.to_string().contains("not externally managed"));
+    }
+
+    #[tokio::test]
+    async fn resolve_external_session_route_prefers_binding_over_legacy_fields() {
+        let (core, _temp) = create_test_core().await;
+
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
+            .with_source(ChatSessionSource::Telegram, "legacy-chat");
+        session.source_conversation_id = Some("legacy-chat".to_string());
+        core.storage.chat_sessions.create(&session).unwrap();
+        core.storage
+            .channel_session_bindings
+            .upsert(&ChannelSessionBinding::new(
+                "discord",
+                None,
+                "binding-chat",
+                &session.id,
+            ))
+            .unwrap();
+
+        let (channel, conversation_id) =
+            resolve_external_session_route(&core.storage, &session).unwrap();
+        assert_eq!(channel, ChatSessionSource::Discord);
+        assert_eq!(conversation_id, "binding-chat");
     }
 
     #[tokio::test]
     /// Skills are now registered as callable tools, not injected into the system prompt.
     async fn build_agent_system_prompt_does_not_inject_skills() {
-        let temp = tempdir().expect("tempdir");
-        let db_path = temp.path().join("ipc-server-test.db");
-        let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+        let (core, _temp) = create_test_core().await;
 
         let skill = Skill::new(
             "skill-1".to_string(),
