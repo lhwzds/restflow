@@ -9,12 +9,11 @@
 )]
 
 use clap::Parser;
-use restflow_core::daemon::ensure_daemon_running;
 use restflow_tauri_lib::AppState;
 use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
 use tauri::Manager;
-use tracing::{info, warn};
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 /// RestFlow Desktop Application
@@ -40,19 +39,6 @@ fn main() {
     // don't land in the project or user home directory.
     if let Ok(dir) = restflow_core::paths::ensure_restflow_dir() {
         let _ = std::env::set_current_dir(&dir);
-    }
-
-    if let Ok(rt) = tokio::runtime::Runtime::new() {
-        rt.block_on(async {
-            if let Err(err) = ensure_daemon_running().await {
-                warn!(
-                    error = %err,
-                    "Failed to start daemon; Tauri remains IPC-only until daemon becomes reachable"
-                );
-            }
-        });
-    } else {
-        warn!("Failed to create runtime for daemon startup");
     }
 
     tauri::Builder::default()
