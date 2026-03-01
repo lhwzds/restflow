@@ -28,6 +28,7 @@ import ToolPanel from '@/components/tool-panel/ToolPanel.vue'
 import ConvertToBackgroundAgentDialog from '@/components/workspace/ConvertToBackgroundAgentDialog.vue'
 import CreateAgentDialog from '@/components/workspace/CreateAgentDialog.vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
+import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { confirmDelete, useConfirm } from '@/composables/useConfirm'
@@ -42,6 +43,7 @@ const toast = useToast()
 const { t } = useI18n()
 const { confirm } = useConfirm()
 const chatSessionStore = useChatSessionStore()
+const backgroundAgentStore = useBackgroundAgentStore()
 const { isDark, toggleDark } = useTheme()
 
 const showSettings = ref(false)
@@ -68,6 +70,11 @@ const createAgentDialogOpen = ref(false)
 
 const sessions = computed<SessionItem[]>(() => {
   const agentLookup = new Map(availableAgents.value.map((a) => [a.id, a.name]))
+  const backgroundSessionIds = new Set(
+    backgroundAgentStore.agents
+      .map((agent) => agent.chat_session_id.trim())
+      .filter((id) => id.length > 0),
+  )
 
   return chatSessionStore.summaries.map((session: ChatSessionSummary) => ({
     id: session.id,
@@ -82,6 +89,7 @@ const sessions = computed<SessionItem[]>(() => {
     agentId: session.agent_id,
     agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
     sourceChannel: session.source_channel,
+    isBackgroundSession: backgroundSessionIds.has(session.id),
   }))
 })
 
