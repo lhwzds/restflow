@@ -53,8 +53,9 @@ pub use audit::{
     LifecycleAudit, LlmCallAudit, MessageAudit, ModelSwitchAudit, ToolCallAudit,
 };
 pub use chat_session::{
-    ChatExecutionStatus, ChatMessage, ChatRole, ChatSession, ChatSessionMetadata,
-    ChatSessionSource, ChatSessionSummary, ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
+    ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
+    ChatRole, ChatSession, ChatSessionMetadata, ChatSessionSource, ChatSessionSummary,
+    ChatSessionUpdate, ExecutionStepInfo, MessageExecution,
 };
 pub use restflow_storage::Secret;
 pub use security::{

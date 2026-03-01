@@ -55,6 +55,68 @@ pub enum ChatExecutionStatus {
     Failed,
 }
 
+/// Structured media type for a chat message.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum ChatMediaType {
+    /// Voice audio message.
+    Voice,
+}
+
+/// Structured media payload for a chat message.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct ChatMessageMedia {
+    /// Media kind.
+    pub media_type: ChatMediaType,
+    /// Local file path for this media asset.
+    pub file_path: String,
+    /// Optional media duration in seconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub duration_sec: Option<u32>,
+}
+
+impl ChatMessageMedia {
+    /// Create a voice media descriptor.
+    pub fn voice(file_path: impl Into<String>, duration_sec: Option<u32>) -> Self {
+        Self {
+            media_type: ChatMediaType::Voice,
+            file_path: file_path.into(),
+            duration_sec,
+        }
+    }
+}
+
+/// Structured transcript payload for a chat message.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[ts(export)]
+pub struct ChatMessageTranscript {
+    /// Final transcript text.
+    pub text: String,
+    /// Optional model identifier used for transcription.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub model: Option<String>,
+    /// Optional update timestamp in Unix milliseconds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    #[ts(type = "number")]
+    pub updated_at: Option<i64>,
+}
+
+impl ChatMessageTranscript {
+    /// Create transcript payload with optional model metadata.
+    pub fn new(text: impl Into<String>, model: Option<String>) -> Self {
+        Self {
+            text: text.into(),
+            model,
+            updated_at: Some(chrono::Utc::now().timestamp_millis()),
+        }
+    }
+}
+
 /// Information about a single execution step.
 ///
 /// Tracks individual steps taken during agent execution, such as
@@ -183,6 +245,14 @@ pub struct ChatMessage {
     /// Execution details for assistant messages
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution: Option<MessageExecution>,
+    /// Optional structured media metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub media: Option<ChatMessageMedia>,
+    /// Optional structured transcript metadata.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub transcript: Option<ChatMessageTranscript>,
 }
 
 fn new_message_id() -> String {
@@ -198,6 +268,8 @@ impl ChatMessage {
             content: content.into(),
             timestamp: chrono::Utc::now().timestamp_millis(),
             execution: None,
+            media: None,
+            transcript: None,
         }
     }
 
@@ -209,6 +281,8 @@ impl ChatMessage {
             content: content.into(),
             timestamp: chrono::Utc::now().timestamp_millis(),
             execution: None,
+            media: None,
+            transcript: None,
         }
     }
 
@@ -220,12 +294,26 @@ impl ChatMessage {
             content: content.into(),
             timestamp: chrono::Utc::now().timestamp_millis(),
             execution: None,
+            media: None,
+            transcript: None,
         }
     }
 
     /// Add execution details to an assistant message.
     pub fn with_execution(mut self, execution: MessageExecution) -> Self {
         self.execution = Some(execution);
+        self
+    }
+
+    /// Attach structured media metadata.
+    pub fn with_media(mut self, media: ChatMessageMedia) -> Self {
+        self.media = Some(media);
+        self
+    }
+
+    /// Attach structured transcript metadata.
+    pub fn with_transcript(mut self, transcript: ChatMessageTranscript) -> Self {
+        self.transcript = Some(transcript);
         self
     }
 }
@@ -568,6 +656,8 @@ mod tests {
         assert_eq!(msg.role, ChatRole::User);
         assert_eq!(msg.content, "Hello!");
         assert!(msg.execution.is_none());
+        assert!(msg.media.is_none());
+        assert!(msg.transcript.is_none());
     }
 
     #[test]
@@ -589,6 +679,26 @@ mod tests {
         let msg = ChatMessage::assistant("Done!").with_execution(exec);
         assert!(msg.execution.is_some());
         assert_eq!(msg.execution.unwrap().tokens_used, 100);
+    }
+
+    #[test]
+    fn test_chat_message_with_media_and_transcript() {
+        let msg = ChatMessage::user("[Voice message]")
+            .with_media(ChatMessageMedia::voice("/tmp/voice.webm", Some(8)))
+            .with_transcript(ChatMessageTranscript::new(
+                "hello",
+                Some("whisper-1".to_string()),
+            ));
+        assert!(msg.media.is_some());
+        assert!(msg.transcript.is_some());
+        assert_eq!(
+            msg.media.as_ref().map(|m| m.media_type),
+            Some(ChatMediaType::Voice)
+        );
+        assert_eq!(
+            msg.transcript.as_ref().map(|t| t.text.as_str()),
+            Some("hello")
+        );
     }
 
     #[test]
@@ -721,6 +831,21 @@ mod tests {
     #[test]
     fn export_bindings_chat_execution_status() {
         ChatExecutionStatus::export_to_string(&ts_rs::Config::default()).unwrap();
+    }
+
+    #[test]
+    fn export_bindings_chat_media_type() {
+        ChatMediaType::export_to_string(&ts_rs::Config::default()).unwrap();
+    }
+
+    #[test]
+    fn export_bindings_chat_message_media() {
+        ChatMessageMedia::export_to_string(&ts_rs::Config::default()).unwrap();
+    }
+
+    #[test]
+    fn export_bindings_chat_message_transcript() {
+        ChatMessageTranscript::export_to_string(&ts_rs::Config::default()).unwrap();
     }
 
     #[test]

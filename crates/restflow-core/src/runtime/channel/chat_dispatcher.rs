@@ -22,7 +22,7 @@ use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
     ToolTraceEmitter, append_turn_completed, append_turn_failed, append_turn_started,
-    build_execution_steps, enrich_voice_message_with_transcript,
+    build_turn_persistence_payload, hydrate_voice_message_metadata,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
@@ -432,7 +432,9 @@ impl ChatSessionManager {
             .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
 
         // Add user message
-        session.add_message(ChatMessage::user(user_message));
+        let mut user_msg = ChatMessage::user(user_message);
+        hydrate_voice_message_metadata(&mut user_msg);
+        session.add_message(user_msg);
 
         // Add assistant message (with execution info if provided)
         let msg = if let Some(exec) = execution {
@@ -857,29 +859,14 @@ impl ChatDispatcher {
 
         // 5. Save exchange to session (use `input` which includes [Media Context] for voice messages)
         let duration_ms = started_at.elapsed().as_millis() as u64;
-        let mut execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
-        let traces =
-            match self
-                .storage
-                .tool_traces
-                .list_by_session_turn(&session.id, &turn_id, None)
-            {
-                Ok(traces) => traces,
-                Err(error) => {
-                    warn!(
-                        session_id = %session.id,
-                        turn_id = %turn_id,
-                        error = %error,
-                        "Failed to load tool traces for transcript enrichment"
-                    );
-                    Vec::new()
-                }
-            };
-        for step in build_execution_steps(&traces) {
-            execution.add_step(step);
-        }
-        let persisted_input =
-            enrich_voice_message_with_transcript(&input, &traces).unwrap_or_else(|| input.clone());
+        let (execution, persisted_input) = build_turn_persistence_payload(
+            &self.storage.tool_traces,
+            &session.id,
+            &turn_id,
+            &input,
+            duration_ms,
+            exec_result.iterations,
+        );
         if let Err(e) = self.sessions.append_exchange(
             &session.id,
             &persisted_input,

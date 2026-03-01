@@ -69,6 +69,7 @@ mod handler;
 mod router;
 pub mod tool_trace_emitter;
 mod trigger;
+mod turn_persistence;
 mod voice_transcript;
 
 pub use chat_dispatcher::{ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager};
@@ -83,8 +84,9 @@ pub use tool_trace_emitter::{
     append_turn_started, build_execution_steps,
 };
 pub use trigger::{BackgroundAgentTrigger, SystemStatus};
+pub(crate) use turn_persistence::build_turn_persistence_payload;
 pub(crate) use voice_transcript::{
-    enrich_voice_message_with_transcript, replace_latest_user_message_content,
+    hydrate_voice_message_metadata, replace_latest_user_message_content,
 };
 
 // Re-export for convenience

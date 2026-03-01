@@ -1,10 +1,46 @@
-use crate::models::{ChatRole, ChatSession, ToolCallCompletion, ToolTrace, ToolTraceEvent};
+use crate::models::chat_session::{ChatMessageMedia, ChatMessageTranscript};
+use crate::models::{
+    ChatMessage, ChatRole, ChatSession, ToolCallCompletion, ToolTrace, ToolTraceEvent,
+};
 use std::collections::HashMap;
 
 const TRANSCRIBE_TOOL_NAME: &str = "transcribe";
 const VOICE_MEDIA_TYPE_LINE: &str = "media_type: voice";
 const FILE_PATH_PREFIX: &str = "local_file_path: ";
 const TRANSCRIPT_MARKER: &str = "\n\n[Transcript]\n";
+const VOICE_HEADER_PREFIX: &str = "[Voice message";
+
+/// Populate structured voice metadata from legacy message content blocks.
+///
+/// This keeps existing stored message text compatible while progressively
+/// hydrating `ChatMessage.media` and `ChatMessage.transcript`.
+pub(crate) fn hydrate_voice_message_metadata(message: &mut ChatMessage) -> bool {
+    if message.role != ChatRole::User {
+        return false;
+    }
+
+    let mut changed = false;
+    if message.media.is_none()
+        && let Some(file_path) = extract_voice_file_path(&message.content)
+    {
+        let duration = extract_voice_duration_sec(&message.content);
+        message.media = Some(ChatMessageMedia::voice(file_path, duration));
+        changed = true;
+    }
+
+    if let Some(transcript_text) = extract_transcript_from_message_content(&message.content) {
+        let should_update = message
+            .transcript
+            .as_ref()
+            .is_none_or(|existing| existing.text.trim() != transcript_text);
+        if should_update {
+            message.transcript = Some(ChatMessageTranscript::new(transcript_text, None));
+            changed = true;
+        }
+    }
+
+    changed
+}
 
 /// Enrich a voice message content with transcript text extracted from tool traces.
 ///
@@ -47,7 +83,9 @@ pub(crate) fn replace_latest_user_message_content(
         return false;
     };
 
-    session.messages[index].content = updated_content.to_string();
+    let message = &mut session.messages[index];
+    message.content = updated_content.to_string();
+    hydrate_voice_message_metadata(message);
     true
 }
 
@@ -71,6 +109,26 @@ fn extract_voice_file_path(content: &str) -> Option<String> {
     }
 
     if is_voice_message { file_path } else { None }
+}
+
+fn extract_voice_duration_sec(content: &str) -> Option<u32> {
+    let first_line = content.lines().next()?.trim();
+    if !first_line.starts_with(VOICE_HEADER_PREFIX) {
+        return None;
+    }
+    let (_, tail) = first_line.split_once(',')?;
+    let seconds = tail.trim().strip_suffix("s]")?.trim();
+    seconds.parse::<u32>().ok()
+}
+
+fn extract_transcript_from_message_content(content: &str) -> Option<String> {
+    let (_, body) = content.split_once(TRANSCRIPT_MARKER)?;
+    let transcript = body.trim();
+    if transcript.is_empty() {
+        None
+    } else {
+        Some(transcript.to_string())
+    }
 }
 
 fn parse_json_value(input: &str) -> Option<serde_json::Value> {
@@ -137,44 +195,46 @@ fn find_matching_transcript(traces: &[ToolTrace], voice_path: &str) -> Option<St
         if trace.tool_name.as_deref() != Some(TRANSCRIBE_TOOL_NAME) {
             continue;
         }
+        if trace.event_type != ToolTraceEvent::ToolCallStarted {
+            continue;
+        }
+        let Some(tool_call_id) = trace.tool_call_id.as_deref() else {
+            continue;
+        };
+        if let Some(path) = extract_file_path_from_payload(trace.input.as_deref()) {
+            call_to_file_path.insert(tool_call_id.to_string(), path);
+        }
+    }
 
-        match trace.event_type {
-            ToolTraceEvent::ToolCallStarted => {
-                let Some(tool_call_id) = trace.tool_call_id.as_deref() else {
-                    continue;
-                };
-                if let Some(path) = extract_file_path_from_payload(trace.input.as_deref()) {
-                    call_to_file_path.insert(tool_call_id.to_string(), path);
-                }
-            }
-            ToolTraceEvent::ToolCallCompleted => {
-                if !trace.success.unwrap_or(false) {
-                    continue;
-                }
-                let Some(tool_call_id) = trace.tool_call_id.as_deref() else {
-                    continue;
-                };
+    for trace in traces {
+        if trace.tool_name.as_deref() != Some(TRANSCRIBE_TOOL_NAME) {
+            continue;
+        }
+        if trace.event_type != ToolTraceEvent::ToolCallCompleted || !trace.success.unwrap_or(false)
+        {
+            continue;
+        }
+        let Some(tool_call_id) = trace.tool_call_id.as_deref() else {
+            continue;
+        };
 
-                let completion = ToolCallCompletion {
-                    output: trace.output.clone(),
-                    output_ref: trace.output_ref.clone(),
-                    success: trace.success.unwrap_or(false),
-                    duration_ms: trace.duration_ms,
-                    error: trace.error.clone(),
-                };
-                let Some(transcript) = extract_transcript_from_completion(&completion) else {
-                    continue;
-                };
+        let completion = ToolCallCompletion {
+            output: trace.output.clone(),
+            output_ref: trace.output_ref.clone(),
+            success: trace.success.unwrap_or(false),
+            duration_ms: trace.duration_ms,
+            error: trace.error.clone(),
+        };
+        let Some(transcript) = extract_transcript_from_completion(&completion) else {
+            continue;
+        };
 
-                let path = call_to_file_path
-                    .get(tool_call_id)
-                    .cloned()
-                    .or_else(|| extract_file_path_from_payload(trace.output.as_deref()));
-                if path.as_deref() == Some(voice_path) {
-                    return Some(transcript);
-                }
-            }
-            _ => {}
+        let path = call_to_file_path
+            .get(tool_call_id)
+            .cloned()
+            .or_else(|| extract_file_path_from_payload(trace.output.as_deref()));
+        if path.as_deref() == Some(voice_path) {
+            return Some(transcript);
         }
     }
 
@@ -197,14 +257,46 @@ fn upsert_transcript_block(message_content: &str, transcript: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ChatMessage, ToolTrace};
+    use crate::models::ToolTrace;
+    use crate::models::chat_session::ChatMediaType;
     use serde_json::json;
     use tempfile::tempdir;
 
     fn voice_message(path: &str) -> String {
         format!(
-            "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {path}\ninstruction: Use the transcribe tool with this file_path before answering."
+            "[Voice message, 6s]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {path}\ninstruction: Use the transcribe tool with this file_path before answering."
         )
+    }
+
+    #[test]
+    fn hydrate_voice_metadata_from_content() {
+        let mut message = ChatMessage::user(voice_message("/tmp/voice-a.webm"));
+        let changed = hydrate_voice_message_metadata(&mut message);
+        assert!(changed);
+        assert_eq!(
+            message.media.as_ref().map(|m| m.media_type),
+            Some(ChatMediaType::Voice)
+        );
+        assert_eq!(
+            message.media.as_ref().map(|m| m.file_path.as_str()),
+            Some("/tmp/voice-a.webm")
+        );
+        assert_eq!(message.media.as_ref().and_then(|m| m.duration_sec), Some(6));
+        assert!(message.transcript.is_none());
+    }
+
+    #[test]
+    fn hydrate_transcript_from_content_block() {
+        let mut message = ChatMessage::user(format!(
+            "{}\n\n[Transcript]\nhello from transcript",
+            voice_message("/tmp/voice-a.webm")
+        ));
+        let changed = hydrate_voice_message_metadata(&mut message);
+        assert!(changed);
+        assert_eq!(
+            message.transcript.as_ref().map(|t| t.text.as_str()),
+            Some("hello from transcript")
+        );
     }
 
     #[test]
@@ -300,7 +392,7 @@ mod tests {
     }
 
     #[test]
-    fn replace_latest_matching_user_message() {
+    fn replace_latest_matching_user_message_hydrates_metadata() {
         let original = voice_message("/tmp/voice-a.webm");
         let updated = format!("{original}\n\n[Transcript]\nhello");
 
@@ -310,13 +402,15 @@ mod tests {
 
         let changed = replace_latest_user_message_content(&mut session, &original, &updated);
         assert!(changed);
+        let message = session.messages.last().expect("last message should exist");
+        assert_eq!(message.content, updated);
         assert_eq!(
-            session
-                .messages
-                .last()
-                .expect("last message should exist")
-                .content,
-            updated
+            message.media.as_ref().map(|m| m.file_path.as_str()),
+            Some("/tmp/voice-a.webm")
+        );
+        assert_eq!(
+            message.transcript.as_ref().map(|t| t.text.as_str()),
+            Some("hello")
         );
     }
 }
