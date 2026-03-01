@@ -4,6 +4,7 @@ pub mod agent_meta;
 pub mod ai_model;
 pub mod audit;
 pub mod background_agent;
+pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
@@ -35,6 +36,7 @@ pub use background_agent::{
     CliExecutionConfig, ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig,
     MemoryScope, NotificationConfig, ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
 };
+pub use channel_session_binding::ChannelSessionBinding;
 pub use checkpoint::{AgentCheckpoint, ResumePayload};
 pub use deliverable::{Deliverable, DeliverableType};
 pub use hook::{Hook, HookAction, HookContext, HookEvent, HookFilter};
