@@ -252,4 +252,45 @@ describe('useChatStream', () => {
 
     wrapper.unmount()
   })
+
+  it('formats subagent tool labels with useful context', async () => {
+    vi.mocked(sendChatMessageStream).mockResolvedValue('msg-4')
+
+    const wrapper = createHarness()
+    const vm = wrapper.vm as unknown as {
+      stream: ReturnType<typeof useChatStream>
+    }
+
+    await vm.stream.send('delegate')
+    emitEvent({
+      session_id: 'session-1',
+      message_id: 'msg-4',
+      timestamp: Date.now(),
+      kind: {
+        type: 'tool_call_start',
+        tool_id: 'tool-spawn',
+        tool_name: 'spawn_agent',
+        arguments: '{"agent":"code-planner","task":"plan","model":"zai-coding-plan-glm-5"}',
+      },
+    })
+    emitEvent({
+      session_id: 'session-1',
+      message_id: 'msg-4',
+      timestamp: Date.now(),
+      kind: {
+        type: 'tool_call_end',
+        tool_id: 'tool-spawn',
+        result: '{"task_id":"1234567890abcdef","status":"spawned"}',
+        success: true,
+      },
+    })
+
+    expect(vm.stream.state.value.steps).toHaveLength(1)
+    expect(vm.stream.state.value.steps[0]?.name).toBe('spawn_agent')
+    expect(vm.stream.state.value.steps[0]?.displayName).toContain('code-planner')
+    expect(vm.stream.state.value.steps[0]?.displayName).toContain('@zai-coding-plan-glm-5')
+    expect(vm.stream.state.value.steps[0]?.displayName).toContain('#12345678')
+
+    wrapper.unmount()
+  })
 })
