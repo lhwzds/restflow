@@ -2122,6 +2122,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_write_does_not_count_as_read_for_existing_file() {
+        let temp_dir = TempDir::new().unwrap();
+        let file_path = temp_dir.path().join("new.txt");
+        let tool = FileTool::new();
+
+        // First write creates a new file and is allowed without prior read.
+        let first_write = tool
+            .execute(serde_json::json!({
+                "action": "write",
+                "path": file_path.display().to_string(),
+                "content": "v1"
+            }))
+            .await
+            .unwrap();
+        assert!(first_write.success);
+
+        // Second write targets an existing file and must still require a read.
+        let second_write = tool
+            .execute(serde_json::json!({
+                "action": "write",
+                "path": file_path.display().to_string(),
+                "content": "v2"
+            }))
+            .await
+            .unwrap();
+        assert!(!second_write.success);
+        assert!(
+            second_write
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("You must read")
+        );
+    }
+
+    #[tokio::test]
     async fn test_list_directory() {
         let temp_dir = TempDir::new().unwrap();
         let tool = FileTool::new();
