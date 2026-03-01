@@ -391,11 +391,168 @@ fn resolve_llm_client(
         // No factory available — fall back to parent even if a model was requested.
         return Ok(parent_client.clone());
     };
+
+    let resolved_model = resolve_model_name(model, factory.as_ref())?;
     let provider = factory
-        .provider_for_model(model)
+        .provider_for_model(&resolved_model)
         .ok_or_else(|| AiError::Agent(format!("Unknown model for sub-agent: {model}")))?;
     let api_key = factory.resolve_api_key(provider);
-    factory.create_client(model, api_key.as_deref())
+    factory.create_client(&resolved_model, api_key.as_deref())
+}
+
+fn resolve_model_name(model: &str, factory: &dyn LlmClientFactory) -> Result<String> {
+    let query = model.trim();
+    if query.is_empty() {
+        return Err(AiError::Agent(
+            "Unknown model for sub-agent: empty model".to_string(),
+        ));
+    }
+
+    let available = factory.available_models();
+    if available.is_empty() {
+        return Err(AiError::Agent(format!(
+            "Unknown model for sub-agent: {model}. No model catalog is available."
+        )));
+    }
+
+    if let Some(exact) = available
+        .iter()
+        .find(|candidate| candidate.eq_ignore_ascii_case(query))
+    {
+        return Ok(exact.clone());
+    }
+
+    if factory.provider_for_model(query).is_some() {
+        return Ok(query.to_string());
+    }
+
+    let normalized_query = normalize_model_identifier(query);
+    if normalized_query.is_empty() {
+        return Err(AiError::Agent(format!(
+            "Unknown model for sub-agent: {model}"
+        )));
+    }
+
+    let normalized_exact_matches: Vec<&String> = available
+        .iter()
+        .filter(|candidate| normalize_model_identifier(candidate) == normalized_query)
+        .collect();
+    if normalized_exact_matches.len() == 1 {
+        return Ok(normalized_exact_matches[0].clone());
+    }
+
+    if let Some((provider, model_name)) = query.split_once(':') {
+        let provider_joined = normalize_model_identifier(&format!("{provider}-{model_name}"));
+        let canonical_matches: Vec<&String> = available
+            .iter()
+            .filter(|candidate| normalize_model_identifier(candidate) == provider_joined)
+            .collect();
+        if canonical_matches.len() == 1 {
+            return Ok(canonical_matches[0].clone());
+        }
+    }
+
+    if let Some(alias_resolved) = resolve_model_alias(&normalized_query, &available) {
+        return Ok(alias_resolved);
+    }
+
+    let suggestions = available
+        .iter()
+        .take(8)
+        .cloned()
+        .collect::<Vec<_>>()
+        .join(", ");
+    Err(AiError::Agent(format!(
+        "Unknown model for sub-agent: {model}. Try one of: {suggestions}"
+    )))
+}
+
+fn resolve_model_alias(normalized_query: &str, available: &[String]) -> Option<String> {
+    let mut normalized_available = available
+        .iter()
+        .map(|candidate| (normalize_model_identifier(candidate), candidate.clone()))
+        .collect::<Vec<(String, String)>>();
+
+    // Prefer stronger variants for coding-plan aliases.
+    // MiniMax coding plan -> prefer M2.5 when no exact suffix was provided.
+    if matches!(
+        normalized_query,
+        "minimax-coding-plan" | "minimax-coding" | "coding-plan-minimax"
+    ) || normalized_query.starts_with("minimax-coding-plan")
+    {
+        let mut matches = normalized_available
+            .iter()
+            .filter(|(normalized, _)| normalized.starts_with("minimax-coding-plan-"))
+            .map(|(_, original)| original.clone())
+            .collect::<Vec<_>>();
+        if matches.is_empty() {
+            return None;
+        }
+        matches.sort();
+        return matches
+            .iter()
+            .find(|candidate| candidate.contains("m2-5"))
+            .cloned()
+            .or_else(|| matches.last().cloned());
+    }
+
+    // GLM coding-plan aliases.
+    if matches!(
+        normalized_query,
+        "glm5-coding-plan"
+            | "glm-5-coding-plan"
+            | "zai-coding-plan"
+            | "zai-coding-plan-glm5"
+            | "zai-coding-plan-glm-5"
+    ) && let Some(exact) = normalized_available
+        .iter()
+        .find(|(normalized, _)| normalized == "zai-coding-plan-glm-5")
+        .map(|(_, original)| original.clone())
+    {
+        return Some(exact);
+    }
+
+    if matches!(
+        normalized_query,
+        "glm5-coding-plan-code" | "glm-5-coding-plan-code"
+    ) && let Some(exact) = normalized_available
+        .iter()
+        .find(|(normalized, _)| normalized == "zai-coding-plan-glm-5-code")
+        .map(|(_, original)| original.clone())
+    {
+        return Some(exact);
+    }
+
+    // Generic prefix fallback for normalized identifiers.
+    let mut prefix_matches = normalized_available
+        .drain(..)
+        .filter(|(normalized, _)| normalized.starts_with(normalized_query))
+        .map(|(_, original)| original)
+        .collect::<Vec<_>>();
+    if prefix_matches.is_empty() {
+        return None;
+    }
+    prefix_matches.sort();
+    Some(prefix_matches[0].clone())
+}
+
+fn normalize_model_identifier(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    let mut previous_dash = false;
+
+    for ch in value.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_lowercase());
+            previous_dash = false;
+            continue;
+        }
+        if !previous_dash {
+            normalized.push('-');
+            previous_dash = true;
+        }
+    }
+
+    normalized.trim_matches('-').to_string()
 }
 
 /// Spawn a sub-agent with the given request.
@@ -719,7 +876,7 @@ impl SubagentManager for SubagentManagerImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{MockLlmClient, MockStep};
+    use crate::llm::{LlmProvider, MockLlmClient, MockStep};
     use std::collections::HashMap;
 
     #[test]
@@ -781,6 +938,57 @@ mod tests {
         }
         fn list_callable(&self) -> Vec<SubagentDefSummary> {
             vec![]
+        }
+    }
+
+    struct AliasOnlyFactory {
+        models: Vec<String>,
+    }
+
+    impl AliasOnlyFactory {
+        fn new(models: Vec<&str>) -> Self {
+            Self {
+                models: models.into_iter().map(str::to_string).collect(),
+            }
+        }
+    }
+
+    impl LlmClientFactory for AliasOnlyFactory {
+        fn create_client(
+            &self,
+            _model: &str,
+            _api_key: Option<&str>,
+        ) -> Result<Arc<dyn LlmClient>> {
+            Err(AiError::Llm(
+                "create_client is not used in alias tests".to_string(),
+            ))
+        }
+
+        fn available_models(&self) -> Vec<String> {
+            self.models.clone()
+        }
+
+        fn resolve_api_key(&self, _provider: LlmProvider) -> Option<String> {
+            None
+        }
+
+        fn provider_for_model(&self, model: &str) -> Option<LlmProvider> {
+            self.models
+                .iter()
+                .find(|candidate| candidate.eq_ignore_ascii_case(model.trim()))
+                .map(|_| LlmProvider::OpenAI)
+        }
+
+        fn is_codex_cli_model(&self, _model: &str) -> bool {
+            false
+        }
+
+        fn is_opencode_cli_model(&self, _model: &str) -> bool {
+            false
+        }
+
+        fn is_gemini_cli_model(&self, _model: &str) -> bool {
+            false
         }
     }
 
@@ -1086,5 +1294,43 @@ mod tests {
         assert_eq!(config.system_prompt.as_deref(), Some("You are subagent"));
         assert!(!config.prompt_flags.include_workspace_context);
         assert!(config.yolo_mode);
+    }
+
+    #[test]
+    fn test_resolve_model_name_accepts_case_insensitive_match() {
+        let factory = AliasOnlyFactory::new(vec!["gpt-5", "minimax-coding-plan-m2-5"]);
+        let resolved = resolve_model_name("GPT-5", &factory).unwrap();
+        assert_eq!(resolved, "gpt-5");
+    }
+
+    #[test]
+    fn test_resolve_model_name_maps_minimax_coding_plan_alias() {
+        let factory =
+            AliasOnlyFactory::new(vec!["minimax-coding-plan-m2-1", "minimax-coding-plan-m2-5"]);
+        let resolved = resolve_model_name("minimax/coding-plan", &factory).unwrap();
+        assert_eq!(resolved, "minimax-coding-plan-m2-5");
+    }
+
+    #[test]
+    fn test_resolve_model_name_maps_glm5_coding_plan_alias() {
+        let factory =
+            AliasOnlyFactory::new(vec!["zai-coding-plan-glm-5", "zai-coding-plan-glm-5-code"]);
+        let resolved = resolve_model_name("glm5 coding plan", &factory).unwrap();
+        assert_eq!(resolved, "zai-coding-plan-glm-5");
+    }
+
+    #[test]
+    fn test_resolve_model_name_maps_glm5_coding_plan_code_alias() {
+        let factory =
+            AliasOnlyFactory::new(vec!["zai-coding-plan-glm-5", "zai-coding-plan-glm-5-code"]);
+        let resolved = resolve_model_name("glm-5 coding-plan code", &factory).unwrap();
+        assert_eq!(resolved, "zai-coding-plan-glm-5-code");
+    }
+
+    #[test]
+    fn test_resolve_model_name_returns_helpful_error_for_unknown_model() {
+        let factory = AliasOnlyFactory::new(vec!["gpt-5", "minimax-coding-plan-m2-5"]);
+        let error = resolve_model_name("unknown-model", &factory).unwrap_err();
+        assert!(error.to_string().contains("Try one of"));
     }
 }
