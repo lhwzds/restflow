@@ -14,7 +14,7 @@ use base64::Engine;
 use futures::stream::{SplitSink, SplitStream};
 use futures::{SinkExt, StreamExt};
 use reqwest::multipart;
-use restflow_core::daemon::{IpcRequest, IpcResponse};
+use restflow_core::daemon::ToolExecutionResult;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
@@ -94,56 +94,38 @@ pub async fn transcribe_audio(
         input["language"] = serde_json::json!(lang);
     }
 
-    // Call daemon's transcribe tool via IPC
-    let mut daemon = state.daemon.lock().await;
-    let client = daemon.ensure_connected().await.map_err(|e| e.to_string())?;
-    let response = client
-        .request(IpcRequest::ExecuteTool {
-            name: "transcribe".to_string(),
-            input,
-        })
+    // Call daemon's transcribe tool via unified executor path
+    let response = state
+        .executor()
+        .execute_tool("transcribe".to_string(), input)
         .await
         .map_err(|e| e.to_string())?;
 
     // Clean up temp file (best effort)
     let _ = std::fs::remove_file(&file_path);
 
-    match response {
-        IpcResponse::Success(value) => {
-            // The tool returns { success, result, error }
-            let success = value
-                .get("success")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(false);
-            if !success {
-                let error = value
-                    .get("error")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("Transcription failed");
-                return Err(error.to_string());
-            }
+    let text = extract_transcribe_text(response)?;
+    Ok(TranscribeResult {
+        text,
+        model: model_name,
+    })
+}
 
-            // Extract text from tool result
-            let result = value.get("result").cloned().unwrap_or_default();
-            let text = result
-                .as_str()
-                .map(String::from)
-                .or_else(|| {
-                    result
-                        .get("text")
-                        .and_then(|v| v.as_str())
-                        .map(String::from)
-                })
-                .unwrap_or_default();
-
-            Ok(TranscribeResult {
-                text,
-                model: model_name,
-            })
-        }
-        IpcResponse::Error { code, message } => Err(format!("IPC error {}: {}", code, message)),
-        IpcResponse::Pong => Err("Unexpected Pong response".to_string()),
+fn extract_transcribe_text(response: ToolExecutionResult) -> Result<String, String> {
+    if !response.success {
+        return Err(response
+            .error
+            .unwrap_or_else(|| "Transcription failed".to_string()));
     }
+
+    let result = response.result;
+    if let Some(text) = result.as_str() {
+        return Ok(text.to_string());
+    }
+    if let Some(text) = result.get("text").and_then(|value| value.as_str()) {
+        return Ok(text.to_string());
+    }
+    Ok(String::new())
 }
 
 /// Save audio as a file for AI to process with transcribe tool.
@@ -908,6 +890,39 @@ mod tests {
         let json = serde_json::to_value(&result).unwrap();
         assert_eq!(json["text"], "Hello world");
         assert_eq!(json["model"], "whisper-1");
+    }
+
+    #[test]
+    fn test_extract_transcribe_text_from_string_result() {
+        let output = ToolExecutionResult {
+            success: true,
+            result: serde_json::json!("hello world"),
+            error: None,
+        };
+        let text = extract_transcribe_text(output).unwrap();
+        assert_eq!(text, "hello world");
+    }
+
+    #[test]
+    fn test_extract_transcribe_text_from_object_result() {
+        let output = ToolExecutionResult {
+            success: true,
+            result: serde_json::json!({ "text": "voice text" }),
+            error: None,
+        };
+        let text = extract_transcribe_text(output).unwrap();
+        assert_eq!(text, "voice text");
+    }
+
+    #[test]
+    fn test_extract_transcribe_text_returns_error() {
+        let output = ToolExecutionResult {
+            success: false,
+            result: serde_json::Value::Null,
+            error: Some("rate limited".to_string()),
+        };
+        let err = extract_transcribe_text(output).unwrap_err();
+        assert_eq!(err, "rate limited");
     }
 
     #[test]
