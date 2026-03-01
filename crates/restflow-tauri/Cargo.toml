@@ -53,6 +53,9 @@ http = "1"
 
 # TypeScript bindings
 ts-rs = "12.0"
+specta = { version = "=2.0.0-rc.22", features = ["derive", "chrono", "uuid", "serde_json"] }
+specta-typescript = "=0.0.9"
+tauri-specta = { version = "=2.0.0-rc.21", features = ["typescript"] }
 
 # Error handling
 anyhow = "1.0"

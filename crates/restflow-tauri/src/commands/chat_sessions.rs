@@ -10,6 +10,7 @@ use restflow_core::models::{
     ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, ToolTrace,
 };
 use serde::Deserialize;
+use specta::Type;
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, State};
 use tokio::sync::Mutex;
@@ -79,6 +80,7 @@ use crate::agent::effective_main_agent_tool_names;
 /// * `model` - The model to use for responses
 /// * `name` - Optional custom name for the session
 /// * `skill_id` - Optional skill context
+#[specta::specta]
 #[tauri::command]
 pub async fn create_chat_session(
     state: State<'_, AppState>,
@@ -99,6 +101,7 @@ pub async fn create_chat_session(
 /// List all chat sessions.
 ///
 /// Returns sessions sorted by updated_at descending (most recent first).
+#[specta::specta]
 #[tauri::command]
 pub async fn list_chat_sessions(state: State<'_, AppState>) -> Result<Vec<ChatSession>, String> {
     state
@@ -111,6 +114,7 @@ pub async fn list_chat_sessions(state: State<'_, AppState>) -> Result<Vec<ChatSe
 /// List chat session summaries.
 ///
 /// More efficient than list_chat_sessions when full message history isn't needed.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_chat_session_summaries(
     state: State<'_, AppState>,
@@ -123,6 +127,7 @@ pub async fn list_chat_session_summaries(
 }
 
 /// Get a chat session by ID.
+#[specta::specta]
 #[tauri::command]
 pub async fn get_chat_session(
     state: State<'_, AppState>,
@@ -135,7 +140,7 @@ pub async fn get_chat_session(
         .map_err(|e| e.to_string())
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSessionUpdateInput {
     pub agent_id: Option<String>,
@@ -144,6 +149,7 @@ pub struct ChatSessionUpdateInput {
 }
 
 /// Update a chat session.
+#[specta::specta]
 #[tauri::command]
 pub async fn update_chat_session(
     state: State<'_, AppState>,
@@ -164,6 +170,7 @@ pub async fn update_chat_session(
 }
 
 /// Rename a chat session.
+#[specta::specta]
 #[tauri::command]
 pub async fn rename_chat_session(
     state: State<'_, AppState>,
@@ -177,7 +184,19 @@ pub async fn rename_chat_session(
         .map_err(|e| e.to_string())
 }
 
+/// Archive a chat session.
+#[specta::specta]
+#[tauri::command]
+pub async fn archive_chat_session(state: State<'_, AppState>, id: String) -> Result<bool, String> {
+    state
+        .executor()
+        .archive_session(id)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Delete a chat session.
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_chat_session(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     state
@@ -190,6 +209,7 @@ pub async fn delete_chat_session(state: State<'_, AppState>, id: String) -> Resu
 /// Rebuild an externally managed chat session (Telegram/Discord/Slack).
 ///
 /// This resets conversation history while preserving channel binding.
+#[specta::specta]
 #[tauri::command]
 pub async fn rebuild_external_chat_session(
     state: State<'_, AppState>,
@@ -206,6 +226,7 @@ pub async fn rebuild_external_chat_session(
 ///
 /// This adds a user message to the session. The assistant response should be
 /// handled separately via streaming or the response generation flow.
+#[specta::specta]
 #[tauri::command]
 pub async fn add_chat_message(
     state: State<'_, AppState>,
@@ -228,6 +249,7 @@ pub async fn add_chat_message(
 /// 4. Returns the updated session
 ///
 /// For streaming responses, use add_chat_message + response events instead.
+#[specta::specta]
 #[tauri::command]
 pub async fn send_chat_message(
     state: State<'_, AppState>,
@@ -243,6 +265,7 @@ pub async fn send_chat_message(
 }
 
 /// List chat sessions for a specific agent.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_chat_sessions_by_agent(
     state: State<'_, AppState>,
@@ -256,6 +279,7 @@ pub async fn list_chat_sessions_by_agent(
 }
 
 /// List chat sessions for a specific skill.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_chat_sessions_by_skill(
     state: State<'_, AppState>,
@@ -269,6 +293,7 @@ pub async fn list_chat_sessions_by_skill(
 }
 
 /// Get the count of chat sessions.
+#[specta::specta]
 #[tauri::command]
 pub async fn get_chat_session_count(state: State<'_, AppState>) -> Result<usize, String> {
     state
@@ -282,6 +307,7 @@ pub async fn get_chat_session_count(state: State<'_, AppState>) -> Result<usize,
 ///
 /// Deletes sessions that haven't been updated since the given timestamp.
 /// Returns the number of deleted sessions.
+#[specta::specta]
 #[tauri::command]
 pub async fn clear_old_chat_sessions(
     state: State<'_, AppState>,
@@ -313,6 +339,7 @@ pub async fn clear_old_chat_sessions(
 ///   // Refresh session list or specific session
 /// });
 /// ```
+#[specta::specta]
 #[tauri::command]
 pub async fn get_session_change_event_name(
     state: State<'_, AppState>,
@@ -334,6 +361,7 @@ pub async fn get_session_change_event_name(
 /// 3. Executes the agent
 /// 4. Saves the assistant response to the session
 /// 5. Returns the updated session
+#[specta::specta]
 #[tauri::command]
 pub async fn execute_chat_session(
     state: State<'_, AppState>,
@@ -347,6 +375,7 @@ pub async fn execute_chat_session(
 }
 
 /// List persisted tool traces for a chat session turn.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_tool_traces(
     state: State<'_, AppState>,
@@ -370,6 +399,7 @@ pub async fn list_tool_traces(
 /// 4. Returns the message ID immediately
 ///
 /// The frontend should listen to 'chat:stream' events to receive updates.
+#[specta::specta]
 #[tauri::command]
 pub async fn send_chat_message_stream(
     state: State<'_, AppState>,
@@ -465,6 +495,7 @@ pub async fn send_chat_message_stream(
 }
 
 /// Steer an active chat stream for the given session.
+#[specta::specta]
 #[tauri::command]
 pub async fn steer_chat_stream(
     state: State<'_, AppState>,
@@ -479,6 +510,7 @@ pub async fn steer_chat_stream(
 }
 
 /// Cancel an active chat stream.
+#[specta::specta]
 #[tauri::command]
 pub async fn cancel_chat_stream(
     state: State<'_, AppState>,

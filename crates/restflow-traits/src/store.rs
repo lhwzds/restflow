@@ -37,7 +37,7 @@ pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = &[
 
 pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, cancel, run";
 
-pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), convert_session (convert an existing chat session into a background agent), promote_to_background (promote current interactive session into a background agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
+pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), convert_session (convert an existing chat session into a background agent), promote_to_background (promote current interactive session into a background agent), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition; auto-created bound chat session is archived when safe), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
 
 // ── MemoryStore ──────────────────────────────────────────────────────
 
@@ -304,6 +304,8 @@ pub struct SessionSearchQuery {
     #[serde(default)]
     pub skill_id: Option<String>,
     #[serde(default)]
+    pub include_archived: Option<bool>,
+    #[serde(default)]
     pub limit: Option<u32>,
 }
 
@@ -315,12 +317,17 @@ pub struct SessionListFilter {
     pub skill_id: Option<String>,
     #[serde(default)]
     pub include_messages: Option<bool>,
+    #[serde(default)]
+    pub include_archived: Option<bool>,
 }
 
 pub trait SessionStore: Send + Sync {
     fn list_sessions(&self, filter: SessionListFilter) -> Result<Value>;
     fn get_session(&self, id: &str) -> Result<Value>;
     fn create_session(&self, request: SessionCreateRequest) -> Result<Value>;
+    fn archive_session(&self, id: &str) -> Result<Value>;
+    fn unarchive_session(&self, id: &str) -> Result<Value>;
+    fn purge_session(&self, id: &str) -> Result<Value>;
     fn delete_session(&self, id: &str) -> Result<Value>;
     fn search_sessions(&self, query: SessionSearchQuery) -> Result<Value>;
     fn cleanup_sessions(&self) -> Result<Value>;

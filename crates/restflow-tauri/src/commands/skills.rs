@@ -5,6 +5,7 @@ use restflow_core::Skill;
 use tauri::State;
 
 /// List all skills
+#[specta::specta]
 #[tauri::command]
 pub async fn list_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, String> {
     state
@@ -15,6 +16,7 @@ pub async fn list_skills(state: State<'_, AppState>) -> Result<Vec<Skill>, Strin
 }
 
 /// Get a skill by ID
+#[specta::specta]
 #[tauri::command]
 pub async fn get_skill(state: State<'_, AppState>, id: String) -> Result<Skill, String> {
     state
@@ -26,6 +28,7 @@ pub async fn get_skill(state: State<'_, AppState>, id: String) -> Result<Skill, 
 }
 
 /// Create a new skill
+#[specta::specta]
 #[tauri::command]
 pub async fn create_skill(state: State<'_, AppState>, skill: Skill) -> Result<Skill, String> {
     state
@@ -38,6 +41,7 @@ pub async fn create_skill(state: State<'_, AppState>, skill: Skill) -> Result<Sk
 }
 
 /// Update an existing skill
+#[specta::specta]
 #[tauri::command]
 pub async fn update_skill(
     state: State<'_, AppState>,
@@ -58,6 +62,7 @@ pub async fn update_skill(
 }
 
 /// Delete a skill by ID
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_skill(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state
@@ -68,6 +73,7 @@ pub async fn delete_skill(state: State<'_, AppState>, id: String) -> Result<(), 
 }
 
 /// Export a skill to JSON
+#[specta::specta]
 #[tauri::command]
 pub async fn export_skill(state: State<'_, AppState>, id: String) -> Result<String, String> {
     let skill = state
@@ -81,6 +87,7 @@ pub async fn export_skill(state: State<'_, AppState>, id: String) -> Result<Stri
 }
 
 /// Import a skill from JSON
+#[specta::specta]
 #[tauri::command]
 pub async fn import_skill(state: State<'_, AppState>, json: String) -> Result<Skill, String> {
     let skill: Skill = serde_json::from_str(&json).map_err(|e| e.to_string())?;

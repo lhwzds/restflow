@@ -4,10 +4,11 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Event type for a persisted tool trace record.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolTraceEvent {
@@ -26,7 +27,7 @@ pub enum ToolTraceEvent {
 }
 
 /// Append-only execution event for chat turns.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct ToolTrace {
     /// Event ID.
@@ -162,7 +163,7 @@ impl ToolTrace {
 }
 
 /// Tool completion payload used for ToolCallCompleted events.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 pub struct ToolCallCompletion {
     /// Optional tool output payload (JSON string or raw text).

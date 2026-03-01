@@ -3,10 +3,11 @@
 //! Core types for the channel-agnostic communication layer.
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Channel type identifier
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
@@ -53,7 +54,7 @@ impl std::fmt::Display for ChannelType {
 }
 
 /// Message level for formatting
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageLevel {

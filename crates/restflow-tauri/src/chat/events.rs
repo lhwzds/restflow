@@ -4,6 +4,7 @@
 //! of streaming progress during AI response generation.
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
@@ -15,7 +16,7 @@ const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
 pub const CHAT_STREAM_EVENT: &str = "chat:stream";
 
 /// A chat stream event emitted during message generation
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 pub struct ChatStreamEvent {
     /// Session ID this event belongs to
@@ -30,7 +31,7 @@ pub struct ChatStreamEvent {
 }
 
 /// Types of chat stream events
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ChatStreamKind {
@@ -127,7 +128,7 @@ pub enum ChatStreamKind {
 }
 
 /// Status of an execution step
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
 #[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {

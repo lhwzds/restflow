@@ -5,12 +5,13 @@
 use crate::models::AIModel;
 use crate::{AppCore, models::ValidationError};
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::collections::HashMap;
 use std::sync::Arc;
 use ts_rs::TS;
 
 /// Codex CLI execution mode.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexCliExecutionMode {
@@ -31,7 +32,7 @@ impl CodexCliExecutionMode {
 }
 
 /// Model routing configuration for automatic tier-based model selection.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 pub struct ModelRoutingConfig {
     /// Enable automatic model routing.
@@ -77,7 +78,7 @@ impl From<&ModelRoutingConfig> for restflow_ai::agent::ModelRoutingConfig {
 }
 
 /// API key or password configuration (direct value or secret reference)
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 #[serde(rename_all = "snake_case", tag = "type", content = "value")]
 pub enum ApiKeyConfig {
@@ -88,7 +89,7 @@ pub enum ApiKeyConfig {
 }
 
 /// Agent configuration for AI-powered execution
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
 #[ts(export)]
 pub struct AgentNode {
     /// AI model to use for this agent (None = auto-select based on auth profile)

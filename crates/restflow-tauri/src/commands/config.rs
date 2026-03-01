@@ -8,6 +8,7 @@ use serde::Serialize;
 use tauri::State;
 
 /// Get system configuration
+#[specta::specta]
 #[tauri::command]
 pub async fn get_config(state: State<'_, AppState>) -> Result<SystemConfig, String> {
     state
@@ -18,6 +19,7 @@ pub async fn get_config(state: State<'_, AppState>) -> Result<SystemConfig, Stri
 }
 
 /// Update system configuration
+#[specta::specta]
 #[tauri::command]
 pub async fn update_config(
     state: State<'_, AppState>,
@@ -38,6 +40,7 @@ pub async fn update_config(
 }
 
 /// Get available AI models with metadata
+#[specta::specta]
 #[tauri::command]
 pub async fn get_available_models() -> Result<Vec<ModelMetadataDTO>, String> {
     Ok(AIModel::all_with_metadata())
@@ -51,6 +54,7 @@ pub struct ToolInfo {
 }
 
 /// Get available tools for agents
+#[specta::specta]
 #[tauri::command]
 pub async fn get_available_tools(state: State<'_, AppState>) -> Result<Vec<ToolInfo>, String> {
     let tool_names = state

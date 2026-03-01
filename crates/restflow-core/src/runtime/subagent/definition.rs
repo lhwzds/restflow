@@ -7,12 +7,13 @@ use crate::runtime::agent::main_agent_default_tool_names;
 use crate::storage::{AgentStorage, agent::StoredAgent};
 use restflow_ai::agent::{SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary};
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::collections::HashMap;
 use tracing::warn;
 use ts_rs::TS;
 
 /// Agent definition describing a spawnable agent type
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct AgentDefinition {
     /// Unique identifier (e.g., "researcher", "coder")

@@ -39,6 +39,7 @@ use restflow_core::models::memory::{
     MemoryChunk, MemorySearchQuery, MemorySession, MemorySource, MemoryStats,
 };
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use tauri::State;
 
 // ============================================================================
@@ -114,7 +115,7 @@ pub struct ExportMemoryRequest {
 }
 
 /// Response for memory list operations with pagination info.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Type)]
 pub struct MemoryListResponse<T> {
     /// The items
     pub items: Vec<T>,
@@ -129,6 +130,7 @@ pub struct MemoryListResponse<T> {
 /// Search memories with relevance scoring.
 ///
 /// Returns ranked results based on keyword frequency, recency, and tag matches.
+#[specta::specta]
 #[tauri::command]
 pub async fn search_memory(
     state: State<'_, AppState>,
@@ -142,6 +144,7 @@ pub async fn search_memory(
 }
 
 /// Search memories with custom scoring configuration.
+#[specta::specta]
 #[tauri::command]
 pub async fn search_memory_advanced(
     state: State<'_, AppState>,
@@ -159,6 +162,7 @@ pub async fn search_memory_advanced(
 // ============================================================================
 
 /// Get a memory chunk by ID.
+#[specta::specta]
 #[tauri::command]
 pub async fn get_memory_chunk(
     state: State<'_, AppState>,
@@ -172,6 +176,7 @@ pub async fn get_memory_chunk(
 }
 
 /// List all memory chunks for an agent.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_memory_chunks(
     state: State<'_, AppState>,
@@ -195,6 +200,7 @@ pub async fn list_memory_chunks(
 }
 
 /// List memory chunks by tag.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_memory_chunks_by_tag(
     state: State<'_, AppState>,
@@ -216,6 +222,7 @@ pub async fn list_memory_chunks_by_tag(
 }
 
 /// Create a new memory chunk manually.
+#[specta::specta]
 #[tauri::command]
 pub async fn create_memory_chunk(
     state: State<'_, AppState>,
@@ -237,6 +244,7 @@ pub async fn create_memory_chunk(
 }
 
 /// Delete a memory chunk by ID.
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_memory_chunk(
     state: State<'_, AppState>,
@@ -250,6 +258,7 @@ pub async fn delete_memory_chunk(
 }
 
 /// Delete all memory chunks for an agent.
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_memory_chunks_for_agent(
     state: State<'_, AppState>,
@@ -267,6 +276,7 @@ pub async fn delete_memory_chunks_for_agent(
 // ============================================================================
 
 /// Get a memory session by ID.
+#[specta::specta]
 #[tauri::command]
 pub async fn get_memory_session(
     state: State<'_, AppState>,
@@ -280,6 +290,7 @@ pub async fn get_memory_session(
 }
 
 /// List all memory sessions for an agent.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_memory_sessions(
     state: State<'_, AppState>,
@@ -293,6 +304,7 @@ pub async fn list_memory_sessions(
 }
 
 /// List chunks for a specific session.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_memory_chunks_for_session(
     state: State<'_, AppState>,
@@ -306,6 +318,7 @@ pub async fn list_memory_chunks_for_session(
 }
 
 /// Create a new memory session.
+#[specta::specta]
 #[tauri::command]
 pub async fn create_memory_session(
     state: State<'_, AppState>,
@@ -327,6 +340,7 @@ pub async fn create_memory_session(
 /// Delete a memory session and optionally its chunks.
 ///
 /// By default, deletes the session and all associated chunks.
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_memory_session(
     state: State<'_, AppState>,
@@ -345,6 +359,7 @@ pub async fn delete_memory_session(
 // ============================================================================
 
 /// Get memory statistics for an agent.
+#[specta::specta]
 #[tauri::command]
 pub async fn get_memory_stats(
     state: State<'_, AppState>,
@@ -362,6 +377,7 @@ pub async fn get_memory_stats(
 // ============================================================================
 
 /// Export memories to Markdown format.
+#[specta::specta]
 #[tauri::command]
 pub async fn export_memory_markdown(
     state: State<'_, AppState>,
@@ -375,6 +391,7 @@ pub async fn export_memory_markdown(
 }
 
 /// Export a specific session to Markdown format.
+#[specta::specta]
 #[tauri::command]
 pub async fn export_memory_session_markdown(
     state: State<'_, AppState>,
@@ -388,6 +405,7 @@ pub async fn export_memory_session_markdown(
 }
 
 /// Export memories with custom options.
+#[specta::specta]
 #[tauri::command]
 pub async fn export_memory_advanced(
     state: State<'_, AppState>,

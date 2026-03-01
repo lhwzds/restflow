@@ -62,6 +62,7 @@ fn expand_tilde(path: &str) -> String {
 }
 
 /// Spawn a new PTY session
+#[specta::specta]
 #[tauri::command]
 pub async fn spawn_pty(
     app: AppHandle,
@@ -114,6 +115,7 @@ pub async fn spawn_pty(
 }
 
 /// Write data to PTY stdin
+#[specta::specta]
 #[tauri::command]
 pub async fn write_pty(
     app_state: State<'_, AppState>,
@@ -129,6 +131,7 @@ pub async fn write_pty(
 }
 
 /// Resize PTY window
+#[specta::specta]
 #[tauri::command]
 pub async fn resize_pty(
     app_state: State<'_, AppState>,
@@ -153,6 +156,7 @@ pub async fn resize_pty(
 }
 
 /// Close PTY session and update database status
+#[specta::specta]
 #[tauri::command]
 pub async fn close_pty(app_state: State<'_, AppState>, session_id: String) -> Result<(), String> {
     let history = app_state.process_registry.remove_session(&session_id);
@@ -178,6 +182,7 @@ pub async fn close_pty(app_state: State<'_, AppState>, session_id: String) -> Re
 }
 
 /// Check if a PTY session is running
+#[specta::specta]
 #[tauri::command]
 pub async fn get_pty_status(
     app_state: State<'_, AppState>,
@@ -187,6 +192,7 @@ pub async fn get_pty_status(
 }
 
 /// Get the accumulated output history for a PTY session
+#[specta::specta]
 #[tauri::command]
 pub async fn get_pty_history(
     app_state: State<'_, AppState>,
@@ -199,6 +205,7 @@ pub async fn get_pty_history(
 }
 
 /// Save terminal history for a single session
+#[specta::specta]
 #[tauri::command]
 pub async fn save_terminal_history(
     app_state: State<'_, AppState>,
@@ -228,6 +235,7 @@ pub async fn save_terminal_history(
 }
 
 /// Save history for all running terminals (called on app close)
+#[specta::specta]
 #[tauri::command]
 pub async fn save_all_terminal_history(app_state: State<'_, AppState>) -> Result<(), String> {
     let session_ids = app_state
@@ -256,6 +264,7 @@ pub async fn save_all_terminal_history(app_state: State<'_, AppState>) -> Result
 }
 
 /// Restart a stopped terminal session
+#[specta::specta]
 #[tauri::command]
 pub async fn restart_terminal(
     app_state: State<'_, AppState>,

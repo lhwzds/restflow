@@ -13,6 +13,7 @@ use super::writer::CredentialWriter;
 use anyhow::{Context, Result, anyhow};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use specta::Type;
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
@@ -790,7 +791,7 @@ impl AuthProfileManager {
 }
 
 /// Update request for a profile
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, Type)]
 pub struct ProfileUpdate {
     pub name: Option<String>,
     pub enabled: Option<bool>,
@@ -798,7 +799,7 @@ pub struct ProfileUpdate {
 }
 
 /// Summary of the auth profile manager state
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 pub struct ManagerSummary {
     pub total: usize,
     pub enabled: usize,

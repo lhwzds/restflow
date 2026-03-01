@@ -75,6 +75,7 @@ impl From<SkillSearchResult> for SearchResultResponse {
 }
 
 /// Search the marketplace for skills
+#[specta::specta]
 #[tauri::command]
 pub async fn marketplace_search(
     _state: State<'_, AppState>,
@@ -140,6 +141,7 @@ pub async fn marketplace_search(
 }
 
 /// Get skill details from marketplace
+#[specta::specta]
 #[tauri::command]
 pub async fn marketplace_get_skill(
     _state: State<'_, AppState>,
@@ -164,6 +166,7 @@ pub async fn marketplace_get_skill(
 }
 
 /// Get skill versions
+#[specta::specta]
 #[tauri::command]
 pub async fn marketplace_get_versions(
     _state: State<'_, AppState>,
@@ -188,6 +191,7 @@ pub async fn marketplace_get_versions(
 }
 
 /// Get skill content (readme/documentation)
+#[specta::specta]
 #[tauri::command]
 pub async fn marketplace_get_content(
     _state: State<'_, AppState>,
@@ -243,6 +247,7 @@ pub async fn marketplace_get_content(
 }
 
 /// Check gating requirements for a skill
+#[specta::specta]
 #[tauri::command]
 pub async fn marketplace_check_gating(
     _state: State<'_, AppState>,
@@ -278,6 +283,7 @@ pub async fn marketplace_check_gating(
 }
 
 /// Install a skill from marketplace
+#[specta::specta]
 #[tauri::command]
 pub async fn marketplace_install_skill(
     state: State<'_, AppState>,
@@ -422,6 +428,7 @@ pub async fn marketplace_install_skill(
 }
 
 /// Uninstall a skill
+#[specta::specta]
 #[tauri::command]
 pub async fn marketplace_uninstall_skill(
     state: State<'_, AppState>,
@@ -435,6 +442,7 @@ pub async fn marketplace_uninstall_skill(
 }
 
 /// Get installed skills with marketplace info
+#[specta::specta]
 #[tauri::command]
 pub async fn marketplace_list_installed(
     state: State<'_, AppState>,

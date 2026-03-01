@@ -1,9 +1,10 @@
 //! Shared space data models.
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SharedEntry {
     pub key: String,
@@ -19,7 +20,7 @@ pub struct SharedEntry {
     pub last_modified_by: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Default, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, Default, PartialEq)]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {

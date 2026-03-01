@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 use crate::models::{AIModel, ApiKeyConfig, StorageMode};
 
 /// Agent metadata stored in the database (file content lives on disk).
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct AgentMeta {
     pub id: String,
@@ -51,7 +52,7 @@ pub struct AgentMeta {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 pub enum AgentType {
     Main,

@@ -5,6 +5,7 @@ use restflow_core::TerminalSession;
 use tauri::State;
 
 /// List all terminal sessions
+#[specta::specta]
 #[tauri::command]
 pub async fn list_terminal_sessions(
     state: State<'_, AppState>,
@@ -17,6 +18,7 @@ pub async fn list_terminal_sessions(
 }
 
 /// Get a terminal session by ID
+#[specta::specta]
 #[tauri::command]
 pub async fn get_terminal_session(
     state: State<'_, AppState>,
@@ -30,6 +32,7 @@ pub async fn get_terminal_session(
 }
 
 /// Create a new terminal session
+#[specta::specta]
 #[tauri::command]
 pub async fn create_terminal_session(
     state: State<'_, AppState>,
@@ -42,6 +45,7 @@ pub async fn create_terminal_session(
 }
 
 /// Rename a terminal session
+#[specta::specta]
 #[tauri::command]
 pub async fn rename_terminal_session(
     state: State<'_, AppState>,
@@ -56,6 +60,7 @@ pub async fn rename_terminal_session(
 }
 
 /// Update a terminal session's configuration
+#[specta::specta]
 #[tauri::command]
 pub async fn update_terminal_session(
     state: State<'_, AppState>,
@@ -72,6 +77,7 @@ pub async fn update_terminal_session(
 }
 
 /// Delete a terminal session by ID
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_terminal_session(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state

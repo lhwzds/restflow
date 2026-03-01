@@ -26,6 +26,7 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Event name constant for Tauri event emission
@@ -35,7 +36,7 @@ pub const TASK_STREAM_EVENT: &str = "background-agent:stream";
 ///
 /// This is the primary event type emitted via Tauri's event system
 /// for real-time updates during task execution.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct TaskStreamEvent {
     /// ID of the task this event belongs to
@@ -48,7 +49,7 @@ pub struct TaskStreamEvent {
 }
 
 /// Discriminated union for different stream event types
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum StreamEventKind {
@@ -128,7 +129,7 @@ pub enum StreamEventKind {
 }
 
 /// Statistics about task execution
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ExecutionStats {
     /// Number of output lines produced

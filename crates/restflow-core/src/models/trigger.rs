@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use specta::Type;
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Type)]
 #[serde(tag = "type", rename_all = "lowercase")]
 #[ts(export)]
 pub enum TriggerConfig {
@@ -21,7 +22,7 @@ pub enum TriggerConfig {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Type)]
 #[serde(tag = "type")]
 #[ts(export)]
 pub enum AuthConfig {
@@ -39,7 +40,7 @@ pub enum AuthConfig {
 // ResponseMode removed - Webhooks use async mode only
 
 // Store active trigger information
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ActiveTrigger {
     pub id: String,

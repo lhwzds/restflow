@@ -138,10 +138,10 @@ impl ChatSessionStorage {
         }
     }
 
-    /// List all chat sessions.
+    /// List all chat sessions, including archived ones.
     ///
     /// Returns sessions sorted by updated_at descending (most recent first).
-    pub fn list(&self) -> Result<Vec<ChatSession>> {
+    pub fn list_all(&self) -> Result<Vec<ChatSession>> {
         let raw_sessions = self.inner.list_raw()?;
         let mut sessions = Vec::new();
         let mut normalized_updates: Vec<(String, String)> = Vec::new();
@@ -164,11 +164,28 @@ impl ChatSessionStorage {
         Ok(sessions)
     }
 
+    /// List active (non-archived) chat sessions.
+    ///
+    /// Returns sessions sorted by updated_at descending (most recent first).
+    pub fn list(&self) -> Result<Vec<ChatSession>> {
+        let sessions = self.list_all()?;
+        Ok(sessions
+            .into_iter()
+            .filter(|session| !session.is_archived())
+            .collect())
+    }
+
     /// List all chat sessions as summaries.
     ///
     /// More efficient than list() when you don't need full message history.
     pub fn list_summaries(&self) -> Result<Vec<ChatSessionSummary>> {
         let sessions = self.list()?;
+        Ok(sessions.iter().map(ChatSessionSummary::from).collect())
+    }
+
+    /// List all chat sessions as summaries, including archived sessions.
+    pub fn list_summaries_all(&self) -> Result<Vec<ChatSessionSummary>> {
+        let sessions = self.list_all()?;
         Ok(sessions.iter().map(ChatSessionSummary::from).collect())
     }
 
@@ -181,9 +198,27 @@ impl ChatSessionStorage {
             .collect())
     }
 
+    /// List chat sessions for a specific agent, including archived sessions.
+    pub fn list_by_agent_all(&self, agent_id: &str) -> Result<Vec<ChatSession>> {
+        let sessions = self.list_all()?;
+        Ok(sessions
+            .into_iter()
+            .filter(|s| s.agent_id == agent_id)
+            .collect())
+    }
+
     /// List chat sessions for a specific skill.
     pub fn list_by_skill(&self, skill_id: &str) -> Result<Vec<ChatSession>> {
         let sessions = self.list()?;
+        Ok(sessions
+            .into_iter()
+            .filter(|s| s.skill_id.as_ref() == Some(&skill_id.to_string()))
+            .collect())
+    }
+
+    /// List chat sessions for a specific skill, including archived sessions.
+    pub fn list_by_skill_all(&self, skill_id: &str) -> Result<Vec<ChatSession>> {
+        let sessions = self.list_all()?;
         Ok(sessions
             .into_iter()
             .filter(|s| s.skill_id.as_ref() == Some(&skill_id.to_string()))
@@ -215,6 +250,34 @@ impl ChatSessionStorage {
         self.inner.delete(id)
     }
 
+    /// Archive a chat session.
+    ///
+    /// Returns true if the session exists (whether newly archived or already archived).
+    pub fn archive(&self, id: &str) -> Result<bool> {
+        let Some(mut session) = self.get(id)? else {
+            return Ok(false);
+        };
+        if !session.is_archived() {
+            session.archive();
+            self.update(&session)?;
+        }
+        Ok(true)
+    }
+
+    /// Unarchive a chat session.
+    ///
+    /// Returns true if the session exists (whether newly unarchived or already active).
+    pub fn unarchive(&self, id: &str) -> Result<bool> {
+        let Some(mut session) = self.get(id)? else {
+            return Ok(false);
+        };
+        if session.is_archived() {
+            session.unarchive();
+            self.update(&session)?;
+        }
+        Ok(true)
+    }
+
     /// Check if a chat session exists.
     pub fn exists(&self, id: &str) -> Result<bool> {
         self.inner.exists(id)
@@ -222,14 +285,14 @@ impl ChatSessionStorage {
 
     /// Count total number of chat sessions.
     pub fn count(&self) -> Result<usize> {
-        self.inner.count()
+        Ok(self.list()?.len())
     }
 
     /// Delete all sessions older than the given timestamp.
     ///
     /// Returns the number of deleted sessions.
     pub fn delete_older_than(&self, timestamp_ms: i64) -> Result<usize> {
-        let sessions = self.list()?;
+        let sessions = self.list_all()?;
         let mut deleted = 0;
 
         for session in sessions {
@@ -262,7 +325,7 @@ impl ChatSessionStorage {
         &self,
         now_ms: i64,
     ) -> Result<SessionRetentionCleanupStats> {
-        let sessions = self.list()?;
+        let sessions = self.list_all()?;
         let mut stats = SessionRetentionCleanupStats {
             scanned: sessions.len(),
             ..SessionRetentionCleanupStats::default()
@@ -643,6 +706,48 @@ mod tests {
 
         let deleted = storage.delete("nonexistent").unwrap();
         assert!(!deleted);
+    }
+
+    #[test]
+    fn test_archive_hides_session_from_default_list() {
+        let (storage, _temp_dir) = setup();
+        let session1 = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string());
+        let session2 = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string());
+        let session2_id = session2.id.clone();
+
+        storage.create(&session1).unwrap();
+        storage.create(&session2).unwrap();
+        assert_eq!(storage.list().unwrap().len(), 2);
+
+        let archived = storage.archive(&session2_id).unwrap();
+        assert!(archived);
+
+        let active_sessions = storage.list().unwrap();
+        assert_eq!(active_sessions.len(), 1);
+        assert_eq!(active_sessions[0].id, session1.id);
+
+        let all_sessions = storage.list_all().unwrap();
+        assert_eq!(all_sessions.len(), 2);
+        let archived_session = all_sessions
+            .into_iter()
+            .find(|session| session.id == session2_id)
+            .unwrap();
+        assert!(archived_session.archived_at.is_some());
+    }
+
+    #[test]
+    fn test_unarchive_restores_session_to_default_list() {
+        let (storage, _temp_dir) = setup();
+        let session = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string());
+        let session_id = session.id.clone();
+        storage.create(&session).unwrap();
+
+        storage.archive(&session_id).unwrap();
+        assert!(storage.list().unwrap().is_empty());
+
+        let unarchived = storage.unarchive(&session_id).unwrap();
+        assert!(unarchived);
+        assert_eq!(storage.list().unwrap().len(), 1);
     }
 
     #[test]

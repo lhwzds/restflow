@@ -85,7 +85,7 @@ pub(crate) fn check_agent_has_external_channel_sessions(
     channel_session_bindings: &ChannelSessionBindingStorage,
     agent_id: &str,
 ) -> Result<Option<String>> {
-    let sessions = chat_storage.list_by_agent(agent_id)?;
+    let sessions = chat_storage.list_by_agent_all(agent_id)?;
     let mut sources: BTreeSet<String> = BTreeSet::new();
 
     for session in sessions {
@@ -217,10 +217,29 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         );
     }
 
+    archive_agent_workspace_sessions(&core.storage.chat_sessions, &resolved_id).with_context(
+        || {
+            format!(
+                "Failed to archive workspace sessions before deleting agent {}",
+                id
+            )
+        },
+    )?;
+
     core.storage
         .agents
         .delete_agent(resolved_id)
         .with_context(|| format!("Failed to delete agent {}", id))
+}
+
+fn archive_agent_workspace_sessions(
+    chat_storage: &ChatSessionStorage,
+    agent_id: &str,
+) -> Result<()> {
+    for session in chat_storage.list_by_agent_all(agent_id)? {
+        let _ = chat_storage.archive(&session.id)?;
+    }
+    Ok(())
 }
 
 async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<()> {
@@ -563,7 +582,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_delete_agent_allows_workspace_sessions() {
+    async fn test_delete_agent_archives_workspace_sessions() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
 
         let agent_node = create_test_agent_node("Workspace owner");
@@ -580,6 +599,21 @@ mod tests {
         core.storage.chat_sessions.create(&session).unwrap();
 
         delete_agent(&core, &created.id).await.unwrap();
+
+        let active_sessions = core
+            .storage
+            .chat_sessions
+            .list_by_agent(&created.id)
+            .unwrap();
+        assert!(active_sessions.is_empty());
+
+        let archived_session = core
+            .storage
+            .chat_sessions
+            .get(&session.id)
+            .unwrap()
+            .expect("session should remain after archiving");
+        assert!(archived_session.is_archived());
     }
 
     #[tokio::test]

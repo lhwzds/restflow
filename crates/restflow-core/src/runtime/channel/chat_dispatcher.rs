@@ -208,7 +208,7 @@ impl ChatSessionManager {
         }
 
         // Re-check after acquiring lock (another task may have created it)
-        let sessions = self.storage.chat_sessions.list()?;
+        let sessions = self.storage.chat_sessions.list_all()?;
         if let Some(session) = sessions
             .iter()
             .find(|s| {
@@ -304,7 +304,7 @@ impl ChatSessionManager {
             }
 
             // Check if another request created the session while we were creating ours
-            let sessions = self.storage.chat_sessions.list()?;
+            let sessions = self.storage.chat_sessions.list_all()?;
             if let Some(existing) = sessions.into_iter().find(|s| {
                 s.source_channel == source_channel
                     && s.source_conversation_id.as_deref() == Some(conversation_id)

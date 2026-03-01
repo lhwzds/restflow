@@ -2,10 +2,11 @@
 //! Terminal sessions are stored like files, allowing them to be reopened after closing.
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Terminal session status
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Default)]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum TerminalStatus {
@@ -17,7 +18,7 @@ pub enum TerminalStatus {
 }
 
 /// A terminal session represents a persistent terminal instance
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct TerminalSession {
     /// Unique identifier for the session

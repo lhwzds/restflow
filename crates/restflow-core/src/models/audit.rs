@@ -14,10 +14,11 @@
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Audit event category
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditEventCategory {
@@ -34,7 +35,7 @@ pub enum AuditEventCategory {
 }
 
 /// Source of the audit event
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum AuditEventSource {
@@ -49,7 +50,7 @@ pub enum AuditEventSource {
 }
 
 /// LLM call audit data
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct LlmCallAudit {
     /// Model used for the call
@@ -71,7 +72,7 @@ pub struct LlmCallAudit {
 }
 
 /// Tool call audit data
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ToolCallAudit {
     /// Name of the tool invoked
@@ -87,7 +88,7 @@ pub struct ToolCallAudit {
 }
 
 /// Model switch audit data
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ModelSwitchAudit {
     /// Previous model
@@ -101,7 +102,7 @@ pub struct ModelSwitchAudit {
 }
 
 /// Lifecycle event audit data
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct LifecycleAudit {
     /// Current status after the lifecycle event
@@ -113,7 +114,7 @@ pub struct LifecycleAudit {
 }
 
 /// Message event audit data
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct MessageAudit {
     /// Role of the message sender
@@ -125,7 +126,7 @@ pub struct MessageAudit {
 }
 
 /// Unified audit event structure
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct AuditEvent {
     /// Unique event ID
@@ -299,7 +300,7 @@ impl AuditEvent {
 }
 
 /// Query filters for retrieving audit events
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct AuditQuery {
     /// Filter by task ID
@@ -321,7 +322,7 @@ pub struct AuditQuery {
 }
 
 /// Statistics about audit events
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct AuditStats {
     /// Total number of events
@@ -345,7 +346,7 @@ pub struct AuditStats {
 }
 
 /// Time range of audit events
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct AuditTimeRange {
     /// earliest timestamp

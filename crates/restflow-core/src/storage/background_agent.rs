@@ -27,6 +27,12 @@ pub struct BackgroundAgentStorage {
     tool_traces: ToolTraceStorage,
 }
 
+#[derive(Debug, Clone)]
+struct SessionBindingResolution {
+    session_id: String,
+    owns_session: bool,
+}
+
 impl BackgroundAgentStorage {
     const MIN_TASK_TIMEOUT_SECS: u64 = 10;
 
@@ -139,13 +145,19 @@ impl BackgroundAgentStorage {
         requested_chat_session_id: Option<String>,
         agent_id: &str,
         task_name: &str,
-    ) -> Result<String> {
+    ) -> Result<SessionBindingResolution> {
         if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
             self.ensure_chat_session_binding(&chat_session_id, agent_id)?;
-            return Ok(chat_session_id);
+            return Ok(SessionBindingResolution {
+                session_id: chat_session_id,
+                owns_session: false,
+            });
         }
 
-        self.create_bound_chat_session(agent_id, task_name)
+        Ok(SessionBindingResolution {
+            session_id: self.create_bound_chat_session(agent_id, task_name)?,
+            owns_session: true,
+        })
     }
 
     fn resolve_chat_session_id_for_update(
@@ -153,10 +165,13 @@ impl BackgroundAgentStorage {
         task: &BackgroundAgent,
         requested_chat_session_id: Option<String>,
         next_agent_id: &str,
-    ) -> Result<String> {
+    ) -> Result<SessionBindingResolution> {
         if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
             self.ensure_chat_session_binding(&chat_session_id, next_agent_id)?;
-            return Ok(chat_session_id);
+            return Ok(SessionBindingResolution {
+                session_id: chat_session_id,
+                owns_session: false,
+            });
         }
 
         let current_chat_session_id = task.chat_session_id.trim();
@@ -165,10 +180,16 @@ impl BackgroundAgentStorage {
                 .ensure_chat_session_binding(current_chat_session_id, next_agent_id)
                 .is_ok()
         {
-            return Ok(current_chat_session_id.to_string());
+            return Ok(SessionBindingResolution {
+                session_id: current_chat_session_id.to_string(),
+                owns_session: task.owns_chat_session,
+            });
         }
 
-        self.create_bound_chat_session(next_agent_id, &task.name)
+        Ok(SessionBindingResolution {
+            session_id: self.create_bound_chat_session(next_agent_id, &task.name)?,
+            owns_session: true,
+        })
     }
 
     /// Create a new BackgroundAgentStorage instance
@@ -414,7 +435,30 @@ impl BackgroundAgentStorage {
 
     /// Delete an agent task and all its events
     pub fn delete_task(&self, id: &str) -> Result<bool> {
-        self.inner.delete_task_cascade(id)
+        let task = self.get_task(id)?;
+        let deleted = self.inner.delete_task_cascade(id)?;
+        if !deleted {
+            return Ok(false);
+        }
+
+        let Some(task) = task else {
+            return Ok(true);
+        };
+        let session_id = task.chat_session_id.trim();
+        if session_id.is_empty() || !task.owns_chat_session {
+            return Ok(true);
+        }
+
+        let session_reused = self
+            .list_tasks()?
+            .into_iter()
+            .any(|other| other.id != task.id && other.chat_session_id.trim() == session_id);
+        if session_reused {
+            return Ok(true);
+        }
+
+        let _ = self.chat_sessions.archive(session_id)?;
+        Ok(true)
     }
 
     /// Pause an agent task
@@ -550,11 +594,12 @@ impl BackgroundAgentStorage {
 
         Self::validate_timeout_secs(timeout_secs)?;
         Self::validate_task_input(input.as_deref(), input_template.as_deref())?;
-        let resolved_chat_session_id =
+        let session_binding =
             self.resolve_chat_session_id_for_create(chat_session_id, &agent_id, &name)?;
         let mut task = self.create_task(name, agent_id, schedule)?;
 
-        task.chat_session_id = resolved_chat_session_id;
+        task.chat_session_id = session_binding.session_id;
+        task.owns_chat_session = session_binding.owns_session;
         task.description = description;
         task.input = input;
         task.input_template = input_template;
@@ -612,7 +657,7 @@ impl BackgroundAgentStorage {
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
 
         let next_agent_id = agent_id.clone().unwrap_or_else(|| task.agent_id.clone());
-        let resolved_chat_session_id =
+        let session_binding =
             self.resolve_chat_session_id_for_update(&task, chat_session_id, &next_agent_id)?;
 
         if let Some(name) = name {
@@ -624,7 +669,8 @@ impl BackgroundAgentStorage {
         if let Some(agent_id) = agent_id {
             task.agent_id = agent_id;
         }
-        task.chat_session_id = resolved_chat_session_id;
+        task.chat_session_id = session_binding.session_id;
+        task.owns_chat_session = session_binding.owns_session;
         if let Some(input) = input {
             task.input = Some(input);
         }
@@ -1470,6 +1516,139 @@ mod tests {
             .list_background_agent_messages(&task.id, 10)
             .unwrap();
         assert!(messages.is_empty());
+    }
+
+    #[test]
+    fn test_delete_task_archives_owned_chat_session() {
+        let storage = create_test_storage();
+        let task = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Archive On Delete".to_string(),
+                agent_id: "agent-archive".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("archive me".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        assert!(task.owns_chat_session);
+        let session_before = storage
+            .chat_sessions()
+            .get(&task.chat_session_id)
+            .unwrap()
+            .unwrap();
+        assert!(session_before.archived_at.is_none());
+
+        let deleted = storage.delete_task(&task.id).unwrap();
+        assert!(deleted);
+        let session_after = storage
+            .chat_sessions()
+            .get(&task.chat_session_id)
+            .unwrap()
+            .unwrap();
+        assert!(session_after.archived_at.is_some());
+    }
+
+    #[test]
+    fn test_delete_task_does_not_archive_non_owned_chat_session() {
+        let storage = create_test_storage();
+        let shared_session = ChatSession::new("agent-shared".to_string(), "gpt-5".to_string());
+        let shared_session_id = shared_session.id.clone();
+        storage.chat_sessions().create(&shared_session).unwrap();
+
+        let task = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "External Session".to_string(),
+                agent_id: "agent-shared".to_string(),
+                chat_session_id: Some(shared_session_id.clone()),
+                description: None,
+                input: Some("keep session".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        assert!(!task.owns_chat_session);
+        let deleted = storage.delete_task(&task.id).unwrap();
+        assert!(deleted);
+        let session_after = storage
+            .chat_sessions()
+            .get(&shared_session_id)
+            .unwrap()
+            .unwrap();
+        assert!(session_after.archived_at.is_none());
+    }
+
+    #[test]
+    fn test_delete_task_does_not_archive_reused_owned_chat_session() {
+        let storage = create_test_storage();
+        let owner_task = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Owner".to_string(),
+                agent_id: "agent-owner".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("owner".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        let reused_task = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Reuser".to_string(),
+                agent_id: "agent-owner".to_string(),
+                chat_session_id: Some(owner_task.chat_session_id.clone()),
+                description: None,
+                input: Some("reuse".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+        assert!(!reused_task.owns_chat_session);
+
+        let deleted = storage.delete_task(&owner_task.id).unwrap();
+        assert!(deleted);
+        let session_after = storage
+            .chat_sessions()
+            .get(&owner_task.chat_session_id)
+            .unwrap()
+            .unwrap();
+        assert!(session_after.archived_at.is_none());
     }
 
     #[test]

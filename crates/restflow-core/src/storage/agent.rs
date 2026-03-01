@@ -7,6 +7,7 @@ use redb::Database;
 use restflow_storage::SimpleStorage;
 use restflow_storage::time_utils;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::sync::Arc;
 use ts_rs::TS;
 use uuid::Uuid;
@@ -17,7 +18,7 @@ pub const DEFAULT_ASSISTANT_NAME: &str = "Default Assistant";
 pub const LEGACY_DEFAULT_ASSISTANT_NAME: &str = "default";
 
 /// Stored agent with metadata
-#[derive(Serialize, Deserialize, Debug, Clone, TS)]
+#[derive(Serialize, Deserialize, Debug, Clone, TS, Type)]
 #[ts(export)]
 pub struct StoredAgent {
     pub id: String,
