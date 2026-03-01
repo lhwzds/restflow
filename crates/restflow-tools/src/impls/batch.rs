@@ -6,9 +6,10 @@
 
 use async_trait::async_trait;
 use futures::StreamExt;
-use futures::stream::FuturesOrdered;
+use futures::stream::FuturesUnordered;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::Semaphore;
@@ -37,7 +38,8 @@ pub struct BatchParams {
     /// Continue executing remaining invocations if one fails (default: true).
     #[serde(default = "default_continue_on_error")]
     pub continue_on_error: bool,
-    /// Per-invocation timeout in seconds (default: 300).
+    /// Optional per-invocation timeout in seconds.
+    /// When omitted, sub-invocations are not timed out by this tool.
     pub timeout_secs: Option<u64>,
 }
 
@@ -136,16 +138,18 @@ impl Tool for BatchTool {
         let continue_on_error = params.continue_on_error;
         let timeout = params.timeout_secs.map(Duration::from_secs);
         let semaphore = Arc::new(Semaphore::new(MAX_BATCH_SIZE));
-        let mut ordered = FuturesOrdered::new();
+        let mut unordered = FuturesUnordered::new();
+        let mut pending = HashMap::new();
 
         for (idx, inv) in params.invocations.into_iter().enumerate() {
             let tools = Arc::clone(&self.tools);
             let sem = Arc::clone(&semaphore);
             let tool_name = inv.tool;
+            pending.insert(idx, tool_name.clone());
             let tool_input = inv.input;
             let tool_timeout = timeout;
 
-            ordered.push_back(async move {
+            unordered.push(async move {
                 let _permit = sem.acquire().await;
                 let result = if let Some(t) = tool_timeout {
                     tokio::time::timeout(t, tools.execute_safe(&tool_name, tool_input))
@@ -163,8 +167,10 @@ impl Tool for BatchTool {
         let mut results = Vec::new();
         let mut succeeded = 0usize;
         let mut failed = 0usize;
+        let mut skipped = 0usize;
 
-        while let Some((idx, tool_name, result)) = ordered.next().await {
+        while let Some((idx, tool_name, result)) = unordered.next().await {
+            pending.remove(&idx);
             let entry = match result {
                 Ok(output) if output.success => {
                     succeeded += 1;
@@ -197,18 +203,40 @@ impl Tool for BatchTool {
             results.push(entry);
 
             if !continue_on_error && failed > 0 {
-                // Mark remaining as skipped
+                // Mark remaining invocations as skipped and stop.
+                let mut skipped_entries: Vec<_> = pending
+                    .into_iter()
+                    .map(|(pending_idx, pending_tool)| {
+                        json!({
+                            "index": pending_idx,
+                            "tool": pending_tool,
+                            "success": false,
+                            "skipped": true,
+                            "error": "Skipped due to earlier failure"
+                        })
+                    })
+                    .collect();
+                skipped = skipped_entries.len();
+                results.append(&mut skipped_entries);
                 break;
             }
         }
 
-        let total = succeeded + failed;
+        results.sort_by_key(|entry| {
+            entry
+                .get("index")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(u64::MAX)
+        });
+
+        let total = succeeded + failed + skipped;
         Ok(ToolOutput::success(json!({
             "results": results,
             "summary": {
                 "total": total,
                 "succeeded": succeeded,
-                "failed": failed
+                "failed": failed,
+                "skipped": skipped
             }
         })))
     }
@@ -256,10 +284,31 @@ mod tests {
         }
     }
 
+    /// A tool that succeeds after a delay.
+    struct SlowEchoTool;
+
+    #[async_trait]
+    impl Tool for SlowEchoTool {
+        fn name(&self) -> &str {
+            "slow_echo"
+        }
+        fn description(&self) -> &str {
+            "Echo input back after a delay"
+        }
+        fn parameters_schema(&self) -> Value {
+            json!({"type": "object"})
+        }
+        async fn execute(&self, input: Value) -> Result<ToolOutput> {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            Ok(ToolOutput::success(input))
+        }
+    }
+
     fn make_registry() -> Arc<ToolRegistry> {
         let mut registry = ToolRegistry::new();
         registry.register(EchoTool);
         registry.register(FailTool);
+        registry.register(SlowEchoTool);
         Arc::new(registry)
     }
 
@@ -351,5 +400,34 @@ mod tests {
 
         assert!(result.success);
         assert_eq!(result.result["summary"]["total"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_batch_stop_on_error_marks_skipped() {
+        let registry = make_registry();
+        let batch = BatchTool::new(registry);
+        let result = batch
+            .execute(json!({
+                "invocations": [
+                    { "tool": "fail", "input": {} },
+                    { "tool": "slow_echo", "input": { "msg": "one" } },
+                    { "tool": "slow_echo", "input": { "msg": "two" } }
+                ],
+                "continue_on_error": false
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        let summary = &result.result["summary"];
+        assert_eq!(summary["failed"].as_u64().unwrap(), 1);
+        assert_eq!(summary["skipped"].as_u64().unwrap(), 2);
+        assert_eq!(summary["total"].as_u64().unwrap(), 3);
+
+        let results = result.result["results"].as_array().unwrap();
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0]["tool"], "fail");
+        assert_eq!(results[1]["skipped"], true);
+        assert_eq!(results[2]["skipped"], true);
     }
 }
