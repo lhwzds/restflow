@@ -29,6 +29,7 @@ use tokio::fs;
 use tokio::io::AsyncWriteExt;
 
 use super::file_tracker::FileTracker;
+use super::shared::is_likely_binary;
 use crate::Result;
 use crate::ToolAction;
 use crate::check_security;
@@ -1790,20 +1791,6 @@ fn normalize_path_for_glob(path: &Path, base: &Path) -> String {
     relative
         .to_string_lossy()
         .replace(std::path::MAIN_SEPARATOR, "/")
-}
-
-/// Check if a file is likely binary based on extension
-fn is_likely_binary(name: &str) -> bool {
-    let binary_extensions = [
-        ".exe", ".dll", ".so", ".dylib", ".a", ".o", ".obj", ".png", ".jpg", ".jpeg", ".gif",
-        ".bmp", ".ico", ".webp", ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac", ".zip",
-        ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar", ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-        ".ppt", ".pptx", ".wasm", ".pyc", ".pyo", ".class", ".jar", ".ttf", ".otf", ".woff",
-        ".woff2", ".eot",
-    ];
-
-    let lower = name.to_lowercase();
-    binary_extensions.iter().any(|ext| lower.ends_with(ext))
 }
 
 #[cfg(test)]

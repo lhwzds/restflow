@@ -15,6 +15,7 @@ use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use tokio::fs;
 
+use super::shared::{is_likely_binary, should_skip_grep_dir};
 use crate::Result;
 use crate::{Tool, ToolOutput};
 
@@ -23,25 +24,6 @@ const MAX_TOTAL_MATCHES: usize = 5000;
 
 /// Maximum file size to search (5 MB)
 const MAX_FILE_SIZE: u64 = 5 * 1024 * 1024;
-
-/// Directories to skip during traversal
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    ".hg",
-    ".svn",
-    "node_modules",
-    "__pycache__",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".tox",
-    "target",
-    "dist",
-    "build",
-    ".next",
-    ".nuxt",
-    ".venv",
-    "venv",
-];
 
 #[derive(Debug, Deserialize)]
 struct GrepInput {
@@ -570,7 +552,7 @@ async fn collect_files(
 
         // Skip hidden directories and known generated dirs
         if path.is_dir() {
-            if file_name.starts_with('.') || SKIP_DIRS.contains(&file_name.as_str()) {
+            if should_skip_grep_dir(&file_name) {
                 continue;
             }
             collect_files(&path, glob_filter, type_filter, files).await;
@@ -642,18 +624,6 @@ fn extensions_for_type(file_type: &str) -> &[&str] {
         "svelte" => &["svelte"],
         _ => &[],
     }
-}
-
-fn is_likely_binary(name: &str) -> bool {
-    let binary_extensions = [
-        ".exe", ".dll", ".so", ".dylib", ".a", ".o", ".obj", ".png", ".jpg", ".jpeg", ".gif",
-        ".bmp", ".ico", ".webp", ".mp3", ".mp4", ".avi", ".mov", ".mkv", ".wav", ".flac", ".zip",
-        ".tar", ".gz", ".bz2", ".xz", ".7z", ".rar", ".pdf", ".doc", ".docx", ".xls", ".xlsx",
-        ".ppt", ".pptx", ".wasm", ".pyc", ".pyo", ".class", ".jar", ".ttf", ".otf", ".woff",
-        ".woff2", ".eot",
-    ];
-    let lower = name.to_lowercase();
-    binary_extensions.iter().any(|ext| lower.ends_with(ext))
 }
 
 #[cfg(test)]

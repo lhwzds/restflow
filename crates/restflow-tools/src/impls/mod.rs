@@ -2,6 +2,7 @@
 
 // Shared utilities
 pub(crate) mod path_utils;
+pub(crate) mod shared;
 
 // Original 7 tools
 mod bash;

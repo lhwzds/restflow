@@ -13,31 +13,12 @@ use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use tokio::fs;
 
+use super::shared::should_skip_glob_dir;
 use crate::Result;
 use crate::{Tool, ToolOutput};
 
 /// Maximum entries to return
 const MAX_RESULTS: usize = 1000;
-
-/// Directories to skip during traversal
-const SKIP_DIRS: &[&str] = &[
-    ".git",
-    ".hg",
-    ".svn",
-    "node_modules",
-    ".node_modules",
-    "__pycache__",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".tox",
-    "target",
-    "dist",
-    "build",
-    ".next",
-    ".nuxt",
-    ".venv",
-    "venv",
-];
 
 #[derive(Debug, Deserialize)]
 struct GlobInput {
@@ -206,8 +187,7 @@ async fn walk_and_match(
         };
 
         // Skip hidden directories and known generated dirs
-        if (file_name.starts_with('.') || SKIP_DIRS.contains(&file_name.as_str())) && path.is_dir()
-        {
+        if should_skip_glob_dir(&file_name) && path.is_dir() {
             continue;
         }
 
