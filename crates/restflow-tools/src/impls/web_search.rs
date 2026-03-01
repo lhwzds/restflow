@@ -7,6 +7,7 @@
 
 use async_trait::async_trait;
 use reqwest::Client;
+use reqwest::StatusCode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -155,10 +156,11 @@ impl WebSearchTool {
             .await
             .map_err(|e| crate::ToolError::Other(e.into()))?;
 
-        if !response.status().is_success() {
+        let status = response.status();
+        if !status.is_success() {
             return Err(crate::ToolError::Tool(format!(
                 "DuckDuckGo returned status {}",
-                response.status()
+                status
             )));
         }
 
@@ -166,9 +168,30 @@ impl WebSearchTool {
             .text()
             .await
             .map_err(|e| crate::ToolError::Other(e.into()))?;
+
+        if is_duckduckgo_challenge_page(status, &html) {
+            return Err(crate::ToolError::Tool(
+                "DuckDuckGo blocked automated access with a challenge page".to_string(),
+            ));
+        }
+
         let results = parse_duckduckgo_html(&html, num);
         Ok(json!({ "provider": "duckduckgo", "results": results }))
     }
+}
+
+/// Detect whether DuckDuckGo returned an anti-bot challenge page.
+fn is_duckduckgo_challenge_page(status: StatusCode, html: &str) -> bool {
+    if status == StatusCode::ACCEPTED {
+        return true;
+    }
+
+    let lower = html.to_ascii_lowercase();
+    lower.contains("anomaly-modal")
+        || lower.contains("challenge-form")
+        || lower.contains("bots use duckduckgo too")
+        || lower.contains("anomaly.js")
+        || lower.contains("cc=botnet")
 }
 
 /// Parse DuckDuckGo HTML lite results page
@@ -389,6 +412,40 @@ mod tests {
         let results = parse_duckduckgo_html(html, 1);
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["url"], "https://example.com/post");
+    }
+
+    #[test]
+    fn test_detect_duckduckgo_challenge_by_status() {
+        assert!(is_duckduckgo_challenge_page(
+            StatusCode::ACCEPTED,
+            "<html><body>normal</body></html>"
+        ));
+    }
+
+    #[test]
+    fn test_detect_duckduckgo_challenge_by_html_markers() {
+        let html = r#"
+        <html>
+            <body>
+                <div class="anomaly-modal__title">Unfortunately, bots use DuckDuckGo too.</div>
+                <form id="challenge-form" action="/anomaly.js?cc=botnet"></form>
+            </body>
+        </html>
+        "#;
+        assert!(is_duckduckgo_challenge_page(StatusCode::OK, html));
+    }
+
+    #[test]
+    fn test_detect_duckduckgo_non_challenge_page() {
+        let html = r#"
+        <html><body>
+            <div class="result">
+                <a class="result__a" href="https://example.com">Example Title</a>
+                <a class="result__snippet">Snippet</a>
+            </div>
+        </body></html>
+        "#;
+        assert!(!is_duckduckgo_challenge_page(StatusCode::OK, html));
     }
 
     #[tokio::test]
