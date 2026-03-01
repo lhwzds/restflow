@@ -41,7 +41,7 @@ impl BackgroundAgentTool {
             Ok(())
         } else {
             Err(crate::ToolError::Tool(
-                "Write access to background agents is disabled. Available read-only operations: list, get, progress. To modify background agents, the user must grant write permissions.".to_string(),
+                "Write access to background agents is disabled. Available read-only operations: list, progress, list_messages, list_deliverables, list_traces, read_trace. To modify background agents, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -74,6 +74,28 @@ enum BackgroundAgentAction {
     },
     ConvertSession {
         session_id: String,
+        #[serde(default)]
+        name: Option<String>,
+        #[serde(default)]
+        schedule: Option<Value>,
+        #[serde(default)]
+        input: Option<String>,
+        #[serde(default)]
+        timeout_secs: Option<u64>,
+        #[serde(default)]
+        durability_mode: Option<String>,
+        #[serde(default)]
+        memory: Option<Value>,
+        #[serde(default)]
+        memory_scope: Option<String>,
+        #[serde(default)]
+        resource_limits: Option<Value>,
+        #[serde(default)]
+        run_now: Option<bool>,
+    },
+    PromoteToBackground {
+        #[serde(default)]
+        session_id: Option<String>,
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
@@ -211,7 +233,7 @@ impl Tool for BackgroundAgentTool {
                 },
                 "session_id": {
                     "type": "string",
-                    "description": "Source chat session ID (for convert_session)"
+                    "description": "Source chat session ID (for convert_session/promote_to_background). For promote_to_background this is auto-injected from chat context when available."
                 },
                 "description": {
                     "type": "string",
@@ -262,11 +284,11 @@ impl Tool for BackgroundAgentTool {
                 },
                 "resource_limits": {
                     "type": "object",
-                    "description": "Resource limits payload (for create/update/convert_session)"
+                    "description": "Resource limits payload (for create/update/convert_session/promote_to_background)"
                 },
                 "run_now": {
                     "type": "boolean",
-                    "description": "Whether to trigger immediate run after convert_session (default: true)"
+                    "description": "Whether to trigger immediate run after convert_session/promote_to_background (default: true)"
                 },
                 "status": {
                     "type": "string",
@@ -389,6 +411,46 @@ impl Tool for BackgroundAgentTool {
                     .map_err(|e| {
                         ToolError::Tool(format!(
                             "Failed to convert session into background agent: {e}."
+                        ))
+                    })?;
+                ToolOutput::success(result)
+            }
+            BackgroundAgentAction::PromoteToBackground {
+                session_id,
+                name,
+                schedule,
+                input,
+                timeout_secs,
+                durability_mode,
+                memory,
+                memory_scope,
+                resource_limits,
+                run_now,
+            } => {
+                self.write_guard()?;
+                let session_id = session_id.ok_or_else(|| {
+                    ToolError::Tool(
+                        "promote_to_background requires session_id (runtime should auto-inject it for interactive chat sessions)"
+                            .to_string(),
+                    )
+                })?;
+                let result = self
+                    .store
+                    .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+                        session_id,
+                        name,
+                        schedule,
+                        input,
+                        timeout_secs,
+                        durability_mode,
+                        memory,
+                        memory_scope,
+                        resource_limits,
+                        run_now,
+                    })
+                    .map_err(|e| {
+                        ToolError::Tool(format!(
+                            "Failed to promote session into background agent: {e}."
                         ))
                     })?;
                 ToolOutput::success(result)
@@ -812,7 +874,7 @@ mod tests {
         let err = result.expect_err("expected write-guard error");
         assert!(
             err.to_string()
-                .contains("Available read-only operations: list, get, progress")
+                .contains("Available read-only operations: list, progress")
         );
     }
 
@@ -861,6 +923,51 @@ mod tests {
                 .get("run_now")
                 .and_then(|value| value.as_bool()),
             Some(true)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_promote_to_background_operation() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+        let output = tool
+            .execute(json!({
+                "operation": "promote_to_background",
+                "session_id": "session-1",
+                "name": "Promoted Task",
+                "run_now": false
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(
+            output
+                .result
+                .get("task")
+                .and_then(|task| task.get("chat_session_id"))
+                .and_then(|value| value.as_str()),
+            Some("session-1")
+        );
+        assert_eq!(
+            output
+                .result
+                .get("run_now")
+                .and_then(|value| value.as_bool()),
+            Some(false)
+        );
+    }
+
+    #[tokio::test]
+    async fn test_promote_to_background_requires_session_id() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+        let err = tool
+            .execute(json!({
+                "operation": "promote_to_background"
+            }))
+            .await
+            .expect_err("expected missing session_id error");
+        assert!(
+            err.to_string()
+                .contains("promote_to_background requires session_id")
         );
     }
 

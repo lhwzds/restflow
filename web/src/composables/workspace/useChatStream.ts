@@ -48,7 +48,7 @@ export interface StreamState {
  */
 export interface StreamStep {
   type: string
-  /** Raw tool name (e.g. spawn_agent, web_search) */
+  /** Raw tool name (e.g. spawn_subagent, web_search) */
   name: string
   /** Human-readable step label for UI rendering */
   displayName?: string
@@ -103,7 +103,7 @@ function formatToolDisplayName(
   argsPayload?: string | null,
   resultPayload?: string | null,
 ): string {
-  if (toolName === 'spawn_agent') {
+  if (toolName === 'spawn_subagent') {
     const args = parseJsonObject(argsPayload)
     const result = parseJsonObject(resultPayload)
     const agent =
@@ -116,26 +116,26 @@ function formatToolDisplayName(
     if (model) parts.push(`@${model}`)
     if (taskId) parts.push(`#${taskId.slice(0, 8)}`)
     if (parts.length > 0) {
-      return `spawn_agent (${parts.join(' ')})`
+      return `spawn_subagent (${parts.join(' ')})`
     }
   }
 
-  if (toolName === 'wait_agents') {
+  if (toolName === 'wait_subagents') {
     const args = parseJsonObject(argsPayload)
     const taskIds = Array.isArray(args?.task_ids) ? args.task_ids.length : 0
     if (taskIds > 0) {
-      return `wait_agents (${taskIds} tasks)`
+      return `wait_subagents (${taskIds} tasks)`
     }
   }
 
-  if (toolName === 'list_agents') {
+  if (toolName === 'list_subagents') {
     const result = parseJsonObject(resultPayload)
     const runningCount =
       typeof result?.running_count === 'number' && Number.isFinite(result.running_count)
         ? Math.max(0, Math.floor(result.running_count))
         : null
     if (runningCount !== null) {
-      return `list_agents (${runningCount} running)`
+      return `list_subagents (${runningCount} running)`
     }
   }
 

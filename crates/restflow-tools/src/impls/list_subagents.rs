@@ -1,4 +1,4 @@
-//! list_agents tool - List available agent types and running agents.
+//! list_subagents tool - List available sub-agent definitions and running sub-agents.
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -9,9 +9,17 @@ use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::SubagentManager;
 
-/// Parameters for list_agents tool.
+#[cfg(feature = "ts")]
+const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../web/src/types/generated/"
+);
+
+/// Parameters for list_subagents tool.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ListAgentsParams {
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
+pub struct ListSubagentsParams {
     /// Include currently running agents in the response.
     #[serde(default = "default_include_running")]
     pub include_running: bool,
@@ -21,21 +29,21 @@ fn default_include_running() -> bool {
     true
 }
 
-/// list_agents tool for the shared agent execution engine.
-pub struct ListAgentsTool {
+/// list_subagents tool for the shared agent execution engine.
+pub struct ListSubagentsTool {
     manager: Arc<dyn SubagentManager>,
 }
 
-impl ListAgentsTool {
+impl ListSubagentsTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
         Self { manager }
     }
 }
 
 #[async_trait]
-impl Tool for ListAgentsTool {
+impl Tool for ListSubagentsTool {
     fn name(&self) -> &str {
-        "list_agents"
+        "list_subagents"
     }
 
     fn description(&self) -> &str {
@@ -56,7 +64,7 @@ impl Tool for ListAgentsTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
-        let params: ListAgentsParams = serde_json::from_value(input)
+        let params: ListSubagentsParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
         let available: Vec<Value> = self
@@ -188,13 +196,13 @@ mod tests {
 
     #[test]
     fn test_params_default() {
-        let params: ListAgentsParams = serde_json::from_str("{}").unwrap();
+        let params: ListSubagentsParams = serde_json::from_str("{}").unwrap();
         assert!(params.include_running);
     }
 
     #[test]
     fn test_params_no_running() {
-        let params: ListAgentsParams =
+        let params: ListSubagentsParams =
             serde_json::from_str(r#"{"include_running": false}"#).unwrap();
         assert!(!params.include_running);
     }
@@ -209,7 +217,7 @@ mod tests {
             ]),
             vec![],
         );
-        let tool = ListAgentsTool::new(as_manager(&deps));
+        let tool = ListSubagentsTool::new(as_manager(&deps));
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
         let agents = result.result["available_agents"].as_array().unwrap();
@@ -219,7 +227,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_no_running() {
         let deps = make_deps(MockDefLookup::with_agents(vec![("coder", "Coder")]), vec![]);
-        let tool = ListAgentsTool::new(as_manager(&deps));
+        let tool = ListSubagentsTool::new(as_manager(&deps));
         let result = tool
             .execute(json!({"include_running": false}))
             .await
@@ -258,7 +266,7 @@ mod tests {
         // Small delay to let the agent register
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let tool = ListAgentsTool::new(as_manager(&deps));
+        let tool = ListSubagentsTool::new(as_manager(&deps));
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
         assert!(result.result["running_count"].as_u64().unwrap() >= 1);
@@ -267,7 +275,7 @@ mod tests {
     #[tokio::test]
     async fn test_list_empty_definitions() {
         let deps = make_deps(MockDefLookup::empty(), vec![]);
-        let tool = ListAgentsTool::new(as_manager(&deps));
+        let tool = ListSubagentsTool::new(as_manager(&deps));
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
         let agents = result.result["available_agents"].as_array().unwrap();

@@ -204,7 +204,7 @@ impl SubagentDefLookup for AgentDefinitionRegistry {
 
 /// Dynamic sub-agent lookup backed by persisted agent storage.
 ///
-/// This keeps `spawn_agent` definitions in sync with runtime agent CRUD
+/// This keeps `spawn_subagent` definitions in sync with runtime agent CRUD
 /// without requiring daemon restart.
 #[derive(Clone)]
 pub struct StorageBackedSubagentLookup {
