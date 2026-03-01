@@ -214,8 +214,14 @@ impl MemoryStorage {
             .inner
             .delete_all_chunks_for_agent_with_metadata(agent_id, &metadata)?;
 
+        if let Some(vectors) = &self.vectors {
+            for chunk in &chunks {
+                vectors.delete(&chunk.id)?;
+            }
+        }
+
         if let Some(index) = &self.index {
-            for chunk in chunks {
+            for chunk in &chunks {
                 index.remove_chunk(&chunk.id)?;
             }
         }
@@ -691,6 +697,17 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         MemoryStorage::new(db).unwrap()
+    }
+
+    fn create_test_storage_with_vectors(dimension: usize) -> MemoryStorage {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test-vectors.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let config = VectorConfig {
+            dimension,
+            ..VectorConfig::default()
+        };
+        MemoryStorage::with_vectors(db, config).unwrap()
     }
 
     #[test]
@@ -1178,6 +1195,34 @@ mod tests {
         // agent-002 chunks should still exist
         let chunks_agent2 = storage.list_chunks("agent-002").unwrap();
         assert_eq!(chunks_agent2.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_chunks_for_agent_cleans_vectors() {
+        let storage = create_test_storage_with_vectors(3);
+
+        let chunk1 = MemoryChunk::new("agent-001".to_string(), "Content 1".to_string())
+            .with_embedding(vec![0.1, 0.2, 0.3], "test-model".to_string());
+        let chunk2 = MemoryChunk::new("agent-001".to_string(), "Content 2".to_string())
+            .with_embedding(vec![0.4, 0.5, 0.6], "test-model".to_string());
+        let chunk3 = MemoryChunk::new("agent-002".to_string(), "Content 3".to_string())
+            .with_embedding(vec![0.7, 0.8, 0.9], "test-model".to_string());
+
+        storage.store_chunk(&chunk1).unwrap();
+        storage.store_chunk(&chunk2).unwrap();
+        storage.store_chunk(&chunk3).unwrap();
+
+        let before = storage.vector_stats().unwrap().unwrap();
+        assert_eq!(before.active_count, 3);
+        assert_eq!(before.orphan_count, 0);
+
+        let deleted = storage.delete_chunks_for_agent("agent-001").unwrap();
+        assert_eq!(deleted, 2);
+
+        let after = storage.vector_stats().unwrap().unwrap();
+        assert_eq!(after.active_count, 1);
+        assert_eq!(after.orphan_count, 2);
+        assert_eq!(after.total_indexed, 3);
     }
 
     #[test]
