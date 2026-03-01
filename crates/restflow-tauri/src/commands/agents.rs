@@ -4,9 +4,11 @@ use crate::state::AppState;
 use restflow_core::models::AgentNode;
 use restflow_core::storage::agent::StoredAgent;
 use serde::Deserialize;
+use specta::Type;
 use tauri::State;
 
 /// List all agents
+#[specta::specta]
 #[tauri::command]
 pub async fn list_agents(state: State<'_, AppState>) -> Result<Vec<StoredAgent>, String> {
     state
@@ -17,6 +19,7 @@ pub async fn list_agents(state: State<'_, AppState>) -> Result<Vec<StoredAgent>,
 }
 
 /// Get an agent by ID
+#[specta::specta]
 #[tauri::command]
 pub async fn get_agent(state: State<'_, AppState>, id: String) -> Result<StoredAgent, String> {
     state
@@ -27,13 +30,14 @@ pub async fn get_agent(state: State<'_, AppState>, id: String) -> Result<StoredA
 }
 
 /// Create agent request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct CreateAgentRequest {
     pub name: String,
     pub agent: AgentNode,
 }
 
 /// Create a new agent
+#[specta::specta]
 #[tauri::command]
 pub async fn create_agent(
     state: State<'_, AppState>,
@@ -51,13 +55,14 @@ pub async fn create_agent(
 }
 
 /// Update agent request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct UpdateAgentRequest {
     pub name: Option<String>,
     pub agent: Option<AgentNode>,
 }
 
 /// Update an existing agent
+#[specta::specta]
 #[tauri::command]
 pub async fn update_agent(
     state: State<'_, AppState>,
@@ -77,6 +82,7 @@ pub async fn update_agent(
 }
 
 /// Delete an agent by ID
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_agent(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state

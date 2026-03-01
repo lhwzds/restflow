@@ -10,6 +10,7 @@ pub mod commands;
 pub mod daemon_manager;
 pub mod error;
 pub mod executor;
+pub mod ipc_bindings;
 pub mod state;
 pub mod subagent;
 #[cfg(test)]

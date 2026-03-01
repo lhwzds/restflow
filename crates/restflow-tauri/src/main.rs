@@ -10,8 +10,8 @@
 
 use clap::Parser;
 use restflow_tauri_lib::AppState;
-use restflow_tauri_lib::commands;
 use restflow_tauri_lib::commands::pty::save_all_terminal_history_sync;
+use restflow_tauri_lib::ipc_bindings::{build_ipc_builder, export_ipc_bindings};
 use tauri::Manager;
 use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
@@ -34,6 +34,11 @@ fn main() {
         .init();
 
     info!("Starting RestFlow Desktop Application");
+
+    #[cfg(debug_assertions)]
+    export_ipc_bindings().expect("failed to export tauri-specta bindings");
+
+    let ipc_builder = build_ipc_builder();
 
     // Change CWD to ~/.restflow/ so that WebKit temp files (e.g. from MediaRecorder)
     // don't land in the project or user home directory.
@@ -118,139 +123,7 @@ fn main() {
                 }
             }
         })
-        .invoke_handler(tauri::generate_handler![
-            // Skills
-            commands::list_skills,
-            commands::get_skill,
-            commands::create_skill,
-            commands::update_skill,
-            commands::delete_skill,
-            commands::export_skill,
-            commands::import_skill,
-            // Agents
-            commands::list_agents,
-            commands::get_agent,
-            commands::create_agent,
-            commands::update_agent,
-            commands::delete_agent,
-            // Agent Tasks
-            commands::list_background_agents,
-            commands::list_background_agents_by_status,
-            commands::get_background_agent,
-            commands::create_background_agent,
-            commands::update_background_agent,
-            commands::delete_background_agent,
-            commands::convert_session_to_background_agent,
-            commands::pause_background_agent,
-            commands::resume_background_agent,
-            commands::cancel_background_agent,
-            commands::get_background_agent_events,
-            commands::get_runnable_background_agents,
-            commands::run_background_agent_streaming,
-            commands::get_active_background_agents,
-            commands::get_background_agent_stream_event_name,
-            commands::get_heartbeat_event_name,
-            commands::emit_test_background_agent_event,
-            commands::steer_task,
-            // Hooks
-            commands::list_hooks,
-            commands::create_hook,
-            commands::update_hook,
-            commands::delete_hook,
-            commands::test_hook,
-            // Secrets
-            commands::list_secrets,
-            commands::create_secret,
-            commands::update_secret,
-            commands::delete_secret,
-            commands::has_secret,
-            // Config
-            commands::get_config,
-            commands::update_config,
-            commands::get_available_models,
-            commands::get_available_tools,
-            // PTY
-            commands::spawn_pty,
-            commands::write_pty,
-            commands::resize_pty,
-            commands::close_pty,
-            commands::get_pty_status,
-            commands::get_pty_history,
-            commands::save_terminal_history,
-            commands::save_all_terminal_history,
-            commands::restart_terminal,
-            // Terminal Sessions
-            commands::list_terminal_sessions,
-            commands::get_terminal_session,
-            commands::create_terminal_session,
-            commands::rename_terminal_session,
-            commands::update_terminal_session,
-            commands::delete_terminal_session,
-            // Memory
-            commands::search_memory,
-            commands::search_memory_advanced,
-            commands::get_memory_chunk,
-            commands::list_memory_chunks,
-            commands::list_memory_chunks_by_tag,
-            commands::create_memory_chunk,
-            commands::delete_memory_chunk,
-            commands::delete_memory_chunks_for_agent,
-            commands::get_memory_session,
-            commands::list_memory_sessions,
-            commands::list_memory_chunks_for_session,
-            commands::create_memory_session,
-            commands::delete_memory_session,
-            commands::get_memory_stats,
-            commands::export_memory_markdown,
-            commands::export_memory_session_markdown,
-            commands::export_memory_advanced,
-            // Chat Sessions
-            commands::create_chat_session,
-            commands::list_chat_sessions,
-            commands::list_chat_session_summaries,
-            commands::get_chat_session,
-            commands::update_chat_session,
-            commands::rename_chat_session,
-            commands::delete_chat_session,
-            commands::rebuild_external_chat_session,
-            commands::add_chat_message,
-            commands::send_chat_message,
-            commands::list_chat_sessions_by_agent,
-            commands::list_chat_sessions_by_skill,
-            commands::get_chat_session_count,
-            commands::clear_old_chat_sessions,
-            commands::execute_chat_session,
-            commands::list_tool_traces,
-            commands::send_chat_message_stream,
-            commands::steer_chat_stream,
-            commands::cancel_chat_stream,
-            commands::get_session_change_event_name,
-            // Auth Profiles
-            commands::auth_initialize,
-            commands::auth_discover,
-            commands::auth_list_profiles,
-            commands::auth_get_profiles_for_provider,
-            commands::auth_get_available_profiles,
-            commands::auth_get_profile,
-            commands::auth_add_profile,
-            commands::auth_remove_profile,
-            commands::auth_update_profile,
-            commands::auth_enable_profile,
-            commands::auth_disable_profile,
-            commands::auth_mark_success,
-            commands::auth_mark_failure,
-            commands::auth_get_api_key,
-            commands::auth_get_summary,
-            commands::auth_clear,
-            // Voice
-            commands::transcribe_audio,
-            commands::transcribe_audio_stream,
-            commands::save_voice_message,
-            commands::read_media_file,
-            commands::start_live_transcription,
-            commands::send_live_audio_chunk,
-            commands::stop_live_transcription,
-        ])
+        .invoke_handler(ipc_builder.invoke_handler())
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

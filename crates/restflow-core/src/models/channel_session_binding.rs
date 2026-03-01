@@ -1,8 +1,9 @@
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Persistent mapping between an external channel route and a chat session.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 pub struct ChannelSessionBinding {
     pub id: String,

@@ -40,10 +40,11 @@ use anyhow::Result;
 use regex::RegexBuilder;
 use restflow_storage::time_utils;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// A search result with relevance score.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ScoredChunk {
     /// The memory chunk
@@ -57,7 +58,7 @@ pub struct ScoredChunk {
 }
 
 /// Breakdown of how the score was calculated.
-#[derive(Debug, Clone, Serialize, Deserialize, Default, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, TS, Type)]
 #[ts(export)]
 pub struct ScoreBreakdown {
     /// Score contribution from keyword frequency
@@ -69,7 +70,7 @@ pub struct ScoreBreakdown {
 }
 
 /// Results from a ranked search.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct RankedSearchResult {
     /// Scored chunks sorted by relevance

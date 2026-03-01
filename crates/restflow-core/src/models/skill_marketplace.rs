@@ -7,11 +7,12 @@
 //! - Gating requirements (binary checks, env vars, OS compatibility)
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::collections::HashMap;
 use ts_rs::TS;
 
 /// Semantic version for skills
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 pub struct SkillVersion {
     /// Major version (breaking changes)
@@ -121,7 +122,7 @@ impl Default for SkillVersion {
 }
 
 /// Version requirement for dependencies
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 #[serde(tag = "type", content = "version")]
 pub enum VersionRequirement {
@@ -177,7 +178,7 @@ impl VersionRequirement {
 }
 
 /// Skill dependency
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SkillDependency {
     /// ID of the required skill
@@ -189,7 +190,7 @@ pub struct SkillDependency {
 }
 
 /// Permission types that skills can request
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Hash)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillPermission {
@@ -220,7 +221,7 @@ pub enum SkillPermission {
 }
 
 /// Skill permissions configuration
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
 #[ts(export)]
 pub struct SkillPermissions {
     /// Required permissions (skill won't work without these)
@@ -230,7 +231,7 @@ pub struct SkillPermissions {
 }
 
 /// Operating system type
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum OsType {
@@ -253,7 +254,7 @@ impl OsType {
 }
 
 /// Binary requirement for gating
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct BinaryRequirement {
     /// Name of the binary (e.g., "git", "docker")
@@ -267,7 +268,7 @@ pub struct BinaryRequirement {
 }
 
 /// Environment variable requirement for gating
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct EnvVarRequirement {
     /// Name of the environment variable
@@ -279,7 +280,7 @@ pub struct EnvVarRequirement {
 }
 
 /// Gating requirements for a skill
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
 #[ts(export)]
 pub struct GatingRequirements {
     /// Required binaries
@@ -293,7 +294,7 @@ pub struct GatingRequirements {
 }
 
 /// Author information
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SkillAuthor {
     /// Author name
@@ -305,7 +306,7 @@ pub struct SkillAuthor {
 }
 
 /// Skill source information
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SkillSource {
@@ -342,7 +343,7 @@ pub enum SkillSource {
 }
 
 /// Extended skill metadata for marketplace
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SkillManifest {
     /// Skill ID (unique identifier)
@@ -411,7 +412,7 @@ impl Default for SkillManifest {
 }
 
 /// Gating check result
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct GatingCheckResult {
     /// Whether all requirements are met
@@ -455,7 +456,7 @@ impl GatingCheckResult {
 }
 
 /// Installed skill status
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum InstallStatus {
@@ -474,7 +475,7 @@ pub enum InstallStatus {
 }
 
 /// Installed skill information
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct InstalledSkill {
     /// Skill manifest

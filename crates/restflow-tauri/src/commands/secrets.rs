@@ -2,9 +2,11 @@
 
 use crate::state::AppState;
 use serde::Deserialize;
+use specta::Type;
 use tauri::State;
 
 /// List all secrets (without values)
+#[specta::specta]
 #[tauri::command]
 pub async fn list_secrets(state: State<'_, AppState>) -> Result<Vec<SecretInfo>, String> {
     let secrets = state
@@ -26,7 +28,7 @@ pub async fn list_secrets(state: State<'_, AppState>) -> Result<Vec<SecretInfo>,
 }
 
 /// Secret info without the actual value
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, Type)]
 pub struct SecretInfo {
     pub key: String,
     pub description: Option<String>,
@@ -35,7 +37,7 @@ pub struct SecretInfo {
 }
 
 /// Create secret request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct CreateSecretRequest {
     pub key: String,
     pub value: String,
@@ -43,6 +45,7 @@ pub struct CreateSecretRequest {
 }
 
 /// Create a new secret (fails if key already exists)
+#[specta::specta]
 #[tauri::command]
 pub async fn create_secret(
     state: State<'_, AppState>,
@@ -80,13 +83,14 @@ pub async fn create_secret(
 }
 
 /// Update secret request
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct UpdateSecretRequest {
     pub value: String,
     pub description: Option<String>,
 }
 
 /// Update an existing secret (fails if key doesn't exist)
+#[specta::specta]
 #[tauri::command]
 pub async fn update_secret(
     state: State<'_, AppState>,
@@ -121,6 +125,7 @@ pub async fn update_secret(
 }
 
 /// Delete a secret by key
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_secret(state: State<'_, AppState>, key: String) -> Result<(), String> {
     state
@@ -131,6 +136,7 @@ pub async fn delete_secret(state: State<'_, AppState>, key: String) -> Result<()
 }
 
 /// Check if a secret exists
+#[specta::specta]
 #[tauri::command]
 pub async fn has_secret(state: State<'_, AppState>, key: String) -> Result<bool, String> {
     let secret = state

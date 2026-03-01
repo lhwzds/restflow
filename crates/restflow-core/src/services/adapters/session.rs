@@ -25,18 +25,23 @@ impl SessionStorageAdapter {
 
 impl SessionStore for SessionStorageAdapter {
     fn list_sessions(&self, filter: SessionListFilter) -> restflow_tools::Result<Value> {
-        let sessions = if let Some(agent_id) = &filter.agent_id {
-            self.storage.list_by_agent(agent_id)?
-        } else if let Some(skill_id) = &filter.skill_id {
-            self.storage.list_by_skill(skill_id)?
-        } else {
-            self.storage.list()?
+        let include_archived = filter.include_archived.unwrap_or(false);
+        let sessions = match (&filter.agent_id, &filter.skill_id, include_archived) {
+            (Some(agent_id), _, true) => self.storage.list_by_agent_all(agent_id)?,
+            (Some(agent_id), _, false) => self.storage.list_by_agent(agent_id)?,
+            (None, Some(skill_id), true) => self.storage.list_by_skill_all(skill_id)?,
+            (None, Some(skill_id), false) => self.storage.list_by_skill(skill_id)?,
+            (None, None, true) => self.storage.list_all()?,
+            (None, None, false) => self.storage.list()?,
         };
 
         if filter.include_messages.unwrap_or(false) {
             Ok(serde_json::to_value(sessions)?)
         } else {
-            let summaries = self.storage.list_summaries()?;
+            let summaries = sessions
+                .iter()
+                .map(crate::models::ChatSessionSummary::from)
+                .collect::<Vec<_>>();
             Ok(serde_json::to_value(summaries)?)
         }
     }
@@ -68,17 +73,36 @@ impl SessionStore for SessionStorageAdapter {
         Ok(serde_json::to_value(session)?)
     }
 
+    fn archive_session(&self, id: &str) -> restflow_tools::Result<Value> {
+        let archived = self.storage.archive(id)?;
+        Ok(json!({ "id": id, "archived": archived }))
+    }
+
+    fn unarchive_session(&self, id: &str) -> restflow_tools::Result<Value> {
+        let unarchived = self.storage.unarchive(id)?;
+        Ok(json!({ "id": id, "unarchived": unarchived }))
+    }
+
+    fn purge_session(&self, id: &str) -> restflow_tools::Result<Value> {
+        let purged = self.storage.delete(id)?;
+        Ok(json!({ "id": id, "purged": purged }))
+    }
+
     fn delete_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let deleted = self.storage.delete(id)?;
-        Ok(json!({ "id": id, "deleted": deleted }))
+        self.purge_session(id)
     }
 
     fn search_sessions(&self, query: SessionSearchQuery) -> restflow_tools::Result<Value> {
-        let sessions = if let Some(agent_id) = &query.agent_id {
-            self.storage.list_by_agent(agent_id)?
-        } else {
-            self.storage.list()?
+        let include_archived = query.include_archived.unwrap_or(false);
+        let mut sessions = match (&query.agent_id, include_archived) {
+            (Some(agent_id), true) => self.storage.list_by_agent_all(agent_id)?,
+            (Some(agent_id), false) => self.storage.list_by_agent(agent_id)?,
+            (None, true) => self.storage.list_all()?,
+            (None, false) => self.storage.list()?,
         };
+        if let Some(skill_id) = &query.skill_id {
+            sessions.retain(|session| session.skill_id.as_deref() == Some(skill_id.as_str()));
+        }
 
         let keyword = query.query.to_lowercase();
         let limit = query.limit.unwrap_or(20) as usize;
@@ -141,6 +165,7 @@ mod tests {
             agent_id: None,
             skill_id: None,
             include_messages: None,
+            include_archived: None,
         };
         let result = adapter.list_sessions(filter).unwrap();
         let sessions = result.as_array().unwrap();
@@ -181,7 +206,58 @@ mod tests {
         let session_id = created["id"].as_str().unwrap().to_string();
 
         let result = adapter.delete_session(&session_id).unwrap();
-        assert_eq!(result["deleted"], true);
+        assert_eq!(result["purged"], true);
+    }
+
+    #[test]
+    fn test_archive_and_unarchive_session() {
+        let (adapter, _dir) = setup();
+        let agent_id = create_default_agent(&adapter);
+        let created = adapter
+            .create_session(SessionCreateRequest {
+                agent_id,
+                model: "gpt-4".to_string(),
+                name: Some("Archive Target".to_string()),
+                skill_id: None,
+                retention: None,
+            })
+            .unwrap();
+        let session_id = created["id"].as_str().unwrap().to_string();
+
+        let archive = adapter.archive_session(&session_id).unwrap();
+        assert_eq!(archive["archived"], true);
+
+        let active_list = adapter
+            .list_sessions(SessionListFilter {
+                agent_id: None,
+                skill_id: None,
+                include_messages: None,
+                include_archived: Some(false),
+            })
+            .unwrap();
+        assert_eq!(active_list.as_array().unwrap().len(), 0);
+
+        let all_list = adapter
+            .list_sessions(SessionListFilter {
+                agent_id: None,
+                skill_id: None,
+                include_messages: None,
+                include_archived: Some(true),
+            })
+            .unwrap();
+        assert_eq!(all_list.as_array().unwrap().len(), 1);
+
+        let unarchive = adapter.unarchive_session(&session_id).unwrap();
+        assert_eq!(unarchive["unarchived"], true);
+        let active_again = adapter
+            .list_sessions(SessionListFilter {
+                agent_id: None,
+                skill_id: None,
+                include_messages: None,
+                include_archived: Some(false),
+            })
+            .unwrap();
+        assert_eq!(active_again.as_array().unwrap().len(), 1);
     }
 
     #[test]
@@ -208,6 +284,7 @@ mod tests {
             query: "meeting".to_string(),
             agent_id: None,
             skill_id: None,
+            include_archived: None,
             limit: None,
         };
         let result = adapter.search_sessions(query).unwrap();

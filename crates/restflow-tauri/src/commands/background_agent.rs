@@ -30,6 +30,7 @@ use restflow_core::services::background_agent_conversion::{
     ConvertSessionSpecOptions, build_convert_session_spec,
 };
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use tauri::{AppHandle, Emitter, State};
@@ -182,6 +183,7 @@ pub struct UpdateBackgroundAgentRequest {
 }
 
 /// List all agent tasks
+#[specta::specta]
 #[tauri::command]
 pub async fn list_background_agents(
     state: State<'_, AppState>,
@@ -194,6 +196,7 @@ pub async fn list_background_agents(
 }
 
 /// List agent tasks filtered by status
+#[specta::specta]
 #[tauri::command]
 pub async fn list_background_agents_by_status(
     state: State<'_, AppState>,
@@ -215,6 +218,7 @@ pub async fn list_background_agents_by_status(
 }
 
 /// Get an agent task by ID
+#[specta::specta]
 #[tauri::command]
 pub async fn get_background_agent(
     state: State<'_, AppState>,
@@ -229,6 +233,7 @@ pub async fn get_background_agent(
 }
 
 /// Create a new agent task
+#[specta::specta]
 #[tauri::command]
 pub async fn create_background_agent(
     state: State<'_, AppState>,
@@ -260,6 +265,7 @@ pub async fn create_background_agent(
 }
 
 /// Update an existing agent task
+#[specta::specta]
 #[tauri::command]
 pub async fn update_background_agent(
     state: State<'_, AppState>,
@@ -292,6 +298,7 @@ pub async fn update_background_agent(
 }
 
 /// Delete an agent task
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_background_agent(
     state: State<'_, AppState>,
@@ -305,6 +312,7 @@ pub async fn delete_background_agent(
 }
 
 /// Pause an agent task
+#[specta::specta]
 #[tauri::command]
 pub async fn pause_background_agent(
     state: State<'_, AppState>,
@@ -318,6 +326,7 @@ pub async fn pause_background_agent(
 }
 
 /// Resume a paused agent task
+#[specta::specta]
 #[tauri::command]
 pub async fn resume_background_agent(
     state: State<'_, AppState>,
@@ -331,6 +340,7 @@ pub async fn resume_background_agent(
 }
 
 /// Cancel a running agent task
+#[specta::specta]
 #[tauri::command]
 pub async fn cancel_background_agent(
     state: State<'_, AppState>,
@@ -351,6 +361,7 @@ pub async fn cancel_background_agent(
 ///
 /// Returns true if the message was sent, false if the task is not running
 /// or doesn't support steering (e.g., CLI execution mode).
+#[specta::specta]
 #[tauri::command]
 pub async fn steer_task(
     state: State<'_, AppState>,
@@ -364,6 +375,7 @@ pub async fn steer_task(
 }
 
 /// Get events for a specific task
+#[specta::specta]
 #[tauri::command]
 pub async fn get_background_agent_events(
     state: State<'_, AppState>,
@@ -385,6 +397,7 @@ pub async fn get_background_agent_events(
 }
 
 /// Get runnable tasks (tasks that should run now based on schedule)
+#[specta::specta]
 #[tauri::command]
 pub async fn get_runnable_background_agents(
     state: State<'_, AppState>,
@@ -415,7 +428,7 @@ fn merge_memory_scope(
 }
 
 /// Request to convert a chat session into a background agent
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct ConvertSessionToBackgroundAgentRequest {
     /// Source chat session ID
     pub session_id: String,
@@ -431,6 +444,7 @@ pub struct ConvertSessionToBackgroundAgentRequest {
 }
 
 /// Convert a chat session into a background agent
+#[specta::specta]
 #[tauri::command]
 pub async fn convert_session_to_background_agent(
     state: State<'_, AppState>,
@@ -470,7 +484,7 @@ pub async fn convert_session_to_background_agent(
 // ============================================================================
 
 /// Response for streaming task execution
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Type)]
 pub struct StreamingBackgroundAgentResponse {
     /// Task ID that was started
     pub task_id: String,
@@ -521,6 +535,7 @@ pub struct StreamingBackgroundAgentResponse {
 /// const response = await invoke('run_background_agent_streaming', { id: 'task-123' });
 /// console.log('Started task:', response.task_id);
 /// ```
+#[specta::specta]
 #[tauri::command]
 pub async fn run_background_agent_streaming(
     state: State<'_, AppState>,
@@ -577,6 +592,7 @@ pub struct ActiveBackgroundAgentInfo {
 /// Get list of currently running/active agent tasks
 ///
 /// Returns information about all tasks that are currently being executed.
+#[specta::specta]
 #[tauri::command]
 pub async fn get_active_background_agents(
     state: State<'_, AppState>,
@@ -587,6 +603,7 @@ pub async fn get_active_background_agents(
 /// Emit a test event to verify the streaming system is working
 ///
 /// This is useful for debugging and testing the event system from the frontend.
+#[specta::specta]
 #[tauri::command]
 pub async fn emit_test_background_agent_event(
     app_handle: AppHandle,
@@ -618,6 +635,7 @@ pub async fn emit_test_background_agent_event(
 /// // Later, unsubscribe
 /// unlisten();
 /// ```
+#[specta::specta]
 #[tauri::command]
 pub async fn get_background_agent_stream_event_name(
     state: State<'_, AppState>,
@@ -646,6 +664,7 @@ pub async fn get_background_agent_stream_event_name(
 ///   console.log('Heartbeat:', event.payload);
 /// });
 /// ```
+#[specta::specta]
 #[tauri::command]
 pub fn get_heartbeat_event_name() -> String {
     HEARTBEAT_EVENT.to_string()

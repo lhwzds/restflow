@@ -1,9 +1,10 @@
 use restflow_ai::llm::{LlmProvider, ModelSpec};
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// AI model provider
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum Provider {
@@ -169,7 +170,7 @@ pub struct ModelMetadata {
 }
 
 /// Serializable model metadata for transferring to frontend
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ModelMetadataDTO {
     pub model: AIModel,
@@ -179,7 +180,7 @@ pub struct ModelMetadataDTO {
 }
 
 /// AI model enum - Single Source of Truth for all supported models
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 #[serde(rename_all = "kebab-case")]
 pub enum AIModel {

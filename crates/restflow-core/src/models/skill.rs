@@ -2,13 +2,14 @@
 //! Skills are reusable prompt instructions that can be used by AI agents.
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 use crate::models::StorageMode;
 use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
 
 /// Skill lifecycle status used for discovery and planning.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 #[ts(export)]
 pub enum SkillStatus {
@@ -20,7 +21,7 @@ pub enum SkillStatus {
 }
 
 /// A skill represents a reusable AI prompt template
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct Skill {
     /// Unique identifier for the skill

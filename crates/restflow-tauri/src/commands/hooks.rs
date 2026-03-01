@@ -5,6 +5,7 @@ use restflow_core::models::Hook;
 use tauri::State;
 
 /// List all hooks.
+#[specta::specta]
 #[tauri::command]
 pub async fn list_hooks(state: State<'_, AppState>) -> Result<Vec<Hook>, String> {
     state
@@ -15,6 +16,7 @@ pub async fn list_hooks(state: State<'_, AppState>) -> Result<Vec<Hook>, String>
 }
 
 /// Create a new hook.
+#[specta::specta]
 #[tauri::command]
 pub async fn create_hook(state: State<'_, AppState>, mut hook: Hook) -> Result<Hook, String> {
     let now = chrono::Utc::now().timestamp_millis();
@@ -35,6 +37,7 @@ pub async fn create_hook(state: State<'_, AppState>, mut hook: Hook) -> Result<H
 }
 
 /// Update an existing hook.
+#[specta::specta]
 #[tauri::command]
 pub async fn update_hook(
     state: State<'_, AppState>,
@@ -55,6 +58,7 @@ pub async fn update_hook(
 }
 
 /// Delete a hook.
+#[specta::specta]
 #[tauri::command]
 pub async fn delete_hook(state: State<'_, AppState>, id: String) -> Result<bool, String> {
     state
@@ -65,6 +69,7 @@ pub async fn delete_hook(state: State<'_, AppState>, id: String) -> Result<bool,
 }
 
 /// Execute a hook once with synthetic context for verification.
+#[specta::specta]
 #[tauri::command]
 pub async fn test_hook(state: State<'_, AppState>, id: String) -> Result<(), String> {
     state

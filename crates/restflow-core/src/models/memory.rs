@@ -24,12 +24,13 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Source of a memory chunk - where the memory originated from.
 ///
 /// This helps categorize and filter memories based on their origin.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Default)]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MemorySource {
@@ -74,7 +75,7 @@ pub enum MemorySource {
 /// })
 /// .with_tags(vec!["rust".to_string(), "async".to_string()]);
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct MemoryChunk {
     /// Unique identifier for this chunk
@@ -233,7 +234,7 @@ impl MemoryChunk {
 ///     "Research on Rust async".to_string(),
 /// );
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct MemorySession {
     /// Unique identifier for this session
@@ -357,7 +358,7 @@ impl MemorySession {
 }
 
 /// Query parameters for semantic vector search.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SemanticSearchQuery {
     pub agent_id: String,
@@ -377,7 +378,7 @@ fn default_top_k() -> usize {
 }
 
 /// Match result for semantic search.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SemanticMatch {
     pub chunk: MemoryChunk,
@@ -388,7 +389,7 @@ pub struct SemanticMatch {
 }
 
 /// Semantic search response payload.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SemanticSearchResult {
     pub matches: Vec<SemanticMatch>,
@@ -397,7 +398,7 @@ pub struct SemanticSearchResult {
 }
 
 /// Query parameters for hybrid semantic + keyword search.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct HybridSearchQuery {
     pub agent_id: String,
@@ -419,7 +420,7 @@ fn default_semantic_weight() -> f32 {
 ///
 /// Supports keyword search, tag filtering, time range filtering,
 /// and source type filtering.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct MemorySearchQuery {
     /// Agent ID to search within (required)
@@ -543,7 +544,7 @@ impl MemorySearchQuery {
 }
 
 /// Unified search query combining memory and chat session filters.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
 #[ts(export)]
 pub struct UnifiedSearchQuery {
     /// Base memory search query.
@@ -597,7 +598,7 @@ impl UnifiedSearchQuery {
 }
 
 /// Search mode for memory queries.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default, PartialEq)]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum SearchMode {
@@ -611,7 +612,7 @@ pub enum SearchMode {
 }
 
 /// Filter for memory source types.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum SourceTypeFilter {
@@ -626,7 +627,7 @@ pub enum SourceTypeFilter {
 }
 
 /// Result of a memory search operation.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct MemorySearchResult {
     /// Matching chunks
@@ -640,7 +641,7 @@ pub struct MemorySearchResult {
 }
 
 /// Statistics about an agent's memory storage.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
 #[ts(export)]
 pub struct MemoryStats {
     /// Agent ID

@@ -7,10 +7,11 @@ use crate::models::BackgroundAgent;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// System status for /status command
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SystemStatus {
     /// Whether the task runner is active

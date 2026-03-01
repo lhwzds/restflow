@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, Default, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemStatus {
@@ -12,7 +13,7 @@ pub enum ItemStatus {
     Archived,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 pub struct WorkItem {
     pub id: String,
@@ -30,7 +31,7 @@ pub struct WorkItem {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct WorkItemSpec {
     pub folder: String,
@@ -42,7 +43,7 @@ pub struct WorkItemSpec {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
 #[ts(export)]
 pub struct WorkItemPatch {
     #[serde(default)]
@@ -61,7 +62,7 @@ pub struct WorkItemPatch {
     pub folder: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
 #[ts(export)]
 pub struct ItemQuery {
     #[serde(default)]

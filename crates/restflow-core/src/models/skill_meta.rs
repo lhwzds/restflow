@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 use crate::models::{SkillGating, SkillReference, SkillScript, StorageMode};
 
 /// Skill metadata stored in the database (content lives on disk).
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SkillMeta {
     pub id: String,

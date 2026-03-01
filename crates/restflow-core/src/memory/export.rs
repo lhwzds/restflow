@@ -35,10 +35,11 @@ use crate::storage::MemoryStorage;
 use anyhow::Result;
 use chrono::{TimeZone, Utc};
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Options for customizing the export format.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ExportOptions {
     /// Include metadata as HTML comments
@@ -140,7 +141,7 @@ impl ExportOptions {
 }
 
 /// Result of an export operation.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ExportResult {
     /// The exported Markdown content

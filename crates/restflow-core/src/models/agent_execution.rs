@@ -5,10 +5,11 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use specta::Type;
 use ts_rs::TS;
 
 /// Agent execution response with details
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct AgentExecuteResponse {
     /// The final response text from the agent
@@ -18,7 +19,7 @@ pub struct AgentExecuteResponse {
 }
 
 /// Execution details for visualization
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ExecutionDetails {
     /// Number of ReAct loop iterations
@@ -32,7 +33,7 @@ pub struct ExecutionDetails {
 }
 
 /// Individual execution step
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ExecutionStep {
     /// Step type: "system" | "user" | "assistant" | "tool_call" | "tool_result"
@@ -44,7 +45,7 @@ pub struct ExecutionStep {
 }
 
 /// Tool call information
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ToolCallInfo {
     /// Unique identifier for this tool call

@@ -7,10 +7,11 @@ use crate::storage::{ChatSessionStorage, MemoryStorage};
 use anyhow::Result;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Source of a unified search result.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchResultSource {
@@ -24,7 +25,7 @@ pub enum SearchResultSource {
 }
 
 /// Unified search result across memory and chat sessions.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct UnifiedSearchResult {
     /// Unique identifier for this result.
@@ -43,7 +44,7 @@ pub struct UnifiedSearchResult {
 }
 
 /// Result counts grouped by source.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct SourceCounts {
     pub memory: u32,
@@ -51,7 +52,7 @@ pub struct SourceCounts {
 }
 
 /// Unified search result set.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct UnifiedSearchResults {
     pub results: Vec<UnifiedSearchResult>,

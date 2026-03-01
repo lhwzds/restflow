@@ -8,6 +8,7 @@ use restflow_core::auth::{
     ProfileHealth, ProfileUpdate,
 };
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use tauri::State;
 use ts_rs::TS;
 
@@ -17,7 +18,7 @@ const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
 );
 
 /// Request to add a manual profile
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 pub struct AddProfileRequest {
     /// Display name for the profile
@@ -35,7 +36,7 @@ pub struct AddProfileRequest {
 }
 
 /// Response for profile operations
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 pub struct ProfileResponse {
     pub success: bool,
@@ -64,6 +65,7 @@ impl ProfileResponse {
 }
 
 /// Initialize the auth manager (run discovery)
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_initialize(state: State<'_, AppState>) -> Result<DiscoverySummary, String> {
     state
@@ -74,6 +76,7 @@ pub async fn auth_initialize(state: State<'_, AppState>) -> Result<DiscoverySumm
 }
 
 /// Run credential discovery
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_discover(state: State<'_, AppState>) -> Result<DiscoverySummary, String> {
     state
@@ -84,6 +87,7 @@ pub async fn auth_discover(state: State<'_, AppState>) -> Result<DiscoverySummar
 }
 
 /// List all profiles
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_list_profiles(state: State<'_, AppState>) -> Result<Vec<AuthProfile>, String> {
     state
@@ -94,6 +98,7 @@ pub async fn auth_list_profiles(state: State<'_, AppState>) -> Result<Vec<AuthPr
 }
 
 /// Get profiles for a specific provider
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_get_profiles_for_provider(
     state: State<'_, AppState>,
@@ -112,6 +117,7 @@ pub async fn auth_get_profiles_for_provider(
 }
 
 /// Get available profiles (enabled, not expired, not in cooldown)
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_get_available_profiles(
     state: State<'_, AppState>,
@@ -129,6 +135,7 @@ pub async fn auth_get_available_profiles(
 }
 
 /// Get a specific profile by ID
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_get_profile(
     state: State<'_, AppState>,
@@ -146,6 +153,7 @@ pub async fn auth_get_profile(
 }
 
 /// Add a manual profile
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_add_profile(
     state: State<'_, AppState>,
@@ -186,6 +194,7 @@ pub async fn auth_add_profile(
 }
 
 /// Remove a profile
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_remove_profile(
     state: State<'_, AppState>,
@@ -198,6 +207,7 @@ pub async fn auth_remove_profile(
 }
 
 /// Update a profile
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_update_profile(
     state: State<'_, AppState>,
@@ -215,6 +225,7 @@ pub async fn auth_update_profile(
 }
 
 /// Enable a profile
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_enable_profile(
     state: State<'_, AppState>,
@@ -235,6 +246,7 @@ pub async fn auth_enable_profile(
 }
 
 /// Disable a profile
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_disable_profile(
     state: State<'_, AppState>,
@@ -256,6 +268,7 @@ pub async fn auth_disable_profile(
 }
 
 /// Mark a profile as successfully used
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_mark_success(
     state: State<'_, AppState>,
@@ -272,6 +285,7 @@ pub async fn auth_mark_success(
 }
 
 /// Mark a profile as failed
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_mark_failure(
     state: State<'_, AppState>,
@@ -288,6 +302,7 @@ pub async fn auth_mark_failure(
 }
 
 /// Check if an API key exists for a provider (selects best available profile)
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_get_api_key(
     state: State<'_, AppState>,
@@ -300,6 +315,7 @@ pub async fn auth_get_api_key(
 }
 
 /// Get manager summary
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_get_summary(state: State<'_, AppState>) -> Result<ManagerSummary, String> {
     let profiles = state
@@ -311,6 +327,7 @@ pub async fn auth_get_summary(state: State<'_, AppState>) -> Result<ManagerSumma
 }
 
 /// Clear all profiles
+#[specta::specta]
 #[tauri::command]
 pub async fn auth_clear(state: State<'_, AppState>) -> Result<(), String> {
     state

@@ -35,7 +35,7 @@ impl SessionTool {
             Ok(())
         } else {
             Err(crate::ToolError::Tool(
-                "Write access to sessions is disabled. Available read-only operations: list, get, history. To modify sessions, the user must grant write permissions.".to_string(),
+                "Write access to sessions is disabled. Available read-only operations: list, get, search. To modify sessions, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -51,6 +51,8 @@ enum SessionAction {
         skill_id: Option<String>,
         #[serde(default)]
         include_messages: Option<bool>,
+        #[serde(default)]
+        include_archived: Option<bool>,
     },
     Get {
         id: String,
@@ -68,12 +70,23 @@ enum SessionAction {
     Delete {
         id: String,
     },
+    Archive {
+        id: String,
+    },
+    Unarchive {
+        id: String,
+    },
+    Purge {
+        id: String,
+    },
     Search {
         query: String,
         #[serde(default)]
         agent_id: Option<String>,
         #[serde(default)]
         skill_id: Option<String>,
+        #[serde(default)]
+        include_archived: Option<bool>,
         #[serde(default)]
         limit: Option<u32>,
     },
@@ -87,7 +100,7 @@ impl Tool for SessionTool {
     }
 
     fn description(&self) -> &str {
-        "Create, list, fetch, search, and delete chat sessions."
+        "Create, list, fetch, search, archive, unarchive, and purge chat sessions."
     }
 
     fn parameters_schema(&self) -> Value {
@@ -96,12 +109,12 @@ impl Tool for SessionTool {
             "properties": {
                 "operation": {
                     "type": "string",
-                    "enum": ["list", "get", "create", "delete", "search", "cleanup"],
+                    "enum": ["list", "get", "create", "delete", "archive", "unarchive", "purge", "search", "cleanup"],
                     "description": "Session operation to perform"
                 },
                 "id": {
                     "type": "string",
-                    "description": "Session ID (for get/delete)"
+                    "description": "Session ID (for get/delete/archive/unarchive/purge)"
                 },
                 "agent_id": {
                     "type": "string",
@@ -114,6 +127,11 @@ impl Tool for SessionTool {
                 "include_messages": {
                     "type": "boolean",
                     "description": "Include full messages in list results",
+                    "default": false
+                },
+                "include_archived": {
+                    "type": "boolean",
+                    "description": "Include archived sessions in list/search results",
                     "default": false
                 },
                 "model": {
@@ -145,84 +163,111 @@ impl Tool for SessionTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let action: SessionAction = serde_json::from_value(input)?;
 
-        let output = match action {
-            SessionAction::List {
-                agent_id,
-                skill_id,
-                include_messages,
-            } => {
-                let filter = SessionListFilter {
+        let output =
+            match action {
+                SessionAction::List {
                     agent_id,
                     skill_id,
                     include_messages,
-                };
-                ToolOutput::success(
+                    include_archived,
+                } => {
+                    let filter = SessionListFilter {
+                        agent_id,
+                        skill_id,
+                        include_messages,
+                        include_archived,
+                    };
+                    ToolOutput::success(
+                        self.store
+                            .list_sessions(filter)
+                            .map_err(|e| ToolError::Tool(format!("Failed to list session: {e}")))?,
+                    )
+                }
+                SessionAction::Get { id } => ToolOutput::success(
                     self.store
-                        .list_sessions(filter)
-                        .map_err(|e| ToolError::Tool(format!("Failed to list session: {e}")))?,
-                )
-            }
-            SessionAction::Get { id } => ToolOutput::success(
-                self.store
-                    .get_session(&id)
-                    .map_err(|e| ToolError::Tool(format!("Failed to get session: {e}")))?,
-            ),
-            SessionAction::Create {
-                agent_id,
-                model,
-                name,
-                skill_id,
-                retention,
-            } => {
-                self.write_guard()?;
-                let request = SessionCreateRequest {
+                        .get_session(&id)
+                        .map_err(|e| ToolError::Tool(format!("Failed to get session: {e}")))?,
+                ),
+                SessionAction::Create {
                     agent_id,
                     model,
                     name,
                     skill_id,
                     retention,
-                };
-                ToolOutput::success(
-                    self.store
-                        .create_session(request)
-                        .map_err(|e| ToolError::Tool(format!("Failed to create session: {e}")))?,
-                )
-            }
-            SessionAction::Delete { id } => {
-                self.write_guard()?;
-                ToolOutput::success(
-                    self.store
-                        .delete_session(&id)
-                        .map_err(|e| ToolError::Tool(format!("Failed to delete session: {e}")))?,
-                )
-            }
-            SessionAction::Search {
-                query,
-                agent_id,
-                skill_id,
-                limit,
-            } => {
-                let request = SessionSearchQuery {
+                } => {
+                    self.write_guard()?;
+                    let request = SessionCreateRequest {
+                        agent_id,
+                        model,
+                        name,
+                        skill_id,
+                        retention,
+                    };
+                    ToolOutput::success(
+                        self.store.create_session(request).map_err(|e| {
+                            ToolError::Tool(format!("Failed to create session: {e}"))
+                        })?,
+                    )
+                }
+                SessionAction::Delete { id } => {
+                    self.write_guard()?;
+                    ToolOutput::success(
+                        self.store.delete_session(&id).map_err(|e| {
+                            ToolError::Tool(format!("Failed to delete session: {e}"))
+                        })?,
+                    )
+                }
+                SessionAction::Archive { id } => {
+                    self.write_guard()?;
+                    ToolOutput::success(
+                        self.store.archive_session(&id).map_err(|e| {
+                            ToolError::Tool(format!("Failed to archive session: {e}"))
+                        })?,
+                    )
+                }
+                SessionAction::Unarchive { id } => {
+                    self.write_guard()?;
+                    ToolOutput::success(self.store.unarchive_session(&id).map_err(|e| {
+                        ToolError::Tool(format!("Failed to unarchive session: {e}"))
+                    })?)
+                }
+                SessionAction::Purge { id } => {
+                    self.write_guard()?;
+                    ToolOutput::success(
+                        self.store.purge_session(&id).map_err(|e| {
+                            ToolError::Tool(format!("Failed to purge session: {e}"))
+                        })?,
+                    )
+                }
+                SessionAction::Search {
                     query,
                     agent_id,
                     skill_id,
+                    include_archived,
                     limit,
-                };
-                ToolOutput::success(
-                    self.store
-                        .search_sessions(request)
-                        .map_err(|e| ToolError::Tool(format!("Failed to search session: {e}")))?,
-                )
-            }
-            SessionAction::Cleanup => {
-                self.write_guard()?;
-                ToolOutput::success(
-                    self.store
-                        .cleanup_sessions()
-                        .map_err(|e| ToolError::Tool(format!("Failed to cleanup sessions: {e}")))?,
-                )
-            }
-        };
+                } => {
+                    let request = SessionSearchQuery {
+                        query,
+                        agent_id,
+                        skill_id,
+                        include_archived,
+                        limit,
+                    };
+                    ToolOutput::success(
+                        self.store.search_sessions(request).map_err(|e| {
+                            ToolError::Tool(format!("Failed to search session: {e}"))
+                        })?,
+                    )
+                }
+                SessionAction::Cleanup => {
+                    self.write_guard()?;
+                    ToolOutput::success(
+                        self.store.cleanup_sessions().map_err(|e| {
+                            ToolError::Tool(format!("Failed to cleanup sessions: {e}"))
+                        })?,
+                    )
+                }
+            };
 
         Ok(output)
     }
@@ -245,6 +290,18 @@ mod tests {
 
         fn create_session(&self, _request: SessionCreateRequest) -> Result<Value> {
             Ok(json!({"id": "session-1"}))
+        }
+
+        fn archive_session(&self, _id: &str) -> Result<Value> {
+            Ok(json!({"archived": true}))
+        }
+
+        fn unarchive_session(&self, _id: &str) -> Result<Value> {
+            Ok(json!({"unarchived": true}))
+        }
+
+        fn purge_session(&self, _id: &str) -> Result<Value> {
+            Ok(json!({"purged": true}))
         }
 
         fn delete_session(&self, _id: &str) -> Result<Value> {
@@ -276,7 +333,7 @@ mod tests {
         let err = result.expect_err("expected write-guard error");
         assert!(
             err.to_string()
-                .contains("Available read-only operations: list, get, history")
+                .contains("Available read-only operations: list, get, search")
         );
     }
 
@@ -293,5 +350,16 @@ mod tests {
         let output = tool.execute(json!({"operation": "cleanup"})).await.unwrap();
         assert!(output.success);
         assert_eq!(output.result["deleted"], 1);
+    }
+
+    #[tokio::test]
+    async fn test_archive_with_write_enabled() {
+        let tool = SessionTool::new(Arc::new(MockStore)).with_write(true);
+        let output = tool
+            .execute(json!({"operation": "archive", "id": "session-1"}))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(output.result["archived"], true);
     }
 }

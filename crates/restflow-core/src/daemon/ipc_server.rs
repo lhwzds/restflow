@@ -1265,7 +1265,7 @@ impl IpcServer {
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
             IpcRequest::DeleteSessionsOlderThan { older_than_ms } => {
-                match core.storage.chat_sessions.list() {
+                match core.storage.chat_sessions.list_all() {
                     Ok(sessions) => {
                         let mut deleted = 0usize;
                         for session in sessions
@@ -1466,6 +1466,49 @@ impl IpcServer {
                             session_id: session.id.clone(),
                         });
                         IpcResponse::success(session)
+                    }
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::ArchiveSession { id } => {
+                let session = match core.storage.chat_sessions.get(&id) {
+                    Ok(Some(session)) => session,
+                    Ok(None) => {
+                        return IpcResponse::success(serde_json::json!({ "archived": false }));
+                    }
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                let workspace_managed = match is_workspace_managed_session(&core.storage, &session)
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                };
+                if !workspace_managed {
+                    let owner = session_management_owner(&core.storage, &session)
+                        .ok()
+                        .flatten()
+                        .or(match session.source_channel {
+                            Some(ChatSessionSource::Workspace) | None => None,
+                            Some(source) => Some(source),
+                        })
+                        .unwrap_or(ChatSessionSource::ExternalLegacy);
+                    return IpcResponse::error(
+                        403,
+                        format!(
+                            "Session {} is managed by {:?} and cannot be archived from workspace",
+                            session.id, owner,
+                        ),
+                    );
+                }
+
+                match core.storage.chat_sessions.archive(&id) {
+                    Ok(archived) => {
+                        if archived {
+                            publish_session_event(ChatSessionEvent::Updated {
+                                session_id: id.clone(),
+                            });
+                        }
+                        IpcResponse::success(serde_json::json!({ "archived": archived }))
                     }
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }

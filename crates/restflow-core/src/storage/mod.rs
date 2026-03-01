@@ -159,7 +159,7 @@ fn backfill_channel_session_bindings_from_legacy_sources(
     chat_sessions: &ChatSessionStorage,
     channel_session_bindings: &ChannelSessionBindingStorage,
 ) -> Result<usize> {
-    let sessions = chat_sessions.list()?;
+    let sessions = chat_sessions.list_all()?;
     let mut created = 0usize;
 
     for session in sessions {

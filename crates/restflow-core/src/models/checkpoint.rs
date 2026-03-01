@@ -5,6 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use specta::Type;
 use ts_rs::TS;
 
 /// Persisted snapshot of agent execution state.
@@ -12,7 +13,7 @@ use ts_rs::TS;
 /// Captures everything needed to resume an interrupted agent:
 /// the serialized `AgentState`, the reason for interruption, and
 /// metadata for the caller that triggered the interrupt.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct AgentCheckpoint {
     /// Unique checkpoint ID.
@@ -112,7 +113,7 @@ impl AgentCheckpoint {
 }
 
 /// Payload provided when resuming from a checkpoint.
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ResumePayload {
     /// The checkpoint ID to resume from.

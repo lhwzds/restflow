@@ -16,6 +16,7 @@ use futures::{SinkExt, StreamExt};
 use reqwest::multipart;
 use restflow_core::daemon::ToolExecutionResult;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 use tauri::{Emitter, State};
@@ -34,7 +35,7 @@ const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
 pub const VOICE_TRANSCRIBE_STREAM_EVENT: &str = "voice:transcribe-stream";
 
 /// A streaming transcription event emitted during audio transcription
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 pub struct TranscribeStreamEvent {
     /// Unique ID for this transcription
@@ -46,7 +47,7 @@ pub struct TranscribeStreamEvent {
 }
 
 /// Types of transcribe stream events
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export, export_to = TS_EXPORT_TO_WEB_TYPES)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TranscribeStreamKind {
@@ -67,13 +68,14 @@ pub enum TranscribeStreamKind {
 }
 
 /// Result returned by the transcribe_audio command
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Type)]
 pub struct TranscribeResult {
     pub text: String,
     pub model: String,
 }
 
 /// Voice-to-text: decode base64 audio, save to temp file, call daemon transcribe tool
+#[specta::specta]
 #[tauri::command]
 pub async fn transcribe_audio(
     state: State<'_, AppState>,
@@ -131,6 +133,7 @@ fn extract_transcribe_text(response: ToolExecutionResult) -> Result<String, Stri
 /// Save audio as a file for AI to process with transcribe tool.
 /// If `session_id` is provided, saves directly to `~/.restflow/media/{session_id}/`.
 /// Otherwise saves to `~/.restflow/media/` (will be relocated by ChatDispatcher later).
+#[specta::specta]
 #[tauri::command]
 pub async fn save_voice_message(
     audio_base64: String,
@@ -143,6 +146,7 @@ pub async fn save_voice_message(
 
 /// Read a media file from `~/.restflow/media/` and return its contents as base64.
 /// Path must be under the media directory for security.
+#[specta::specta]
 #[tauri::command]
 pub async fn read_media_file(file_path: String) -> Result<String, String> {
     let media_dir = restflow_core::paths::media_dir()
@@ -161,6 +165,7 @@ pub async fn read_media_file(file_path: String) -> Result<String, String> {
 
 /// Streaming voice-to-text: calls OpenAI API directly with stream=true,
 /// emits SSE text deltas via Tauri events. Returns the transcribe_id immediately.
+#[specta::specta]
 #[tauri::command]
 pub async fn transcribe_audio_stream(
     state: State<'_, AppState>,
@@ -390,6 +395,7 @@ fn live_sessions() -> &'static RwLock<HashMap<String, LiveSession>> {
 
 /// Start a live transcription session using the OpenAI Realtime WebSocket API.
 /// Returns a transcribe_id; text deltas arrive via Tauri `voice:transcribe-stream` events.
+#[specta::specta]
 #[tauri::command]
 pub async fn start_live_transcription(
     state: State<'_, AppState>,
@@ -470,6 +476,7 @@ pub async fn start_live_transcription(
 }
 
 /// Send a PCM16 audio chunk to an active live transcription session.
+#[specta::specta]
 #[tauri::command]
 pub async fn send_live_audio_chunk(
     transcribe_id: String,
@@ -488,6 +495,7 @@ pub async fn send_live_audio_chunk(
 }
 
 /// Stop a live transcription session gracefully.
+#[specta::specta]
 #[tauri::command]
 pub async fn stop_live_transcription(transcribe_id: String) -> Result<(), String> {
     let stop_tx = {

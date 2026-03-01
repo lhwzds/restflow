@@ -4,10 +4,11 @@
 //! Webhooks allow external systems to trigger task executions via HTTP.
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Webhook configuration for a task
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct WebhookConfig {
     /// Whether webhook trigger is enabled
@@ -84,7 +85,7 @@ pub struct WebhookRequest {
 }
 
 /// Webhook trigger response
-#[derive(Debug, Clone, Serialize, Deserialize, TS)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct WebhookResponse {
     /// Whether the webhook was accepted

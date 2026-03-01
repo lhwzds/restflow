@@ -25,10 +25,11 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use ts_rs::TS;
 
 /// Role of a message sender in a chat session.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatRole {
@@ -42,7 +43,7 @@ pub enum ChatRole {
 }
 
 /// Status of message execution (distinct from workflow ExecutionStatus).
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatExecutionStatus {
@@ -56,7 +57,7 @@ pub enum ChatExecutionStatus {
 }
 
 /// Structured media type for a chat message.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatMediaType {
@@ -65,7 +66,7 @@ pub enum ChatMediaType {
 }
 
 /// Structured media payload for a chat message.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 pub struct ChatMessageMedia {
     /// Media kind.
@@ -90,7 +91,7 @@ impl ChatMessageMedia {
 }
 
 /// Structured transcript payload for a chat message.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 pub struct ChatMessageTranscript {
     /// Final transcript text.
@@ -121,7 +122,7 @@ impl ChatMessageTranscript {
 ///
 /// Tracks individual steps taken during agent execution, such as
 /// tool calls, API requests, or thinking processes.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct ExecutionStepInfo {
     /// Type of step (e.g., "tool_call", "api_request", "thinking")
@@ -163,7 +164,7 @@ impl ExecutionStepInfo {
 ///
 /// Contains information about what the agent did to generate the response,
 /// including tool calls, duration, and token usage.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct MessageExecution {
     /// Individual steps taken during execution
@@ -230,7 +231,7 @@ impl MessageExecution {
 ///
 /// Represents either a user message, assistant response, or system instruction.
 /// Assistant messages may include execution details showing what the agent did.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct ChatMessage {
     /// Unique identifier for this message
@@ -321,7 +322,7 @@ impl ChatMessage {
 /// Metadata for a chat session.
 ///
 /// Tracks aggregate statistics about the session.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct ChatSessionMetadata {
     /// Total tokens used across all messages
@@ -350,7 +351,7 @@ impl ChatSessionMetadata {
 }
 
 /// Origin of a chat session.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSessionSource {
@@ -384,7 +385,7 @@ pub enum ChatSessionSource {
 /// session.add_message(ChatMessage::user("Hello!"));
 /// session.add_message(ChatMessage::assistant("Hi there! How can I help?"));
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct ChatSession {
     /// Unique identifier for this session
@@ -427,10 +428,14 @@ pub struct ChatSession {
     /// Optional channel-specific conversation identifier.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_conversation_id: Option<String>,
+    /// Unix timestamp in milliseconds when the session was archived.
+    /// None means the session is active.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<i64>,
 }
 
 /// Partial update payload for a chat session.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default, PartialEq)]
 #[ts(export)]
 pub struct ChatSessionUpdate {
     pub agent_id: Option<String>,
@@ -459,6 +464,7 @@ impl ChatSession {
             metadata: ChatSessionMetadata::new(),
             source_channel: None,
             source_conversation_id: None,
+            archived_at: None,
         }
     }
 
@@ -541,10 +547,28 @@ impl ChatSession {
         let start = self.messages.len().saturating_sub(n);
         &self.messages[start..]
     }
+
+    /// Mark this session as archived.
+    pub fn archive(&mut self) {
+        let now = chrono::Utc::now().timestamp_millis();
+        self.archived_at = Some(now);
+        self.updated_at = now;
+    }
+
+    /// Mark this session as active.
+    pub fn unarchive(&mut self) {
+        self.archived_at = None;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    /// Whether this session is archived.
+    pub fn is_archived(&self) -> bool {
+        self.archived_at.is_some()
+    }
 }
 
 /// Summary view of a chat session (for listing).
-#[derive(Debug, Clone, Serialize, Deserialize, TS, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct ChatSessionSummary {
     /// Session ID
@@ -571,6 +595,9 @@ pub struct ChatSessionSummary {
     /// Optional channel-specific conversation identifier.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub source_conversation_id: Option<String>,
+    /// Unix timestamp in milliseconds when the session was archived.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub archived_at: Option<i64>,
 }
 
 impl From<&ChatSession> for ChatSessionSummary {
@@ -595,6 +622,7 @@ impl From<&ChatSession> for ChatSessionSummary {
             last_message_preview,
             source_channel: session.source_channel,
             source_conversation_id: session.source_conversation_id.clone(),
+            archived_at: session.archived_at,
         }
     }
 }
@@ -755,6 +783,21 @@ mod tests {
     }
 
     #[test]
+    fn test_chat_session_archive_and_unarchive() {
+        let mut session = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string());
+        assert!(!session.is_archived());
+        assert!(session.archived_at.is_none());
+
+        session.archive();
+        assert!(session.is_archived());
+        assert!(session.archived_at.is_some());
+
+        session.unarchive();
+        assert!(!session.is_archived());
+        assert!(session.archived_at.is_none());
+    }
+
+    #[test]
     fn test_chat_session_auto_name_short() {
         let mut session = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string());
         session.add_message(ChatMessage::user("Help me debug"));
@@ -792,6 +835,7 @@ mod tests {
         let mut session = ChatSession::new("agent-1".to_string(), "claude-sonnet-4".to_string())
             .with_name("Test Session");
         session.add_message(ChatMessage::user("Hello!"));
+        session.archive();
 
         let summary = ChatSessionSummary::from(&session);
         assert_eq!(summary.id, session.id);
@@ -799,6 +843,7 @@ mod tests {
         assert_eq!(summary.agent_id, "agent-1");
         assert_eq!(summary.message_count, 1);
         assert_eq!(summary.last_message_preview, Some("Hello!".to_string()));
+        assert!(summary.archived_at.is_some());
     }
 
     #[test]
