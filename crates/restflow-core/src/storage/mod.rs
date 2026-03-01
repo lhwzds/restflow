@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod audit;
 pub mod background_agent;
+pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
@@ -33,6 +34,7 @@ pub use restflow_storage::{
 pub use agent::AgentStorage;
 pub use audit::AuditStorage;
 pub use background_agent::BackgroundAgentStorage;
+pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use deliverable::DeliverableStorage;
@@ -62,6 +64,7 @@ pub struct Storage {
     pub terminal_sessions: TerminalSessionStorage,
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
+    pub channel_session_bindings: ChannelSessionBindingStorage,
     pub tool_traces: ToolTraceStorage,
     pub deliverables: DeliverableStorage,
     pub hooks: HookStorage,
@@ -107,6 +110,7 @@ impl Storage {
         let memory = MemoryStorage::with_index(db.clone(), index)?;
         memory.rebuild_text_index_if_empty()?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
+        let channel_session_bindings = ChannelSessionBindingStorage::new(db.clone())?;
         let tool_traces = ToolTraceStorage::new(db.clone())?;
         let deliverables = DeliverableStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
@@ -128,6 +132,7 @@ impl Storage {
             terminal_sessions,
             memory,
             chat_sessions,
+            channel_session_bindings,
             tool_traces,
             deliverables,
             hooks,
