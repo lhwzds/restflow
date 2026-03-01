@@ -11,10 +11,10 @@ use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::background_agent::BackgroundReplySenderFactory;
 use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::{
-    AgentDefinitionRegistry, AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger,
-    ChatDispatcher, ChatDispatcherConfig, ChatSessionManager, MessageDebouncer,
-    MessageHandlerConfig, MessageHandlerHandle, NoopHeartbeatEmitter, RunnerConfig, RunnerHandle,
-    SubagentConfig, SubagentTracker, SystemStatus, TelegramNotifier,
+    AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger, ChatDispatcher,
+    ChatDispatcherConfig, ChatSessionManager, MessageDebouncer, MessageHandlerConfig,
+    MessageHandlerHandle, NoopHeartbeatEmitter, RunnerConfig, RunnerHandle,
+    StorageBackedSubagentLookup, SubagentConfig, SubagentTracker, SystemStatus, TelegramNotifier,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
@@ -89,7 +89,8 @@ impl CliBackgroundAgentRunner {
         // Create subagent system components
         let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(100);
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-        let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+        let subagent_definitions =
+            Arc::new(StorageBackedSubagentLookup::new(storage.agents.clone()));
         let subagent_config = SubagentConfig::default();
         let event_emitter: Arc<dyn TaskEventEmitter> = Arc::new(DaemonIpcEventEmitter);
         let channel_router = Arc::new(RwLock::new(None));

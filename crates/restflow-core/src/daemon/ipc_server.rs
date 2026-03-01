@@ -18,7 +18,7 @@ use crate::runtime::channel::{
     ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
     append_turn_started, build_execution_steps,
 };
-use crate::runtime::subagent::AgentDefinitionRegistry;
+use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -1962,7 +1962,9 @@ fn create_chat_executor(
 ) -> AgentRuntimeExecutor {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-    let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+    let subagent_definitions = Arc::new(StorageBackedSubagentLookup::new(
+        core.storage.agents.clone(),
+    ));
     let subagent_config = SubagentConfig::default();
 
     AgentRuntimeExecutor::new(

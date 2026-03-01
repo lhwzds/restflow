@@ -4,4 +4,6 @@
 
 pub mod definition;
 
-pub use definition::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
+pub use definition::{
+    AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
+};

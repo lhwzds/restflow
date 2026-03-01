@@ -27,4 +27,6 @@ pub use restflow_ai::agent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig, SubagentResult,
     SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
 };
-pub use subagent::{AgentDefinition, AgentDefinitionRegistry, builtin_agents};
+pub use subagent::{
+    AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
+};
