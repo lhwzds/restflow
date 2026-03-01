@@ -5,6 +5,9 @@
 
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
+use crate::models::{AIModel, Provider};
+use crate::process::ProcessRegistry;
+use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
@@ -12,11 +15,102 @@ use crate::storage::{
     ConfigStorage, KvStoreStorage, MemoryStorage, SecretStorage, TerminalSessionStorage,
     ToolTraceStorage, TriggerStorage, WorkItemStorage,
 };
-use restflow_tools::ToolRegistryBuilder;
+use restflow_ai::agent::{SubagentConfig, SubagentDeps, SubagentManagerImpl, SubagentTracker};
+use restflow_ai::llm::{
+    CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
+    LlmSwitcherImpl, SwappableLlm,
+};
+use restflow_tools::{
+    ListSubagentsTool, ProcessTool, ReplyTool, SpawnSubagentTool, SwitchModelTool,
+    ToolRegistryBuilder, WaitSubagentsTool,
+};
 use restflow_traits::registry::ToolRegistry;
+use restflow_traits::store::{ProcessManager, ReplySender};
 use restflow_traits::tool::SecretResolver;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
+use tokio::sync::mpsc;
+
+#[derive(Debug)]
+struct UnavailableReplySender;
+
+impl ReplySender for UnavailableReplySender {
+    fn send(&self, _message: String) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
+        Box::pin(async move {
+            anyhow::bail!(
+                "reply is unavailable in this context. Use an active chat/background session for streamed replies."
+            )
+        })
+    }
+}
+
+fn build_api_keys(secret_storage: Option<&SecretStorage>) -> HashMap<LlmProvider, String> {
+    let mut keys = HashMap::new();
+    for provider in Provider::all() {
+        let env_name = provider.api_key_env();
+        if let Some(storage) = secret_storage
+            && let Ok(Some(value)) = storage.get_secret(env_name)
+            && !value.trim().is_empty()
+        {
+            keys.insert(provider.as_llm_provider(), value);
+            continue;
+        }
+
+        if let Ok(value) = std::env::var(env_name)
+            && !value.trim().is_empty()
+        {
+            keys.insert(provider.as_llm_provider(), value);
+        }
+    }
+    keys
+}
+
+fn build_llm_factory(secret_storage: Option<&SecretStorage>) -> Arc<dyn LlmClientFactory> {
+    let api_keys = build_api_keys(secret_storage);
+    Arc::new(DefaultLlmClientFactory::new(
+        api_keys,
+        AIModel::build_model_specs(),
+    ))
+}
+
+fn build_switch_model_tool(factory: Arc<dyn LlmClientFactory>) -> SwitchModelTool {
+    let initial_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
+    let swappable = Arc::new(SwappableLlm::new(initial_client));
+    let switcher = Arc::new(LlmSwitcherImpl::new(swappable, factory));
+    SwitchModelTool::new(switcher)
+}
+
+fn clone_tool_registry(source: &ToolRegistry) -> ToolRegistry {
+    let mut cloned = ToolRegistry::new();
+    for name in source.list() {
+        if let Some(tool) = source.get(name) {
+            cloned.register_arc(tool);
+        }
+    }
+    cloned
+}
+
+fn create_subagent_manager(
+    agent_storage: AgentStorage,
+    base_registry: &ToolRegistry,
+    llm_client_factory: Arc<dyn LlmClientFactory>,
+) -> Arc<dyn restflow_traits::SubagentManager> {
+    let (completion_tx, completion_rx) = mpsc::channel(128);
+    let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+    let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
+    let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
+    let subagent_deps = SubagentDeps {
+        tracker,
+        definitions,
+        llm_client,
+        tool_registry: Arc::new(clone_tool_registry(base_registry)),
+        config: SubagentConfig::default(),
+        llm_client_factory: Some(llm_client_factory),
+    };
+    Arc::new(SubagentManagerImpl::from_deps(&subagent_deps))
+}
 
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
@@ -71,7 +165,7 @@ pub fn create_tool_registry(
         chat_storage,
     ));
     let kv_store = Arc::new(KvStoreAdapter::new(kv_store_storage, accessor_id));
-    let work_item_provider = Arc::new(DbWorkItemAdapter::new(work_item_storage));
+    let work_item_provider = Arc::new(DbWorkItemAdapter::new(work_item_storage.clone()));
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let agent_store = Arc::new(AgentStoreAdapter::new(
@@ -83,7 +177,7 @@ pub fn create_tool_registry(
     ));
     let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(
         background_agent_storage,
-        agent_storage,
+        agent_storage.clone(),
         deliverable_storage,
     ));
     let marketplace_store = Arc::new(MarketplaceStoreAdapter::new(skill_storage));
@@ -91,7 +185,12 @@ pub fn create_tool_registry(
     let terminal_store = Arc::new(TerminalStoreAdapter::new(terminal_storage));
     let security_provider: Arc<_> = Arc::new(SecurityQueryProviderAdapter);
 
-    let registry = ToolRegistryBuilder::new()
+    let process_manager: Arc<dyn ProcessManager> = Arc::new(ProcessRegistry::new());
+    let reply_sender: Arc<dyn ReplySender> = Arc::new(UnavailableReplySender);
+    let llm_client_factory = build_llm_factory(Some(&secret_storage));
+    let switch_model_tool = build_switch_model_tool(llm_client_factory.clone());
+
+    let mut registry = ToolRegistryBuilder::new()
         .with_bash(restflow_tools::BashConfig::default())
         .with_file(restflow_tools::FileConfig::default())
         .with_http()?
@@ -101,10 +200,15 @@ pub fn create_tool_registry(
         .with_slack()?
         .with_python()
         .with_browser()?
+        .with_patch()
+        .with_edit_and_diagnostics(Some(lsp_manager.clone()))
+        .with_multiedit_and_diagnostics(Some(lsp_manager.clone()))
+        .with_glob()
+        .with_grep()
         .with_web_fetch()
         .with_jina_reader()?
         .with_web_search_with_resolver(secret_resolver.clone())?
-        .with_diagnostics(lsp_manager)
+        .with_diagnostics(lsp_manager.clone())
         .with_transcribe(secret_resolver.clone())?
         .with_vision(secret_resolver)?
         .with_skill_tool(skill_provider)
@@ -116,8 +220,9 @@ pub fn create_tool_registry(
         .with_ops(ops_provider)
         .with_kv_store(kv_store)
         .with_work_items(work_item_provider)
+        .with_task_list(Arc::new(DbWorkItemAdapter::new(work_item_storage.clone())))
         .with_auth_profile(auth_store)
-        .with_secrets(Arc::new(secret_storage))
+        .with_secrets(Arc::new(secret_storage.clone()))
         .with_config(Arc::new(config_storage))
         .with_agent_crud(agent_store)
         .with_background_agent(background_agent_store)
@@ -127,6 +232,15 @@ pub fn create_tool_registry(
         .with_security_query(security_provider)
         .build();
 
+    registry.register(ProcessTool::new(process_manager));
+    registry.register(ReplyTool::new(reply_sender));
+    registry.register(switch_model_tool);
+    let subagent_manager =
+        create_subagent_manager(agent_storage, &registry, llm_client_factory.clone());
+    registry.register(SpawnSubagentTool::new(subagent_manager.clone()));
+    registry.register(WaitSubagentsTool::new(subagent_manager.clone()));
+    registry.register(ListSubagentsTool::new(subagent_manager));
+
     // Populate known_tools for AgentStoreAdapter validation
     if let Ok(mut known) = known_tools.write() {
         *known = registry
@@ -134,6 +248,20 @@ pub fn create_tool_registry(
             .into_iter()
             .map(|name| name.to_string())
             .collect::<HashSet<_>>();
+
+        for (alias_name, target_name) in [
+            ("http", "http_request"),
+            ("email", "send_email"),
+            ("telegram", "telegram_send"),
+            ("discord", "discord_send"),
+            ("slack", "slack_send"),
+            ("use_skill", "skill"),
+            ("python", "run_python"),
+        ] {
+            if known.contains(target_name) {
+                known.insert(alias_name.to_string());
+            }
+        }
     }
 
     Ok(registry)
@@ -289,10 +417,25 @@ mod tests {
         // Should have default tools + skill tool
         assert!(registry.has("http_request"));
         assert!(registry.has("send_email"));
+        assert!(registry.has("telegram_send"));
+        assert!(registry.has("discord_send"));
+        assert!(registry.has("slack_send"));
         assert!(registry.has("browser"));
+        assert!(registry.has("patch"));
+        assert!(registry.has("edit"));
+        assert!(registry.has("multiedit"));
+        assert!(registry.has("glob"));
+        assert!(registry.has("grep"));
+        assert!(registry.has("task_list"));
         assert!(registry.has("skill"));
         assert!(registry.has("memory_search"));
         assert!(registry.has("kv_store"));
+        assert!(registry.has("process"));
+        assert!(registry.has("reply"));
+        assert!(registry.has("switch_model"));
+        assert!(registry.has("spawn_subagent"));
+        assert!(registry.has("wait_subagents"));
+        assert!(registry.has("list_subagents"));
         // New system management tools
         assert!(registry.has("manage_secrets"));
         assert!(registry.has("manage_config"));
@@ -308,6 +451,64 @@ mod tests {
         assert!(registry.has("manage_memory"));
         assert!(registry.has("manage_auth_profiles"));
         assert!(registry.has("save_deliverable"));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            _temp_dir,
+        ) = setup_storage();
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let error = registry
+            .execute_safe(
+                "spawn_subagent",
+                json!({
+                    "agent": "coder",
+                    "task": "hello"
+                }),
+            )
+            .await
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("No callable sub-agents available"),
+            "unexpected error: {error}"
+        );
     }
 
     #[tokio::test(flavor = "current_thread")]
