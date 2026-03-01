@@ -3,6 +3,7 @@ use dashmap::DashMap;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use restflow_storage::time_utils;
 use std::io::{Read, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -62,7 +63,7 @@ pub struct ProcessRegistry {
     sessions: Arc<DashMap<String, Arc<ProcessSession>>>,
     finished: Arc<DashMap<String, FinishedSession>>,
     max_output_bytes: usize,
-    ttl: Duration,
+    ttl_seconds: Arc<AtomicU64>,
 }
 
 impl Default for ProcessRegistry {
@@ -77,7 +78,7 @@ impl ProcessRegistry {
             sessions: Arc::new(DashMap::new()),
             finished: Arc::new(DashMap::new()),
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
-            ttl: Duration::from_secs(DEFAULT_TTL_SECONDS),
+            ttl_seconds: Arc::new(AtomicU64::new(DEFAULT_TTL_SECONDS)),
         };
 
         registry.spawn_cleanup_task();
@@ -89,15 +90,15 @@ impl ProcessRegistry {
         self
     }
 
-    pub fn with_ttl_seconds(mut self, ttl_seconds: u64) -> Self {
-        self.ttl = Duration::from_secs(ttl_seconds);
+    pub fn with_ttl_seconds(self, ttl_seconds: u64) -> Self {
+        self.ttl_seconds.store(ttl_seconds, Ordering::Relaxed);
         self
     }
 
     fn spawn_cleanup_task(&self) {
         let sessions = self.sessions.clone();
         let finished = self.finished.clone();
-        let ttl = self.ttl;
+        let ttl_seconds = self.ttl_seconds.clone();
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
             handle.spawn(async move {
                 loop {
@@ -130,10 +131,13 @@ impl ProcessRegistry {
                     }
 
                     let now = current_timestamp_ms();
+                    let ttl_millis = Duration::from_secs(ttl_seconds.load(Ordering::Relaxed))
+                        .as_millis()
+                        .min(i64::MAX as u128) as i64;
                     let expired: Vec<String> = finished
                         .iter()
                         .filter_map(|entry| {
-                            if now.saturating_sub(entry.finished_at) > ttl.as_millis() as i64 {
+                            if now.saturating_sub(entry.finished_at) > ttl_millis {
                                 Some(entry.key().clone())
                             } else {
                                 None
@@ -731,5 +735,14 @@ mod tests {
     fn test_is_truncated_handles_large_offset_without_overflow() {
         let truncated = ProcessRegistry::is_truncated(10, usize::MAX - 2, 10);
         assert!(!truncated);
+    }
+
+    #[test]
+    fn test_with_ttl_seconds_updates_shared_ttl_for_cleanup_worker() {
+        let registry = ProcessRegistry::new().with_ttl_seconds(120);
+        assert_eq!(registry.ttl_seconds.load(Ordering::Relaxed), 120);
+
+        let _ = registry.clone().with_ttl_seconds(5);
+        assert_eq!(registry.ttl_seconds.load(Ordering::Relaxed), 5);
     }
 }
