@@ -364,7 +364,9 @@ impl BackgroundAgentStorage {
         let mut result = Vec::new();
         for (_, bytes) in tasks {
             let task: BackgroundAgent = serde_json::from_slice(&bytes)?;
-            result.push(task);
+            if task.status == status {
+                result.push(task);
+            }
         }
         Ok(result)
     }
@@ -454,8 +456,17 @@ impl BackgroundAgentStorage {
     /// Unlike `update_task`, this does not require the task to already exist.
     pub fn save_task(&self, task: &BackgroundAgent) -> Result<()> {
         let json_bytes = serde_json::to_vec(task)?;
-        self.inner
-            .put_task_raw_with_status(&task.id, task.status.as_str(), &json_bytes)?;
+        if let Some(existing) = self.get_task(&task.id)? {
+            self.inner.update_task_raw_with_status(
+                &task.id,
+                existing.status.as_str(),
+                task.status.as_str(),
+                &json_bytes,
+            )?;
+        } else {
+            self.inner
+                .put_task_raw_with_status(&task.id, task.status.as_str(), &json_bytes)?;
+        }
         Ok(())
     }
 
@@ -639,7 +650,7 @@ impl BackgroundAgentStorage {
         Self::validate_task_input(input.as_deref(), input_template.as_deref())?;
         let session_binding =
             self.resolve_chat_session_id_for_create(chat_session_id, &agent_id, &name)?;
-        let mut task = self.create_task(name, agent_id, schedule)?;
+        let mut task = BackgroundAgent::new(Uuid::new_v4().to_string(), name, agent_id, schedule);
 
         task.chat_session_id = session_binding.session_id;
         task.owns_chat_session = session_binding.owns_session;
@@ -667,7 +678,11 @@ impl BackgroundAgentStorage {
             task.continuation = continuation;
         }
         task.updated_at = chrono::Utc::now().timestamp_millis();
-        self.update_task(&task)?;
+
+        self.save_task(&task)?;
+        let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Created)
+            .with_message("Task created");
+        self.add_event(&event)?;
         Ok(task)
     }
 
@@ -1402,6 +1417,33 @@ mod tests {
         assert_eq!(active_tasks[0].id, task1.id);
         assert_eq!(paused_tasks.len(), 1);
         assert_eq!(paused_tasks[0].id, task2.id);
+    }
+
+    #[test]
+    fn test_save_task_status_transition_keeps_status_queries_consistent() {
+        let storage = create_test_storage();
+        let created = storage
+            .create_task(
+                "Save Transition".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        let mut updated = storage.get_task(&created.id).unwrap().unwrap();
+        updated.pause();
+        storage.save_task(&updated).unwrap();
+
+        let active_tasks = storage
+            .list_tasks_by_status(BackgroundAgentStatus::Active)
+            .unwrap();
+        let paused_tasks = storage
+            .list_tasks_by_status(BackgroundAgentStatus::Paused)
+            .unwrap();
+
+        assert!(active_tasks.iter().all(|task| task.id != created.id));
+        assert_eq!(paused_tasks.len(), 1);
+        assert_eq!(paused_tasks[0].id, created.id);
     }
 
     #[test]
