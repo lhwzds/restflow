@@ -2199,9 +2199,16 @@ impl RestFlowMcpServer {
         if output.success {
             serde_json::to_string_pretty(&output.result).map_err(|e| e.to_string())
         } else {
-            Err(output
+            let message = output
                 .error
-                .unwrap_or_else(|| format!("Tool '{}' execution failed", name)))
+                .unwrap_or_else(|| format!("Tool '{}' execution failed", name));
+            let payload = serde_json::json!({
+                "tool": name,
+                "error": message,
+                "details": output.result,
+            });
+            Err(serde_json::to_string_pretty(&payload)
+                .unwrap_or_else(|_| format!("Tool '{}' execution failed", name)))
         }
     }
 
@@ -3825,6 +3832,16 @@ mod tests {
                     result: input,
                     error: None,
                 })
+            } else if name == "fail_runtime" {
+                Ok(RuntimeToolResult {
+                    success: false,
+                    result: serde_json::json!({
+                        "exit_code": 7,
+                        "stdout": "out",
+                        "stderr": "err"
+                    }),
+                    error: Some("Command exited with code 7".to_string()),
+                })
             } else {
                 Err(format!("Unknown runtime tool: {}", name))
             }
@@ -4025,6 +4042,21 @@ mod tests {
             .unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["value"], "hello-runtime");
+    }
+
+    #[tokio::test]
+    async fn test_runtime_tool_failure_includes_details() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let err = server
+            .handle_runtime_tool("fail_runtime", serde_json::json!({}))
+            .await
+            .unwrap_err();
+        let value: serde_json::Value = serde_json::from_str(&err).unwrap();
+        assert_eq!(value["tool"], "fail_runtime");
+        assert_eq!(value["error"], "Command exited with code 7");
+        assert_eq!(value["details"]["exit_code"], 7);
+        assert_eq!(value["details"]["stdout"], "out");
+        assert_eq!(value["details"]["stderr"], "err");
     }
 
     #[tokio::test]
