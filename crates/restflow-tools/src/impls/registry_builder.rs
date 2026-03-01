@@ -459,6 +459,26 @@ impl ToolRegistryBuilder {
     pub fn build(self) -> ToolRegistry {
         self.registry
     }
+
+    /// Build the registry and automatically register the `batch` tool.
+    ///
+    /// This is a convenience for the two-phase setup required by `BatchTool`,
+    /// which needs an `Arc<ToolRegistry>` containing the base tools it can call.
+    pub fn build_with_batch(self) -> ToolRegistry {
+        let mut registry = self.build();
+        if registry.has("batch") {
+            return registry;
+        }
+
+        let registry_arc = Arc::new(std::mem::take(&mut registry));
+        for name in registry_arc.list() {
+            if let Some(tool) = registry_arc.get(name) {
+                registry.register_arc(tool);
+            }
+        }
+        registry.register(BatchTool::new(registry_arc));
+        registry
+    }
 }
 
 /// Create a registry with default tools.
@@ -473,4 +493,17 @@ pub fn default_registry() -> Result<ToolRegistry, reqwest::Error> {
         .with_slack()?
         .with_python()
         .build())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_build_with_batch_registers_batch_and_preserves_tools() {
+        let registry = ToolRegistryBuilder::new().with_python().build_with_batch();
+        assert!(registry.has("batch"));
+        assert!(registry.has("python"));
+        assert!(registry.has("run_python"));
+    }
 }
