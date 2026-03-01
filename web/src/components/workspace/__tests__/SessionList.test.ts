@@ -62,6 +62,96 @@ describe('SessionList', () => {
     expect(text).not.toContain('channel:7686400336')
   })
 
+  it('shows no source tags for sessions linked to background agents', () => {
+    const wrapper = mount(SessionList, {
+      props: {
+        sessions: [
+          {
+            id: 'session-bg',
+            name: 'Bound Session',
+            status: 'completed',
+            updatedAt: Date.now(),
+            agentName: 'Agent One',
+            sourceChannel: 'workspace',
+            isBackgroundSession: true,
+          },
+        ],
+        currentSessionId: null,
+      },
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenu: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuTrigger: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuContent: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuItem: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
+        },
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text).not.toContain('workspace.background')
+    expect(text).not.toContain('Workspace')
+  })
+
+  it('hides source tags when a session is marked as background', () => {
+    const wrapper = mount(SessionList, {
+      props: {
+        sessions: [
+          {
+            id: 'session-bg-telegram',
+            name: 'Background Task Session',
+            status: 'completed',
+            updatedAt: Date.now(),
+            agentName: 'Agent One',
+            sourceChannel: 'telegram',
+            isBackgroundSession: true,
+          },
+        ],
+        currentSessionId: null,
+      },
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenu: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuTrigger: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuContent: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuItem: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
+        },
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text).not.toContain('workspace.background')
+    expect(text).not.toContain('Telegram')
+  })
+
   it('emits session actions from list controls', async () => {
     const wrapper = mount(SessionList, {
       props: {
