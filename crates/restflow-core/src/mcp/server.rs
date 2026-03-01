@@ -8,10 +8,10 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig,
-    MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider,
-    ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSource,
+    ChatSessionSummary, Deliverable, DurabilityMode, Hook, HookAction, HookEvent, HookFilter,
+    MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource,
+    MemoryStats, Provider, ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
 };
 use crate::services::background_agent_conversion::{
     ConvertSessionSpecOptions, build_convert_session_spec, default_conversion_schedule,
@@ -218,6 +218,89 @@ struct CoreBackend {
 }
 
 impl CoreBackend {
+    fn parse_binding_channel_source(channel: &str) -> Option<ChatSessionSource> {
+        match channel.trim().to_ascii_lowercase().as_str() {
+            "telegram" => Some(ChatSessionSource::Telegram),
+            "discord" => Some(ChatSessionSource::Discord),
+            "slack" => Some(ChatSessionSource::Slack),
+            _ => None,
+        }
+    }
+
+    fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
+        match source {
+            ChatSessionSource::Telegram => Some("telegram"),
+            ChatSessionSource::Discord => Some("discord"),
+            ChatSessionSource::Slack => Some("slack"),
+            ChatSessionSource::Workspace | ChatSessionSource::ExternalLegacy => None,
+        }
+    }
+
+    fn resolve_legacy_external_route(session: &ChatSession) -> Option<(ChatSessionSource, String)> {
+        let source = match session.source_channel {
+            Some(ChatSessionSource::Workspace) | None => return None,
+            Some(source) => source,
+        };
+        let conversation_id = session
+            .source_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())?
+            .to_string();
+        Some((source, conversation_id))
+    }
+
+    fn ensure_binding_from_legacy_source(
+        &self,
+        session: &ChatSession,
+    ) -> Result<Option<(ChatSessionSource, String)>, String> {
+        let Some((source, conversation_id)) = Self::resolve_legacy_external_route(session) else {
+            return Ok(None);
+        };
+
+        if let Some(channel_key) = Self::channel_key_from_source(source) {
+            let binding = crate::models::ChannelSessionBinding::new(
+                channel_key,
+                None,
+                &conversation_id,
+                &session.id,
+            );
+            self.core
+                .storage
+                .channel_session_bindings
+                .upsert(&binding)
+                .map_err(|e| e.to_string())?;
+        }
+
+        Ok(Some((source, conversation_id)))
+    }
+
+    fn apply_effective_session_source(&self, session: &mut ChatSession) -> Result<(), String> {
+        let bindings = self
+            .core
+            .storage
+            .channel_session_bindings
+            .list_by_session(&session.id)
+            .map_err(|e| e.to_string())?;
+        if let Some(binding) = bindings.first() {
+            let effective_source = Self::parse_binding_channel_source(&binding.channel)
+                .unwrap_or(ChatSessionSource::ExternalLegacy);
+            session.source_channel = Some(effective_source);
+            session.source_conversation_id = Some(binding.conversation_id.clone());
+            return Ok(());
+        }
+
+        if let Some((source, conversation_id)) = self.ensure_binding_from_legacy_source(session)? {
+            session.source_channel = Some(source);
+            session.source_conversation_id = Some(conversation_id);
+            return Ok(());
+        }
+
+        session.source_channel = Some(ChatSessionSource::Workspace);
+        session.source_conversation_id = None;
+        Ok(())
+    }
+
     fn get_registry(&self) -> Result<&restflow_traits::registry::ToolRegistry, String> {
         if let Some(r) = self.registry.get() {
             return Ok(r);
@@ -308,11 +391,16 @@ impl McpBackend for CoreBackend {
     }
 
     async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
-        self.core
+        let mut sessions = self
+            .core
             .storage
             .chat_sessions
-            .list_summaries()
-            .map_err(|e| e.to_string())
+            .list()
+            .map_err(|e| e.to_string())?;
+        for session in &mut sessions {
+            self.apply_effective_session_source(session)?;
+        }
+        Ok(sessions.iter().map(ChatSessionSummary::from).collect())
     }
 
     async fn list_sessions_by_agent(
@@ -325,16 +413,23 @@ impl McpBackend for CoreBackend {
             .chat_sessions
             .list_by_agent(agent_id)
             .map_err(|e| e.to_string())?;
+        let mut sessions = sessions;
+        for session in &mut sessions {
+            self.apply_effective_session_source(session)?;
+        }
         Ok(sessions.iter().map(ChatSessionSummary::from).collect())
     }
 
     async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
-        self.core
+        let mut session = self
+            .core
             .storage
             .chat_sessions
             .get(id)
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Session not found: {}", id))
+            .ok_or_else(|| format!("Session not found: {}", id))?;
+        self.apply_effective_session_source(&mut session)?;
+        Ok(session)
     }
 
     async fn list_tasks(
@@ -2505,7 +2600,10 @@ impl ServerHandler for RestFlowMcpServer {
 mod tests {
     use super::*;
     use crate::daemon::{IpcClient, IpcServer};
-    use crate::models::{AIModel, AgentNode, ApiKeyConfig, Skill, SkillReference};
+    use crate::models::{
+        AIModel, AgentNode, ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource,
+        Skill, SkillReference,
+    };
     use crate::prompt_files;
     use crate::storage::agent::StoredAgent;
     use std::time::Instant;
@@ -2585,6 +2683,92 @@ mod tests {
             skill_variables: None,
             model_routing: None,
         }
+    }
+
+    #[tokio::test]
+    async fn test_core_backend_session_source_is_resolved_from_binding() {
+        let (server, core, _db, _agents, _guard) = create_test_server().await;
+
+        let default_agent = core.storage.agents.resolve_default_agent().unwrap();
+        let mut session = ChatSession::new(
+            default_agent.id.clone(),
+            AIModel::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("binding-source-test");
+        session.source_channel = Some(ChatSessionSource::Workspace);
+        core.storage.chat_sessions.create(&session).unwrap();
+        core.storage
+            .channel_session_bindings
+            .upsert(&ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "chat-777",
+                &session.id,
+            ))
+            .unwrap();
+
+        let get_json = server
+            .handle_chat_session_get(ChatSessionGetParams {
+                session_id: session.id.clone(),
+            })
+            .await
+            .unwrap();
+        let fetched: ChatSession = serde_json::from_str(&get_json).unwrap();
+        assert_eq!(fetched.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(fetched.source_conversation_id.as_deref(), Some("chat-777"));
+
+        let list_json = server
+            .handle_chat_session_list(ChatSessionListParams {
+                agent_id: None,
+                limit: 20,
+            })
+            .await
+            .unwrap();
+        let listed: Vec<ChatSessionSummary> = serde_json::from_str(&list_json).unwrap();
+        let listed_one = listed
+            .iter()
+            .find(|item| item.id == session.id)
+            .expect("session should appear in list");
+        assert_eq!(listed_one.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(
+            listed_one.source_conversation_id.as_deref(),
+            Some("chat-777")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_core_backend_backfills_legacy_external_route_to_binding() {
+        let (server, core, _db, _agents, _guard) = create_test_server().await;
+
+        let default_agent = core.storage.agents.resolve_default_agent().unwrap();
+        let session = ChatSession::new(
+            default_agent.id.clone(),
+            AIModel::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("legacy-source-test")
+        .with_source(ChatSessionSource::Telegram, "legacy-chat");
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        let get_json = server
+            .handle_chat_session_get(ChatSessionGetParams {
+                session_id: session.id.clone(),
+            })
+            .await
+            .unwrap();
+        let fetched: ChatSession = serde_json::from_str(&get_json).unwrap();
+        assert_eq!(fetched.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(
+            fetched.source_conversation_id.as_deref(),
+            Some("legacy-chat")
+        );
+
+        let binding = core
+            .storage
+            .channel_session_bindings
+            .get_by_route("telegram", None, "legacy-chat")
+            .unwrap()
+            .expect("legacy route should be backfilled to binding");
+        assert_eq!(binding.session_id, session.id);
     }
 
     // =========================================================================

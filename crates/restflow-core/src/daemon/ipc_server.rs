@@ -164,6 +164,72 @@ fn parse_binding_channel_source(channel: &str) -> Option<ChatSessionSource> {
     }
 }
 
+fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
+    match source {
+        ChatSessionSource::Telegram => Some("telegram"),
+        ChatSessionSource::Discord => Some("discord"),
+        ChatSessionSource::Slack => Some("slack"),
+        ChatSessionSource::Workspace | ChatSessionSource::ExternalLegacy => None,
+    }
+}
+
+fn resolve_legacy_external_route(session: &ChatSession) -> Option<(ChatSessionSource, String)> {
+    let source = match session.source_channel {
+        Some(ChatSessionSource::Workspace) | None => return None,
+        Some(source) => source,
+    };
+    let conversation_id = session
+        .source_conversation_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())?
+        .to_string();
+    Some((source, conversation_id))
+}
+
+fn ensure_binding_from_legacy_source(
+    storage: &crate::storage::Storage,
+    session: &ChatSession,
+) -> Result<Option<(ChatSessionSource, String)>> {
+    let Some((source, conversation_id)) = resolve_legacy_external_route(session) else {
+        return Ok(None);
+    };
+
+    if let Some(channel_key) = channel_key_from_source(source) {
+        let binding =
+            ChannelSessionBinding::new(channel_key, None, conversation_id.clone(), &session.id);
+        storage.channel_session_bindings.upsert(&binding)?;
+    }
+
+    Ok(Some((source, conversation_id)))
+}
+
+fn apply_effective_session_source(
+    storage: &crate::storage::Storage,
+    session: &mut ChatSession,
+) -> Result<()> {
+    let bindings = storage
+        .channel_session_bindings
+        .list_by_session(&session.id)?;
+    if let Some(binding) = bindings.first() {
+        let effective_source = parse_binding_channel_source(&binding.channel)
+            .unwrap_or(ChatSessionSource::ExternalLegacy);
+        session.source_channel = Some(effective_source);
+        session.source_conversation_id = Some(binding.conversation_id.clone());
+        return Ok(());
+    }
+
+    if let Some((source, conversation_id)) = ensure_binding_from_legacy_source(storage, session)? {
+        session.source_channel = Some(source);
+        session.source_conversation_id = Some(conversation_id);
+        return Ok(());
+    }
+
+    session.source_channel = Some(ChatSessionSource::Workspace);
+    session.source_conversation_id = None;
+    Ok(())
+}
+
 fn session_management_owner(
     storage: &crate::storage::Storage,
     session: &ChatSession,
@@ -171,12 +237,12 @@ fn session_management_owner(
     let bindings = storage
         .channel_session_bindings
         .list_by_session(&session.id)?;
-    if let Some(binding) = bindings.first()
-        && let Some(source) = parse_binding_channel_source(&binding.channel)
-    {
+    if let Some(binding) = bindings.first() {
+        let source = parse_binding_channel_source(&binding.channel)
+            .unwrap_or(ChatSessionSource::ExternalLegacy);
         return Ok(Some(source));
     }
-    Ok(None)
+    Ok(ensure_binding_from_legacy_source(storage, session)?.map(|(source, _)| source))
 }
 
 fn is_workspace_managed_session(
@@ -193,27 +259,13 @@ fn resolve_external_session_route(
     let bindings = storage
         .channel_session_bindings
         .list_by_session(&source.id)?;
-    if let Some(binding) = bindings.first()
-        && let Some(source_channel) = parse_binding_channel_source(&binding.channel)
-    {
+    if let Some(binding) = bindings.first() {
+        let source_channel = parse_binding_channel_source(&binding.channel)
+            .unwrap_or(ChatSessionSource::ExternalLegacy);
         return Ok((source_channel, binding.conversation_id.trim().to_string()));
     }
-
-    let source_channel = match source.source_channel {
-        Some(ChatSessionSource::Workspace) | None => {
-            anyhow::bail!("Session is not externally managed")
-        }
-        Some(channel) => channel,
-    };
-    let conversation_id = source
-        .source_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow::anyhow!("External session is missing conversation_id"))?
-        .to_string();
-
-    Ok((source_channel, conversation_id))
+    ensure_binding_from_legacy_source(storage, source)?
+        .ok_or_else(|| anyhow::anyhow!("Session is not externally managed"))
 }
 
 fn build_rebuilt_external_session(
@@ -1153,23 +1205,57 @@ impl IpcServer {
                 Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
-            IpcRequest::ListSessions => match core.storage.chat_sessions.list_summaries() {
-                Ok(summaries) => IpcResponse::success(summaries),
+            IpcRequest::ListSessions => match core.storage.chat_sessions.list() {
+                Ok(mut sessions) => {
+                    for session in &mut sessions {
+                        if let Err(err) = apply_effective_session_source(&core.storage, session) {
+                            return IpcResponse::error(500, err.to_string());
+                        }
+                    }
+                    let summaries = sessions
+                        .iter()
+                        .map(ChatSessionSummary::from)
+                        .collect::<Vec<_>>();
+                    IpcResponse::success(summaries)
+                }
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
             IpcRequest::ListFullSessions => match core.storage.chat_sessions.list() {
-                Ok(sessions) => IpcResponse::success(sessions),
+                Ok(mut sessions) => {
+                    for session in &mut sessions {
+                        if let Err(err) = apply_effective_session_source(&core.storage, session) {
+                            return IpcResponse::error(500, err.to_string());
+                        }
+                    }
+                    IpcResponse::success(sessions)
+                }
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
             IpcRequest::ListSessionsByAgent { agent_id } => {
                 match core.storage.chat_sessions.list_by_agent(&agent_id) {
-                    Ok(sessions) => IpcResponse::success(sessions),
+                    Ok(mut sessions) => {
+                        for session in &mut sessions {
+                            if let Err(err) = apply_effective_session_source(&core.storage, session)
+                            {
+                                return IpcResponse::error(500, err.to_string());
+                            }
+                        }
+                        IpcResponse::success(sessions)
+                    }
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
             IpcRequest::ListSessionsBySkill { skill_id } => {
                 match core.storage.chat_sessions.list_by_skill(&skill_id) {
-                    Ok(sessions) => IpcResponse::success(sessions),
+                    Ok(mut sessions) => {
+                        for session in &mut sessions {
+                            if let Err(err) = apply_effective_session_source(&core.storage, session)
+                            {
+                                return IpcResponse::error(500, err.to_string());
+                            }
+                        }
+                        IpcResponse::success(sessions)
+                    }
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
@@ -1219,7 +1305,12 @@ impl IpcServer {
                 }
             }
             IpcRequest::GetSession { id } => match core.storage.chat_sessions.get(&id) {
-                Ok(Some(session)) => IpcResponse::success(session),
+                Ok(Some(mut session)) => {
+                    if let Err(err) = apply_effective_session_source(&core.storage, &mut session) {
+                        return IpcResponse::error(500, err.to_string());
+                    }
+                    IpcResponse::success(session)
+                }
                 Ok(None) => IpcResponse::not_found("Session"),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
@@ -1494,8 +1585,13 @@ impl IpcServer {
                 IpcResponse::success(rebuilt)
             }
             IpcRequest::SearchSessions { query } => match core.storage.chat_sessions.list() {
-                Ok(sessions) => {
+                Ok(mut sessions) => {
                     let query = query.to_lowercase();
+                    for session in &mut sessions {
+                        if let Err(err) = apply_effective_session_source(&core.storage, session) {
+                            return IpcResponse::error(500, err.to_string());
+                        }
+                    }
                     let matches: Vec<ChatSessionSummary> = sessions
                         .into_iter()
                         .filter(|session| {
@@ -2488,6 +2584,79 @@ mod tests {
             .unwrap();
 
         assert!(!is_workspace_managed_session(&core.storage, &telegram).unwrap());
+    }
+
+    #[tokio::test]
+    async fn is_workspace_managed_session_rejects_legacy_external_and_backfills_binding() {
+        let (core, _temp) = create_test_core().await;
+
+        let telegram = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
+            .with_source(ChatSessionSource::Telegram, "chat-legacy");
+        core.storage.chat_sessions.create(&telegram).unwrap();
+
+        assert!(!is_workspace_managed_session(&core.storage, &telegram).unwrap());
+
+        let binding = core
+            .storage
+            .channel_session_bindings
+            .get_by_route("telegram", None, "chat-legacy")
+            .unwrap()
+            .expect("legacy external route should be backfilled");
+        assert_eq!(binding.session_id, telegram.id);
+    }
+
+    #[tokio::test]
+    async fn apply_effective_session_source_uses_binding_data() {
+        let (core, _temp) = create_test_core().await;
+
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
+            .with_source(ChatSessionSource::Workspace, "stale-conv");
+        core.storage.chat_sessions.create(&session).unwrap();
+        core.storage
+            .channel_session_bindings
+            .upsert(&ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "chat-888",
+                &session.id,
+            ))
+            .unwrap();
+
+        apply_effective_session_source(&core.storage, &mut session).unwrap();
+        assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(session.source_conversation_id.as_deref(), Some("chat-888"));
+    }
+
+    #[tokio::test]
+    async fn apply_effective_session_source_backfills_legacy_external_binding() {
+        let (core, _temp) = create_test_core().await;
+
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
+            .with_source(ChatSessionSource::Telegram, "legacy-conv");
+        apply_effective_session_source(&core.storage, &mut session).unwrap();
+        assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(
+            session.source_conversation_id.as_deref(),
+            Some("legacy-conv")
+        );
+
+        let binding = core
+            .storage
+            .channel_session_bindings
+            .get_by_route("telegram", None, "legacy-conv")
+            .unwrap()
+            .expect("legacy route should be backfilled");
+        assert_eq!(binding.session_id, session.id);
+    }
+
+    #[tokio::test]
+    async fn apply_effective_session_source_defaults_to_workspace_when_no_external_route() {
+        let (core, _temp) = create_test_core().await;
+
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        apply_effective_session_source(&core.storage, &mut session).unwrap();
+        assert_eq!(session.source_channel, Some(ChatSessionSource::Workspace));
+        assert!(session.source_conversation_id.is_none());
     }
 
     #[test]

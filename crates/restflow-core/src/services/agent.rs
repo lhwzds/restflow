@@ -7,7 +7,7 @@ use crate::{
     AppCore,
     models::{AgentNode, ChatSessionSource, encode_validation_error},
     storage::{
-        BackgroundAgentStorage, ChatSessionStorage,
+        BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
         agent::{DEFAULT_ASSISTANT_NAME, StoredAgent},
     },
 };
@@ -82,25 +82,83 @@ pub(crate) fn check_agent_has_active_tasks(
 /// `Ok(None)` otherwise.
 pub(crate) fn check_agent_has_external_channel_sessions(
     chat_storage: &ChatSessionStorage,
+    channel_session_bindings: &ChannelSessionBindingStorage,
     agent_id: &str,
 ) -> Result<Option<String>> {
     let sessions = chat_storage.list_by_agent(agent_id)?;
-    let mut sources = BTreeSet::new();
+    let mut sources: BTreeSet<String> = BTreeSet::new();
 
     for session in sessions {
+        let bindings = channel_session_bindings.list_by_session(&session.id)?;
+        if !bindings.is_empty() {
+            for binding in bindings {
+                let normalized = binding.channel.trim().to_ascii_lowercase();
+                match normalized.as_str() {
+                    "telegram" => {
+                        sources.insert("telegram".to_string());
+                    }
+                    "discord" => {
+                        sources.insert("discord".to_string());
+                    }
+                    "slack" => {
+                        sources.insert("slack".to_string());
+                    }
+                    other => {
+                        sources.insert(other.to_string());
+                    }
+                }
+            }
+            continue;
+        }
+
+        let legacy_conversation_id = session
+            .source_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+
+        // Legacy fallback: session source fields may still exist before full migration.
         match session.source_channel {
             Some(ChatSessionSource::Workspace) | None => {}
             Some(ChatSessionSource::Telegram) => {
-                sources.insert("telegram");
+                if let Some(conversation_id) = legacy_conversation_id.clone() {
+                    let binding = crate::models::ChannelSessionBinding::new(
+                        "telegram",
+                        None,
+                        conversation_id,
+                        &session.id,
+                    );
+                    let _ = channel_session_bindings.upsert(&binding);
+                }
+                sources.insert("telegram".to_string());
             }
             Some(ChatSessionSource::Discord) => {
-                sources.insert("discord");
+                if let Some(conversation_id) = legacy_conversation_id.clone() {
+                    let binding = crate::models::ChannelSessionBinding::new(
+                        "discord",
+                        None,
+                        conversation_id,
+                        &session.id,
+                    );
+                    let _ = channel_session_bindings.upsert(&binding);
+                }
+                sources.insert("discord".to_string());
             }
             Some(ChatSessionSource::Slack) => {
-                sources.insert("slack");
+                if let Some(conversation_id) = legacy_conversation_id.clone() {
+                    let binding = crate::models::ChannelSessionBinding::new(
+                        "slack",
+                        None,
+                        conversation_id,
+                        &session.id,
+                    );
+                    let _ = channel_session_bindings.upsert(&binding);
+                }
+                sources.insert("slack".to_string());
             }
             Some(ChatSessionSource::ExternalLegacy) => {
-                sources.insert("external_legacy");
+                sources.insert("external_legacy".to_string());
             }
         }
     }
@@ -145,9 +203,12 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         );
     }
 
-    if let Some(sources) =
-        check_agent_has_external_channel_sessions(&core.storage.chat_sessions, &resolved_id)
-            .with_context(|| format!("Failed to query chat sessions for agent {}", id))?
+    if let Some(sources) = check_agent_has_external_channel_sessions(
+        &core.storage.chat_sessions,
+        &core.storage.channel_session_bindings,
+        &resolved_id,
+    )
+    .with_context(|| format!("Failed to query chat sessions for agent {}", id))?
     {
         anyhow::bail!(
             "Cannot delete agent {}: external channel sessions exist ({})",
@@ -177,7 +238,8 @@ async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<(
 mod tests {
     use super::*;
     use crate::models::{
-        AIModel, ApiKeyConfig, ChatSession, ChatSessionSource, ValidationErrorResponse,
+        AIModel, ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource,
+        ValidationErrorResponse,
     };
     use crate::prompt_files;
     use crate::storage::agent::LEGACY_DEFAULT_ASSISTANT_NAME;
@@ -451,6 +513,47 @@ mod tests {
         .with_name("channel:chat-1")
         .with_source(ChatSessionSource::Telegram, "chat-1");
         core.storage.chat_sessions.create(&session).unwrap();
+
+        let err = delete_agent(&core, &created.id).await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("Cannot delete agent"));
+        assert!(msg.contains("external channel sessions"));
+        assert!(msg.contains("telegram"));
+
+        let binding = core
+            .storage
+            .channel_session_bindings
+            .get_by_route("telegram", None, "chat-1")
+            .unwrap()
+            .expect("legacy source route should be backfilled");
+        assert_eq!(binding.session_id, session.id);
+    }
+
+    #[tokio::test]
+    async fn test_delete_agent_blocked_by_external_channel_binding_without_source_flag() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+
+        let agent_node = create_test_agent_node("Binding owner");
+        let created = create_agent(&core, "Binding Owner".to_string(), agent_node)
+            .await
+            .unwrap();
+
+        let mut session = ChatSession::new(
+            created.id.clone(),
+            AIModel::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("workspace-like");
+        session.source_channel = Some(ChatSessionSource::Workspace);
+        core.storage.chat_sessions.create(&session).unwrap();
+        core.storage
+            .channel_session_bindings
+            .upsert(&ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "chat-binding",
+                &session.id,
+            ))
+            .unwrap();
 
         let err = delete_agent(&core, &created.id).await.unwrap_err();
         let msg = err.to_string();

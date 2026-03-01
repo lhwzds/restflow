@@ -25,6 +25,8 @@ use restflow_storage::MemoryIndex;
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::models::{ChannelSessionBinding, ChatSessionSource};
+
 // Re-export types that are self-contained in restflow-storage
 pub use restflow_storage::{
     ConfigStorage, DaemonStateStorage, PairingStorage, Secret, SecretStorage, SecretStorageConfig,
@@ -111,6 +113,10 @@ impl Storage {
         memory.rebuild_text_index_if_empty()?;
         let chat_sessions = ChatSessionStorage::new(db.clone())?;
         let channel_session_bindings = ChannelSessionBindingStorage::new(db.clone())?;
+        backfill_channel_session_bindings_from_legacy_sources(
+            &chat_sessions,
+            &channel_session_bindings,
+        )?;
         let tool_traces = ToolTraceStorage::new(db.clone())?;
         let deliverables = DeliverableStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
@@ -146,5 +152,89 @@ impl Storage {
     /// Get a reference to the underlying database
     pub fn get_db(&self) -> Arc<Database> {
         self.db.clone()
+    }
+}
+
+fn backfill_channel_session_bindings_from_legacy_sources(
+    chat_sessions: &ChatSessionStorage,
+    channel_session_bindings: &ChannelSessionBindingStorage,
+) -> Result<usize> {
+    let sessions = chat_sessions.list()?;
+    let mut created = 0usize;
+
+    for session in sessions {
+        let channel_key = match session.source_channel {
+            Some(ChatSessionSource::Telegram) => Some("telegram"),
+            Some(ChatSessionSource::Discord) => Some("discord"),
+            Some(ChatSessionSource::Slack) => Some("slack"),
+            Some(ChatSessionSource::Workspace) | Some(ChatSessionSource::ExternalLegacy) | None => {
+                None
+            }
+        };
+        let Some(channel_key) = channel_key else {
+            continue;
+        };
+
+        let Some(conversation_id) = session
+            .source_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        else {
+            continue;
+        };
+
+        if channel_session_bindings
+            .get_by_route(channel_key, None, conversation_id)?
+            .is_some()
+        {
+            continue;
+        }
+
+        let binding =
+            ChannelSessionBinding::new(channel_key, None, conversation_id.to_string(), session.id);
+        channel_session_bindings.upsert(&binding)?;
+        created += 1;
+    }
+
+    Ok(created)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::ChatSession;
+    use tempfile::tempdir;
+
+    #[test]
+    fn backfill_legacy_channel_session_bindings_is_idempotent() {
+        let dir = tempdir().unwrap();
+        let db_path = dir.path().join("storage-backfill.db");
+        let storage = Storage::new(db_path.to_str().unwrap()).unwrap();
+
+        let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string())
+            .with_source(ChatSessionSource::Telegram, "chat-backfill");
+        storage.chat_sessions.create(&session).unwrap();
+
+        let created = backfill_channel_session_bindings_from_legacy_sources(
+            &storage.chat_sessions,
+            &storage.channel_session_bindings,
+        )
+        .unwrap();
+        assert_eq!(created, 1);
+
+        let binding = storage
+            .channel_session_bindings
+            .get_by_route("telegram", None, "chat-backfill")
+            .unwrap()
+            .expect("binding should be created");
+        assert_eq!(binding.session_id, session.id);
+
+        let created_again = backfill_channel_session_bindings_from_legacy_sources(
+            &storage.chat_sessions,
+            &storage.channel_session_bindings,
+        )
+        .unwrap();
+        assert_eq!(created_again, 0);
     }
 }
