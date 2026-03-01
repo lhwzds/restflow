@@ -17,6 +17,13 @@
     "allAgents": "全部 Agent",
     "noSessions": "暂无会话",
     "background": "后台",
+    "sessionSource": {
+      "workspace": "工作区",
+      "telegram": "Telegram",
+      "discord": "Discord",
+      "slack": "Slack",
+      "externalLegacy": "外部"
+    },
     "tabs": {
       "sessions": "会话",
       "agents": "Agent"
