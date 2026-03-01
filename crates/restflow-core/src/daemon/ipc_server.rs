@@ -55,6 +55,7 @@ use tokio::net::{UnixListener, UnixStream};
 pub struct IpcServer {
     core: Arc<AppCore>,
     socket_path: PathBuf,
+    runtime_tool_registry: Arc<OnceLock<restflow_ai::tools::ToolRegistry>>,
 }
 
 fn active_chat_streams() -> &'static Mutex<HashMap<String, JoinHandle<()>>> {
@@ -362,7 +363,11 @@ impl StreamEmitter for IpcStreamEmitter {
 
 impl IpcServer {
     pub fn new(core: Arc<AppCore>, socket_path: PathBuf) -> Self {
-        Self { core, socket_path }
+        Self {
+            core,
+            socket_path,
+            runtime_tool_registry: Arc::new(OnceLock::new()),
+        }
     }
 
     #[cfg(unix)]
@@ -386,8 +391,11 @@ impl IpcServer {
                     match result {
                         Ok((stream, _)) => {
                             let core = self.core.clone();
+                            let runtime_tool_registry = self.runtime_tool_registry.clone();
                             tokio::spawn(async move {
-                                if let Err(err) = Self::handle_client(stream, core).await {
+                                if let Err(err) =
+                                    Self::handle_client(stream, core, runtime_tool_registry).await
+                                {
                                     debug!(error = %err, "Client disconnected");
                                 }
                             });
@@ -412,7 +420,11 @@ impl IpcServer {
     }
 
     #[cfg(unix)]
-    async fn handle_client(mut stream: UnixStream, core: Arc<AppCore>) -> Result<()> {
+    async fn handle_client(
+        mut stream: UnixStream,
+        core: Arc<AppCore>,
+        runtime_tool_registry: Arc<OnceLock<restflow_ai::tools::ToolRegistry>>,
+    ) -> Result<()> {
         loop {
             let mut len_buf = [0u8; 4];
             if stream.read_exact(&mut len_buf).await.is_err() {
@@ -475,7 +487,7 @@ impl IpcServer {
                     }
                 }
                 Ok(req) => {
-                    let response = Self::process(&core, req).await;
+                    let response = Self::process(&core, runtime_tool_registry.as_ref(), req).await;
                     Self::send(&mut stream, &response).await?;
                 }
                 Err(err) => {
@@ -773,7 +785,11 @@ impl IpcServer {
         Ok(())
     }
 
-    async fn process(core: &Arc<AppCore>, request: IpcRequest) -> IpcResponse {
+    async fn process(
+        core: &Arc<AppCore>,
+        runtime_tool_registry: &OnceLock<restflow_ai::tools::ToolRegistry>,
+        request: IpcRequest,
+    ) -> IpcResponse {
         match request {
             IpcRequest::Ping => IpcResponse::Pong,
             IpcRequest::GetStatus => IpcResponse::success(build_daemon_status()),
@@ -2162,43 +2178,49 @@ impl IpcServer {
                 "pid": std::process::id(),
             })),
             IpcRequest::GetAvailableModels => IpcResponse::success(Vec::<String>::new()),
-            IpcRequest::GetAvailableTools => match create_runtime_tool_registry(core) {
-                Ok(registry) => {
-                    let tools: Vec<String> = registry
-                        .list()
-                        .iter()
-                        .map(|name| name.to_string())
-                        .collect();
-                    IpcResponse::success(tools)
-                }
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::GetAvailableToolDefinitions => match create_runtime_tool_registry(core) {
-                Ok(registry) => {
-                    let tools: Vec<ToolDefinition> = registry
-                        .schemas()
-                        .into_iter()
-                        .map(|schema| ToolDefinition {
-                            name: schema.name,
-                            description: schema.description,
-                            parameters: schema.parameters,
-                        })
-                        .collect();
-                    IpcResponse::success(tools)
-                }
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::ExecuteTool { name, input } => match create_runtime_tool_registry(core) {
-                Ok(registry) => match registry.execute_safe(&name, input).await {
-                    Ok(output) => IpcResponse::success(ToolExecutionResult {
-                        success: output.success,
-                        result: output.result,
-                        error: output.error,
-                    }),
+            IpcRequest::GetAvailableTools => {
+                match get_runtime_tool_registry(core, runtime_tool_registry) {
+                    Ok(registry) => {
+                        let tools: Vec<String> = registry
+                            .list()
+                            .iter()
+                            .map(|name| name.to_string())
+                            .collect();
+                        IpcResponse::success(tools)
+                    }
                     Err(err) => IpcResponse::error(500, err.to_string()),
-                },
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+                }
+            }
+            IpcRequest::GetAvailableToolDefinitions => {
+                match get_runtime_tool_registry(core, runtime_tool_registry) {
+                    Ok(registry) => {
+                        let tools: Vec<ToolDefinition> = registry
+                            .schemas()
+                            .into_iter()
+                            .map(|schema| ToolDefinition {
+                                name: schema.name,
+                                description: schema.description,
+                                parameters: schema.parameters,
+                            })
+                            .collect();
+                        IpcResponse::success(tools)
+                    }
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::ExecuteTool { name, input } => {
+                match get_runtime_tool_registry(core, runtime_tool_registry) {
+                    Ok(registry) => match registry.execute_safe(&name, input).await {
+                        Ok(output) => IpcResponse::success(ToolExecutionResult {
+                            success: output.success,
+                            result: output.result,
+                            error: output.error,
+                        }),
+                        Err(err) => IpcResponse::error(500, err.to_string()),
+                    },
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::ListMcpServers => IpcResponse::success(Vec::<String>::new()),
             IpcRequest::BuildAgentSystemPrompt { agent_node } => {
                 match build_agent_system_prompt(core, agent_node) {
@@ -2234,6 +2256,21 @@ fn create_runtime_tool_registry(
         None,
         None,
     )
+}
+
+fn get_runtime_tool_registry<'a>(
+    core: &Arc<AppCore>,
+    runtime_tool_registry: &'a OnceLock<restflow_ai::tools::ToolRegistry>,
+) -> Result<&'a restflow_ai::tools::ToolRegistry, String> {
+    if let Some(registry) = runtime_tool_registry.get() {
+        return Ok(registry);
+    }
+
+    let registry = create_runtime_tool_registry(core).map_err(|error| error.to_string())?;
+    let _ = runtime_tool_registry.set(registry);
+    runtime_tool_registry
+        .get()
+        .ok_or_else(|| "runtime tool registry initialization failed".to_string())
 }
 
 fn create_chat_executor(
@@ -2643,6 +2680,7 @@ mod tests {
     #[tokio::test]
     async fn delete_session_rejects_background_bound_workspace_session() {
         let (core, _temp) = create_test_core().await;
+        let runtime_tool_registry = OnceLock::new();
         let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
         session.source_channel = Some(ChatSessionSource::Workspace);
         core.storage.chat_sessions.create(&session).unwrap();
@@ -2670,6 +2708,7 @@ mod tests {
 
         let response = IpcServer::process(
             &core,
+            &runtime_tool_registry,
             IpcRequest::DeleteSession {
                 id: session.id.clone(),
             },
@@ -2687,6 +2726,7 @@ mod tests {
     #[tokio::test]
     async fn archive_session_rejects_background_bound_workspace_session() {
         let (core, _temp) = create_test_core().await;
+        let runtime_tool_registry = OnceLock::new();
         let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
         session.source_channel = Some(ChatSessionSource::Workspace);
         core.storage.chat_sessions.create(&session).unwrap();
@@ -2714,6 +2754,7 @@ mod tests {
 
         let response = IpcServer::process(
             &core,
+            &runtime_tool_registry,
             IpcRequest::ArchiveSession {
                 id: session.id.clone(),
             },
@@ -2725,6 +2766,87 @@ mod tests {
                 assert!(message.contains("bound to background task"));
             }
             other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn execute_tool_browser_session_persists_between_process_calls() {
+        let (core, _temp) = create_test_core().await;
+        let runtime_tool_registry = OnceLock::new();
+
+        let create_response = IpcServer::process(
+            &core,
+            &runtime_tool_registry,
+            IpcRequest::ExecuteTool {
+                name: "browser".to_string(),
+                input: serde_json::json!({
+                    "action": "new_session",
+                    "headless": true
+                }),
+            },
+        )
+        .await;
+
+        let session_id = match create_response {
+            IpcResponse::Success(value) => {
+                assert_eq!(value.get("success").and_then(|v| v.as_bool()), Some(true));
+                value
+                    .get("result")
+                    .and_then(|v| v.get("id"))
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string())
+                    .expect("browser new_session should return an id")
+            }
+            other => panic!("expected success response, got {other:?}"),
+        };
+
+        let list_response = IpcServer::process(
+            &core,
+            &runtime_tool_registry,
+            IpcRequest::ExecuteTool {
+                name: "browser".to_string(),
+                input: serde_json::json!({
+                    "action": "list_sessions"
+                }),
+            },
+        )
+        .await;
+
+        match list_response {
+            IpcResponse::Success(value) => {
+                assert_eq!(value.get("success").and_then(|v| v.as_bool()), Some(true));
+                let sessions = value
+                    .get("result")
+                    .and_then(|v| v.as_array())
+                    .expect("browser list_sessions should return an array");
+                assert!(
+                    sessions.iter().any(|session| {
+                        session.get("id").and_then(|v| v.as_str()) == Some(session_id.as_str())
+                    }),
+                    "created browser session should be visible in list_sessions"
+                );
+            }
+            other => panic!("expected success response, got {other:?}"),
+        }
+
+        let close_response = IpcServer::process(
+            &core,
+            &runtime_tool_registry,
+            IpcRequest::ExecuteTool {
+                name: "browser".to_string(),
+                input: serde_json::json!({
+                    "action": "close_session",
+                    "session_id": session_id
+                }),
+            },
+        )
+        .await;
+
+        match close_response {
+            IpcResponse::Success(value) => {
+                assert_eq!(value.get("success").and_then(|v| v.as_bool()), Some(true));
+            }
+            other => panic!("expected success response, got {other:?}"),
         }
     }
 
