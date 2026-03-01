@@ -58,11 +58,11 @@ describe('SessionList', () => {
     const text = wrapper.text()
     expect(text).toContain('7686400336')
     expect(text).toContain('Regular Session')
-    expect(text).toContain('Telegram')
+    expect(text).toContain('workspace.sessionSource.telegram')
     expect(text).not.toContain('channel:7686400336')
   })
 
-  it('shows no source tags for sessions linked to background agents', () => {
+  it('shows a background tag for sessions linked to background agents', () => {
     const wrapper = mount(SessionList, {
       props: {
         sessions: [
@@ -103,11 +103,11 @@ describe('SessionList', () => {
     })
 
     const text = wrapper.text()
-    expect(text).not.toContain('workspace.background')
-    expect(text).not.toContain('Workspace')
+    expect(text).toContain('workspace.background')
+    expect(text).not.toContain('workspace.sessionSource.workspace')
   })
 
-  it('hides source tags when a session is marked as background', () => {
+  it('uses the background tag instead of source tags when a session is marked as background', () => {
     const wrapper = mount(SessionList, {
       props: {
         sessions: [
@@ -148,8 +148,8 @@ describe('SessionList', () => {
     })
 
     const text = wrapper.text()
-    expect(text).not.toContain('workspace.background')
-    expect(text).not.toContain('Telegram')
+    expect(text).toContain('workspace.background')
+    expect(text).not.toContain('workspace.sessionSource.telegram')
   })
 
   it('emits session actions from list controls', async () => {

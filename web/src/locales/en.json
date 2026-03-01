@@ -17,6 +17,13 @@
     "allAgents": "All agents",
     "noSessions": "No sessions yet",
     "background": "background",
+    "sessionSource": {
+      "workspace": "Workspace",
+      "telegram": "Telegram",
+      "discord": "Discord",
+      "slack": "Slack",
+      "externalLegacy": "External"
+    },
     "tabs": {
       "sessions": "Sessions",
       "agents": "Agents"

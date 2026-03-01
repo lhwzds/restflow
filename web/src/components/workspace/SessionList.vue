@@ -60,30 +60,30 @@ function sourceLabel(source: ChatSessionSource | null | undefined): string | nul
 
   switch (source) {
     case 'workspace':
-      return 'Workspace'
+      return t('workspace.sessionSource.workspace')
     case 'telegram':
-      return 'Telegram'
+      return t('workspace.sessionSource.telegram')
     case 'discord':
-      return 'Discord'
+      return t('workspace.sessionSource.discord')
     case 'slack':
-      return 'Slack'
+      return t('workspace.sessionSource.slack')
     case 'external_legacy':
-      return 'External'
+      return t('workspace.sessionSource.externalLegacy')
     default:
       return null
   }
 }
 
-function shouldRenderSourceTag(session: SessionItem): boolean {
-  if (session.isBackgroundSession) return false
+function sessionTagLabel(session: SessionItem): string | null {
+  if (session.isBackgroundSession) {
+    return t('workspace.background')
+  }
 
-  const source = sourceLabel(session.sourceChannel)
-  if (!source) return false
-  return true
+  return sourceLabel(session.sourceChannel)
 }
 
 function hasSessionTag(session: SessionItem): boolean {
-  return shouldRenderSourceTag(session)
+  return sessionTagLabel(session) !== null
 }
 
 const formatTime = (timestamp: number) => {
@@ -140,10 +140,10 @@ const formatTime = (timestamp: number) => {
             <div class="text-sm truncate">{{ displaySessionName(session) }}</div>
             <div class="text-xs text-muted-foreground truncate">
               <span
-                v-if="shouldRenderSourceTag(session)"
+                v-if="sessionTagLabel(session)"
                 class="inline-flex items-center rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wide"
               >
-                {{ sourceLabel(session.sourceChannel) }}
+                {{ sessionTagLabel(session) }}
               </span>
               <span v-if="session.agentName">
                 <span v-if="hasSessionTag(session)"> · </span>
