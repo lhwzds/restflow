@@ -170,18 +170,6 @@ export const delay = (ms: number): Promise<void> => {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/**
- * Utility function: format time difference
- */
-export const formatTimeDiff = (ms: number): string => {
-  if (ms < TIME_THRESHOLDS.JUST_NOW) return 'just now'
-  if (ms < TIME_THRESHOLDS.SECONDS_AGO) return `${Math.floor(ms / TIME_UNITS.MS_PER_SECOND)}s ago`
-  if (ms < TIME_THRESHOLDS.MINUTES_AGO) return `${Math.floor(ms / TIME_UNITS.MS_PER_MINUTE)}m ago`
-  if (ms < TIME_THRESHOLDS.HOURS_AGO) return `${Math.floor(ms / TIME_UNITS.MS_PER_HOUR)}h ago`
-  if (ms < TIME_THRESHOLDS.DAYS_AGO) return `${Math.floor(ms / TIME_UNITS.MS_PER_DAY)}d ago`
-  return new Date(Date.now() - ms).toLocaleDateString()
-}
-
 // Type exports
 export type TimingKey = keyof typeof TIMING
 export type ApiTimingKey = keyof typeof API_TIMING

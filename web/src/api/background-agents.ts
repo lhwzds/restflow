@@ -24,23 +24,9 @@ export interface StreamingBackgroundAgentResponse {
   already_running: boolean
 }
 
-/** Info about an actively running background agent */
-export interface ActiveBackgroundAgentInfo {
-  task_id: string
-  task_name: string
-  agent_id: string
-  started_at: number
-  execution_mode: string
-}
-
 /** List all background agents */
 export async function listBackgroundAgents(): Promise<BackgroundAgent[]> {
   return tauriInvoke<BackgroundAgent[]>('list_background_agents')
-}
-
-/** Get a single background agent by ID */
-export async function getBackgroundAgent(id: string): Promise<BackgroundAgent> {
-  return tauriInvoke<BackgroundAgent>('get_background_agent', { id })
 }
 
 /** Pause a background agent */
@@ -86,11 +72,6 @@ export async function getBackgroundAgentStreamEventName(): Promise<string> {
 /** Get the heartbeat event channel name */
 export async function getHeartbeatEventName(): Promise<string> {
   return tauriInvoke<string>('get_heartbeat_event_name')
-}
-
-/** Get currently active/running background agents */
-export async function getActiveBackgroundAgents(): Promise<ActiveBackgroundAgentInfo[]> {
-  return tauriInvoke<ActiveBackgroundAgentInfo[]>('get_active_background_agents')
 }
 
 /** Delete a background agent */
