@@ -50,11 +50,11 @@ test.describe('Workspace Layout', () => {
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible()
 
     // Send button
-    await expect(page.getByRole('button', { name: 'Send' })).toBeVisible()
+    await expect(page.getByTestId('chat-send-button')).toBeVisible()
   })
 
   test('send button is disabled when input is empty', async ({ page }) => {
-    const sendButton = page.getByRole('button', { name: 'Send' })
+    const sendButton = page.getByTestId('chat-send-button')
     await expect(sendButton).toBeDisabled()
   })
 
@@ -62,7 +62,7 @@ test.describe('Workspace Layout', () => {
     const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
     await textarea.fill('Hello')
 
-    const sendButton = page.getByRole('button', { name: 'Send' })
+    const sendButton = page.getByTestId('chat-send-button')
     await expect(sendButton).toBeEnabled()
   })
 
@@ -88,7 +88,7 @@ test.describe('Session List', () => {
   })
 
   test('shows session list state', async ({ page }) => {
-    const sessionRows = page.locator('button.w-full.px-3.py-2.text-left')
+    const sessionRows = page.locator('[data-testid^="session-row-"]')
     const rowCount = await sessionRows.count()
 
     if (rowCount > 0) {
@@ -96,7 +96,7 @@ test.describe('Session List', () => {
       return
     }
 
-    await expect(page.locator('text=No sessions yet')).toBeVisible()
+    await expect(page.getByTestId('session-empty-state')).toBeVisible()
   })
 
   test('New Session button clears current session', async ({ page }) => {
