@@ -69,6 +69,7 @@ mod handler;
 mod router;
 pub mod tool_trace_emitter;
 mod trigger;
+mod voice_transcript;
 
 pub use chat_dispatcher::{ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager};
 pub use debounce::MessageDebouncer;
@@ -82,6 +83,9 @@ pub use tool_trace_emitter::{
     append_turn_started, build_execution_steps,
 };
 pub use trigger::{BackgroundAgentTrigger, SystemStatus};
+pub(crate) use voice_transcript::{
+    enrich_voice_message_with_transcript, replace_latest_user_message_content,
+};
 
 // Re-export for convenience
 pub use commands::handle_command;
