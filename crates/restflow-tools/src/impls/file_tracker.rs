@@ -49,7 +49,9 @@ impl FileTracker {
     /// Check if a file has been read at least once.
     pub fn has_been_read(&self, path: &Path) -> bool {
         let records = self.records.read();
-        records.contains_key(path)
+        records
+            .get(path)
+            .is_some_and(|record| record.last_read > SystemTime::UNIX_EPOCH)
     }
 
     /// Check if file was modified externally since last read.
@@ -104,5 +106,13 @@ mod tests {
         let path = Path::new("/tmp/tracked.txt");
         tracker.record_read(path);
         assert!(tracker.has_been_read(path));
+    }
+
+    #[test]
+    fn has_been_read_returns_false_after_write_only() {
+        let tracker = FileTracker::new();
+        let path = Path::new("/tmp/write-only.txt");
+        tracker.record_write(path);
+        assert!(!tracker.has_been_read(path));
     }
 }
