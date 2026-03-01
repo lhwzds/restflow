@@ -17,7 +17,8 @@ pub use core_access::CoreAccess;
 pub use health::{HealthChecker, HealthStatus, check_health};
 pub use ipc_client::{IpcClient, is_daemon_available};
 pub use ipc_protocol::{
-    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
+    IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame,
+    ToolDefinition, ToolExecutionResult,
 };
 pub use ipc_server::IpcServer;
 pub use launcher::{

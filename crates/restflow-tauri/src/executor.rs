@@ -1,7 +1,9 @@
 use crate::daemon_manager::DaemonManager;
 use anyhow::Result;
 use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
-use restflow_core::daemon::{ChatSessionEvent, IpcClient, IpcRequest, IpcResponse, StreamFrame};
+use restflow_core::daemon::{
+    ChatSessionEvent, IpcClient, IpcDaemonStatus, IpcRequest, IpcResponse, StreamFrame,
+};
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
@@ -47,6 +49,11 @@ impl TauriExecutor {
             }
             IpcResponse::Pong => anyhow::bail!("Unexpected Pong response"),
         }
+    }
+
+    pub async fn ensure_daemon_handshake(&self) -> Result<IpcDaemonStatus> {
+        let mut daemon = self.daemon.lock().await;
+        daemon.ensure_handshake().await
     }
 
     pub async fn list_agents(&self) -> Result<Vec<restflow_core::storage::agent::StoredAgent>> {

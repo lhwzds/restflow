@@ -71,11 +71,19 @@ fn main() {
             }
             // Initialize application state (IPC mode, no direct DB access)
             let rt = tokio::runtime::Runtime::new().expect("Failed to create Tokio runtime");
-            let state = rt.block_on(async {
-                AppState::with_ipc()
-                    .await
-                    .expect("Failed to initialize AppState")
-            });
+            let state = rt
+                .block_on(async { AppState::with_ipc().await })
+                .map_err(|err| std::io::Error::other(err.to_string()))?;
+
+            let daemon_status = rt
+                .block_on(async { state.executor().ensure_daemon_handshake().await })
+                .map_err(|err| std::io::Error::other(err.to_string()))?;
+            info!(
+                daemon_pid = daemon_status.pid,
+                daemon_version = %daemon_status.daemon_version,
+                protocol_version = %daemon_status.protocol_version,
+                "Daemon handshake completed"
+            );
 
             // Mark all running terminal sessions as stopped on startup
             rt.block_on(async {

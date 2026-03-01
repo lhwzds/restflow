@@ -12,6 +12,17 @@ use serde_json::Value;
 
 /// Message frame: [4 bytes length LE][JSON payload]
 pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
+pub const IPC_PROTOCOL_VERSION: &str = "1";
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct IpcDaemonStatus {
+    pub status: String,
+    pub protocol_version: String,
+    pub daemon_version: String,
+    pub pid: u32,
+    pub started_at_ms: i64,
+    pub uptime_secs: u64,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ToolDefinition {
@@ -872,6 +883,22 @@ mod tests {
         } else {
             panic!("Wrong variant");
         }
+    }
+
+    #[test]
+    fn test_daemon_status_roundtrip() {
+        let status = IpcDaemonStatus {
+            status: "running".to_string(),
+            protocol_version: IPC_PROTOCOL_VERSION.to_string(),
+            daemon_version: "0.3.5".to_string(),
+            pid: 1234,
+            started_at_ms: 1_700_000_000_000,
+            uptime_secs: 42,
+        };
+
+        let value = serde_json::to_value(&status).unwrap();
+        let parsed: IpcDaemonStatus = serde_json::from_value(value).unwrap();
+        assert_eq!(parsed, status);
     }
 
     #[test]
