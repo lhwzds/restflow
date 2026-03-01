@@ -4224,8 +4224,7 @@ mod tests {
             .unwrap_err();
 
         assert!(
-            error.contains("No callable sub-agents available")
-                || error.contains("Unknown agent"),
+            error.contains("No callable sub-agents available") || error.contains("Unknown agent"),
             "unexpected error: {error}"
         );
     }
