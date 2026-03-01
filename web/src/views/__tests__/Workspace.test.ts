@@ -7,8 +7,10 @@ const mockListAgents = vi.fn()
 const mockCreateSession = vi.fn()
 const mockSelectSession = vi.fn()
 const mockFetchSummaries = vi.fn()
+const mockFetchBackgroundAgents = vi.fn()
 
 let mockStore: any
+let mockBackgroundStore: any
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -23,6 +25,10 @@ vi.mock('@/api/agents', () => ({
 
 vi.mock('@/stores/chatSessionStore', () => ({
   useChatSessionStore: () => mockStore,
+}))
+
+vi.mock('@/stores/backgroundAgentStore', () => ({
+  useBackgroundAgentStore: () => mockBackgroundStore,
 }))
 
 vi.mock('@/composables/useTheme', () => ({
@@ -159,6 +165,10 @@ describe('Workspace', () => {
       deleteSession: vi.fn().mockResolvedValue(true),
       renameSession: vi.fn().mockResolvedValue(null),
       fetchSummaries: mockFetchSummaries,
+    }
+    mockBackgroundStore = {
+      agents: [],
+      fetchAgents: mockFetchBackgroundAgents,
     }
 
     mockListAgents.mockResolvedValue([
