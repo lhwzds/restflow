@@ -20,6 +20,8 @@
 //! ```
 
 use async_trait::async_trait;
+use futures::StreamExt;
+use futures::stream;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -58,6 +60,9 @@ const MAX_BATCH_EXISTS_PATHS: usize = 50;
 
 /// Maximum locations allowed in a batch search
 const MAX_BATCH_SEARCH_LOCATIONS: usize = 10;
+
+/// Maximum parallel workers for file batch operations
+const BATCH_IO_CONCURRENCY: usize = 8;
 
 /// Default max lines per file in batch read
 const DEFAULT_BATCH_LINE_LIMIT: usize = 500;
@@ -746,7 +751,7 @@ impl FileTool {
         };
 
         // Single syscall: get metadata without following symlinks
-        let (exists, file_type, size) = match std::fs::symlink_metadata(&path) {
+        let (exists, file_type, size) = match fs::symlink_metadata(&path).await {
             Ok(meta) => {
                 let ft = meta.file_type();
                 let type_str = if ft.is_symlink() {
@@ -873,18 +878,39 @@ pub struct SearchMatch {
 impl FileTool {
     /// Execute batch read operation
     async fn batch_read(&self, params: BatchReadParams) -> ToolOutput {
-        if params.paths.len() > MAX_BATCH_READ_FILES {
+        let BatchReadParams {
+            paths,
+            line_limit,
+            max_file_size,
+            continue_on_error,
+        } = params;
+
+        if paths.len() > MAX_BATCH_READ_FILES {
             return ToolOutput::error(format!(
                 "Batch size {} exceeds maximum of {}",
-                params.paths.len(),
+                paths.len(),
                 MAX_BATCH_READ_FILES
             ));
         }
 
-        let mut results = Vec::with_capacity(params.paths.len());
-        for path in &params.paths {
-            results.push(self.read_single_for_batch(path, &params).await);
-        }
+        let indexed_paths: Vec<(usize, String)> = paths.into_iter().enumerate().collect();
+
+        let mut indexed_results: Vec<(usize, BatchReadResult)> =
+            stream::iter(indexed_paths.into_iter().map(|(idx, path)| async move {
+                (
+                    idx,
+                    self.read_single_for_batch(&path, line_limit, max_file_size)
+                        .await,
+                )
+            }))
+            .buffer_unordered(BATCH_IO_CONCURRENCY)
+            .collect()
+            .await;
+        indexed_results.sort_by_key(|(idx, _)| *idx);
+        let results: Vec<BatchReadResult> = indexed_results
+            .into_iter()
+            .map(|(_, result)| result)
+            .collect();
 
         let successful = results.iter().filter(|r| r.success).count();
         let failed = results.len() - successful;
@@ -896,12 +922,12 @@ impl FileTool {
             failed
         );
 
-        if failed > 0 && params.continue_on_error {
+        if failed > 0 && continue_on_error {
             summary.push_str(". Returned partial results.");
         }
 
         ToolOutput {
-            success: failed == 0 || params.continue_on_error,
+            success: failed == 0 || continue_on_error,
             result: serde_json::json!({
                 "summary": summary,
                 "total": results.len(),
@@ -909,7 +935,7 @@ impl FileTool {
                 "failed": failed,
                 "results": results,
             }),
-            error: if failed > 0 && !params.continue_on_error {
+            error: if failed > 0 && !continue_on_error {
                 Some(format!("{} files failed to read", failed))
             } else {
                 None
@@ -920,7 +946,12 @@ impl FileTool {
         }
     }
 
-    async fn read_single_for_batch(&self, path: &str, params: &BatchReadParams) -> BatchReadResult {
+    async fn read_single_for_batch(
+        &self,
+        path: &str,
+        line_limit: usize,
+        max_file_size: usize,
+    ) -> BatchReadResult {
         let resolved = match self.resolve_path(path) {
             Ok(p) => p,
             Err(e) => {
@@ -935,30 +966,18 @@ impl FileTool {
             }
         };
 
-        if !resolved.exists() {
-            return BatchReadResult {
-                path: resolved.display().to_string(),
-                success: false,
-                content: None,
-                error: Some(format!("File not found: {}", resolved.display())),
-                line_count: None,
-                truncated: false,
-            };
-        }
-
-        if !resolved.is_file() {
-            return BatchReadResult {
-                path: resolved.display().to_string(),
-                success: false,
-                content: None,
-                error: Some(format!("Not a file: {}", resolved.display())),
-                line_count: None,
-                truncated: false,
-            };
-        }
-
-        let metadata = match fs::metadata(&resolved).await {
+        let metadata = match fs::symlink_metadata(&resolved).await {
             Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return BatchReadResult {
+                    path: resolved.display().to_string(),
+                    success: false,
+                    content: None,
+                    error: Some(format!("File not found: {}", resolved.display())),
+                    line_count: None,
+                    truncated: false,
+                };
+            }
             Err(e) => {
                 return BatchReadResult {
                     path: resolved.display().to_string(),
@@ -971,7 +990,18 @@ impl FileTool {
             }
         };
 
-        if metadata.len() as usize > params.max_file_size {
+        if !metadata.file_type().is_file() {
+            return BatchReadResult {
+                path: resolved.display().to_string(),
+                success: false,
+                content: None,
+                error: Some(format!("Not a file: {}", resolved.display())),
+                line_count: None,
+                truncated: false,
+            };
+        }
+
+        if metadata.len() as usize > max_file_size {
             return BatchReadResult {
                 path: resolved.display().to_string(),
                 success: false,
@@ -979,7 +1009,7 @@ impl FileTool {
                 error: Some(format!(
                     "File too large: {} bytes (max: {} bytes). Use offset and limit parameters for partial reads.",
                     metadata.len(),
-                    params.max_file_size
+                    max_file_size
                 )),
                 line_count: None,
                 truncated: false,
@@ -991,9 +1021,9 @@ impl FileTool {
                 self.tracker.record_read(&resolved);
                 let lines: Vec<&str> = content.lines().collect();
                 let line_count = lines.len();
-                let truncated = line_count > params.line_limit;
+                let truncated = line_count > line_limit;
                 let content = if truncated {
-                    lines[..params.line_limit].join("\n")
+                    lines[..line_limit].join("\n")
                 } else {
                     content
                 };
@@ -1033,7 +1063,7 @@ impl FileTool {
             }
         };
 
-        match std::fs::symlink_metadata(&resolved) {
+        match fs::symlink_metadata(&resolved).await {
             Ok(meta) => {
                 let ft = meta.file_type();
                 BatchExistsResult {
@@ -1066,10 +1096,21 @@ impl FileTool {
             ));
         }
 
-        let mut results = Vec::with_capacity(params.paths.len());
-        for path in &params.paths {
-            results.push(self.check_exists_for_batch(path).await);
-        }
+        let indexed_paths: Vec<(usize, String)> = params.paths.into_iter().enumerate().collect();
+
+        let mut indexed_results: Vec<(usize, BatchExistsResult)> = stream::iter(
+            indexed_paths
+                .into_iter()
+                .map(|(idx, path)| async move { (idx, self.check_exists_for_batch(&path).await) }),
+        )
+        .buffer_unordered(BATCH_IO_CONCURRENCY)
+        .collect()
+        .await;
+        indexed_results.sort_by_key(|(idx, _)| *idx);
+        let results: Vec<BatchExistsResult> = indexed_results
+            .into_iter()
+            .map(|(_, result)| result)
+            .collect();
 
         let existing = results.iter().filter(|r| r.exists).count();
 
