@@ -1452,6 +1452,8 @@ impl RestFlowMcpServer {
             "http" => Some("http_request"),
             "email" => Some("send_email"),
             "telegram" => Some("telegram_send"),
+            "discord" => Some("discord_send"),
+            "slack" => Some("slack_send"),
             "use_skill" => Some("skill"),
             "python" => Some("run_python"),
             _ => None,
@@ -1470,6 +1472,14 @@ impl RestFlowMcpServer {
             }
             ("telegram", "telegram_send") => {
                 "Alias of 'telegram_send' for convenience. Prefer using 'telegram_send' directly."
+                    .to_string()
+            }
+            ("discord", "discord_send") => {
+                "Alias of 'discord_send' for convenience. Prefer using 'discord_send' directly."
+                    .to_string()
+            }
+            ("slack", "slack_send") => {
+                "Alias of 'slack_send' for convenience. Prefer using 'slack_send' directly."
                     .to_string()
             }
             ("use_skill", "skill") => {
@@ -1507,8 +1517,8 @@ impl RestFlowMcpServer {
         serde_json::json!({ "action": "list" })
     }
 
-    /// Runtime tools only available during active agent sessions (not exposed to standalone MCP clients).
-    /// Subagent tools (spawn_subagent, wait_subagents, list_subagents) are excluded because they require a conversation context.
+    /// Runtime tools that are surfaced as explicit MCP-only additions.
+    /// Dynamic runtime tools are discovered from backend tool registry schemas.
     fn session_scoped_runtime_tools() -> Vec<RuntimeToolDefinition> {
         vec![RuntimeToolDefinition {
             name: "switch_model".to_string(),
@@ -2279,8 +2289,7 @@ impl ServerHandler for RestFlowMcpServer {
                 Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
                 memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
                 manage_hooks for lifecycle hook automation, \
-                and manage_background_agents for background agent lifecycle, session conversion, progress, and messaging operations. \
-                Note: sub-agent tools (spawn_subagent/wait_subagents/list_subagents) are session-scoped and are not exposed in standalone MCP mode."
+                and manage_background_agents for background agent lifecycle, session conversion, progress, and messaging operations."
                     .to_string(),
             ),
         }
@@ -2400,6 +2409,8 @@ impl ServerHandler for RestFlowMcpServer {
                 ("http", "http_request"),
                 ("email", "send_email"),
                 ("telegram", "telegram_send"),
+                ("discord", "discord_send"),
+                ("slack", "slack_send"),
                 ("use_skill", "skill"),
                 ("python", "run_python"),
             ] {
@@ -4125,6 +4136,14 @@ mod tests {
             "Alias of 'telegram_send' for convenience. Prefer using 'telegram_send' directly."
         );
         assert_eq!(
+            RestFlowMcpServer::runtime_alias_description("discord", "discord_send"),
+            "Alias of 'discord_send' for convenience. Prefer using 'discord_send' directly."
+        );
+        assert_eq!(
+            RestFlowMcpServer::runtime_alias_description("slack", "slack_send"),
+            "Alias of 'slack_send' for convenience. Prefer using 'slack_send' directly."
+        );
+        assert_eq!(
             RestFlowMcpServer::runtime_alias_description("use_skill", "skill"),
             "Alias of 'skill' for backward compatibility. Prefer using 'skill' directly."
         );
@@ -4172,29 +4191,29 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_standalone_runtime_tools_do_not_expose_subagent_tools() {
+    async fn test_standalone_runtime_tools_include_subagent_tools() {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let runtime_tools = server.backend.list_runtime_tools().await.unwrap();
 
         assert!(
-            !runtime_tools
+            runtime_tools
                 .iter()
                 .any(|tool| tool.name == "spawn_subagent")
         );
         assert!(
-            !runtime_tools
+            runtime_tools
                 .iter()
                 .any(|tool| tool.name == "wait_subagents")
         );
         assert!(
-            !runtime_tools
+            runtime_tools
                 .iter()
                 .any(|tool| tool.name == "list_subagents")
         );
     }
 
     #[tokio::test]
-    async fn test_standalone_runtime_spawn_subagent_is_not_callable() {
+    async fn test_standalone_runtime_spawn_subagent_returns_actionable_error() {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
         let error = server
             .handle_runtime_tool(
@@ -4204,7 +4223,11 @@ mod tests {
             .await
             .unwrap_err();
 
-        assert!(error.contains("not found") || error.contains("Unknown"));
+        assert!(
+            error.contains("No callable sub-agents available")
+                || error.contains("Unknown agent"),
+            "unexpected error: {error}"
+        );
     }
 
     #[tokio::test]
