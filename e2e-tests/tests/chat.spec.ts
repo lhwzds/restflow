@@ -49,7 +49,7 @@ test.describe('Chat Input', () => {
     const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
     await textarea.fill('Test message')
 
-    const sendButton = page.getByRole('button', { name: 'Send' })
+    const sendButton = page.getByTestId('chat-send-button')
     await sendButton.click()
 
     // Input should be cleared after send.
