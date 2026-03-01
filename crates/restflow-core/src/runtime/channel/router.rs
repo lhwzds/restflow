@@ -26,25 +26,13 @@ pub enum RouteDecision {
 /// 2. Is the conversation linked to an active task? → Forward to task
 /// 3. Otherwise → Dispatch to AI chat
 pub struct MessageRouter {
-    channel_router: Arc<ChannelRouter>,
     command_prefix: String,
 }
 
 impl MessageRouter {
-    fn legacy_telegram_conversation_key(message: &InboundMessage) -> Option<&str> {
-        if message.channel_type != crate::channel::ChannelType::Telegram {
-            return None;
-        }
-        message
-            .conversation_id
-            .split_once(':')
-            .map(|(chat_id, _)| chat_id)
-    }
-
     /// Create a new MessageRouter.
-    pub fn new(channel_router: Arc<ChannelRouter>, command_prefix: impl Into<String>) -> Self {
+    pub fn new(_channel_router: Arc<ChannelRouter>, command_prefix: impl Into<String>) -> Self {
         Self {
-            channel_router,
             command_prefix: command_prefix.into(),
         }
     }
@@ -58,27 +46,7 @@ impl MessageRouter {
             return RouteDecision::HandleCommand { command, args };
         }
 
-        // 2. Check if conversation is linked to an active task.
-        if let Some(ctx) = self
-            .channel_router
-            .get_conversation(&message.conversation_id)
-            .await
-            && let Some(task_id) = ctx.task_id
-        {
-            return RouteDecision::ForwardToBackgroundAgent {
-                background_agent_id: task_id,
-            };
-        }
-        if let Some(legacy_key) = Self::legacy_telegram_conversation_key(message)
-            && let Some(ctx) = self.channel_router.get_conversation(legacy_key).await
-            && let Some(task_id) = ctx.task_id
-        {
-            return RouteDecision::ForwardToBackgroundAgent {
-                background_agent_id: task_id,
-            };
-        }
-
-        // 3. Default: dispatch to AI chat
+        // 2. Default: dispatch natural language to main chat.
         RouteDecision::DispatchToChat
     }
 
@@ -170,7 +138,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_route_task_linked_natural_language_still_forwards() {
+    async fn test_route_task_linked_natural_language_dispatches_to_chat() {
         let channel_router = Arc::new(ChannelRouter::new());
 
         let message = create_message("test");
@@ -181,14 +149,11 @@ mod tests {
         let router = MessageRouter::new(channel_router, "/");
         let decision = router.route(&create_message("continue the task")).await;
 
-        assert!(matches!(
-            decision,
-            RouteDecision::ForwardToBackgroundAgent { background_agent_id: task_id } if task_id == "task-1"
-        ));
+        assert_eq!(decision, RouteDecision::DispatchToChat);
     }
 
     #[tokio::test]
-    async fn test_route_task_linked_conversation_legacy_telegram_fallback() {
+    async fn test_route_task_linked_conversation_legacy_telegram_dispatches_to_chat() {
         let channel_router = Arc::new(ChannelRouter::new());
 
         let legacy_message =
@@ -207,10 +172,7 @@ mod tests {
         );
         let decision = router.route(&thread_message).await;
 
-        assert!(matches!(
-            decision,
-            RouteDecision::ForwardToBackgroundAgent { background_agent_id: task_id } if task_id == "task-1"
-        ));
+        assert_eq!(decision, RouteDecision::DispatchToChat);
     }
 
     #[tokio::test]
