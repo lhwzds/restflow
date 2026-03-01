@@ -22,7 +22,7 @@ use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
     ToolTraceEmitter, append_turn_completed, append_turn_failed, append_turn_started,
-    build_execution_steps,
+    build_execution_steps, enrich_voice_message_with_transcript,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
@@ -858,18 +858,31 @@ impl ChatDispatcher {
         // 5. Save exchange to session (use `input` which includes [Media Context] for voice messages)
         let duration_ms = started_at.elapsed().as_millis() as u64;
         let mut execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
-        if let Ok(traces) =
-            self.storage
+        let traces =
+            match self
+                .storage
                 .tool_traces
                 .list_by_session_turn(&session.id, &turn_id, None)
-        {
-            for step in build_execution_steps(&traces) {
-                execution.add_step(step);
-            }
+            {
+                Ok(traces) => traces,
+                Err(error) => {
+                    warn!(
+                        session_id = %session.id,
+                        turn_id = %turn_id,
+                        error = %error,
+                        "Failed to load tool traces for transcript enrichment"
+                    );
+                    Vec::new()
+                }
+            };
+        for step in build_execution_steps(&traces) {
+            execution.add_step(step);
         }
+        let persisted_input =
+            enrich_voice_message_with_transcript(&input, &traces).unwrap_or_else(|| input.clone());
         if let Err(e) = self.sessions.append_exchange(
             &session.id,
-            &input,
+            &persisted_input,
             &structured_output,
             Some(&exec_result.active_model),
             Some(execution),
