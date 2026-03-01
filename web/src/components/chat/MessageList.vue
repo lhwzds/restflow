@@ -291,7 +291,9 @@ onMounted(() => {
               <X v-else-if="step.status === 'failed'" :size="12" class="text-red-500 shrink-0" />
 
               <Wrench :size="12" class="text-muted-foreground shrink-0" />
-              <span class="font-mono truncate flex-1 text-left">{{ step.name }}</span>
+              <span class="font-mono truncate flex-1 text-left">{{
+                step.displayName || step.name
+              }}</span>
 
               <!-- View button for completed tool results -->
               <Button

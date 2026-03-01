@@ -48,7 +48,10 @@ export interface StreamState {
  */
 export interface StreamStep {
   type: string
+  /** Raw tool name (e.g. spawn_agent, web_search) */
   name: string
+  /** Human-readable step label for UI rendering */
+  displayName?: string
   status: StepStatus
   /** Tool call ID for correlating start/end events */
   toolId?: string
@@ -78,6 +81,67 @@ function createInitialState(): StreamState {
   }
 }
 
+type JsonRecord = Record<string, unknown>
+
+function parseJsonObject(value: string | null | undefined): JsonRecord | null {
+  if (!value) return null
+  const trimmed = value.trim()
+  if (!trimmed) return null
+  try {
+    const parsed = JSON.parse(trimmed)
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as JsonRecord
+    }
+  } catch {
+    // Keep raw rendering when tool payload is not valid JSON.
+  }
+  return null
+}
+
+function formatToolDisplayName(
+  toolName: string,
+  argsPayload?: string | null,
+  resultPayload?: string | null,
+): string {
+  if (toolName === 'spawn_agent') {
+    const args = parseJsonObject(argsPayload)
+    const result = parseJsonObject(resultPayload)
+    const agent =
+      (typeof args?.agent === 'string' ? args.agent : null) ??
+      (typeof result?.agent === 'string' ? result.agent : null)
+    const model = typeof args?.model === 'string' ? args.model : null
+    const taskId = typeof result?.task_id === 'string' ? result.task_id : null
+    const parts: string[] = []
+    if (agent) parts.push(agent)
+    if (model) parts.push(`@${model}`)
+    if (taskId) parts.push(`#${taskId.slice(0, 8)}`)
+    if (parts.length > 0) {
+      return `spawn_agent (${parts.join(' ')})`
+    }
+  }
+
+  if (toolName === 'wait_agents') {
+    const args = parseJsonObject(argsPayload)
+    const taskIds = Array.isArray(args?.task_ids) ? args.task_ids.length : 0
+    if (taskIds > 0) {
+      return `wait_agents (${taskIds} tasks)`
+    }
+  }
+
+  if (toolName === 'list_agents') {
+    const result = parseJsonObject(resultPayload)
+    const runningCount =
+      typeof result?.running_count === 'number' && Number.isFinite(result.running_count)
+        ? Math.max(0, Math.floor(result.running_count))
+        : null
+    if (runningCount !== null) {
+      return `list_agents (${runningCount} running)`
+    }
+  }
+
+  return toolName
+}
+
 /**
  * Composable for handling streaming chat responses
  *
@@ -102,6 +166,7 @@ export function useChatStream(sessionId: () => string | null) {
         const step: StreamStep = {
           type: 'tool_call',
           name: event.tool_name ?? 'tool',
+          displayName: formatToolDisplayName(event.tool_name ?? 'tool', event.input, null),
           status: 'running',
           toolId,
           arguments: event.input ?? undefined,
@@ -118,12 +183,22 @@ export function useChatStream(sessionId: () => string | null) {
           step = {
             type: 'tool_call',
             name: event.tool_name ?? 'tool',
+            displayName: formatToolDisplayName(
+              event.tool_name ?? 'tool',
+              event.input,
+              event.output,
+            ),
             status: 'running',
             toolId,
           }
           stepByToolId.set(toolId, step)
           steps.push(step)
         }
+        step.displayName = formatToolDisplayName(
+          step.name,
+          step.arguments,
+          event.output ?? event.error,
+        )
         step.status = event.success === false ? 'failed' : 'completed'
         if (event.output) {
           step.result = event.output
@@ -233,6 +308,7 @@ export function useChatStream(sessionId: () => string | null) {
             state.value.steps.push({
               type: 'tool_call',
               name: kind.tool_name,
+              displayName: formatToolDisplayName(kind.tool_name, kind.arguments, null),
               status: 'running',
               toolId: kind.tool_id,
               arguments: kind.arguments,
@@ -251,6 +327,7 @@ export function useChatStream(sessionId: () => string | null) {
               if ('result' in kind) {
                 step.result = kind.result
               }
+              step.displayName = formatToolDisplayName(step.name, step.arguments, step.result)
             }
           }
           break
