@@ -164,54 +164,6 @@ export const CONFIRM_MESSAGES = {
 } as const
 
 /**
- * Loading and status messages
- */
-export const LOADING_MESSAGES = {
-  // Loading states
-  LOADING: 'Loading...',
-  SAVING: 'Saving...',
-  DELETING: 'Deleting...',
-  EXECUTING: 'Executing...',
-  PROCESSING: 'Processing...',
-  SENDING: 'Sending...',
-  IMPORTING: 'Importing...',
-  EXPORTING: 'Exporting...',
-  TESTING: 'Testing...',
-  CONNECTING: 'Connecting...',
-
-  // Empty states
-  NO_DATA: 'No data available',
-  NO_WORKFLOWS: 'No workflows found',
-  NO_AGENTS: 'No agents found',
-  NO_RESULTS: 'No results found',
-  EMPTY_LIST: 'The list is empty',
-
-  // Hints
-  DRAG_TO_UPLOAD: 'Drag file here or click to upload',
-  SELECT_TO_CONTINUE: 'Please select an item to continue',
-  SAVE_FIRST: 'Please save the workflow first',
-} as const
-
-/**
- * Action hint messages
- */
-export const HINT_MESSAGES = {
-  DOUBLE_CLICK_TO_EDIT: 'Double-click to edit',
-  CLICK_TO_SELECT: 'Click to select',
-  DRAG_TO_MOVE: 'Drag to move',
-  DRAG_TO_CONNECT: 'Drag to connect nodes',
-  RIGHT_CLICK_FOR_MENU: 'Right-click for more options',
-  USE_KEYBOARD_SHORTCUTS: 'Press ? to view keyboard shortcuts',
-} as const
-
-/**
- * Info messages
- */
-export const INFO_MESSAGES = {
-  EXECUTION_CANCELLED: 'Execution cancelled',
-} as const
-
-/**
  * Combined export of all message constants
  */
 export const MESSAGES = {
@@ -220,9 +172,6 @@ export const MESSAGES = {
   ERROR: ERROR_MESSAGES,
   VALIDATION: VALIDATION_MESSAGES,
   CONFIRM: CONFIRM_MESSAGES,
-  LOADING: LOADING_MESSAGES,
-  HINT: HINT_MESSAGES,
-  INFO: INFO_MESSAGES,
 } as const
 
 // Type exports
@@ -231,6 +180,3 @@ export type SuccessMessageKey = keyof typeof SUCCESS_MESSAGES
 export type ErrorMessageKey = keyof typeof ERROR_MESSAGES
 export type ValidationMessageKey = keyof typeof VALIDATION_MESSAGES
 export type ConfirmMessageKey = keyof typeof CONFIRM_MESSAGES
-export type LoadingMessageKey = keyof typeof LOADING_MESSAGES
-export type HintMessageKey = keyof typeof HINT_MESSAGES
-export type InfoMessageKey = keyof typeof INFO_MESSAGES
