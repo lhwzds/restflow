@@ -896,6 +896,17 @@ async updateAgent(id: string, request: UpdateAgentRequest) : Promise<Result<Stor
 }
 },
 /**
+ * Update an existing agent task
+ */
+async updateBackgroundAgent(id: string, request: UpdateBackgroundAgentRequest) : Promise<Result<BackgroundAgent, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_background_agent", { id, request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Update a chat session.
  */
 async updateChatSession(sessionId: string, updates: ChatSessionUpdateInput) : Promise<Result<ChatSession, string>> {
@@ -2446,6 +2457,58 @@ export type TranscribeResult = { text: string; model: string }
  * Update agent request
  */
 export type UpdateAgentRequest = { name: string | null; agent: AgentNode | null }
+/**
+ * Request to update an existing agent task
+ */
+export type UpdateBackgroundAgentRequest = { 
+/**
+ * New display name (optional)
+ */
+name?: string | null; 
+/**
+ * New description (optional)
+ */
+description?: string | null; 
+/**
+ * New agent ID (optional)
+ */
+agent_id?: string | null; 
+/**
+ * New bound chat session ID (optional)
+ */
+chat_session_id?: string | null; 
+/**
+ * New input/prompt (optional)
+ */
+input?: string | null; 
+/**
+ * New runtime input template (optional)
+ */
+input_template?: string | null; 
+/**
+ * New schedule (optional)
+ */
+schedule?: TaskSchedule | null; 
+/**
+ * New notification config (optional)
+ */
+notification?: NotificationConfig | null; 
+/**
+ * New memory configuration (optional)
+ */
+memory?: MemoryConfig | null; 
+/**
+ * New per-task timeout (seconds) for API execution mode
+ */
+timeout_secs?: number | null; 
+/**
+ * New memory scope override (optional)
+ */
+memory_scope?: MemoryScope | null; 
+/**
+ * New resource limits (optional)
+ */
+resource_limits?: ResourceLimits | null }
 /**
  * Update secret request
  */

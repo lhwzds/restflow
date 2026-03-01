@@ -142,7 +142,7 @@ pub struct CreateBackgroundAgentRequest {
 }
 
 /// Request to update an existing agent task
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct UpdateBackgroundAgentRequest {
     /// New display name (optional)
     #[serde(default)]
