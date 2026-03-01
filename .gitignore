@@ -31,3 +31,8 @@ __pycache__/
 
 # Claude Code
 .claude/
+
+# Editor swap/backup files
+*.swp
+*.swo
+*~
