@@ -3,6 +3,7 @@ use anyhow::Result;
 use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use restflow_core::daemon::{
     ChatSessionEvent, IpcClient, IpcDaemonStatus, IpcRequest, IpcResponse, StreamFrame,
+    ToolExecutionResult,
 };
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
@@ -847,6 +848,10 @@ impl TauriExecutor {
 
     pub async fn get_available_tools(&self) -> Result<Vec<String>> {
         self.request(IpcRequest::GetAvailableTools).await
+    }
+
+    pub async fn execute_tool(&self, name: String, input: Value) -> Result<ToolExecutionResult> {
+        self.request(IpcRequest::ExecuteTool { name, input }).await
     }
 
     pub async fn build_agent_system_prompt(&self, agent_node: AgentNode) -> Result<String> {
