@@ -26,8 +26,9 @@ use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
 
 use super::debounce::MessageDebouncer;
-use crate::runtime::subagent::AgentDefinitionRegistry;
-use restflow_ai::agent::{NullEmitter, StreamEmitter, SubagentConfig, SubagentTracker};
+use restflow_ai::agent::{
+    NullEmitter, StreamEmitter, SubagentConfig, SubagentDefLookup, SubagentTracker,
+};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -444,7 +445,7 @@ pub struct ChatDispatcher {
     channel_router: Arc<ChannelRouter>,
     config: ChatDispatcherConfig,
     subagent_tracker: Arc<SubagentTracker>,
-    subagent_definitions: Arc<AgentDefinitionRegistry>,
+    subagent_definitions: Arc<dyn SubagentDefLookup>,
     subagent_config: SubagentConfig,
 }
 
@@ -459,7 +460,7 @@ impl ChatDispatcher {
         channel_router: Arc<ChannelRouter>,
         config: ChatDispatcherConfig,
         subagent_tracker: Arc<SubagentTracker>,
-        subagent_definitions: Arc<AgentDefinitionRegistry>,
+        subagent_definitions: Arc<dyn SubagentDefLookup>,
         subagent_config: SubagentConfig,
     ) -> Self {
         Self {
