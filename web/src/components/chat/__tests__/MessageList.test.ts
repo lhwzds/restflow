@@ -25,6 +25,37 @@ const ButtonStub = defineComponent({
 })
 
 describe('MessageList', () => {
+  it('renders transcript text under voice message bubble', () => {
+    const filePath = '/tmp/voice-1.webm'
+    const voiceAudioUrls = new Map([[filePath, { blobUrl: 'blob:test', duration: 8 }]])
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-voice-1',
+            role: 'user',
+            content: `[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: ${filePath}\ninstruction: Use the transcribe tool with this file_path before answering.\n\n[Transcript]\nhello voice transcript`,
+            timestamp: 1n,
+            execution: null,
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+        voiceAudioUrls,
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.find('[data-testid="voice-bubble"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('hello voice transcript')
+  })
+
   it('renders persisted execution steps for assistant messages', () => {
     const wrapper = mount(MessageList, {
       props: {
