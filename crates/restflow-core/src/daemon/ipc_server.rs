@@ -24,6 +24,7 @@ use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
+    session_lifecycle::{SessionLifecycleError, SessionLifecycleService},
     skills as skills_service,
 };
 use anyhow::Result;
@@ -316,21 +317,14 @@ fn rebind_external_session_routes(
     Ok(())
 }
 
-fn cleanup_session_route_bindings(
-    storage: &crate::storage::Storage,
-    session_id: &str,
-) -> Result<()> {
-    let bindings = storage
-        .channel_session_bindings
-        .list_by_session(session_id)?;
-    for binding in bindings {
-        storage.channel_session_bindings.remove_by_route(
-            &binding.channel,
-            binding.account_id.as_deref(),
-            &binding.conversation_id,
-        )?;
+fn ipc_session_lifecycle_error(error: anyhow::Error) -> IpcResponse {
+    if let Some(lifecycle_error) = error.downcast_ref::<SessionLifecycleError>() {
+        return IpcResponse::error(
+            i32::from(lifecycle_error.status_code()),
+            lifecycle_error.to_string(),
+        );
     }
-    Ok(())
+    IpcResponse::error(500, error.to_string())
 }
 
 #[async_trait]
@@ -1265,6 +1259,7 @@ impl IpcServer {
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
             IpcRequest::DeleteSessionsOlderThan { older_than_ms } => {
+                let lifecycle = SessionLifecycleService::from_storage(&core.storage);
                 match core.storage.chat_sessions.list_all() {
                     Ok(sessions) => {
                         let mut deleted = 0usize;
@@ -1272,30 +1267,32 @@ impl IpcServer {
                             .into_iter()
                             .filter(|session| session.updated_at < older_than_ms)
                         {
-                            match core.storage.chat_sessions.delete(&session.id) {
+                            let workspace_managed =
+                                match is_workspace_managed_session(&core.storage, &session) {
+                                    Ok(value) => value,
+                                    Err(error) => {
+                                        return IpcResponse::error(500, error.to_string());
+                                    }
+                                };
+                            if !workspace_managed {
+                                continue;
+                            }
+
+                            match lifecycle.delete_workspace_session(&session.id) {
                                 Ok(true) => {
                                     deleted += 1;
-                                    if let Err(error) =
-                                        cleanup_session_route_bindings(&core.storage, &session.id)
-                                    {
-                                        warn!(
-                                            session_id = %session.id,
-                                            error = %error,
-                                            "Failed to clean up channel-session bindings after session retention delete"
-                                        );
-                                    }
-                                    if let Err(error) =
-                                        core.storage.tool_traces.delete_by_session(&session.id)
-                                    {
-                                        warn!(
-                                            session_id = %session.id,
-                                            error = %error,
-                                            "Failed to clean up chat execution events after session retention delete"
-                                        );
-                                    }
                                 }
                                 Ok(false) => {}
                                 Err(error) => {
+                                    if let Some(lifecycle_error) =
+                                        error.downcast_ref::<SessionLifecycleError>()
+                                        && matches!(
+                                            lifecycle_error,
+                                            SessionLifecycleError::BoundToBackgroundTask { .. }
+                                        )
+                                    {
+                                        continue;
+                                    }
                                     return IpcResponse::error(500, error.to_string());
                                 }
                             }
@@ -1471,6 +1468,7 @@ impl IpcServer {
                 }
             }
             IpcRequest::ArchiveSession { id } => {
+                let lifecycle = SessionLifecycleService::from_storage(&core.storage);
                 let session = match core.storage.chat_sessions.get(&id) {
                     Ok(Some(session)) => session,
                     Ok(None) => {
@@ -1501,7 +1499,7 @@ impl IpcServer {
                     );
                 }
 
-                match core.storage.chat_sessions.archive(&id) {
+                match lifecycle.archive_workspace_session(&id) {
                     Ok(archived) => {
                         if archived {
                             publish_session_event(ChatSessionEvent::Updated {
@@ -1510,10 +1508,11 @@ impl IpcServer {
                         }
                         IpcResponse::success(serde_json::json!({ "archived": archived }))
                     }
-                    Err(err) => IpcResponse::error(500, err.to_string()),
+                    Err(err) => ipc_session_lifecycle_error(err),
                 }
             }
             IpcRequest::DeleteSession { id } => {
+                let lifecycle = SessionLifecycleService::from_storage(&core.storage);
                 let session = match core.storage.chat_sessions.get(&id) {
                     Ok(Some(session)) => session,
                     Ok(None) => {
@@ -1544,30 +1543,16 @@ impl IpcServer {
                     );
                 }
 
-                match core.storage.chat_sessions.delete(&id) {
+                match lifecycle.delete_workspace_session(&id) {
                     Ok(deleted) => {
                         if deleted {
-                            if let Err(error) = cleanup_session_route_bindings(&core.storage, &id) {
-                                warn!(
-                                    session_id = %id,
-                                    error = %error,
-                                    "Failed to clean up channel-session bindings after session delete"
-                                );
-                            }
-                            if let Err(error) = core.storage.tool_traces.delete_by_session(&id) {
-                                warn!(
-                                    session_id = %id,
-                                    error = %error,
-                                    "Failed to clean up chat execution events after session delete"
-                                );
-                            }
                             publish_session_event(ChatSessionEvent::Deleted {
                                 session_id: id.clone(),
                             });
                         }
                         IpcResponse::success(serde_json::json!({ "deleted": deleted }))
                     }
-                    Err(err) => IpcResponse::error(500, err.to_string()),
+                    Err(err) => ipc_session_lifecycle_error(err),
                 }
             }
             IpcRequest::RebuildExternalSession { id } => {
@@ -2235,6 +2220,8 @@ fn create_runtime_tool_registry(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
+        core.storage.channel_session_bindings.clone(),
+        core.storage.tool_traces.clone(),
         core.storage.kv_store.clone(),
         core.storage.work_items.clone(),
         core.storage.secrets.clone(),
@@ -2651,6 +2638,94 @@ mod tests {
             .unwrap()
             .expect("legacy external route should be backfilled");
         assert_eq!(binding.session_id, telegram.id);
+    }
+
+    #[tokio::test]
+    async fn delete_session_rejects_background_bound_workspace_session() {
+        let (core, _temp) = create_test_core().await;
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.source_channel = Some(ChatSessionSource::Workspace);
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        core.storage
+            .background_agents
+            .create_background_agent(crate::models::BackgroundAgentSpec {
+                name: "bound-task".to_string(),
+                agent_id: "agent-1".to_string(),
+                chat_session_id: Some(session.id.clone()),
+                description: None,
+                input: Some("run".to_string()),
+                input_template: None,
+                schedule: crate::models::BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        let response = IpcServer::process(
+            &core,
+            IpcRequest::DeleteSession {
+                id: session.id.clone(),
+            },
+        )
+        .await;
+        match response {
+            IpcResponse::Error { code, message } => {
+                assert_eq!(code, 409);
+                assert!(message.contains("bound to background task"));
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn archive_session_rejects_background_bound_workspace_session() {
+        let (core, _temp) = create_test_core().await;
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.source_channel = Some(ChatSessionSource::Workspace);
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        core.storage
+            .background_agents
+            .create_background_agent(crate::models::BackgroundAgentSpec {
+                name: "bound-task".to_string(),
+                agent_id: "agent-1".to_string(),
+                chat_session_id: Some(session.id.clone()),
+                description: None,
+                input: Some("run".to_string()),
+                input_template: None,
+                schedule: crate::models::BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        let response = IpcServer::process(
+            &core,
+            IpcRequest::ArchiveSession {
+                id: session.id.clone(),
+            },
+        )
+        .await;
+        match response {
+            IpcResponse::Error { code, message } => {
+                assert_eq!(code, 409);
+                assert!(message.contains("bound to background task"));
+            }
+            other => panic!("expected error response, got {other:?}"),
+        }
     }
 
     #[tokio::test]

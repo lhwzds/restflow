@@ -1,7 +1,11 @@
 //! SessionStore adapter backed by ChatSessionStorage.
 
 use crate::models::ChatSessionSource;
-use crate::storage::{AgentStorage, ChatSessionStorage};
+use crate::services::session_lifecycle::SessionLifecycleService;
+use crate::storage::{
+    AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
+    ToolTraceStorage,
+};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
@@ -12,14 +16,35 @@ use serde_json::{Value, json};
 pub struct SessionStorageAdapter {
     storage: ChatSessionStorage,
     agent_storage: AgentStorage,
+    background_agent_storage: BackgroundAgentStorage,
+    channel_session_bindings: ChannelSessionBindingStorage,
+    tool_traces: ToolTraceStorage,
 }
 
 impl SessionStorageAdapter {
-    pub fn new(storage: ChatSessionStorage, agent_storage: AgentStorage) -> Self {
+    pub fn new(
+        storage: ChatSessionStorage,
+        agent_storage: AgentStorage,
+        background_agent_storage: BackgroundAgentStorage,
+        channel_session_bindings: ChannelSessionBindingStorage,
+        tool_traces: ToolTraceStorage,
+    ) -> Self {
         Self {
             storage,
             agent_storage,
+            background_agent_storage,
+            channel_session_bindings,
+            tool_traces,
         }
+    }
+
+    fn lifecycle(&self) -> SessionLifecycleService {
+        SessionLifecycleService::new(
+            self.storage.clone(),
+            self.channel_session_bindings.clone(),
+            self.tool_traces.clone(),
+            self.background_agent_storage.clone(),
+        )
     }
 }
 
@@ -74,7 +99,7 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn archive_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let archived = self.storage.archive(id)?;
+        let archived = self.lifecycle().archive_workspace_session(id)?;
         Ok(json!({ "id": id, "archived": archived }))
     }
 
@@ -84,7 +109,7 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn purge_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let purged = self.storage.delete(id)?;
+        let purged = self.lifecycle().delete_workspace_session(id)?;
         Ok(json!({ "id": id, "purged": purged }))
     }
 
@@ -125,7 +150,9 @@ impl SessionStore for SessionStorageAdapter {
 
     fn cleanup_sessions(&self) -> restflow_tools::Result<Value> {
         let now_ms = chrono::Utc::now().timestamp_millis();
-        let stats = self.storage.cleanup_by_session_retention(now_ms)?;
+        let stats = self
+            .lifecycle()
+            .cleanup_workspace_sessions_by_retention(now_ms)?;
         Ok(serde_json::to_value(stats)?)
     }
 }
@@ -142,9 +169,18 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
-        let agent_storage = AgentStorage::new(db).unwrap();
+        let agent_storage = AgentStorage::new(db.clone()).unwrap();
+        let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
+        let channel_session_bindings = ChannelSessionBindingStorage::new(db.clone()).unwrap();
+        let tool_traces = ToolTraceStorage::new(db).unwrap();
         (
-            SessionStorageAdapter::new(chat_storage, agent_storage),
+            SessionStorageAdapter::new(
+                chat_storage,
+                agent_storage,
+                background_agent_storage,
+                channel_session_bindings,
+                tool_traces,
+            ),
             temp_dir,
         )
     }
@@ -207,6 +243,48 @@ mod tests {
 
         let result = adapter.delete_session(&session_id).unwrap();
         assert_eq!(result["purged"], true);
+    }
+
+    #[test]
+    fn test_delete_session_rejects_background_bound_session() {
+        let (adapter, _dir) = setup();
+        let agent_id = create_default_agent(&adapter);
+        let created = adapter
+            .create_session(SessionCreateRequest {
+                agent_id: agent_id.clone(),
+                model: "gpt-4".to_string(),
+                name: Some("Bound Session".to_string()),
+                skill_id: None,
+                retention: None,
+            })
+            .unwrap();
+        let session_id = created["id"].as_str().unwrap().to_string();
+
+        adapter
+            .background_agent_storage
+            .create_background_agent(crate::models::BackgroundAgentSpec {
+                name: "Session Owner".to_string(),
+                agent_id,
+                chat_session_id: Some(session_id.clone()),
+                description: None,
+                input: Some("run".to_string()),
+                input_template: None,
+                schedule: crate::models::BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        let err = adapter
+            .delete_session(&session_id)
+            .expect_err("bound session must not be deleted");
+        assert!(err.to_string().contains("bound to background task"));
     }
 
     #[test]
