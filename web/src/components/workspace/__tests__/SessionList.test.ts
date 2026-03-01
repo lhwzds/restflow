@@ -28,6 +28,13 @@ describe('SessionList', () => {
             updatedAt: Date.now(),
             agentName: 'Agent One',
           },
+          {
+            id: 'session-background-prefix',
+            name: 'Background: Daily Report',
+            status: 'completed',
+            updatedAt: Date.now(),
+            agentName: 'Agent One',
+          },
         ],
         currentSessionId: null,
       },
@@ -58,8 +65,10 @@ describe('SessionList', () => {
     const text = wrapper.text()
     expect(text).toContain('7686400336')
     expect(text).toContain('Regular Session')
+    expect(text).toContain('Daily Report')
     expect(text).toContain('workspace.sessionSource.telegram')
     expect(text).not.toContain('channel:7686400336')
+    expect(text).not.toContain('Background: Daily Report')
   })
 
   it('shows a background tag for sessions linked to background agents', () => {
@@ -172,6 +181,15 @@ describe('SessionList', () => {
             agentName: 'Agent One',
             sourceChannel: 'workspace',
           },
+          {
+            id: 'session-background',
+            name: 'Background: Focus Task',
+            status: 'completed',
+            updatedAt: Date.now(),
+            agentName: 'Agent One',
+            sourceChannel: 'workspace',
+            isBackgroundSession: true,
+          },
         ],
         currentSessionId: null,
       },
@@ -209,6 +227,7 @@ describe('SessionList', () => {
     await findButton('workspace.session.rebuild').trigger('click')
     await findButton('workspace.session.rename').trigger('click')
     await findButton('workspace.session.convertToBackground').trigger('click')
+    await findButton('workspace.session.convertToWorkspace').trigger('click')
     await findButton('workspace.session.archive').trigger('click')
     await findButton('workspace.session.delete').trigger('click')
 
@@ -217,6 +236,9 @@ describe('SessionList', () => {
     expect(wrapper.emitted('rename')).toEqual([['session-workspace', 'Workspace Session']])
     expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([
       ['session-workspace', 'Workspace Session'],
+    ])
+    expect(wrapper.emitted('convertToWorkspaceSession')).toEqual([
+      ['session-background', 'Focus Task'],
     ])
     expect(wrapper.emitted('archive')).toEqual([['session-workspace', 'Workspace Session']])
     expect(wrapper.emitted('delete')).toEqual([['session-workspace', 'Workspace Session']])
