@@ -479,21 +479,18 @@ mod tests {
             .record_conversation(&initial_msg, Some("task-123".to_string()))
             .await;
 
-        // Even a command should be forwarded to task when linked
+        // Commands should still route through command handling.
         let cmd_msg = create_message("/status");
         let decision = msg_router.route(&cmd_msg).await;
         assert!(matches!(
             decision,
-            RouteDecision::ForwardToBackgroundAgent { background_agent_id: task_id } if task_id == "task-123"
+            RouteDecision::HandleCommand { command, args } if command == "status" && args.is_empty()
         ));
 
-        // Natural language should also forward to task
+        // Natural language should stay in main chat (no implicit task forwarding).
         let chat_msg = create_message("continue with the task");
         let decision = msg_router.route(&chat_msg).await;
-        assert!(matches!(
-            decision,
-            RouteDecision::ForwardToBackgroundAgent { background_agent_id: task_id } if task_id == "task-123"
-        ));
+        assert_eq!(decision, RouteDecision::DispatchToChat);
     }
 
     #[tokio::test]
