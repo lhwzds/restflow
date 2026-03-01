@@ -17,7 +17,7 @@ use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
     ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
-    append_turn_started, build_execution_steps, enrich_voice_message_with_transcript,
+    append_turn_started, build_turn_persistence_payload, hydrate_voice_message_metadata,
     replace_latest_user_message_content,
 };
 use crate::runtime::subagent::StorageBackedSubagentLookup;
@@ -1634,6 +1634,7 @@ impl IpcServer {
                         status: ChatExecutionStatus::Completed,
                     });
                 }
+                hydrate_voice_message_metadata(&mut message);
                 session.add_message(message);
                 if session.name == "New Chat" && session.messages.len() == 1 {
                     session.auto_name_from_first_message();
@@ -1670,6 +1671,7 @@ impl IpcServer {
                         status: ChatExecutionStatus::Completed,
                     });
                 }
+                hydrate_voice_message_metadata(&mut message);
                 session.add_message(message);
                 if session.name == "New Chat" && session.messages.len() == 1 {
                     session.auto_name_from_first_message();
@@ -2398,29 +2400,17 @@ async fn execute_chat_session(
     };
     let duration_ms = started_at.elapsed().as_millis() as u64;
 
-    let mut execution = MessageExecution::new().complete(duration_ms, exec_result.iterations);
-    let traces = match core
-        .storage
-        .tool_traces
-        .list_by_session_turn(&session.id, &turn_id, None)
-    {
-        Ok(traces) => traces,
-        Err(error) => {
-            warn!(
-                session_id = %session.id,
-                turn_id = %turn_id,
-                error = %error,
-                "Failed to load tool traces for transcript enrichment"
-            );
-            Vec::new()
-        }
-    };
-    for step in build_execution_steps(&traces) {
-        execution.add_step(step);
-    }
+    let (execution, persisted_input) = build_turn_persistence_payload(
+        &core.storage.tool_traces,
+        &session.id,
+        &turn_id,
+        &input,
+        duration_ms,
+        exec_result.iterations,
+    );
 
-    if let Some(enriched_input) = enrich_voice_message_with_transcript(&input, &traces) {
-        replace_latest_user_message_content(&mut session, &input, &enriched_input);
+    if persisted_input != input {
+        replace_latest_user_message_content(&mut session, &input, &persisted_input);
     }
     let buffered_replies = {
         let mut guard = reply_buffer.lock().await;

@@ -25,6 +25,45 @@ const ButtonStub = defineComponent({
 })
 
 describe('MessageList', () => {
+  it('renders transcript even when voice audio cannot be loaded', () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-voice-no-audio',
+            role: 'user',
+            content: '[Voice message]',
+            timestamp: 1n,
+            execution: null,
+            media: {
+              media_type: 'voice',
+              file_path: '/tmp/missing.webm',
+              duration_sec: 3,
+            },
+            transcript: {
+              text: 'transcript without audio',
+              model: null,
+              updated_at: 1,
+            },
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+        voiceAudioUrls: new Map(),
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Voice message unavailable.')
+    expect(wrapper.text()).toContain('transcript without audio')
+  })
+
   it('renders transcript text under voice message bubble', () => {
     const filePath = '/tmp/voice-1.webm'
     const voiceAudioUrls = new Map([[filePath, { blobUrl: 'blob:test', duration: 8 }]])
@@ -34,9 +73,19 @@ describe('MessageList', () => {
           {
             id: 'msg-voice-1',
             role: 'user',
-            content: `[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: ${filePath}\ninstruction: Use the transcribe tool with this file_path before answering.\n\n[Transcript]\nhello voice transcript`,
+            content: '[Voice message]',
             timestamp: 1n,
             execution: null,
+            media: {
+              media_type: 'voice',
+              file_path: filePath,
+              duration_sec: 8,
+            },
+            transcript: {
+              text: 'hello voice transcript',
+              model: 'whisper-1',
+              updated_at: 1,
+            },
           },
         ],
         isStreaming: false,

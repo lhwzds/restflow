@@ -100,6 +100,10 @@ const loadingMediaPaths = ref<Set<string>>(new Set())
 
 function getVoiceFilePath(msg: ChatMessage): string | null {
   if (msg.role !== 'user') return null
+  if (msg.media?.media_type === 'voice') {
+    const structuredPath = msg.media.file_path?.trim()
+    if (structuredPath) return structuredPath
+  }
   const match = msg.content.match(VOICE_MSG_PATTERN)
   return match?.[1] ?? null
 }
@@ -107,12 +111,14 @@ function getVoiceFilePath(msg: ChatMessage): string | null {
 function getVoiceAudio(msg: ChatMessage): { blobUrl: string; duration: number } | null {
   const filePath = getVoiceFilePath(msg)
   if (!filePath) return null
+  const structuredDuration =
+    msg.media?.media_type === 'voice' ? (msg.media.duration_sec ?? 0) : 0
   // Check in-memory cache first (fresh recordings from this session)
   const cached = props.voiceAudioUrls?.get(filePath)
-  if (cached) return cached
+  if (cached) return { ...cached, duration: cached.duration || structuredDuration }
   // Check persistent storage cache (loaded from disk after page reload)
   const loaded = loadedMediaUrls.value.get(filePath)
-  if (loaded) return loaded
+  if (loaded) return { ...loaded, duration: loaded.duration || structuredDuration }
   // Trigger async load if not already loading
   if (!loadingMediaPaths.value.has(filePath)) {
     loadingMediaPaths.value.add(filePath)
@@ -124,6 +130,8 @@ function getVoiceAudio(msg: ChatMessage): { blobUrl: string; duration: number } 
 function getVoiceTranscript(msg: ChatMessage): string | null {
   const filePath = getVoiceFilePath(msg)
   if (!filePath) return null
+  const structuredTranscript = msg.transcript?.text?.trim()
+  if (structuredTranscript) return structuredTranscript
   const match = msg.content.match(VOICE_TRANSCRIPT_PATTERN)
   const transcript = match?.[1]?.trim()
   return transcript ? transcript : null
@@ -185,25 +193,28 @@ onMounted(() => {
           <div class="text-xs text-muted-foreground mb-1">
             {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Assistant' : 'System' }}
           </div>
-          <!-- Voice message: show audio player or loading state -->
-          <div v-if="getVoiceAudio(msg)" class="space-y-2">
+          <!-- Voice message: show audio player/loading + transcript -->
+          <div v-if="getVoiceFilePath(msg)" class="space-y-2">
             <VoiceMessageBubble
+              v-if="getVoiceAudio(msg)"
               :blob-url="getVoiceAudio(msg)!.blobUrl"
               :duration="getVoiceAudio(msg)!.duration"
             />
+            <div
+              v-else-if="loadingMediaPaths.has(getVoiceFilePath(msg)!)"
+              class="flex items-center gap-2 text-xs text-muted-foreground py-1"
+            >
+              <Loader2 :size="12" class="animate-spin" />
+              Loading voice message...
+            </div>
+            <div v-else class="text-xs text-muted-foreground py-1">Voice message unavailable.</div>
+
             <div
               v-if="getVoiceTranscript(msg)"
               class="text-sm leading-relaxed whitespace-pre-wrap text-foreground"
             >
               {{ getVoiceTranscript(msg) }}
             </div>
-          </div>
-          <div
-            v-else-if="getVoiceFilePath(msg) && loadingMediaPaths.has(getVoiceFilePath(msg)!)"
-            class="flex items-center gap-2 text-xs text-muted-foreground py-1"
-          >
-            <Loader2 :size="12" class="animate-spin" />
-            Loading voice message...
           </div>
           <!-- Regular message -->
           <StreamingMarkdown v-else :content="msg.content || ''" />
