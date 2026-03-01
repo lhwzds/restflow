@@ -28,6 +28,7 @@ import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const VOICE_MSG_PATTERN =
   /^\[Voice message[^\]]*\]\n\n\[Media Context\]\nmedia_type: voice\nlocal_file_path: (.+)\ninstruction:/
+const VOICE_TRANSCRIPT_PATTERN = /\n\n\[Transcript\]\n([\s\S]+)$/
 
 const props = withDefaults(
   defineProps<{
@@ -120,6 +121,14 @@ function getVoiceAudio(msg: ChatMessage): { blobUrl: string; duration: number } 
   return null
 }
 
+function getVoiceTranscript(msg: ChatMessage): string | null {
+  const filePath = getVoiceFilePath(msg)
+  if (!filePath) return null
+  const match = msg.content.match(VOICE_TRANSCRIPT_PATTERN)
+  const transcript = match?.[1]?.trim()
+  return transcript ? transcript : null
+}
+
 async function loadMediaFromDisk(filePath: string) {
   try {
     const base64 = await readMediaFile(filePath)
@@ -177,11 +186,18 @@ onMounted(() => {
             {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Assistant' : 'System' }}
           </div>
           <!-- Voice message: show audio player or loading state -->
-          <VoiceMessageBubble
-            v-if="getVoiceAudio(msg)"
-            :blob-url="getVoiceAudio(msg)!.blobUrl"
-            :duration="getVoiceAudio(msg)!.duration"
-          />
+          <div v-if="getVoiceAudio(msg)" class="space-y-2">
+            <VoiceMessageBubble
+              :blob-url="getVoiceAudio(msg)!.blobUrl"
+              :duration="getVoiceAudio(msg)!.duration"
+            />
+            <div
+              v-if="getVoiceTranscript(msg)"
+              class="text-sm leading-relaxed whitespace-pre-wrap text-foreground"
+            >
+              {{ getVoiceTranscript(msg) }}
+            </div>
+          </div>
           <div
             v-else-if="getVoiceFilePath(msg) && loadingMediaPaths.has(getVoiceFilePath(msg)!)"
             class="flex items-center gap-2 text-xs text-muted-foreground py-1"
