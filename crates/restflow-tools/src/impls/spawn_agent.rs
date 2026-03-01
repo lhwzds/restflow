@@ -47,6 +47,88 @@ impl SpawnAgentTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
         Self { manager }
     }
+
+    fn available_agents(&self) -> Vec<restflow_traits::subagent::SubagentDefSummary> {
+        self.manager.list_callable()
+    }
+
+    fn resolve_agent_id(&self, requested: &str) -> Result<String> {
+        let query = requested.trim();
+        if query.is_empty() {
+            return Err(ToolError::Tool("Agent name must not be empty".to_string()));
+        }
+
+        let available = self.available_agents();
+        if available.is_empty() {
+            return Err(ToolError::Tool(
+                "No callable sub-agents available. Create an agent first.".to_string(),
+            ));
+        }
+
+        if let Some(found) = available.iter().find(|agent| agent.id == query) {
+            return Ok(found.id.clone());
+        }
+
+        if let Some(found) = available
+            .iter()
+            .find(|agent| agent.id.eq_ignore_ascii_case(query))
+        {
+            return Ok(found.id.clone());
+        }
+
+        let exact_name_matches: Vec<_> = available
+            .iter()
+            .filter(|agent| agent.name.eq_ignore_ascii_case(query))
+            .collect();
+        if exact_name_matches.len() == 1 {
+            return Ok(exact_name_matches[0].id.clone());
+        }
+        if exact_name_matches.len() > 1 {
+            let ids = exact_name_matches
+                .iter()
+                .map(|agent| agent.id.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(ToolError::Tool(format!(
+                "Ambiguous agent name '{}'. Matching IDs: {}",
+                query, ids
+            )));
+        }
+
+        let normalized_query = normalize_identifier(query);
+        let normalized_matches: Vec<_> = available
+            .iter()
+            .filter(|agent| {
+                normalize_identifier(&agent.id) == normalized_query
+                    || normalize_identifier(&agent.name) == normalized_query
+            })
+            .collect();
+        if normalized_matches.len() == 1 {
+            return Ok(normalized_matches[0].id.clone());
+        }
+        if normalized_matches.len() > 1 {
+            let ids = normalized_matches
+                .iter()
+                .map(|agent| agent.id.clone())
+                .collect::<Vec<_>>()
+                .join(", ");
+            return Err(ToolError::Tool(format!(
+                "Ambiguous agent identifier '{}'. Matching IDs: {}",
+                query, ids
+            )));
+        }
+
+        let suggestions = available
+            .iter()
+            .take(8)
+            .map(|agent| format!("{} ({})", agent.name, agent.id))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Err(ToolError::Tool(format!(
+            "Unknown agent '{}'. Available agents: {}",
+            query, suggestions
+        )))
+    }
 }
 
 #[async_trait]
@@ -60,14 +142,30 @@ impl Tool for SpawnAgentTool {
     }
 
     fn parameters_schema(&self) -> Value {
+        let available = self.available_agents();
+        let agent_property = if available.is_empty() {
+            json!({
+                "type": "string",
+                "description": "Agent ID or name. Call list_agents to discover available agents."
+            })
+        } else {
+            let enum_values: Vec<String> = available.iter().map(|agent| agent.id.clone()).collect();
+            let enum_labels: Vec<String> = available
+                .iter()
+                .map(|agent| format!("{} ({})", agent.name, agent.id))
+                .collect();
+            json!({
+                "type": "string",
+                "enum": enum_values,
+                "x-enumNames": enum_labels,
+                "description": "Agent ID. You can also pass agent name at runtime."
+            })
+        };
+
         json!({
             "type": "object",
             "properties": {
-                "agent": {
-                    "type": "string",
-                    "enum": ["researcher", "coder", "reviewer", "writer", "analyst"],
-                    "description": "The specialized agent to spawn"
-                },
+                "agent": agent_property,
                 "task": {
                     "type": "string",
                     "description": "Detailed task description for the agent"
@@ -98,9 +196,10 @@ impl Tool for SpawnAgentTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: SpawnAgentParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
+        let agent_id = self.resolve_agent_id(&params.agent)?;
 
         let request = SpawnRequest {
-            agent_id: params.agent.clone(),
+            agent_id,
             task: params.task.clone(),
             timeout_secs: params.timeout_secs,
             priority: None,
@@ -160,6 +259,25 @@ impl Tool for SpawnAgentTool {
             })))
         }
     }
+}
+
+fn normalize_identifier(value: &str) -> String {
+    let mut normalized = String::with_capacity(value.len());
+    let mut previous_dash = false;
+
+    for ch in value.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            normalized.push(ch.to_ascii_lowercase());
+            previous_dash = false;
+            continue;
+        }
+        if !previous_dash {
+            normalized.push('-');
+            previous_dash = true;
+        }
+    }
+
+    normalized.trim_matches('-').to_string()
 }
 
 #[cfg(test)]
@@ -320,7 +438,7 @@ mod tests {
             .await;
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
-        assert!(err_msg.contains("Unknown agent type"));
+        assert!(err_msg.contains("No callable sub-agents available"));
     }
 
     #[tokio::test]
@@ -330,5 +448,39 @@ mod tests {
         // Missing required "agent" and "task" fields
         let result = tool.execute(json!({"wait": true})).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_agent_resolves_by_name() {
+        let deps = make_test_deps(
+            vec![("agent-123", "Code Planner")],
+            vec![MockStep::text("planned")],
+        );
+        let tool = SpawnAgentTool::new(deps);
+        let result = tool
+            .execute(json!({"agent": "code planner", "task": "plan task", "wait": true}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(result.result["status"], "completed");
+    }
+
+    #[test]
+    fn test_parameters_schema_uses_dynamic_agent_ids() {
+        let deps = make_test_deps(
+            vec![("agent-1", "Researcher"), ("agent-2", "Coder")],
+            vec![],
+        );
+        let tool = SpawnAgentTool::new(deps);
+        let schema = tool.parameters_schema();
+        let values = schema["properties"]["agent"]["enum"]
+            .as_array()
+            .expect("agent enum should exist");
+        let ids = values
+            .iter()
+            .filter_map(|value| value.as_str())
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&"agent-1"));
+        assert!(ids.contains(&"agent-2"));
     }
 }
