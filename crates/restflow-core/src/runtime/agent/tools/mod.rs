@@ -359,6 +359,9 @@ pub fn registry_from_allowlist(
                     builder.with_session(Arc::new(SessionStorageAdapter::new(
                         s.chat_sessions.clone(),
                         s.agents.clone(),
+                        s.background_agents.clone(),
+                        s.channel_session_bindings.clone(),
+                        s.tool_traces.clone(),
                     )))
                 });
             }

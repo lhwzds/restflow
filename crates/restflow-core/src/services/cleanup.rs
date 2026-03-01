@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tracing::debug;
 
 use crate::AppCore;
+use crate::services::session_lifecycle::SessionLifecycleService;
 
 const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 const DAY_SECS: u64 = 24 * 60 * 60;
@@ -22,19 +23,16 @@ pub struct CleanupReport {
 pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
     let config = core.storage.config.get_config()?.unwrap_or_default();
     let now_ms = chrono::Utc::now().timestamp_millis();
+    let lifecycle = SessionLifecycleService::from_storage(&core.storage);
 
-    let mut chat_sessions =
-        if retention_cutoff(now_ms, config.chat_session_retention_days).is_some() {
-            core.storage
-                .chat_sessions
-                .cleanup_expired(config.chat_session_retention_days, now_ms)?
-        } else {
-            0
-        };
-    chat_sessions += core
-        .storage
-        .chat_sessions
-        .cleanup_by_session_retention(now_ms)?
+    let mut chat_sessions = 0usize;
+    if let Some(cutoff) = retention_cutoff(now_ms, config.chat_session_retention_days) {
+        chat_sessions += lifecycle
+            .cleanup_workspace_sessions_older_than(cutoff)?
+            .deleted;
+    }
+    chat_sessions += lifecycle
+        .cleanup_workspace_sessions_by_retention(now_ms)?
         .deleted;
 
     let background_tasks =

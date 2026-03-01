@@ -4,6 +4,7 @@ pub mod background_agent_conversion;
 pub mod cleanup;
 pub mod config;
 pub mod secrets;
+pub mod session_lifecycle;
 pub mod skill_sync;
 pub mod skill_triggers;
 pub mod skills;

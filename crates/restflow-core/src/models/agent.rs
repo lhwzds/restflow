@@ -362,6 +362,8 @@ impl AgentNode {
             core.storage.skills.clone(),
             core.storage.memory.clone(),
             core.storage.chat_sessions.clone(),
+            core.storage.channel_session_bindings.clone(),
+            core.storage.tool_traces.clone(),
             core.storage.kv_store.clone(),
             core.storage.work_items.clone(),
             core.storage.secrets.clone(),
