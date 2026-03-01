@@ -23,6 +23,10 @@ use tracing::error;
 ///
 /// In desktop mode, this state acts as a UI facade over daemon IPC.
 /// Business logic and storage access stay in daemon/core.
+///
+/// Architecture guardrails:
+/// - Do not add direct storage handles to this struct.
+/// - Do not add command paths that bypass `TauriExecutor`.
 pub struct AppState {
     /// Channel router for message handling
     pub channel_router: Arc<ChannelRouter>,
@@ -47,7 +51,11 @@ pub struct AppState {
 impl AppState {
     /// Compatibility constructor.
     ///
-    /// Tauri should use daemon IPC mode; the db_path is ignored.
+    /// Deprecated: Tauri must run in daemon IPC mode.
+    /// The `db_path` parameter is intentionally ignored.
+    #[deprecated(
+        note = "Use AppState::with_ipc(). Direct storage mode is forbidden in daemon-centric architecture."
+    )]
     pub async fn new(_db_path: &str) -> anyhow::Result<Self> {
         Self::with_ipc().await
     }
