@@ -1,5 +1,7 @@
 use anyhow::Result;
-use restflow_core::daemon::{IpcClient, IpcRequest, is_daemon_available};
+use restflow_core::daemon::{
+    IPC_PROTOCOL_VERSION, IpcClient, IpcDaemonStatus, IpcRequest, is_daemon_available,
+};
 use restflow_core::paths;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -39,6 +41,13 @@ impl DaemonManager {
             .client
             .as_mut()
             .expect("IPC client should be available"))
+    }
+
+    pub async fn ensure_handshake(&mut self) -> Result<IpcDaemonStatus> {
+        let client = self.ensure_connected().await?;
+        let status = client.get_status().await?;
+        Self::validate_handshake(&status)?;
+        Ok(status)
     }
 
     async fn connect(&mut self) -> Result<()> {
@@ -146,5 +155,52 @@ impl DaemonManager {
         }
 
         Ok(())
+    }
+
+    fn validate_handshake(status: &IpcDaemonStatus) -> Result<()> {
+        if status.status != "running" {
+            anyhow::bail!("Daemon handshake failed: status is '{}'", status.status);
+        }
+        if status.protocol_version != IPC_PROTOCOL_VERSION {
+            anyhow::bail!(
+                "Daemon handshake failed: protocol mismatch (daemon={}, expected={})",
+                status.protocol_version,
+                IPC_PROTOCOL_VERSION
+            );
+        }
+        if status.daemon_version.trim().is_empty() {
+            anyhow::bail!("Daemon handshake failed: daemon version is empty");
+        }
+        Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_status() -> IpcDaemonStatus {
+        IpcDaemonStatus {
+            status: "running".to_string(),
+            protocol_version: IPC_PROTOCOL_VERSION.to_string(),
+            daemon_version: "0.3.5".to_string(),
+            pid: 1234,
+            started_at_ms: 1_700_000_000_000,
+            uptime_secs: 15,
+        }
+    }
+
+    #[test]
+    fn validate_handshake_accepts_matching_protocol() {
+        let status = sample_status();
+        assert!(DaemonManager::validate_handshake(&status).is_ok());
+    }
+
+    #[test]
+    fn validate_handshake_rejects_protocol_mismatch() {
+        let mut status = sample_status();
+        status.protocol_version = "999".to_string();
+        let err = DaemonManager::validate_handshake(&status).unwrap_err();
+        assert!(err.to_string().contains("protocol mismatch"));
     }
 }

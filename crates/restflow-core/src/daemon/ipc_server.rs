@@ -1,5 +1,6 @@
 use super::ipc_protocol::{
-    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
+    IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame,
+    ToolDefinition, ToolExecutionResult,
 };
 use super::session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 use super::subscribe_background_events;
@@ -66,6 +67,26 @@ fn active_chat_stream_sessions() -> &'static Mutex<HashMap<String, String>> {
 fn active_chat_stream_steers() -> &'static Mutex<HashMap<String, mpsc::Sender<SteerMessage>>> {
     static STEERS: OnceLock<Mutex<HashMap<String, mpsc::Sender<SteerMessage>>>> = OnceLock::new();
     STEERS.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn daemon_started_at_ms() -> i64 {
+    static STARTED_AT_MS: OnceLock<i64> = OnceLock::new();
+    *STARTED_AT_MS.get_or_init(|| Utc::now().timestamp_millis())
+}
+
+fn build_daemon_status() -> IpcDaemonStatus {
+    let started_at_ms = daemon_started_at_ms();
+    let now_ms = Utc::now().timestamp_millis();
+    let uptime_secs = ((now_ms - started_at_ms).max(0) / 1000) as u64;
+
+    IpcDaemonStatus {
+        status: "running".to_string(),
+        protocol_version: IPC_PROTOCOL_VERSION.to_string(),
+        daemon_version: env!("CARGO_PKG_VERSION").to_string(),
+        pid: std::process::id(),
+        started_at_ms,
+        uptime_secs,
+    }
 }
 
 struct IpcStreamEmitter {
@@ -617,11 +638,7 @@ impl IpcServer {
     async fn process(core: &Arc<AppCore>, request: IpcRequest) -> IpcResponse {
         match request {
             IpcRequest::Ping => IpcResponse::Pong,
-            IpcRequest::GetStatus => IpcResponse::success(serde_json::json!({
-                "status": "running",
-                "pid": std::process::id(),
-                "uptime_secs": 0,
-            })),
+            IpcRequest::GetStatus => IpcResponse::success(build_daemon_status()),
             IpcRequest::ListAgents => match agent_service::list_agents(core).await {
                 Ok(agents) => IpcResponse::success(agents),
                 Err(err) => IpcResponse::error(500, err.to_string()),

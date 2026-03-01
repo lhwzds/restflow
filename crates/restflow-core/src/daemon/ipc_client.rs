@@ -1,5 +1,6 @@
 use super::ipc_protocol::{
-    IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
+    IpcDaemonStatus, IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition,
+    ToolExecutionResult,
 };
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::daemon::session_events::ChatSessionEvent;
@@ -65,6 +66,10 @@ impl IpcClient {
 
     pub async fn ping(&mut self) -> bool {
         matches!(self.request(IpcRequest::Ping).await, Ok(IpcResponse::Pong))
+    }
+
+    pub async fn get_status(&mut self) -> Result<IpcDaemonStatus> {
+        self.request_typed(IpcRequest::GetStatus).await
     }
 
     async fn request_typed<T: DeserializeOwned>(&mut self, req: IpcRequest) -> Result<T> {
@@ -888,6 +893,10 @@ impl IpcClient {
 
     pub async fn ping(&mut self) -> bool {
         false
+    }
+
+    pub async fn get_status(&mut self) -> Result<IpcDaemonStatus> {
+        self.request_typed(IpcRequest::Ping).await
     }
 
     async fn request_typed<T: DeserializeOwned>(&mut self, _req: IpcRequest) -> Result<T> {
