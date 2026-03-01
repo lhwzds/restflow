@@ -15,7 +15,9 @@ use crate::channel::{
     ChannelReplySender, ChannelRouter, ChannelType, InboundMessage, OutboundMessage,
 };
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
-use crate::models::{AIModel, ChatMessage, ChatSession, ChatSessionSource, MessageExecution};
+use crate::models::{
+    AIModel, ChannelSessionBinding, ChatMessage, ChatSession, ChatSessionSource, MessageExecution,
+};
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
@@ -186,11 +188,23 @@ impl ChatSessionManager {
         user_id: &str,
     ) -> Result<ChatSession> {
         let source_channel = Self::source_from_channel(channel_type);
+        let binding_channel = Self::binding_channel_key(channel_type);
 
         // Use mutex to serialize session creation and prevent race conditions.
         // This ensures that under concurrent requests for the same conversation,
         // only one session will be created.
         let _guard = self.session_creation_mutex.lock().await;
+
+        if let Some(channel_key) = binding_channel
+            && let Some(mut session) = self.lookup_session_from_binding(channel_key, conversation_id)?
+        {
+            self.maybe_rebind_to_forced_default(&mut session)?;
+            debug!(
+                "Found session {} via channel binding for {:?} conversation {}",
+                session.id, channel_type, conversation_id
+            );
+            return Ok(session);
+        }
 
         // Re-check after acquiring lock (another task may have created it)
         let sessions = self.storage.chat_sessions.list()?;
@@ -203,6 +217,18 @@ impl ChatSessionManager {
             .cloned()
         {
             let mut session = session;
+            if let Some(channel_key) = binding_channel
+                && let Err(err) =
+                    self.upsert_channel_binding(channel_key, conversation_id, &session.id)
+            {
+                warn!(
+                    session_id = %session.id,
+                    channel = channel_key,
+                    conversation_id = %conversation_id,
+                    error = %err,
+                    "Failed to backfill channel-session binding for existing source session"
+                );
+            }
             self.maybe_rebind_to_forced_default(&mut session)?;
             debug!(
                 "Found existing session {} for {:?} conversation {}",
@@ -233,6 +259,18 @@ impl ChatSessionManager {
                     );
                 }
             }
+            if let Some(channel_key) = binding_channel
+                && let Err(err) =
+                    self.upsert_channel_binding(channel_key, conversation_id, &session.id)
+            {
+                warn!(
+                    session_id = %session.id,
+                    channel = channel_key,
+                    conversation_id = %conversation_id,
+                    error = %err,
+                    "Failed to backfill channel-session binding for migrated legacy session"
+                );
+            }
             self.maybe_rebind_to_forced_default(&mut session)?;
 
             debug!(
@@ -253,6 +291,17 @@ impl ChatSessionManager {
 
         // Handle potential duplicate from race condition (defensive)
         if let Err(e) = self.storage.chat_sessions.create(&session) {
+            if let Some(channel_key) = binding_channel
+                && let Some(existing) =
+                    self.lookup_session_from_binding(channel_key, conversation_id)?
+            {
+                debug!(
+                    "Session {} was created by another request (binding), using existing",
+                    existing.id
+                );
+                return Ok(existing);
+            }
+
             // Check if another request created the session while we were creating ours
             let sessions = self.storage.chat_sessions.list()?;
             if let Some(existing) = sessions.into_iter().find(|s| {
@@ -267,6 +316,18 @@ impl ChatSessionManager {
             }
             // It's a real error, propagate it
             return Err(e);
+        }
+
+        if let Some(channel_key) = binding_channel
+            && let Err(err) = self.upsert_channel_binding(channel_key, conversation_id, &session.id)
+        {
+            warn!(
+                session_id = %session.id,
+                channel = channel_key,
+                conversation_id = %conversation_id,
+                error = %err,
+                "Failed to persist channel-session binding for new session"
+            );
         }
 
         info!(
@@ -284,6 +345,57 @@ impl ChatSessionManager {
             ChannelType::Slack => Some(ChatSessionSource::Slack),
             ChannelType::Email | ChannelType::Webhook => None,
         }
+    }
+
+    fn binding_channel_key(channel_type: ChannelType) -> Option<&'static str> {
+        match channel_type {
+            ChannelType::Telegram => Some("telegram"),
+            ChannelType::Discord => Some("discord"),
+            ChannelType::Slack => Some("slack"),
+            ChannelType::Email | ChannelType::Webhook => None,
+        }
+    }
+
+    fn upsert_channel_binding(
+        &self,
+        channel_key: &str,
+        conversation_id: &str,
+        session_id: &str,
+    ) -> Result<()> {
+        let binding = ChannelSessionBinding::new(channel_key, None, conversation_id, session_id);
+        self.storage.channel_session_bindings.upsert(&binding)
+    }
+
+    fn lookup_session_from_binding(
+        &self,
+        channel_key: &str,
+        conversation_id: &str,
+    ) -> Result<Option<ChatSession>> {
+        let Some(binding) = self.storage.channel_session_bindings.get_by_route(
+            channel_key,
+            None,
+            conversation_id,
+        )?
+        else {
+            return Ok(None);
+        };
+
+        if let Some(session) = self.storage.chat_sessions.get(&binding.session_id)? {
+            return Ok(Some(session));
+        }
+
+        warn!(
+            channel = channel_key,
+            conversation_id = %conversation_id,
+            session_id = %binding.session_id,
+            "Found stale channel-session binding without corresponding session; cleaning up"
+        );
+        let _ = self.storage.channel_session_bindings.remove_by_route(
+            channel_key,
+            None,
+            conversation_id,
+        );
+        Ok(None)
     }
 
     /// Append a user-assistant exchange to a session.
@@ -1008,7 +1120,7 @@ mod tests {
         let agents = storage.agents.list_agents().unwrap();
         let agent_id = agents[0].id.clone();
 
-        let manager = ChatSessionManager::new(storage, 20).with_default_agent(agent_id);
+        let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
 
         let session = manager
             .get_or_create_session(ChannelType::Telegram, "conv-1", "user-1")
@@ -1017,6 +1129,12 @@ mod tests {
         assert_eq!(session.name, "conv-1");
         assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
         assert_eq!(session.source_conversation_id.as_deref(), Some("conv-1"));
+        let binding = storage
+            .channel_session_bindings
+            .get_by_route("telegram", None, "conv-1")
+            .unwrap()
+            .expect("channel binding should exist");
+        assert_eq!(binding.session_id, session.id);
 
         // Getting again should return same session
         let session2 = manager
@@ -1024,6 +1142,36 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(session.id, session2.id);
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_recovers_from_stale_binding() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        use crate::models::{AgentNode, ChannelSessionBinding};
+        storage
+            .agents
+            .create_agent("Test Agent".to_string(), AgentNode::new())
+            .unwrap();
+        let agents = storage.agents.list_agents().unwrap();
+        let agent_id = agents[0].id.clone();
+
+        let stale = ChannelSessionBinding::new("telegram", None, "conv-stale", "missing-session");
+        storage.channel_session_bindings.upsert(&stale).unwrap();
+
+        let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
+        let session = manager
+            .get_or_create_session(ChannelType::Telegram, "conv-stale", "user-1")
+            .await
+            .unwrap();
+        assert_ne!(session.id, "missing-session");
+
+        let rebound = storage
+            .channel_session_bindings
+            .get_by_route("telegram", None, "conv-stale")
+            .unwrap()
+            .expect("binding should be replaced");
+        assert_eq!(rebound.session_id, session.id);
     }
 
     #[tokio::test]
