@@ -196,7 +196,8 @@ impl ChatSessionManager {
         let _guard = self.session_creation_mutex.lock().await;
 
         if let Some(channel_key) = binding_channel
-            && let Some(mut session) = self.lookup_session_from_binding(channel_key, conversation_id)?
+            && let Some(mut session) =
+                self.lookup_session_from_binding(channel_key, conversation_id)?
         {
             self.maybe_rebind_to_forced_default(&mut session)?;
             debug!(
