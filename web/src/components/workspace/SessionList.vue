@@ -74,6 +74,18 @@ function sourceLabel(source: ChatSessionSource | null | undefined): string | nul
   }
 }
 
+function shouldRenderSourceTag(session: SessionItem): boolean {
+  if (session.isBackgroundSession) return false
+
+  const source = sourceLabel(session.sourceChannel)
+  if (!source) return false
+  return true
+}
+
+function hasSessionTag(session: SessionItem): boolean {
+  return shouldRenderSourceTag(session)
+}
+
 const formatTime = (timestamp: number) => {
   const date = new Date(timestamp)
   const now = new Date()
@@ -128,16 +140,16 @@ const formatTime = (timestamp: number) => {
             <div class="text-sm truncate">{{ displaySessionName(session) }}</div>
             <div class="text-xs text-muted-foreground truncate">
               <span
-                v-if="session.sourceChannel"
+                v-if="shouldRenderSourceTag(session)"
                 class="inline-flex items-center rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wide"
               >
                 {{ sourceLabel(session.sourceChannel) }}
               </span>
               <span v-if="session.agentName">
-                <span v-if="session.sourceChannel"> · </span>
+                <span v-if="hasSessionTag(session)"> · </span>
                 {{ session.agentName }}
               </span>
-              <span v-else-if="!session.sourceChannel">
+              <span v-else-if="!hasSessionTag(session)">
                 {{ t('common.unknownAgent') }}
               </span>
             </div>
