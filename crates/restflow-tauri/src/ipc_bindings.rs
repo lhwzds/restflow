@@ -80,6 +80,7 @@ macro_rules! collect_ipc_commands {
             commands::transcribe_audio,
             commands::transcribe_audio_stream,
             commands::update_agent,
+            commands::update_background_agent,
             commands::update_chat_session,
             commands::update_secret,
             commands::update_skill,
