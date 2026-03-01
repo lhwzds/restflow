@@ -140,6 +140,32 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
+    fn ensure_unique_chat_session_binding(
+        &self,
+        chat_session_id: &str,
+        current_task_id: Option<&str>,
+    ) -> Result<()> {
+        let target = chat_session_id.trim();
+        if target.is_empty() {
+            return Ok(());
+        }
+
+        if let Some(conflict) = self.list_tasks()?.into_iter().find(|task| {
+            let same_session = task.chat_session_id.trim() == target;
+            let same_task = current_task_id.is_some_and(|task_id| task.id == task_id);
+            same_session && !same_task
+        }) {
+            return Err(anyhow::anyhow!(
+                "chat_session_id '{}' is already bound to background task '{}' ({})",
+                target,
+                conflict.id,
+                conflict.name
+            ));
+        }
+
+        Ok(())
+    }
+
     fn resolve_chat_session_id_for_create(
         &self,
         requested_chat_session_id: Option<String>,
@@ -148,6 +174,7 @@ impl BackgroundAgentStorage {
     ) -> Result<SessionBindingResolution> {
         if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
             self.ensure_chat_session_binding(&chat_session_id, agent_id)?;
+            self.ensure_unique_chat_session_binding(&chat_session_id, None)?;
             return Ok(SessionBindingResolution {
                 session_id: chat_session_id,
                 owns_session: false,
@@ -168,6 +195,7 @@ impl BackgroundAgentStorage {
     ) -> Result<SessionBindingResolution> {
         if let Some(chat_session_id) = Self::normalize_optional_id(requested_chat_session_id) {
             self.ensure_chat_session_binding(&chat_session_id, next_agent_id)?;
+            self.ensure_unique_chat_session_binding(&chat_session_id, Some(&task.id))?;
             return Ok(SessionBindingResolution {
                 session_id: chat_session_id,
                 owns_session: false,
@@ -180,6 +208,7 @@ impl BackgroundAgentStorage {
                 .ensure_chat_session_binding(current_chat_session_id, next_agent_id)
                 .is_ok()
         {
+            self.ensure_unique_chat_session_binding(current_chat_session_id, Some(&task.id))?;
             return Ok(SessionBindingResolution {
                 session_id: current_chat_session_id.to_string(),
                 owns_session: task.owns_chat_session,
@@ -346,6 +375,20 @@ impl BackgroundAgentStorage {
         Ok(tasks
             .into_iter()
             .filter(|task| task.agent_id == agent_id)
+            .collect())
+    }
+
+    /// List tasks bound to the specified chat session.
+    pub fn list_tasks_by_chat_session_id(&self, session_id: &str) -> Result<Vec<BackgroundAgent>> {
+        let target = session_id.trim();
+        if target.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let tasks = self.list_tasks()?;
+        Ok(tasks
+            .into_iter()
+            .filter(|task| task.chat_session_id.trim() == target)
             .collect())
     }
 
@@ -1598,7 +1641,7 @@ mod tests {
     }
 
     #[test]
-    fn test_delete_task_does_not_archive_reused_owned_chat_session() {
+    fn test_create_background_agent_rejects_reused_chat_session_binding() {
         let storage = create_test_storage();
         let owner_task = storage
             .create_background_agent(BackgroundAgentSpec {
@@ -1620,35 +1663,27 @@ mod tests {
             })
             .unwrap();
 
-        let reused_task = storage
-            .create_background_agent(BackgroundAgentSpec {
-                name: "Reuser".to_string(),
-                agent_id: "agent-owner".to_string(),
-                chat_session_id: Some(owner_task.chat_session_id.clone()),
-                description: None,
-                input: Some("reuse".to_string()),
-                input_template: None,
-                schedule: BackgroundAgentSchedule::default(),
-                notification: None,
-                execution_mode: None,
-                timeout_secs: None,
-                memory: None,
-                durability_mode: None,
-                resource_limits: None,
-                prerequisites: Vec::new(),
-                continuation: None,
-            })
-            .unwrap();
-        assert!(!reused_task.owns_chat_session);
+        let result = storage.create_background_agent(BackgroundAgentSpec {
+            name: "Reuser".to_string(),
+            agent_id: "agent-owner".to_string(),
+            chat_session_id: Some(owner_task.chat_session_id.clone()),
+            description: None,
+            input: Some("reuse".to_string()),
+            input_template: None,
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: None,
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        });
 
-        let deleted = storage.delete_task(&owner_task.id).unwrap();
-        assert!(deleted);
-        let session_after = storage
-            .chat_sessions()
-            .get(&owner_task.chat_session_id)
-            .unwrap()
-            .unwrap();
-        assert!(session_after.archived_at.is_none());
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("already bound to background task"));
     }
 
     #[test]
@@ -2232,6 +2267,61 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(rebound_session.agent_id, "agent-002");
+    }
+
+    #[test]
+    fn test_update_background_agent_rejects_reused_chat_session_binding() {
+        let storage = create_test_storage();
+        let owner = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Owner".to_string(),
+                agent_id: "agent-001".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("Owner input".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        let other = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Other".to_string(),
+                agent_id: "agent-001".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("Other input".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        let result = storage.update_background_agent(
+            &other.id,
+            BackgroundAgentPatch {
+                chat_session_id: Some(owner.chat_session_id.clone()),
+                ..Default::default()
+            },
+        );
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("already bound to background task"));
     }
 
     #[test]
