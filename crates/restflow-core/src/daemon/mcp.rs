@@ -39,12 +39,10 @@ pub async fn run_mcp_http_server(
 ) -> Result<()> {
     let cancellation = CancellationToken::new();
     let config = build_streamable_http_server_config(cancellation.clone());
+    let server_factory = build_mcp_server_factory(RestFlowMcpServer::new(core));
 
     let service = StreamableHttpService::new(
-        {
-            let core = core.clone();
-            move || Ok(RestFlowMcpServer::new(core.clone()))
-        },
+        server_factory,
         LocalSessionManager::default().into(),
         config,
     );
@@ -98,6 +96,12 @@ pub async fn run_mcp_http_server(
     }
 
     Ok(())
+}
+
+fn build_mcp_server_factory(
+    server: RestFlowMcpServer,
+) -> impl Fn() -> std::result::Result<RestFlowMcpServer, std::io::Error> + Clone {
+    move || Ok(server.clone())
 }
 
 fn build_streamable_http_server_config(
@@ -199,10 +203,11 @@ fn is_expected_connection_close(error: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        ERROR_CONTENT_TYPE, RECOVERY_HEADER, RECOVERY_REINITIALIZE,
+        ERROR_CONTENT_TYPE, RECOVERY_HEADER, RECOVERY_REINITIALIZE, build_mcp_server_factory,
         build_streamable_http_server_config, is_expected_connection_close,
         normalize_mcp_error_response,
     };
+    use crate::AppCore;
     use bytes::Bytes;
     use http::{
         Response, StatusCode,
@@ -210,6 +215,8 @@ mod tests {
     };
     use http_body_util::{BodyExt, Full};
     use serde_json::Value;
+    use std::sync::Arc;
+    use tempfile::tempdir;
     use tokio_util::sync::CancellationToken;
 
     #[test]
@@ -231,6 +238,22 @@ mod tests {
     fn mcp_http_server_config_uses_stateless_mode() {
         let config = build_streamable_http_server_config(CancellationToken::new());
         assert!(!config.stateful_mode);
+    }
+
+    #[tokio::test]
+    async fn mcp_server_factory_returns_cloneable_server_instances() {
+        let temp = tempdir().expect("tempdir");
+        let db_path = temp.path().join("mcp-http-factory.db");
+        let core = Arc::new(
+            AppCore::new(db_path.to_str().expect("db path utf8"))
+                .await
+                .expect("app core"),
+        );
+        let factory = build_mcp_server_factory(super::RestFlowMcpServer::new(core));
+
+        let first = factory().expect("first server");
+        let second = factory().expect("second server");
+        drop((first, second));
     }
 
     #[tokio::test]
