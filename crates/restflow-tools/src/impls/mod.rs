@@ -97,7 +97,7 @@ pub use process::ProcessTool;
 pub use python_backend::{PythonExecutionBackend, PythonExecutionLimits};
 pub use reply::ReplyTool;
 pub use save_deliverable::SaveDeliverableTool;
-pub use secrets::SecretsTool;
+pub use secrets::{SecretGetPolicy, SecretsTool};
 pub use session::SessionTool;
 pub use skill::SkillTool;
 pub use switch_model::SwitchModelTool;
@@ -126,7 +126,7 @@ pub use batch::BatchTool;
 
 // Re-export core-migrated tools
 pub use list_subagents::ListSubagentsTool;
-pub use registry_builder::{BashConfig, FileConfig, ToolRegistryBuilder, default_registry};
+pub use registry_builder::{BashConfig, FileConfig, SecretsConfig, ToolRegistryBuilder, default_registry};
 pub use spawn::SpawnTool;
 pub use spawn_subagent::SpawnSubagentTool;
 pub use use_skill::UseSkillTool;

@@ -47,7 +47,7 @@ pub use impls::{
     AgentCrudTool, AuthProfileTool, BackgroundAgentTool, ConfigTool, DeleteMemoryTool,
     DiagnosticsTool, JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool, ProcessTool,
     PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool, ReplyTool,
-    RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretsTool, SessionTool, SkillTool,
+    RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool,
     SwitchModelTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool, WebSearchTool,
     WorkItemTool,
 };
@@ -66,8 +66,8 @@ pub use impls::BatchTool;
 
 // Re-export core-migrated tools
 pub use impls::{
-    BashConfig, FileConfig, ListSubagentsTool, SpawnSubagentTool, SpawnTool, ToolRegistryBuilder,
-    UseSkillTool, WaitSubagentsTool, default_registry,
+    BashConfig, FileConfig, ListSubagentsTool, SecretsConfig, SpawnSubagentTool, SpawnTool,
+    ToolRegistryBuilder, UseSkillTool, WaitSubagentsTool, default_registry,
 };
 
 // Re-export skill types from restflow-traits

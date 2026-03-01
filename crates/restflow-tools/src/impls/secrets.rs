@@ -14,6 +14,15 @@ use crate::{Tool, ToolError, ToolOutput};
 pub struct SecretsTool {
     storage: Arc<SecretStorage>,
     allow_write: bool,
+    get_policy: SecretGetPolicy,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum SecretGetPolicy {
+    #[default]
+    Open,
+    MetadataOnly,
+    Deny,
 }
 
 impl SecretsTool {
@@ -21,11 +30,17 @@ impl SecretsTool {
         Self {
             storage,
             allow_write: false,
+            get_policy: SecretGetPolicy::Open,
         }
     }
 
     pub fn with_write(mut self, allow_write: bool) -> Self {
         self.allow_write = allow_write;
+        self
+    }
+
+    pub fn with_get_policy(mut self, get_policy: SecretGetPolicy) -> Self {
+        self.get_policy = get_policy;
         self
     }
 
@@ -113,11 +128,24 @@ impl Tool for SecretsTool {
                     .storage
                     .get_secret(&key)
                     .map_err(|e| ToolError::Tool(format!("Failed to get secret: {e}")))?;
-                ToolOutput::success(json!({
-                    "key": key,
-                    "found": value.is_some(),
-                    "value": value
-                }))
+                match self.get_policy {
+                    SecretGetPolicy::Open => ToolOutput::success(json!({
+                        "key": key,
+                        "found": value.is_some(),
+                        "value": value
+                    })),
+                    SecretGetPolicy::MetadataOnly => ToolOutput::success(json!({
+                        "key": key,
+                        "found": value.is_some(),
+                        "value": Value::Null
+                    })),
+                    SecretGetPolicy::Deny => {
+                        return Err(ToolError::Tool(
+                            "Reading secret values is disabled by policy. Use list/has for non-sensitive checks."
+                                .to_string(),
+                        ));
+                    }
+                }
             }
             SecretsAction::Set {
                 key,
@@ -232,5 +260,38 @@ mod tests {
             err.to_string()
                 .contains("Available read-only operations: list, has")
         );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_get_metadata_only_policy_redacts_value() {
+        let (storage, _temp_dir) = setup_storage();
+        storage
+            .set_secret("TEST_KEY", "value", Some("desc".to_string()))
+            .unwrap();
+
+        let tool = SecretsTool::new(storage).with_get_policy(SecretGetPolicy::MetadataOnly);
+        let output = tool
+            .execute(json!({ "operation": "get", "key": "TEST_KEY" }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["found"], true);
+        assert_eq!(output.result["value"], Value::Null);
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_get_deny_policy_blocks_read() {
+        let (storage, _temp_dir) = setup_storage();
+        storage
+            .set_secret("TEST_KEY", "value", Some("desc".to_string()))
+            .unwrap();
+
+        let tool = SecretsTool::new(storage).with_get_policy(SecretGetPolicy::Deny);
+        let result = tool
+            .execute(json!({ "operation": "get", "key": "TEST_KEY" }))
+            .await;
+        let err = result.expect_err("expected get policy deny error");
+        assert!(err.to_string().contains("Reading secret values is disabled by policy"));
     }
 }

@@ -27,6 +27,7 @@ use restflow_tools::SwitchModelTool;
 use restflow_traits::store::{
     MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
 };
+use restflow_traits::tool::ToolErrorCategory;
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -66,6 +67,9 @@ pub struct RuntimeToolResult {
     pub success: bool,
     pub result: Value,
     pub error: Option<String>,
+    pub error_category: Option<ToolErrorCategory>,
+    pub retryable: Option<bool>,
+    pub retry_after_ms: Option<u64>,
 }
 
 #[async_trait::async_trait]
@@ -176,6 +180,7 @@ fn create_runtime_tool_registry_for_core(
         core.storage.triggers.clone(),
         core.storage.terminal_sessions.clone(),
         core.storage.deliverables.clone(),
+        None,
         None,
         None,
     )
@@ -635,6 +640,9 @@ impl McpBackend for CoreBackend {
             success: output.success,
             result: output.result,
             error: output.error,
+            error_category: output.error_category,
+            retryable: output.retryable,
+            retry_after_ms: output.retry_after_ms,
         })
     }
 }
@@ -997,6 +1005,9 @@ impl McpBackend for IpcBackend {
             success: output.success,
             result: output.result,
             error: output.error,
+            error_category: output.error_category,
+            retryable: output.retryable,
+            retry_after_ms: output.retry_after_ms,
         })
     }
 }
@@ -2217,6 +2228,9 @@ impl RestFlowMcpServer {
             let payload = serde_json::json!({
                 "tool": name,
                 "error": message,
+                "error_category": output.error_category,
+                "retryable": output.retryable,
+                "retry_after_ms": output.retry_after_ms,
                 "details": output.result,
             });
             Err(serde_json::to_string_pretty(&payload)
@@ -3844,6 +3858,9 @@ mod tests {
                     success: true,
                     result: input,
                     error: None,
+                    error_category: None,
+                    retryable: None,
+                    retry_after_ms: None,
                 })
             } else if name == "fail_runtime" {
                 Ok(RuntimeToolResult {
@@ -3854,6 +3871,9 @@ mod tests {
                         "stderr": "err"
                     }),
                     error: Some("Command exited with code 7".to_string()),
+                    error_category: Some(ToolErrorCategory::Execution),
+                    retryable: Some(false),
+                    retry_after_ms: None,
                 })
             } else {
                 Err(format!("Unknown runtime tool: {}", name))
@@ -4067,6 +4087,9 @@ mod tests {
         let value: serde_json::Value = serde_json::from_str(&err).unwrap();
         assert_eq!(value["tool"], "fail_runtime");
         assert_eq!(value["error"], "Command exited with code 7");
+        assert_eq!(value["error_category"], "Execution");
+        assert_eq!(value["retryable"], false);
+        assert_eq!(value["retry_after_ms"], serde_json::Value::Null);
         assert_eq!(value["details"]["exit_code"], 7);
         assert_eq!(value["details"]["stdout"], "out");
         assert_eq!(value["details"]["stderr"], "err");

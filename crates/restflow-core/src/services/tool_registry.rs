@@ -21,10 +21,11 @@ use restflow_ai::llm::{
     LlmSwitcherImpl, SwappableLlm,
 };
 use restflow_tools::{
-    ListSubagentsTool, ProcessTool, ReplyTool, SpawnSubagentTool, SwitchModelTool,
-    ToolRegistryBuilder, WaitSubagentsTool,
+    EmailTool, HttpTool, ListSubagentsTool, ProcessTool, PythonTool, ReplyTool, RunPythonTool,
+    SpawnSubagentTool, SwitchModelTool, ToolRegistryBuilder, WaitSubagentsTool,
 };
 use restflow_traits::registry::ToolRegistry;
+use restflow_traits::security::SecurityGate;
 use restflow_traits::store::{ProcessManager, ReplySender};
 use restflow_traits::tool::SecretResolver;
 use std::collections::{HashMap, HashSet};
@@ -35,6 +36,8 @@ use tokio::sync::mpsc;
 
 #[derive(Debug)]
 struct UnavailableReplySender;
+const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";
+const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 
 impl ReplySender for UnavailableReplySender {
     fn send(&self, _message: String) -> Pin<Box<dyn Future<Output = anyhow::Result<()>> + Send>> {
@@ -119,6 +122,7 @@ fn create_subagent_manager(
 /// - SkillTool that can access skills from storage
 /// - Memory search tool for unified memory and session search
 /// - Agent memory CRUD tools (save_to_memory, read_memory, etc.) — always registered, agent_id is a tool input
+/// - Optional security gate wiring for execution tools; `None` keeps default permissive behavior
 #[allow(clippy::too_many_arguments)]
 pub fn create_tool_registry(
     skill_storage: SkillStorage,
@@ -136,7 +140,8 @@ pub fn create_tool_registry(
     terminal_storage: TerminalSessionStorage,
     deliverable_storage: crate::storage::DeliverableStorage,
     accessor_id: Option<String>,
-    _agent_id: Option<String>,
+    agent_id: Option<String>,
+    security_gate: Option<Arc<dyn SecurityGate>>,
 ) -> anyhow::Result<ToolRegistry> {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let lsp_manager = Arc::new(LspManager::new(root));
@@ -190,15 +195,71 @@ pub fn create_tool_registry(
     let llm_client_factory = build_llm_factory(Some(&secret_storage));
     let switch_model_tool = build_switch_model_tool(llm_client_factory.clone());
 
-    let mut registry = ToolRegistryBuilder::new()
-        .with_bash(restflow_tools::BashConfig::default())
-        .with_file(restflow_tools::FileConfig::default())
-        .with_http()?
-        .with_email()
+    let mut builder = ToolRegistryBuilder::new();
+    if let Some(gate) = security_gate.clone() {
+        builder.registry.register(
+            restflow_tools::BashConfig::default()
+                .into_bash_tool()
+                .with_security(
+                    gate.clone(),
+                    agent_id
+                        .as_deref()
+                        .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                    DEFAULT_SECURITY_TASK_ID,
+                ),
+        );
+        builder.registry.register(
+            restflow_tools::FileConfig::default()
+                .into_file_tool_with_tracker(builder.tracker())
+                .with_security(
+                    gate.clone(),
+                    agent_id
+                        .as_deref()
+                        .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                    DEFAULT_SECURITY_TASK_ID,
+                ),
+        );
+        builder.registry.register(HttpTool::new()?.with_security(
+            gate.clone(),
+            agent_id
+                .as_deref()
+                .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+            DEFAULT_SECURITY_TASK_ID,
+        ));
+        builder.registry.register(EmailTool::new().with_security(
+            gate.clone(),
+            agent_id
+                .as_deref()
+                .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+            DEFAULT_SECURITY_TASK_ID,
+        ));
+        builder.registry.register(RunPythonTool::new().with_security(
+            gate.clone(),
+            agent_id
+                .as_deref()
+                .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+            DEFAULT_SECURITY_TASK_ID,
+        ));
+        builder.registry.register(PythonTool::new().with_security(
+            gate,
+            agent_id
+                .as_deref()
+                .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+            DEFAULT_SECURITY_TASK_ID,
+        ));
+    } else {
+        builder = builder
+            .with_bash(restflow_tools::BashConfig::default())
+            .with_file(restflow_tools::FileConfig::default())
+            .with_http()?
+            .with_email()
+            .with_python();
+    }
+
+    let mut registry = builder
         .with_telegram()?
         .with_discord()?
         .with_slack()?
-        .with_python()
         .with_browser()?
         .with_patch()
         .with_edit_and_diagnostics(Some(lsp_manager.clone()))
@@ -411,6 +472,7 @@ mod tests {
             deliverable_storage,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -489,6 +551,7 @@ mod tests {
             deliverable_storage,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -551,6 +614,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             deliverable_storage,
+            None,
             None,
             None,
         )
@@ -721,6 +785,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             deliverable_storage,
+            None,
             None,
             None,
         )
@@ -1329,6 +1394,7 @@ mod tests {
             deliverable_storage,
             None,
             None,
+            None,
         )
         .unwrap();
 
@@ -1388,6 +1454,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             deliverable_storage,
+            None,
             None,
             None,
         )
@@ -1464,6 +1531,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             deliverable_storage,
+            None,
             None,
             None,
         )
@@ -1560,6 +1628,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             deliverable_storage,
+            None,
             None,
             None,
         )
@@ -1717,6 +1786,7 @@ mod tests {
             trigger_storage,
             terminal_storage,
             deliverable_storage,
+            None,
             None,
             None,
         )
