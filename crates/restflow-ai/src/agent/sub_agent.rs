@@ -183,28 +183,25 @@ impl SubagentTracker {
 
     /// Wait for a specific sub-agent to complete
     pub async fn wait(&self, id: &str) -> Option<SubagentResult> {
-        if let Some(state) = self.states.get(id)
-            && let Some(result) = state.result.clone()
-        {
-            self.completion_waiters.remove(id);
-            return Some(result);
-        }
-
-        if let Some((_, receiver)) = self.completion_waiters.remove(id) {
-            match receiver.await {
-                Ok(result) => {
-                    if self.states.get(id).and_then(|s| s.result.clone()).is_none() {
-                        self.mark_completed(id, result.clone());
-                    }
-                    return Some(result);
-                }
-                Err(_) => {
-                    return self.states.get(id).and_then(|s| s.result.clone());
-                }
+        loop {
+            let state = self.states.get(id)?;
+            if let Some(result) = state.result.clone() {
+                return Some(result);
             }
-        }
 
-        self.states.get(id).and_then(|s| s.result.clone())
+            // If the task is no longer running but has no result payload
+            // (e.g. cancelled before producing a result), treat it as completed
+            // from waiter's perspective and return None.
+            if !matches!(
+                state.status,
+                SubagentStatus::Pending | SubagentStatus::Running
+            ) {
+                return None;
+            }
+
+            drop(state);
+            tokio::time::sleep(Duration::from_millis(25)).await;
+        }
     }
 
     /// Wait for all running sub-agents to complete
@@ -1199,6 +1196,54 @@ mod tests {
         );
 
         let _ = abort_tx.send(());
+    }
+
+    #[tokio::test]
+    async fn test_wait_timeout_is_retryable() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+
+        let (completion_tx, completion_rx) = oneshot::channel();
+        let task_id = "wait-retry-test".to_string();
+
+        let handle = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(120)).await;
+            let result = SubagentResult {
+                success: true,
+                output: "done".to_string(),
+                summary: None,
+                duration_ms: 120,
+                tokens_used: None,
+                cost_usd: None,
+                error: None,
+            };
+            let _ = completion_tx.send(result.clone());
+            result
+        });
+
+        tracker.register(
+            task_id.clone(),
+            "tester".to_string(),
+            "retry wait".to_string(),
+            handle,
+            completion_rx,
+        );
+
+        // Simulate wait_subagents-level timeout on first attempt.
+        let first_wait =
+            tokio::time::timeout(Duration::from_millis(20), tracker.wait(&task_id)).await;
+        assert!(first_wait.is_err(), "first wait should time out");
+
+        // A second wait should still be able to read the final result.
+        let second_wait =
+            tokio::time::timeout(Duration::from_secs(1), tracker.wait(&task_id)).await;
+        assert!(second_wait.is_ok(), "second wait should complete");
+
+        let result = second_wait
+            .expect("second wait future should finish")
+            .expect("completed task should return result");
+        assert!(result.success);
+        assert_eq!(result.output, "done");
     }
 
     #[tokio::test]
