@@ -425,4 +425,3 @@ mod tests {
         assert_eq!(queue.get_stats().pending, max_queue_size);
     }
 }
-
