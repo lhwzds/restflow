@@ -6,23 +6,29 @@
  * Replaces the entire chat layout when active.
  */
 import { ref } from 'vue'
-import { ArrowLeft, Key, KeyRound } from 'lucide-vue-next'
+import { ArrowLeft, Database, Key, KeyRound, Store, Webhook } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import SecretsSection from './SecretsSection.vue'
 import AuthProfiles from './AuthProfiles.vue'
+import HooksSection from './HooksSection.vue'
+import MarketplaceSection from './MarketplaceSection.vue'
+import MemorySection from './MemorySection.vue'
 
 const emit = defineEmits<{
   back: []
 }>()
 
-type SettingsSection = 'secrets' | 'auth'
+type SettingsSection = 'secrets' | 'auth' | 'hooks' | 'marketplace' | 'memory'
 
 const activeSection = ref<SettingsSection>('secrets')
 
 const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
   { id: 'secrets', label: 'Secrets', icon: Key },
   { id: 'auth', label: 'Auth Profiles', icon: KeyRound },
+  { id: 'hooks', label: 'Hooks', icon: Webhook },
+  { id: 'marketplace', label: 'Marketplace', icon: Store },
+  { id: 'memory', label: 'Memory', icon: Database },
 ]
 </script>
 
@@ -84,6 +90,9 @@ const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
       <div class="max-w-[48rem]">
         <SecretsSection v-if="activeSection === 'secrets'" />
         <AuthProfiles v-else-if="activeSection === 'auth'" />
+        <HooksSection v-else-if="activeSection === 'hooks'" />
+        <MarketplaceSection v-else-if="activeSection === 'marketplace'" />
+        <MemorySection v-else-if="activeSection === 'memory'" />
       </div>
     </div>
   </div>
