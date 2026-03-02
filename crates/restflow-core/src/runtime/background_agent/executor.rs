@@ -46,6 +46,10 @@ use super::model_catalog::ModelCatalog;
 use super::preflight::{PreflightCategory, PreflightIssue, run_preflight};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
+use super::skill_snapshot::{
+    SkillSnapshotCache, SkillSnapshotKey, SkillSnapshotPayload, build_skill_filter_signature,
+    build_skill_version_hash, build_trigger_context_signature,
+};
 use crate::runtime::agent::{
     BashConfig, SubagentDeps, SubagentManager, SubagentManagerImpl, ToolRegistry,
     build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
@@ -70,6 +74,7 @@ pub struct AgentRuntimeExecutor {
     subagent_tracker: Arc<SubagentTracker>,
     subagent_definitions: Arc<dyn SubagentDefLookup>,
     subagent_config: SubagentConfig,
+    skill_snapshot_cache: Arc<SkillSnapshotCache>,
     reply_sender: Option<Arc<dyn ReplySender>>,
     reply_sender_factory: Option<Arc<dyn ReplySenderFactory>>,
 }
@@ -120,6 +125,12 @@ pub enum SessionInputMode {
     PersistedInSession,
     /// Latest user input is provided only as runtime input for this turn.
     EphemeralInput,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedSkillSnapshot {
+    triggered_skill_ids: Vec<String>,
+    resolved_skills: Vec<Skill>,
 }
 
 struct RuntimeModelSwitcher {
@@ -251,6 +262,7 @@ impl AgentRuntimeExecutor {
             subagent_tracker,
             subagent_definitions,
             subagent_config,
+            skill_snapshot_cache: Arc::new(SkillSnapshotCache::default()),
             reply_sender: None,
             reply_sender_factory: None,
         }
@@ -657,7 +669,8 @@ impl AgentRuntimeExecutor {
             .unwrap_or_default();
 
         if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
-            let triggered_skill_ids = self.resolve_triggered_skill_ids(input)?;
+            let triggered_skill_ids =
+                self.resolve_triggered_skill_ids(agent_node, agent_id, input)?;
 
             // SECURITY: Only allow triggered skills that are in agent's skill list
             // This prevents capability scope expansion via crafted input
@@ -688,13 +701,14 @@ impl AgentRuntimeExecutor {
         Ok(format!("{base_prompt}\n\n{policy_prompt}"))
     }
 
-    fn resolve_triggered_skill_ids(&self, user_input: &str) -> Result<Vec<String>> {
-        let skills = self.storage.skills.list()?;
-        let matches = match_triggers(user_input, &skills);
-        Ok(matches
-            .into_iter()
-            .map(|matched| matched.skill_id)
-            .collect())
+    fn resolve_triggered_skill_ids(
+        &self,
+        agent_node: &AgentNode,
+        agent_id: Option<&str>,
+        user_input: &str,
+    ) -> Result<Vec<String>> {
+        self.resolve_skill_snapshot(agent_node, agent_id, Some(user_input))
+            .map(|snapshot| snapshot.triggered_skill_ids)
     }
 
     fn resolve_preflight_skills(
@@ -702,38 +716,81 @@ impl AgentRuntimeExecutor {
         agent_node: &AgentNode,
         user_input: Option<&str>,
     ) -> Result<Vec<Skill>> {
-        // SECURITY: Start with only agent's assigned skills
-        let mut skill_ids = agent_node.skills.clone().unwrap_or_default();
+        self.resolve_skill_snapshot(agent_node, None, user_input)
+            .map(|snapshot| snapshot.resolved_skills)
+    }
 
-        // SECURITY: Build allowed skill set from agent's assigned skills
-        let allowed_skills: HashSet<String> = agent_node
-            .skills
-            .as_ref()
-            .map(|s| s.iter().cloned().collect())
-            .unwrap_or_default();
+    fn resolve_skill_snapshot(
+        &self,
+        agent_node: &AgentNode,
+        agent_id: Option<&str>,
+        user_input: Option<&str>,
+    ) -> Result<ResolvedSkillSnapshot> {
+        let normalized_input = user_input.map(str::trim).filter(|value| !value.is_empty());
+        let key = SkillSnapshotKey::new(
+            agent_id.map(|value| value.to_string()),
+            build_skill_filter_signature(agent_node.skills.as_deref()),
+            build_trigger_context_signature(normalized_input),
+        );
 
-        if let Some(input) = user_input.map(str::trim).filter(|value| !value.is_empty()) {
-            let triggered_skill_ids = self.resolve_triggered_skill_ids(input)?;
-            // SECURITY: Only allow triggered skills that are in agent's skill list
-            for skill_id in triggered_skill_ids {
-                if allowed_skills.contains(&skill_id)
-                    && !skill_ids.iter().any(|existing| existing == &skill_id)
-                {
-                    skill_ids.push(skill_id);
+        let all_skills = self.storage.skills.list()?;
+        let version_hash = build_skill_version_hash(&all_skills);
+
+        let mut assigned_skill_ids = agent_node.skills.clone().unwrap_or_default();
+        let allowed_skills: HashSet<String> = assigned_skill_ids.iter().cloned().collect();
+
+        let lookup = self
+            .skill_snapshot_cache
+            .resolve_with(key, version_hash, move || {
+                let triggered_skill_ids = normalized_input
+                    .map(|input| {
+                        match_triggers(input, &all_skills)
+                            .into_iter()
+                            .map(|matched| matched.skill_id)
+                            .collect::<Vec<String>>()
+                    })
+                    .unwrap_or_default();
+
+                for skill_id in &triggered_skill_ids {
+                    if allowed_skills.contains(skill_id)
+                        && !assigned_skill_ids
+                            .iter()
+                            .any(|existing| existing == skill_id)
+                    {
+                        assigned_skill_ids.push(skill_id.clone());
+                    }
                 }
-            }
+
+                let skill_by_id: HashMap<String, Skill> = all_skills
+                    .into_iter()
+                    .map(|skill| (skill.id.clone(), skill))
+                    .collect();
+                let mut resolved_skills = Vec::new();
+                for skill_id in assigned_skill_ids {
+                    match skill_by_id.get(&skill_id) {
+                        Some(skill) => resolved_skills.push(skill.clone()),
+                        None => {
+                            warn!(skill_id = %skill_id, "Skill referenced by agent not found during preflight")
+                        }
+                    }
+                }
+
+                Ok(SkillSnapshotPayload {
+                    resolved_skills,
+                    triggered_skill_ids,
+                })
+            })?;
+
+        if lookup.hit {
+            debug!("Skill snapshot cache hit");
+        } else {
+            debug!("Skill snapshot cache miss");
         }
 
-        let mut skills = Vec::new();
-        for skill_id in skill_ids {
-            match self.storage.skills.get(&skill_id)? {
-                Some(skill) => skills.push(skill),
-                None => {
-                    warn!(skill_id = %skill_id, "Skill referenced by agent not found during preflight")
-                }
-            }
-        }
-        Ok(skills)
+        Ok(ResolvedSkillSnapshot {
+            triggered_skill_ids: lookup.payload.triggered_skill_ids,
+            resolved_skills: lookup.payload.resolved_skills,
+        })
     }
 
     async fn run_preflight_check(
@@ -750,6 +807,7 @@ impl AgentRuntimeExecutor {
             &available_tools,
             agent_node.skill_variables.as_ref(),
             true,
+            agent_node.effective_skill_preflight_policy_mode(),
         );
 
         if !primary_model.is_codex_cli()

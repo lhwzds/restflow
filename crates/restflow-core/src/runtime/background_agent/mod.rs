@@ -170,6 +170,7 @@ pub mod preflight;
 pub mod reply_sender;
 pub mod retry;
 pub mod runner;
+pub mod skill_snapshot;
 #[cfg(any(test, feature = "test-utils"))]
 pub mod testkit;
 pub mod transactional_checkpoint;
