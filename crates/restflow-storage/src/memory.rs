@@ -537,85 +537,77 @@ impl MemoryStorage {
 
     /// Delete all chunks for an agent with full index cleanup.
     pub fn delete_all_chunks_for_agent(&self, agent_id: &str) -> Result<u32> {
-        // Collect chunk IDs via agent index
-        let read_txn = self.db.begin_read()?;
-        let agent_idx = read_txn.open_table(AGENT_INDEX_TABLE)?;
-
-        let prefix = format!("{}:", agent_id);
-        let (start, end) = prefix_range(&prefix);
-        let mut chunk_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-        for item in agent_idx.range(start.as_str()..end.as_str())? {
-            let (_, value) = item?;
-            chunk_ids.insert(value.value().to_string());
-        }
-
-        if chunk_ids.is_empty() {
-            return Ok(0);
-        }
-        let count = chunk_ids.len() as u32;
-
-        // Scan secondary indexes for entries referencing deleted chunk IDs
-        let mut hash_keys: Vec<String> = Vec::new();
-        let hash_idx = read_txn.open_table(HASH_INDEX_TABLE)?;
-        for item in hash_idx.iter()? {
-            let (key, value) = item?;
-            if chunk_ids.contains(value.value()) {
-                hash_keys.push(key.value().to_string());
-            }
-        }
-
-        let mut session_keys: Vec<String> = Vec::new();
-        let session_idx = read_txn.open_table(SESSION_INDEX_TABLE)?;
-        for item in session_idx.iter()? {
-            let (key, value) = item?;
-            if chunk_ids.contains(value.value()) {
-                session_keys.push(key.value().to_string());
-            }
-        }
-
-        let mut tag_keys: Vec<String> = Vec::new();
-        let tag_idx = read_txn.open_table(TAG_INDEX_TABLE)?;
-        for item in tag_idx.iter()? {
-            let (key, value) = item?;
-            if chunk_ids.contains(value.value()) {
-                tag_keys.push(key.value().to_string());
-            }
-        }
-
-        drop(tag_idx);
-        drop(session_idx);
-        drop(hash_idx);
-        drop(agent_idx);
-        drop(read_txn);
-
-        // Delete everything in a single write transaction
         let write_txn = self.db.begin_write()?;
-        {
+        let count = {
+            use std::collections::HashSet;
+
             let mut chunk_table = write_txn.open_table(MEMORY_CHUNK_TABLE)?;
             let mut agent_index = write_txn.open_table(AGENT_INDEX_TABLE)?;
-
-            for chunk_id in &chunk_ids {
-                chunk_table.remove(chunk_id.as_str())?;
-                let agent_key = format!("{}:{}", agent_id, chunk_id);
-                agent_index.remove(agent_key.as_str())?;
-            }
-
-            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
-            for key in &hash_keys {
-                hash_index.remove(key.as_str())?;
-            }
-
             let mut session_index = write_txn.open_table(SESSION_INDEX_TABLE)?;
-            for key in &session_keys {
-                session_index.remove(key.as_str())?;
+            let mut hash_index = write_txn.open_table(HASH_INDEX_TABLE)?;
+            let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
+
+            let prefix = format!("{}:", agent_id);
+            let (start, end) = prefix_range(&prefix);
+
+            let mut chunk_ids: HashSet<String> = HashSet::new();
+            let mut agent_keys: Vec<String> = Vec::new();
+            for item in agent_index.range(start.as_str()..end.as_str())? {
+                let (key, value) = item?;
+                chunk_ids.insert(value.value().to_string());
+                agent_keys.push(key.value().to_string());
             }
 
-            let mut tag_index = write_txn.open_table(TAG_INDEX_TABLE)?;
-            for key in &tag_keys {
-                tag_index.remove(key.as_str())?;
+            if chunk_ids.is_empty() {
+                0
+            } else {
+                let mut hash_keys: Vec<String> = Vec::new();
+                for item in hash_index.iter()? {
+                    let (key, value) = item?;
+                    if chunk_ids.contains(value.value()) {
+                        hash_keys.push(key.value().to_string());
+                    }
+                }
+
+                let mut session_keys: Vec<String> = Vec::new();
+                for item in session_index.iter()? {
+                    let (key, value) = item?;
+                    if chunk_ids.contains(value.value()) {
+                        session_keys.push(key.value().to_string());
+                    }
+                }
+
+                let mut tag_keys: Vec<String> = Vec::new();
+                for item in tag_index.iter()? {
+                    let (key, value) = item?;
+                    if chunk_ids.contains(value.value()) {
+                        tag_keys.push(key.value().to_string());
+                    }
+                }
+
+                for chunk_id in &chunk_ids {
+                    chunk_table.remove(chunk_id.as_str())?;
+                }
+
+                for key in &agent_keys {
+                    agent_index.remove(key.as_str())?;
+                }
+
+                for key in &hash_keys {
+                    hash_index.remove(key.as_str())?;
+                }
+
+                for key in &session_keys {
+                    session_index.remove(key.as_str())?;
+                }
+
+                for key in &tag_keys {
+                    tag_index.remove(key.as_str())?;
+                }
+
+                chunk_ids.len() as u32
             }
-        }
+        };
         write_txn.commit()?;
 
         Ok(count)
@@ -623,24 +615,36 @@ impl MemoryStorage {
 
     /// Delete all sessions for an agent
     pub fn delete_all_sessions_for_agent(&self, agent_id: &str) -> Result<u32> {
-        let sessions = self.list_sessions_by_agent_raw(agent_id)?;
-        let count = sessions.len() as u32;
-
-        if count == 0 {
-            return Ok(0);
-        }
-
         let write_txn = self.db.begin_write()?;
-        {
+        let count = {
             let mut session_table = write_txn.open_table(MEMORY_SESSION_TABLE)?;
             let mut agent_session_index = write_txn.open_table(AGENT_SESSION_INDEX_TABLE)?;
 
-            for (session_id, _) in &sessions {
-                session_table.remove(session_id.as_str())?;
-                let index_key = format!("{}:{}", agent_id, session_id);
-                agent_session_index.remove(index_key.as_str())?;
+            let prefix = format!("{}:", agent_id);
+            let (start, end) = prefix_range(&prefix);
+            let mut session_ids: Vec<String> = Vec::new();
+            let mut index_keys: Vec<String> = Vec::new();
+
+            for item in agent_session_index.range(start.as_str()..end.as_str())? {
+                let (key, value) = item?;
+                session_ids.push(value.value().to_string());
+                index_keys.push(key.value().to_string());
             }
-        }
+
+            if session_ids.is_empty() {
+                0
+            } else {
+                for session_id in &session_ids {
+                    session_table.remove(session_id.as_str())?;
+                }
+
+                for key in &index_keys {
+                    agent_session_index.remove(key.as_str())?;
+                }
+
+                session_ids.len() as u32
+            }
+        };
         write_txn.commit()?;
 
         Ok(count)
@@ -650,6 +654,9 @@ impl MemoryStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Arc, mpsc};
+    use std::thread;
+    use std::time::Duration;
     use tempfile::tempdir;
 
     fn create_test_storage() -> MemoryStorage {
@@ -1101,6 +1108,75 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_all_chunks_for_agent_blocks_concurrent_writes() {
+        let storage = create_test_storage();
+
+        let existing_chunks = 32;
+        for idx in 0..existing_chunks {
+            let chunk_id = format!("chunk-{idx:03}");
+            let hash = format!("hash-{idx:03}");
+            storage
+                .put_chunk_raw(
+                    chunk_id.as_str(),
+                    "agent-001",
+                    None,
+                    hash.as_str(),
+                    &[],
+                    b"data",
+                )
+                .unwrap();
+        }
+
+        let delete_storage = storage.clone();
+        let delete_handle = thread::spawn(move || {
+            delete_storage
+                .delete_all_chunks_for_agent("agent-001")
+                .unwrap()
+        });
+
+        let (start_tx, start_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let insert_storage = storage.clone();
+        let insert_handle = thread::spawn(move || {
+            start_rx.recv().unwrap();
+            insert_storage
+                .put_chunk_raw(
+                    "chunk-concurrent",
+                    "agent-001",
+                    None,
+                    "hash-concurrent",
+                    &[],
+                    b"late",
+                )
+                .unwrap();
+            done_tx.send(()).unwrap();
+        });
+
+        // Ensure the delete thread has time to acquire the write lock before inserts start
+        thread::sleep(Duration::from_millis(10));
+        start_tx.send(()).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        let deleted = delete_handle.join().unwrap();
+        assert!(
+            deleted == existing_chunks || deleted == existing_chunks + 1,
+            "deleted count should only include existing chunks, optionally including the concurrent chunk if it committed first",
+        );
+
+        done_rx.recv().unwrap();
+        insert_handle.join().unwrap();
+
+        let remaining = storage.list_chunks_by_agent_raw("agent-001").unwrap();
+        assert!(
+            remaining.len() <= 1,
+            "after concurrent delete/insert there should be at most one remaining chunk",
+        );
+        if let Some((chunk_id, _)) = remaining.first() {
+            assert_eq!(chunk_id, "chunk-concurrent");
+        }
+    }
+
+    #[test]
     fn test_delete_all_sessions_for_agent() {
         let storage = create_test_storage();
 
@@ -1123,6 +1199,59 @@ mod tests {
         // agent-002 sessions should still exist
         let sessions_agent2 = storage.list_sessions_by_agent_raw("agent-002").unwrap();
         assert_eq!(sessions_agent2.len(), 1);
+    }
+
+    #[test]
+    fn test_delete_all_sessions_for_agent_blocks_concurrent_writes() {
+        let storage = create_test_storage();
+
+        let existing_sessions = 8;
+        for idx in 0..existing_sessions {
+            let session_id = format!("session-{idx:03}");
+            storage
+                .put_session_raw(session_id.as_str(), "agent-001", b"session-data")
+                .unwrap();
+        }
+
+        let delete_storage = storage.clone();
+        let delete_handle = thread::spawn(move || {
+            delete_storage
+                .delete_all_sessions_for_agent("agent-001")
+                .unwrap()
+        });
+
+        let (start_tx, start_rx) = mpsc::channel();
+        let (done_tx, done_rx) = mpsc::channel();
+        let insert_storage = storage.clone();
+        let insert_handle = thread::spawn(move || {
+            start_rx.recv().unwrap();
+            insert_storage
+                .put_session_raw("session-concurrent", "agent-001", b"late")
+                .unwrap();
+            done_tx.send(()).unwrap();
+        });
+
+        thread::sleep(Duration::from_millis(10));
+        start_tx.send(()).unwrap();
+        thread::sleep(Duration::from_millis(10));
+
+        let deleted = delete_handle.join().unwrap();
+        assert!(
+            deleted == existing_sessions || deleted == existing_sessions + 1,
+            "deleted count should only include existing sessions, optionally including the concurrent session if it committed first",
+        );
+
+        done_rx.recv().unwrap();
+        insert_handle.join().unwrap();
+
+        let sessions = storage.list_sessions_by_agent_raw("agent-001").unwrap();
+        assert!(
+            sessions.len() <= 1,
+            "after concurrent delete/insert there should be at most one remaining session",
+        );
+        if let Some((session_id, _)) = sessions.first() {
+            assert_eq!(session_id, "session-concurrent");
+        }
     }
 
     #[test]
