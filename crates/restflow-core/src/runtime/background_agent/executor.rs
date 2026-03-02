@@ -1573,6 +1573,13 @@ impl AgentRuntimeExecutor {
             self.resolve_primary_model(&agent_node).await?
         };
         let primary_provider = primary_model.provider();
+        self.run_preflight_check(
+            &agent_node,
+            primary_model,
+            primary_provider,
+            Some(user_input),
+        )
+        .await?;
         let failover_config = self
             .build_failover_config(primary_model, agent_node.api_key_config.as_ref())
             .await;
@@ -2317,6 +2324,8 @@ impl AgentRuntimeExecutor {
         let agent_node = stored_agent.agent.clone();
         let primary_model = self.resolve_primary_model(&agent_node).await?;
         let primary_provider = primary_model.provider();
+        self.run_preflight_check(&agent_node, primary_model, primary_provider, None)
+            .await?;
 
         self.execute_with_profiles(
             &agent_node,
@@ -2339,7 +2348,9 @@ impl AgentRuntimeExecutor {
 mod tests {
     use super::*;
     use crate::auth::{AuthProvider, Credential, CredentialSource};
-    use crate::models::{AgentNode, MemoryConfig, SharedEntry, Skill, Visibility};
+    use crate::models::{
+        AgentNode, MemoryConfig, SharedEntry, Skill, SkillPreflightPolicyMode, Visibility,
+    };
     use crate::runtime::subagent::AgentDefinitionRegistry;
     use restflow_ai::agent::{SubagentConfig, SubagentTracker};
     use restflow_traits::store::ReplySender;
@@ -2380,6 +2391,18 @@ mod tests {
             content.to_string(),
         );
         skill.triggers = vec![trigger.to_string()];
+        skill
+    }
+
+    fn create_preflight_blocking_skill(id: &str) -> Skill {
+        let mut skill = Skill::new(
+            id.to_string(),
+            "Preflight Blocking Skill".to_string(),
+            Some("Skill with preflight blockers".to_string()),
+            None,
+            "Use {{missing_input}} to proceed".to_string(),
+        );
+        skill.suggested_tools = vec!["missing_tool_for_test".to_string()];
         skill
     }
 
@@ -2755,6 +2778,78 @@ mod tests {
             "Error should mention missing secret: {}",
             err_msg
         );
+    }
+
+    #[tokio::test]
+    async fn test_execute_session_turn_enforces_skill_preflight_policy() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        let skill = create_preflight_blocking_skill("preflight-session-skill");
+        storage.skills.create(&skill).unwrap();
+
+        let agent = AgentNode::with_model(AIModel::CodexCli)
+            .with_skills(vec![skill.id.clone()])
+            .with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Enforce);
+        let stored_agent = storage
+            .agents
+            .create_agent("session-preflight-agent".to_string(), agent)
+            .unwrap();
+
+        let mut session = ChatSession::new(
+            stored_agent.id.clone(),
+            AIModel::CodexCli.as_serialized_str().to_string(),
+        );
+
+        let result = executor
+            .execute_session_turn_with_emitter_and_steer(
+                &mut session,
+                "run preflight check",
+                16,
+                SessionInputMode::EphemeralInput,
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Preflight check failed"));
+        assert!(err.contains("missing_tool"));
+        assert!(err.contains("missing_input"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_from_state_enforces_skill_preflight_policy() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage.clone());
+        let skill = create_preflight_blocking_skill("preflight-resume-skill");
+        storage.skills.create(&skill).unwrap();
+
+        let agent = AgentNode::with_model(AIModel::CodexCli)
+            .with_skills(vec![skill.id.clone()])
+            .with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Enforce);
+        let stored_agent = storage
+            .agents
+            .create_agent("resume-preflight-agent".to_string(), agent)
+            .unwrap();
+
+        let state = restflow_ai::agent::AgentState::new("resume-state-test".to_string(), 8);
+        let result = executor
+            .execute_from_state(
+                &stored_agent.id,
+                None,
+                state,
+                &MemoryConfig::default(),
+                None,
+                None,
+            )
+            .await;
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Preflight check failed"));
+        assert!(err.contains("missing_tool"));
+        assert!(err.contains("missing_input"));
     }
 
     #[tokio::test]
