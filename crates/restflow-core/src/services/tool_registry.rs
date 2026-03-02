@@ -1797,4 +1797,90 @@ mod tests {
         assert!(registry.has("list_memories"));
         assert!(registry.has("delete_memory"));
     }
+
+    #[test]
+    fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let service_registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage.clone(),
+            config_storage,
+            agent_storage.clone(),
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        let subagent_manager = create_subagent_manager(
+            agent_storage,
+            &service_registry,
+            build_llm_factory(Some(&secret_storage)),
+        );
+
+        let allowlist = vec![
+            "http_request".to_string(),
+            "send_email".to_string(),
+            "bash".to_string(),
+            "file".to_string(),
+            "run_python".to_string(),
+            "spawn_subagent".to_string(),
+            "wait_subagents".to_string(),
+            "list_subagents".to_string(),
+        ];
+        let runtime_registry = crate::runtime::agent::tools::registry_from_allowlist(
+            Some(&allowlist),
+            Some(subagent_manager),
+            None,
+            None,
+            None,
+            None,
+        )
+        .unwrap();
+
+        for tool_name in [
+            "http_request",
+            "send_email",
+            "bash",
+            "file",
+            "run_python",
+            "python",
+            "spawn_subagent",
+            "wait_subagents",
+            "list_subagents",
+        ] {
+            assert_eq!(
+                runtime_registry.has(tool_name),
+                service_registry.has(tool_name),
+                "tool presence mismatch for {tool_name}"
+            );
+        }
+    }
 }
