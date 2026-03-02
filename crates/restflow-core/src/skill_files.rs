@@ -6,6 +6,22 @@ use crate::paths;
 const SKILL_FILE_NAME: &str = "SKILL.md";
 const DEFAULT_SKILLS: &[(&str, &str)] = &[
     (
+        "manage-subagent",
+        include_str!("../assets/skills/manage-subagent/SKILL.md"),
+    ),
+    (
+        "manage-background-agent",
+        include_str!("../assets/skills/manage-background-agent/SKILL.md"),
+    ),
+    (
+        "manage-agent",
+        include_str!("../assets/skills/manage-agent/SKILL.md"),
+    ),
+    (
+        "manage-chat-session",
+        include_str!("../assets/skills/manage-chat-session/SKILL.md"),
+    ),
+    (
         "self-heal-ops",
         include_str!("../assets/skills/self-heal-ops/SKILL.md"),
     ),
@@ -130,6 +146,33 @@ mod tests {
     }
 
     #[test]
+    fn creates_new_agent_management_skills() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(RESTFLOW_DIR_ENV, temp.path()) };
+
+        ensure_default_skill_files().unwrap();
+
+        let managed_skills = [
+            "manage-subagent",
+            "manage-background-agent",
+            "manage-agent",
+            "manage-chat-session",
+        ];
+
+        for skill_id in managed_skills {
+            let path = temp
+                .path()
+                .join("skills")
+                .join(skill_id)
+                .join(SKILL_FILE_NAME);
+            assert!(path.exists(), "skill {} should exist", skill_id);
+        }
+
+        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
+    }
+
+    #[test]
     fn does_not_overwrite_existing_skill_file() {
         let _lock = env_lock();
         let temp = tempfile::tempdir().unwrap();
@@ -145,6 +188,27 @@ mod tests {
         assert_eq!(
             std::fs::read_to_string(path).unwrap(),
             "custom-user-content"
+        );
+
+        unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
+    }
+
+    #[test]
+    fn does_not_overwrite_existing_manage_agent_skill_file() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().unwrap();
+        unsafe { std::env::set_var(RESTFLOW_DIR_ENV, temp.path()) };
+
+        let skill_dir = temp.path().join("skills").join("manage-agent");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        let path = skill_dir.join(SKILL_FILE_NAME);
+        std::fs::write(&path, "custom-manage-agent-content").unwrap();
+
+        ensure_default_skill_files().unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(path).unwrap(),
+            "custom-manage-agent-content"
         );
 
         unsafe { std::env::remove_var(RESTFLOW_DIR_ENV) };
