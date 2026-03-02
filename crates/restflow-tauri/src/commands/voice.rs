@@ -18,7 +18,7 @@ use restflow_core::daemon::ToolExecutionResult;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
-use std::sync::{OnceLock, RwLock};
+use std::sync::{OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tauri::{Emitter, State};
 use tokio::sync::{mpsc, watch};
 use tokio_tungstenite::MaybeTlsStream;
@@ -393,6 +393,26 @@ fn live_sessions() -> &'static RwLock<HashMap<String, LiveSession>> {
     SESSIONS.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
+fn map_lock_error<T>(
+    result: Result<T, std::sync::PoisonError<T>>,
+    lock_label: &str,
+) -> Result<T, String> {
+    result.map_err(|err| {
+        error!(lock = lock_label, %err, "Live session lock poisoned");
+        format!("{} lock poisoned", lock_label)
+    })
+}
+
+fn live_sessions_read_guard()
+-> Result<RwLockReadGuard<'static, HashMap<String, LiveSession>>, String> {
+    map_lock_error(live_sessions().read(), "live_sessions read")
+}
+
+fn live_sessions_write_guard()
+-> Result<RwLockWriteGuard<'static, HashMap<String, LiveSession>>, String> {
+    map_lock_error(live_sessions().write(), "live_sessions write")
+}
+
 /// Start a live transcription session using the OpenAI Realtime WebSocket API.
 /// Returns a transcribe_id; text deltas arrive via Tauri `voice:transcribe-stream` events.
 #[specta::specta]
@@ -446,7 +466,8 @@ pub async fn start_live_transcription(
 
     // Register session
     {
-        let mut sessions = live_sessions().write().unwrap();
+        let mut sessions = live_sessions_write_guard()
+            .map_err(|err| format!("Failed to register live session: {}", err))?;
         sessions.insert(transcribe_id.clone(), LiveSession { audio_tx, stop_tx });
     }
 
@@ -483,7 +504,8 @@ pub async fn send_live_audio_chunk(
     audio_base64: String,
 ) -> Result<(), String> {
     let tx = {
-        let sessions = live_sessions().read().unwrap();
+        let sessions = live_sessions_read_guard()
+            .map_err(|err| format!("Unable to read live sessions: {}", err))?;
         sessions.get(&transcribe_id).map(|s| s.audio_tx.clone())
     };
 
@@ -499,7 +521,8 @@ pub async fn send_live_audio_chunk(
 #[tauri::command]
 pub async fn stop_live_transcription(transcribe_id: String) -> Result<(), String> {
     let stop_tx = {
-        let sessions = live_sessions().read().unwrap();
+        let sessions = live_sessions_read_guard()
+            .map_err(|err| format!("Unable to read live sessions: {}", err))?;
         sessions.get(&transcribe_id).map(|s| s.stop_tx.clone())
     };
 
@@ -816,8 +839,14 @@ fn emit_failed(
 
 /// Remove a session from the global registry.
 fn cleanup_session(transcribe_id: &str) {
-    let mut sessions = live_sessions().write().unwrap();
-    sessions.remove(transcribe_id);
+    match live_sessions_write_guard() {
+        Ok(mut sessions) => {
+            sessions.remove(transcribe_id);
+        }
+        Err(err) => {
+            warn!(transcribe_id, error = %err, "Failed to cleanup live session");
+        }
+    }
 }
 
 /// Decode base64 audio and write to `~/.restflow/media/{session_id}/` (or `~/.restflow/media/` if no session).
@@ -862,6 +891,20 @@ fn save_audio_to_temp(audio_base64: &str) -> Result<String, String> {
 mod tests {
     use super::*;
     use base64::Engine;
+
+    #[test]
+    fn test_map_lock_error_ok_result() {
+        let value =
+            map_lock_error::<i32>(Ok::<i32, std::sync::PoisonError<i32>>(42), "test").unwrap();
+        assert_eq!(value, 42);
+    }
+
+    #[test]
+    fn test_map_lock_error_poisoned_result() {
+        let err = std::sync::PoisonError::new(());
+        let result = map_lock_error::<()>(Err::<(), std::sync::PoisonError<()>>(err), "test");
+        assert_eq!(result.unwrap_err(), "test lock poisoned");
+    }
 
     #[test]
     fn test_save_audio_to_temp_valid_base64() {
