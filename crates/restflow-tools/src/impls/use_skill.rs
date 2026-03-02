@@ -5,8 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+use crate::security::{SecurityGate, ToolAction};
 use crate::{Result, ToolError};
-use crate::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput, check_security};
 use restflow_traits::skill::SkillProvider;
 
 /// Parameters for use_skill tool.
@@ -23,11 +24,41 @@ pub struct UseSkillParams {
 /// use_skill tool — lets the LLM query available skills and load their content.
 pub struct UseSkillTool {
     provider: Arc<dyn SkillProvider>,
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    agent_id: Option<String>,
+    task_id: Option<String>,
 }
 
 impl UseSkillTool {
     pub fn new(provider: Arc<dyn SkillProvider>) -> Self {
-        Self { provider }
+        Self {
+            provider,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
+        }
+    }
+
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
+        self
+    }
+
+    async fn ensure_allowed(&self, action: ToolAction) -> Result<Option<String>> {
+        check_security(
+            self.security_gate.as_deref(),
+            action,
+            self.agent_id.as_deref(),
+            self.task_id.as_deref(),
+        )
+        .await
     }
 }
 
@@ -63,6 +94,18 @@ impl Tool for UseSkillTool {
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
         if params.list {
+            if let Some(message) = self
+                .ensure_allowed(ToolAction {
+                    tool_name: "use_skill".to_string(),
+                    operation: "list".to_string(),
+                    target: "*".to_string(),
+                    summary: "List available skills".to_string(),
+                })
+                .await?
+            {
+                return Ok(ToolOutput::error(message));
+            }
+
             let skills: Vec<Value> = self
                 .provider
                 .list_skills()
@@ -87,6 +130,18 @@ impl Tool for UseSkillTool {
             .skill_id
             .ok_or_else(|| ToolError::Tool("Missing 'skill_id' parameter".to_string()))?;
 
+        if let Some(message) = self
+            .ensure_allowed(ToolAction {
+                tool_name: "use_skill".to_string(),
+                operation: "load".to_string(),
+                target: skill_id.clone(),
+                summary: format!("Load skill '{}'", skill_id),
+            })
+            .await?
+        {
+            return Ok(ToolOutput::error(message));
+        }
+
         match self.provider.get_skill(&skill_id) {
             Some(content) => Ok(ToolOutput::success(json!({
                 "loaded": true,
@@ -102,7 +157,10 @@ impl Tool for UseSkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::{SecurityDecision, SecurityGate, ToolAction};
+    use async_trait::async_trait;
     use restflow_traits::skill::{SkillContent, SkillInfo, SkillRecord, SkillUpdate};
+    use std::sync::{Arc, Mutex};
 
     struct MockProvider;
 
@@ -259,5 +317,60 @@ mod tests {
             result.result["available_skills"].as_array().unwrap().len(),
             0
         );
+    }
+
+    struct RecordingGate {
+        calls: Arc<Mutex<Vec<ToolAction>>>,
+    }
+
+    impl RecordingGate {
+        fn new() -> Self {
+            Self {
+                calls: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+
+        fn calls(&self) -> Arc<Mutex<Vec<ToolAction>>> {
+            self.calls.clone()
+        }
+    }
+
+    #[async_trait]
+    impl SecurityGate for RecordingGate {
+        async fn check_command(
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: Option<&str>,
+        ) -> crate::Result<SecurityDecision> {
+            Ok(SecurityDecision::allowed(None))
+        }
+
+        async fn check_tool_action(
+            &self,
+            action: &ToolAction,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> crate::Result<SecurityDecision> {
+            self.calls.lock().unwrap().push(action.clone());
+            Ok(SecurityDecision::blocked(Some("blocked".into())))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_security_gate_blocks_use_skill() {
+        let gate = Arc::new(RecordingGate::new());
+        let calls = gate.calls();
+        let tool =
+            UseSkillTool::new(Arc::new(MockProvider)).with_security(gate, "agent-1", "task-1");
+        let result = tool.execute(json!({"list": true})).await.unwrap();
+        assert!(
+            !result.success,
+            "security gate should block execution and return error"
+        );
+        let recorded = calls.lock().unwrap();
+        assert_eq!(recorded.len(), 1);
+        assert_eq!(recorded[0].operation, "list");
     }
 }

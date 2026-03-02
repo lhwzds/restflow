@@ -5,8 +5,9 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::Result;
+use crate::security::{SecurityGate, ToolAction};
 use crate::skill::{SkillInfo, SkillProvider};
-use crate::{Tool, ToolOutput};
+use crate::{Tool, ToolOutput, check_security};
 
 /// Wraps a Skill as a Tool so it appears in the LLM's flat tool list.
 ///
@@ -15,11 +16,32 @@ use crate::{Tool, ToolOutput};
 pub struct SkillAsTool {
     info: SkillInfo,
     provider: Arc<dyn SkillProvider>,
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    agent_id: Option<String>,
+    task_id: Option<String>,
 }
 
 impl SkillAsTool {
     pub fn new(info: SkillInfo, provider: Arc<dyn SkillProvider>) -> Self {
-        Self { info, provider }
+        Self {
+            info,
+            provider,
+            security_gate: None,
+            agent_id: None,
+            task_id: None,
+        }
+    }
+
+    pub fn with_security(
+        mut self,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.security_gate = Some(security_gate);
+        self.agent_id = Some(agent_id.into());
+        self.task_id = Some(task_id.into());
+        self
     }
 }
 
@@ -48,6 +70,24 @@ impl Tool for SkillAsTool {
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let user_input = input.get("input").and_then(|v| v.as_str()).unwrap_or("");
+
+        let action = ToolAction {
+            tool_name: self.info.id.clone(),
+            operation: "load".to_string(),
+            target: self.info.id.clone(),
+            summary: format!("Load skill '{}'", self.info.name),
+        };
+
+        if let Some(message) = check_security(
+            self.security_gate.as_deref(),
+            action,
+            self.agent_id.as_deref(),
+            self.task_id.as_deref(),
+        )
+        .await?
+        {
+            return Ok(ToolOutput::error(message));
+        }
 
         match self.provider.get_skill(&self.info.id) {
             Some(content) => Ok(ToolOutput::success(json!({

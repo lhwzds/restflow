@@ -19,6 +19,7 @@ use crate::impls::use_skill::UseSkillTool;
 use crate::impls::vision::VisionTool;
 use crate::impls::wait_subagents::WaitSubagentsTool;
 use crate::impls::{BashTool, DiscordTool, EmailTool, FileTool, HttpTool, SlackTool, TelegramTool};
+use crate::security::SecurityGate;
 use crate::security::bash_security::BashSecurityConfig;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::{SubagentManager, SubagentSpawner};
@@ -277,6 +278,18 @@ impl ToolRegistryBuilder {
         self
     }
 
+    pub fn with_use_skill_with_security(
+        mut self,
+        provider: Arc<dyn SkillProvider>,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.registry
+            .register(UseSkillTool::new(provider).with_security(security_gate, agent_id, task_id));
+        self
+    }
+
     // --- Web tools ---
 
     pub fn with_web_fetch(mut self) -> Self {
@@ -312,6 +325,18 @@ impl ToolRegistryBuilder {
 
     pub fn with_skill_tool(mut self, provider: Arc<dyn SkillProvider>) -> Self {
         self.registry.register(SkillTool::new(provider));
+        self
+    }
+
+    pub fn with_skill_tool_with_security(
+        mut self,
+        provider: Arc<dyn SkillProvider>,
+        security_gate: Arc<dyn SecurityGate>,
+        agent_id: impl Into<String>,
+        task_id: impl Into<String>,
+    ) -> Self {
+        self.registry
+            .register(SkillTool::new(provider).with_security(security_gate, agent_id, task_id));
         self
     }
 
