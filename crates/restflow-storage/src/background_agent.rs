@@ -714,12 +714,20 @@ mod tests {
             .update_task_raw_with_status("task-001", "paused", "completed", b"v3")
             .unwrap();
 
-        assert!(storage.list_tasks_by_status_indexed("active").unwrap().is_empty());
-        assert!(storage.list_tasks_by_status_indexed("paused").unwrap().is_empty());
+        assert!(
+            storage
+                .list_tasks_by_status_indexed("active")
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            storage
+                .list_tasks_by_status_indexed("paused")
+                .unwrap()
+                .is_empty()
+        );
 
-        let completed_tasks = storage
-            .list_tasks_by_status_indexed("completed")
-            .unwrap();
+        let completed_tasks = storage.list_tasks_by_status_indexed("completed").unwrap();
         assert_eq!(completed_tasks.len(), 1);
         assert_eq!(completed_tasks[0].0, "task-001");
         assert_eq!(completed_tasks[0].1, b"v3");
