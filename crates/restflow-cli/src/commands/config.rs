@@ -94,6 +94,10 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.agent.subagent_timeout_secs),
     ]);
     table.add_row(vec![
+        Cell::new("agent.max_parallel_subagents"),
+        Cell::new(config.agent.max_parallel_subagents),
+    ]);
+    table.add_row(vec![
         Cell::new("agent.max_tool_calls"),
         Cell::new(config.agent.max_tool_calls),
     ]);
@@ -147,6 +151,7 @@ async fn get_config_value(
         "agent.python_timeout_secs" => json!(config.agent.python_timeout_secs),
         "agent.max_iterations" => json!(config.agent.max_iterations),
         "agent.subagent_timeout_secs" => json!(config.agent.subagent_timeout_secs),
+        "agent.max_parallel_subagents" => json!(config.agent.max_parallel_subagents),
         "agent.max_tool_calls" => json!(config.agent.max_tool_calls),
         "agent.max_wall_clock_secs" => json!(config.agent.max_wall_clock_secs),
         "agent.default_task_timeout_secs" => json!(config.agent.default_task_timeout_secs),
@@ -216,6 +221,9 @@ async fn set_config_value(
         }
         "agent.subagent_timeout_secs" => {
             config.agent.subagent_timeout_secs = parse_value(value)?;
+        }
+        "agent.max_parallel_subagents" => {
+            config.agent.max_parallel_subagents = parse_value(value)?;
         }
         "agent.max_tool_calls" => {
             config.agent.max_tool_calls = parse_value(value)?;

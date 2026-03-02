@@ -165,6 +165,13 @@ impl ConfigTool {
                             )
                         })?;
                     }
+                    "max_parallel_subagents" => {
+                        config.agent.max_parallel_subagents = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "agent.max_parallel_subagents must be a number".to_string(),
+                            )
+                        })? as usize;
+                    }
                     "max_tool_calls" => {
                         config.agent.max_tool_calls = value.as_u64().ok_or_else(|| {
                             ToolError::Tool("agent.max_tool_calls must be a number".to_string())
@@ -192,7 +199,7 @@ impl ConfigTool {
                     }
                     unknown => {
                         return Err(crate::ToolError::Tool(format!(
-                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_tool_calls, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs."
+                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs."
                         )));
                     }
                 }
@@ -295,7 +302,8 @@ impl Tool for ConfigTool {
                     "agent.bash_timeout_secs",
                     "agent.python_timeout_secs",
                     "agent.max_iterations",
-                    "agent.subagent_timeout_secs",
+                "agent.subagent_timeout_secs",
+                    "agent.max_parallel_subagents",
                     "agent.max_tool_calls",
                     "agent.max_wall_clock_secs",
                     "agent.default_task_timeout_secs",
@@ -520,6 +528,7 @@ mod tests {
             ("agent.python_timeout_secs", json!(60)),
             ("agent.max_iterations", json!(50)),
             ("agent.subagent_timeout_secs", json!(900)),
+            ("agent.max_parallel_subagents", json!(12)),
             ("agent.max_tool_calls", json!(300)),
             ("agent.max_wall_clock_secs", json!(3600)),
             ("agent.default_task_timeout_secs", json!(3600)),
@@ -555,6 +564,10 @@ mod tests {
         assert_eq!(
             agent.get("max_iterations").and_then(|v| v.as_u64()),
             Some(50)
+        );
+        assert_eq!(
+            agent.get("max_parallel_subagents").and_then(|v| v.as_u64()),
+            Some(12)
         );
     }
 
