@@ -906,6 +906,9 @@ mod tests {
             success: true,
             result: serde_json::json!("hello world"),
             error: None,
+            error_category: None,
+            retryable: None,
+            retry_after_ms: None,
         };
         let text = extract_transcribe_text(output).unwrap();
         assert_eq!(text, "hello world");
@@ -917,6 +920,9 @@ mod tests {
             success: true,
             result: serde_json::json!({ "text": "voice text" }),
             error: None,
+            error_category: None,
+            retryable: None,
+            retry_after_ms: None,
         };
         let text = extract_transcribe_text(output).unwrap();
         assert_eq!(text, "voice text");
@@ -928,6 +934,9 @@ mod tests {
             success: false,
             result: serde_json::Value::Null,
             error: Some("rate limited".to_string()),
+            error_category: None,
+            retryable: None,
+            retry_after_ms: None,
         };
         let err = extract_transcribe_text(output).unwrap_err();
         assert_eq!(err, "rate limited");
