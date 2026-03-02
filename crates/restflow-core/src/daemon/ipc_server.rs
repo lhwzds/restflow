@@ -32,7 +32,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::agent::{NullEmitter, SubagentConfig, SubagentTracker};
-use restflow_storage::AuthProfileStorage;
+use restflow_storage::{AgentDefaults, AuthProfileStorage};
 use restflow_traits::store::ReplySender;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -2277,6 +2277,27 @@ fn get_runtime_tool_registry<'a>(
         .ok_or_else(|| "runtime tool registry initialization failed".to_string())
 }
 
+fn subagent_config_from_defaults(defaults: &AgentDefaults) -> SubagentConfig {
+    SubagentConfig {
+        max_parallel_agents: defaults.max_parallel_subagents,
+        subagent_timeout_secs: defaults.subagent_timeout_secs,
+        ..SubagentConfig::default()
+    }
+}
+
+fn load_subagent_config_from_core(core: &Arc<AppCore>) -> SubagentConfig {
+    match core.storage.config.get_effective_config() {
+        Ok(config) => subagent_config_from_defaults(&config.agent),
+        Err(error) => {
+            warn!(
+                error = %error,
+                "Failed to load system config for chat runtime; falling back to default sub-agent config"
+            );
+            SubagentConfig::default()
+        }
+    }
+}
+
 fn create_chat_executor(
     core: &Arc<AppCore>,
     auth_manager: Arc<AuthProfileManager>,
@@ -2286,7 +2307,7 @@ fn create_chat_executor(
     let subagent_definitions = Arc::new(StorageBackedSubagentLookup::new(
         core.storage.agents.clone(),
     ));
-    let subagent_config = SubagentConfig::default();
+    let subagent_config = load_subagent_config_from_core(core);
 
     AgentRuntimeExecutor::new(
         core.storage.clone(),
