@@ -264,6 +264,65 @@ mod tests {
     }
 
     #[test]
+    fn parses_daemon_start_command() {
+        let cli = Cli::try_parse_from(["restflow", "daemon", "start"]).expect("parse daemon start");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Daemon {
+                command: super::DaemonCommands::Start {
+                    foreground: false,
+                    mcp_port: None
+                }
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_daemon_stop_command() {
+        let cli = Cli::try_parse_from(["restflow", "daemon", "stop"]).expect("parse daemon stop");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Daemon {
+                command: super::DaemonCommands::Stop
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_daemon_status_command() {
+        let cli =
+            Cli::try_parse_from(["restflow", "daemon", "status"]).expect("parse daemon status");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Daemon {
+                command: super::DaemonCommands::Status
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_daemon_restart_with_foreground_and_mcp_port() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "daemon",
+            "restart",
+            "--foreground",
+            "--mcp-port",
+            "9900",
+        ])
+        .expect("parse daemon restart options");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Daemon {
+                command: super::DaemonCommands::Restart {
+                    foreground: true,
+                    mcp_port: Some(9900)
+                }
+            })
+        ));
+    }
+
+    #[test]
     fn parses_hook_list_command() {
         let cli = Cli::try_parse_from(["restflow", "hook", "list"]).expect("parse hook list");
         assert!(matches!(
