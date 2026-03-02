@@ -245,4 +245,39 @@ mod tests {
         let items = storage.list().unwrap();
         assert_eq!(items.len(), 2);
     }
+
+    #[test]
+    fn repeated_update_does_not_duplicate_status_visibility() {
+        let storage = setup();
+        let id = "note-1";
+
+        storage
+            .create(id, br#"{"title":"a"}"#, "feature", "open")
+            .unwrap();
+        storage
+            .update(
+                id,
+                br#"{"title":"b"}"#,
+                "feature",
+                "open",
+                "feature",
+                "open",
+            )
+            .unwrap();
+        storage
+            .update(
+                id,
+                br#"{"title":"c"}"#,
+                "feature",
+                "open",
+                "feature",
+                "open",
+            )
+            .unwrap();
+
+        let open_items = storage.list_by_status("open").unwrap();
+        assert_eq!(open_items.len(), 1);
+        assert_eq!(open_items[0].0, id);
+        assert_eq!(open_items[0].1, br#"{"title":"c"}"#);
+    }
 }
