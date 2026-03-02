@@ -4,10 +4,17 @@
 //! assembly functions (`registry_from_allowlist`) that combine tools with
 //! storage-backed services from `restflow-core`.
 
+pub(crate) mod assembly;
+
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, warn};
 
+use self::assembly::{
+    populate_known_tools_from_registry, register_bash_execution_tool, register_file_execution_tool,
+    register_http_execution_tool, register_python_execution_tools,
+    register_send_email_execution_tool,
+};
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
@@ -184,16 +191,13 @@ pub fn registry_from_allowlist_with_security_gate(
             // --- Simple tools (no storage required) ---
             "bash" => {
                 let config = bash_config.clone().unwrap_or_default();
-                if let Some(gate) = security_gate.clone() {
-                    let tool = config.into_bash_tool().with_security(
-                        gate,
-                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                        DEFAULT_SECURITY_TASK_ID,
-                    );
-                    builder.registry.register(tool);
-                } else {
-                    builder = builder.with_bash(config);
-                }
+                builder = register_bash_execution_tool(
+                    builder,
+                    config,
+                    security_gate.clone(),
+                    agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                    DEFAULT_SECURITY_TASK_ID,
+                );
             }
             "file" | "read" => {
                 allow_file = true;
@@ -203,26 +207,20 @@ pub fn registry_from_allowlist_with_security_gate(
                 allow_file_write = true;
             }
             "http" | "http_request" => {
-                if let Some(gate) = security_gate.clone() {
-                    builder.registry.register(HttpTool::new()?.with_security(
-                        gate,
-                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                        DEFAULT_SECURITY_TASK_ID,
-                    ));
-                } else {
-                    builder = builder.with_http()?;
-                }
+                builder = register_http_execution_tool(
+                    builder,
+                    security_gate.clone(),
+                    agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                    DEFAULT_SECURITY_TASK_ID,
+                )?;
             }
             "send_email" | "email" => {
-                if let Some(gate) = security_gate.clone() {
-                    builder.registry.register(EmailTool::new().with_security(
-                        gate,
-                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                        DEFAULT_SECURITY_TASK_ID,
-                    ));
-                } else {
-                    builder = builder.with_email();
-                }
+                builder = register_send_email_execution_tool(
+                    builder,
+                    security_gate.clone(),
+                    agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                    DEFAULT_SECURITY_TASK_ID,
+                );
             }
             "telegram_send" | "telegram" => {
                 builder = builder.with_telegram()?;
@@ -234,20 +232,12 @@ pub fn registry_from_allowlist_with_security_gate(
                 builder = builder.with_slack()?;
             }
             "python" | "run_python" => {
-                if let Some(gate) = security_gate.clone() {
-                    builder.registry.register(RunPythonTool::new().with_security(
-                        gate.clone(),
-                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                        DEFAULT_SECURITY_TASK_ID,
-                    ));
-                    builder.registry.register(PythonTool::new().with_security(
-                        gate,
-                        agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                        DEFAULT_SECURITY_TASK_ID,
-                    ));
-                } else {
-                    builder = builder.with_python();
-                }
+                builder = register_python_execution_tools(
+                    builder,
+                    security_gate.clone(),
+                    agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                    DEFAULT_SECURITY_TASK_ID,
+                );
             }
             "browser" => {
                 builder = builder.with_browser()?;
@@ -500,20 +490,13 @@ pub fn registry_from_allowlist_with_security_gate(
     }
 
     if allow_file {
-        let mut config = FileConfig::default();
-        if allow_file_write {
-            config.allow_write = true;
-        }
-        if let Some(gate) = security_gate {
-            let tool = config.into_file_tool_with_tracker(builder.tracker()).with_security(
-                gate,
-                agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                DEFAULT_SECURITY_TASK_ID,
-            );
-            builder.registry.register(tool);
-        } else {
-            builder = builder.with_file(config);
-        }
+        builder = register_file_execution_tool(
+            builder,
+            allow_file_write,
+            security_gate,
+            agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+            DEFAULT_SECURITY_TASK_ID,
+        );
     }
 
     // Register skills as callable tools
@@ -542,13 +525,7 @@ pub fn registry_from_allowlist_with_security_gate(
     }
 
     // Populate known_tools for AgentStoreAdapter validation
-    if let Ok(mut known) = known_tools.write() {
-        *known = registry
-            .list()
-            .into_iter()
-            .map(|name| name.to_string())
-            .collect::<HashSet<_>>();
-    }
+    populate_known_tools_from_registry(&known_tools, &registry, None);
 
     Ok(registry)
 }
