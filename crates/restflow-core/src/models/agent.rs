@@ -31,6 +31,20 @@ impl CodexCliExecutionMode {
     }
 }
 
+/// Skill preflight policy mode.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum SkillPreflightPolicyMode {
+    /// Disable skill-related preflight issues.
+    Off,
+    /// Keep skill-related preflight issues as warnings.
+    #[default]
+    Warn,
+    /// Promote critical skill-related warnings to blockers.
+    Enforce,
+}
+
 /// Model routing configuration for automatic tier-based model selection.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[ts(export)]
@@ -128,6 +142,10 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill_variables: Option<HashMap<String, String>>,
+    /// Optional skill preflight policy mode (`off` | `warn` | `enforce`).
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub skill_preflight_policy_mode: Option<SkillPreflightPolicyMode>,
     /// Optional tier-based model routing policy.
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -198,6 +216,17 @@ impl AgentNode {
     pub fn with_skill_variables(mut self, variables: HashMap<String, String>) -> Self {
         self.skill_variables = Some(variables);
         self
+    }
+
+    /// Set skill preflight policy mode.
+    pub fn with_skill_preflight_policy_mode(mut self, mode: SkillPreflightPolicyMode) -> Self {
+        self.skill_preflight_policy_mode = Some(mode);
+        self
+    }
+
+    /// Get effective skill preflight policy mode, defaulting to `warn`.
+    pub fn effective_skill_preflight_policy_mode(&self) -> SkillPreflightPolicyMode {
+        self.skill_preflight_policy_mode.unwrap_or_default()
     }
 
     /// Set model routing policy.
@@ -479,6 +508,35 @@ mod tests {
         assert_eq!(
             node.codex_cli_execution_mode,
             Some(CodexCliExecutionMode::Bypass)
+        );
+    }
+
+    #[test]
+    fn skill_preflight_policy_mode_serializes_to_snake_case() {
+        let off = serde_json::to_string(&SkillPreflightPolicyMode::Off).unwrap();
+        let warn = serde_json::to_string(&SkillPreflightPolicyMode::Warn).unwrap();
+        let enforce = serde_json::to_string(&SkillPreflightPolicyMode::Enforce).unwrap();
+        assert_eq!(off, "\"off\"");
+        assert_eq!(warn, "\"warn\"");
+        assert_eq!(enforce, "\"enforce\"");
+    }
+
+    #[test]
+    fn effective_skill_preflight_policy_mode_defaults_to_warn() {
+        let node: AgentNode = serde_json::from_str(r#"{"prompt":"hello"}"#).unwrap();
+        assert!(node.skill_preflight_policy_mode.is_none());
+        assert_eq!(
+            node.effective_skill_preflight_policy_mode(),
+            SkillPreflightPolicyMode::Warn
+        );
+    }
+
+    #[test]
+    fn with_skill_preflight_policy_mode_sets_value() {
+        let node = AgentNode::new().with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Off);
+        assert_eq!(
+            node.skill_preflight_policy_mode,
+            Some(SkillPreflightPolicyMode::Off)
         );
     }
 

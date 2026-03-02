@@ -25,7 +25,9 @@ pub mod validation;
 pub mod webhook;
 pub mod work_item;
 
-pub use agent::{AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConfig};
+pub use agent::{
+    AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConfig, SkillPreflightPolicyMode,
+};
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
 pub use ai_model::{AIModel, ModelMetadataDTO, Provider};
