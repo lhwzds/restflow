@@ -1,12 +1,20 @@
 //! System configuration storage.
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use redb::{Database, ReadableDatabase, TableDefinition};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::env;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 const CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_config");
+
+const GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
+const WORKSPACE_CONFIG_ENV: &str = "RESTFLOW_WORKSPACE_CONFIG";
+const CONFIG_SUBDIR: &str = ".restflow";
+const CONFIG_FILE_NAME: &str = "config.toml";
 
 // Default configuration constants
 const DEFAULT_WORKER_COUNT: usize = 4;
@@ -18,6 +26,12 @@ const DEFAULT_BACKGROUND_TASK_RETENTION_DAYS: u32 = 7;
 const DEFAULT_CHECKPOINT_RETENTION_DAYS: u32 = 3;
 const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
+const DEFAULT_MEMORY_SEARCH_LIMIT: u32 = 10;
+const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
+const DEFAULT_BG_PROGRESS_EVENT_LIMIT: usize = 10;
+const DEFAULT_BG_MESSAGE_LIST_LIMIT: usize = 50;
+const DEFAULT_BG_TRACE_LIST_LIMIT: usize = 50;
+const DEFAULT_BG_TRACE_LINE_LIMIT: usize = 200;
 const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
@@ -36,6 +50,8 @@ pub struct AgentDefaults {
     pub max_iterations: usize,
     /// Default timeout for sub-agent execution in seconds.
     pub subagent_timeout_secs: u64,
+    /// Maximum number of sub-agents that can run in parallel.
+    pub max_parallel_subagents: usize,
     /// Maximum tool calls allowed per agent run.
     pub max_tool_calls: usize,
     /// Maximum wall-clock time per agent run in seconds.
@@ -61,6 +77,7 @@ impl Default for AgentDefaults {
             python_timeout_secs: 120,
             max_iterations: 100,
             subagent_timeout_secs: 3600,
+            max_parallel_subagents: 200,
             max_tool_calls: 200,
             max_wall_clock_secs: None,
             default_task_timeout_secs: 1800,
@@ -99,6 +116,11 @@ impl AgentDefaults {
                 MIN_TIMEOUT_SECONDS
             ));
         }
+        if self.max_parallel_subagents == 0 {
+            return Err(anyhow::anyhow!(
+                "agent.max_parallel_subagents must be at least 1"
+            ));
+        }
         if self.max_tool_calls == 0 {
             return Err(anyhow::anyhow!("agent.max_tool_calls must be at least 1"));
         }
@@ -120,6 +142,73 @@ impl AgentDefaults {
             return Err(anyhow::anyhow!(
                 "agent.default_max_duration_secs must be at least {} seconds",
                 MIN_TIMEOUT_SECONDS
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// API-facing default limits used by MCP and adapter query operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ApiDefaults {
+    /// Default `memory_search` result limit.
+    pub memory_search_limit: u32,
+    /// Default `chat_session_list` result limit.
+    pub session_list_limit: u32,
+    /// Default event limit for background progress queries.
+    pub background_progress_event_limit: usize,
+    /// Default message list limit for background agents.
+    pub background_message_list_limit: usize,
+    /// Default trace list limit for background agents.
+    pub background_trace_list_limit: usize,
+    /// Default trailing line limit when reading trace output.
+    pub background_trace_line_limit: usize,
+}
+
+impl Default for ApiDefaults {
+    fn default() -> Self {
+        Self {
+            memory_search_limit: DEFAULT_MEMORY_SEARCH_LIMIT,
+            session_list_limit: DEFAULT_SESSION_LIST_LIMIT,
+            background_progress_event_limit: DEFAULT_BG_PROGRESS_EVENT_LIMIT,
+            background_message_list_limit: DEFAULT_BG_MESSAGE_LIST_LIMIT,
+            background_trace_list_limit: DEFAULT_BG_TRACE_LIST_LIMIT,
+            background_trace_line_limit: DEFAULT_BG_TRACE_LINE_LIMIT,
+        }
+    }
+}
+
+impl ApiDefaults {
+    fn validate(&self) -> Result<()> {
+        if self.memory_search_limit == 0 {
+            return Err(anyhow::anyhow!(
+                "api_defaults.memory_search_limit must be at least 1"
+            ));
+        }
+        if self.session_list_limit == 0 {
+            return Err(anyhow::anyhow!(
+                "api_defaults.session_list_limit must be at least 1"
+            ));
+        }
+        if self.background_progress_event_limit == 0 {
+            return Err(anyhow::anyhow!(
+                "api_defaults.background_progress_event_limit must be at least 1"
+            ));
+        }
+        if self.background_message_list_limit == 0 {
+            return Err(anyhow::anyhow!(
+                "api_defaults.background_message_list_limit must be at least 1"
+            ));
+        }
+        if self.background_trace_list_limit == 0 {
+            return Err(anyhow::anyhow!(
+                "api_defaults.background_trace_list_limit must be at least 1"
+            ));
+        }
+        if self.background_trace_line_limit == 0 {
+            return Err(anyhow::anyhow!(
+                "api_defaults.background_trace_line_limit must be at least 1"
             ));
         }
         Ok(())
@@ -156,6 +245,9 @@ pub struct SystemConfig {
     /// Agent execution defaults.
     #[serde(default)]
     pub agent: AgentDefaults,
+    /// API operation default limits.
+    #[serde(default)]
+    pub api_defaults: ApiDefaults,
 }
 
 impl Default for SystemConfig {
@@ -174,6 +266,7 @@ impl Default for SystemConfig {
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
             agent: AgentDefaults::default(),
+            api_defaults: ApiDefaults::default(),
         }
     }
 }
@@ -280,9 +373,226 @@ impl SystemConfig {
         }
 
         self.agent.validate()?;
+        self.api_defaults.validate()?;
 
         Ok(())
     }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct AgentDefaultsOverride {
+    pub tool_timeout_secs: Option<u64>,
+    pub bash_timeout_secs: Option<u64>,
+    pub python_timeout_secs: Option<u64>,
+    pub max_iterations: Option<usize>,
+    pub subagent_timeout_secs: Option<u64>,
+    pub max_parallel_subagents: Option<usize>,
+    pub max_tool_calls: Option<usize>,
+    pub max_wall_clock_secs: Option<Option<u64>>,
+    pub default_task_timeout_secs: Option<u64>,
+    pub default_max_duration_secs: Option<u64>,
+    pub fallback_models: Option<Option<Vec<String>>>,
+}
+
+impl AgentDefaultsOverride {
+    fn apply_to(&self, agent: &mut AgentDefaults) {
+        if let Some(value) = self.tool_timeout_secs {
+            agent.tool_timeout_secs = value;
+        }
+        if let Some(value) = self.bash_timeout_secs {
+            agent.bash_timeout_secs = value;
+        }
+        if let Some(value) = self.python_timeout_secs {
+            agent.python_timeout_secs = value;
+        }
+        if let Some(value) = self.max_iterations {
+            agent.max_iterations = value;
+        }
+        if let Some(value) = self.subagent_timeout_secs {
+            agent.subagent_timeout_secs = value;
+        }
+        if let Some(value) = self.max_parallel_subagents {
+            agent.max_parallel_subagents = value;
+        }
+        if let Some(value) = self.max_tool_calls {
+            agent.max_tool_calls = value;
+        }
+        if let Some(value) = self.max_wall_clock_secs {
+            agent.max_wall_clock_secs = value;
+        }
+        if let Some(value) = self.default_task_timeout_secs {
+            agent.default_task_timeout_secs = value;
+        }
+        if let Some(value) = self.default_max_duration_secs {
+            agent.default_max_duration_secs = value;
+        }
+        if let Some(value) = self.fallback_models.clone() {
+            agent.fallback_models = value;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct ApiDefaultsOverride {
+    pub memory_search_limit: Option<u32>,
+    pub session_list_limit: Option<u32>,
+    pub background_progress_event_limit: Option<usize>,
+    pub background_message_list_limit: Option<usize>,
+    pub background_trace_list_limit: Option<usize>,
+    pub background_trace_line_limit: Option<usize>,
+}
+
+impl ApiDefaultsOverride {
+    fn apply_to(&self, api_defaults: &mut ApiDefaults) {
+        if let Some(value) = self.memory_search_limit {
+            api_defaults.memory_search_limit = value;
+        }
+        if let Some(value) = self.session_list_limit {
+            api_defaults.session_list_limit = value;
+        }
+        if let Some(value) = self.background_progress_event_limit {
+            api_defaults.background_progress_event_limit = value;
+        }
+        if let Some(value) = self.background_message_list_limit {
+            api_defaults.background_message_list_limit = value;
+        }
+        if let Some(value) = self.background_trace_list_limit {
+            api_defaults.background_trace_list_limit = value;
+        }
+        if let Some(value) = self.background_trace_line_limit {
+            api_defaults.background_trace_line_limit = value;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+struct SystemConfigOverride {
+    pub worker_count: Option<usize>,
+    pub task_timeout_seconds: Option<u64>,
+    pub stall_timeout_seconds: Option<u64>,
+    pub background_api_timeout_seconds: Option<Option<u64>>,
+    pub chat_response_timeout_seconds: Option<Option<u64>>,
+    pub max_retries: Option<u32>,
+    pub chat_session_retention_days: Option<u32>,
+    pub background_task_retention_days: Option<u32>,
+    pub checkpoint_retention_days: Option<u32>,
+    pub memory_chunk_retention_days: Option<u32>,
+    pub log_file_retention_days: Option<u32>,
+    pub experimental_features: Option<Vec<String>>,
+    pub agent: Option<AgentDefaultsOverride>,
+    pub api_defaults: Option<ApiDefaultsOverride>,
+}
+
+impl SystemConfigOverride {
+    fn apply_to(&self, config: &mut SystemConfig) {
+        if let Some(value) = self.worker_count {
+            config.worker_count = value;
+        }
+        if let Some(value) = self.task_timeout_seconds {
+            config.task_timeout_seconds = value;
+        }
+        if let Some(value) = self.stall_timeout_seconds {
+            config.stall_timeout_seconds = value;
+        }
+        if let Some(value) = self.background_api_timeout_seconds {
+            config.background_api_timeout_seconds = value;
+        }
+        if let Some(value) = self.chat_response_timeout_seconds {
+            config.chat_response_timeout_seconds = value;
+        }
+        if let Some(value) = self.max_retries {
+            config.max_retries = value;
+        }
+        if let Some(value) = self.chat_session_retention_days {
+            config.chat_session_retention_days = value;
+        }
+        if let Some(value) = self.background_task_retention_days {
+            config.background_task_retention_days = value;
+        }
+        if let Some(value) = self.checkpoint_retention_days {
+            config.checkpoint_retention_days = value;
+        }
+        if let Some(value) = self.memory_chunk_retention_days {
+            config.memory_chunk_retention_days = value;
+        }
+        if let Some(value) = self.log_file_retention_days {
+            config.log_file_retention_days = value;
+        }
+        if let Some(values) = self.experimental_features.clone() {
+            config.experimental_features = values;
+        }
+        if let Some(agent_override) = &self.agent {
+            agent_override.apply_to(&mut config.agent);
+        }
+        if let Some(api_defaults_override) = &self.api_defaults {
+            api_defaults_override.apply_to(&mut config.api_defaults);
+        }
+    }
+}
+
+fn load_config_override(path: &Path) -> Result<Option<SystemConfigOverride>> {
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(path).with_context(|| {
+        format!(
+            "Failed to read system config override from {}",
+            path.display()
+        )
+    })?;
+    let parsed: SystemConfigOverride = toml::from_str(&contents).with_context(|| {
+        format!(
+            "Failed to parse system config override from {}",
+            path.display()
+        )
+    })?;
+    Ok(Some(parsed))
+}
+
+fn env_override_path(var: &str) -> Option<PathBuf> {
+    match env::var_os(var) {
+        Some(value) if !value.is_empty() => Some(PathBuf::from(value)),
+        _ => None,
+    }
+}
+
+fn global_config_path() -> Option<PathBuf> {
+    if let Some(path) = env_override_path(GLOBAL_CONFIG_ENV) {
+        return Some(path);
+    }
+    crate::paths::resolve_restflow_dir()
+        .ok()
+        .map(|dir| dir.join(CONFIG_FILE_NAME))
+}
+
+fn workspace_config_path() -> Option<PathBuf> {
+    if let Some(path) = env_override_path(WORKSPACE_CONFIG_ENV) {
+        return Some(path);
+    }
+    env::current_dir()
+        .ok()
+        .map(|dir| dir.join(CONFIG_SUBDIR).join(CONFIG_FILE_NAME))
+}
+
+fn collect_override_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
+    if let Some(global) = global_config_path() {
+        paths.push(global);
+    }
+
+    if let Some(workspace) = workspace_config_path() {
+        let duplicate = paths.last().map(|p| p == &workspace).unwrap_or(false);
+        if !duplicate {
+            paths.push(workspace);
+        }
+    }
+
+    paths
 }
 
 /// Configuration storage
@@ -321,6 +631,20 @@ impl ConfigStorage {
         }
     }
 
+    /// Get the effective configuration by applying on-disk overrides to the stored values.
+    pub fn get_effective_config(&self) -> Result<SystemConfig> {
+        let mut config = self.get_config()?.unwrap_or_default();
+
+        for path in collect_override_paths() {
+            if let Some(override_config) = load_config_override(&path)? {
+                override_config.apply_to(&mut config);
+            }
+        }
+
+        config.validate()?;
+        Ok(config)
+    }
+
     /// Update system configuration
     pub fn update_config(&self, config: SystemConfig) -> Result<()> {
         // Validate before saving
@@ -338,7 +662,7 @@ impl ConfigStorage {
 
     /// Get worker count
     pub fn get_worker_count(&self) -> Result<usize> {
-        Ok(self.get_config()?.unwrap_or_default().worker_count)
+        Ok(self.get_effective_config()?.worker_count)
     }
 
     /// Update worker count
@@ -352,7 +676,47 @@ impl ConfigStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::fs;
+    use std::path::Path;
+    use tempfile::NamedTempFile;
     use tempfile::tempdir;
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set_path(key: &'static str, path: &Path) -> Self {
+            let original = env::var_os(key);
+            // `env` writes are marked unsafe under the `unsafe_env` experiment.
+            unsafe {
+                env::set_var(key, path);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                unsafe {
+                    env::set_var(self.key, value);
+                }
+            } else {
+                unsafe {
+                    env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn write_override_file(contents: &str) -> NamedTempFile {
+        let file = NamedTempFile::new().unwrap();
+        fs::write(file.path(), contents).unwrap();
+        file
+    }
 
     fn setup_test_storage() -> (ConfigStorage, tempfile::TempDir) {
         let temp_dir = tempdir().unwrap();
@@ -486,16 +850,26 @@ mod tests {
         assert_eq!(config.agent.tool_timeout_secs, 300);
         assert_eq!(config.agent.bash_timeout_secs, 300);
         assert_eq!(config.agent.max_iterations, 100);
+        assert_eq!(config.agent.max_parallel_subagents, 200);
 
         config.agent.tool_timeout_secs = 180;
         config.agent.bash_timeout_secs = 600;
         config.agent.max_wall_clock_secs = Some(3_600);
+        config.agent.max_parallel_subagents = 25;
         storage.update_config(config).unwrap();
 
         let retrieved = storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.agent.tool_timeout_secs, 180);
         assert_eq!(retrieved.agent.bash_timeout_secs, 600);
         assert_eq!(retrieved.agent.max_wall_clock_secs, Some(3_600));
+        assert_eq!(retrieved.agent.max_parallel_subagents, 25);
+    }
+
+    #[test]
+    fn test_invalid_max_parallel_subagents() {
+        let mut config = SystemConfig::default();
+        config.agent.max_parallel_subagents = 0;
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -539,5 +913,110 @@ mod tests {
         let mut config = SystemConfig::default();
         config.agent.max_wall_clock_secs = None;
         assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_effective_config_without_overrides() {
+        let (storage, _temp_dir) = setup_test_storage();
+        let effective = storage.get_effective_config().unwrap();
+        let stored = storage.get_config().unwrap().unwrap();
+        assert_eq!(effective.worker_count, stored.worker_count);
+    }
+
+    #[test]
+    fn test_effective_config_with_global_override() {
+        let (storage, _temp_dir) = setup_test_storage();
+        let file = write_override_file("worker_count = 42\nbackground_task_retention_days = 10");
+        let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
+
+        let effective = storage.get_effective_config().unwrap();
+        assert_eq!(effective.worker_count, 42);
+        assert_eq!(effective.background_task_retention_days, 10);
+    }
+
+    #[test]
+    fn test_workspace_override_precedence() {
+        let (storage, _temp_dir) = setup_test_storage();
+        let global_file = write_override_file("worker_count = 5\nmax_retries = 2");
+        let workspace_file = write_override_file("worker_count = 9\nmax_retries = 4");
+        let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, global_file.path());
+        let _workspace_guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, workspace_file.path());
+
+        let effective = storage.get_effective_config().unwrap();
+        assert_eq!(effective.worker_count, 9);
+        assert_eq!(effective.max_retries, 4);
+    }
+
+    #[test]
+    fn test_partial_agent_override() {
+        let (storage, _temp_dir) = setup_test_storage();
+        let file = write_override_file(
+            r#"task_timeout_seconds = 9999
+
+[agent]
+python_timeout_secs = 45
+max_wall_clock_secs = 7200
+fallback_models = ["alpha", "beta"]
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        let effective = storage.get_effective_config().unwrap();
+        assert_eq!(effective.task_timeout_seconds, 9999);
+        assert_eq!(effective.agent.python_timeout_secs, 45);
+        assert_eq!(effective.agent.max_wall_clock_secs, Some(7200));
+        assert_eq!(
+            effective.agent.fallback_models,
+            Some(vec!["alpha".into(), "beta".into()])
+        );
+    }
+
+    #[test]
+    fn test_invalid_override_rejected() {
+        let (storage, _temp_dir) = setup_test_storage();
+        let file = write_override_file("worker_count = 0");
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        let result = storage.get_effective_config();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_api_defaults_round_trip() {
+        let (storage, _temp_dir) = setup_test_storage();
+        let mut config = storage.get_config().unwrap().unwrap();
+        assert_eq!(config.api_defaults.memory_search_limit, 10);
+        assert_eq!(config.api_defaults.background_trace_line_limit, 200);
+
+        config.api_defaults.memory_search_limit = 25;
+        config.api_defaults.background_trace_line_limit = 300;
+        storage.update_config(config).unwrap();
+
+        let retrieved = storage.get_config().unwrap().unwrap();
+        assert_eq!(retrieved.api_defaults.memory_search_limit, 25);
+        assert_eq!(retrieved.api_defaults.background_trace_line_limit, 300);
+    }
+
+    #[test]
+    fn test_invalid_api_defaults_rejected() {
+        let mut config = SystemConfig::default();
+        config.api_defaults.background_message_list_limit = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_api_defaults_override_from_file() {
+        let (storage, _temp_dir) = setup_test_storage();
+        let file = write_override_file(
+            r#"[api_defaults]
+memory_search_limit = 33
+background_trace_line_limit = 444
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        let effective = storage.get_effective_config().unwrap();
+        assert_eq!(effective.api_defaults.memory_search_limit, 33);
+        assert_eq!(effective.api_defaults.background_trace_line_limit, 444);
     }
 }
