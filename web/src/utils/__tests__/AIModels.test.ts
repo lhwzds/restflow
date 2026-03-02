@@ -136,6 +136,30 @@ describe('AIModels utility', () => {
 
       expect(getAllModels()).toEqual([])
     })
+
+    it('handles stores that expose getAllModels as a callable getter', () => {
+      const store = useModelsStore()
+      const originalDescriptor = Object.getOwnPropertyDescriptor(store, 'getAllModels')
+
+      expect(originalDescriptor).toBeDefined()
+
+      Object.defineProperty(store, 'getAllModels', {
+        value: vi.fn(() => [...store.models]),
+        configurable: true,
+      })
+
+      const result = getAllModels()
+
+      expect(result).toHaveLength(MOCK_MODELS.length)
+      expect(result[0]).toMatchObject({
+        value: 'gpt-5',
+        label: 'GPT-5',
+      })
+
+      if (originalDescriptor) {
+        Object.defineProperty(store, 'getAllModels', originalDescriptor)
+      }
+    })
   })
 
   // ---------------------------------------------------------------------------

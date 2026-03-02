@@ -69,7 +69,10 @@ export function getModelsByProvider(provider: Provider): ModelOption[] {
  */
 export function getAllModels(): ModelOption[] {
   const store = useModelsStore()
-  return store.getAllModels.map((m) => ({
+  const metadataList =
+    typeof store.getAllModels === 'function' ? store.getAllModels() : store.getAllModels
+
+  return (metadataList ?? []).map((m) => ({
     value: m.model,
     label: m.name,
     provider: m.provider,
