@@ -20,6 +20,9 @@ test.describe('Settings Panel', () => {
     // Settings nav items should be visible
     await expect(page.locator('nav button', { hasText: 'Secrets' })).toBeVisible()
     await expect(page.locator('nav button', { hasText: 'Auth Profiles' })).toBeVisible()
+    await expect(page.locator('nav button', { hasText: 'Hooks' })).toBeVisible()
+    await expect(page.locator('nav button', { hasText: 'Marketplace' })).toBeVisible()
+    await expect(page.locator('nav button', { hasText: 'Memory' })).toBeVisible()
 
     // Chat layout should be hidden
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).not.toBeVisible()
@@ -55,6 +58,21 @@ test.describe('Settings Panel', () => {
     // Secrets should no longer be active
     const secretsBtn = page.locator('nav button', { hasText: 'Secrets' })
     await expect(secretsBtn).not.toHaveClass(/font-medium/)
+
+    // Click Hooks
+    await page.locator('nav button', { hasText: 'Hooks' }).click()
+    const hooksBtn = page.locator('nav button', { hasText: 'Hooks' })
+    await expect(hooksBtn).toHaveClass(/font-medium/)
+
+    // Click Marketplace
+    await page.locator('nav button', { hasText: 'Marketplace' }).click()
+    const marketplaceBtn = page.locator('nav button', { hasText: 'Marketplace' })
+    await expect(marketplaceBtn).toHaveClass(/font-medium/)
+
+    // Click Memory
+    await page.locator('nav button', { hasText: 'Memory' }).click()
+    const memoryBtn = page.locator('nav button', { hasText: 'Memory' })
+    await expect(memoryBtn).toHaveClass(/font-medium/)
   })
 
   test('settings replaces entire chat layout', async ({ page }) => {
