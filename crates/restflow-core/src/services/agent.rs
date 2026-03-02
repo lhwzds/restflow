@@ -321,6 +321,7 @@ mod tests {
             tools: Some(vec!["http_request".to_string()]),
             skills: None,
             skill_variables: None,
+            skill_preflight_policy_mode: None,
             model_routing: None,
         }
     }
