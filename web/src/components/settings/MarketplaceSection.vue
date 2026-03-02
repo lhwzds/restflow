@@ -166,19 +166,20 @@ onMounted(async () => {
         >
           No installed skills found.
         </div>
-        <div
-          v-for="skill in installedSkills"
-          v-else
-          :key="skill.id"
-          class="rounded-lg border bg-card p-4"
-        >
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <h4 class="font-medium">{{ skill.name }}</h4>
-              <p class="text-sm text-muted-foreground">{{ skill.description || 'No description' }}</p>
-              <p class="text-xs text-muted-foreground">id: {{ skill.id }}</p>
+        <div v-else class="space-y-3">
+          <div
+            v-for="skill in installedSkills"
+            :key="skill.id"
+            class="rounded-lg border bg-card p-4"
+          >
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <h4 class="font-medium">{{ skill.name }}</h4>
+                <p class="text-sm text-muted-foreground">{{ skill.description || 'No description' }}</p>
+                <p class="text-xs text-muted-foreground">id: {{ skill.id }}</p>
+              </div>
+              <Button size="sm" variant="destructive" @click="uninstallSkill(skill.id)">Uninstall</Button>
             </div>
-            <Button size="sm" variant="destructive" @click="uninstallSkill(skill.id)">Uninstall</Button>
           </div>
         </div>
       </section>
