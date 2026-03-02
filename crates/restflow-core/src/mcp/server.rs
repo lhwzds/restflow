@@ -17,12 +17,13 @@ use crate::services::background_agent_conversion::{
     ConvertSessionSpecOptions, build_convert_session_spec, default_conversion_schedule,
 };
 use crate::services::tool_registry::create_tool_registry;
-use crate::storage::SecretStorage;
 use crate::storage::agent::StoredAgent;
+use crate::storage::{SecretStorage, SystemConfig};
 use restflow_ai::llm::{
     CodexClient, DefaultLlmClientFactory, LlmClient, LlmProvider, LlmSwitcherImpl, SwappableLlm,
 };
 use restflow_ai::tools::Tool as RuntimeTool;
+use restflow_storage::ApiDefaults;
 use restflow_tools::SwitchModelTool;
 use restflow_traits::store::{
     MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
@@ -160,6 +161,7 @@ pub trait McpBackend: Send + Sync {
         name: &str,
         input: Value,
     ) -> Result<RuntimeToolResult, String>;
+    async fn get_api_defaults(&self) -> Result<ApiDefaults, String>;
 }
 
 fn create_runtime_tool_registry_for_core(
@@ -645,6 +647,25 @@ impl McpBackend for CoreBackend {
             retry_after_ms: output.retry_after_ms,
         })
     }
+
+    async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {
+        let config = match self.core.storage.config.get_effective_config() {
+            Ok(config) => config,
+            Err(error) => {
+                tracing::warn!(
+                    %error,
+                    "Failed to load effective config overrides for API defaults; using stored values"
+                );
+                self.core
+                    .storage
+                    .config
+                    .get_config()
+                    .map_err(|e| e.to_string())?
+                    .unwrap_or_default()
+            }
+        };
+        Ok(config.api_defaults)
+    }
 }
 
 struct IpcBackend {
@@ -1010,6 +1031,11 @@ impl McpBackend for IpcBackend {
             retry_after_ms: output.retry_after_ms,
         })
     }
+
+    async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {
+        let config: SystemConfig = self.request_typed(IpcRequest::GetConfig).await?;
+        Ok(config.api_defaults)
+    }
 }
 
 impl RestFlowMcpServer {
@@ -1132,9 +1158,9 @@ pub struct MemorySearchParams {
     pub query: String,
     /// Agent ID to scope the search
     pub agent_id: String,
-    /// Maximum number of results to return
-    #[serde(default = "default_memory_limit")]
-    pub limit: u32,
+    /// Maximum number of results to return.
+    #[serde(default)]
+    pub limit: Option<u32>,
 }
 
 /// Parameters for memory_store tool
@@ -1180,9 +1206,9 @@ pub struct ChatSessionListParams {
     /// Optional agent ID filter
     #[serde(default)]
     pub agent_id: Option<String>,
-    /// Maximum number of sessions to return
-    #[serde(default = "default_session_limit")]
-    pub limit: u32,
+    /// Maximum number of sessions to return.
+    #[serde(default)]
+    pub limit: Option<u32>,
 }
 
 /// Parameters for chat_session_get tool
@@ -1335,14 +1361,6 @@ pub struct AgentSummary {
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EmptyParams {}
 
-fn default_memory_limit() -> u32 {
-    10
-}
-
-fn default_session_limit() -> u32 {
-    20
-}
-
 // ============================================================================
 // Tool Implementations
 // ============================================================================
@@ -1437,6 +1455,13 @@ impl RestFlowMcpServer {
                 .map_err(|e| format!("Invalid {}: {}", field, e)),
             None => Ok(None),
         }
+    }
+
+    async fn load_api_defaults(&self) -> Result<ApiDefaults, String> {
+        self.backend
+            .get_api_defaults()
+            .await
+            .map_err(|e| format!("Failed to load API defaults: {}", e))
     }
 
     fn merge_memory_scope(
@@ -1771,10 +1796,12 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_memory_search(&self, params: MemorySearchParams) -> Result<String, String> {
+        let defaults = self.load_api_defaults().await?;
+        let limit = params.limit.unwrap_or(defaults.memory_search_limit).max(1);
         let query = MemorySearchQuery::new(params.agent_id)
             .with_query(params.query)
             .with_mode(SearchMode::Keyword)
-            .paginate(params.limit, 0);
+            .paginate(limit, 0);
 
         let results = self
             .backend
@@ -1866,7 +1893,8 @@ impl RestFlowMcpServer {
         &self,
         params: ChatSessionListParams,
     ) -> Result<String, String> {
-        let limit = params.limit as usize;
+        let defaults = self.load_api_defaults().await?;
+        let limit = params.limit.unwrap_or(defaults.session_list_limit).max(1) as usize;
         let summaries: Vec<ChatSessionSummary> = if let Some(agent_id) = params.agent_id {
             self.backend
                 .list_sessions_by_agent(&agent_id)
@@ -2092,7 +2120,11 @@ impl RestFlowMcpServer {
             }
             "progress" => {
                 let id = Self::required_string(params.id, "id")?;
-                let event_limit = params.event_limit.unwrap_or(10).max(1);
+                let defaults = self.load_api_defaults().await?;
+                let event_limit = params
+                    .event_limit
+                    .unwrap_or(defaults.background_progress_event_limit)
+                    .max(1);
                 serde_json::to_value(
                     self.backend
                         .get_background_agent_progress(&id, event_limit)
@@ -2113,7 +2145,11 @@ impl RestFlowMcpServer {
             }
             "list_messages" => {
                 let id = Self::required_string(params.id, "id")?;
-                let limit = params.limit.unwrap_or(50).max(1);
+                let defaults = self.load_api_defaults().await?;
+                let limit = params
+                    .limit
+                    .unwrap_or(defaults.background_message_list_limit)
+                    .max(1);
                 serde_json::to_value(
                     self.backend
                         .list_background_agent_messages(&id, limit)
@@ -2127,7 +2163,11 @@ impl RestFlowMcpServer {
                     .map_err(|e| e.to_string())?
             }
             "list_traces" => {
-                let limit = params.limit.unwrap_or(50).max(1);
+                let defaults = self.load_api_defaults().await?;
+                let limit = params
+                    .limit
+                    .unwrap_or(defaults.background_trace_list_limit)
+                    .max(1);
                 if let Some(task_id) = &params.id {
                     let task = self
                         .backend
@@ -2150,7 +2190,11 @@ impl RestFlowMcpServer {
             }
             "read_trace" => {
                 let trace_id = params.trace_id.ok_or("trace_id is required")?;
-                let limit = params.line_limit.unwrap_or(200).max(1);
+                let defaults = self.load_api_defaults().await?;
+                let limit = params
+                    .line_limit
+                    .unwrap_or(defaults.background_trace_line_limit)
+                    .max(1);
                 let parts: Vec<&str> = trace_id.splitn(2, ':').collect();
                 let traces = if parts.len() == 2 {
                     self.backend
@@ -2818,7 +2862,7 @@ mod tests {
         let list_json = server
             .handle_chat_session_list(ChatSessionListParams {
                 agent_id: None,
-                limit: 20,
+                limit: Some(20),
             })
             .await
             .unwrap();
@@ -3612,6 +3656,7 @@ mod tests {
     struct MockBackend {
         skills: Vec<Skill>,
         session: ChatSession,
+        api_defaults: ApiDefaults,
     }
 
     impl MockBackend {
@@ -3628,6 +3673,7 @@ mod tests {
             Self {
                 skills: vec![skill],
                 session,
+                api_defaults: ApiDefaults::default(),
             }
         }
 
@@ -3943,6 +3989,10 @@ mod tests {
                 Err(format!("Unknown runtime tool: {}", name))
             }
         }
+
+        async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {
+            Ok(self.api_defaults.clone())
+        }
     }
 
     #[tokio::test]
@@ -3962,7 +4012,7 @@ mod tests {
         let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
         let params = ChatSessionListParams {
             agent_id: Some("mock-agent".to_string()),
-            limit: 10,
+            limit: Some(10),
         };
         let json = server.handle_chat_session_list(params).await.unwrap();
         let sessions: Vec<ChatSessionSummary> = serde_json::from_str(&json).unwrap();
