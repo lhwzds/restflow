@@ -149,7 +149,11 @@ Example — notify on task failure:
 
 ### Skills Management
 
-- `use_skill` / `skill`: Read and execute reusable skill templates
+- `use_skill`: Load-only skill access (backward-compatible alias for listing/reading)
+  - `action: "list"` — List all skills
+  - `action: "read"` — Get skill content by ID
+  - Skill execution is not supported in this tool
+- `skill`: Manage reusable skill definitions
   - `action: "list"` — List all skills
   - `action: "read"` — Get skill content by ID
   - `action: "create"` — Create new skill (name + content required)

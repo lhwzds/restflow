@@ -1494,7 +1494,7 @@ impl RestFlowMcpServer {
                     .to_string()
             }
             ("use_skill", "skill") => {
-                "Alias of 'skill' for backward compatibility. Prefer using 'skill' directly."
+                "Alias of 'skill' for backward compatibility (load-only: list/read). Prefer using 'skill' directly."
                     .to_string()
             }
             ("python", "run_python") => {
@@ -1510,7 +1510,24 @@ impl RestFlowMcpServer {
             return serde_json::json!({ "action": "list" });
         };
 
-        if map.contains_key("action") {
+        if let Some(action) = map.get("action").and_then(|v| v.as_str()) {
+            let action = action.trim();
+            if action.eq_ignore_ascii_case("execute") || action.eq_ignore_ascii_case("run") {
+                return serde_json::json!({ "action": "__unsupported_execute" });
+            }
+            if action.eq_ignore_ascii_case("list") {
+                return serde_json::json!({ "action": "list" });
+            }
+            if action.eq_ignore_ascii_case("read") || action.eq_ignore_ascii_case("load") {
+                if let Some(skill_id) = map.remove("id").or_else(|| map.remove("skill_id")) {
+                    return serde_json::json!({
+                        "action": "read",
+                        "id": skill_id
+                    });
+                }
+                return serde_json::json!({ "action": "read" });
+            }
+
             return Value::Object(map);
         }
 
@@ -1526,6 +1543,38 @@ impl RestFlowMcpServer {
         }
 
         serde_json::json!({ "action": "list" })
+    }
+
+    fn use_skill_alias_parameters() -> serde_json::Map<String, Value> {
+        let schema = serde_json::json!({
+            "type": "object",
+            "description": "Load-only alias for skill access. Supports only list/read. Skill execution is not supported in this tool.",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["list", "read"],
+                    "description": "Load-only action."
+                },
+                "id": {
+                    "type": "string",
+                    "description": "Skill ID for read."
+                },
+                "skill_id": {
+                    "type": "string",
+                    "description": "Legacy compatibility field for read."
+                },
+                "list": {
+                    "type": "boolean",
+                    "default": false,
+                    "description": "Legacy compatibility field for list."
+                }
+            },
+            "additionalProperties": false
+        });
+        schema
+            .as_object()
+            .cloned()
+            .unwrap_or_else(serde_json::Map::new)
     }
 
     /// Runtime tools that are surfaced as explicit MCP-only additions.
@@ -2431,9 +2480,13 @@ impl ServerHandler for RestFlowMcpServer {
                 if !known_names.contains(alias_name)
                     && let Some(target) = runtime_by_name.get(target_name)
                 {
-                    let parameters = match target.parameters.clone() {
-                        Value::Object(map) => map,
-                        _ => serde_json::Map::new(),
+                    let parameters = if alias_name == "use_skill" {
+                        Self::use_skill_alias_parameters()
+                    } else {
+                        match target.parameters.clone() {
+                            Value::Object(map) => map,
+                            _ => serde_json::Map::new(),
+                        }
                     };
                     tools.push(Tool::new(
                         alias_name,
@@ -2605,7 +2658,16 @@ impl ServerHandler for RestFlowMcpServer {
                 let converted = Self::convert_use_skill_input(Value::Object(
                     request.arguments.unwrap_or_default(),
                 ));
-                self.handle_runtime_tool("skill", converted).await
+                if converted
+                    .get("action")
+                    .and_then(|value| value.as_str())
+                    .map(|action| action == "__unsupported_execute")
+                    .unwrap_or(false)
+                {
+                    Err("skill execution not supported in this tool. use_skill is load-only; use action=list/read.".to_string())
+                } else {
+                    self.handle_runtime_tool("skill", converted).await
+                }
             }
             _ => {
                 if let Some(target) = Self::runtime_alias_target(request.name.as_ref()) {
@@ -2716,6 +2778,7 @@ mod tests {
             tools: Some(vec!["http_request".to_string()]),
             skills: None,
             skill_variables: None,
+            skill_preflight_policy_mode: None,
             model_routing: None,
         }
     }
@@ -3582,6 +3645,7 @@ mod tests {
                     tools: None,
                     skills: None,
                     skill_variables: None,
+                    skill_preflight_policy_mode: None,
                     model_routing: None,
                 },
                 prompt_file: None,
@@ -4145,6 +4209,26 @@ mod tests {
     }
 
     #[test]
+    fn test_convert_use_skill_input_rejects_execute_action() {
+        let input = serde_json::json!({
+            "action": "execute",
+            "id": "my-skill"
+        });
+        let output = RestFlowMcpServer::convert_use_skill_input(input);
+        assert_eq!(output["action"], "__unsupported_execute");
+    }
+
+    #[test]
+    fn test_convert_use_skill_input_rejects_run_action() {
+        let input = serde_json::json!({
+            "action": "run",
+            "id": "my-skill"
+        });
+        let output = RestFlowMcpServer::convert_use_skill_input(input);
+        assert_eq!(output["action"], "__unsupported_execute");
+    }
+
+    #[test]
     fn test_runtime_alias_description_prefers_primary_tool() {
         assert_eq!(
             RestFlowMcpServer::runtime_alias_description("http", "http_request"),
@@ -4168,8 +4252,20 @@ mod tests {
         );
         assert_eq!(
             RestFlowMcpServer::runtime_alias_description("use_skill", "skill"),
-            "Alias of 'skill' for backward compatibility. Prefer using 'skill' directly."
+            "Alias of 'skill' for backward compatibility (load-only: list/read). Prefer using 'skill' directly."
         );
+    }
+
+    #[test]
+    fn test_use_skill_alias_parameters_are_load_only() {
+        let schema = RestFlowMcpServer::use_skill_alias_parameters();
+        let action_enum = schema["properties"]["action"]["enum"]
+            .as_array()
+            .expect("action enum should be an array");
+        assert_eq!(action_enum.len(), 2);
+        assert_eq!(action_enum[0], "list");
+        assert_eq!(action_enum[1], "read");
+        assert_eq!(schema["additionalProperties"], false);
     }
 
     #[test]
