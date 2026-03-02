@@ -6,7 +6,7 @@
 
 pub(crate) mod assembly;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, RwLock};
 use tracing::{debug, warn};
 
@@ -162,6 +162,8 @@ pub fn registry_from_allowlist_with_security_gate(
     let mut allow_file = false;
     let mut allow_file_write = false;
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
+    let mut allowlisted_skill_ids: Vec<String> = Vec::new();
+    let mut recorded_skill_ids: HashSet<String> = HashSet::new();
 
     // Pre-create shared diagnostics provider when any of diagnostics/edit/multiedit
     // are in the allowlist, so they all share the same LspManager instance.
@@ -325,7 +327,16 @@ pub fn registry_from_allowlist_with_security_gate(
                 if let Some(storage) = storage {
                     let provider: Arc<dyn SkillProvider> =
                         Arc::new(SkillStorageProvider::new(storage.skills.clone()));
-                    builder = builder.with_use_skill(provider);
+                    builder = if let Some(gate) = security_gate.clone() {
+                        builder.with_use_skill_with_security(
+                            provider,
+                            gate,
+                            agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                            DEFAULT_SECURITY_TASK_ID,
+                        )
+                    } else {
+                        builder.with_use_skill(provider)
+                    };
                 } else {
                     debug!(tool_name = "use_skill", "Storage missing, skipping");
                 }
@@ -382,7 +393,17 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "skill" => {
                 with_storage!(storage, "skill", builder, |s| {
-                    builder.with_skill_tool(Arc::new(SkillStorageProvider::new(s.skills.clone())))
+                    let provider = Arc::new(SkillStorageProvider::new(s.skills.clone()));
+                    if let Some(gate) = security_gate.clone() {
+                        builder.with_skill_tool_with_security(
+                            provider,
+                            gate,
+                            agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                            DEFAULT_SECURITY_TASK_ID,
+                        )
+                    } else {
+                        builder.with_skill_tool(provider)
+                    }
                 });
             }
             "memory_search" => {
@@ -484,6 +505,24 @@ pub fn registry_from_allowlist_with_security_gate(
                 // Registered by callers that provide a ProcessRegistry.
             }
             unknown => {
+                if let Some(store) = storage {
+                    match store.skills.exists(unknown) {
+                        Ok(true) => {
+                            if recorded_skill_ids.insert(unknown.to_string()) {
+                                allowlisted_skill_ids.push(unknown.to_string());
+                            }
+                            continue;
+                        }
+                        Ok(false) => {}
+                        Err(err) => {
+                            warn!(
+                                tool_name = %unknown,
+                                error = %err,
+                                "Failed to verify skill while building registry"
+                            );
+                        }
+                    }
+                }
                 warn!(tool_name = %unknown, "Configured tool not found in registry, skipping");
             }
         }
@@ -493,17 +532,31 @@ pub fn registry_from_allowlist_with_security_gate(
         builder = register_file_execution_tool(
             builder,
             allow_file_write,
-            security_gate,
+            security_gate.clone(),
             agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
             DEFAULT_SECURITY_TASK_ID,
         );
     }
 
-    // Register skills as callable tools
+    // Register allowlisted skills as callable tools
     if let Some(storage) = storage {
-        let provider: Arc<dyn SkillProvider> =
-            Arc::new(SkillStorageProvider::new(storage.skills.clone()));
-        restflow_tools::register_skills(&mut builder.registry, provider);
+        if !allowlisted_skill_ids.is_empty() {
+            let provider: Arc<dyn SkillProvider> =
+                Arc::new(SkillStorageProvider::new(storage.skills.clone()));
+            register_allowlisted_skill_tools(
+                &mut builder.registry,
+                provider,
+                &allowlisted_skill_ids,
+                security_gate,
+                agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
+                DEFAULT_SECURITY_TASK_ID,
+            );
+        }
+    } else if !allowlisted_skill_ids.is_empty() {
+        warn!(
+            count = allowlisted_skill_ids.len(),
+            "Skill entries found in allowlist but storage unavailable; skipping"
+        );
     }
 
     // Check if batch tool was requested
@@ -530,11 +583,48 @@ pub fn registry_from_allowlist_with_security_gate(
     Ok(registry)
 }
 
+fn register_allowlisted_skill_tools(
+    registry: &mut ToolRegistry,
+    provider: Arc<dyn SkillProvider>,
+    skill_ids: &[String],
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    agent_id: &str,
+    task_id: &str,
+) {
+    if skill_ids.is_empty() {
+        return;
+    }
+
+    let info_by_id: HashMap<String, restflow_traits::skill::SkillInfo> = provider
+        .list_skills()
+        .into_iter()
+        .map(|info| (info.id.clone(), info))
+        .collect();
+
+    for skill_id in skill_ids {
+        let Some(info) = info_by_id.get(skill_id) else {
+            warn!(skill_id = %skill_id, "Allowlisted skill not found, skipping");
+            continue;
+        };
+        let tool = if let Some(gate) = security_gate.as_ref() {
+            restflow_tools::SkillAsTool::new(info.clone(), provider.clone()).with_security(
+                gate.clone(),
+                agent_id,
+                task_id,
+            )
+        } else {
+            restflow_tools::SkillAsTool::new(info.clone(), provider.clone())
+        };
+        registry.register(tool);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
     };
+    use crate::models::Skill;
     use crate::storage::Storage;
     use tempfile::tempdir;
 
@@ -564,6 +654,67 @@ mod tests {
         let registry = registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
         assert!(!registry.has("manage_background_agents"));
         assert!(!registry.has("manage_agents"));
+    }
+
+    #[test]
+    fn test_skills_only_registered_when_allowlisted() {
+        let dir = tempdir().expect("temp dir should be created");
+        let db_path = dir.path().join("registry-skills.db");
+        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
+            .expect("storage should be created");
+
+        let alpha = Skill::new(
+            "alpha-skill".to_string(),
+            "Alpha".to_string(),
+            None,
+            None,
+            "# alpha".to_string(),
+        );
+        let beta = Skill::new(
+            "beta-skill".to_string(),
+            "Beta".to_string(),
+            None,
+            None,
+            "# beta".to_string(),
+        );
+        storage.skills.create(&alpha).expect("create alpha");
+        storage.skills.create(&beta).expect("create beta");
+
+        let base_allowlist = vec!["use_skill".to_string()];
+        let registry = registry_from_allowlist(
+            Some(&base_allowlist),
+            None,
+            None,
+            Some(&storage),
+            None,
+            None,
+        )
+        .expect("registry should build");
+        assert!(
+            !registry.has("alpha-skill"),
+            "skills must not be auto-registered"
+        );
+        assert!(!registry.has("beta-skill"));
+
+        let scoped_allowlist = vec![
+            "use_skill".to_string(),
+            "skill".to_string(),
+            "alpha-skill".to_string(),
+        ];
+        let scoped_registry = registry_from_allowlist(
+            Some(&scoped_allowlist),
+            None,
+            None,
+            Some(&storage),
+            None,
+            None,
+        )
+        .expect("registry should build with allowlisted skill");
+        assert!(scoped_registry.has("alpha-skill"));
+        assert!(
+            !scoped_registry.has("beta-skill"),
+            "non-allowlisted skills stay unavailable"
+        );
     }
 
     #[test]

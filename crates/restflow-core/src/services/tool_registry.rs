@@ -230,10 +230,21 @@ pub fn create_tool_registry(
     );
     builder = register_python_execution_tools(
         builder,
-        security_gate,
+        security_gate.clone(),
         security_agent_id,
         DEFAULT_SECURITY_TASK_ID,
     );
+
+    builder = if let Some(gate) = security_gate.clone() {
+        builder.with_skill_tool_with_security(
+            skill_provider,
+            gate,
+            security_agent_id,
+            DEFAULT_SECURITY_TASK_ID,
+        )
+    } else {
+        builder.with_skill_tool(skill_provider)
+    };
 
     let mut registry = builder
         .with_telegram()?
@@ -251,7 +262,6 @@ pub fn create_tool_registry(
         .with_diagnostics(lsp_manager.clone())
         .with_transcribe(secret_resolver.clone())?
         .with_vision(secret_resolver)?
-        .with_skill_tool(skill_provider)
         .with_session(session_store)
         .with_memory_management(memory_manager)
         .with_memory_store(mem_store)
