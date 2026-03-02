@@ -31,7 +31,7 @@ pub struct SpawnSubagentParams {
     #[serde(default)]
     pub wait: bool,
 
-    /// Timeout in seconds (default: 300).
+    /// Timeout in seconds (default: 3600).
     pub timeout_secs: Option<u64>,
 
     /// Optional model override for this spawn (e.g., "minimax/coding-plan").
@@ -187,8 +187,8 @@ impl Tool for SpawnSubagentTool {
                 },
                 "timeout_secs": {
                     "type": "integer",
-                    "default": 300,
-                    "description": "Timeout in seconds (default: 300)"
+                    "default": 3600,
+                    "description": "Timeout in seconds (default: 3600)"
                 },
                 "model": {
                     "type": "string",

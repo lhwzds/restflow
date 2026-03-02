@@ -60,7 +60,7 @@ impl Default for AgentDefaults {
             bash_timeout_secs: 300,
             python_timeout_secs: 120,
             max_iterations: 100,
-            subagent_timeout_secs: 600,
+            subagent_timeout_secs: 3600,
             max_tool_calls: 200,
             max_wall_clock_secs: None,
             default_task_timeout_secs: 1800,
