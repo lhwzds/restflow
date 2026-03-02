@@ -21,7 +21,7 @@ pub struct CleanupReport {
 }
 
 pub async fn run_cleanup(core: &Arc<AppCore>) -> Result<CleanupReport> {
-    let config = core.storage.config.get_config()?.unwrap_or_default();
+    let config = core.storage.config.get_effective_config()?;
     let now_ms = chrono::Utc::now().timestamp_millis();
     let lifecycle = SessionLifecycleService::from_storage(&core.storage);
 

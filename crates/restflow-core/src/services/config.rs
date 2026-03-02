@@ -5,15 +5,10 @@ use std::sync::Arc;
 
 // Get complete system configuration
 pub async fn get_config(core: &Arc<AppCore>) -> Result<SystemConfig> {
-    match core
-        .storage
+    core.storage
         .config
-        .get_config()
-        .context("Failed to get config")?
-    {
-        Some(config) => Ok(config),
-        None => Ok(SystemConfig::default()),
-    }
+        .get_effective_config()
+        .context("Failed to get config")
 }
 
 // Update system configuration with validation

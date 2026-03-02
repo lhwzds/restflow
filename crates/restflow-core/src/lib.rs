@@ -92,7 +92,7 @@ impl AppCore {
 
         info!("Initializing RestFlow (Agent-centric mode)");
 
-        let config = storage.config.get_config()?.unwrap_or_default();
+        let config = storage.config.get_effective_config()?;
         let features = Arc::new(features::Features::from_config(&config));
 
         let core = Self { storage, features };
