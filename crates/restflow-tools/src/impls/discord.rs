@@ -30,6 +30,28 @@ impl DiscordTool {
     }
 }
 
+fn sanitize_token(text: &str, bot_token: &str) -> String {
+    if bot_token.is_empty() || text.is_empty() {
+        return text.to_string();
+    }
+
+    text.replace(bot_token, "***")
+}
+
+fn format_request_error_message(raw_error: &str, bot_token: &str) -> String {
+    let sanitized = sanitize_token(raw_error, bot_token);
+    format!("Discord request failed: {}", sanitized)
+}
+
+fn format_api_error_message(
+    raw_error: &str,
+    bot_token: &str,
+    status: reqwest::StatusCode,
+) -> String {
+    let sanitized = sanitize_token(raw_error, bot_token);
+    format!("Discord API error ({}): {}", status, sanitized)
+}
+
 #[async_trait]
 impl Tool for DiscordTool {
     fn name(&self) -> &str {
@@ -77,17 +99,26 @@ impl Tool for DiscordTool {
             return Ok(ToolOutput::error("message is required"));
         }
 
+        let DiscordInput {
+            bot_token,
+            channel_id,
+            message,
+        } = params;
+        let channel_id_for_response = channel_id.clone();
+
         let resp = self
             .client
             .post(format!(
                 "{}/channels/{}/messages",
-                DISCORD_API_BASE, params.channel_id
+                DISCORD_API_BASE, channel_id
             ))
-            .header("Authorization", format!("Bot {}", params.bot_token))
-            .json(&json!({ "content": params.message }))
+            .header("Authorization", format!("Bot {}", bot_token.as_str()))
+            .json(&json!({ "content": message }))
             .send()
             .await
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .map_err(|e| {
+                ToolError::Tool(format_request_error_message(&e.to_string(), &bot_token))
+            })?;
 
         let status = resp.status();
         let body: Value = resp
@@ -100,13 +131,12 @@ impl Tool for DiscordTool {
             Ok(ToolOutput::success(json!({
                 "sent": true,
                 "message_id": message_id,
-                "channel_id": params.channel_id
+                "channel_id": channel_id_for_response
             })))
         } else {
             let err = body["message"].as_str().unwrap_or("Unknown error");
-            Ok(ToolOutput::error(format!(
-                "Discord API error ({}): {}",
-                status, err
+            Ok(ToolOutput::error(format_api_error_message(
+                err, &bot_token, status,
             )))
         }
     }
@@ -145,5 +175,24 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(result.error.unwrap().contains("bot_token is required"));
+    }
+
+    #[test]
+    fn test_discord_request_error_masks_token() {
+        let token = "discord-token";
+        let raw = format!("network failure for {}", token);
+        let message = super::format_request_error_message(&raw, token);
+        assert!(!message.contains(token));
+        assert!(message.contains("request failed"));
+    }
+
+    #[test]
+    fn test_discord_api_error_masks_token() {
+        let token = "discord-secret";
+        let raw = format!("bot token {} invalid", token);
+        let message =
+            super::format_api_error_message(&raw, token, reqwest::StatusCode::UNAUTHORIZED);
+        assert!(!message.contains(token));
+        assert!(message.contains("***"));
     }
 }

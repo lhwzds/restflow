@@ -32,6 +32,24 @@ impl SlackTool {
     }
 }
 
+fn sanitize_token(text: &str, bot_token: &str) -> String {
+    if bot_token.is_empty() || text.is_empty() {
+        return text.to_string();
+    }
+
+    text.replace(bot_token, "***")
+}
+
+fn format_request_error_message(raw_error: &str, bot_token: &str) -> String {
+    let sanitized = sanitize_token(raw_error, bot_token);
+    format!("Slack request failed: {}", sanitized)
+}
+
+fn format_api_error_message(raw_error: &str, bot_token: &str) -> String {
+    let sanitized = sanitize_token(raw_error, bot_token);
+    format!("Slack API error: {}", sanitized)
+}
+
 #[async_trait]
 impl Tool for SlackTool {
     fn name(&self) -> &str {
@@ -83,22 +101,31 @@ impl Tool for SlackTool {
             return Ok(ToolOutput::error("message is required"));
         }
 
+        let SlackInput {
+            bot_token,
+            channel,
+            message,
+            thread_ts,
+        } = params;
+
         let mut body = json!({
-            "channel": params.channel,
-            "text": params.message,
+            "channel": channel.clone(),
+            "text": message,
         });
-        if let Some(ref ts) = params.thread_ts {
+        if let Some(ts) = thread_ts {
             body["thread_ts"] = json!(ts);
         }
 
         let resp = self
             .client
             .post(format!("{}/chat.postMessage", SLACK_API_BASE))
-            .header("Authorization", format!("Bearer {}", params.bot_token))
+            .header("Authorization", format!("Bearer {}", bot_token.as_str()))
             .json(&body)
             .send()
             .await
-            .map_err(|e| ToolError::Tool(e.to_string()))?;
+            .map_err(|e| {
+                ToolError::Tool(format_request_error_message(&e.to_string(), &bot_token))
+            })?;
 
         let result: Value = resp
             .json()
@@ -110,11 +137,11 @@ impl Tool for SlackTool {
             Ok(ToolOutput::success(json!({
                 "sent": true,
                 "ts": ts,
-                "channel": params.channel
+                "channel": channel
             })))
         } else {
             let err = result["error"].as_str().unwrap_or("unknown");
-            Ok(ToolOutput::error(format!("Slack API error: {}", err)))
+            Ok(ToolOutput::error(format_api_error_message(err, &bot_token)))
         }
     }
 }
@@ -152,5 +179,23 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(result.error.unwrap().contains("bot_token is required"));
+    }
+
+    #[test]
+    fn test_slack_error_sanitization_replaces_token() {
+        let token = "xoxb-secret-token";
+        let api_error = format!("invalid auth for {}", token);
+        let sanitized = super::format_api_error_message(&api_error, token);
+        assert!(!sanitized.contains(token));
+        assert!(sanitized.contains("***"));
+    }
+
+    #[test]
+    fn test_slack_request_error_message_masks_token() {
+        let token = "xoxb-other-token";
+        let raw = format!("https://slack.com/api?token={}", token);
+        let msg = super::format_request_error_message(&raw, token);
+        assert!(!msg.contains(token));
+        assert!(msg.contains("request failed"));
     }
 }
