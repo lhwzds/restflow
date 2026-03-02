@@ -394,12 +394,7 @@ mod tests {
             Ok(Vec::new())
         }
 
-        fn log(
-            &self,
-            session_id: &str,
-            offset: usize,
-            limit: usize,
-        ) -> anyhow::Result<ProcessLog> {
+        fn log(&self, session_id: &str, offset: usize, limit: usize) -> anyhow::Result<ProcessLog> {
             self.calls.lock().expect("calls lock poisoned").log += 1;
             Ok(ProcessLog {
                 session_id: session_id.to_string(),
@@ -508,7 +503,10 @@ mod tests {
         let calls = Arc::new(Mutex::new(ProcessCallCounts::default()));
         let manager = Arc::new(CountingProcessManager::new(calls.clone()));
         let actions = Arc::new(Mutex::new(Vec::new()));
-        let gate = Arc::new(MockSecurityGate::deny("process operation blocked", actions.clone()));
+        let gate = Arc::new(MockSecurityGate::deny(
+            "process operation blocked",
+            actions.clone(),
+        ));
         let tool = ProcessTool::new(manager).with_security(gate, "agent-1", "task-1");
 
         let spawn = tool
