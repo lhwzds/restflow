@@ -47,9 +47,9 @@ pub use impls::{
     AgentCrudTool, AuthProfileTool, BackgroundAgentTool, ConfigTool, DeleteMemoryTool,
     DiagnosticsTool, JinaReaderTool, ListMemoryTool, MemoryManagementTool, PatchTool, ProcessTool,
     PythonExecutionBackend, PythonExecutionLimits, PythonTool, ReadMemoryTool, ReplyTool,
-    RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool, SkillTool,
-    SwitchModelTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool, WebSearchTool,
-    WorkItemTool,
+    RunPythonTool, SaveDeliverableTool, SaveMemoryTool, SecretGetPolicy, SecretsTool, SessionTool,
+    SkillTool, SwitchModelTool, TranscribeConfig, TranscribeTool, VisionTool, WebFetchTool,
+    WebSearchTool, WorkItemTool,
 };
 
 // Re-export tool_registry inline migrated tools
