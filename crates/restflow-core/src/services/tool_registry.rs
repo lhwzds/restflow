@@ -7,6 +7,11 @@ use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::models::{AIModel, Provider};
 use crate::process::ProcessRegistry;
+use crate::runtime::agent::tools::assembly::{
+    KNOWN_TOOL_ALIASES, populate_known_tools_from_registry, register_bash_execution_tool,
+    register_file_execution_tool, register_http_execution_tool, register_python_execution_tools,
+    register_send_email_execution_tool,
+};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
@@ -21,8 +26,8 @@ use restflow_ai::llm::{
     LlmSwitcherImpl, SwappableLlm,
 };
 use restflow_tools::{
-    EmailTool, HttpTool, ListSubagentsTool, ProcessTool, PythonTool, ReplyTool, RunPythonTool,
-    SpawnSubagentTool, SwitchModelTool, ToolRegistryBuilder, WaitSubagentsTool,
+    ListSubagentsTool, ProcessTool, ReplyTool, SpawnSubagentTool, SwitchModelTool,
+    ToolRegistryBuilder, WaitSubagentsTool,
 };
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
@@ -196,65 +201,39 @@ pub fn create_tool_registry(
     let switch_model_tool = build_switch_model_tool(llm_client_factory.clone());
 
     let mut builder = ToolRegistryBuilder::new();
-    if let Some(gate) = security_gate.clone() {
-        builder.registry.register(
-            restflow_tools::BashConfig::default()
-                .into_bash_tool()
-                .with_security(
-                    gate.clone(),
-                    agent_id
-                        .as_deref()
-                        .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                    DEFAULT_SECURITY_TASK_ID,
-                ),
-        );
-        builder.registry.register(
-            restflow_tools::FileConfig::default()
-                .into_file_tool_with_tracker(builder.tracker())
-                .with_security(
-                    gate.clone(),
-                    agent_id
-                        .as_deref()
-                        .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-                    DEFAULT_SECURITY_TASK_ID,
-                ),
-        );
-        builder.registry.register(HttpTool::new()?.with_security(
-            gate.clone(),
-            agent_id
-                .as_deref()
-                .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-            DEFAULT_SECURITY_TASK_ID,
-        ));
-        builder.registry.register(EmailTool::new().with_security(
-            gate.clone(),
-            agent_id
-                .as_deref()
-                .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-            DEFAULT_SECURITY_TASK_ID,
-        ));
-        builder.registry.register(RunPythonTool::new().with_security(
-            gate.clone(),
-            agent_id
-                .as_deref()
-                .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-            DEFAULT_SECURITY_TASK_ID,
-        ));
-        builder.registry.register(PythonTool::new().with_security(
-            gate,
-            agent_id
-                .as_deref()
-                .unwrap_or(DEFAULT_SECURITY_AGENT_ID),
-            DEFAULT_SECURITY_TASK_ID,
-        ));
-    } else {
-        builder = builder
-            .with_bash(restflow_tools::BashConfig::default())
-            .with_file(restflow_tools::FileConfig::default())
-            .with_http()?
-            .with_email()
-            .with_python();
-    }
+    let security_agent_id = agent_id.as_deref().unwrap_or(DEFAULT_SECURITY_AGENT_ID);
+    builder = register_bash_execution_tool(
+        builder,
+        restflow_tools::BashConfig::default(),
+        security_gate.clone(),
+        security_agent_id,
+        DEFAULT_SECURITY_TASK_ID,
+    );
+    builder = register_file_execution_tool(
+        builder,
+        false,
+        security_gate.clone(),
+        security_agent_id,
+        DEFAULT_SECURITY_TASK_ID,
+    );
+    builder = register_http_execution_tool(
+        builder,
+        security_gate.clone(),
+        security_agent_id,
+        DEFAULT_SECURITY_TASK_ID,
+    )?;
+    builder = register_send_email_execution_tool(
+        builder,
+        security_gate.clone(),
+        security_agent_id,
+        DEFAULT_SECURITY_TASK_ID,
+    );
+    builder = register_python_execution_tools(
+        builder,
+        security_gate,
+        security_agent_id,
+        DEFAULT_SECURITY_TASK_ID,
+    );
 
     let mut registry = builder
         .with_telegram()?
@@ -303,27 +282,7 @@ pub fn create_tool_registry(
     registry.register(ListSubagentsTool::new(subagent_manager));
 
     // Populate known_tools for AgentStoreAdapter validation
-    if let Ok(mut known) = known_tools.write() {
-        *known = registry
-            .list()
-            .into_iter()
-            .map(|name| name.to_string())
-            .collect::<HashSet<_>>();
-
-        for (alias_name, target_name) in [
-            ("http", "http_request"),
-            ("email", "send_email"),
-            ("telegram", "telegram_send"),
-            ("discord", "discord_send"),
-            ("slack", "slack_send"),
-            ("use_skill", "skill"),
-            ("python", "run_python"),
-        ] {
-            if known.contains(target_name) {
-                known.insert(alias_name.to_string());
-            }
-        }
-    }
+    populate_known_tools_from_registry(&known_tools, &registry, Some(&KNOWN_TOOL_ALIASES));
 
     Ok(registry)
 }
