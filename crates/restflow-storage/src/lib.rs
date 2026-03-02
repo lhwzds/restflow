@@ -45,7 +45,7 @@ pub use background_agent::BackgroundAgentStorage;
 pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
-pub use config::{AgentDefaults, ConfigStorage, SystemConfig};
+pub use config::{AgentDefaults, ApiDefaults, ConfigStorage, SystemConfig};
 pub use daemon_state::DaemonStateStorage;
 pub use deliverable::DeliverableStorage;
 pub use kv_store::KvStoreStorage;

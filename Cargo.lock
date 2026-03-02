@@ -5293,6 +5293,7 @@ dependencies = [
  "tantivy",
  "tempfile",
  "tokio",
+ "toml 0.8.2",
  "tracing",
  "ts-rs",
  "uuid",
