@@ -66,6 +66,10 @@ pub async fn run(core: Arc<AppCore>, command: DaemonCommands) -> Result<()> {
 /// Run daemon commands that do not require opening AppCore.
 /// Returns true when the command is handled and the caller should return.
 pub async fn run_without_core(command: &DaemonCommands) -> Result<bool> {
+    if !should_run_without_core(command) {
+        return Ok(false);
+    }
+
     match command {
         DaemonCommands::Start {
             foreground: false,
@@ -89,13 +93,22 @@ pub async fn run_without_core(command: &DaemonCommands) -> Result<bool> {
             status().await?;
             Ok(true)
         }
-        DaemonCommands::Start {
-            foreground: true, ..
-        }
-        | DaemonCommands::Restart {
-            foreground: true, ..
-        } => Ok(false),
+        DaemonCommands::Start { .. } | DaemonCommands::Restart { .. } => Ok(false),
     }
+}
+
+fn should_run_without_core(command: &DaemonCommands) -> bool {
+    matches!(
+        command,
+        DaemonCommands::Start {
+            foreground: false,
+            ..
+        } | DaemonCommands::Restart {
+            foreground: false,
+            ..
+        } | DaemonCommands::Stop
+            | DaemonCommands::Status
+    )
 }
 
 async fn start_background(mcp_port: Option<u16>) -> Result<()> {
@@ -712,7 +725,8 @@ fn is_process_alive(pid: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_mcp_bind_addr;
+    use super::{parse_mcp_bind_addr, should_run_without_core};
+    use crate::cli::DaemonCommands;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
     #[test]
@@ -731,5 +745,47 @@ mod tests {
     fn parse_mcp_bind_addr_rejects_invalid_value() {
         let ip = parse_mcp_bind_addr(Some("not-an-ip"));
         assert_eq!(ip, None);
+    }
+
+    #[test]
+    fn no_core_routing_accepts_background_start() {
+        let command = DaemonCommands::Start {
+            foreground: false,
+            mcp_port: None,
+        };
+        assert!(should_run_without_core(&command));
+    }
+
+    #[test]
+    fn no_core_routing_rejects_foreground_start() {
+        let command = DaemonCommands::Start {
+            foreground: true,
+            mcp_port: Some(8787),
+        };
+        assert!(!should_run_without_core(&command));
+    }
+
+    #[test]
+    fn no_core_routing_accepts_background_restart() {
+        let command = DaemonCommands::Restart {
+            foreground: false,
+            mcp_port: None,
+        };
+        assert!(should_run_without_core(&command));
+    }
+
+    #[test]
+    fn no_core_routing_rejects_foreground_restart() {
+        let command = DaemonCommands::Restart {
+            foreground: true,
+            mcp_port: Some(8787),
+        };
+        assert!(!should_run_without_core(&command));
+    }
+
+    #[test]
+    fn no_core_routing_accepts_stop_and_status() {
+        assert!(should_run_without_core(&DaemonCommands::Stop));
+        assert!(should_run_without_core(&DaemonCommands::Status));
     }
 }
