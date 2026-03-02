@@ -25,6 +25,7 @@ use restflow_ai::llm::{
     CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
     LlmSwitcherImpl, SwappableLlm,
 };
+use restflow_storage::AgentDefaults;
 use restflow_tools::{
     ListSubagentsTool, ProcessTool, ReplyTool, SpawnSubagentTool, SwitchModelTool,
     ToolRegistryBuilder, WaitSubagentsTool,
@@ -38,6 +39,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 use tokio::sync::mpsc;
+use tracing::warn;
 
 #[derive(Debug)]
 struct UnavailableReplySender;
@@ -100,21 +102,44 @@ fn clone_tool_registry(source: &ToolRegistry) -> ToolRegistry {
     cloned
 }
 
+fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
+    SubagentConfig {
+        max_parallel_agents: defaults.max_parallel_subagents,
+        subagent_timeout_secs: defaults.subagent_timeout_secs,
+        ..SubagentConfig::default()
+    }
+}
+
+fn load_subagent_config(config_storage: &ConfigStorage) -> SubagentConfig {
+    match config_storage.get_effective_config() {
+        Ok(config) => build_subagent_config(&config.agent),
+        Err(error) => {
+            warn!(
+                error = %error,
+                "Failed to load system config for sub-agent defaults; falling back to built-in defaults"
+            );
+            SubagentConfig::default()
+        }
+    }
+}
+
 fn create_subagent_manager(
     agent_storage: AgentStorage,
     base_registry: &ToolRegistry,
     llm_client_factory: Arc<dyn LlmClientFactory>,
+    config_storage: Arc<ConfigStorage>,
 ) -> Arc<dyn restflow_traits::SubagentManager> {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
     let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
+    let subagent_config = load_subagent_config(&config_storage);
     let subagent_deps = SubagentDeps {
         tracker,
         definitions,
         llm_client,
         tool_registry: Arc::new(clone_tool_registry(base_registry)),
-        config: SubagentConfig::default(),
+        config: subagent_config,
         llm_client_factory: Some(llm_client_factory),
     };
     Arc::new(SubagentManagerImpl::from_deps(&subagent_deps))
@@ -150,6 +175,8 @@ pub fn create_tool_registry(
 ) -> anyhow::Result<ToolRegistry> {
     let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
     let lsp_manager = Arc::new(LspManager::new(root));
+
+    let config_storage = Arc::new(config_storage);
 
     let secret_resolver: SecretResolver = {
         let secrets = Arc::new(secret_storage.clone());
@@ -273,7 +300,7 @@ pub fn create_tool_registry(
         .with_task_list(Arc::new(DbWorkItemAdapter::new(work_item_storage.clone())))
         .with_auth_profile(auth_store)
         .with_secrets(Arc::new(secret_storage.clone()))
-        .with_config(Arc::new(config_storage))
+        .with_config(config_storage.clone())
         .with_agent_crud(agent_store)
         .with_background_agent(background_agent_store)
         .with_marketplace(marketplace_store)
@@ -285,8 +312,12 @@ pub fn create_tool_registry(
     registry.register(ProcessTool::new(process_manager));
     registry.register(ReplyTool::new(reply_sender));
     registry.register(switch_model_tool);
-    let subagent_manager =
-        create_subagent_manager(agent_storage, &registry, llm_client_factory.clone());
+    let subagent_manager = create_subagent_manager(
+        agent_storage,
+        &registry,
+        llm_client_factory.clone(),
+        config_storage,
+    );
     registry.register(SpawnSubagentTool::new(subagent_manager.clone()));
     registry.register(WaitSubagentsTool::new(subagent_manager.clone()));
     registry.register(ListSubagentsTool::new(subagent_manager));
@@ -1797,7 +1828,7 @@ mod tests {
             kv_store_storage,
             work_item_storage,
             secret_storage.clone(),
-            config_storage,
+            config_storage.clone(),
             agent_storage.clone(),
             background_agent_storage,
             trigger_storage,
@@ -1813,6 +1844,7 @@ mod tests {
             agent_storage,
             &service_registry,
             build_llm_factory(Some(&secret_storage)),
+            Arc::new(config_storage),
         );
 
         let allowlist = vec![

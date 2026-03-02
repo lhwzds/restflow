@@ -19,7 +19,7 @@ use restflow_core::runtime::{
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::SecretStorage;
-use restflow_storage::AuthProfileStorage;
+use restflow_storage::{AgentDefaults, AuthProfileStorage};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -75,6 +75,7 @@ impl CliBackgroundAgentRunner {
         let storage = self.core.storage.clone();
         let secrets = Arc::new(self.core.storage.secrets.clone());
         let process_registry = Arc::new(ProcessRegistry::new());
+        let system_config = storage.config.get_effective_config()?;
 
         let auth_manager = Arc::new(create_auth_manager(secrets.clone(), storage.get_db())?);
         if let Ok(data_dir) = paths::ensure_restflow_dir() {
@@ -91,7 +92,7 @@ impl CliBackgroundAgentRunner {
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
         let subagent_definitions =
             Arc::new(StorageBackedSubagentLookup::new(storage.agents.clone()));
-        let subagent_config = SubagentConfig::default();
+        let subagent_config = build_subagent_config(&system_config.agent);
         let event_emitter: Arc<dyn TaskEventEmitter> = Arc::new(DaemonIpcEventEmitter);
         let channel_router = Arc::new(RwLock::new(None));
 
@@ -112,8 +113,6 @@ impl CliBackgroundAgentRunner {
         .with_reply_sender_factory(reply_sender_factory);
         let notifier = TelegramNotifier::new(secrets);
         let steer_registry = Arc::new(SteerRegistry::new());
-        let system_config = storage.config.get_config()?.unwrap_or_default();
-
         let hook_executor = Arc::new(HookExecutor::with_storage(storage.hooks.clone()));
 
         let runner = Arc::new(
@@ -275,6 +274,14 @@ impl CliBackgroundAgentRunner {
         *router_guard = None;
 
         Ok(())
+    }
+}
+
+fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
+    SubagentConfig {
+        max_parallel_agents: defaults.max_parallel_subagents,
+        subagent_timeout_secs: defaults.subagent_timeout_secs,
+        ..SubagentConfig::default()
     }
 }
 
