@@ -20,6 +20,8 @@ pub use restflow_traits::subagent::{
     SubagentSpawner, SubagentState, SubagentStatus,
 };
 
+const MAX_PARALLEL_SUBAGENTS_CAP: usize = 200;
+
 /// Sub-agent tracker with concurrent access support
 pub struct SubagentTracker {
     /// All sub-agent states
@@ -735,8 +737,10 @@ pub fn spawn_subagent(
         subagent_result
     });
 
+    let max_parallel = config.max_parallel_agents.min(MAX_PARALLEL_SUBAGENTS_CAP);
+
     tracker.try_register(
-        config.max_parallel_agents,
+        max_parallel,
         task_id.clone(),
         agent_name_for_register,
         task_for_register,

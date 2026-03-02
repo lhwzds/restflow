@@ -68,8 +68,8 @@ pub struct SubagentConfig {
 impl Default for SubagentConfig {
     fn default() -> Self {
         Self {
-            max_parallel_agents: 50,
-            subagent_timeout_secs: 600,
+            max_parallel_agents: 200,
+            subagent_timeout_secs: 3600,
             max_iterations: 20,
             max_depth: 1,
         }
