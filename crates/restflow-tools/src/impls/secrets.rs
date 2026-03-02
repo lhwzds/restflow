@@ -292,6 +292,9 @@ mod tests {
             .execute(json!({ "operation": "get", "key": "TEST_KEY" }))
             .await;
         let err = result.expect_err("expected get policy deny error");
-        assert!(err.to_string().contains("Reading secret values is disabled by policy"));
+        assert!(
+            err.to_string()
+                .contains("Reading secret values is disabled by policy")
+        );
     }
 }
