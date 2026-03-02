@@ -55,12 +55,17 @@ impl SecurityChecker {
 
     /// Create a new security checker with default policy and a new approval manager.
     pub fn with_defaults() -> Self {
+        Self::with_default_approval_timeout(ApprovalManager::DEFAULT_TIMEOUT_SECS)
+    }
+
+    /// Create a new security checker with default policy and a custom approval timeout.
+    pub fn with_default_approval_timeout(approval_timeout_secs: u64) -> Self {
         let policy = SecurityPolicy::default();
         let config_store =
             SecurityConfigStore::new(AgentSecurityConfig::from_policy(policy.clone())).shared();
         Self {
             policy: RwLock::new(policy),
-            approval_manager: Arc::new(ApprovalManager::new()),
+            approval_manager: Arc::new(ApprovalManager::with_timeout(approval_timeout_secs)),
             config_store,
             amendment_store: None,
         }

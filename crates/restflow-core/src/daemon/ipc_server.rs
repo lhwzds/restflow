@@ -2285,15 +2285,15 @@ fn subagent_config_from_defaults(defaults: &AgentDefaults) -> SubagentConfig {
     }
 }
 
-fn load_subagent_config_from_core(core: &Arc<AppCore>) -> SubagentConfig {
+fn load_agent_defaults_from_core(core: &Arc<AppCore>) -> AgentDefaults {
     match core.storage.config.get_effective_config() {
-        Ok(config) => subagent_config_from_defaults(&config.agent),
+        Ok(config) => config.agent,
         Err(error) => {
             warn!(
                 error = %error,
-                "Failed to load system config for chat runtime; falling back to default sub-agent config"
+                "Failed to load system config for chat runtime; falling back to default agent config"
             );
-            SubagentConfig::default()
+            AgentDefaults::default()
         }
     }
 }
@@ -2302,16 +2302,19 @@ fn create_chat_executor(
     core: &Arc<AppCore>,
     auth_manager: Arc<AuthProfileManager>,
 ) -> AgentRuntimeExecutor {
+    let agent_defaults = load_agent_defaults_from_core(core);
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
     let subagent_definitions = Arc::new(StorageBackedSubagentLookup::new(
         core.storage.agents.clone(),
     ));
-    let subagent_config = load_subagent_config_from_core(core);
+    let subagent_config = subagent_config_from_defaults(&agent_defaults);
+    let process_registry =
+        Arc::new(ProcessRegistry::new().with_ttl_seconds(agent_defaults.process_session_ttl_secs));
 
     AgentRuntimeExecutor::new(
         core.storage.clone(),
-        Arc::new(ProcessRegistry::new()),
+        process_registry,
         auth_manager,
         subagent_tracker,
         subagent_definitions,

@@ -46,12 +46,14 @@ pub struct ApprovalManager {
 }
 
 impl ApprovalManager {
+    pub const DEFAULT_TIMEOUT_SECS: u64 = 300;
+
     /// Create a new approval manager with default timeout.
     pub fn new() -> Self {
         Self {
             pending: RwLock::new(HashMap::new()),
             callback: None,
-            default_timeout_secs: 300,
+            default_timeout_secs: Self::DEFAULT_TIMEOUT_SECS,
         }
     }
 
