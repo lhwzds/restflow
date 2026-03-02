@@ -1,35 +1,22 @@
 # tauri-ipc-command-coverage baseline
 # format-version: 1
 tauri_total=128
-bound_total=73
+bound_total=100
 dangling_total=0
-unbound_total=55
+unbound_total=28
 
 [unbound_commands]
 clear_old_chat_sessions
 close_pty
 create_background_agent
-create_hook
-create_memory_chunk
-create_memory_session
 create_terminal_session
-delete_hook
-delete_memory_chunk
-delete_memory_chunks_for_agent
-delete_memory_session
 delete_terminal_session
 emit_test_background_agent_event
-export_memory_advanced
-export_memory_markdown
-export_memory_session_markdown
 get_active_background_agents
 get_available_tools
 get_background_agent
 get_chat_session_count
 get_config
-get_memory_chunk
-get_memory_session
-get_memory_stats
 get_pty_history
 get_pty_status
 get_runnable_background_agents
@@ -37,28 +24,14 @@ get_terminal_session
 has_secret
 import_skill
 list_background_agents_by_status
-list_hooks
-list_memory_chunks
 list_terminal_sessions
-marketplace_check_gating
-marketplace_get_content
-marketplace_get_skill
-marketplace_get_versions
-marketplace_install_skill
-marketplace_list_installed
-marketplace_search
-marketplace_uninstall_skill
 rename_terminal_session
 resize_pty
 restart_terminal
 save_all_terminal_history
 save_terminal_history
-search_memory
-search_memory_advanced
 spawn_pty
-test_hook
 update_config
-update_hook
 update_terminal_session
 write_pty
 
