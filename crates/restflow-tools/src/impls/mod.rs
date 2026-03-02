@@ -126,7 +126,9 @@ pub use batch::BatchTool;
 
 // Re-export core-migrated tools
 pub use list_subagents::ListSubagentsTool;
-pub use registry_builder::{BashConfig, FileConfig, SecretsConfig, ToolRegistryBuilder, default_registry};
+pub use registry_builder::{
+    BashConfig, FileConfig, SecretsConfig, ToolRegistryBuilder, default_registry,
+};
 pub use spawn::SpawnTool;
 pub use spawn_subagent::SpawnSubagentTool;
 pub use use_skill::UseSkillTool;
