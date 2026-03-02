@@ -701,6 +701,51 @@ mod tests {
     }
 
     #[test]
+    fn test_update_task_status_migration_clears_all_previous_status_index_entries() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-001", "active", b"v1")
+            .unwrap();
+        storage
+            .update_task_raw_with_status("task-001", "active", "paused", b"v2")
+            .unwrap();
+        storage
+            .update_task_raw_with_status("task-001", "paused", "completed", b"v3")
+            .unwrap();
+
+        assert!(storage.list_tasks_by_status_indexed("active").unwrap().is_empty());
+        assert!(storage.list_tasks_by_status_indexed("paused").unwrap().is_empty());
+
+        let completed_tasks = storage
+            .list_tasks_by_status_indexed("completed")
+            .unwrap();
+        assert_eq!(completed_tasks.len(), 1);
+        assert_eq!(completed_tasks[0].0, "task-001");
+        assert_eq!(completed_tasks[0].1, b"v3");
+    }
+
+    #[test]
+    fn test_repeated_task_updates_do_not_create_duplicate_visible_status_entries() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-001", "active", b"v1")
+            .unwrap();
+        storage
+            .update_task_raw_with_status("task-001", "active", "active", b"v2")
+            .unwrap();
+        storage
+            .update_task_raw_with_status("task-001", "active", "active", b"v3")
+            .unwrap();
+
+        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
+        assert_eq!(active_tasks.len(), 1);
+        assert_eq!(active_tasks[0].0, "task-001");
+        assert_eq!(active_tasks[0].1, b"v3");
+    }
+
+    #[test]
     fn test_put_task_raw_with_status_replaces_previous_status_index_entry() {
         let storage = create_test_storage();
 
@@ -1095,5 +1140,9 @@ mod tests {
                 .len(),
             1
         );
+
+        let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
+        assert_eq!(active_tasks.len(), 1);
+        assert_eq!(active_tasks[0].0, "task-2");
     }
 }
