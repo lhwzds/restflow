@@ -1,4 +1,5 @@
-use std::path::{Path, PathBuf};
+use std::collections::HashSet;
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
@@ -122,14 +123,29 @@ impl SkillFolderLoader {
         if skill.scripts.is_empty() {
             skill.scripts = self.discover_scripts(folder_path)?;
         } else {
+            Self::validate_declared_scripts(folder_path, &skill.scripts)?;
             self.fill_script_langs(folder_path, &mut skill.scripts);
         }
 
         if skill.references.is_empty() {
             skill.references = self.discover_references(folder_path)?;
         } else {
+            Self::validate_declared_references(folder_path, &skill.references)?;
             self.fill_reference_metadata(folder_path, &mut skill.references);
         }
+
+        Self::validate_unique_assets(
+            &skill.scripts,
+            "script",
+            |script| &script.id,
+            |script| &script.path,
+        )?;
+        Self::validate_unique_assets(
+            &skill.references,
+            "reference",
+            |reference| &reference.id,
+            |reference| &reference.path,
+        )?;
 
         Ok(skill)
     }
@@ -312,6 +328,129 @@ impl SkillFolderLoader {
 
         (title, summary)
     }
+
+    fn validate_declared_scripts(folder_path: &Path, scripts: &[SkillScript]) -> Result<()> {
+        for script in scripts {
+            let candidate = Self::resolve_declared_asset_path(folder_path, &script.path)
+                .with_context(|| format!("Invalid script path for id '{}'", script.id))?;
+            let metadata = std::fs::metadata(&candidate)
+                .with_context(|| format!("Failed to read script metadata at {:?}", candidate))?;
+            if !metadata.is_file() {
+                return Err(anyhow::anyhow!(
+                    "Declared script '{}' path is not a file: {}",
+                    script.id,
+                    script.path
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_declared_references(
+        folder_path: &Path,
+        references: &[SkillReference],
+    ) -> Result<()> {
+        for reference in references {
+            if !Self::is_markdown_path(&reference.path) {
+                return Err(anyhow::anyhow!(
+                    "Declared reference '{}' must use markdown extension (.md or .markdown): {}",
+                    reference.id,
+                    reference.path
+                ));
+            }
+
+            let candidate = Self::resolve_declared_asset_path(folder_path, &reference.path)
+                .with_context(|| format!("Invalid reference path for id '{}'", reference.id))?;
+            let metadata = std::fs::metadata(&candidate)
+                .with_context(|| format!("Failed to read reference metadata at {:?}", candidate))?;
+            if !metadata.is_file() {
+                return Err(anyhow::anyhow!(
+                    "Declared reference '{}' path is not a file: {}",
+                    reference.id,
+                    reference.path
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    fn resolve_declared_asset_path(folder_path: &Path, raw_path: &str) -> Result<PathBuf> {
+        let declared = Path::new(raw_path);
+        if declared.is_absolute() {
+            return Err(anyhow::anyhow!(
+                "Path must be relative, got absolute path: {raw_path}"
+            ));
+        }
+        if declared.components().any(|component| {
+            matches!(
+                component,
+                Component::ParentDir | Component::RootDir | Component::Prefix(_)
+            )
+        }) {
+            return Err(anyhow::anyhow!(
+                "Path must not contain traversal or root components: {raw_path}"
+            ));
+        }
+
+        let candidate = folder_path.join(declared);
+        if !candidate.exists() {
+            return Err(anyhow::anyhow!(
+                "Declared path does not exist inside skill folder: {raw_path}"
+            ));
+        }
+
+        let canonical_folder = std::fs::canonicalize(folder_path)
+            .with_context(|| format!("Failed to canonicalize skill folder {:?}", folder_path))?;
+        let canonical_candidate = std::fs::canonicalize(&candidate)
+            .with_context(|| format!("Failed to canonicalize declared path {:?}", candidate))?;
+        if !canonical_candidate.starts_with(&canonical_folder) {
+            return Err(anyhow::anyhow!(
+                "Declared path resolves outside of skill folder: {raw_path}"
+            ));
+        }
+
+        Ok(candidate)
+    }
+
+    fn is_markdown_path(path: &str) -> bool {
+        let extension = Path::new(path)
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .unwrap_or("");
+        matches!(extension.to_ascii_lowercase().as_str(), "md" | "markdown")
+    }
+
+    fn validate_unique_assets<T, FId, FPath>(
+        assets: &[T],
+        kind: &str,
+        id_fn: FId,
+        path_fn: FPath,
+    ) -> Result<()>
+    where
+        FId: Fn(&T) -> &str,
+        FPath: Fn(&T) -> &str,
+    {
+        let mut ids = HashSet::new();
+        let mut paths = HashSet::new();
+
+        for asset in assets {
+            let id = id_fn(asset);
+            if !ids.insert(id.to_string()) {
+                return Err(anyhow::anyhow!(
+                    "Duplicate {kind} id found in skill frontmatter/discovery: {id}"
+                ));
+            }
+
+            let path = path_fn(asset);
+            if !paths.insert(path.to_string()) {
+                return Err(anyhow::anyhow!(
+                    "Duplicate {kind} path found in skill frontmatter/discovery: {path}"
+                ));
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -407,5 +546,121 @@ mod tests {
             reference.summary.as_deref(),
             Some("Use this guide to call the API safely.")
         );
+    }
+
+    #[test]
+    fn test_load_skill_folder_rejects_declared_absolute_script_path() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Invalid Script\nscripts:\n  - id: run\n    path: /tmp/run.sh\n---\n\n# Invalid",
+        )
+        .unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let err = loader.load_skill_folder(temp.path()).unwrap_err();
+        let err = format!("{err:#}");
+        assert!(err.contains("Path must be relative"));
+    }
+
+    #[test]
+    fn test_load_skill_folder_rejects_declared_reference_traversal_and_non_markdown() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Invalid Reference\nreferences:\n  - id: bad-traversal\n    path: ../outside.md\n---\n\n# Invalid",
+        )
+        .unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let err = loader.load_skill_folder(temp.path()).unwrap_err();
+        let err = format!("{err:#}");
+        assert!(err.contains("must not contain traversal"));
+
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Invalid Reference Type\nreferences:\n  - id: bad-ext\n    path: references/readme.txt\n---\n\n# Invalid",
+        )
+        .unwrap();
+        let references_dir = temp.path().join("references");
+        std::fs::create_dir_all(&references_dir).unwrap();
+        std::fs::write(references_dir.join("readme.txt"), "text").unwrap();
+
+        let err = loader.load_skill_folder(temp.path()).unwrap_err();
+        let err = format!("{err:#}");
+        assert!(err.contains("must use markdown extension"));
+    }
+
+    #[test]
+    fn test_load_skill_folder_rejects_declared_missing_or_outside_reference() {
+        let temp = tempfile::tempdir().unwrap();
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Missing Reference\nreferences:\n  - id: missing\n    path: references/missing.md\n---\n\n# Invalid",
+        )
+        .unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let err = loader.load_skill_folder(temp.path()).unwrap_err();
+        let err = format!("{err:#}");
+        assert!(err.contains("does not exist inside skill folder"));
+    }
+
+    #[test]
+    fn test_load_skill_folder_rejects_duplicate_script_or_reference_id_or_path() {
+        let temp = tempfile::tempdir().unwrap();
+        let scripts_dir = temp.path().join("scripts");
+        let references_dir = temp.path().join("references");
+        std::fs::create_dir_all(&scripts_dir).unwrap();
+        std::fs::create_dir_all(&references_dir).unwrap();
+        std::fs::write(scripts_dir.join("a.sh"), "#!/bin/sh\necho a").unwrap();
+        std::fs::write(scripts_dir.join("b.sh"), "#!/bin/sh\necho b").unwrap();
+        std::fs::write(references_dir.join("a.md"), "# A").unwrap();
+        std::fs::write(references_dir.join("b.md"), "# B").unwrap();
+
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Duplicate Script\nscripts:\n  - id: run\n    path: scripts/a.sh\n  - id: run\n    path: scripts/b.sh\n---\n\n# Invalid",
+        )
+        .unwrap();
+        let loader = SkillFolderLoader::new(temp.path());
+        let err = loader
+            .load_skill_folder(temp.path())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Duplicate script id"));
+
+        std::fs::write(
+            temp.path().join("SKILL.md"),
+            "---\nname: Duplicate Reference Path\nreferences:\n  - id: ref-a\n    path: references/a.md\n  - id: ref-b\n    path: references/a.md\n---\n\n# Invalid",
+        )
+        .unwrap();
+        let err = loader
+            .load_skill_folder(temp.path())
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("Duplicate reference path"));
+    }
+
+    #[test]
+    fn test_scan_skips_skill_with_declared_path_validation_failure() {
+        let temp = tempfile::tempdir().unwrap();
+        let valid = temp.path().join("valid");
+        let invalid = temp.path().join("invalid");
+        std::fs::create_dir_all(&valid).unwrap();
+        std::fs::create_dir_all(&invalid).unwrap();
+
+        std::fs::write(valid.join("SKILL.md"), "---\nname: Valid\n---\n\n# Valid").unwrap();
+        std::fs::write(
+            invalid.join("SKILL.md"),
+            "---\nname: Invalid\nreferences:\n  - id: bad\n    path: ../outside.md\n---\n\n# Invalid",
+        )
+        .unwrap();
+
+        let loader = SkillFolderLoader::new(temp.path());
+        let (skills, failed) = loader.scan().unwrap();
+        assert_eq!(failed, 1);
+        assert_eq!(skills.len(), 1);
+        assert_eq!(skills[0].id, "valid");
     }
 }
