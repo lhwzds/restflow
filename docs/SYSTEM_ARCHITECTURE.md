@@ -6,6 +6,12 @@
 - Scope: Runtime architecture, deployment model, and migration baseline
 - Audience: Core contributors working on Tauri, CLI, daemon, and runtime channels
 
+## Refactor Docs
+
+- [Minimal Refactor Roadmap](./MINIMAL_REFACTOR_ROADMAP.md)
+- [Compatibility Matrix](./COMPATIBILITY_MATRIX.md)
+- [Migration Test Plan](./MIGRATION_TEST_PLAN.md)
+
 ## 1. Architectural Decision
 
 RestFlow follows a **daemon-centric** architecture.
@@ -170,4 +176,3 @@ Do not:
 3. Move routing ownership to explicit channel/session binding.
 4. Unify realtime and persisted event identity to eliminate duplicates.
 5. Remove obsolete compatibility paths after rollout verification.
-
