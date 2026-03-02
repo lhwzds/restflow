@@ -74,8 +74,10 @@ impl CliBackgroundAgentRunner {
 
         let storage = self.core.storage.clone();
         let secrets = Arc::new(self.core.storage.secrets.clone());
-        let process_registry = Arc::new(ProcessRegistry::new());
         let system_config = storage.config.get_effective_config()?;
+        let process_registry = Arc::new(
+            ProcessRegistry::new().with_ttl_seconds(system_config.agent.process_session_ttl_secs),
+        );
 
         let auth_manager = Arc::new(create_auth_manager(secrets.clone(), storage.get_db())?);
         if let Ok(data_dir) = paths::ensure_restflow_dir() {

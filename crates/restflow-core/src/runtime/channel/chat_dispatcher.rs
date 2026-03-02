@@ -26,6 +26,7 @@ use crate::runtime::channel::{
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
+use restflow_storage::AgentDefaults;
 
 use super::debounce::MessageDebouncer;
 use restflow_ai::agent::{
@@ -591,10 +592,24 @@ impl ChatDispatcher {
         }
     }
 
+    fn process_registry_for_executor(&self) -> Arc<ProcessRegistry> {
+        let ttl_secs = match self.storage.config.get_effective_config() {
+            Ok(config) => config.agent.process_session_ttl_secs,
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "Failed to load process session TTL from effective config; using default process registry TTL"
+                );
+                AgentDefaults::default().process_session_ttl_secs
+            }
+        };
+        Arc::new(ProcessRegistry::new().with_ttl_seconds(ttl_secs))
+    }
+
     fn create_executor(&self) -> AgentRuntimeExecutor {
         AgentRuntimeExecutor::new(
             self.storage.clone(),
-            Arc::new(ProcessRegistry::new()),
+            self.process_registry_for_executor(),
             self.auth_manager.clone(),
             self.subagent_tracker.clone(),
             self.subagent_definitions.clone(),

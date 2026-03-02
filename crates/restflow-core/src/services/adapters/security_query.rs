@@ -1,20 +1,43 @@
 //! SecurityQueryProvider adapter.
 
 use crate::security::SecurityChecker;
+use crate::security::ApprovalManager;
+use restflow_storage::ConfigStorage;
 use restflow_traits::store::SecurityQueryProvider;
 use serde_json::{Value, json};
+use std::sync::Arc;
 
-pub struct SecurityQueryProviderAdapter;
-
-impl Default for SecurityQueryProviderAdapter {
-    fn default() -> Self {
-        Self
-    }
+#[derive(Default)]
+pub struct SecurityQueryProviderAdapter {
+    config_storage: Option<Arc<ConfigStorage>>,
 }
 
 impl SecurityQueryProviderAdapter {
     pub fn new() -> Self {
-        Self
+        Self::default()
+    }
+
+    pub fn with_config_storage(config_storage: Arc<ConfigStorage>) -> Self {
+        Self {
+            config_storage: Some(config_storage),
+        }
+    }
+
+    fn approval_timeout_secs(&self) -> u64 {
+        let Some(storage) = &self.config_storage else {
+            return ApprovalManager::DEFAULT_TIMEOUT_SECS;
+        };
+
+        match storage.get_effective_config() {
+            Ok(config) => config.agent.approval_timeout_secs,
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    "Failed to load effective config for security query approval timeout; using default"
+                );
+                ApprovalManager::DEFAULT_TIMEOUT_SECS
+            }
+        }
     }
 }
 
@@ -49,7 +72,8 @@ impl SecurityQueryProvider for SecurityQueryProviderAdapter {
         let target = target.map(|s| s.to_string());
         let summary = summary.map(|s| s.to_string());
         Box::pin(async move {
-            let checker = SecurityChecker::with_defaults();
+            let checker =
+                SecurityChecker::with_default_approval_timeout(self.approval_timeout_secs());
             let target_str = target.unwrap_or_else(|| "*".to_string());
             let summary_str =
                 summary.unwrap_or_else(|| format!("{}:{}", tool_name, operation_name));
@@ -78,7 +102,7 @@ mod tests {
 
     #[test]
     fn test_show_policy_returns_valid_json() {
-        let adapter = SecurityQueryProviderAdapter;
+        let adapter = SecurityQueryProviderAdapter::new();
         let result = adapter.show_policy().unwrap();
         assert!(
             result.is_object(),
@@ -89,7 +113,7 @@ mod tests {
 
     #[test]
     fn test_list_permissions_contains_expected_fields() {
-        let adapter = SecurityQueryProviderAdapter;
+        let adapter = SecurityQueryProviderAdapter::new();
         let result = adapter.list_permissions().unwrap();
         assert!(result.get("default_action").is_some());
         assert!(result.get("allowlist_count").is_some());
@@ -100,7 +124,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_permission_returns_decision() {
-        let adapter = SecurityQueryProviderAdapter;
+        let adapter = SecurityQueryProviderAdapter::new();
         let result = adapter
             .check_permission("bash", "execute", Some("/bin/ls"), Some("list files"))
             .await
@@ -111,7 +135,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_check_permission_without_optionals() {
-        let adapter = SecurityQueryProviderAdapter;
+        let adapter = SecurityQueryProviderAdapter::new();
         let result = adapter
             .check_permission("http", "get", None, None)
             .await

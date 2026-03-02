@@ -153,6 +153,28 @@ impl ConfigTool {
                             )
                         })?;
                     }
+                    "browser_timeout_secs" => {
+                        config.agent.browser_timeout_secs = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "agent.browser_timeout_secs must be a number".to_string(),
+                            )
+                        })?;
+                    }
+                    "process_session_ttl_secs" => {
+                        config.agent.process_session_ttl_secs =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "agent.process_session_ttl_secs must be a number".to_string(),
+                                )
+                            })?;
+                    }
+                    "approval_timeout_secs" => {
+                        config.agent.approval_timeout_secs = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "agent.approval_timeout_secs must be a number".to_string(),
+                            )
+                        })?;
+                    }
                     "max_iterations" => {
                         config.agent.max_iterations = value.as_u64().ok_or_else(|| {
                             ToolError::Tool("agent.max_iterations must be a number".to_string())
@@ -199,7 +221,7 @@ impl ConfigTool {
                     }
                     unknown => {
                         return Err(crate::ToolError::Tool(format!(
-                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs."
+                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.browser_timeout_secs, agent.process_session_ttl_secs, agent.approval_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs."
                         )));
                     }
                 }
@@ -301,8 +323,11 @@ impl Tool for ConfigTool {
                     "agent.tool_timeout_secs",
                     "agent.bash_timeout_secs",
                     "agent.python_timeout_secs",
+                    "agent.browser_timeout_secs",
+                    "agent.process_session_ttl_secs",
+                    "agent.approval_timeout_secs",
                     "agent.max_iterations",
-                "agent.subagent_timeout_secs",
+                    "agent.subagent_timeout_secs",
                     "agent.max_parallel_subagents",
                     "agent.max_tool_calls",
                     "agent.max_wall_clock_secs",
@@ -526,6 +551,9 @@ mod tests {
             ("agent.tool_timeout_secs", json!(180)),
             ("agent.bash_timeout_secs", json!(600)),
             ("agent.python_timeout_secs", json!(60)),
+            ("agent.browser_timeout_secs", json!(240)),
+            ("agent.process_session_ttl_secs", json!(5400)),
+            ("agent.approval_timeout_secs", json!(420)),
             ("agent.max_iterations", json!(50)),
             ("agent.subagent_timeout_secs", json!(900)),
             ("agent.max_parallel_subagents", json!(12)),
@@ -566,6 +594,20 @@ mod tests {
             Some(50)
         );
         assert_eq!(
+            agent.get("browser_timeout_secs").and_then(|v| v.as_u64()),
+            Some(240)
+        );
+        assert_eq!(
+            agent
+                .get("process_session_ttl_secs")
+                .and_then(|v| v.as_u64()),
+            Some(5400)
+        );
+        assert_eq!(
+            agent.get("approval_timeout_secs").and_then(|v| v.as_u64()),
+            Some(420)
+        );
+        assert_eq!(
             agent.get("max_parallel_subagents").and_then(|v| v.as_u64()),
             Some(12)
         );
@@ -600,6 +642,9 @@ mod tests {
             .expect("agent block should exist");
         assert!(agent.get("tool_timeout_secs").is_some());
         assert!(agent.get("bash_timeout_secs").is_some());
+        assert!(agent.get("browser_timeout_secs").is_some());
+        assert!(agent.get("process_session_ttl_secs").is_some());
+        assert!(agent.get("approval_timeout_secs").is_some());
         assert!(agent.get("max_iterations").is_some());
     }
 }

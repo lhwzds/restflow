@@ -243,6 +243,12 @@ impl ToolRegistryBuilder {
         Ok(self)
     }
 
+    pub fn with_browser_timeout(mut self, timeout_secs: u64) -> anyhow::Result<Self> {
+        self.registry
+            .register(BrowserTool::new_with_timeout(timeout_secs)?);
+        Ok(self)
+    }
+
     pub fn with_transcribe(mut self, resolver: SecretResolver) -> Result<Self, reqwest::Error> {
         self.registry.register(TranscribeTool::new(resolver)?);
         Ok(self)

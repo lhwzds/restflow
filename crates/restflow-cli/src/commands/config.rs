@@ -7,6 +7,7 @@ use crate::cli::ConfigCommands;
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::storage::SystemConfig;
+use restflow_storage::effective_config_sources;
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -25,9 +26,17 @@ pub async fn run(
 
 async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
     let config = executor.get_config().await?;
+    let sources = effective_config_sources();
 
     if format.is_json() {
-        return print_json(&config);
+        let mut payload = serde_json::to_value(&config)?;
+        if let Some(object) = payload.as_object_mut() {
+            object.insert(
+                "_effective_sources".to_string(),
+                serde_json::to_value(&sources)?,
+            );
+        }
+        return print_json(&payload);
     }
 
     let mut table = Table::new();
@@ -90,6 +99,18 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.agent.python_timeout_secs),
     ]);
     table.add_row(vec![
+        Cell::new("agent.browser_timeout_secs"),
+        Cell::new(config.agent.browser_timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.process_session_ttl_secs"),
+        Cell::new(config.agent.process_session_ttl_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.approval_timeout_secs"),
+        Cell::new(config.agent.approval_timeout_secs),
+    ]);
+    table.add_row(vec![
         Cell::new("agent.subagent_timeout_secs"),
         Cell::new(config.agent.subagent_timeout_secs),
     ]);
@@ -124,6 +145,14 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
                 .unwrap_or_else(|| "none".to_string()),
         ),
     ]);
+    table.add_row(vec![
+        Cell::new("sources.global"),
+        Cell::new(format_source_info(&sources.global)),
+    ]);
+    table.add_row(vec![
+        Cell::new("sources.workspace"),
+        Cell::new(format_source_info(&sources.workspace)),
+    ]);
     crate::output::table::print_table(table)
 }
 
@@ -149,6 +178,9 @@ async fn get_config_value(
         "agent.tool_timeout_secs" => json!(config.agent.tool_timeout_secs),
         "agent.bash_timeout_secs" => json!(config.agent.bash_timeout_secs),
         "agent.python_timeout_secs" => json!(config.agent.python_timeout_secs),
+        "agent.browser_timeout_secs" => json!(config.agent.browser_timeout_secs),
+        "agent.process_session_ttl_secs" => json!(config.agent.process_session_ttl_secs),
+        "agent.approval_timeout_secs" => json!(config.agent.approval_timeout_secs),
         "agent.max_iterations" => json!(config.agent.max_iterations),
         "agent.subagent_timeout_secs" => json!(config.agent.subagent_timeout_secs),
         "agent.max_parallel_subagents" => json!(config.agent.max_parallel_subagents),
@@ -157,6 +189,7 @@ async fn get_config_value(
         "agent.default_task_timeout_secs" => json!(config.agent.default_task_timeout_secs),
         "agent.default_max_duration_secs" => json!(config.agent.default_max_duration_secs),
         "agent.fallback_models" => json!(config.agent.fallback_models),
+        "effective_sources" => json!(effective_config_sources()),
         _ => bail!("Unsupported config key: {key}"),
     };
 
@@ -215,6 +248,15 @@ async fn set_config_value(
         }
         "agent.python_timeout_secs" => {
             config.agent.python_timeout_secs = parse_value(value)?;
+        }
+        "agent.browser_timeout_secs" => {
+            config.agent.browser_timeout_secs = parse_value(value)?;
+        }
+        "agent.process_session_ttl_secs" => {
+            config.agent.process_session_ttl_secs = parse_value(value)?;
+        }
+        "agent.approval_timeout_secs" => {
+            config.agent.approval_timeout_secs = parse_value(value)?;
         }
         "agent.max_iterations" => {
             config.agent.max_iterations = parse_value(value)?;
@@ -286,6 +328,17 @@ fn parse_optional_u64(value: &str) -> Result<Option<u64>> {
         return Ok(None);
     }
     parse_value::<u64>(normalized).map(Some)
+}
+
+fn format_source_info(source: &Option<restflow_storage::ConfigSourcePathInfo>) -> String {
+    match source {
+        Some(info) => {
+            let exists = if info.exists { "exists" } else { "missing" };
+            let origin = if info.from_env { "env" } else { "default" };
+            format!("{} ({exists}, {origin})", info.path)
+        }
+        None => "none".to_string(),
+    }
 }
 
 fn format_optional_u64(value: Option<u64>) -> String {

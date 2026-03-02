@@ -17,6 +17,8 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolErrorCategory, ToolOutput};
 
+const DEFAULT_TIMEOUT_SECS: u64 = 120;
+
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
 enum BrowserInput {
@@ -56,17 +58,26 @@ enum BrowserInput {
 /// Browser automation tool.
 pub struct BrowserTool {
     service: Arc<BrowserService>,
+    default_timeout_secs: u64,
 }
 
 impl BrowserTool {
     pub fn new() -> Result<Self> {
+        Self::new_with_timeout(DEFAULT_TIMEOUT_SECS)
+    }
+
+    pub fn new_with_timeout(default_timeout_secs: u64) -> Result<Self> {
         Ok(Self {
             service: Arc::new(BrowserService::new()?),
+            default_timeout_secs,
         })
     }
 
     pub fn with_service(service: Arc<BrowserService>) -> Self {
-        Self { service }
+        Self {
+            service,
+            default_timeout_secs: DEFAULT_TIMEOUT_SECS,
+        }
     }
 
     fn format_execution_failure(message: String, details: Value) -> ToolOutput {
@@ -200,7 +211,7 @@ impl Tool for BrowserTool {
                         code,
                         language: language.unwrap_or_default(),
                         runtime: runtime.unwrap_or_default(),
-                        timeout_secs: timeout_secs.unwrap_or(120),
+                        timeout_secs: timeout_secs.unwrap_or(self.default_timeout_secs),
                         cwd,
                     })
                     .await?;
@@ -228,7 +239,7 @@ impl Tool for BrowserTool {
                         session_id,
                         actions,
                         runtime: runtime.unwrap_or_default(),
-                        timeout_secs: timeout_secs.unwrap_or(120),
+                        timeout_secs: timeout_secs.unwrap_or(self.default_timeout_secs),
                         cwd,
                     })
                     .await?;

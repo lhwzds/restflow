@@ -19,6 +19,7 @@ use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
+use restflow_storage::AgentDefaults;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::DiagnosticsProvider;
@@ -242,7 +243,11 @@ pub fn registry_from_allowlist_with_security_gate(
                 );
             }
             "browser" => {
-                builder = builder.with_browser()?;
+                let timeout_secs = storage
+                    .and_then(|value| value.config.get_effective_config().ok())
+                    .map(|config| config.agent.browser_timeout_secs)
+                    .unwrap_or_else(|| AgentDefaults::default().browser_timeout_secs);
+                builder = builder.with_browser_timeout(timeout_secs)?;
             }
             "transcribe" => {
                 if let Some(resolver) = secret_resolver.clone() {
@@ -280,7 +285,14 @@ pub fn registry_from_allowlist_with_security_gate(
                 }
             }
             "security_query" => {
-                builder = builder.with_security_query(Arc::new(SecurityQueryProviderAdapter));
+                let provider = if let Some(storage) = storage {
+                    Arc::new(SecurityQueryProviderAdapter::with_config_storage(Arc::new(
+                        storage.config.clone(),
+                    )))
+                } else {
+                    Arc::new(SecurityQueryProviderAdapter::new())
+                };
+                builder = builder.with_security_query(provider);
             }
             "patch" => {
                 builder = builder.with_patch();

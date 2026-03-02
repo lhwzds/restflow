@@ -32,6 +32,9 @@ const DEFAULT_BG_PROGRESS_EVENT_LIMIT: usize = 10;
 const DEFAULT_BG_MESSAGE_LIST_LIMIT: usize = 50;
 const DEFAULT_BG_TRACE_LIST_LIMIT: usize = 50;
 const DEFAULT_BG_TRACE_LINE_LIMIT: usize = 200;
+const DEFAULT_BROWSER_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_PROCESS_SESSION_TTL_SECS: u64 = 30 * 60;
+const DEFAULT_APPROVAL_TIMEOUT_SECS: u64 = 300;
 const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
@@ -46,6 +49,12 @@ pub struct AgentDefaults {
     pub bash_timeout_secs: u64,
     /// Default timeout for Python code execution in seconds.
     pub python_timeout_secs: u64,
+    /// Default timeout for browser tool execution in seconds.
+    pub browser_timeout_secs: u64,
+    /// TTL for finished process sessions in seconds.
+    pub process_session_ttl_secs: u64,
+    /// Default approval timeout for security checks in seconds.
+    pub approval_timeout_secs: u64,
     /// Maximum ReAct loop iterations per agent run.
     pub max_iterations: usize,
     /// Default timeout for sub-agent execution in seconds.
@@ -75,6 +84,9 @@ impl Default for AgentDefaults {
             tool_timeout_secs: 300,
             bash_timeout_secs: 300,
             python_timeout_secs: 120,
+            browser_timeout_secs: DEFAULT_BROWSER_TIMEOUT_SECS,
+            process_session_ttl_secs: DEFAULT_PROCESS_SESSION_TTL_SECS,
+            approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
             max_iterations: 100,
             subagent_timeout_secs: 3600,
             max_parallel_subagents: 200,
@@ -104,6 +116,24 @@ impl AgentDefaults {
         if self.python_timeout_secs < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
                 "agent.python_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.browser_timeout_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.browser_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.process_session_ttl_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.process_session_ttl_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.approval_timeout_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "agent.approval_timeout_secs must be at least {} seconds",
                 MIN_TIMEOUT_SECONDS
             ));
         }
@@ -385,6 +415,9 @@ struct AgentDefaultsOverride {
     pub tool_timeout_secs: Option<u64>,
     pub bash_timeout_secs: Option<u64>,
     pub python_timeout_secs: Option<u64>,
+    pub browser_timeout_secs: Option<u64>,
+    pub process_session_ttl_secs: Option<u64>,
+    pub approval_timeout_secs: Option<u64>,
     pub max_iterations: Option<usize>,
     pub subagent_timeout_secs: Option<u64>,
     pub max_parallel_subagents: Option<usize>,
@@ -405,6 +438,15 @@ impl AgentDefaultsOverride {
         }
         if let Some(value) = self.python_timeout_secs {
             agent.python_timeout_secs = value;
+        }
+        if let Some(value) = self.browser_timeout_secs {
+            agent.browser_timeout_secs = value;
+        }
+        if let Some(value) = self.process_session_ttl_secs {
+            agent.process_session_ttl_secs = value;
+        }
+        if let Some(value) = self.approval_timeout_secs {
+            agent.approval_timeout_secs = value;
         }
         if let Some(value) = self.max_iterations {
             agent.max_iterations = value;
@@ -560,39 +602,89 @@ fn env_override_path(var: &str) -> Option<PathBuf> {
     }
 }
 
-fn global_config_path() -> Option<PathBuf> {
+#[derive(Debug, Clone)]
+struct ResolvedOverridePath {
+    path: PathBuf,
+    from_env: bool,
+}
+
+/// Metadata for a resolved configuration override path.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfigSourcePathInfo {
+    pub path: String,
+    pub exists: bool,
+    pub from_env: bool,
+}
+
+/// Effective configuration source information.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EffectiveConfigSources {
+    pub global: Option<ConfigSourcePathInfo>,
+    pub workspace: Option<ConfigSourcePathInfo>,
+}
+
+fn global_config_path() -> Option<ResolvedOverridePath> {
     if let Some(path) = env_override_path(GLOBAL_CONFIG_ENV) {
-        return Some(path);
+        return Some(ResolvedOverridePath {
+            path,
+            from_env: true,
+        });
     }
     crate::paths::resolve_restflow_dir()
         .ok()
-        .map(|dir| dir.join(CONFIG_FILE_NAME))
+        .map(|dir| ResolvedOverridePath {
+            path: dir.join(CONFIG_FILE_NAME),
+            from_env: false,
+        })
 }
 
-fn workspace_config_path() -> Option<PathBuf> {
+fn workspace_config_path() -> Option<ResolvedOverridePath> {
     if let Some(path) = env_override_path(WORKSPACE_CONFIG_ENV) {
-        return Some(path);
+        return Some(ResolvedOverridePath {
+            path,
+            from_env: true,
+        });
     }
-    env::current_dir()
-        .ok()
-        .map(|dir| dir.join(CONFIG_SUBDIR).join(CONFIG_FILE_NAME))
+    env::current_dir().ok().map(|dir| ResolvedOverridePath {
+        path: dir.join(CONFIG_SUBDIR).join(CONFIG_FILE_NAME),
+        from_env: false,
+    })
 }
 
-fn collect_override_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
+fn collect_override_paths() -> Vec<ResolvedOverridePath> {
+    let mut paths: Vec<ResolvedOverridePath> = Vec::new();
 
     if let Some(global) = global_config_path() {
         paths.push(global);
     }
 
     if let Some(workspace) = workspace_config_path() {
-        let duplicate = paths.last().map(|p| p == &workspace).unwrap_or(false);
+        let duplicate = paths
+            .last()
+            .map(|existing| existing.path == workspace.path)
+            .unwrap_or(false);
         if !duplicate {
             paths.push(workspace);
         }
     }
 
     paths
+}
+
+fn path_info(resolved: Option<ResolvedOverridePath>) -> Option<ConfigSourcePathInfo> {
+    resolved.map(|entry| ConfigSourcePathInfo {
+        path: entry.path.display().to_string(),
+        exists: entry.path.exists(),
+        from_env: entry.from_env,
+    })
+}
+
+/// Resolve the current effective config source paths and whether they exist.
+pub fn effective_config_sources() -> EffectiveConfigSources {
+    EffectiveConfigSources {
+        global: path_info(global_config_path()),
+        workspace: path_info(workspace_config_path()),
+    }
 }
 
 /// Configuration storage
@@ -635,8 +727,8 @@ impl ConfigStorage {
     pub fn get_effective_config(&self) -> Result<SystemConfig> {
         let mut config = self.get_config()?.unwrap_or_default();
 
-        for path in collect_override_paths() {
-            if let Some(override_config) = load_config_override(&path)? {
+        for resolved in collect_override_paths() {
+            if let Some(override_config) = load_config_override(&resolved.path)? {
                 override_config.apply_to(&mut config);
             }
         }
@@ -678,6 +770,7 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
+    use std::sync::{Mutex, OnceLock};
     use std::path::Path;
     use tempfile::NamedTempFile;
     use tempfile::tempdir;
@@ -726,6 +819,13 @@ mod tests {
         (storage, temp_dir)
     }
 
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     #[test]
     fn test_default_config() {
         let (storage, _temp_dir) = setup_test_storage();
@@ -738,6 +838,18 @@ mod tests {
         assert_eq!(config.task_timeout_seconds, DEFAULT_TASK_TIMEOUT_SECONDS);
         assert_eq!(config.background_api_timeout_seconds, None);
         assert_eq!(config.chat_response_timeout_seconds, None);
+        assert_eq!(
+            config.agent.browser_timeout_secs,
+            DEFAULT_BROWSER_TIMEOUT_SECS
+        );
+        assert_eq!(
+            config.agent.process_session_ttl_secs,
+            DEFAULT_PROCESS_SESSION_TTL_SECS
+        );
+        assert_eq!(
+            config.agent.approval_timeout_secs,
+            DEFAULT_APPROVAL_TIMEOUT_SECS
+        );
         assert_eq!(config.agent.max_wall_clock_secs, None);
     }
 
@@ -851,11 +963,26 @@ mod tests {
         assert_eq!(config.agent.bash_timeout_secs, 300);
         assert_eq!(config.agent.max_iterations, 100);
         assert_eq!(config.agent.max_parallel_subagents, 200);
+        assert_eq!(
+            config.agent.browser_timeout_secs,
+            DEFAULT_BROWSER_TIMEOUT_SECS
+        );
+        assert_eq!(
+            config.agent.process_session_ttl_secs,
+            DEFAULT_PROCESS_SESSION_TTL_SECS
+        );
+        assert_eq!(
+            config.agent.approval_timeout_secs,
+            DEFAULT_APPROVAL_TIMEOUT_SECS
+        );
 
         config.agent.tool_timeout_secs = 180;
         config.agent.bash_timeout_secs = 600;
         config.agent.max_wall_clock_secs = Some(3_600);
         config.agent.max_parallel_subagents = 25;
+        config.agent.browser_timeout_secs = 180;
+        config.agent.process_session_ttl_secs = 7_200;
+        config.agent.approval_timeout_secs = 450;
         storage.update_config(config).unwrap();
 
         let retrieved = storage.get_config().unwrap().unwrap();
@@ -863,6 +990,9 @@ mod tests {
         assert_eq!(retrieved.agent.bash_timeout_secs, 600);
         assert_eq!(retrieved.agent.max_wall_clock_secs, Some(3_600));
         assert_eq!(retrieved.agent.max_parallel_subagents, 25);
+        assert_eq!(retrieved.agent.browser_timeout_secs, 180);
+        assert_eq!(retrieved.agent.process_session_ttl_secs, 7_200);
+        assert_eq!(retrieved.agent.approval_timeout_secs, 450);
     }
 
     #[test]
@@ -913,6 +1043,18 @@ mod tests {
         let mut config = SystemConfig::default();
         config.agent.max_wall_clock_secs = None;
         assert!(config.validate().is_ok());
+
+        let mut config = SystemConfig::default();
+        config.agent.browser_timeout_secs = 5;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.process_session_ttl_secs = 5;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.approval_timeout_secs = 5;
+        assert!(config.validate().is_err());
     }
 
     #[test]
@@ -925,6 +1067,7 @@ mod tests {
 
     #[test]
     fn test_effective_config_with_global_override() {
+        let _env_guard = env_lock();
         let (storage, _temp_dir) = setup_test_storage();
         let file = write_override_file("worker_count = 42\nbackground_task_retention_days = 10");
         let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
@@ -936,6 +1079,7 @@ mod tests {
 
     #[test]
     fn test_workspace_override_precedence() {
+        let _env_guard = env_lock();
         let (storage, _temp_dir) = setup_test_storage();
         let global_file = write_override_file("worker_count = 5\nmax_retries = 2");
         let workspace_file = write_override_file("worker_count = 9\nmax_retries = 4");
@@ -949,12 +1093,16 @@ mod tests {
 
     #[test]
     fn test_partial_agent_override() {
+        let _env_guard = env_lock();
         let (storage, _temp_dir) = setup_test_storage();
         let file = write_override_file(
             r#"task_timeout_seconds = 9999
 
 [agent]
 python_timeout_secs = 45
+browser_timeout_secs = 240
+process_session_ttl_secs = 5400
+approval_timeout_secs = 420
 max_wall_clock_secs = 7200
 fallback_models = ["alpha", "beta"]
 "#,
@@ -964,6 +1112,9 @@ fallback_models = ["alpha", "beta"]
         let effective = storage.get_effective_config().unwrap();
         assert_eq!(effective.task_timeout_seconds, 9999);
         assert_eq!(effective.agent.python_timeout_secs, 45);
+        assert_eq!(effective.agent.browser_timeout_secs, 240);
+        assert_eq!(effective.agent.process_session_ttl_secs, 5400);
+        assert_eq!(effective.agent.approval_timeout_secs, 420);
         assert_eq!(effective.agent.max_wall_clock_secs, Some(7200));
         assert_eq!(
             effective.agent.fallback_models,
@@ -972,7 +1123,32 @@ fallback_models = ["alpha", "beta"]
     }
 
     #[test]
+    fn test_effective_config_sources_reports_paths_and_existence() {
+        let _env_guard = env_lock();
+        let global_file = write_override_file("worker_count = 7");
+        let workspace_file = write_override_file("worker_count = 9");
+        let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, global_file.path());
+        let _workspace_guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, workspace_file.path());
+
+        let sources = effective_config_sources();
+        let global = sources.global.expect("global source should exist");
+        let workspace = sources.workspace.expect("workspace source should exist");
+
+        assert!(global.exists);
+        assert!(workspace.exists);
+        assert!(global.from_env);
+        assert!(workspace.from_env);
+        assert!(global.path.ends_with(global_file.path().to_str().unwrap()));
+        assert!(
+            workspace
+                .path
+                .ends_with(workspace_file.path().to_str().unwrap())
+        );
+    }
+
+    #[test]
     fn test_invalid_override_rejected() {
+        let _env_guard = env_lock();
         let (storage, _temp_dir) = setup_test_storage();
         let file = write_override_file("worker_count = 0");
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
@@ -1006,6 +1182,7 @@ fallback_models = ["alpha", "beta"]
 
     #[test]
     fn test_api_defaults_override_from_file() {
+        let _env_guard = env_lock();
         let (storage, _temp_dir) = setup_test_storage();
         let file = write_override_file(
             r#"[api_defaults]

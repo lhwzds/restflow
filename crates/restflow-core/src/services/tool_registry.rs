@@ -110,17 +110,22 @@ fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
     }
 }
 
-fn load_subagent_config(config_storage: &ConfigStorage) -> SubagentConfig {
+fn load_agent_defaults(config_storage: &ConfigStorage) -> AgentDefaults {
     match config_storage.get_effective_config() {
-        Ok(config) => build_subagent_config(&config.agent),
+        Ok(config) => config.agent,
         Err(error) => {
             warn!(
                 error = %error,
-                "Failed to load system config for sub-agent defaults; falling back to built-in defaults"
+                "Failed to load system config defaults; falling back to built-in defaults"
             );
-            SubagentConfig::default()
+            AgentDefaults::default()
         }
     }
+}
+
+fn load_subagent_config(config_storage: &ConfigStorage) -> SubagentConfig {
+    let defaults = load_agent_defaults(config_storage);
+    build_subagent_config(&defaults)
 }
 
 fn create_subagent_manager(
@@ -177,6 +182,7 @@ pub fn create_tool_registry(
     let lsp_manager = Arc::new(LspManager::new(root));
 
     let config_storage = Arc::new(config_storage);
+    let agent_defaults = load_agent_defaults(&config_storage);
 
     let secret_resolver: SecretResolver = {
         let secrets = Arc::new(secret_storage.clone());
@@ -220,9 +226,12 @@ pub fn create_tool_registry(
     let marketplace_store = Arc::new(MarketplaceStoreAdapter::new(skill_storage));
     let trigger_store = Arc::new(TriggerStoreAdapter::new(trigger_storage));
     let terminal_store = Arc::new(TerminalStoreAdapter::new(terminal_storage));
-    let security_provider: Arc<_> = Arc::new(SecurityQueryProviderAdapter);
+    let security_provider: Arc<_> = Arc::new(SecurityQueryProviderAdapter::with_config_storage(
+        config_storage.clone(),
+    ));
 
-    let process_manager: Arc<dyn ProcessManager> = Arc::new(ProcessRegistry::new());
+    let process_manager: Arc<dyn ProcessManager> =
+        Arc::new(ProcessRegistry::new().with_ttl_seconds(agent_defaults.process_session_ttl_secs));
     let reply_sender: Arc<dyn ReplySender> = Arc::new(UnavailableReplySender);
     let llm_client_factory = build_llm_factory(Some(&secret_storage));
     let switch_model_tool = build_switch_model_tool(llm_client_factory.clone());
@@ -231,7 +240,10 @@ pub fn create_tool_registry(
     let security_agent_id = agent_id.as_deref().unwrap_or(DEFAULT_SECURITY_AGENT_ID);
     builder = register_bash_execution_tool(
         builder,
-        restflow_tools::BashConfig::default(),
+        restflow_tools::BashConfig {
+            timeout_secs: agent_defaults.bash_timeout_secs,
+            ..Default::default()
+        },
         security_gate.clone(),
         security_agent_id,
         DEFAULT_SECURITY_TASK_ID,
@@ -277,7 +289,7 @@ pub fn create_tool_registry(
         .with_telegram()?
         .with_discord()?
         .with_slack()?
-        .with_browser()?
+        .with_browser_timeout(agent_defaults.browser_timeout_secs)?
         .with_patch()
         .with_edit_and_diagnostics(Some(lsp_manager.clone()))
         .with_multiedit_and_diagnostics(Some(lsp_manager.clone()))
