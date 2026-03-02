@@ -47,20 +47,30 @@ impl TelegramTool {
         format!("{}/bot{}/{}", TELEGRAM_API_BASE, bot_token, method)
     }
 
+    fn sanitize_token(text: &str, bot_token: &str) -> (String, bool) {
+        if bot_token.is_empty() || text.is_empty() {
+            return (text.to_string(), false);
+        }
+
+        let replaced = text.contains(bot_token);
+        (text.replace(bot_token, "***"), replaced)
+    }
+
     fn sanitize_request_error(error: &reqwest::Error, bot_token: &str) -> String {
         let error_str = error.to_string();
-        let sanitized = error_str.replace(bot_token, "***");
+        let (sanitized, replaced) = Self::sanitize_token(&error_str, bot_token);
 
-        if sanitized.contains("api.telegram.org/bot") && !sanitized.contains("***") {
+        if error_str.contains("api.telegram.org/bot") && !replaced {
             "Telegram request failed: network error".to_string()
         } else {
             format!("Telegram request failed: {}", sanitized)
         }
     }
 
-    pub fn format_api_error(status: StatusCode, body: &Value) -> String {
+    pub fn format_api_error(status: StatusCode, body: &Value, bot_token: &str) -> String {
         if let Some(error_desc) = body.get("description").and_then(|v| v.as_str()) {
-            return format!("Telegram API error: {}", error_desc);
+            let (sanitized, _) = Self::sanitize_token(error_desc, bot_token);
+            return format!("Telegram API error: {}", sanitized);
         }
         format!(
             "Telegram API returned HTTP {} with no error description. The bot token may be invalid or the chat_id incorrect.",
@@ -106,7 +116,11 @@ impl TelegramTool {
         if status.is_success() && body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
             Ok(body)
         } else {
-            Err(ToolError::Tool(Self::format_api_error(status, &body)))
+            Err(ToolError::Tool(Self::format_api_error(
+                status,
+                &body,
+                &input.bot_token,
+            )))
         }
     }
 }
@@ -214,7 +228,7 @@ pub async fn send_telegram_notification(
 
     let response = client.post(&url).json(&payload).send().await.map_err(|e| {
         let error_str = e.to_string();
-        let sanitized = error_str.replace(bot_token, "***");
+        let (sanitized, _) = TelegramTool::sanitize_token(&error_str, bot_token);
         format!("Failed to send Telegram message: {}", sanitized)
     })?;
     let status = response.status();
@@ -224,7 +238,7 @@ pub async fn send_telegram_notification(
     if body.get("ok").and_then(|v| v.as_bool()).unwrap_or(false) {
         Ok(())
     } else {
-        Err(TelegramTool::format_api_error(status, &body))
+        Err(TelegramTool::format_api_error(status, &body, bot_token))
     }
 }
 
@@ -257,5 +271,25 @@ mod tests {
             .unwrap();
         assert!(!result.success);
         assert!(result.error.unwrap().contains("bot_token is required"));
+    }
+
+    #[test]
+    fn test_telegram_api_error_masks_token() {
+        let body = json!({
+            "description": "Forbidden: bot token 123:ABC is invalid"
+        });
+        let message = TelegramTool::format_api_error(StatusCode::UNAUTHORIZED, &body, "123:ABC");
+        assert!(!message.contains("123:ABC"));
+        assert!(message.contains("***"));
+    }
+
+    #[test]
+    fn test_telegram_sanitize_token_replaces_secret() {
+        let (masked, replaced) = TelegramTool::sanitize_token(
+            "https://api.telegram.org/bot123:ABC/sendMessage",
+            "123:ABC",
+        );
+        assert!(replaced);
+        assert!(!masked.contains("123:ABC"));
     }
 }
