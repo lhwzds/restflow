@@ -395,6 +395,9 @@ export function useChatStream(sessionId: () => string | null) {
   async function send(message: string): Promise<string> {
     const sid = sessionId()
     if (!sid) throw new Error('No session ID')
+    if (state.value.isStreaming) {
+      throw new Error('Streaming response is already in progress')
+    }
 
     await setupListener()
     state.value = createInitialState()
