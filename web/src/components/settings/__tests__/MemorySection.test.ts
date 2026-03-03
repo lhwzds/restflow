@@ -2,9 +2,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import MemorySection from '../MemorySection.vue'
 import {
+  deleteMemoryChunk,
+  deleteMemoryChunksForAgent,
+  deleteMemoryChunksForAgentTag,
   deleteMemorySession,
+  exportMemoryAdvanced,
   exportMemoryMarkdown,
   getMemoryStats,
+  supportsDeleteMemoryChunksForAgentTag,
+  supportsExportMemoryAdvanced,
   listMemoryChunksForSession,
   listMemorySessions,
   searchMemory,
@@ -37,20 +43,33 @@ vi.mock('@/composables/useToast', () => ({
 }))
 
 vi.mock('@/api/memory', () => ({
+  deleteMemoryChunk: vi.fn(),
+  deleteMemoryChunksForAgent: vi.fn(),
+  deleteMemoryChunksForAgentTag: vi.fn(),
   deleteMemorySession: vi.fn(),
+  exportMemoryAdvanced: vi.fn(),
   exportMemoryMarkdown: vi.fn(),
   getMemoryStats: vi.fn(),
+  isUnsupportedMemoryOperationError: vi.fn(() => false),
   listMemoryChunksForSession: vi.fn(),
   listMemorySessions: vi.fn(),
   searchMemory: vi.fn(),
+  supportsDeleteMemoryChunksForAgentTag: vi.fn(),
+  supportsExportMemoryAdvanced: vi.fn(),
 }))
 
+const mockedDeleteChunk = vi.mocked(deleteMemoryChunk)
+const mockedDeleteChunksForAgent = vi.mocked(deleteMemoryChunksForAgent)
+const mockedDeleteChunksForAgentTag = vi.mocked(deleteMemoryChunksForAgentTag)
 const mockedDeleteSession = vi.mocked(deleteMemorySession)
+const mockedExportAdvanced = vi.mocked(exportMemoryAdvanced)
 const mockedGetMemoryStats = vi.mocked(getMemoryStats)
 const mockedListMemorySessions = vi.mocked(listMemorySessions)
 const mockedListChunksForSession = vi.mocked(listMemoryChunksForSession)
 const mockedSearchMemory = vi.mocked(searchMemory)
 const mockedExportMemory = vi.mocked(exportMemoryMarkdown)
+const mockedSupportsDeleteByTag = vi.mocked(supportsDeleteMemoryChunksForAgentTag)
+const mockedSupportsAdvancedExport = vi.mocked(supportsExportMemoryAdvanced)
 
 function mountComponent() {
   return mount(MemorySection, {
@@ -79,7 +98,17 @@ describe('MemorySection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     confirmMock.mockResolvedValue(true)
+    mockedDeleteChunk.mockResolvedValue(true)
+    mockedDeleteChunksForAgent.mockResolvedValue(2)
+    mockedDeleteChunksForAgentTag.mockResolvedValue(1)
     mockedDeleteSession.mockResolvedValue(true)
+    mockedExportAdvanced.mockResolvedValue({
+      markdown: '# Advanced Export',
+      chunk_count: 1,
+      session_count: 1,
+      agent_id: 'default',
+      suggested_filename: 'default-advanced.md',
+    })
     mockedGetMemoryStats.mockResolvedValue({
       agent_id: 'default',
       session_count: 1,
@@ -143,6 +172,8 @@ describe('MemorySection', () => {
       agent_id: 'default',
       suggested_filename: 'default.md',
     })
+    mockedSupportsDeleteByTag.mockResolvedValue(false)
+    mockedSupportsAdvancedExport.mockResolvedValue(true)
   })
 
   it('loads memory overview on mount', async () => {
@@ -191,5 +222,67 @@ describe('MemorySection', () => {
     expect(confirmMock).toHaveBeenCalled()
     expect(mockedDeleteSession).toHaveBeenCalledWith('session-1', true)
     expect(toastSuccessMock).toHaveBeenCalledWith('settings.memory.deleteSessionSuccess')
+  })
+
+  it('deletes one chunk after confirmation', async () => {
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    const deleteChunkButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'settings.memory.deleteChunk')
+    expect(deleteChunkButton).toBeDefined()
+
+    await deleteChunkButton!.trigger('click')
+    await flushPromises()
+
+    expect(confirmMock).toHaveBeenCalled()
+    expect(mockedDeleteChunk).toHaveBeenCalledWith('chunk-1')
+  })
+
+  it('clears agent chunks', async () => {
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    const clearButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'settings.memory.clearAgentChunks')
+    expect(clearButton).toBeDefined()
+
+    await clearButton!.trigger('click')
+    await flushPromises()
+
+    expect(mockedDeleteChunksForAgent).toHaveBeenCalledWith('default')
+  })
+
+  it('clears agent chunks by tag when backend supports it', async () => {
+    mockedSupportsDeleteByTag.mockResolvedValue(true)
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    const tagInput = wrapper.find('#memory-clear-tag')
+    expect(tagInput.exists()).toBe(true)
+    await tagInput.setValue('project-a')
+
+    const clearByTagButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'settings.memory.clearAgentChunksByTag')
+    expect(clearByTagButton).toBeDefined()
+
+    await clearByTagButton!.trigger('click')
+    await flushPromises()
+
+    expect(mockedDeleteChunksForAgentTag).toHaveBeenCalledWith('default', 'project-a')
+  })
+
+  it('hides advanced export action when backend does not support it', async () => {
+    mockedSupportsAdvancedExport.mockResolvedValue(false)
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    const advancedExportButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'settings.memory.exportAdvanced')
+    expect(advancedExportButton).toBeUndefined()
   })
 })

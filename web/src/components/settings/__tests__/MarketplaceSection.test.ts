@@ -7,6 +7,7 @@ import {
   listInstalledMarketplaceSkills,
   listMarketplaceCategories,
   searchMarketplace,
+  updateMarketplaceSkill,
   uninstallMarketplaceSkill,
 } from '@/api/marketplace'
 import type {
@@ -15,6 +16,7 @@ import type {
   MarketplaceSkillDetail,
 } from '@/api/marketplace'
 import type { Skill } from '@/types/generated'
+import type { VueWrapper } from '@vue/test-utils'
 
 const confirmMock = vi.fn()
 const toastSuccessMock = vi.fn()
@@ -50,12 +52,14 @@ vi.mock('@/api/marketplace', () => ({
   listMarketplaceCategories: vi.fn(),
   searchMarketplace: vi.fn(),
   uninstallMarketplaceSkill: vi.fn(),
+  updateMarketplaceSkill: vi.fn(),
 }))
 
 const mockedSearchMarketplace = vi.mocked(searchMarketplace)
 const mockedListInstalled = vi.mocked(listInstalledMarketplaceSkills)
 const mockedInstall = vi.mocked(installMarketplaceSkill)
 const mockedUninstall = vi.mocked(uninstallMarketplaceSkill)
+const mockedUpdate = vi.mocked(updateMarketplaceSkill)
 const mockedSkillDetail = vi.mocked(getMarketplaceSkillDetail)
 const mockedCategories = vi.mocked(listMarketplaceCategories)
 
@@ -145,6 +149,23 @@ function mountComponent() {
   })
 }
 
+function findButtonsByText(wrapper: VueWrapper, text: string) {
+  return wrapper.findAll('button').filter((button) => button.text() === text)
+}
+
+function findFirstButtonByText(wrapper: VueWrapper, text: string) {
+  return findButtonsByText(wrapper, text)[0]
+}
+
+function requireLastButtonByText(wrapper: VueWrapper, text: string) {
+  const buttons = findButtonsByText(wrapper, text)
+  const button = buttons[buttons.length - 1]
+  if (!button) {
+    throw new Error(`Expected to find button: ${text}`)
+  }
+  return button
+}
+
 describe('MarketplaceSection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -154,6 +175,7 @@ describe('MarketplaceSection', () => {
     mockedCategories.mockResolvedValue(fixtureCategories)
     mockedInstall.mockResolvedValue({ success: true })
     mockedUninstall.mockResolvedValue({ success: true })
+    mockedUpdate.mockResolvedValue({ success: true })
     mockedSkillDetail.mockResolvedValue(fixtureDetail)
   })
 
@@ -166,22 +188,51 @@ describe('MarketplaceSection', () => {
     expect(mockedSearchMarketplace).toHaveBeenCalledTimes(1)
   })
 
-  it('installs a search result', async () => {
+  it('installs a search result after selecting version', async () => {
     const wrapper = mountComponent()
     await flushPromises()
 
-    const installButton = wrapper
-      .findAll('button')
-      .find((button) => button.text() === 'settings.marketplace.install')
-    expect(installButton).toBeDefined()
-    await installButton!.trigger('click')
+    const openInstallButton = findFirstButtonByText(wrapper, 'settings.marketplace.install')
+    expect(openInstallButton).toBeDefined()
+    await openInstallButton!.trigger('click')
+    await flushPromises()
+
+    expect(mockedSkillDetail).toHaveBeenCalledWith('skill-1', 'marketplace')
+
+    const confirmInstallButton = requireLastButtonByText(wrapper, 'settings.marketplace.install')
+    await confirmInstallButton.trigger('click')
     await flushPromises()
 
     expect(mockedInstall).toHaveBeenCalledWith({
       id: 'skill-1',
       source: 'marketplace',
+      version: '1.0.0',
       overwrite: false,
     })
+    expect(toastSuccessMock).toHaveBeenCalledWith('settings.marketplace.installSuccess')
+  })
+
+  it('keeps install flow recoverable after install request failure', async () => {
+    mockedInstall.mockRejectedValueOnce(new Error('429 rate limit'))
+    mockedInstall.mockResolvedValueOnce({ success: true })
+
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    const openInstallButton = findFirstButtonByText(wrapper, 'settings.marketplace.install')
+    expect(openInstallButton).toBeDefined()
+    await openInstallButton!.trigger('click')
+    await flushPromises()
+
+    const confirmInstallButton = requireLastButtonByText(wrapper, 'settings.marketplace.install')
+
+    await confirmInstallButton.trigger('click')
+    await flushPromises()
+    expect(toastErrorMock).toHaveBeenCalledWith('settings.marketplace.installFailed')
+
+    await confirmInstallButton.trigger('click')
+    await flushPromises()
+    expect(mockedInstall).toHaveBeenCalledTimes(2)
     expect(toastSuccessMock).toHaveBeenCalledWith('settings.marketplace.installSuccess')
   })
 
@@ -234,5 +285,81 @@ describe('MarketplaceSection', () => {
 
     expect(confirmMock).toHaveBeenCalled()
     expect(mockedUninstall).toHaveBeenCalledWith('skill-1')
+  })
+
+  it('updates an installed skill', async () => {
+    mockedListInstalled.mockResolvedValueOnce([
+      {
+        id: 'skill-1',
+        name: 'Skill One',
+        description: null,
+        tags: null,
+        content: '',
+        folder_path: null,
+        gating: null,
+        version: '1.0.0',
+        author: null,
+        license: null,
+        content_hash: null,
+        status: 'active',
+        auto_complete: false,
+        storage_mode: 'DatabaseOnly',
+        is_synced: false,
+        created_at: 0,
+        updated_at: 0,
+      } as Skill,
+    ])
+
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    const updateButton = findFirstButtonByText(wrapper, 'settings.marketplace.update')
+    expect(updateButton).toBeDefined()
+    await updateButton!.trigger('click')
+    await flushPromises()
+
+    expect(mockedUpdate).toHaveBeenCalledWith('skill-1', 'marketplace')
+    expect(toastSuccessMock).toHaveBeenCalledWith('settings.marketplace.updateSuccess')
+  })
+
+  it('keeps update flow recoverable after update request failure', async () => {
+    mockedListInstalled.mockResolvedValueOnce([
+      {
+        id: 'skill-1',
+        name: 'Skill One',
+        description: null,
+        tags: null,
+        content: '',
+        folder_path: null,
+        gating: null,
+        version: '1.0.0',
+        author: null,
+        license: null,
+        content_hash: null,
+        status: 'active',
+        auto_complete: false,
+        storage_mode: 'DatabaseOnly',
+        is_synced: false,
+        created_at: 0,
+        updated_at: 0,
+      } as Skill,
+    ])
+    mockedUpdate.mockRejectedValueOnce(new Error('429 rate limit'))
+    mockedUpdate.mockResolvedValueOnce({ success: true })
+
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    const updateButton = findFirstButtonByText(wrapper, 'settings.marketplace.update')
+    expect(updateButton).toBeDefined()
+
+    await updateButton!.trigger('click')
+    await flushPromises()
+    expect(toastErrorMock).toHaveBeenCalledWith('settings.marketplace.updateFailed')
+
+    await updateButton!.trigger('click')
+    await flushPromises()
+    expect(mockedUpdate).toHaveBeenCalledTimes(2)
+    expect(toastSuccessMock).toHaveBeenCalledWith('settings.marketplace.updateSuccess')
   })
 })

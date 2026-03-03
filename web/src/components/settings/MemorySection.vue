@@ -14,12 +14,19 @@ import {
 } from '@/components/ui/select'
 import { Textarea } from '@/components/ui/textarea'
 import {
+  deleteMemoryChunk,
+  deleteMemoryChunksForAgent,
+  deleteMemoryChunksForAgentTag,
   deleteMemorySession,
+  exportMemoryAdvanced,
   exportMemoryMarkdown,
   getMemoryStats,
+  isUnsupportedMemoryOperationError,
   listMemoryChunksForSession,
   listMemorySessions,
   searchMemory,
+  supportsDeleteMemoryChunksForAgentTag,
+  supportsExportMemoryAdvanced,
   type MemoryChunk,
   type MemorySearchQuery,
   type MemorySession,
@@ -40,6 +47,10 @@ const loadingSearch = ref(false)
 const loadingChunks = ref(false)
 const exporting = ref(false)
 const deletingSession = ref(false)
+const deletingChunkId = ref<string | null>(null)
+const clearingAgentChunks = ref(false)
+const clearingAgentTagChunks = ref(false)
+const checkingCapabilities = ref(false)
 const error = ref<string | null>(null)
 
 const stats = ref<MemoryStats | null>(null)
@@ -49,6 +60,14 @@ const chunks = ref<MemoryChunk[]>([])
 const searchResults = ref<Array<{ id: string; score: number; content: string }>>([])
 const exportMarkdown = ref('')
 const exportFilename = ref('memory-export.md')
+const clearTag = ref('')
+const exportPreset = ref('full')
+const includeMetadata = ref(true)
+const includeTimestamps = ref(true)
+const includeSource = ref(true)
+const includeTags = ref(true)
+const supportExportAdvanced = ref(false)
+const supportDeleteAgentTag = ref(false)
 
 function getNormalizedAgentId(): string | null {
   const trimmed = agentId.value.trim()
@@ -57,6 +76,32 @@ function getNormalizedAgentId(): string | null {
     return null
   }
   return trimmed
+}
+
+function getNormalizedTag(): string | null {
+  const trimmed = clearTag.value.trim()
+  if (!trimmed) {
+    error.value = t('settings.memory.tagRequired')
+    return null
+  }
+  return trimmed
+}
+
+async function detectCapabilities() {
+  checkingCapabilities.value = true
+  try {
+    const [advancedExport, deleteAgentTag] = await Promise.all([
+      supportsExportMemoryAdvanced(),
+      supportsDeleteMemoryChunksForAgentTag(),
+    ])
+    supportExportAdvanced.value = advancedExport
+    supportDeleteAgentTag.value = deleteAgentTag
+  } catch {
+    supportExportAdvanced.value = false
+    supportDeleteAgentTag.value = false
+  } finally {
+    checkingCapabilities.value = false
+  }
 }
 
 async function refreshOverview() {
@@ -181,6 +226,99 @@ async function handleDeleteSession() {
   }
 }
 
+async function handleDeleteChunk(chunkId: string) {
+  const confirmed = await confirm({
+    title: t('settings.memory.deleteChunkConfirmTitle'),
+    description: t('settings.memory.deleteChunkConfirmDescription', { id: chunkId }),
+    confirmText: t('settings.memory.deleteChunk'),
+    cancelText: t('common.cancel'),
+    variant: 'destructive',
+  })
+  if (!confirmed) return
+
+  deletingChunkId.value = chunkId
+  error.value = null
+  try {
+    await deleteMemoryChunk(chunkId)
+    toast.success(t('settings.memory.deleteChunkSuccess'))
+    if (selectedSessionId.value) {
+      await loadSessionChunks(selectedSessionId.value)
+    }
+    await refreshOverview()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    deletingChunkId.value = null
+  }
+}
+
+async function handleClearAgentChunks() {
+  const normalizedAgentId = getNormalizedAgentId()
+  if (!normalizedAgentId) return
+
+  const confirmed = await confirm({
+    title: t('settings.memory.clearAgentChunksConfirmTitle'),
+    description: t('settings.memory.clearAgentChunksConfirmDescription', {
+      agentId: normalizedAgentId,
+    }),
+    confirmText: t('settings.memory.clearAgentChunks'),
+    cancelText: t('common.cancel'),
+    variant: 'destructive',
+  })
+  if (!confirmed) return
+
+  clearingAgentChunks.value = true
+  error.value = null
+  try {
+    const count = await deleteMemoryChunksForAgent(normalizedAgentId)
+    toast.success(t('settings.memory.clearAgentChunksSuccess', { count }))
+    chunks.value = []
+    searchResults.value = []
+    selectedSessionId.value = ''
+    await refreshOverview()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    clearingAgentChunks.value = false
+  }
+}
+
+async function handleClearAgentTagChunks() {
+  const normalizedAgentId = getNormalizedAgentId()
+  if (!normalizedAgentId) return
+  const normalizedTag = getNormalizedTag()
+  if (!normalizedTag) return
+
+  const confirmed = await confirm({
+    title: t('settings.memory.clearAgentTagChunksConfirmTitle'),
+    description: t('settings.memory.clearAgentTagChunksConfirmDescription', {
+      agentId: normalizedAgentId,
+      tag: normalizedTag,
+    }),
+    confirmText: t('settings.memory.clearAgentChunksByTag'),
+    cancelText: t('common.cancel'),
+    variant: 'destructive',
+  })
+  if (!confirmed) return
+
+  clearingAgentTagChunks.value = true
+  error.value = null
+  try {
+    const count = await deleteMemoryChunksForAgentTag(normalizedAgentId, normalizedTag)
+    toast.success(t('settings.memory.clearAgentChunksSuccess', { count }))
+    searchResults.value = []
+    await refreshOverview()
+  } catch (e) {
+    if (isUnsupportedMemoryOperationError(e)) {
+      supportDeleteAgentTag.value = false
+      return
+    }
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    clearingAgentTagChunks.value = false
+  }
+}
+
 async function exportAllMemory() {
   const normalizedAgentId = getNormalizedAgentId()
   if (!normalizedAgentId) return
@@ -189,6 +327,33 @@ async function exportAllMemory() {
   error.value = null
   try {
     const result = await exportMemoryMarkdown(normalizedAgentId)
+    exportMarkdown.value = result.markdown
+    exportFilename.value = result.suggested_filename
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    exporting.value = false
+  }
+}
+
+async function exportAdvancedMemory() {
+  if (!supportExportAdvanced.value) return
+
+  const normalizedAgentId = getNormalizedAgentId()
+  if (!normalizedAgentId) return
+
+  exporting.value = true
+  error.value = null
+  try {
+    const result = await exportMemoryAdvanced({
+      agent_id: normalizedAgentId,
+      session_id: selectedSessionId.value || null,
+      preset: exportPreset.value.trim() || null,
+      include_metadata: includeMetadata.value,
+      include_timestamps: includeTimestamps.value,
+      include_source: includeSource.value,
+      include_tags: includeTags.value,
+    })
     exportMarkdown.value = result.markdown
     exportFilename.value = result.suggested_filename
   } catch (e) {
@@ -224,7 +389,7 @@ function downloadExport() {
 }
 
 onMounted(() => {
-  refreshOverview()
+  void Promise.all([refreshOverview(), detectCapabilities()])
 })
 </script>
 
@@ -235,9 +400,18 @@ onMounted(() => {
         <h2 class="text-2xl font-bold tracking-tight">{{ t('settings.memory.title') }}</h2>
         <p class="text-muted-foreground">{{ t('settings.memory.description') }}</p>
       </div>
-      <Button variant="outline" :disabled="loadingOverview" @click="refreshOverview">
-        {{ t('settings.memory.refresh') }}
-      </Button>
+      <div class="flex items-center gap-2">
+        <Button variant="outline" :disabled="loadingOverview" @click="refreshOverview">
+          {{ t('settings.memory.refresh') }}
+        </Button>
+        <Button
+          variant="destructive"
+          :disabled="clearingAgentChunks"
+          @click="handleClearAgentChunks"
+        >
+          {{ t('settings.memory.clearAgentChunks') }}
+        </Button>
+      </div>
     </div>
 
     <div class="rounded-lg border p-4 space-y-3">
@@ -250,6 +424,21 @@ onMounted(() => {
           @keydown.enter.prevent="refreshOverview"
         />
         <Button :disabled="loadingOverview" @click="refreshOverview">{{ t('settings.memory.load') }}</Button>
+      </div>
+      <div v-if="supportDeleteAgentTag" class="flex items-center gap-2">
+        <Input
+          id="memory-clear-tag"
+          v-model="clearTag"
+          :placeholder="t('settings.memory.searchPlaceholder')"
+          @keydown.enter.prevent="handleClearAgentTagChunks"
+        />
+        <Button
+          variant="destructive"
+          :disabled="clearingAgentTagChunks || checkingCapabilities"
+          @click="handleClearAgentTagChunks"
+        >
+          {{ t('settings.memory.clearAgentChunksByTag') }}
+        </Button>
       </div>
     </div>
 
@@ -347,7 +536,17 @@ onMounted(() => {
             :key="chunk.id"
             class="rounded-md border p-2"
           >
-            <p class="text-xs text-muted-foreground">chunk: {{ chunk.id }} · tokens: {{ chunk.token_count ?? 0 }}</p>
+            <div class="flex items-center justify-between gap-2">
+              <p class="text-xs text-muted-foreground">chunk: {{ chunk.id }} · tokens: {{ chunk.token_count ?? 0 }}</p>
+              <Button
+                size="sm"
+                variant="outline"
+                :disabled="deletingChunkId === chunk.id"
+                @click="handleDeleteChunk(chunk.id)"
+              >
+                {{ t('settings.memory.deleteChunk') }}
+              </Button>
+            </div>
             <p class="line-clamp-3 text-sm">{{ chunk.content }}</p>
           </div>
         </div>
@@ -357,12 +556,47 @@ onMounted(() => {
         <h3 class="text-base font-semibold">{{ t('settings.memory.exportTitle') }}</h3>
         <div class="flex items-center gap-2">
           <Button :disabled="exporting" @click="exportAllMemory">{{ t('settings.memory.exportMarkdown') }}</Button>
+          <Button
+            v-if="supportExportAdvanced"
+            :disabled="exporting || checkingCapabilities"
+            variant="outline"
+            @click="exportAdvancedMemory"
+          >
+            {{ t('settings.memory.exportAdvanced') }}
+          </Button>
           <Button variant="outline" :disabled="!exportMarkdown" @click="copyExport">
             {{ t('settings.memory.copy') }}
           </Button>
           <Button variant="outline" :disabled="!exportMarkdown" @click="downloadExport">
             {{ t('settings.memory.download') }}
           </Button>
+        </div>
+        <div
+          v-if="supportExportAdvanced"
+          class="grid gap-2 rounded-md border bg-muted/30 p-3 sm:grid-cols-2"
+        >
+          <div class="grid gap-1">
+            <Label for="export-preset">{{ t('settings.memory.exportPresetLabel') }}</Label>
+            <Input id="export-preset" v-model="exportPreset" />
+          </div>
+          <div class="grid gap-2 text-sm">
+            <label class="flex items-center gap-2">
+              <input v-model="includeMetadata" type="checkbox" />
+              {{ t('settings.memory.includeMetadata') }}
+            </label>
+            <label class="flex items-center gap-2">
+              <input v-model="includeTimestamps" type="checkbox" />
+              {{ t('settings.memory.includeTimestamps') }}
+            </label>
+            <label class="flex items-center gap-2">
+              <input v-model="includeSource" type="checkbox" />
+              {{ t('settings.memory.includeSource') }}
+            </label>
+            <label class="flex items-center gap-2">
+              <input v-model="includeTags" type="checkbox" />
+              {{ t('settings.memory.includeTags') }}
+            </label>
+          </div>
         </div>
         <Textarea
           :model-value="exportMarkdown"

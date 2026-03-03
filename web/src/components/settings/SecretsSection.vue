@@ -6,6 +6,7 @@
  * Includes Telegram configuration and API key CRUD.
  */
 import { ref, reactive, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { Plus, Check, X, Trash2, Pencil, Eye, EyeOff, Key } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,16 +14,11 @@ import { Separator } from '@/components/ui/separator'
 import { useSecretsList } from '@/composables/secrets/useSecretsList'
 import { useSecretOperations } from '@/composables/secrets/useSecretOperations'
 import type { Secret } from '@/types/generated/Secret'
-import {
-  SUCCESS_MESSAGES,
-  ERROR_MESSAGES,
-  VALIDATION_MESSAGES,
-  CONFIRM_MESSAGES,
-} from '@/constants'
 import { useToast } from '@/composables/useToast'
 import { useConfirm } from '@/composables/useConfirm'
 import TelegramConfig from '@/components/workspace/TelegramConfig.vue'
 
+const { t } = useI18n()
 const toast = useToast()
 const { confirm } = useConfirm()
 
@@ -80,7 +76,14 @@ function cancelEdit() {
 
 async function saveNewSecret() {
   if (!editState.newRow?.key || !editState.newRow?.value) {
-    toast.error(ERROR_MESSAGES.REQUIRED_FIELD_MISSING)
+    toast.error(t('settings.secrets.requiredFieldMissing'))
+    return
+  }
+
+  const formattedKey = editState.newRow.key.toUpperCase().replace(/[^A-Z0-9_]/g, '_')
+
+  if (secrets.value.some((s) => s.key === formattedKey)) {
+    toast.error(t('settings.secrets.duplicateKey'))
     return
   }
 
@@ -88,20 +91,13 @@ async function saveNewSecret() {
   isSaving.value = true
 
   try {
-    const formattedKey = editState.newRow.key.toUpperCase().replace(/[^A-Z0-9]/g, '_')
-
-    if (secrets.value.some((s) => s.key === formattedKey)) {
-      toast.error(VALIDATION_MESSAGES.REQUIRED_FIELD('unique key — this key already exists'))
-      return
-    }
-
     await createSecret(formattedKey, editState.newRow.value)
-    toast.success(SUCCESS_MESSAGES.SECRET_CREATED)
+    toast.success(t('settings.secrets.createSuccess'))
     cancelEdit()
     await loadSecrets()
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    toast.error(ERROR_MESSAGES.FAILED_TO_CREATE('secret') + ': ' + errorMessage)
+    toast.error(t('settings.secrets.createFailed', { error: errorMessage }))
   } finally {
     isSaving.value = false
   }
@@ -110,7 +106,7 @@ async function saveNewSecret() {
 async function saveEditedSecret(key: string) {
   const data = editState.editData[key]
   if (!data?.value) {
-    toast.error(VALIDATION_MESSAGES.REQUIRED_FIELD('secret value'))
+    toast.error(t('settings.secrets.requiredFieldMissing'))
     return
   }
 
@@ -119,15 +115,14 @@ async function saveEditedSecret(key: string) {
 
   try {
     await updateSecret(key, data.value)
-    toast.success(SUCCESS_MESSAGES.SECRET_UPDATED)
+    toast.success(t('settings.secrets.updateSuccess'))
     delete editState.editData[key]
     editState.mode = 'idle'
     editState.targetKey = undefined
     await loadSecrets()
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    toast.error(ERROR_MESSAGES.FAILED_TO_UPDATE('secret') + ': ' + errorMessage)
-    // Preserve edit state so user can retry
+    toast.error(t('settings.secrets.updateFailed', { error: errorMessage }))
   } finally {
     isSaving.value = false
   }
@@ -135,10 +130,10 @@ async function saveEditedSecret(key: string) {
 
 async function handleDeleteSecret(row: Secret) {
   const confirmed = await confirm({
-    title: 'Delete Confirmation',
-    description: CONFIRM_MESSAGES.DELETE_SECRET,
-    confirmText: 'Confirm',
-    cancelText: 'Cancel',
+    title: t('settings.secrets.deleteConfirmTitle'),
+    description: t('settings.secrets.deleteConfirmDescription', { key: row.key }),
+    confirmText: t('common.confirm'),
+    cancelText: t('common.cancel'),
     variant: 'destructive',
   })
 
@@ -146,11 +141,11 @@ async function handleDeleteSecret(row: Secret) {
 
   try {
     await deleteSecret(row.key)
-    toast.success(SUCCESS_MESSAGES.SECRET_DELETED)
+    toast.success(t('settings.secrets.deleteSuccess'))
     await loadSecrets()
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error)
-    toast.error(ERROR_MESSAGES.FAILED_TO_DELETE('secret') + ': ' + errorMessage)
+    toast.error(t('settings.secrets.deleteFailed', { error: errorMessage }))
   }
 }
 
@@ -176,18 +171,21 @@ function setEditValue(key: string, value: string) {
 </script>
 
 <template>
-  <div class="space-y-4 p-3">
-    <!-- Telegram Config -->
+  <div class="space-y-4">
+    <div>
+      <h2 class="text-2xl font-bold tracking-tight">{{ t('settings.secrets.title') }}</h2>
+      <p class="text-muted-foreground">{{ t('settings.secrets.description') }}</p>
+    </div>
+
     <TelegramConfig />
 
     <Separator />
 
-    <!-- Secrets CRUD -->
-    <div class="flex flex-col space-y-3">
+    <div class="rounded-lg border bg-card p-4 space-y-3">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium flex items-center gap-2">
+        <h3 class="text-base font-semibold flex items-center gap-2">
           <Key :size="14" />
-          Secrets
+          {{ t('settings.secrets.title') }}
         </h3>
         <Button
           v-if="editState.mode !== 'creating'"
@@ -197,26 +195,25 @@ function setEditValue(key: string, value: string) {
           @click="handleAddSecret"
         >
           <Plus :size="12" class="mr-1" />
-          Add
+          {{ t('settings.secrets.add') }}
         </Button>
       </div>
 
       <div class="space-y-1">
-        <!-- New Secret Row -->
         <div
           v-if="editState.mode === 'creating'"
           class="flex items-center gap-2 p-2 rounded-lg bg-muted/30"
         >
           <Input
             v-model="editState.newRow!.key"
-            placeholder="KEY_NAME"
+            :placeholder="t('settings.secrets.keyPlaceholder')"
             class="h-7 w-24 text-xs font-mono"
             @blur="formatKeyOnBlur"
           />
           <div class="relative flex-1">
             <Input
               v-model="editState.newRow!.value"
-              placeholder="Value"
+              :placeholder="t('settings.secrets.valuePlaceholder')"
               :type="showNewPassword ? 'text' : 'password'"
               class="h-7 text-xs pr-7"
             />
@@ -238,7 +235,6 @@ function setEditValue(key: string, value: string) {
           </Button>
         </div>
 
-        <!-- Existing Secrets -->
         <div
           v-for="row in secrets"
           :key="row.key"
@@ -250,7 +246,7 @@ function setEditValue(key: string, value: string) {
               <Input
                 :model-value="getEditValue(row.key)"
                 @update:model-value="(val: string | number) => setEditValue(row.key, String(val))"
-                placeholder="New value"
+                :placeholder="t('settings.secrets.newValuePlaceholder')"
                 :type="showEditPassword ? 'text' : 'password'"
                 class="h-7 text-xs pr-7"
               />
@@ -296,12 +292,11 @@ function setEditValue(key: string, value: string) {
           </template>
         </div>
 
-        <!-- Empty State -->
         <div
           v-if="!isLoading && secrets.length === 0 && editState.mode !== 'creating'"
           class="py-4 text-center text-muted-foreground text-xs"
         >
-          No secrets yet
+          {{ t('settings.secrets.noSecrets') }}
         </div>
       </div>
     </div>

@@ -12,6 +12,7 @@ vi.mock('vue-i18n', () => ({
           'settings.panel.hooks': 'Hooks',
           'settings.panel.marketplace': 'Marketplace',
           'settings.panel.memory': 'Memory',
+          'settings.panel.system': 'System',
           'settings.panel.backToWorkspace': 'Back to workspace',
         } as Record<string, string>
       )[key] ?? key,
@@ -29,6 +30,7 @@ function mountSettingsPanel() {
           template: '<div data-testid="marketplace-section">Marketplace Section</div>',
         },
         MemorySection: { template: '<div data-testid="memory-section">Memory Section</div>' },
+        SystemSection: { template: '<div data-testid="system-section">System Section</div>' },
         Button: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
       },
     },
@@ -53,7 +55,7 @@ describe('SettingsPanel', () => {
       .filter((button) => button.attributes('aria-label') !== 'Back to workspace')
       .map((button) => button.text())
 
-    expect(navButtons).toEqual(['Secrets', 'Auth Profiles', 'Hooks', 'Marketplace', 'Memory'])
+    expect(navButtons).toEqual(['Secrets', 'Auth Profiles', 'Hooks', 'Marketplace', 'Memory', 'System'])
   })
 
   it('defaults to secrets section', () => {
@@ -75,6 +77,9 @@ describe('SettingsPanel', () => {
 
     await getNavButton('Memory').trigger('click')
     expect(wrapper.find('[data-testid="memory-section"]').exists()).toBe(true)
+
+    await getNavButton('System').trigger('click')
+    expect(wrapper.find('[data-testid="system-section"]').exists()).toBe(true)
   })
 
   it('emits back when clicking bottom back button', async () => {
