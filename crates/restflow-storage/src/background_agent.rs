@@ -19,6 +19,9 @@ const BACKGROUND_AGENT_EVENT_INDEX_TABLE: TableDefinition<&str, &str> =
 /// Index table: status:task_id -> task_id (for listing tasks by status)
 const BACKGROUND_AGENT_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("background_agent_status_index");
+/// Reverse index: task_id -> status:task_id (for direct status cleanup)
+const BACKGROUND_AGENT_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_status_lookup");
 /// Background message payload table
 const BACKGROUND_MESSAGE_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("background_messages");
@@ -28,6 +31,9 @@ const BACKGROUND_MESSAGE_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
 /// Index table: status:task_id:message_id -> message_id
 const BACKGROUND_MESSAGE_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("background_message_status_index");
+/// Reverse index: message_id -> status:task_id:message_id
+const BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_message_status_lookup");
 
 /// Low-level agent task storage with byte-level API
 #[derive(Clone)]
@@ -36,14 +42,25 @@ pub struct BackgroundAgentStorage {
 }
 
 impl BackgroundAgentStorage {
-    fn extract_chat_session_id(data: &[u8]) -> Option<String> {
-        let value: serde_json::Value = serde_json::from_slice(data).ok()?;
-        let session_id = value.get("chat_session_id")?.as_str()?.trim();
+    fn parse_chat_session_id(data: &[u8]) -> Result<Option<String>> {
+        let value: serde_json::Value =
+            serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
+        let Some(raw_session_id) = value.get("chat_session_id") else {
+            return Ok(None);
+        };
+        let session_id = raw_session_id
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("chat_session_id is not a string"))?
+            .trim();
         if session_id.is_empty() {
-            None
+            Ok(None)
         } else {
-            Some(session_id.to_string())
+            Ok(Some(session_id.to_string()))
         }
+    }
+
+    fn extract_chat_session_id(data: &[u8]) -> Option<String> {
+        Self::parse_chat_session_id(data).ok().flatten()
     }
 
     fn extract_task_name(data: &[u8]) -> Option<String> {
@@ -52,6 +69,16 @@ impl BackgroundAgentStorage {
             .get("name")
             .and_then(|name| name.as_str())
             .map(str::to_string)
+    }
+
+    fn parse_task_status(data: &[u8]) -> Result<String> {
+        let value: serde_json::Value =
+            serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
+        let status = value
+            .get("status")
+            .and_then(|status| status.as_str())
+            .ok_or_else(|| anyhow::anyhow!("status is missing or not a string"))?;
+        Ok(status.to_string())
     }
 
     fn ensure_unique_chat_session_binding(
@@ -70,7 +97,15 @@ impl BackgroundAgentStorage {
                 continue;
             }
 
-            let existing_chat_session_id = Self::extract_chat_session_id(value.value());
+            let existing_chat_session_id = Self::parse_chat_session_id(value.value()).map_err(
+                |error| {
+                    anyhow::anyhow!(
+                        "failed to parse existing background task '{}' while validating chat_session_id uniqueness: {}",
+                        existing_task_id,
+                        error
+                    )
+                },
+            )?;
             if existing_chat_session_id.as_deref() != Some(target_chat_session_id) {
                 continue;
             }
@@ -96,9 +131,11 @@ impl BackgroundAgentStorage {
         write_txn.open_table(BACKGROUND_AGENT_EVENT_TABLE)?;
         write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
+        write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+        write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
         write_txn.commit()?;
 
         Ok(Self { db })
@@ -127,20 +164,14 @@ impl BackgroundAgentStorage {
             table.insert(id, data)?;
 
             let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let task_suffix = format!(":{}", id);
-            let mut stale_keys = Vec::new();
-            for item in status_index.iter()? {
-                let (key, _) = item?;
-                let key_value = key.value();
-                if key_value.ends_with(task_suffix.as_str()) {
-                    stale_keys.push(key_value.to_string());
-                }
+            let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            if let Some(previous_key) = status_lookup.get(id)? {
+                status_index.remove(previous_key.value())?;
             }
-            for stale_key in stale_keys {
-                status_index.remove(stale_key.as_str())?;
-            }
+
             let status_key = format!("{}:{}", status, id);
             status_index.insert(status_key.as_str(), id)?;
+            status_lookup.insert(id, status_key.as_str())?;
         }
         write_txn.commit()?;
         Ok(())
@@ -162,29 +193,73 @@ impl BackgroundAgentStorage {
             table.insert(id, data)?;
 
             let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let old_key = format!("{}:{}", old_status, id);
-            if old_status != new_status {
+            let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            if let Some(previous_key) = status_lookup.get(id)? {
+                status_index.remove(previous_key.value())?;
+            } else if old_status != new_status {
+                let old_key = format!("{}:{}", old_status, id);
                 status_index.remove(old_key.as_str())?;
-            }
-
-            let task_suffix = format!(":{}", id);
-            let mut stale_keys = Vec::new();
-            for item in status_index.iter()? {
-                let (key, _) = item?;
-                let key_value = key.value();
-                if key_value.ends_with(task_suffix.as_str()) && key_value != old_key.as_str() {
-                    stale_keys.push(key_value.to_string());
-                }
-            }
-            for stale_key in stale_keys {
-                status_index.remove(stale_key.as_str())?;
             }
 
             let new_key = format!("{}:{}", new_status, id);
             status_index.insert(new_key.as_str(), id)?;
+            status_lookup.insert(id, new_key.as_str())?;
         }
         write_txn.commit()?;
         Ok(())
+    }
+
+    /// Compare-and-set update for task payload and status index.
+    ///
+    /// Returns `Ok(true)` when the record existed and its current payload status
+    /// matched `expected_status`, so the update was committed.
+    ///
+    /// Returns `Ok(false)` when the record does not exist or its current payload
+    /// status does not match `expected_status`.
+    pub fn update_task_raw_if_status_matches(
+        &self,
+        id: &str,
+        expected_status: &str,
+        new_status: &str,
+        data: &[u8],
+    ) -> Result<bool> {
+        let write_txn = self.db.begin_write()?;
+        let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+        let Some(existing) = table.get(id)? else {
+            drop(table);
+            write_txn.abort()?;
+            return Ok(false);
+        };
+
+        let current_status = Self::parse_task_status(existing.value())?;
+        drop(existing);
+        if current_status != expected_status {
+            drop(table);
+            write_txn.abort()?;
+            return Ok(false);
+        }
+
+        let chat_session_id = Self::extract_chat_session_id(data);
+        Self::ensure_unique_chat_session_binding(&table, id, chat_session_id.as_deref())?;
+        table.insert(id, data)?;
+        drop(table);
+
+        let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
+        let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+        if let Some(previous_key) = status_lookup.get(id)? {
+            status_index.remove(previous_key.value())?;
+        } else if current_status != new_status {
+            let old_key = format!("{}:{}", current_status, id);
+            status_index.remove(old_key.as_str())?;
+        }
+
+        let new_key = format!("{}:{}", new_status, id);
+        status_index.insert(new_key.as_str(), id)?;
+        status_lookup.insert(id, new_key.as_str())?;
+        drop(status_lookup);
+        drop(status_index);
+        write_txn.commit()?;
+        Ok(true)
     }
 
     /// Get raw agent task data by ID
@@ -239,7 +314,16 @@ impl BackgroundAgentStorage {
         let write_txn = self.db.begin_write()?;
         let existed = {
             let mut table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
-            table.remove(id)?.is_some()
+            let existed = table.remove(id)?.is_some();
+
+            let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            if let Some(previous_key) = status_lookup.get(id)? {
+                status_index.remove(previous_key.value())?;
+            }
+            status_lookup.remove(id)?;
+
+            existed
         };
         write_txn.commit()?;
         Ok(existed)
@@ -253,8 +337,14 @@ impl BackgroundAgentStorage {
             let existed = table.remove(id)?.is_some();
 
             let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let status_key = format!("{}:{}", status, id);
-            status_index.remove(status_key.as_str())?;
+            let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            if let Some(previous_key) = status_lookup.get(id)? {
+                status_index.remove(previous_key.value())?;
+            } else {
+                let status_key = format!("{}:{}", status, id);
+                status_index.remove(status_key.as_str())?;
+            }
+            status_lookup.remove(id)?;
 
             existed
         };
@@ -287,6 +377,10 @@ impl BackgroundAgentStorage {
             let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
             let mut message_task_index =
                 write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
+            let mut message_status_index =
+                write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut message_status_lookup =
+                write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
             let mut message_keys = Vec::new();
             for item in message_task_index.range(start.as_str()..end.as_str())? {
                 let (key, value) = item?;
@@ -294,40 +388,21 @@ impl BackgroundAgentStorage {
             }
             for (message_key, message_id) in message_keys {
                 message_task_index.remove(message_key.as_str())?;
-                message_table.remove(message_id.as_str())?;
-            }
-
-            let mut message_status_index =
-                write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-            let task_segment = format!("{}:", id);
-            let mut message_status_keys = Vec::new();
-            for item in message_status_index.iter()? {
-                let (key, _) = item?;
-                let key_value = key.value();
-                if let Some((_, suffix)) = key_value.split_once(':')
-                    && suffix.starts_with(task_segment.as_str())
-                {
-                    message_status_keys.push(key_value.to_string());
+                if let Some(status_key) = message_status_lookup.get(message_id.as_str())? {
+                    message_status_index.remove(status_key.value())?;
                 }
-            }
-            for status_key in message_status_keys {
-                message_status_index.remove(status_key.as_str())?;
+                message_status_lookup.remove(message_id.as_str())?;
+                message_table.remove(message_id.as_str())?;
             }
 
             let mut task_status_index =
                 write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
-            let task_suffix = format!(":{}", id);
-            let mut task_status_keys = Vec::new();
-            for item in task_status_index.iter()? {
-                let (key, _) = item?;
-                let key_value = key.value();
-                if key_value.ends_with(task_suffix.as_str()) {
-                    task_status_keys.push(key_value.to_string());
-                }
+            let mut task_status_lookup =
+                write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            if let Some(status_key) = task_status_lookup.get(id)? {
+                task_status_index.remove(status_key.value())?;
             }
-            for status_key in task_status_keys {
-                task_status_index.remove(status_key.as_str())?;
-            }
+            task_status_lookup.remove(id)?;
 
             if existed {
                 task_table.remove(id)?;
@@ -359,8 +434,13 @@ impl BackgroundAgentStorage {
             task_index.insert(task_key.as_str(), message_id)?;
 
             let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+            if let Some(previous_key) = status_lookup.get(message_id)? {
+                status_index.remove(previous_key.value())?;
+            }
             let status_key = format!("{}:{}:{}", status, task_id, message_id);
             status_index.insert(status_key.as_str(), message_id)?;
+            status_lookup.insert(message_id, status_key.as_str())?;
         }
         write_txn.commit()?;
         Ok(())
@@ -381,13 +461,17 @@ impl BackgroundAgentStorage {
             message_table.insert(message_id, data)?;
 
             let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-            if old_status != new_status {
+            let mut status_lookup = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+            if let Some(previous_key) = status_lookup.get(message_id)? {
+                status_index.remove(previous_key.value())?;
+            } else if old_status != new_status {
                 let old_key = format!("{}:{}:{}", old_status, task_id, message_id);
                 status_index.remove(old_key.as_str())?;
             }
 
             let new_key = format!("{}:{}:{}", new_status, task_id, message_id);
             status_index.insert(new_key.as_str(), message_id)?;
+            status_lookup.insert(message_id, new_key.as_str())?;
         }
         write_txn.commit()?;
         Ok(())
@@ -471,8 +555,14 @@ impl BackgroundAgentStorage {
             task_index.remove(task_key.as_str())?;
 
             let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
-            let status_key = format!("{}:{}:{}", status, task_id, message_id);
-            status_index.remove(status_key.as_str())?;
+            let mut status_lookup = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
+            if let Some(previous_key) = status_lookup.get(message_id)? {
+                status_index.remove(previous_key.value())?;
+            } else {
+                let status_key = format!("{}:{}:{}", status, task_id, message_id);
+                status_index.remove(status_key.as_str())?;
+            }
+            status_lookup.remove(message_id)?;
 
             existed
         };
@@ -494,6 +584,7 @@ impl BackgroundAgentStorage {
             let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
             let mut task_index = write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
             let mut status_index = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
+            let mut status_lookup = write_txn.open_table(BACKGROUND_MESSAGE_STATUS_LOOKUP_TABLE)?;
 
             for (message_id, data) in &messages {
                 message_table.remove(message_id.as_str())?;
@@ -501,12 +592,15 @@ impl BackgroundAgentStorage {
                 let task_key = format!("{}:{}", task_id, message_id);
                 task_index.remove(task_key.as_str())?;
 
-                if let Ok(value) = serde_json::from_slice::<serde_json::Value>(data)
+                if let Some(previous_key) = status_lookup.get(message_id.as_str())? {
+                    status_index.remove(previous_key.value())?;
+                } else if let Ok(value) = serde_json::from_slice::<serde_json::Value>(data)
                     && let Some(status) = value.get("status").and_then(|s| s.as_str())
                 {
                     let status_key = format!("{}:{}:{}", status, task_id, message_id);
                     status_index.remove(status_key.as_str())?;
                 }
+                status_lookup.remove(message_id.as_str())?;
             }
         }
         write_txn.commit()?;
@@ -622,6 +716,14 @@ mod tests {
         .into_bytes()
     }
 
+    fn task_status_payload(id: &str, status: &str, chat_session_id: &str) -> Vec<u8> {
+        format!(
+            r#"{{"id":"{}","status":"{}","chat_session_id":"{}"}}"#,
+            id, status, chat_session_id
+        )
+        .into_bytes()
+    }
+
     fn create_test_storage() -> BackgroundAgentStorage {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -698,6 +800,66 @@ mod tests {
 
         assert!(active_tasks.is_empty());
         assert_eq!(paused_tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_update_task_raw_if_status_matches_updates_when_expected_status_matches() {
+        let storage = create_test_storage();
+        let original = task_status_payload("task-001", "active", "session-1");
+        let updated = task_status_payload("task-001", "completed", "session-1");
+
+        storage
+            .put_task_raw_with_status("task-001", "active", &original)
+            .unwrap();
+        let changed = storage
+            .update_task_raw_if_status_matches("task-001", "active", "completed", &updated)
+            .unwrap();
+
+        assert!(changed);
+        assert!(
+            storage
+                .list_tasks_by_status_indexed("active")
+                .unwrap()
+                .is_empty()
+        );
+        assert_eq!(
+            storage
+                .list_tasks_by_status_indexed("completed")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert_eq!(storage.get_task_raw("task-001").unwrap().unwrap(), updated);
+    }
+
+    #[test]
+    fn test_update_task_raw_if_status_matches_returns_false_on_status_mismatch() {
+        let storage = create_test_storage();
+        let original = task_status_payload("task-001", "active", "session-1");
+        let candidate = task_status_payload("task-001", "completed", "session-1");
+
+        storage
+            .put_task_raw_with_status("task-001", "active", &original)
+            .unwrap();
+        let changed = storage
+            .update_task_raw_if_status_matches("task-001", "paused", "completed", &candidate)
+            .unwrap();
+
+        assert!(!changed);
+        assert_eq!(storage.get_task_raw("task-001").unwrap().unwrap(), original);
+        assert_eq!(
+            storage
+                .list_tasks_by_status_indexed("active")
+                .unwrap()
+                .len(),
+            1
+        );
+        assert!(
+            storage
+                .list_tasks_by_status_indexed("completed")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -787,6 +949,31 @@ mod tests {
         // Deleting again should return false
         let deleted_again = storage.delete_task("task-001").unwrap();
         assert!(!deleted_again);
+    }
+
+    #[test]
+    fn test_delete_task_removes_status_lookup_entries() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-001", "active", b"raw")
+            .unwrap();
+        assert_eq!(
+            storage
+                .list_tasks_by_status_indexed("active")
+                .unwrap()
+                .len(),
+            1
+        );
+
+        let deleted = storage.delete_task("task-001").unwrap();
+        assert!(deleted);
+        assert!(
+            storage
+                .list_tasks_by_status_indexed("active")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -937,6 +1124,36 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_background_messages_for_task_removes_status_index_for_non_json_payload() {
+        let storage = create_test_storage();
+        storage
+            .put_background_message_raw_with_status("msg-1", "task-1", "queued", b"raw-msg-1")
+            .unwrap();
+        storage
+            .put_background_message_raw_with_status("msg-2", "task-1", "queued", b"raw-msg-2")
+            .unwrap();
+
+        assert_eq!(
+            storage
+                .list_background_messages_by_status_for_task_raw("task-1", "queued")
+                .unwrap()
+                .len(),
+            2
+        );
+
+        let deleted = storage
+            .delete_background_messages_for_task("task-1")
+            .unwrap();
+        assert_eq!(deleted, 2);
+        assert!(
+            storage
+                .list_background_messages_by_status_for_task_raw("task-1", "queued")
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
     fn test_put_and_get_event_raw() {
         let storage = create_test_storage();
 
@@ -1077,6 +1294,29 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("already bound to background task")
+        );
+    }
+
+    #[test]
+    fn test_put_task_with_status_rejects_when_existing_record_is_malformed() {
+        let storage = create_test_storage();
+
+        storage
+            .put_task_raw_with_status("task-malformed", "active", b"{not-json")
+            .unwrap();
+
+        let result = storage.put_task_raw_with_status(
+            "task-2",
+            "active",
+            &task_payload("task-2", "Task Two", "session-1"),
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("failed to parse existing background task")
         );
     }
 

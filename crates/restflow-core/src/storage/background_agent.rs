@@ -11,6 +11,7 @@ use crate::models::{
 };
 use anyhow::Result;
 use redb::Database;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
@@ -351,23 +352,24 @@ impl BackgroundAgentStorage {
         &self,
         status: BackgroundAgentStatus,
     ) -> Result<Vec<BackgroundAgent>> {
-        let tasks = self.inner.list_tasks_by_status_indexed(status.as_str())?;
-
-        if tasks.is_empty() {
-            let tasks = self.list_tasks()?;
-            return Ok(tasks
-                .into_iter()
-                .filter(|task| task.status == status)
-                .collect());
-        }
-
+        let indexed = self.inner.list_tasks_by_status_indexed(status.as_str())?;
         let mut result = Vec::new();
-        for (_, bytes) in tasks {
+        let mut indexed_ids = HashSet::new();
+        for (_, bytes) in indexed {
             let task: BackgroundAgent = serde_json::from_slice(&bytes)?;
             if task.status == status {
+                indexed_ids.insert(task.id.clone());
                 result.push(task);
             }
         }
+
+        // Reconcile with a full scan to recover from partial status index drift.
+        for task in self.list_tasks()? {
+            if task.status == status && !indexed_ids.contains(&task.id) {
+                result.push(task);
+            }
+        }
+
         Ok(result)
     }
 
@@ -413,39 +415,13 @@ impl BackgroundAgentStorage {
 
     /// List tasks that are ready to run
     pub fn list_runnable_tasks(&self, current_time: i64) -> Result<Vec<BackgroundAgent>> {
-        let tasks = self.list_tasks()?;
         let mut runnable = Vec::new();
+        let tasks = self.list_tasks()?;
 
-        for mut task in tasks {
-            if task.status == BackgroundAgentStatus::Active {
-                let needs_repair = if task.next_run_at.is_none() {
-                    // Self-heal old tasks that have a cron/interval schedule but no
-                    // computed next run time (e.g., created before cron normalization).
-                    true
-                } else if let (Some(next_run), Some(last_run)) =
-                    (task.next_run_at, task.last_run_at)
-                {
-                    // Self-heal tasks where next_run_at is stale (before last_run_at).
-                    // This can happen if the daemon was restarted mid-execution and
-                    // the completion handler didn't persist the updated schedule.
-                    next_run < last_run
-                } else {
-                    false
-                };
-
-                if needs_repair {
-                    task.update_next_run();
-                    if let Err(err) = self.update_task(&task) {
-                        warn!(
-                            "Failed to persist repaired next_run_at for task {}: {}",
-                            task.id, err
-                        );
-                        // Skip scheduling decisions for tasks whose repaired state
-                        // failed to persist to storage.
-                        continue;
-                    }
-                }
-            }
+        for task in tasks {
+            let Some(task) = self.repair_runnable_task_if_needed(task)? else {
+                continue;
+            };
 
             if task.should_run(current_time) {
                 runnable.push(task);
@@ -453,6 +429,73 @@ impl BackgroundAgentStorage {
         }
 
         Ok(runnable)
+    }
+
+    fn needs_runnable_repair(task: &BackgroundAgent) -> bool {
+        if task.next_run_at.is_none() {
+            // Self-heal old tasks that have a cron/interval schedule but no
+            // computed next run time (e.g., created before cron normalization).
+            return true;
+        }
+        if let (Some(next_run), Some(last_run)) = (task.next_run_at, task.last_run_at) {
+            // Self-heal tasks where next_run_at is stale (before last_run_at).
+            // This can happen if the daemon was restarted mid-execution and
+            // the completion handler didn't persist the updated schedule.
+            return next_run < last_run;
+        }
+        false
+    }
+
+    pub(crate) fn repair_runnable_task_if_needed(
+        &self,
+        task_snapshot: BackgroundAgent,
+    ) -> Result<Option<BackgroundAgent>> {
+        if task_snapshot.status != BackgroundAgentStatus::Active {
+            return Ok(Some(task_snapshot));
+        }
+
+        if !Self::needs_runnable_repair(&task_snapshot) {
+            return Ok(Some(task_snapshot));
+        }
+
+        // Reload latest state to avoid persisting a stale task snapshot.
+        let Some(mut latest) = self.get_task(&task_snapshot.id)? else {
+            return Ok(None);
+        };
+
+        if latest.status != BackgroundAgentStatus::Active {
+            // Status changed concurrently (e.g., pause/resume race). Do not
+            // repair from stale snapshot or evaluate scheduling on it.
+            return Ok(None);
+        }
+
+        if !Self::needs_runnable_repair(&latest) {
+            return Ok(Some(latest));
+        }
+
+        latest.update_next_run();
+        let persisted =
+            match self.update_task_if_status_matches(&latest, BackgroundAgentStatus::Active) {
+                Ok(persisted) => persisted,
+                Err(err) => {
+                    warn!(
+                        "Failed to persist repaired next_run_at for task {}: {}",
+                        latest.id, err
+                    );
+                    // Skip scheduling decisions for tasks whose repaired state
+                    // failed to persist to storage.
+                    return Ok(None);
+                }
+            };
+        if !persisted {
+            warn!(
+                "Skipped runnable repair for task {} due to concurrent status change",
+                latest.id
+            );
+            return Ok(None);
+        }
+
+        Ok(Some(latest))
     }
 
     /// Save an agent task (insert or replace).
@@ -488,6 +531,20 @@ impl BackgroundAgentStorage {
             &json_bytes,
         )?;
         Ok(())
+    }
+
+    fn update_task_if_status_matches(
+        &self,
+        task: &BackgroundAgent,
+        expected_status: BackgroundAgentStatus,
+    ) -> Result<bool> {
+        let json_bytes = serde_json::to_vec(task)?;
+        self.inner.update_task_raw_if_status_matches(
+            &task.id,
+            expected_status.as_str(),
+            task.status.as_str(),
+            &json_bytes,
+        )
     }
 
     /// Delete an agent task and all its events
@@ -1454,6 +1511,87 @@ mod tests {
     }
 
     #[test]
+    fn test_list_tasks_by_status_falls_back_to_full_scan_when_index_is_empty() {
+        let storage = create_test_storage();
+
+        let task = storage
+            .create_task(
+                "Fallback Target".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        // Corrupt index consistency intentionally:
+        // persist payload as "paused" without updating status index.
+        let mut paused_payload = storage.get_task(&task.id).unwrap().unwrap();
+        paused_payload.status = BackgroundAgentStatus::Paused;
+        paused_payload.updated_at += 1;
+        let raw = serde_json::to_vec(&paused_payload).unwrap();
+        storage.inner.put_task_raw(&task.id, &raw).unwrap();
+
+        // Indexed query for paused should be empty, forcing fallback to full scan.
+        let indexed_paused = storage
+            .inner
+            .list_tasks_by_status_indexed("paused")
+            .unwrap();
+        assert!(indexed_paused.is_empty());
+
+        let paused_tasks = storage
+            .list_tasks_by_status(BackgroundAgentStatus::Paused)
+            .unwrap();
+        assert_eq!(paused_tasks.len(), 1);
+        assert_eq!(paused_tasks[0].id, task.id);
+    }
+
+    #[test]
+    fn test_list_tasks_by_status_recovers_from_partial_index_drift() {
+        let storage = create_test_storage();
+
+        let missing_from_index = storage
+            .create_task(
+                "Missing Paused Index".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        let indexed_paused = storage
+            .create_task(
+                "Indexed Paused".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        // Keep payload status paused, but intentionally skip status-index update.
+        let mut paused_payload = storage.get_task(&missing_from_index.id).unwrap().unwrap();
+        paused_payload.status = BackgroundAgentStatus::Paused;
+        paused_payload.updated_at += 1;
+        let raw = serde_json::to_vec(&paused_payload).unwrap();
+        storage
+            .inner
+            .put_task_raw(&missing_from_index.id, &raw)
+            .unwrap();
+
+        storage.pause_task(&indexed_paused.id).unwrap();
+        let indexed_only = storage
+            .inner
+            .list_tasks_by_status_indexed("paused")
+            .unwrap();
+        assert_eq!(indexed_only.len(), 1);
+        assert_eq!(indexed_only[0].0, indexed_paused.id);
+
+        let paused_tasks = storage
+            .list_tasks_by_status(BackgroundAgentStatus::Paused)
+            .unwrap();
+        let ids: std::collections::HashSet<_> =
+            paused_tasks.iter().map(|task| task.id.clone()).collect();
+        assert_eq!(paused_tasks.len(), 2);
+        assert!(ids.contains(&missing_from_index.id));
+        assert!(ids.contains(&indexed_paused.id));
+    }
+
+    #[test]
     fn test_save_task_status_transition_keeps_status_queries_consistent() {
         let storage = create_test_storage();
         let created = storage
@@ -1478,6 +1616,57 @@ mod tests {
         assert!(active_tasks.iter().all(|task| task.id != created.id));
         assert_eq!(paused_tasks.len(), 1);
         assert_eq!(paused_tasks[0].id, created.id);
+    }
+
+    #[test]
+    fn test_status_index_consistency_after_multiple_status_transitions() {
+        let storage = create_test_storage();
+        let first = storage
+            .create_task(
+                "Transition A".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        let second = storage
+            .create_task(
+                "Transition B".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        let mut transitioning = storage.get_task(&first.id).unwrap().unwrap();
+        transitioning.pause();
+        storage.save_task(&transitioning).unwrap();
+
+        let mut transitioning = storage.get_task(&first.id).unwrap().unwrap();
+        transitioning.resume();
+        storage.save_task(&transitioning).unwrap();
+
+        let active_tasks = storage
+            .list_tasks_by_status(BackgroundAgentStatus::Active)
+            .unwrap();
+        let paused_tasks = storage
+            .list_tasks_by_status(BackgroundAgentStatus::Paused)
+            .unwrap();
+        assert_eq!(active_tasks.len(), 2);
+        assert!(active_tasks.iter().any(|task| task.id == first.id));
+        assert!(active_tasks.iter().any(|task| task.id == second.id));
+        assert!(paused_tasks.iter().all(|task| task.id != first.id));
+
+        let indexed_active = storage
+            .inner
+            .list_tasks_by_status_indexed("active")
+            .unwrap();
+        let indexed_paused = storage
+            .inner
+            .list_tasks_by_status_indexed("paused")
+            .unwrap();
+        assert_eq!(indexed_active.len(), 2);
+        assert!(indexed_active.iter().any(|(id, _)| id == &first.id));
+        assert!(indexed_active.iter().any(|(id, _)| id == &second.id));
+        assert!(indexed_paused.iter().all(|(id, _)| id != &first.id));
     }
 
     #[test]
@@ -2035,6 +2224,121 @@ mod tests {
             repaired.next_run_at.unwrap() > now,
             "next_run_at should be in the future after repair"
         );
+    }
+
+    #[test]
+    fn test_repair_runnable_task_does_not_overwrite_paused_status_from_stale_snapshot() {
+        let storage = create_test_storage();
+
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Pause Race Guard".to_string(),
+                agent_id: "agent-001".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("hello".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::Interval {
+                    interval_ms: 900_000,
+                    start_at: None,
+                },
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut stale_active_snapshot = storage.get_task(&created.id).unwrap().unwrap();
+        stale_active_snapshot.next_run_at = Some(now - 3_600_000);
+        stale_active_snapshot.last_run_at = Some(now - 1_800_000);
+        storage.update_task(&stale_active_snapshot).unwrap();
+        let stale_active_snapshot = storage.get_task(&created.id).unwrap().unwrap();
+
+        storage.pause_task(&created.id).unwrap();
+        let paused_before_repair = storage.get_task(&created.id).unwrap().unwrap();
+        assert_eq!(paused_before_repair.status, BackgroundAgentStatus::Paused);
+
+        let repaired = storage
+            .repair_runnable_task_if_needed(stale_active_snapshot)
+            .unwrap();
+        assert!(repaired.is_none());
+
+        let after = storage.get_task(&created.id).unwrap().unwrap();
+        assert_eq!(after.status, BackgroundAgentStatus::Paused);
+        assert_eq!(after.next_run_at, paused_before_repair.next_run_at);
+        assert_eq!(after.last_run_at, paused_before_repair.last_run_at);
+    }
+
+    #[test]
+    fn test_list_runnable_tasks_skips_task_when_repair_persist_fails() {
+        let storage = create_test_storage();
+
+        let created = storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Repair Failure".to_string(),
+                agent_id: "agent-001".to_string(),
+                chat_session_id: None,
+                description: None,
+                input: Some("hello".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::Interval {
+                    interval_ms: 3_600_000,
+                    start_at: None,
+                },
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .unwrap();
+
+        // Create a stale schedule state that requires repair and is runnable now.
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut broken = storage.get_task(&created.id).unwrap().unwrap();
+        broken.next_run_at = Some(now - 5_000);
+        broken.last_run_at = Some(now - 1_000);
+        storage.update_task(&broken).unwrap();
+        assert!(broken.should_run(now));
+
+        // Create another runnable task to prove list_runnable_tasks still returns other tasks.
+        let ready = storage
+            .create_task(
+                "Control Runnable".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::Once {
+                    run_at: now - 10_000,
+                },
+            )
+            .unwrap();
+
+        // Inject a conflicting task with same chat_session_id by bypassing uniqueness checks.
+        // This makes update_task fail during repair persistence.
+        let mut conflicting = broken.clone();
+        conflicting.id = format!("conflict-{}", Uuid::new_v4());
+        conflicting.status = BackgroundAgentStatus::Paused;
+        let conflicting_raw = serde_json::to_vec(&conflicting).unwrap();
+        storage
+            .inner
+            .put_task_raw(&conflicting.id, &conflicting_raw)
+            .unwrap();
+
+        let runnable = storage.list_runnable_tasks(now).unwrap();
+        assert!(runnable.iter().all(|task| task.id != created.id));
+        assert!(runnable.iter().any(|task| task.id == ready.id));
+
+        let after = storage.get_task(&created.id).unwrap().unwrap();
+        assert_eq!(after.next_run_at, broken.next_run_at);
+        assert_eq!(after.last_run_at, broken.last_run_at);
     }
 
     #[test]
