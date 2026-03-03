@@ -3,14 +3,36 @@
 //! This module defines the available agent types that can be spawned
 //! by the main agent, including their capabilities and system prompts.
 
-use crate::runtime::agent::main_agent_default_tool_names;
 use crate::storage::{AgentStorage, agent::StoredAgent};
+use parking_lot::RwLock;
 use restflow_ai::agent::{SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tracing::warn;
 use ts_rs::TS;
+
+fn subagent_default_tool_names() -> Vec<String> {
+    [
+        "bash",
+        "file",
+        "edit",
+        "multiedit",
+        "patch",
+        "diagnostics",
+        "web_search",
+        "web_fetch",
+        "jina_reader",
+        "http_request",
+        "run_python",
+        "process",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
 
 /// Agent definition describing a spawnable agent type
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
@@ -140,7 +162,7 @@ impl AgentDefinitionRegistry {
     }
 
     fn from_stored_agent(stored: &StoredAgent) -> AgentDefinition {
-        let default_tools = main_agent_default_tool_names();
+        let default_tools = subagent_default_tool_names();
         let allowed_tools = stored
             .agent
             .tools
@@ -211,6 +233,14 @@ impl SubagentDefLookup for AgentDefinitionRegistry {
 pub struct StorageBackedSubagentLookup {
     agent_storage: AgentStorage,
     fallback: AgentDefinitionRegistry,
+    cache_ttl: Duration,
+    cache: Arc<RwLock<Option<CachedRegistry>>>,
+}
+
+#[derive(Clone)]
+struct CachedRegistry {
+    loaded_at: Instant,
+    registry: AgentDefinitionRegistry,
 }
 
 impl StorageBackedSubagentLookup {
@@ -218,15 +248,41 @@ impl StorageBackedSubagentLookup {
         Self {
             agent_storage,
             fallback: AgentDefinitionRegistry::with_builtins(),
+            cache_ttl: Duration::from_secs(5),
+            cache: Arc::new(RwLock::new(None)),
         }
     }
 
+    pub fn with_cache_ttl(mut self, cache_ttl: Duration) -> Self {
+        self.cache_ttl = cache_ttl;
+        self
+    }
+
     fn load_registry(&self) -> Option<AgentDefinitionRegistry> {
+        if let Some(cached) = self
+            .cache
+            .read()
+            .as_ref()
+            .filter(|entry| entry.loaded_at.elapsed() <= self.cache_ttl)
+        {
+            return Some(cached.registry.clone());
+        }
+
         match self.agent_storage.list_agents() {
-            Ok(agents) => Some(AgentDefinitionRegistry::from_agents(&agents)),
+            Ok(agents) => {
+                let registry = AgentDefinitionRegistry::from_agents(&agents);
+                *self.cache.write() = Some(CachedRegistry {
+                    loaded_at: Instant::now(),
+                    registry: registry.clone(),
+                });
+                Some(registry)
+            }
             Err(error) => {
                 warn!(error = %error, "Failed to load sub-agent definitions from storage");
-                None
+                self.cache
+                    .read()
+                    .as_ref()
+                    .map(|entry| entry.registry.clone())
             }
         }
     }
@@ -307,8 +363,14 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
 mod tests {
     use super::{AgentDefinitionRegistry, builtin_agents};
     use crate::models::{AIModel, AgentNode};
-    use crate::storage::agent::StoredAgent;
+    use crate::prompt_files::agents_dir_env_lock;
+    use crate::runtime::subagent::definition::StorageBackedSubagentLookup;
+    use crate::storage::{AgentStorage, agent::StoredAgent};
+    use redb::Database;
     use restflow_ai::agent::SubagentDefLookup;
+    use std::sync::Arc;
+    use std::time::Duration;
+    use tempfile::tempdir;
 
     fn stored_agent(
         id: &str,
@@ -383,6 +445,11 @@ mod tests {
         let registry = AgentDefinitionRegistry::from_agents(&[stored]);
         let snapshot = registry.lookup("agent-2").unwrap();
         assert!(!snapshot.allowed_tools.is_empty());
+        assert!(
+            !snapshot
+                .allowed_tools
+                .contains(&"manage_background_agents".to_string())
+        );
     }
 
     #[test]
@@ -393,5 +460,55 @@ mod tests {
         ];
         let registry = AgentDefinitionRegistry::from_agents(&agents);
         assert!(registry.get("data-reviewer").is_none());
+    }
+
+    #[test]
+    fn test_storage_backed_lookup_cache_holds_snapshot_until_ttl_expires() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("agents.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let _env_lock = agents_dir_env_lock();
+        let agents_dir = temp_dir.path().join("agents");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
+
+        let lookup = StorageBackedSubagentLookup::new(storage.clone())
+            .with_cache_ttl(Duration::from_secs(60));
+
+        assert!(lookup.lookup("cache-agent").is_none());
+        storage
+            .create_agent("Cache Agent".to_string(), AgentNode::new())
+            .unwrap();
+
+        // Cache should still serve the previous empty snapshot.
+        assert!(lookup.lookup("cache-agent").is_none());
+        unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
+    }
+
+    #[test]
+    fn test_storage_backed_lookup_refreshes_after_ttl() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("agents_refresh.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = AgentStorage::new(db).unwrap();
+
+        let _env_lock = agents_dir_env_lock();
+        let agents_dir = temp_dir.path().join("agents-refresh");
+        std::fs::create_dir_all(&agents_dir).unwrap();
+        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
+
+        let lookup = StorageBackedSubagentLookup::new(storage.clone())
+            .with_cache_ttl(Duration::from_millis(5));
+
+        assert!(lookup.lookup("refresh-agent").is_none());
+        storage
+            .create_agent("Refresh Agent".to_string(), AgentNode::new())
+            .unwrap();
+
+        std::thread::sleep(Duration::from_millis(20));
+        assert!(lookup.lookup("refresh-agent").is_some());
+        unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
 }
