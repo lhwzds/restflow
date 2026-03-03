@@ -5,7 +5,8 @@ use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
 use crate::llm::{
-    CompletionResponse, FinishReason, Role, StreamChunk, StreamResult, TokenUsage, ToolCall,
+    CompletionRequest, CompletionResponse, FinishReason, Role, StreamChunk, StreamResult,
+    TokenUsage, ToolCall,
 };
 use crate::tools::ToolResult;
 use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
@@ -14,6 +15,7 @@ use futures::{StreamExt, stream};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::sync::Mutex as AsyncMutex;
+use tokio::time::sleep;
 
 /// Mock LLM client for testing
 struct MockLlmClient {
@@ -104,6 +106,45 @@ impl LlmClient for MockLlmClient {
 
     fn supports_streaming(&self) -> bool {
         self.supports_streaming
+    }
+}
+
+struct DelayedLlmClient {
+    delay: std::time::Duration,
+}
+
+impl DelayedLlmClient {
+    fn new(delay: std::time::Duration) -> Self {
+        Self { delay }
+    }
+}
+
+#[async_trait]
+impl LlmClient for DelayedLlmClient {
+    fn provider(&self) -> &str {
+        "mock"
+    }
+
+    fn model(&self) -> &str {
+        "delayed-model"
+    }
+
+    async fn complete(&self, _request: CompletionRequest) -> Result<CompletionResponse> {
+        sleep(self.delay).await;
+        Ok(CompletionResponse {
+            content: Some("Delayed done".to_string()),
+            tool_calls: vec![],
+            finish_reason: FinishReason::Stop,
+            usage: None,
+        })
+    }
+
+    fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
+        panic!("streaming path is not used in delay timeout tests");
+    }
+
+    fn supports_streaming(&self) -> bool {
+        false
     }
 }
 
@@ -395,6 +436,39 @@ async fn test_execute_from_state_resumes_without_reinjecting_prompt() {
             .iter()
             .any(|msg| msg.content == "Resumed done")
     );
+}
+
+#[tokio::test]
+async fn test_executor_applies_llm_timeout_when_configured() {
+    let llm = Arc::new(DelayedLlmClient::new(std::time::Duration::from_millis(120)));
+    let tools = Arc::new(ToolRegistry::new());
+    let executor = AgentExecutor::new(llm, tools);
+
+    let config = AgentConfig::new("Slow request")
+        .with_llm_timeout(std::time::Duration::from_millis(20))
+        .with_max_iterations(1);
+    let error = executor
+        .run(config)
+        .await
+        .expect_err("configured LLM timeout should fail fast");
+    assert!(error.to_string().contains("LLM completion timed out"));
+}
+
+#[tokio::test]
+async fn test_executor_allows_disabling_llm_timeout() {
+    let llm = Arc::new(DelayedLlmClient::new(std::time::Duration::from_millis(60)));
+    let tools = Arc::new(ToolRegistry::new());
+    let executor = AgentExecutor::new(llm, tools);
+
+    let config = AgentConfig::new("Slow but allowed")
+        .without_llm_timeout()
+        .with_max_iterations(1);
+    let result = executor
+        .run(config)
+        .await
+        .expect("disabled LLM timeout should allow delayed completion");
+    assert!(result.success);
+    assert_eq!(result.answer.as_deref(), Some("Delayed done"));
 }
 
 #[tokio::test]
