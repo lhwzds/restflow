@@ -5,7 +5,7 @@
 
 use anyhow::{Result, anyhow};
 use parking_lot::Mutex;
-use std::sync::Arc;
+use std::sync::{Arc, Weak};
 use std::time::Instant;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
@@ -158,7 +158,7 @@ pub struct ChatSessionManager {
     /// Mutex to serialize append_exchange operations per session.
     /// This prevents lost update races when concurrent messages are appended
     /// to the same session (e.g., from multiple Telegram updates or parallel handlers).
-    append_locks: Arc<Mutex<std::collections::HashMap<String, Arc<Mutex<()>>>>>,
+    append_locks: Arc<Mutex<std::collections::HashMap<String, Weak<Mutex<()>>>>>,
 }
 
 impl ChatSessionManager {
@@ -303,19 +303,6 @@ impl ChatSessionManager {
                 );
                 return Ok(existing);
             }
-
-            // Check if another request created the session while we were creating ours
-            let sessions = self.storage.chat_sessions.list_all()?;
-            if let Some(existing) = sessions.into_iter().find(|s| {
-                s.source_channel == source_channel
-                    && s.source_conversation_id.as_deref() == Some(conversation_id)
-            }) {
-                debug!(
-                    "Session {} was created by another request, using existing",
-                    existing.id
-                );
-                return Ok(existing);
-            }
             // It's a real error, propagate it
             return Err(e);
         }
@@ -392,11 +379,19 @@ impl ChatSessionManager {
             session_id = %binding.session_id,
             "Found stale channel-session binding without corresponding session; cleaning up"
         );
-        let _ = self.storage.channel_session_bindings.remove_by_route(
+        if let Err(error) = self.storage.channel_session_bindings.remove_by_route(
             channel_key,
             None,
             conversation_id,
-        );
+        ) {
+            warn!(
+                channel = channel_key,
+                conversation_id = %conversation_id,
+                session_id = %binding.session_id,
+                error = %error,
+                "Failed to remove stale channel-session binding"
+            );
+        }
         Ok(None)
     }
 
@@ -416,51 +411,61 @@ impl ChatSessionManager {
         // This ensures atomic read-modify-write for each session.
         let session_lock = {
             let mut locks = self.append_locks.lock();
-            locks
-                .entry(session_id.to_string())
-                .or_insert_with(|| Arc::new(Mutex::new(())))
-                .clone()
+            if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(session_id.to_string(), Arc::downgrade(&lock));
+                lock
+            }
         };
 
-        // Lock this specific session for the duration of read-modify-write
-        let _guard = session_lock.lock();
-
-        // Re-fetch the session inside the lock to get the latest state
-        let mut session = self
-            .storage
-            .chat_sessions
-            .get(session_id)?
-            .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
-        // Add user message
-        let mut user_msg = ChatMessage::user(user_message);
-        hydrate_voice_message_metadata(&mut user_msg);
-        session.add_message(user_msg);
-
-        // Add assistant message (with execution info if provided)
-        let msg = if let Some(exec) = execution {
-            ChatMessage::assistant(assistant_message).with_execution(exec)
-        } else {
-            ChatMessage::assistant(assistant_message)
-        };
-        session.add_message(msg);
-
-        if let Some(model) = active_model
-            && let Some(normalized) = AIModel::normalize_model_id(model)
         {
-            // Only update last_model metadata; preserve the user's chosen session model
-            // so that switch_model calls during execution don't permanently override it.
-            session.metadata.last_model = Some(normalized);
+            // Lock this specific session for the duration of read-modify-write
+            let _guard = session_lock.lock();
+
+            // Re-fetch the session inside the lock to get the latest state
+            let mut session = self
+                .storage
+                .chat_sessions
+                .get(session_id)?
+                .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+
+            // Add user message
+            let mut user_msg = ChatMessage::user(user_message);
+            hydrate_voice_message_metadata(&mut user_msg);
+            session.add_message(user_msg);
+
+            // Add assistant message (with execution info if provided)
+            let msg = if let Some(exec) = execution {
+                ChatMessage::assistant(assistant_message).with_execution(exec)
+            } else {
+                ChatMessage::assistant(assistant_message)
+            };
+            session.add_message(msg);
+
+            if let Some(model) = active_model
+                && let Some(normalized) = AIModel::normalize_model_id(model)
+            {
+                // Only update last_model metadata; preserve the user's chosen session model
+                // so that switch_model calls during execution don't permanently override it.
+                session.metadata.last_model = Some(normalized);
+            }
+
+            debug!(
+                "Persisted full history for session {} (stored messages: {}, runtime window: {})",
+                session_id,
+                session.messages.len(),
+                self.max_history
+            );
+
+            self.storage.chat_sessions.save(&session)?;
         }
 
-        debug!(
-            "Persisted full history for session {} (stored messages: {}, runtime window: {})",
-            session_id,
-            session.messages.len(),
-            self.max_history
-        );
-
-        self.storage.chat_sessions.save(&session)?;
+        drop(session_lock);
+        self.append_locks
+            .lock()
+            .retain(|_, weak| weak.strong_count() > 0);
 
         publish_session_event(ChatSessionEvent::MessageAdded {
             session_id: session_id.to_string(),
@@ -1308,6 +1313,35 @@ mod tests {
         assert_eq!(history.len(), 2);
         assert_eq!(history[0].content, "Hello!");
         assert_eq!(history[1].content, "Hi there!");
+    }
+
+    #[tokio::test]
+    async fn test_session_manager_prunes_append_locks_after_append() {
+        let (storage, _temp_dir) = create_test_storage();
+
+        use crate::models::AgentNode;
+        storage
+            .agents
+            .create_agent("Test Agent".to_string(), AgentNode::new())
+            .unwrap();
+        let agents = storage.agents.list_agents().unwrap();
+        let agent_id = agents[0].id.clone();
+
+        let manager = ChatSessionManager::new(storage.clone(), 20).with_default_agent(agent_id);
+
+        let session = manager
+            .get_or_create_session(ChannelType::Telegram, "conv-prune", "user-1")
+            .await
+            .unwrap();
+
+        manager
+            .append_exchange(&session.id, "Hello!", "Hi there!", None, None)
+            .unwrap();
+
+        assert!(
+            manager.append_locks.lock().is_empty(),
+            "append lock cache should not retain stale entries after append completes"
+        );
     }
 
     #[tokio::test]
