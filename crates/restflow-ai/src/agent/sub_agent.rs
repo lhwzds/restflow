@@ -67,18 +67,7 @@ impl SubagentTracker {
         }
     }
 
-    /// Register a new sub-agent
-    pub fn register(
-        self: &Arc<Self>,
-        id: String,
-        agent_name: String,
-        task: String,
-        handle: JoinHandle<SubagentResult>,
-        completion_rx: oneshot::Receiver<SubagentResult>,
-    ) {
-        // Opportunistic cleanup of completed entries older than 5 minutes
-        self.cleanup_completed(300_000);
-
+    fn insert_running_state(&self, id: String, agent_name: String, task: String) {
         let state = SubagentState {
             id: id.clone(),
             agent_name,
@@ -88,19 +77,15 @@ impl SubagentTracker {
             completed_at: None,
             result: None,
         };
+        self.states.insert(id, state);
+    }
 
-        let abort_handle = handle.abort_handle();
-
-        self.states.insert(id.clone(), state);
-        self.abort_handles.insert(id.clone(), abort_handle);
-        self.completion_waiters.insert(id.clone(), completion_rx);
-
+    fn spawn_join_monitor(self: &Arc<Self>, id: String, handle: JoinHandle<SubagentResult>) {
         let tracker = Arc::clone(self);
-        let id_for_task = id.clone();
         tokio::spawn(async move {
             let join_result = handle.await;
             if tracker
-                .get(&id_for_task)
+                .get(&id)
                 .and_then(|state| state.result.clone())
                 .is_some()
             {
@@ -109,7 +94,7 @@ impl SubagentTracker {
 
             match join_result {
                 Ok(result) => {
-                    tracker.mark_completed(&id_for_task, result);
+                    tracker.mark_completed(&id, result);
                 }
                 Err(e) => {
                     let result = SubagentResult {
@@ -121,10 +106,78 @@ impl SubagentTracker {
                         cost_usd: None,
                         error: Some(format!("Task panicked: {}", e)),
                     };
-                    tracker.mark_completed(&id_for_task, result);
+                    tracker.mark_completed(&id, result);
                 }
             }
         });
+    }
+
+    fn attach_execution(
+        self: &Arc<Self>,
+        id: String,
+        handle: JoinHandle<SubagentResult>,
+        completion_rx: oneshot::Receiver<SubagentResult>,
+    ) -> std::result::Result<(), AiError> {
+        if !self.states.contains_key(&id) {
+            return Err(AiError::Agent(format!(
+                "Cannot attach sub-agent execution for unknown id: {}",
+                id
+            )));
+        }
+
+        let abort_handle = handle.abort_handle();
+        self.abort_handles.insert(id.clone(), abort_handle);
+        self.completion_waiters.insert(id.clone(), completion_rx);
+        self.spawn_join_monitor(id, handle);
+        Ok(())
+    }
+
+    /// Register a new sub-agent.
+    pub fn register(
+        self: &Arc<Self>,
+        id: String,
+        agent_name: String,
+        task: String,
+        handle: JoinHandle<SubagentResult>,
+        completion_rx: oneshot::Receiver<SubagentResult>,
+    ) {
+        // Opportunistic cleanup of completed entries older than 5 minutes
+        self.cleanup_completed(300_000);
+        self.insert_running_state(id.clone(), agent_name, task);
+        let _ = self.attach_execution(id, handle, completion_rx);
+    }
+
+    /// Atomically reserve a sub-agent slot and register running state.
+    pub fn try_reserve(
+        self: &Arc<Self>,
+        max_parallel: usize,
+        id: String,
+        agent_name: String,
+        task: String,
+    ) -> std::result::Result<(), AiError> {
+        let _guard = self
+            .spawn_lock
+            .lock()
+            .map_err(|_| AiError::Agent("spawn lock poisoned".to_string()))?;
+
+        // Opportunistic cleanup of completed entries older than 5 minutes
+        self.cleanup_completed(300_000);
+
+        let running = self.running_count();
+        if running >= max_parallel {
+            return Err(AiError::Agent(format!(
+                "Max parallel agents ({}) reached",
+                max_parallel
+            )));
+        }
+        if self.states.contains_key(&id) {
+            return Err(AiError::Agent(format!(
+                "Sub-agent id already exists: {}",
+                id
+            )));
+        }
+        self.insert_running_state(id, agent_name, task);
+        Ok(())
     }
 
     /// Atomically check the running count and register a new sub-agent.
@@ -139,21 +192,8 @@ impl SubagentTracker {
         handle: JoinHandle<SubagentResult>,
         completion_rx: oneshot::Receiver<SubagentResult>,
     ) -> std::result::Result<(), AiError> {
-        let _guard = self
-            .spawn_lock
-            .lock()
-            .map_err(|_| AiError::Agent("spawn lock poisoned".to_string()))?;
-
-        let running = self.running_count();
-        if running >= max_parallel {
-            return Err(AiError::Agent(format!(
-                "Max parallel agents ({}) reached",
-                max_parallel
-            )));
-        }
-
-        self.register(id, agent_name, task, handle, completion_rx);
-        Ok(())
+        self.try_reserve(max_parallel, id.clone(), agent_name, task)?;
+        self.attach_execution(id, handle, completion_rx)
     }
 
     /// Get state of a specific sub-agent
@@ -645,6 +685,16 @@ pub fn spawn_subagent(
     let agent_name_for_return = agent_def.name.clone();
     let task_for_register = request.task.clone();
     let parent_execution_id = request.parent_execution_id.clone();
+    let max_parallel = config.max_parallel_agents.min(MAX_PARALLEL_SUBAGENTS_CAP);
+
+    // Reserve a running slot before spawning the async task to avoid creating
+    // orphaned tasks when the parallel limit is reached.
+    tracker.try_reserve(
+        max_parallel,
+        task_id.clone(),
+        agent_name_for_register,
+        task_for_register,
+    )?;
 
     let task = request.task.clone();
     let tracker_clone = tracker.clone();
@@ -753,16 +803,19 @@ pub fn spawn_subagent(
         subagent_result
     });
 
-    let max_parallel = config.max_parallel_agents.min(MAX_PARALLEL_SUBAGENTS_CAP);
-
-    tracker.try_register(
-        max_parallel,
-        task_id.clone(),
-        agent_name_for_register,
-        task_for_register,
-        handle,
-        completion_rx,
-    )?;
+    if let Err(error) = tracker.attach_execution(task_id.clone(), handle, completion_rx) {
+        let failure = SubagentResult {
+            success: false,
+            output: String::new(),
+            summary: None,
+            duration_ms: 0,
+            tokens_used: None,
+            cost_usd: None,
+            error: Some(error.to_string()),
+        };
+        tracker.mark_completed(&task_id, failure);
+        return Err(error);
+    }
 
     let _ = start_tx.send(());
 
