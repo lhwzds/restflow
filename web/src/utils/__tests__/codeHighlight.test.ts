@@ -1,7 +1,19 @@
-import { describe, expect, it } from 'vitest'
-import { escapeHtml, getHighlighter, highlightCode, normalizeLanguage } from '@/utils/codeHighlight'
+import { beforeEach, describe, expect, it } from 'vitest'
+import {
+  clearHighlightCache,
+  escapeHtml,
+  getCacheStats,
+  getHighlighter,
+  highlightCode,
+  highlightCodeSync,
+  normalizeLanguage,
+} from '@/utils/codeHighlight'
 
 describe('codeHighlight', () => {
+  beforeEach(() => {
+    clearHighlightCache()
+  })
+
   it('normalizes language aliases', () => {
     expect(normalizeLanguage('ts')).toBe('typescript')
     expect(normalizeLanguage('YML')).toBe('yaml')
@@ -20,16 +32,37 @@ describe('codeHighlight', () => {
     expect(first).toBe(second)
   })
 
-  it('highlights known language code', async () => {
+  it('highlights known language code and caches sync result', async () => {
     const html = await highlightCode('const x = 1', 'typescript')
     expect(html).toContain('class="shiki')
     expect(html).toContain('const')
+
+    const cached = highlightCodeSync('const x = 1', 'typescript')
+    expect(cached).toBe(html)
   })
 
-  it('falls back to plain text for unknown language', async () => {
-    const html = await highlightCode('<tag>', 'unknown-language')
-    expect(html).toContain('class="shiki')
-    expect(html).toContain('tag')
-    expect(html).toContain('&#x3C;')
+  it('falls back to text for unknown language', async () => {
+    const unknownLanguageHtml = await highlightCode('<tag>', 'unknown-language')
+    const textHtml = await highlightCode('<tag>', 'text')
+
+    expect(unknownLanguageHtml).toContain('class="shiki')
+    expect(unknownLanguageHtml).toContain('&#x3C;')
+    expect(unknownLanguageHtml).toBe(textHtml)
+  })
+
+  it('returns cache miss after clearing cache', async () => {
+    await highlightCode('let x = 1', 'javascript')
+    expect(highlightCodeSync('let x = 1', 'javascript')).toBeTruthy()
+
+    clearHighlightCache()
+    expect(highlightCodeSync('let x = 1', 'javascript')).toBeNull()
+  })
+
+  it('tracks loaded languages in cache stats after highlight', async () => {
+    await highlightCode('const x = 1', 'typescript')
+    const stats = getCacheStats()
+
+    expect(stats.size).toBeGreaterThan(0)
+    expect(stats.languages.has('typescript')).toBe(true)
   })
 })
