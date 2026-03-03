@@ -770,8 +770,8 @@ mod tests {
     use super::*;
     use std::env;
     use std::fs;
-    use std::sync::{Mutex, OnceLock};
     use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::NamedTempFile;
     use tempfile::tempdir;
 
