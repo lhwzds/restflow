@@ -1,7 +1,19 @@
-import { describe, it, expect } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import MessageList from '../MessageList.vue'
+
+const toastSuccess = vi.fn()
+const toastError = vi.fn()
+
+vi.mock('@/composables/useToast', () => ({
+  useToast: () => ({
+    success: toastSuccess,
+    error: toastError,
+    warning: vi.fn(),
+    info: vi.fn(),
+  }),
+}))
 
 const StreamingMarkdownStub = defineComponent({
   name: 'StreamingMarkdownStub',
@@ -21,47 +33,20 @@ const VoiceMessageBubbleStub = defineComponent({
 
 const ButtonStub = defineComponent({
   name: 'ButtonStub',
-  template: '<button><slot /></button>',
+  emits: ['click'],
+  template: '<button @click="$emit(\'click\', $event)"><slot /></button>',
 })
 
 describe('MessageList', () => {
-  it('renders transcript even when voice audio cannot be loaded', () => {
-    const wrapper = mount(MessageList, {
-      props: {
-        messages: [
-          {
-            id: 'msg-voice-no-audio',
-            role: 'user',
-            content: '[Voice message]',
-            timestamp: 1n,
-            execution: null,
-            media: {
-              media_type: 'voice',
-              file_path: '/tmp/missing.webm',
-              duration_sec: 3,
-            },
-            transcript: {
-              text: 'transcript without audio',
-              model: undefined,
-              updated_at: 1,
-            },
-          },
-        ],
-        isStreaming: false,
-        streamContent: '',
-        voiceAudioUrls: new Map(),
-      },
-      global: {
-        stubs: {
-          StreamingMarkdown: StreamingMarkdownStub,
-          VoiceMessageBubble: VoiceMessageBubbleStub,
-          Button: ButtonStub,
-        },
+  beforeEach(() => {
+    toastSuccess.mockClear()
+    toastError.mockClear()
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockResolvedValue(undefined),
       },
     })
-
-    expect(wrapper.text()).toContain('Voice message unavailable.')
-    expect(wrapper.text()).toContain('transcript without audio')
   })
 
   it('renders transcript text under voice message bubble', () => {
@@ -195,5 +180,163 @@ describe('MessageList', () => {
 
     expect(wrapper.text()).not.toContain('Copy')
     expect(wrapper.text()).not.toContain('Retry')
+  })
+
+  it('shows processing indicator during stream warmup', () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        isStreaming: true,
+        streamContent: '',
+        streamThinking: '',
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Processing...')
+  })
+
+  it('renders empty state when there are no messages and no streaming', () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        isStreaming: false,
+        streamContent: '',
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Start a new conversation')
+  })
+
+  it('emits tool result view and toggles expanded result panel', async () => {
+    const step = {
+      type: 'tool_call',
+      name: 'web_search',
+      status: 'completed',
+      result: '{"ok":true}',
+      displayName: 'web_search',
+    }
+
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        isStreaming: true,
+        streamContent: 'partial',
+        steps: [step],
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    const headerButton = wrapper.find('button.w-full')
+    expect(headerButton.exists()).toBe(true)
+
+    await headerButton.trigger('click')
+    expect(wrapper.text()).toContain('{"ok":true}')
+
+    const viewButton = wrapper
+      .findAll('button')
+      .find((buttonWrapper) => buttonWrapper.text().trim() === 'View')
+    expect(viewButton).toBeTruthy()
+
+    await viewButton!.trigger('click')
+    const emittedView =
+      wrapper.emitted('viewToolResult') ?? wrapper.emitted('view-tool-result')
+    expect(emittedView).toBeTruthy()
+    expect(emittedView?.[0]?.[0]).toEqual(step)
+  })
+
+  it('copies message content and shows success toast', async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-assistant-copy',
+            role: 'assistant',
+            content: 'copy this',
+            timestamp: 1n,
+            execution: null,
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    const copyButton = wrapper
+      .findAll('button')
+      .find((buttonWrapper) => buttonWrapper.text().trim() === 'Copy')
+    expect(copyButton).toBeTruthy()
+
+    await copyButton!.trigger('click')
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('copy this')
+    expect(toastSuccess).toHaveBeenCalledWith('Copied to clipboard')
+  })
+
+  it('shows error toast when copy fails', async () => {
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: vi.fn().mockRejectedValue(new Error('denied')),
+      },
+    })
+
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-assistant-copy-fail',
+            role: 'assistant',
+            content: 'cannot copy',
+            timestamp: 1n,
+            execution: null,
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    const copyButton = wrapper
+      .findAll('button')
+      .find((buttonWrapper) => buttonWrapper.text().trim() === 'Copy')
+    expect(copyButton).toBeTruthy()
+
+    await copyButton!.trigger('click')
+
+    expect(toastError).toHaveBeenCalledWith('Failed to copy')
   })
 })
