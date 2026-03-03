@@ -22,6 +22,7 @@ use regex::Regex;
 use restflow_storage::{
     IndexableChunk, MemoryIndex, PutChunkResult, VectorConfig, VectorStats, VectorStorage,
 };
+use std::fmt;
 use std::sync::Arc;
 
 /// Typed memory storage wrapper around restflow-storage::MemoryStorage.
@@ -31,6 +32,51 @@ pub struct MemoryStorage {
     vectors: Option<Arc<VectorStorage>>,
     index: Option<Arc<MemoryIndex>>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ChunkDeleteFailure {
+    chunk_id: String,
+    stage: &'static str,
+    error: String,
+}
+
+#[derive(Debug, Clone)]
+struct ChunkDeleteAggregateError {
+    operation: &'static str,
+    scope: String,
+    attempted_chunks: usize,
+    deleted_chunks: u32,
+    failures: Vec<ChunkDeleteFailure>,
+}
+
+impl fmt::Display for ChunkDeleteAggregateError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let details = self
+            .failures
+            .iter()
+            .map(|failure| {
+                format!(
+                    "chunk_id={}, stage={}, error={}",
+                    failure.chunk_id, failure.stage, failure.error
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+
+        write!(
+            f,
+            "{} failed for scope={} (attempted={}, deleted={}, failures={}): {}",
+            self.operation,
+            self.scope,
+            self.attempted_chunks,
+            self.deleted_chunks,
+            self.failures.len(),
+            details
+        )
+    }
+}
+
+impl std::error::Error for ChunkDeleteAggregateError {}
 
 impl MemoryStorage {
     /// Create a new MemoryStorage instance
@@ -197,36 +243,14 @@ impl MemoryStorage {
 
     /// Delete all chunks for an agent
     pub fn delete_chunks_for_agent(&self, agent_id: &str) -> Result<u32> {
-        let chunks = self.list_chunks(agent_id)?;
-        let metadata: Vec<_> = chunks
-            .iter()
-            .map(|chunk| {
-                (
-                    chunk.id.clone(),
-                    chunk.session_id.clone(),
-                    chunk.content_hash.clone(),
-                    chunk.tags.clone(),
-                )
-            })
-            .collect();
-
-        let deleted = self
-            .inner
-            .delete_all_chunks_for_agent_with_metadata(agent_id, &metadata)?;
-
-        if let Some(vectors) = &self.vectors {
-            for chunk in &chunks {
-                vectors.delete(&chunk.id)?;
-            }
-        }
-
-        if let Some(index) = &self.index {
-            for chunk in &chunks {
-                index.remove_chunk(&chunk.id)?;
-            }
-        }
-
-        Ok(deleted)
+        let raw_chunks = self.inner.list_chunks_by_agent_raw(agent_id)?;
+        self.delete_chunks_from_raw(
+            "delete_chunks_for_agent",
+            agent_id,
+            raw_chunks,
+            Some(agent_id),
+            None,
+        )
     }
 
     /// Delete chunks older than the given timestamp across all agents.
@@ -316,10 +340,14 @@ impl MemoryStorage {
         if let Some(session) = self.get_session(session_id)? {
             // Delete associated chunks if requested
             if delete_chunks {
-                let chunks = self.list_chunks_for_session(session_id)?;
-                for chunk in chunks {
-                    self.delete_chunk(&chunk.id)?;
-                }
+                let raw_chunks = self.inner.list_chunks_by_session_raw(session_id)?;
+                self.delete_chunks_from_raw(
+                    "delete_session_with_chunks",
+                    session_id,
+                    raw_chunks,
+                    None,
+                    Some(session_id),
+                )?;
             }
 
             self.inner.delete_session(session_id, &session.agent_id)
@@ -594,6 +622,90 @@ impl MemoryStorage {
         }
     }
 
+    fn delete_chunks_from_raw(
+        &self,
+        operation: &'static str,
+        scope: &str,
+        raw_chunks: Vec<(String, Vec<u8>)>,
+        forced_agent_id: Option<&str>,
+        forced_session_id: Option<&str>,
+    ) -> Result<u32> {
+        let attempted_chunks = raw_chunks.len();
+        let mut deleted_chunks = 0u32;
+        let mut failures = Vec::new();
+
+        for (chunk_id, bytes) in raw_chunks {
+            let chunk: MemoryChunk = match serde_json::from_slice(&bytes) {
+                Ok(chunk) => chunk,
+                Err(err) => {
+                    failures.push(ChunkDeleteFailure {
+                        chunk_id,
+                        stage: "deserialize_chunk_metadata",
+                        error: err.to_string(),
+                    });
+                    continue;
+                }
+            };
+
+            let agent_id = forced_agent_id.unwrap_or(&chunk.agent_id);
+            let session_id = forced_session_id.or(chunk.session_id.as_deref());
+
+            match self.inner.delete_chunk(
+                &chunk_id,
+                agent_id,
+                session_id,
+                &chunk.content_hash,
+                &chunk.tags,
+            ) {
+                Ok(existed) => {
+                    if existed {
+                        deleted_chunks += 1;
+                    }
+                }
+                Err(err) => {
+                    failures.push(ChunkDeleteFailure {
+                        chunk_id: chunk_id.clone(),
+                        stage: "delete_chunk_storage",
+                        error: err.to_string(),
+                    });
+                    continue;
+                }
+            }
+
+            if let Some(vectors) = &self.vectors
+                && let Err(err) = vectors.delete(&chunk_id)
+            {
+                failures.push(ChunkDeleteFailure {
+                    chunk_id: chunk_id.clone(),
+                    stage: "delete_chunk_vector_index",
+                    error: err.to_string(),
+                });
+            }
+
+            if let Some(index) = &self.index
+                && let Err(err) = index.remove_chunk(&chunk_id)
+            {
+                failures.push(ChunkDeleteFailure {
+                    chunk_id: chunk_id.clone(),
+                    stage: "delete_chunk_text_index",
+                    error: err.to_string(),
+                });
+            }
+        }
+
+        if failures.is_empty() {
+            Ok(deleted_chunks)
+        } else {
+            Err(anyhow!(ChunkDeleteAggregateError {
+                operation,
+                scope: scope.to_string(),
+                attempted_chunks,
+                deleted_chunks,
+                failures,
+            }))
+        }
+    }
+
     // ============== Statistics ==============
 
     /// Get memory statistics for an agent
@@ -708,6 +820,35 @@ mod tests {
             ..VectorConfig::default()
         };
         MemoryStorage::with_vectors(db, config).unwrap()
+    }
+
+    fn insert_corrupted_chunk(
+        storage: &MemoryStorage,
+        chunk_id: &str,
+        agent_id: &str,
+        session_id: Option<&str>,
+        content_seed: &str,
+    ) {
+        use sha2::{Digest, Sha256};
+
+        let content_hash = hex::encode(Sha256::digest(content_seed.as_bytes()));
+        let tags: Vec<String> = Vec::new();
+        let result = storage
+            .inner
+            .put_chunk_if_not_exists(
+                chunk_id,
+                agent_id,
+                session_id,
+                &content_hash,
+                &tags,
+                br#"{"invalid_json": }"#,
+            )
+            .unwrap();
+
+        assert!(
+            matches!(result, PutChunkResult::Created(_)),
+            "Corrupted chunk fixture must be newly created"
+        );
     }
 
     #[test]
@@ -1223,6 +1364,246 @@ mod tests {
         assert_eq!(after.active_count, 1);
         assert_eq!(after.orphan_count, 2);
         assert_eq!(after.total_indexed, 3);
+    }
+
+    #[test]
+    fn test_delete_chunks_for_agent_cleans_text_and_vector_search_surfaces() {
+        let storage = create_test_storage_with_vectors(3);
+
+        let chunk1 = MemoryChunk::new(
+            "agent-001".to_string(),
+            "Delete consistency alpha".to_string(),
+        )
+        .with_embedding(vec![0.1, 0.2, 0.3], "test-model".to_string());
+        let chunk2 = MemoryChunk::new(
+            "agent-001".to_string(),
+            "Delete consistency beta".to_string(),
+        )
+        .with_embedding(vec![0.2, 0.3, 0.4], "test-model".to_string());
+        let chunk_other = MemoryChunk::new(
+            "agent-002".to_string(),
+            "Delete consistency gamma".to_string(),
+        )
+        .with_embedding(vec![0.9, 0.8, 0.7], "test-model".to_string());
+
+        storage.store_chunk(&chunk1).unwrap();
+        storage.store_chunk(&chunk2).unwrap();
+        storage.store_chunk(&chunk_other).unwrap();
+
+        let text_query = MemorySearchQuery::new("agent-001".to_string())
+            .with_query("delete consistency".to_string())
+            .with_mode(SearchMode::Keyword);
+        let text_before = storage.search(&text_query).unwrap();
+        assert_eq!(text_before.total_count, 2);
+
+        let semantic_before = storage
+            .semantic_search("agent-001", &[0.1, 0.2, 0.3], 10)
+            .unwrap();
+        assert_eq!(semantic_before.len(), 2);
+
+        let deleted = storage.delete_chunks_for_agent("agent-001").unwrap();
+        assert_eq!(deleted, 2);
+
+        let text_after = storage.search(&text_query).unwrap();
+        assert_eq!(text_after.total_count, 0);
+
+        let semantic_after = storage
+            .semantic_search("agent-001", &[0.1, 0.2, 0.3], 10)
+            .unwrap();
+        assert!(semantic_after.is_empty());
+
+        let other_query = MemorySearchQuery::new("agent-002".to_string())
+            .with_query("delete consistency".to_string())
+            .with_mode(SearchMode::Keyword);
+        let other_results = storage.search(&other_query).unwrap();
+        assert_eq!(other_results.total_count, 1);
+    }
+
+    #[test]
+    fn test_delete_session_with_chunks_cleans_searchable_indexes() {
+        let storage = create_test_storage_with_vectors(3);
+
+        let session = MemorySession::new("agent-001".to_string(), "Indexed Session".to_string());
+        storage.create_session(&session).unwrap();
+
+        let session_chunk = MemoryChunk::new(
+            "agent-001".to_string(),
+            "Session linked deletion marker".to_string(),
+        )
+        .with_session(session.id.clone())
+        .with_embedding(vec![0.3, 0.1, 0.2], "test-model".to_string());
+        let retained_chunk = MemoryChunk::new(
+            "agent-001".to_string(),
+            "Unrelated retained memory".to_string(),
+        )
+        .with_embedding(vec![0.8, 0.1, 0.1], "test-model".to_string());
+
+        storage.store_chunk(&session_chunk).unwrap();
+        storage.store_chunk(&retained_chunk).unwrap();
+
+        let session_query = MemorySearchQuery::new("agent-001".to_string())
+            .with_query("session linked deletion marker".to_string())
+            .with_mode(SearchMode::Keyword);
+        let session_text_before = storage.search(&session_query).unwrap();
+        assert_eq!(session_text_before.total_count, 1);
+
+        let semantic_before = storage
+            .semantic_search("agent-001", &[0.3, 0.1, 0.2], 10)
+            .unwrap();
+        assert!(
+            semantic_before
+                .iter()
+                .any(|m| m.chunk.id == session_chunk.id)
+        );
+
+        let deleted = storage.delete_session(&session.id, true).unwrap();
+        assert!(deleted);
+
+        let session_after_delete = storage.get_session(&session.id).unwrap();
+        assert!(session_after_delete.is_none());
+
+        let session_text_after = storage.search(&session_query).unwrap();
+        assert_eq!(session_text_after.total_count, 0);
+
+        let semantic_after = storage
+            .semantic_search("agent-001", &[0.3, 0.1, 0.2], 10)
+            .unwrap();
+        assert!(
+            !semantic_after
+                .iter()
+                .any(|m| m.chunk.id == session_chunk.id)
+        );
+        assert!(
+            semantic_after
+                .iter()
+                .any(|m| m.chunk.id == retained_chunk.id)
+        );
+    }
+
+    #[test]
+    fn test_delete_session_with_chunks_reports_aggregated_failures_and_deletes_valid_chunks() {
+        let storage = create_test_storage();
+
+        let session = MemorySession::new("agent-001".to_string(), "Corrupted Session".to_string());
+        storage.create_session(&session).unwrap();
+
+        let valid_chunk = MemoryChunk::new(
+            "agent-001".to_string(),
+            "Corruption guard searchable content".to_string(),
+        )
+        .with_session(session.id.clone());
+        storage.store_chunk(&valid_chunk).unwrap();
+
+        insert_corrupted_chunk(
+            &storage,
+            "chunk-corrupted-regression",
+            "agent-001",
+            Some(&session.id),
+            "corrupted-session-content",
+        );
+
+        let delete_result = storage.delete_session(&session.id, true);
+        assert!(
+            delete_result.is_err(),
+            "Delete should report aggregated failure details when some chunks are corrupted"
+        );
+        let delete_error = delete_result.unwrap_err();
+        let aggregate = delete_error
+            .downcast_ref::<ChunkDeleteAggregateError>()
+            .expect("delete_session should return ChunkDeleteAggregateError");
+        assert_eq!(aggregate.operation, "delete_session_with_chunks");
+        assert_eq!(aggregate.scope, session.id);
+        assert_eq!(aggregate.attempted_chunks, 2);
+        assert_eq!(aggregate.deleted_chunks, 1);
+        assert_eq!(aggregate.failures.len(), 1);
+        assert_eq!(
+            aggregate.failures[0].chunk_id,
+            "chunk-corrupted-regression".to_string()
+        );
+        assert_eq!(aggregate.failures[0].stage, "deserialize_chunk_metadata");
+
+        let session_after = storage.get_session(&session.id).unwrap();
+        assert!(
+            session_after.is_some(),
+            "Session should be retained when delete_chunks has failures to avoid stale references"
+        );
+
+        let valid_chunk_after = storage.get_chunk(&valid_chunk.id).unwrap();
+        assert!(
+            valid_chunk_after.is_none(),
+            "Valid chunks should still be deleted even when another chunk fails"
+        );
+
+        let corrupted_chunk_after = storage
+            .inner
+            .get_chunk_raw("chunk-corrupted-regression")
+            .unwrap();
+        assert!(
+            corrupted_chunk_after.is_some(),
+            "Corrupted chunk should remain for retry when metadata cannot be deserialized"
+        );
+
+        let query = MemorySearchQuery::new("agent-001".to_string())
+            .with_query("corruption guard searchable content".to_string())
+            .with_mode(SearchMode::Keyword);
+        let search_result = storage.search(&query).unwrap();
+        assert_eq!(search_result.total_count, 0);
+    }
+
+    #[test]
+    fn test_delete_chunks_for_agent_reports_aggregated_failures_and_continues() {
+        let storage = create_test_storage();
+
+        let valid_chunk = MemoryChunk::new(
+            "agent-001".to_string(),
+            "Agent delete should remove valid chunk".to_string(),
+        );
+        storage.store_chunk(&valid_chunk).unwrap();
+
+        insert_corrupted_chunk(
+            &storage,
+            "chunk-agent-corrupted",
+            "agent-001",
+            None,
+            "corrupted-agent-content",
+        );
+
+        let other_agent_chunk = MemoryChunk::new(
+            "agent-002".to_string(),
+            "Other agent should remain".to_string(),
+        );
+        storage.store_chunk(&other_agent_chunk).unwrap();
+
+        let delete_result = storage.delete_chunks_for_agent("agent-001");
+        assert!(
+            delete_result.is_err(),
+            "Agent-wide delete should return aggregate errors when some chunks fail"
+        );
+        let delete_error = delete_result.unwrap_err();
+        let aggregate = delete_error
+            .downcast_ref::<ChunkDeleteAggregateError>()
+            .expect("delete_chunks_for_agent should return ChunkDeleteAggregateError");
+        assert_eq!(aggregate.operation, "delete_chunks_for_agent");
+        assert_eq!(aggregate.scope, "agent-001".to_string());
+        assert_eq!(aggregate.attempted_chunks, 2);
+        assert_eq!(aggregate.deleted_chunks, 1);
+        assert_eq!(aggregate.failures.len(), 1);
+        assert_eq!(
+            aggregate.failures[0].chunk_id,
+            "chunk-agent-corrupted".to_string()
+        );
+        assert_eq!(aggregate.failures[0].stage, "deserialize_chunk_metadata");
+
+        let valid_chunk_after = storage.get_chunk(&valid_chunk.id).unwrap();
+        assert!(valid_chunk_after.is_none());
+        let corrupted_chunk_after = storage
+            .inner
+            .get_chunk_raw("chunk-agent-corrupted")
+            .unwrap();
+        assert!(corrupted_chunk_after.is_some());
+
+        let other_agent_chunk_after = storage.get_chunk(&other_agent_chunk.id).unwrap();
+        assert!(other_agent_chunk_after.is_some());
     }
 
     #[test]
