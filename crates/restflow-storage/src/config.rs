@@ -33,6 +33,7 @@ const DEFAULT_BG_MESSAGE_LIST_LIMIT: usize = 50;
 const DEFAULT_BG_TRACE_LIST_LIMIT: usize = 50;
 const DEFAULT_BG_TRACE_LINE_LIMIT: usize = 200;
 const DEFAULT_BROWSER_TIMEOUT_SECS: u64 = 120;
+const DEFAULT_LLM_TIMEOUT_SECS: u64 = 600;
 const DEFAULT_PROCESS_SESSION_TTL_SECS: u64 = 30 * 60;
 const DEFAULT_APPROVAL_TIMEOUT_SECS: u64 = 300;
 const MIN_RETENTION_DAYS: u32 = 1;
@@ -45,6 +46,10 @@ const MIN_TIMEOUT_SECONDS: u64 = 10;
 pub struct AgentDefaults {
     /// Timeout for a single tool execution in seconds.
     pub tool_timeout_secs: u64,
+    /// Default timeout for each LLM completion request in seconds.
+    ///
+    /// `None` disables the per-request LLM timeout.
+    pub llm_timeout_secs: Option<u64>,
     /// Default timeout for bash command execution in seconds.
     pub bash_timeout_secs: u64,
     /// Default timeout for Python code execution in seconds.
@@ -82,6 +87,7 @@ impl Default for AgentDefaults {
     fn default() -> Self {
         Self {
             tool_timeout_secs: 300,
+            llm_timeout_secs: Some(DEFAULT_LLM_TIMEOUT_SECS),
             bash_timeout_secs: 300,
             python_timeout_secs: 120,
             browser_timeout_secs: DEFAULT_BROWSER_TIMEOUT_SECS,
@@ -104,6 +110,14 @@ impl AgentDefaults {
         if self.tool_timeout_secs < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
                 "agent.tool_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if let Some(timeout_secs) = self.llm_timeout_secs
+            && timeout_secs < MIN_TIMEOUT_SECONDS
+        {
+            return Err(anyhow::anyhow!(
+                "agent.llm_timeout_secs must be at least {} seconds",
                 MIN_TIMEOUT_SECONDS
             ));
         }
@@ -413,6 +427,7 @@ impl SystemConfig {
 #[serde(default)]
 struct AgentDefaultsOverride {
     pub tool_timeout_secs: Option<u64>,
+    pub llm_timeout_secs: Option<Option<u64>>,
     pub bash_timeout_secs: Option<u64>,
     pub python_timeout_secs: Option<u64>,
     pub browser_timeout_secs: Option<u64>,
@@ -432,6 +447,9 @@ impl AgentDefaultsOverride {
     fn apply_to(&self, agent: &mut AgentDefaults) {
         if let Some(value) = self.tool_timeout_secs {
             agent.tool_timeout_secs = value;
+        }
+        if let Some(value) = self.llm_timeout_secs {
+            agent.llm_timeout_secs = value;
         }
         if let Some(value) = self.bash_timeout_secs {
             agent.bash_timeout_secs = value;
@@ -850,6 +868,10 @@ mod tests {
             config.agent.approval_timeout_secs,
             DEFAULT_APPROVAL_TIMEOUT_SECS
         );
+        assert_eq!(
+            config.agent.llm_timeout_secs,
+            Some(DEFAULT_LLM_TIMEOUT_SECS)
+        );
         assert_eq!(config.agent.max_wall_clock_secs, None);
     }
 
@@ -960,6 +982,10 @@ mod tests {
 
         let mut config = storage.get_config().unwrap().unwrap();
         assert_eq!(config.agent.tool_timeout_secs, 300);
+        assert_eq!(
+            config.agent.llm_timeout_secs,
+            Some(DEFAULT_LLM_TIMEOUT_SECS)
+        );
         assert_eq!(config.agent.bash_timeout_secs, 300);
         assert_eq!(config.agent.max_iterations, 100);
         assert_eq!(config.agent.max_parallel_subagents, 200);
@@ -977,6 +1003,7 @@ mod tests {
         );
 
         config.agent.tool_timeout_secs = 180;
+        config.agent.llm_timeout_secs = Some(900);
         config.agent.bash_timeout_secs = 600;
         config.agent.max_wall_clock_secs = Some(3_600);
         config.agent.max_parallel_subagents = 25;
@@ -987,6 +1014,7 @@ mod tests {
 
         let retrieved = storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.agent.tool_timeout_secs, 180);
+        assert_eq!(retrieved.agent.llm_timeout_secs, Some(900));
         assert_eq!(retrieved.agent.bash_timeout_secs, 600);
         assert_eq!(retrieved.agent.max_wall_clock_secs, Some(3_600));
         assert_eq!(retrieved.agent.max_parallel_subagents, 25);
@@ -1031,6 +1059,14 @@ mod tests {
         let mut config = SystemConfig::default();
         config.agent.tool_timeout_secs = 5; // below min
         assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.llm_timeout_secs = Some(5);
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.llm_timeout_secs = None;
+        assert!(config.validate().is_ok());
 
         let mut config = SystemConfig::default();
         config.agent.max_iterations = 0;
@@ -1100,6 +1136,7 @@ mod tests {
 
 [agent]
 python_timeout_secs = 45
+llm_timeout_secs = 660
 browser_timeout_secs = 240
 process_session_ttl_secs = 5400
 approval_timeout_secs = 420
@@ -1112,6 +1149,7 @@ fallback_models = ["alpha", "beta"]
         let effective = storage.get_effective_config().unwrap();
         assert_eq!(effective.task_timeout_seconds, 9999);
         assert_eq!(effective.agent.python_timeout_secs, 45);
+        assert_eq!(effective.agent.llm_timeout_secs, Some(660));
         assert_eq!(effective.agent.browser_timeout_secs, 240);
         assert_eq!(effective.agent.process_session_ttl_secs, 5400);
         assert_eq!(effective.agent.approval_timeout_secs, 420);

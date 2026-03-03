@@ -419,6 +419,18 @@ impl AgentRuntimeExecutor {
         }
     }
 
+    fn apply_llm_timeout(
+        mut config: ReActAgentConfig,
+        llm_timeout_secs: Option<u64>,
+    ) -> ReActAgentConfig {
+        if let Some(timeout_secs) = llm_timeout_secs {
+            config = config.with_llm_timeout(Duration::from_secs(timeout_secs));
+        } else {
+            config = config.without_llm_timeout();
+        }
+        config
+    }
+
     fn apply_execution_context(
         mut config: ReActAgentConfig,
         context: &ExecutionContext,
@@ -1204,6 +1216,7 @@ impl AgentRuntimeExecutor {
         {
             config = config.with_temperature(temp as f32);
         }
+        config = Self::apply_llm_timeout(config, agent_defaults.llm_timeout_secs);
         config = Self::apply_execution_context(config, &execution_context);
 
         let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
@@ -1754,6 +1767,7 @@ impl AgentRuntimeExecutor {
         {
             config = config.with_temperature(temp as f32);
         }
+        config = Self::apply_llm_timeout(config, agent_defaults.llm_timeout_secs);
         if let Some(model_routing) = agent_node.model_routing.as_ref() {
             config = config.with_model_routing(AiModelRoutingConfig::from(model_routing));
             if model_routing.enabled {
@@ -2479,6 +2493,21 @@ mod tests {
         assert_eq!(mapped.max_tool_calls, 99);
         assert_eq!(mapped.max_wall_clock, Duration::from_secs(123));
         assert_eq!(mapped.max_cost_usd, None);
+    }
+
+    #[test]
+    fn test_apply_llm_timeout_sets_timeout_when_configured() {
+        let config = ReActAgentConfig::new("goal".to_string());
+        let config = AgentRuntimeExecutor::apply_llm_timeout(config, Some(600));
+        assert_eq!(config.llm_timeout, Some(Duration::from_secs(600)));
+    }
+
+    #[test]
+    fn test_apply_llm_timeout_disables_timeout_when_unset() {
+        let config =
+            ReActAgentConfig::new("goal".to_string()).with_llm_timeout(Duration::from_secs(30));
+        let config = AgentRuntimeExecutor::apply_llm_timeout(config, None);
+        assert_eq!(config.llm_timeout, None);
     }
 
     #[test]
