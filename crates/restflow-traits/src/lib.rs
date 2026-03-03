@@ -69,9 +69,9 @@ pub use store::{
 
 // Sub-agent types
 pub use subagent::{
-    SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
-    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentManager, SubagentResult,
-    SubagentSpawner, SubagentState, SubagentStatus,
+    InlineSubagentConfig, SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion,
+    SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentManager,
+    SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
 };
 
 // LLM switching

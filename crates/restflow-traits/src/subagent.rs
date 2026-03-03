@@ -80,7 +80,16 @@ impl Default for SubagentConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnRequest {
     /// Agent type ID (e.g., "researcher", "coder").
-    pub agent_id: String,
+    ///
+    /// When omitted, runtime creates a temporary sub-agent from `inline` config.
+    #[serde(default)]
+    pub agent_id: Option<String>,
+
+    /// Optional inline configuration for temporary sub-agent creation.
+    ///
+    /// This is used when `agent_id` is omitted.
+    #[serde(default)]
+    pub inline: Option<InlineSubagentConfig>,
 
     /// Task description for the agent.
     pub task: String,
@@ -107,6 +116,28 @@ pub struct SpawnRequest {
     /// agent execution loop.
     #[serde(default)]
     pub parent_execution_id: Option<String>,
+}
+
+/// Inline configuration for temporary sub-agent creation.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InlineSubagentConfig {
+    /// Display name for the temporary sub-agent.
+    #[serde(default)]
+    pub name: Option<String>,
+
+    /// System prompt override for the temporary sub-agent.
+    #[serde(default)]
+    pub system_prompt: Option<String>,
+
+    /// Allowed tool names for the temporary sub-agent.
+    ///
+    /// If omitted, runtime uses all tools currently available to the parent.
+    #[serde(default)]
+    pub allowed_tools: Option<Vec<String>>,
+
+    /// Optional max iterations override for the temporary sub-agent.
+    #[serde(default)]
+    pub max_iterations: Option<u32>,
 }
 
 /// Priority level for sub-agent spawning.
@@ -239,7 +270,8 @@ mod tests {
     #[test]
     fn test_spawn_request_serialization() {
         let request = SpawnRequest {
-            agent_id: "researcher".to_string(),
+            agent_id: Some("researcher".to_string()),
+            inline: None,
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
@@ -252,7 +284,7 @@ mod tests {
         assert!(json.contains("researcher"));
 
         let parsed: SpawnRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.agent_id, "researcher");
+        assert_eq!(parsed.agent_id.as_deref(), Some("researcher"));
     }
 
     #[test]

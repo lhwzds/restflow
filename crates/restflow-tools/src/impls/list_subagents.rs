@@ -252,7 +252,8 @@ mod tests {
             deps.tool_registry.clone(),
             deps.config.clone(),
             SpawnRequest {
-                agent_id: "coder".to_string(),
+                agent_id: Some("coder".to_string()),
+                inline: None,
                 task: "write code".to_string(),
                 timeout_secs: Some(30),
                 priority: None,
