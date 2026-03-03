@@ -2332,15 +2332,36 @@ impl RestFlowMcpServer {
     }
 
     async fn handle_switch_model_for_mcp(&self, input: Value) -> Result<String, String> {
-        let output = RuntimeTool::execute(&self.switch_model_tool, input)
-            .await
-            .map_err(|e| e.to_string())?;
+        let output = match RuntimeTool::execute(&self.switch_model_tool, input).await {
+            Ok(output) => output,
+            Err(error) => {
+                let payload = serde_json::json!({
+                    "tool": "switch_model",
+                    "error": error.to_string(),
+                    "error_category": serde_json::Value::Null,
+                    "retryable": serde_json::Value::Null,
+                    "retry_after_ms": serde_json::Value::Null,
+                    "details": serde_json::Value::Null,
+                });
+                return Err(serde_json::to_string_pretty(&payload)
+                    .unwrap_or_else(|_| "switch_model execution failed".to_string()));
+            }
+        };
         if output.success {
             serde_json::to_string_pretty(&output.result).map_err(|e| e.to_string())
         } else {
-            Err(output
-                .error
-                .unwrap_or_else(|| "switch_model execution failed".to_string()))
+            let payload = serde_json::json!({
+                "tool": "switch_model",
+                "error": output
+                    .error
+                    .unwrap_or_else(|| "switch_model execution failed".to_string()),
+                "error_category": output.error_category,
+                "retryable": output.retryable,
+                "retry_after_ms": output.retry_after_ms,
+                "details": output.result,
+            });
+            Err(serde_json::to_string_pretty(&payload)
+                .unwrap_or_else(|_| "switch_model execution failed".to_string()))
         }
     }
 
@@ -2372,6 +2393,18 @@ impl RestFlowMcpServer {
             .collect::<Vec<_>>()
             .join("; ");
         Some(format!("Warnings: {}", message))
+    }
+
+    fn to_call_tool_result(result: Result<String, String>) -> CallToolResult {
+        match result {
+            Ok(text) => CallToolResult::success(vec![Content::text(text)]),
+            Err(error) => {
+                let structured_content = serde_json::from_str::<Value>(&error).ok();
+                let mut value = CallToolResult::error(vec![Content::text(error)]);
+                value.structured_content = structured_content;
+                value
+            }
+        }
     }
 }
 
@@ -2730,10 +2763,7 @@ impl ServerHandler for RestFlowMcpServer {
             }
         };
 
-        match result {
-            Ok(text) => Ok(CallToolResult::success(vec![Content::text(text)])),
-            Err(error) => Ok(CallToolResult::error(vec![Content::text(error)])),
-        }
+        Ok(Self::to_call_tool_result(result))
     }
 }
 
@@ -4209,6 +4239,23 @@ mod tests {
         assert_eq!(value["details"]["stderr"], "err");
     }
 
+    #[test]
+    fn test_to_call_tool_result_preserves_structured_error_payload() {
+        let payload = serde_json::json!({
+            "tool": "demo",
+            "error": "boom",
+            "error_category": "Execution",
+            "retryable": false,
+            "retry_after_ms": serde_json::Value::Null,
+            "details": { "code": 7 }
+        });
+        let value =
+            RestFlowMcpServer::to_call_tool_result(Err(serde_json::to_string(&payload).unwrap()));
+
+        assert_eq!(value.is_error, Some(true));
+        assert_eq!(value.structured_content, Some(payload));
+    }
+
     #[tokio::test]
     async fn test_runtime_tools_include_manage_agents() {
         let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
@@ -4357,6 +4404,23 @@ mod tests {
         assert_eq!(value["switched"], true);
         assert_eq!(value["to"]["model"], "gpt-5.3-codex");
         assert_eq!(value["to"]["provider"], "codex-cli");
+    }
+
+    #[tokio::test]
+    async fn test_switch_model_failure_returns_structured_payload() {
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+        let err = server
+            .handle_switch_model_for_mcp(serde_json::json!({}))
+            .await
+            .unwrap_err();
+        let value: serde_json::Value =
+            serde_json::from_str(&err).expect("switch_model error should be valid JSON");
+
+        assert_eq!(value["tool"], "switch_model");
+        assert!(value.get("error").is_some());
+        assert!(value.get("error_category").is_some());
+        assert!(value.get("retryable").is_some());
+        assert!(value.get("retry_after_ms").is_some());
     }
 
     #[tokio::test]
