@@ -5,6 +5,7 @@ use anyhow::{Context, Result};
 use restflow_core::AppCore;
 use restflow_core::daemon::{DaemonConfig, IpcServer, start_daemon_with_config, stop_daemon};
 use restflow_core::paths;
+use std::future::Future;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::PathBuf;
 #[cfg(not(unix))]
@@ -269,12 +270,10 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
 
     // Ensure core services did not fail immediately before declaring daemon as running.
     sleep(Duration::from_millis(120)).await;
-    if ipc_handle.is_finished() {
-        anyhow::bail!("IPC server exited during startup");
-    }
-    if mcp_handle.is_finished() {
-        anyhow::bail!("MCP server exited during startup");
-    }
+    ensure_startup_services_and_cleanup(ipc_handle.is_finished(), mcp_handle.is_finished(), || {
+        runner.stop()
+    })
+    .await?;
 
     let pid_path = paths::daemon_pid_path()?;
     std::fs::write(&pid_path, std::process::id().to_string())?;
@@ -291,6 +290,33 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let _ = cleanup_handle.await;
 
     println!("Daemon stopped");
+    Ok(())
+}
+
+async fn ensure_startup_services_and_cleanup<F, Fut>(
+    ipc_finished: bool,
+    mcp_finished: bool,
+    stop_runner: F,
+) -> Result<()>
+where
+    F: FnOnce() -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
+    let failure_message = if ipc_finished {
+        Some("IPC server exited during startup")
+    } else if mcp_finished {
+        Some("MCP server exited during startup")
+    } else {
+        None
+    };
+
+    if let Some(message) = failure_message {
+        stop_runner()
+            .await
+            .context("Failed to stop task runner after startup check failure")?;
+        anyhow::bail!(message);
+    }
+
     Ok(())
 }
 
@@ -725,9 +751,13 @@ fn is_process_alive(pid: u32) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_mcp_bind_addr, should_run_without_core};
+    use super::{
+        ensure_startup_services_and_cleanup, parse_mcp_bind_addr, should_run_without_core,
+    };
     use crate::cli::DaemonCommands;
     use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]
     fn parse_mcp_bind_addr_accepts_ipv4() {
@@ -787,5 +817,61 @@ mod tests {
     fn no_core_routing_accepts_stop_and_status() {
         assert!(should_run_without_core(&DaemonCommands::Stop));
         assert!(should_run_without_core(&DaemonCommands::Status));
+    }
+
+    #[tokio::test]
+    async fn startup_check_stops_runner_before_bailing_on_ipc_failure() {
+        let stop_calls = Arc::new(AtomicUsize::new(0));
+        let stop_calls_clone = Arc::clone(&stop_calls);
+
+        let err = ensure_startup_services_and_cleanup(true, false, move || {
+            let stop_calls = Arc::clone(&stop_calls_clone);
+            async move {
+                stop_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        })
+        .await
+        .expect_err("startup check should fail when IPC exits");
+
+        assert_eq!(stop_calls.load(Ordering::SeqCst), 1);
+        assert!(err.to_string().contains("IPC server exited during startup"));
+    }
+
+    #[tokio::test]
+    async fn startup_check_stops_runner_before_bailing_on_mcp_failure() {
+        let stop_calls = Arc::new(AtomicUsize::new(0));
+        let stop_calls_clone = Arc::clone(&stop_calls);
+
+        let err = ensure_startup_services_and_cleanup(false, true, move || {
+            let stop_calls = Arc::clone(&stop_calls_clone);
+            async move {
+                stop_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        })
+        .await
+        .expect_err("startup check should fail when MCP exits");
+
+        assert_eq!(stop_calls.load(Ordering::SeqCst), 1);
+        assert!(err.to_string().contains("MCP server exited during startup"));
+    }
+
+    #[tokio::test]
+    async fn startup_check_skips_runner_stop_when_services_are_healthy() {
+        let stop_calls = Arc::new(AtomicUsize::new(0));
+        let stop_calls_clone = Arc::clone(&stop_calls);
+
+        ensure_startup_services_and_cleanup(false, false, move || {
+            let stop_calls = Arc::clone(&stop_calls_clone);
+            async move {
+                stop_calls.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        })
+        .await
+        .expect("startup check should pass when both services are running");
+
+        assert_eq!(stop_calls.load(Ordering::SeqCst), 0);
     }
 }
