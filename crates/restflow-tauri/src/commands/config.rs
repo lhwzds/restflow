@@ -5,6 +5,7 @@ use restflow_core::AIModel;
 use restflow_core::models::ModelMetadataDTO;
 use restflow_storage::SystemConfig;
 use serde::Serialize;
+use specta::Type;
 use tauri::State;
 
 /// Get system configuration
@@ -47,7 +48,7 @@ pub async fn get_available_models() -> Result<Vec<ModelMetadataDTO>, String> {
 }
 
 /// Tool information for the frontend
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Type)]
 pub struct ToolInfo {
     pub name: String,
     pub description: String,
