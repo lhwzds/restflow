@@ -321,7 +321,16 @@ pub fn create_tool_registry(
         .with_security_query(security_provider)
         .build();
 
-    registry.register(ProcessTool::new(process_manager));
+    let process_tool = if let Some(gate) = security_gate {
+        ProcessTool::new(process_manager).with_security(
+            gate,
+            security_agent_id,
+            DEFAULT_SECURITY_TASK_ID,
+        )
+    } else {
+        ProcessTool::new(process_manager)
+    };
+    registry.register(process_tool);
     registry.register(ReplyTool::new(reply_sender));
     registry.register(switch_model_tool);
     let subagent_manager = create_subagent_manager(
@@ -347,7 +356,9 @@ mod tests {
     use crate::services::adapters::{
         AgentStoreAdapter, BackgroundAgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter,
     };
+    use async_trait::async_trait;
     use redb::Database;
+    use restflow_traits::security::{SecurityDecision, ToolAction};
     use restflow_traits::skill::SkillProvider as _;
     use restflow_traits::store::{
         AgentCreateRequest, AgentStore, AgentUpdateRequest, BackgroundAgentControlRequest,
@@ -446,6 +457,35 @@ mod tests {
             deliverable_storage,
             temp_dir,
         )
+    }
+
+    struct DenyProcessSecurityGate;
+
+    #[async_trait]
+    impl SecurityGate for DenyProcessSecurityGate {
+        async fn check_command(
+            &self,
+            _command: &str,
+            _task_id: &str,
+            _agent_id: &str,
+            _workdir: Option<&str>,
+        ) -> restflow_traits::error::Result<SecurityDecision> {
+            Ok(SecurityDecision::allowed(None))
+        }
+
+        async fn check_tool_action(
+            &self,
+            action: &ToolAction,
+            _agent_id: Option<&str>,
+            _task_id: Option<&str>,
+        ) -> restflow_traits::error::Result<SecurityDecision> {
+            if action.tool_name == "process" {
+                return Ok(SecurityDecision::blocked(Some(
+                    "process blocked by registry gate".to_string(),
+                )));
+            }
+            Ok(SecurityDecision::allowed(None))
+        }
     }
 
     #[test]
@@ -1896,5 +1936,70 @@ mod tests {
                 "tool presence mismatch for {tool_name}"
             );
         }
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            None,
+            Some("agent-1".to_string()),
+            Some(Arc::new(DenyProcessSecurityGate)),
+        )
+        .unwrap();
+
+        let list_output = registry
+            .execute_safe("process", json!({ "action": "list" }))
+            .await
+            .unwrap();
+        assert!(!list_output.success);
+        assert_eq!(
+            list_output.error.as_deref(),
+            Some("Action blocked: process blocked by registry gate")
+        );
+
+        let poll_output = registry
+            .execute_safe(
+                "process",
+                json!({ "action": "poll", "session_id": "session-1" }),
+            )
+            .await
+            .unwrap();
+        assert!(!poll_output.success);
+        assert_eq!(
+            poll_output.error.as_deref(),
+            Some("Action blocked: process blocked by registry gate")
+        );
     }
 }

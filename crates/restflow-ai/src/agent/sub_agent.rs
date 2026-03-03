@@ -22,6 +22,14 @@ pub use restflow_traits::subagent::{
 
 const MAX_PARALLEL_SUBAGENTS_CAP: usize = 200;
 
+fn map_subagent_error(success: bool, error: Option<String>) -> Option<String> {
+    if success {
+        None
+    } else {
+        error.or_else(|| Some("Sub-agent execution failed".to_string()))
+    }
+}
+
 /// Sub-agent tracker with concurrent access support
 pub struct SubagentTracker {
     /// All sub-agent states
@@ -683,20 +691,28 @@ pub fn spawn_subagent(
 
         let (subagent_result, timed_out) = match result {
             Ok(Ok(result)) => {
-                let cost_usd = if result.total_cost_usd > 0.0 {
-                    Some(result.total_cost_usd)
+                let AgentResult {
+                    success,
+                    answer,
+                    error,
+                    total_tokens,
+                    total_cost_usd,
+                    ..
+                } = result;
+                let cost_usd = if total_cost_usd > 0.0 {
+                    Some(total_cost_usd)
                 } else {
                     None
                 };
                 (
                     SubagentResult {
-                        success: true,
-                        output: result.answer.unwrap_or_default(),
+                        success,
+                        output: answer.unwrap_or_default(),
                         summary: None,
                         duration_ms,
-                        tokens_used: Some(result.total_tokens),
+                        tokens_used: Some(total_tokens),
                         cost_usd,
-                        error: None,
+                        error: map_subagent_error(success, error),
                     },
                     false,
                 )
@@ -931,7 +947,11 @@ impl SubagentManager for SubagentManagerImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::llm::{LlmProvider, MockLlmClient, MockStep};
+    use crate::llm::{
+        CompletionRequest, CompletionResponse, FinishReason, LlmClient, LlmProvider, MockLlmClient,
+        MockStep, StreamResult, TokenUsage,
+    };
+    use async_trait::async_trait;
     use std::collections::HashMap;
 
     #[test]
@@ -993,6 +1013,42 @@ mod tests {
         }
         fn list_callable(&self) -> Vec<SubagentDefSummary> {
             vec![]
+        }
+    }
+
+    #[derive(Clone)]
+    struct ErrorFinishLlmClient;
+
+    #[async_trait]
+    impl LlmClient for ErrorFinishLlmClient {
+        fn provider(&self) -> &str {
+            "mock"
+        }
+
+        fn model(&self) -> &str {
+            "mock-error-finish"
+        }
+
+        async fn complete(&self, _request: CompletionRequest) -> Result<CompletionResponse> {
+            Ok(CompletionResponse {
+                content: Some(String::new()),
+                tool_calls: vec![],
+                finish_reason: FinishReason::Error,
+                usage: Some(TokenUsage {
+                    prompt_tokens: 1,
+                    completion_tokens: 0,
+                    total_tokens: 1,
+                    cost_usd: Some(0.0),
+                }),
+            })
+        }
+
+        fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
+            panic!("complete_stream is not used in these tests");
+        }
+
+        fn supports_streaming(&self) -> bool {
+            false
         }
     }
 
@@ -1322,6 +1378,103 @@ mod tests {
         assert_eq!(tracker.all().len(), 1);
     }
 
+    #[tokio::test]
+    async fn test_spawn_subagent_propagates_agent_failure_success_flag() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(ErrorFinishLlmClient);
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: "tester".to_string(),
+                task: "force failure status".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: None,
+                model_provider: None,
+                parent_execution_id: None,
+            },
+            None,
+        )
+        .expect("spawn should succeed");
+
+        let result = tracker
+            .wait(&handle.id)
+            .await
+            .expect("subagent result should be available");
+
+        assert!(!result.success);
+        assert_eq!(result.error.as_deref(), Some("LLM returned an error"));
+
+        let state = tracker.get(&handle.id).expect("state should exist");
+        assert_eq!(state.status, SubagentStatus::Failed);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_maps_max_iterations_to_failed_result() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
+            "mock",
+            vec![MockStep::tool_call(
+                "call-1",
+                "missing_tool",
+                serde_json::json!({"input":"x"}),
+            )],
+        ));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: "tester".to_string(),
+                task: "hit max iterations".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: None,
+                model_provider: None,
+                parent_execution_id: None,
+            },
+            None,
+        )
+        .expect("spawn should succeed");
+
+        let result = tracker
+            .wait(&handle.id)
+            .await
+            .expect("subagent result should be available");
+
+        assert!(!result.success);
+        assert_eq!(result.error.as_deref(), Some("Max iterations reached"));
+
+        let state = tracker.get(&handle.id).expect("state should exist");
+        assert_eq!(state.status, SubagentStatus::Failed);
+    }
+
     #[test]
     fn test_build_registry_excludes_collab_tools_at_depth_limit() {
         let mut parent = ToolRegistry::new();
@@ -1458,5 +1611,17 @@ mod tests {
                 .to_string()
                 .contains("does not belong to provider 'anthropic'")
         );
+    }
+
+    #[test]
+    fn test_map_subagent_error_uses_default_message_on_missing_failure_error() {
+        let mapped = map_subagent_error(false, None);
+        assert_eq!(mapped.as_deref(), Some("Sub-agent execution failed"));
+    }
+
+    #[test]
+    fn test_map_subagent_error_clears_error_on_success() {
+        let mapped = map_subagent_error(true, Some("ignored".to_string()));
+        assert!(mapped.is_none());
     }
 }
