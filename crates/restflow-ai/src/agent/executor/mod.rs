@@ -22,6 +22,8 @@
 //! **Recommended configuration**:
 //! - `agent.tool_timeout_secs` >= max(`bash_timeout_secs`, `python_timeout_secs`) + 10s
 //! - Example: If bash needs 300s, set `tool_timeout_secs` to 310-320s
+//! - `AgentConfig::llm_timeout` controls optional per-request LLM timeout
+//!   (set to `None` to disable).
 
 mod config;
 mod prompt;
@@ -47,8 +49,10 @@ use crate::agent::stream::{NullEmitter, StreamEmitter};
 use crate::agent::streaming_buffer::StreamingBuffer;
 use crate::agent::stuck::{StuckAction, StuckDetector};
 use crate::agent::sub_agent::SubagentTracker;
-use crate::error::Result;
-use crate::llm::{CompletionRequest, FinishReason, LlmClient, Message, Role, ToolCall};
+use crate::error::{AiError, Result};
+use crate::llm::{
+    CompletionRequest, CompletionResponse, FinishReason, LlmClient, Message, Role, ToolCall,
+};
 use crate::steer::SteerMessage;
 use crate::tools::ToolRegistry;
 use dashmap::DashMap;
@@ -214,6 +218,46 @@ impl AgentExecutor {
         };
         state.messages.insert(insert_index, Message::user(message));
         state.version += 1;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_llm_completion(
+        &self,
+        request: CompletionRequest,
+        stream_llm: bool,
+        emitter: &mut dyn StreamEmitter,
+        iteration: usize,
+        execution_id: &str,
+        streaming_buffer: &mut StreamingBuffer,
+        llm_timeout: Option<Duration>,
+    ) -> Result<CompletionResponse> {
+        let completion = async {
+            if stream_llm {
+                self.get_streaming_completion(
+                    request,
+                    emitter,
+                    iteration,
+                    execution_id,
+                    streaming_buffer,
+                )
+                .await
+            } else {
+                self.llm.complete(request).await
+            }
+        };
+
+        if let Some(timeout) = llm_timeout {
+            return tokio::time::timeout(timeout, completion)
+                .await
+                .map_err(|_| {
+                    AiError::Agent(format!(
+                        "LLM completion timed out after {}s",
+                        timeout.as_secs()
+                    ))
+                })?;
+        }
+
+        completion.await
     }
 
     /// Execute agent - simplified Swarm-style loop
@@ -440,18 +484,17 @@ impl AgentExecutor {
                 request = request.with_max_tokens(max_tokens);
             }
 
-            let response = if stream_llm {
-                self.get_streaming_completion(
+            let response = self
+                .execute_llm_completion(
                     request,
+                    stream_llm,
                     emitter,
                     state.iteration + 1,
                     &state.execution_id,
                     &mut streaming_buffer,
+                    config.llm_timeout,
                 )
-                .await?
-            } else {
-                self.llm.complete(request).await?
-            };
+                .await?;
 
             // Track token usage
             if let Some(usage) = &response.usage {

@@ -55,6 +55,10 @@ pub struct AgentConfig {
     /// errors, this should be >= the tool-internal timeout (e.g., `bash_timeout_secs`)
     /// plus a small buffer. See module-level docs for details.
     pub tool_timeout: Duration,
+    /// Optional timeout for each LLM completion request.
+    ///
+    /// `None` disables the timeout.
+    pub llm_timeout: Option<Duration>,
     /// Max length for tool results to prevent context overflow (default: 4000)
     pub max_tool_result_length: usize,
     /// Context window size in tokens (default: 128000).
@@ -99,6 +103,7 @@ impl AgentConfig {
             temperature: None, // None = use model default
             context: HashMap::new(),
             tool_timeout: Duration::from_secs(300),
+            llm_timeout: Some(Duration::from_secs(600)),
             max_tool_result_length: 4000,
             context_window: 128_000,
             max_output_tokens: None,
@@ -153,6 +158,18 @@ impl AgentConfig {
     /// plus a small buffer to avoid confusing error messages.
     pub fn with_tool_timeout(mut self, timeout: Duration) -> Self {
         self.tool_timeout = timeout;
+        self
+    }
+
+    /// Set LLM completion timeout.
+    pub fn with_llm_timeout(mut self, timeout: Duration) -> Self {
+        self.llm_timeout = Some(timeout);
+        self
+    }
+
+    /// Disable LLM completion timeout.
+    pub fn without_llm_timeout(mut self) -> Self {
+        self.llm_timeout = None;
         self
     }
 
