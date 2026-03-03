@@ -1,9 +1,9 @@
 # tauri-ipc-command-coverage baseline
 # format-version: 1
 tauri_total=128
-bound_total=100
+bound_total=105
 dangling_total=0
-unbound_total=28
+unbound_total=23
 
 [unbound_commands]
 clear_old_chat_sessions
@@ -13,16 +13,12 @@ create_terminal_session
 delete_terminal_session
 emit_test_background_agent_event
 get_active_background_agents
-get_available_tools
 get_background_agent
 get_chat_session_count
-get_config
 get_pty_history
 get_pty_status
 get_runnable_background_agents
 get_terminal_session
-has_secret
-import_skill
 list_background_agents_by_status
 list_terminal_sessions
 rename_terminal_session
@@ -31,7 +27,6 @@ restart_terminal
 save_all_terminal_history
 save_terminal_history
 spawn_pty
-update_config
 update_terminal_session
 write_pty
 
