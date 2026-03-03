@@ -2,14 +2,27 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 declare const global: typeof globalThis
 import { useVoiceRecorder, getVoiceModel, setVoiceModel } from '../useVoiceRecorder'
+import { listen } from '@tauri-apps/api/event'
+import { startLiveTranscription, stopLiveTranscription } from '@/api/voice'
 
 // Mock voice API
 vi.mock('@/api/voice', () => ({
   transcribeAudio: vi.fn(),
   saveVoiceMessage: vi.fn(),
+  startLiveTranscription: vi.fn().mockResolvedValue('transcribe-id'),
+  sendLiveAudioChunk: vi.fn().mockResolvedValue(undefined),
+  stopLiveTranscription: vi.fn().mockResolvedValue(undefined),
 }))
 
-// Mock MediaRecorder
+vi.mock('@tauri-apps/api/event', () => ({
+  listen: vi.fn().mockResolvedValue(vi.fn()),
+}))
+
+const mockedListen = vi.mocked(listen)
+const mockedStartLiveTranscription = vi.mocked(startLiveTranscription)
+const mockedStopLiveTranscription = vi.mocked(stopLiveTranscription)
+
+// Mock MediaRecorder (voice-message mode)
 class MockMediaRecorder {
   static isTypeSupported = vi.fn().mockReturnValue(true)
   ondataavailable: ((event: { data: Blob }) => void) | null = null
@@ -27,14 +40,58 @@ class MockMediaStream {
   getTracks = vi.fn().mockReturnValue([{ stop: vi.fn() }])
 }
 
+// Mock AudioContext + AudioWorkletNode (voice-to-text live mode)
+class MockAudioContext {
+  audioWorklet = {
+    addModule: vi.fn().mockResolvedValue(undefined),
+  }
+
+  createMediaStreamSource = vi.fn().mockReturnValue({
+    connect: vi.fn(),
+    disconnect: vi.fn(),
+  })
+
+  close = vi.fn().mockResolvedValue(undefined)
+}
+
+class MockAudioWorkletNode {
+  port = {
+    onmessage: null as ((event: { data: unknown }) => void) | null,
+  }
+
+  constructor(_context: AudioContext, _name: string) {}
+
+  connect = vi.fn()
+  disconnect = vi.fn()
+}
+
+async function flushMicrotasks(turns = 5): Promise<void> {
+  for (let i = 0; i < turns; i++) {
+    await Promise.resolve()
+  }
+}
+
 describe('useVoiceRecorder', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
+    mockedListen.mockResolvedValue(vi.fn())
+    mockedStartLiveTranscription.mockResolvedValue('transcribe-id')
+    mockedStopLiveTranscription.mockResolvedValue(undefined)
 
     // Set up global mocks
     Object.defineProperty(global, 'MediaRecorder', {
       value: MockMediaRecorder,
+      writable: true,
+      configurable: true,
+    })
+    Object.defineProperty(global, 'AudioContext', {
+      value: MockAudioContext,
+      writable: true,
+      configurable: true,
+    })
+    Object.defineProperty(global, 'AudioWorkletNode', {
+      value: MockAudioWorkletNode,
       writable: true,
       configurable: true,
     })
@@ -96,7 +153,8 @@ describe('useVoiceRecorder', () => {
     const { state, toggleRecording } = useVoiceRecorder()
 
     // Toggle on
-    await toggleRecording('voice-to-text')
+    toggleRecording('voice-to-text')
+    await flushMicrotasks()
     expect(state.value.isRecording).toBe(true)
     expect(state.value.mode).toBe('voice-to-text')
 
