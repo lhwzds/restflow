@@ -309,4 +309,69 @@ describe('useChatStream', () => {
 
     wrapper.unmount()
   })
+
+  it('handles failed stream events with partial content and error message', async () => {
+    vi.mocked(sendChatMessageStream).mockResolvedValue('msg-failed')
+
+    const wrapper = createHarness()
+    const vm = wrapper.vm as unknown as {
+      stream: ReturnType<typeof useChatStream>
+    }
+
+    await vm.stream.send('trigger failure')
+
+    emitEvent({
+      session_id: 'session-1',
+      message_id: 'msg-failed',
+      timestamp: Date.now(),
+      kind: {
+        type: 'failed',
+        error: 'model overloaded',
+        partial_content: 'partial answer',
+      },
+    })
+    await new Promise((r) => setTimeout(r, 0))
+
+    expect(vm.stream.state.value.isStreaming).toBe(false)
+    expect(vm.stream.state.value.error).toBe('model overloaded')
+    expect(vm.stream.state.value.content).toBe('partial answer')
+    expect(listToolTraces).toHaveBeenCalledWith('session-1', 'msg-failed', 200)
+
+    wrapper.unmount()
+  })
+
+  it('ignores events from other message ids in the same session', async () => {
+    vi.mocked(sendChatMessageStream).mockResolvedValue('msg-main')
+
+    const wrapper = createHarness()
+    const vm = wrapper.vm as unknown as {
+      stream: ReturnType<typeof useChatStream>
+    }
+
+    await vm.stream.send('main stream')
+
+    emitEvent({
+      session_id: 'session-1',
+      message_id: 'msg-other',
+      timestamp: Date.now(),
+      kind: { type: 'token', text: 'ignored', token_count: 1 },
+    })
+
+    expect(vm.stream.state.value.content).toBe('')
+
+    wrapper.unmount()
+  })
+
+  it('does not call cancel API when message id is missing', async () => {
+    const wrapper = createHarness()
+    const vm = wrapper.vm as unknown as {
+      stream: ReturnType<typeof useChatStream>
+    }
+
+    await vm.stream.cancel()
+
+    expect(cancelChatStream).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
 })
