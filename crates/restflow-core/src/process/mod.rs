@@ -91,8 +91,16 @@ impl ProcessRegistry {
     }
 
     pub fn with_ttl_seconds(self, ttl_seconds: u64) -> Self {
-        self.ttl_seconds.store(ttl_seconds, Ordering::Relaxed);
+        self.set_ttl_seconds(ttl_seconds);
         self
+    }
+
+    pub fn set_ttl_seconds(&self, ttl_seconds: u64) -> u64 {
+        self.ttl_seconds.swap(ttl_seconds, Ordering::Relaxed)
+    }
+
+    pub fn ttl_seconds(&self) -> u64 {
+        self.ttl_seconds.load(Ordering::Relaxed)
     }
 
     fn spawn_cleanup_task(&self) {
@@ -103,56 +111,50 @@ impl ProcessRegistry {
             handle.spawn(async move {
                 loop {
                     tokio::time::sleep(Duration::from_secs(CLEANUP_INTERVAL_SECONDS)).await;
-                    let completed: Vec<(Arc<ProcessSession>, Option<i32>)> = sessions
-                        .iter()
-                        .filter_map(|entry| {
-                            let session = entry.value().clone();
-                            match session.try_update_exit_status() {
-                                Ok(Some(status)) => {
-                                    Some((session, Some(status.exit_code() as i32)))
-                                }
-                                Ok(None) => None,
-                                Err(error) => {
-                                    tracing::warn!(
-                                        session_id = %entry.key(),
-                                        error = %error,
-                                        "Failed to poll process exit status during cleanup"
-                                    );
-                                    None
-                                }
-                            }
-                        })
-                        .collect();
-
-                    for (session, exit_code) in completed {
-                        // Background cleanup must finalize finished sessions even when no consumer
-                        // is actively polling, otherwise stale PTY/process handles can accumulate.
-                        Self::finalize_session_maps(&sessions, &finished, session, exit_code);
-                    }
-
-                    let now = current_timestamp_ms();
-                    let ttl_millis = Duration::from_secs(ttl_seconds.load(Ordering::Relaxed))
-                        .as_millis()
-                        .min(i64::MAX as u128) as i64;
-                    let expired: Vec<String> = finished
-                        .iter()
-                        .filter_map(|entry| {
-                            if now.saturating_sub(entry.finished_at) > ttl_millis {
-                                Some(entry.key().clone())
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-
-                    for session_id in expired {
-                        finished.remove(&session_id);
-                    }
+                    Self::run_maintenance_once(&sessions, &finished, &ttl_seconds);
                 }
             });
         } else {
             tracing::warn!("No Tokio runtime found for process cleanup task");
         }
+    }
+
+    fn run_maintenance_once(
+        sessions: &DashMap<String, Arc<ProcessSession>>,
+        finished: &DashMap<String, FinishedSession>,
+        ttl_seconds: &AtomicU64,
+    ) {
+        let completed: Vec<(Arc<ProcessSession>, Option<i32>)> = sessions
+            .iter()
+            .filter_map(|entry| {
+                let session = entry.value().clone();
+                match session.try_update_exit_status() {
+                    Ok(Some(status)) => Some((session, Some(status.exit_code() as i32))),
+                    Ok(None) => None,
+                    Err(error) => {
+                        tracing::warn!(
+                            session_id = %entry.key(),
+                            error = %error,
+                            "Failed to poll process exit status during cleanup"
+                        );
+                        None
+                    }
+                }
+            })
+            .collect();
+
+        for (session, exit_code) in completed {
+            // Always finalize completed sessions during maintenance, even without active pollers.
+            Self::finalize_session_maps(sessions, finished, session, exit_code);
+        }
+
+        let now = current_timestamp_ms();
+        let ttl = ttl_seconds.load(Ordering::Relaxed);
+        Self::cleanup_expired_finished_sessions(finished, now, ttl);
+    }
+
+    fn run_maintenance(&self) {
+        Self::run_maintenance_once(&self.sessions, &self.finished, &self.ttl_seconds);
     }
 
     fn build_shell_command(command: &str) -> CommandBuilder {
@@ -262,6 +264,27 @@ impl ProcessRegistry {
         finished.insert(session.id.clone(), finished_record);
     }
 
+    fn cleanup_expired_finished_sessions(
+        finished: &DashMap<String, FinishedSession>,
+        now_ms: i64,
+        ttl_seconds: u64,
+    ) {
+        let expired: Vec<String> = finished
+            .iter()
+            .filter_map(|entry| {
+                if is_ttl_expired(now_ms, entry.finished_at, ttl_seconds) {
+                    Some(entry.key().clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+
+        for session_id in expired {
+            finished.remove(&session_id);
+        }
+    }
+
     fn create_reader_thread(
         session: Arc<ProcessSession>,
         mut reader: Box<dyn Read + Send>,
@@ -324,6 +347,8 @@ impl ProcessRegistry {
         command: &str,
         options: ProcessSpawnOptions,
     ) -> Result<String> {
+        self.run_maintenance();
+
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(options.pty_size)?;
 
@@ -362,6 +387,8 @@ impl ProcessRegistry {
     }
 
     pub fn spawn_shell(&self, shell: &str, options: ProcessShellOptions) -> Result<String> {
+        self.run_maintenance();
+
         let pty_system = native_pty_system();
         let pair = pty_system.openpty(options.spawn.pty_size)?;
 
@@ -409,6 +436,8 @@ impl ProcessRegistry {
     }
 
     pub fn poll(&self, session_id: &str) -> Result<ProcessPollResult> {
+        self.run_maintenance();
+
         if let Some(session) = self.sessions.get(session_id) {
             let session = session.value().clone();
             let _ = session.try_update_exit_status();
@@ -444,6 +473,8 @@ impl ProcessRegistry {
     }
 
     pub fn write(&self, session_id: &str, data: &str) -> Result<()> {
+        self.run_maintenance();
+
         let session = self
             .sessions
             .get(session_id)
@@ -458,6 +489,8 @@ impl ProcessRegistry {
     }
 
     pub fn resize(&self, session_id: &str, size: PtySize) -> Result<()> {
+        self.run_maintenance();
+
         let session = self
             .sessions
             .get(session_id)
@@ -467,6 +500,8 @@ impl ProcessRegistry {
     }
 
     pub fn kill(&self, session_id: &str) -> Result<()> {
+        self.run_maintenance();
+
         let session = self
             .sessions
             .get(session_id)
@@ -493,12 +528,16 @@ impl ProcessRegistry {
     }
 
     pub fn get_output_buffer(&self, session_id: &str) -> Option<String> {
+        self.run_maintenance();
+
         self.sessions
             .get(session_id)
             .and_then(|session| session.output.lock().ok().map(|o| o.aggregated.clone()))
     }
 
     pub fn remove_session(&self, session_id: &str) -> Option<String> {
+        self.run_maintenance();
+
         if let Some((_, session)) = self.sessions.remove(session_id) {
             let _ = session.terminate_and_reap(SESSION_REAP_TIMEOUT);
             let _ = session.try_update_exit_status();
@@ -523,6 +562,8 @@ impl ProcessRegistry {
     }
 
     pub fn list_session_ids_by_source(&self, source: ProcessSessionSource) -> Vec<String> {
+        self.run_maintenance();
+
         self.sessions
             .iter()
             .filter_map(|entry| {
@@ -537,10 +578,13 @@ impl ProcessRegistry {
     }
 
     pub fn has_session(&self, session_id: &str) -> bool {
+        self.run_maintenance();
         self.sessions.contains_key(session_id)
     }
 
     pub fn list(&self) -> Vec<ProcessSessionInfo> {
+        self.run_maintenance();
+
         let mut items: Vec<ProcessSessionInfo> = self
             .sessions
             .iter()
@@ -575,6 +619,8 @@ impl ProcessRegistry {
     }
 
     pub fn get_log(&self, session_id: &str, offset: usize, limit: usize) -> Result<ProcessLog> {
+        self.run_maintenance();
+
         if let Some(session) = self.sessions.get(session_id) {
             let output = session
                 .output
@@ -638,6 +684,16 @@ impl ProcessManager for ProcessRegistry {
 
 fn current_timestamp_ms() -> i64 {
     time_utils::now_ms()
+}
+
+fn ttl_seconds_to_millis(ttl_seconds: u64) -> i64 {
+    Duration::from_secs(ttl_seconds)
+        .as_millis()
+        .min(i64::MAX as u128) as i64
+}
+
+fn is_ttl_expired(now_ms: i64, finished_at_ms: i64, ttl_seconds: u64) -> bool {
+    now_ms.saturating_sub(finished_at_ms) > ttl_seconds_to_millis(ttl_seconds)
 }
 
 fn find_utf8_boundary(bytes: &[u8]) -> usize {
@@ -740,9 +796,133 @@ mod tests {
     #[test]
     fn test_with_ttl_seconds_updates_shared_ttl_for_cleanup_worker() {
         let registry = ProcessRegistry::new().with_ttl_seconds(120);
-        assert_eq!(registry.ttl_seconds.load(Ordering::Relaxed), 120);
+        assert_eq!(registry.ttl_seconds(), 120);
 
         let _ = registry.clone().with_ttl_seconds(5);
-        assert_eq!(registry.ttl_seconds.load(Ordering::Relaxed), 5);
+        assert_eq!(registry.ttl_seconds(), 5);
+    }
+
+    #[test]
+    fn test_set_ttl_seconds_updates_long_lived_registry_in_place() {
+        let registry = Arc::new(ProcessRegistry::new().with_ttl_seconds(90));
+        assert_eq!(registry.ttl_seconds(), 90);
+
+        let old = registry.set_ttl_seconds(15);
+        assert_eq!(old, 90);
+        assert_eq!(registry.ttl_seconds(), 15);
+
+        let old_from_clone = registry.clone().set_ttl_seconds(7);
+        assert_eq!(old_from_clone, 15);
+        assert_eq!(registry.ttl_seconds(), 7);
+    }
+
+    #[test]
+    fn test_cleanup_uses_updated_ttl_seconds_value_behaviorally() {
+        let registry = ProcessRegistry::new().with_ttl_seconds(2);
+        let session_id = "finished-session".to_string();
+        registry.finished.insert(
+            session_id.clone(),
+            FinishedSession {
+                id: session_id.clone(),
+                command: "echo done".to_string(),
+                cwd: None,
+                started_at: 0,
+                finished_at: 1_000,
+                exit_code: Some(0),
+                output: "done".to_string(),
+            },
+        );
+
+        let now = 2_500;
+        ProcessRegistry::cleanup_expired_finished_sessions(
+            &registry.finished,
+            now,
+            registry.ttl_seconds(),
+        );
+        assert!(
+            registry.finished.contains_key(&session_id),
+            "Session should stay when elapsed <= updated TTL"
+        );
+
+        let _ = registry.clone().with_ttl_seconds(1);
+        ProcessRegistry::cleanup_expired_finished_sessions(
+            &registry.finished,
+            now,
+            registry.ttl_seconds(),
+        );
+        assert!(
+            !registry.finished.contains_key(&session_id),
+            "Session should be removed once elapsed > updated TTL"
+        );
+    }
+
+    #[test]
+    fn test_opportunistic_maintenance_cleans_expired_finished_without_worker() {
+        let registry = ProcessRegistry::new().with_ttl_seconds(1);
+        let session_id = "expired-finished".to_string();
+        let now = current_timestamp_ms();
+        registry.finished.insert(
+            session_id.clone(),
+            FinishedSession {
+                id: session_id.clone(),
+                command: "echo done".to_string(),
+                cwd: None,
+                started_at: now - 6_000,
+                finished_at: now - 5_000,
+                exit_code: Some(0),
+                output: "done".to_string(),
+            },
+        );
+
+        assert!(registry.finished.contains_key(&session_id));
+        let _ = registry.list();
+        assert!(
+            !registry.finished.contains_key(&session_id),
+            "Expired finished session should be cleaned during foreground maintenance"
+        );
+    }
+
+    #[test]
+    fn test_runtime_ttl_update_applies_to_existing_finished_sessions_without_restart() {
+        let registry = ProcessRegistry::new().with_ttl_seconds(2);
+        let session_id = "dynamic-ttl-finished".to_string();
+        let now = current_timestamp_ms();
+        registry.finished.insert(
+            session_id.clone(),
+            FinishedSession {
+                id: session_id.clone(),
+                command: "echo done".to_string(),
+                cwd: None,
+                started_at: now - 2_000,
+                finished_at: now - 1_200,
+                exit_code: Some(0),
+                output: "done".to_string(),
+            },
+        );
+
+        let _ = registry.list();
+        assert!(
+            registry.finished.contains_key(&session_id),
+            "Session should stay when TTL is larger than elapsed lifetime"
+        );
+
+        registry.set_ttl_seconds(1);
+        let _ = registry.list();
+        assert!(
+            !registry.finished.contains_key(&session_id),
+            "Session should expire after runtime TTL update without recreating registry"
+        );
+    }
+
+    #[test]
+    fn test_ttl_expiry_boundary_is_strict_greater_than() {
+        assert!(
+            !is_ttl_expired(2_000, 1_000, 1),
+            "Elapsed == TTL should not expire"
+        );
+        assert!(
+            is_ttl_expired(2_001, 1_000, 1),
+            "Elapsed > TTL should expire"
+        );
     }
 }
