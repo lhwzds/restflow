@@ -55,15 +55,19 @@ macro_rules! collect_ipc_commands {
             commands::export_skill,
             commands::get_agent,
             commands::get_available_models,
+            commands::get_available_tools,
             commands::get_background_agent_events,
             commands::get_background_agent_stream_event_name,
             commands::get_chat_session,
+            commands::get_config,
             commands::get_heartbeat_event_name,
             commands::get_memory_chunk,
             commands::get_memory_session,
             commands::get_memory_stats,
             commands::get_session_change_event_name,
             commands::get_skill,
+            commands::has_secret,
+            commands::import_skill,
             commands::list_agents,
             commands::list_background_agents,
             commands::list_chat_session_summaries,
@@ -108,6 +112,7 @@ macro_rules! collect_ipc_commands {
             commands::update_agent,
             commands::update_background_agent,
             commands::update_chat_session,
+            commands::update_config,
             commands::update_hook,
             commands::update_secret,
             commands::update_skill,
@@ -270,6 +275,20 @@ mod tests {
             "Found dangling bound commands in collect_commands!: {:?}",
             dangling_bound
         );
+    }
+
+    #[test]
+    fn critical_frontend_ipc_commands_are_bound() {
+        let bound_commands = extract_bound_command_names(include_str!("ipc_bindings.rs"));
+        let required = ["get_config", "update_config", "has_secret", "import_skill"];
+
+        for command in required {
+            assert!(
+                bound_commands.contains(command),
+                "Required IPC command '{}' is not bound in collect_commands!().",
+                command
+            );
+        }
     }
 
     #[test]
