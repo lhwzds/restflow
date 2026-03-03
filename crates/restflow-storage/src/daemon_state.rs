@@ -17,7 +17,7 @@ impl DaemonStateStorage {
         self.put_raw(key, &value.to_le_bytes())
     }
 
-    /// Read an i64 value for key. Returns 0 when key is absent or malformed.
+    /// Read an i64 value for key. Returns 0 when key is absent.
     pub fn get_i64(&self, key: &str) -> Result<i64> {
         match self.get_raw(key)? {
             Some(bytes) if bytes.len() == 8 => {
@@ -25,7 +25,12 @@ impl DaemonStateStorage {
                 arr.copy_from_slice(&bytes);
                 Ok(i64::from_le_bytes(arr))
             }
-            _ => Ok(0),
+            Some(bytes) => Err(anyhow::anyhow!(
+                "Malformed daemon state value for key '{}': expected 8 bytes, got {} bytes",
+                key,
+                bytes.len()
+            )),
+            None => Ok(0),
         }
     }
 }
@@ -59,5 +64,24 @@ mod tests {
 
         let value = storage.get_i64("missing").unwrap();
         assert_eq!(value, 0);
+    }
+
+    #[test]
+    fn test_get_i64_malformed_value_returns_error() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("daemon_state_malformed.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let storage = DaemonStateStorage::new(db).unwrap();
+
+        storage
+            .put_raw("telegram_last_update_id", &[1, 2, 3])
+            .unwrap();
+
+        let error = storage.get_i64("telegram_last_update_id").unwrap_err();
+        assert!(
+            error
+                .to_string()
+                .contains("Malformed daemon state value for key")
+        );
     }
 }

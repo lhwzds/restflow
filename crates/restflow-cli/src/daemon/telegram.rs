@@ -21,7 +21,16 @@ pub fn setup_telegram_channel(
         .get_non_empty("TELEGRAM_CHAT_ID")?
         .or(secrets.get_non_empty("TELEGRAM_DEFAULT_CHAT_ID")?);
 
-    let initial_offset = daemon_state.get_i64(TELEGRAM_LAST_UPDATE_KEY)?;
+    let initial_offset = match daemon_state.get_i64(TELEGRAM_LAST_UPDATE_KEY) {
+        Ok(offset) => offset,
+        Err(error) => {
+            warn!(
+                "Failed to read Telegram last_update_id from daemon state: {}. Falling back to 0.",
+                error
+            );
+            0
+        }
+    };
     let daemon_state = daemon_state.clone();
     let persister: Arc<dyn Fn(i64) + Send + Sync> = Arc::new(move |update_id| {
         if let Err(error) = daemon_state.set_i64(TELEGRAM_LAST_UPDATE_KEY, update_id) {
@@ -43,6 +52,7 @@ pub fn setup_telegram_channel(
 mod tests {
     use super::*;
     use redb::Database;
+    use restflow_storage::SimpleStorage;
     use tempfile::tempdir;
 
     #[test]
@@ -97,5 +107,25 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(default_chat_id, Some("87654321".to_string()));
+    }
+
+    #[test]
+    fn test_setup_telegram_channel_falls_back_when_offset_is_malformed() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let secrets = SecretStorage::new(db.clone()).unwrap();
+        let daemon_state = DaemonStateStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("TELEGRAM_BOT_TOKEN", "bot-token", None)
+            .unwrap();
+        daemon_state
+            .put_raw("telegram_last_update_id", &[1, 2, 3])
+            .unwrap();
+
+        let result = setup_telegram_channel(&secrets, &daemon_state);
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_some());
     }
 }
