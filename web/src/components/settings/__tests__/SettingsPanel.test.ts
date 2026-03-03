@@ -1,6 +1,22 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import SettingsPanel from '../SettingsPanel.vue'
+
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string) =>
+      (
+        {
+          'settings.panel.secrets': 'Secrets',
+          'settings.panel.authProfiles': 'Auth Profiles',
+          'settings.panel.hooks': 'Hooks',
+          'settings.panel.marketplace': 'Marketplace',
+          'settings.panel.memory': 'Memory',
+          'settings.panel.backToWorkspace': 'Back to workspace',
+        } as Record<string, string>
+      )[key] ?? key,
+  }),
+}))
 
 function mountSettingsPanel() {
   return mount(SettingsPanel, {

@@ -5,7 +5,8 @@
  * Full-screen settings view with left navigation and right content area.
  * Replaces the entire chat layout when active.
  */
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ArrowLeft, Database, Key, KeyRound, Store, Webhook } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -19,17 +20,19 @@ const emit = defineEmits<{
   back: []
 }>()
 
+const { t } = useI18n()
+
 type SettingsSection = 'secrets' | 'auth' | 'hooks' | 'marketplace' | 'memory'
 
 const activeSection = ref<SettingsSection>('secrets')
 
-const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
-  { id: 'secrets', label: 'Secrets', icon: Key },
-  { id: 'auth', label: 'Auth Profiles', icon: KeyRound },
-  { id: 'hooks', label: 'Hooks', icon: Webhook },
-  { id: 'marketplace', label: 'Marketplace', icon: Store },
-  { id: 'memory', label: 'Memory', icon: Database },
-]
+const navItems = computed<{ id: SettingsSection; label: string; icon: typeof Key }[]>(() => [
+  { id: 'secrets', label: t('settings.panel.secrets'), icon: Key },
+  { id: 'auth', label: t('settings.panel.authProfiles'), icon: KeyRound },
+  { id: 'hooks', label: t('settings.panel.hooks'), icon: Webhook },
+  { id: 'marketplace', label: t('settings.panel.marketplace'), icon: Store },
+  { id: 'memory', label: t('settings.panel.memory'), icon: Database },
+])
 </script>
 
 <template>
@@ -53,14 +56,16 @@ const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
       </div>
 
       <div class="flex-1 pt-2 pb-2 space-y-0.5">
-        <button
+        <Button
           v-for="item in navItems"
           :key="item.id"
+          variant="ghost"
+          :data-active="activeSection === item.id ? 'true' : 'false'"
           :class="
             cn(
-              'w-full flex items-center gap-2 px-4 py-2 text-sm transition-colors',
+              'w-full justify-start gap-2 rounded-none px-4 text-sm transition-colors',
               activeSection === item.id
-                ? 'bg-muted text-foreground font-medium'
+                ? 'bg-muted text-foreground font-medium hover:bg-muted'
                 : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
             )
           "
@@ -68,7 +73,7 @@ const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
         >
           <component :is="item.icon" :size="14" class="shrink-0" />
           {{ item.label }}
-        </button>
+        </Button>
       </div>
 
       <!-- Back button at bottom -->
@@ -77,7 +82,7 @@ const navItems: { id: SettingsSection; label: string; icon: typeof Key }[] = [
           variant="ghost"
           size="icon"
           class="h-7 w-7"
-          aria-label="Back to workspace"
+          :aria-label="t('settings.panel.backToWorkspace')"
           @click="emit('back')"
         >
           <ArrowLeft :size="14" />

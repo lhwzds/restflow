@@ -10,6 +10,7 @@
 
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { Loader2, Pause, Play, Trash2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
@@ -355,7 +356,7 @@ onMounted(loadProfiles)
 
     <!-- Loading State -->
     <div v-if="loading" class="flex items-center justify-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <Loader2 class="h-5 w-5 animate-spin text-muted-foreground" />
     </div>
 
     <!-- Profiles by Provider -->
@@ -400,7 +401,9 @@ onMounted(loadProfiles)
                 </div>
                 <div class="flex gap-2">
                   <Button variant="outline" size="sm" @click="toggleProfile(profile)">
-                    {{ profile.enabled ? '⏸️ ' + t('settings.auth.disable') : '▶️ ' + t('settings.auth.enable') }}
+                    <Pause v-if="profile.enabled" :size="14" class="mr-1" />
+                    <Play v-else :size="14" class="mr-1" />
+                    {{ profile.enabled ? t('settings.auth.disable') : t('settings.auth.enable') }}
                   </Button>
                   <Button
                     v-if="profile.source === 'manual'"
@@ -408,7 +411,8 @@ onMounted(loadProfiles)
                     size="sm"
                     @click="removeProfile(profile.id)"
                   >
-                    🗑️ {{ t('common.remove') }}
+                    <Trash2 :size="14" class="mr-1" />
+                    {{ t('common.remove') }}
                   </Button>
                 </div>
               </div>

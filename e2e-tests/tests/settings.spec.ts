@@ -42,9 +42,9 @@ test.describe('Settings Panel', () => {
   test('Secrets is the default active section', async ({ page }) => {
     await openSettings(page)
 
-    // Secrets button should have active styling (font-medium)
+    // Secrets button should be active
     const secretsBtn = page.locator('nav button', { hasText: 'Secrets' })
-    await expect(secretsBtn).toHaveClass(/font-medium/)
+    await expect(secretsBtn).toHaveAttribute('data-active', 'true')
   })
 
   test('clicking nav items switches sections', async ({ page }) => {
@@ -53,26 +53,52 @@ test.describe('Settings Panel', () => {
     // Click Auth Profiles
     await page.locator('nav button', { hasText: 'Auth Profiles' }).click()
     const authBtn = page.locator('nav button', { hasText: 'Auth Profiles' })
-    await expect(authBtn).toHaveClass(/font-medium/)
+    await expect(authBtn).toHaveAttribute('data-active', 'true')
 
     // Secrets should no longer be active
     const secretsBtn = page.locator('nav button', { hasText: 'Secrets' })
-    await expect(secretsBtn).not.toHaveClass(/font-medium/)
+    await expect(secretsBtn).toHaveAttribute('data-active', 'false')
 
     // Click Hooks
     await page.locator('nav button', { hasText: 'Hooks' }).click()
     const hooksBtn = page.locator('nav button', { hasText: 'Hooks' })
-    await expect(hooksBtn).toHaveClass(/font-medium/)
+    await expect(hooksBtn).toHaveAttribute('data-active', 'true')
 
     // Click Marketplace
     await page.locator('nav button', { hasText: 'Marketplace' }).click()
     const marketplaceBtn = page.locator('nav button', { hasText: 'Marketplace' })
-    await expect(marketplaceBtn).toHaveClass(/font-medium/)
+    await expect(marketplaceBtn).toHaveAttribute('data-active', 'true')
 
     // Click Memory
     await page.locator('nav button', { hasText: 'Memory' }).click()
     const memoryBtn = page.locator('nav button', { hasText: 'Memory' })
-    await expect(memoryBtn).toHaveClass(/font-medium/)
+    await expect(memoryBtn).toHaveAttribute('data-active', 'true')
+  })
+
+  test('hooks section exposes add hook action', async ({ page }) => {
+    await openSettings(page)
+    await page.locator('nav button', { hasText: 'Hooks' }).click()
+
+    const addHookButton = page.getByRole('button', { name: 'Add Hook' })
+    await expect(addHookButton).toBeVisible()
+  })
+
+  test('marketplace section exposes filter controls', async ({ page }) => {
+    await openSettings(page)
+    await page.locator('nav button', { hasText: 'Marketplace' }).click()
+
+    await expect(page.getByPlaceholder('Search skills by name, tag, or author')).toBeVisible()
+    await expect(page.getByText('Category')).toBeVisible()
+    await expect(page.getByText('Sort')).toBeVisible()
+  })
+
+  test('memory section exposes session and export actions', async ({ page }) => {
+    await openSettings(page)
+    await page.locator('nav button', { hasText: 'Memory' }).click()
+
+    await expect(page.getByRole('button', { name: 'Delete Session' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Export Markdown' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Copy' })).toBeVisible()
   })
 
   test('settings replaces entire chat layout', async ({ page }) => {

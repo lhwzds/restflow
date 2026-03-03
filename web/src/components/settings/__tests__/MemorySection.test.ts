@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import MemorySection from '../MemorySection.vue'
 import {
+  deleteMemorySession,
   exportMemoryMarkdown,
   getMemoryStats,
   listMemoryChunksForSession,
@@ -9,7 +10,34 @@ import {
   searchMemory,
 } from '@/api/memory'
 
+const confirmMock = vi.fn()
+const toastSuccessMock = vi.fn()
+
+vi.mock('vue-i18n', () => ({
+  useI18n: () => ({
+    t: (key: string) => key,
+  }),
+}))
+
+vi.mock('@/composables/useConfirm', () => ({
+  useConfirm: () => ({
+    confirm: confirmMock,
+  }),
+}))
+
+vi.mock('@/composables/useToast', () => ({
+  useToast: () => ({
+    success: toastSuccessMock,
+    error: vi.fn(),
+    warning: vi.fn(),
+    info: vi.fn(),
+    loading: vi.fn(),
+    dismiss: vi.fn(),
+  }),
+}))
+
 vi.mock('@/api/memory', () => ({
+  deleteMemorySession: vi.fn(),
   exportMemoryMarkdown: vi.fn(),
   getMemoryStats: vi.fn(),
   listMemoryChunksForSession: vi.fn(),
@@ -17,6 +45,7 @@ vi.mock('@/api/memory', () => ({
   searchMemory: vi.fn(),
 }))
 
+const mockedDeleteSession = vi.mocked(deleteMemorySession)
 const mockedGetMemoryStats = vi.mocked(getMemoryStats)
 const mockedListMemorySessions = vi.mocked(listMemorySessions)
 const mockedListChunksForSession = vi.mocked(listMemoryChunksForSession)
@@ -27,12 +56,19 @@ function mountComponent() {
   return mount(MemorySection, {
     global: {
       stubs: {
+        Loader2: { template: '<div />' },
         Button: { template: '<button @click="$emit(\'click\')"><slot /></button>' },
         Input: {
           template:
-            '<input :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
+            '<input :id="$attrs.id" :value="modelValue" @input="$emit(\'update:modelValue\', $event.target.value)" />',
           props: ['modelValue'],
         },
+        Label: { template: '<label><slot /></label>' },
+        Select: { template: '<div><slot /></div>' },
+        SelectContent: { template: '<div><slot /></div>' },
+        SelectItem: { template: '<div><slot /></div>' },
+        SelectTrigger: { template: '<div><slot /></div>' },
+        SelectValue: { template: '<span />' },
         Textarea: { template: '<textarea />' },
       },
     },
@@ -42,6 +78,8 @@ function mountComponent() {
 describe('MemorySection', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    confirmMock.mockResolvedValue(true)
+    mockedDeleteSession.mockResolvedValue(true)
     mockedGetMemoryStats.mockResolvedValue({
       agent_id: 'default',
       session_count: 1,
@@ -91,7 +129,8 @@ describe('MemorySection', () => {
             token_count: 10,
           },
           score: 0.9,
-          breakdown: { text_score: 0.9, tag_score: 0, recency_score: 0 },
+          match_count: 1,
+          score_breakdown: { frequency_score: 0.9, tag_score: 0, recency_score: 0 },
         },
       ],
       total_count: 1,
@@ -107,20 +146,24 @@ describe('MemorySection', () => {
   })
 
   it('loads memory overview on mount', async () => {
-    const wrapper = mountComponent()
+    mountComponent()
     await flushPromises()
 
     expect(mockedGetMemoryStats).toHaveBeenCalledWith('default')
     expect(mockedListMemorySessions).toHaveBeenCalledWith('default')
-    expect(wrapper.text()).toContain('sessions:')
+    expect(mockedListChunksForSession).toHaveBeenCalledWith('session-1')
   })
 
   it('runs search and export actions', async () => {
     const wrapper = mountComponent()
     await flushPromises()
 
-    const searchButton = wrapper.findAll('button').find((button) => button.text() === 'Search')
-    const exportButton = wrapper.findAll('button').find((button) => button.text() === 'Export Markdown')
+    const searchButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'settings.memory.search')
+    const exportButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'settings.memory.exportMarkdown')
 
     expect(searchButton).toBeDefined()
     expect(exportButton).toBeDefined()
@@ -131,5 +174,22 @@ describe('MemorySection', () => {
 
     expect(mockedSearchMemory).toHaveBeenCalled()
     expect(mockedExportMemory).toHaveBeenCalledWith('default')
+  })
+
+  it('deletes selected session after confirmation', async () => {
+    const wrapper = mountComponent()
+    await flushPromises()
+
+    const deleteSessionButton = wrapper
+      .findAll('button')
+      .find((button) => button.text() === 'settings.memory.deleteSession')
+    expect(deleteSessionButton).toBeDefined()
+
+    await deleteSessionButton!.trigger('click')
+    await flushPromises()
+
+    expect(confirmMock).toHaveBeenCalled()
+    expect(mockedDeleteSession).toHaveBeenCalledWith('session-1', true)
+    expect(toastSuccessMock).toHaveBeenCalledWith('settings.memory.deleteSessionSuccess')
   })
 })
