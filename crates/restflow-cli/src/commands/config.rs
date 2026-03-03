@@ -91,6 +91,10 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.agent.tool_timeout_secs),
     ]);
     table.add_row(vec![
+        Cell::new("agent.llm_timeout_secs"),
+        Cell::new(format_optional_u64(config.agent.llm_timeout_secs)),
+    ]);
+    table.add_row(vec![
         Cell::new("agent.bash_timeout_secs"),
         Cell::new(config.agent.bash_timeout_secs),
     ]);
@@ -176,6 +180,7 @@ async fn get_config_value(
         "memory_chunk_retention_days" => json!(config.memory_chunk_retention_days),
         "agent" => json!(config.agent),
         "agent.tool_timeout_secs" => json!(config.agent.tool_timeout_secs),
+        "agent.llm_timeout_secs" => json!(config.agent.llm_timeout_secs),
         "agent.bash_timeout_secs" => json!(config.agent.bash_timeout_secs),
         "agent.python_timeout_secs" => json!(config.agent.python_timeout_secs),
         "agent.browser_timeout_secs" => json!(config.agent.browser_timeout_secs),
@@ -242,6 +247,9 @@ async fn set_config_value(
         }
         "agent.tool_timeout_secs" => {
             config.agent.tool_timeout_secs = parse_value(value)?;
+        }
+        "agent.llm_timeout_secs" => {
+            config.agent.llm_timeout_secs = parse_optional_u64(value)?;
         }
         "agent.bash_timeout_secs" => {
             config.agent.bash_timeout_secs = parse_value(value)?;
