@@ -423,7 +423,12 @@ pub enum IpcRequest {
 pub enum IpcResponse {
     Pong,
     Success(serde_json::Value),
-    Error { code: i32, message: String },
+    Error {
+        code: i32,
+        message: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        details: Option<serde_json::Value>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -472,9 +477,18 @@ impl IpcResponse {
     }
 
     pub fn error(code: i32, message: impl Into<String>) -> Self {
+        Self::error_with_details(code, message, None)
+    }
+
+    pub fn error_with_details(
+        code: i32,
+        message: impl Into<String>,
+        details: Option<serde_json::Value>,
+    ) -> Self {
         Self::Error {
             code,
             message: message.into(),
+            details,
         }
     }
 
@@ -482,6 +496,7 @@ impl IpcResponse {
         Self::Error {
             code: 404,
             message: format!("{} not found", what),
+            details: None,
         }
     }
 }
@@ -887,9 +902,66 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         let parsed: IpcResponse = serde_json::from_str(&json).unwrap();
 
-        if let IpcResponse::Error { code, message } = parsed {
+        if let IpcResponse::Error {
+            code,
+            message,
+            details,
+        } = parsed
+        {
             assert_eq!(code, 404);
             assert_eq!(message, "Not found");
+            assert_eq!(details, None);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_response_error_roundtrip_with_structured_details() {
+        let details = serde_json::json!({
+            "error_category": "Execution",
+            "retryable": false,
+            "retry_after_ms": 1200,
+            "metadata": { "exit_code": 7 }
+        });
+        let response = IpcResponse::error_with_details(500, "Tool execution failed", Some(details));
+        let json = serde_json::to_string(&response).unwrap();
+        let parsed: IpcResponse = serde_json::from_str(&json).unwrap();
+
+        if let IpcResponse::Error {
+            code,
+            message,
+            details,
+        } = parsed
+        {
+            assert_eq!(code, 500);
+            assert_eq!(message, "Tool execution failed");
+            assert_eq!(details.unwrap()["metadata"]["exit_code"], 7);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_response_error_backward_compat_without_details() {
+        let legacy = serde_json::json!({
+            "type": "Error",
+            "data": {
+                "code": 409,
+                "message": "conflict"
+            }
+        });
+
+        let parsed: IpcResponse = serde_json::from_value(legacy).unwrap();
+        if let IpcResponse::Error {
+            code,
+            message,
+            details,
+        } = parsed
+        {
+            assert_eq!(code, 409);
+            assert_eq!(message, "conflict");
+            assert_eq!(details, None);
         } else {
             panic!("Wrong variant");
         }
@@ -1124,6 +1196,32 @@ mod tests {
         assert_eq!(parsed.retryable, Some(false));
         assert_eq!(parsed.retry_after_ms, Some(2500));
         assert_eq!(parsed.result["stderr"], "permission denied");
+    }
+
+    #[test]
+    fn test_tool_execution_result_roundtrip_preserves_retry_fields() {
+        let result = ToolExecutionResult {
+            success: false,
+            result: serde_json::json!({
+                "status": 429
+            }),
+            error: Some("rate limited".to_string()),
+            error_category: Some(ToolErrorCategory::RateLimit),
+            retryable: Some(true),
+            retry_after_ms: Some(1200),
+        };
+
+        let encoded = serde_json::to_value(&result).unwrap();
+        let decoded: ToolExecutionResult = serde_json::from_value(encoded.clone()).unwrap();
+
+        assert!(!decoded.success);
+        assert_eq!(decoded.error.as_deref(), Some("rate limited"));
+        assert_eq!(decoded.error_category, Some(ToolErrorCategory::RateLimit));
+        assert_eq!(decoded.retryable, Some(true));
+        assert_eq!(decoded.retry_after_ms, Some(1200));
+        assert_eq!(encoded["error_category"], "RateLimit");
+        assert_eq!(encoded["retryable"], true);
+        assert_eq!(encoded["retry_after_ms"], 1200);
     }
 
     #[test]

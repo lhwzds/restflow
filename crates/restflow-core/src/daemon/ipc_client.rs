@@ -78,7 +78,13 @@ impl IpcClient {
                 serde_json::from_value(value).context("Failed to deserialize response")
             }
             IpcResponse::Pong => bail!("Unexpected Pong response"),
-            IpcResponse::Error { code, message } => bail!("IPC error {}: {}", code, message),
+            IpcResponse::Error {
+                code,
+                message,
+                details,
+            } => {
+                bail!(Self::format_ipc_error(code, &message, details))
+            }
         }
     }
 
@@ -89,8 +95,26 @@ impl IpcClient {
         match self.request(req).await? {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
             IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error { code, message } => bail!("IPC error {}: {}", code, message),
+            IpcResponse::Error {
+                code,
+                message,
+                details,
+            } => {
+                bail!(Self::format_ipc_error(code, &message, details))
+            }
             IpcResponse::Pong => bail!("Unexpected Pong response"),
+        }
+    }
+
+    fn format_ipc_error(code: i32, message: &str, details: Option<serde_json::Value>) -> String {
+        match details {
+            Some(details) => serde_json::json!({
+                "code": code,
+                "message": message,
+                "details": details
+            })
+            .to_string(),
+            None => format!("IPC error {}: {}", code, message),
         }
     }
 
@@ -170,8 +194,12 @@ impl IpcClient {
         match self.request(IpcRequest::GetMemoryChunk { id }).await? {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
             IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error { code, message } => {
-                bail!("IPC error {}: {}", code, message)
+            IpcResponse::Error {
+                code,
+                message,
+                details,
+            } => {
+                bail!(Self::format_ipc_error(code, &message, details))
             }
             IpcResponse::Pong => bail!("Unexpected Pong response"),
         }
@@ -284,8 +312,12 @@ impl IpcClient {
         {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
             IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error { code, message } => {
-                bail!("IPC error {}: {}", code, message)
+            IpcResponse::Error {
+                code,
+                message,
+                details,
+            } => {
+                bail!(Self::format_ipc_error(code, &message, details))
             }
             IpcResponse::Pong => bail!("Unexpected Pong response"),
         }
@@ -481,8 +513,12 @@ impl IpcClient {
             let response: IpcResponse = serde_json::from_slice(&buf)
                 .context("Failed to deserialize streaming IPC frame")?;
             match response {
-                IpcResponse::Error { code, message } => {
-                    bail!("IPC error {}: {}", code, message);
+                IpcResponse::Error {
+                    code,
+                    message,
+                    details,
+                } => {
+                    bail!("{}", Self::format_ipc_error(code, &message, details));
                 }
                 IpcResponse::Success(_) => {
                     bail!("Unexpected success response while reading stream")
@@ -726,8 +762,12 @@ impl IpcClient {
         match self.request(IpcRequest::GetBackgroundAgent { id }).await? {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
             IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error { code, message } => {
-                bail!("IPC error {}: {}", code, message)
+            IpcResponse::Error {
+                code,
+                message,
+                details,
+            } => {
+                bail!(Self::format_ipc_error(code, &message, details))
             }
             IpcResponse::Pong => bail!("Unexpected Pong response"),
         }
@@ -812,8 +852,12 @@ impl IpcClient {
             let response: IpcResponse = serde_json::from_slice(&buf)
                 .context("Failed to deserialize background stream frame")?;
             match response {
-                IpcResponse::Error { code, message } => {
-                    bail!("IPC error {}: {}", code, message);
+                IpcResponse::Error {
+                    code,
+                    message,
+                    details,
+                } => {
+                    bail!("{}", Self::format_ipc_error(code, &message, details));
                 }
                 IpcResponse::Success(_) => {
                     bail!("Unexpected success response while reading background stream")
@@ -853,8 +897,12 @@ impl IpcClient {
             let response: IpcResponse = serde_json::from_slice(&buf)
                 .context("Failed to deserialize session event stream frame")?;
             match response {
-                IpcResponse::Error { code, message } => {
-                    bail!("IPC error {}: {}", code, message);
+                IpcResponse::Error {
+                    code,
+                    message,
+                    details,
+                } => {
+                    bail!("{}", Self::format_ipc_error(code, &message, details));
                 }
                 _ => {
                     bail!("Unexpected response while reading session event stream")
