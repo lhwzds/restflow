@@ -456,11 +456,11 @@ impl AgentNode {
         if let Some(ApiKeyConfig::Secret(secret_name)) = &self.api_key_config {
             let normalized = secret_name.trim();
             if !normalized.is_empty() {
-                match core.storage.secrets.has_secret(normalized) {
+                match core.storage.secrets.has_available_secret(normalized) {
                     Ok(true) => {}
                     Ok(false) => errors.push(ValidationError::new(
                         "api_key_config",
-                        format!("secret not found: {}", normalized),
+                        format!("secret not found in storage or env: {}", normalized),
                     )),
                     Err(err) => errors.push(ValidationError::new(
                         "api_key_config",

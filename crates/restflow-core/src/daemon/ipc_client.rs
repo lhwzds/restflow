@@ -15,6 +15,7 @@ use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use std::path::Path;
 
 #[cfg(unix)]
@@ -499,8 +500,32 @@ impl IpcClient {
 
         loop {
             let buf = self.read_raw_frame().await?;
+            let value: Value = serde_json::from_slice(&buf)
+                .context("Failed to deserialize streaming IPC frame")?;
+            // StreamFrame::Error and IpcResponse::Error share the same serde tag.
+            // Treat only payloads with `details` as structured IPC errors.
+            let has_structured_details = value
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind == "Error")
+                && value
+                    .get("data")
+                    .and_then(|data| data.get("details"))
+                    .is_some();
+            if has_structured_details {
+                let response: IpcResponse = serde_json::from_value(value.clone())
+                    .context("Failed to decode structured IPC error while reading stream")?;
+                if let IpcResponse::Error {
+                    code,
+                    message,
+                    details,
+                } = response
+                {
+                    bail!("{}", Self::format_ipc_error(code, &message, details));
+                }
+            }
 
-            if let Ok(frame) = serde_json::from_slice::<StreamFrame>(&buf) {
+            if let Ok(frame) = serde_json::from_value::<StreamFrame>(value.clone()) {
                 let terminal =
                     matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error { .. });
                 on_frame(frame)?;
@@ -510,7 +535,7 @@ impl IpcClient {
                 continue;
             }
 
-            let response: IpcResponse = serde_json::from_slice(&buf)
+            let response: IpcResponse = serde_json::from_value(value)
                 .context("Failed to deserialize streaming IPC frame")?;
             match response {
                 IpcResponse::Error {
@@ -833,8 +858,31 @@ impl IpcClient {
 
         loop {
             let buf = self.read_raw_frame().await?;
+            let value: Value = serde_json::from_slice(&buf)
+                .context("Failed to deserialize background stream frame")?;
+            let has_structured_details = value
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind == "Error")
+                && value
+                    .get("data")
+                    .and_then(|data| data.get("details"))
+                    .is_some();
+            if has_structured_details {
+                let response: IpcResponse = serde_json::from_value(value.clone()).context(
+                    "Failed to decode structured IPC error while reading background stream",
+                )?;
+                if let IpcResponse::Error {
+                    code,
+                    message,
+                    details,
+                } = response
+                {
+                    bail!("{}", Self::format_ipc_error(code, &message, details));
+                }
+            }
 
-            if let Ok(frame) = serde_json::from_slice::<StreamFrame>(&buf) {
+            if let Ok(frame) = serde_json::from_value::<StreamFrame>(value.clone()) {
                 match frame {
                     StreamFrame::Start { .. } => {}
                     StreamFrame::BackgroundAgentEvent { event } => {
@@ -849,7 +897,7 @@ impl IpcClient {
                 continue;
             }
 
-            let response: IpcResponse = serde_json::from_slice(&buf)
+            let response: IpcResponse = serde_json::from_value(value)
                 .context("Failed to deserialize background stream frame")?;
             match response {
                 IpcResponse::Error {
@@ -878,8 +926,31 @@ impl IpcClient {
 
         loop {
             let buf = self.read_raw_frame().await?;
+            let value: Value = serde_json::from_slice(&buf)
+                .context("Failed to deserialize session event stream frame")?;
+            let has_structured_details = value
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind == "Error")
+                && value
+                    .get("data")
+                    .and_then(|data| data.get("details"))
+                    .is_some();
+            if has_structured_details {
+                let response: IpcResponse = serde_json::from_value(value.clone()).context(
+                    "Failed to decode structured IPC error while reading session event stream",
+                )?;
+                if let IpcResponse::Error {
+                    code,
+                    message,
+                    details,
+                } = response
+                {
+                    bail!("{}", Self::format_ipc_error(code, &message, details));
+                }
+            }
 
-            if let Ok(frame) = serde_json::from_slice::<StreamFrame>(&buf) {
+            if let Ok(frame) = serde_json::from_value::<StreamFrame>(value.clone()) {
                 match frame {
                     StreamFrame::Start { .. } => {}
                     StreamFrame::SessionEvent { event } => {
@@ -894,7 +965,7 @@ impl IpcClient {
                 continue;
             }
 
-            let response: IpcResponse = serde_json::from_slice(&buf)
+            let response: IpcResponse = serde_json::from_value(value)
                 .context("Failed to deserialize session event stream frame")?;
             match response {
                 IpcResponse::Error {

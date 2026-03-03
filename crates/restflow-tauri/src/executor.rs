@@ -45,8 +45,12 @@ impl TauriExecutor {
         match client.request(request).await? {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
             IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error { code, message } => {
-                anyhow::bail!("IPC error {}: {}", code, message)
+            IpcResponse::Error {
+                code,
+                message,
+                details,
+            } => {
+                anyhow::bail!("{}", format_ipc_error(code, &message, details))
             }
             IpcResponse::Pong => anyhow::bail!("Unexpected Pong response"),
         }
@@ -878,9 +882,25 @@ impl TauriExecutor {
 fn decode_response<T: DeserializeOwned>(response: IpcResponse) -> Result<T> {
     match response {
         IpcResponse::Success(value) => Ok(serde_json::from_value(value)?),
-        IpcResponse::Error { code, message } => {
-            anyhow::bail!("IPC error {}: {}", code, message)
+        IpcResponse::Error {
+            code,
+            message,
+            details,
+        } => {
+            anyhow::bail!("{}", format_ipc_error(code, &message, details))
         }
         IpcResponse::Pong => anyhow::bail!("Unexpected Pong response"),
+    }
+}
+
+fn format_ipc_error(code: i32, message: &str, details: Option<Value>) -> String {
+    match details {
+        Some(Value::String(detail)) if !detail.is_empty() => {
+            format!("IPC error {}: {} ({})", code, message, detail)
+        }
+        Some(Value::Object(map)) if !map.is_empty() => {
+            format!("IPC error {}: {} ({})", code, message, Value::Object(map))
+        }
+        _ => format!("IPC error {}: {}", code, message),
     }
 }

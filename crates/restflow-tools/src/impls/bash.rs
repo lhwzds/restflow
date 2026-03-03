@@ -292,6 +292,8 @@ impl Tool for BashTool {
 
         let timeout_secs = input.timeout.unwrap_or(self.timeout_secs);
 
+        // yolo_mode is an explicit caller opt-out for policy checks.
+        // Keep default as gated when a security gate is present.
         if !input.yolo_mode
             && let Some(security_gate) = &self.security_gate
         {

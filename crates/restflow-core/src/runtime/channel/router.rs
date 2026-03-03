@@ -9,8 +9,6 @@ use std::sync::Arc;
 /// Routing decision for an inbound message.
 #[derive(Debug, Clone, PartialEq)]
 pub enum RouteDecision {
-    /// Forward the message to a linked task.
-    ForwardToBackgroundAgent { background_agent_id: String },
     /// Handle as a command (e.g., /help, /run).
     HandleCommand { command: String, args: Vec<String> },
     /// Dispatch to AI chat for natural language processing.
@@ -23,8 +21,7 @@ pub enum RouteDecision {
 ///
 /// The router checks:
 /// 1. Is the message a command (starts with prefix)? → Handle as command
-/// 2. Is the conversation linked to an active task? → Forward to task
-/// 3. Otherwise → Dispatch to AI chat
+/// 2. Otherwise → Dispatch to AI chat
 pub struct MessageRouter {
     command_prefix: String,
 }
@@ -46,7 +43,8 @@ impl MessageRouter {
             return RouteDecision::HandleCommand { command, args };
         }
 
-        // 2. Default: dispatch natural language to main chat.
+        // 2. Default: dispatch natural language to chat dispatcher, which
+        // handles conversation-to-task binding.
         RouteDecision::DispatchToChat
     }
 

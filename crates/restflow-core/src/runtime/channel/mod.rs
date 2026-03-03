@@ -5,7 +5,6 @@
 //!
 //! - Processing inbound messages from interactive channels (Telegram, etc.)
 //! - Routing commands (/help, /agents, /run, /status, /stop)
-//! - Forwarding messages to running background agents
 //! - Dispatching natural language messages to AI chat
 //!
 //! # Architecture
@@ -22,14 +21,14 @@
 //! │    (router.rs - routing decisions)      │
 //! └─────────────────────────────────────────┘
 //!                     │
-//!        ┌────────────┼────────────┬────────────┐
-//!        ▼            ▼            ▼            ▼
-//! ┌────────────┐ ┌──────────┐ ┌───────────┐ ┌─────────────┐
-//! │  Commands  │ │ Forwarder│ │   Chat    │ │   Ignore    │
-//! │ commands.rs│ │forwarder │ │ Dispatcher│ │             │
-//! └────────────┘ └──────────┘ └───────────┘ └─────────────┘
-//!        │            │              │
-//!        └────────────┴──────────────┘
+//!        ┌────────────┼────────────┐
+//!        ▼            ▼            ▼
+//! ┌────────────┐ ┌───────────┐ ┌─────────────┐
+//! │  Commands  │ │   Chat    │ │   Ignore    │
+//! │ commands.rs│ │ Dispatcher│ │             │
+//! └────────────┘ └───────────┘ └─────────────┘
+//!        │              │
+//!        └──────────────┘
 //!                     │
 //!                     ▼
 //! ┌─────────────────────────────────────────┐
@@ -51,7 +50,7 @@
 //!     MessageHandlerConfig, ChatDispatcher, ChatDispatcherConfig,
 //! };
 //!
-//! // Basic setup (commands + task forwarding only):
+//! // Basic setup (commands only):
 //! let router: Arc<ChannelRouter> = /* from state */;
 //! let task_trigger: Arc<dyn BackgroundAgentTrigger> = /* your implementation */;
 //! start_message_handler(router, task_trigger, MessageHandlerConfig::default());
@@ -64,7 +63,6 @@
 mod chat_dispatcher;
 mod commands;
 mod debounce;
-mod forwarder;
 mod handler;
 mod router;
 pub mod tool_trace_emitter;
@@ -91,7 +89,6 @@ pub(crate) use voice_transcript::{
 
 // Re-export for convenience
 pub use commands::handle_command;
-pub use forwarder::forward_to_background_agent;
 
 #[cfg(test)]
 pub use trigger::mock;

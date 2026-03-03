@@ -1,7 +1,7 @@
 //! Channel Message Handler
 //!
 //! Processes inbound messages from channels and routes them to appropriate
-//! handlers (commands, task forwarder, chat dispatcher, or help).
+//! handlers (commands, chat dispatcher, or help).
 
 use anyhow::Result;
 use std::sync::Arc;
@@ -16,7 +16,6 @@ use crate::channel::{ChannelRouter, InboundMessage, OutboundMessage, PairingMana
 
 use super::chat_dispatcher::ChatDispatcher;
 use super::commands::{handle_command, send_help};
-use super::forwarder::forward_to_background_agent;
 use super::router::{MessageRouter, RouteDecision};
 use super::trigger::BackgroundAgentTrigger;
 
@@ -294,13 +293,6 @@ async fn handle_message_routed(
     let decision = msg_router.route(message).await;
 
     match decision {
-        RouteDecision::ForwardToBackgroundAgent {
-            background_agent_id: task_id,
-        } => {
-            debug!("Routing to task: {}", task_id);
-            forward_to_background_agent(router, trigger, &task_id, message).await
-        }
-
         RouteDecision::HandleCommand { command, args } => {
             debug!("Routing to command: {} {:?}", command, args);
             handle_command(router, trigger, message).await

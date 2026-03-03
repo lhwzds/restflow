@@ -19,6 +19,8 @@ pub async fn check_security(
     task_id: Option<&str>,
 ) -> Result<Option<String>> {
     let Some(gate) = gate else {
+        // Default-open fallback for environments where security policies
+        // are intentionally not configured.
         return Ok(None);
     };
 

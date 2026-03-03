@@ -69,10 +69,18 @@ pub async fn delete_secret(core: &Arc<AppCore>, key: &str) -> Result<()> {
         .with_context(|| format!("Failed to delete secret {}", key))
 }
 
-/// Check if a secret exists
+/// Check whether a managed secret exists in storage.
 pub async fn has_secret(core: &Arc<AppCore>, key: &str) -> Result<bool> {
     core.storage
         .secrets
         .has_secret(key)
         .with_context(|| format!("Failed to check secret {}", key))
+}
+
+/// Check whether a secret is available from storage or environment fallback.
+pub async fn has_available_secret(core: &Arc<AppCore>, key: &str) -> Result<bool> {
+    core.storage
+        .secrets
+        .has_available_secret(key)
+        .with_context(|| format!("Failed to check secret availability {}", key))
 }

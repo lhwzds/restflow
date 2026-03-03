@@ -108,11 +108,11 @@ impl AgentStoreAdapter {
         if let Some(crate::models::ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
             let normalized = secret_name.trim();
             if !normalized.is_empty() {
-                match self.secrets.has_secret(normalized) {
+                match self.secrets.has_available_secret(normalized) {
                     Ok(true) => {}
                     Ok(false) => errors.push(crate::models::ValidationError::new(
                         "api_key_config",
-                        format!("secret not found: {}", normalized),
+                        format!("secret not found in storage or env: {}", normalized),
                     )),
                     Err(err) => errors.push(crate::models::ValidationError::new(
                         "api_key_config",

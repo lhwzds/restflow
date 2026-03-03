@@ -624,7 +624,19 @@ impl BackgroundAgentStorage {
         }
 
         task.set_running();
-        self.update_task(&task)?;
+        // Use CAS semantics so only one concurrent caller can transition Active -> Running.
+        let started = self.update_task_if_status_matches(&task, BackgroundAgentStatus::Active)?;
+        if !started {
+            let latest_status = self
+                .get_task(id)?
+                .map(|latest| latest.status.as_str().to_string())
+                .unwrap_or_else(|| "deleted".to_string());
+            return Err(anyhow::anyhow!(
+                "Task {} cannot start from status {}",
+                id,
+                latest_status
+            ));
+        }
 
         // Record the start event
         let event = BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Started)
@@ -2007,6 +2019,35 @@ mod tests {
         let event_types: Vec<_> = events.iter().map(|e| &e.event_type).collect();
         assert!(event_types.contains(&&BackgroundAgentEventType::Started));
         assert!(event_types.contains(&&BackgroundAgentEventType::Completed));
+    }
+
+    #[test]
+    fn test_start_task_execution_emits_started_event_once() {
+        let storage = create_test_storage();
+
+        let task = storage
+            .create_task(
+                "Test Task".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+
+        let running = storage.start_task_execution(&task.id).unwrap();
+        assert_eq!(running.status, BackgroundAgentStatus::Running);
+
+        let err = storage
+            .start_task_execution(&task.id)
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("cannot start from status"));
+
+        let events = storage.list_events_for_task(&task.id).unwrap();
+        let started_count = events
+            .iter()
+            .filter(|event| event.event_type == BackgroundAgentEventType::Started)
+            .count();
+        assert_eq!(started_count, 1);
     }
 
     #[test]
