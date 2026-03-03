@@ -1388,6 +1388,37 @@ mod tests {
     }
 
     #[test]
+    fn test_get_task_returns_error_for_malformed_record() {
+        let storage = create_test_storage();
+        storage
+            .inner
+            .put_task_raw_with_status("bad-task", "active", b"{bad-json")
+            .unwrap();
+
+        let result = storage.get_task("bad-task");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_list_tasks_returns_error_when_any_record_is_malformed() {
+        let storage = create_test_storage();
+        storage
+            .create_task(
+                "Good Task".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::default(),
+            )
+            .unwrap();
+        storage
+            .inner
+            .put_task_raw_with_status("bad-task", "active", b"{bad-json")
+            .unwrap();
+
+        let result = storage.list_tasks();
+        assert!(result.is_err());
+    }
+
+    #[test]
     fn test_list_tasks_by_status() {
         let storage = create_test_storage();
 
