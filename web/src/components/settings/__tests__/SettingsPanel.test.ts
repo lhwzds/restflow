@@ -69,6 +69,9 @@ describe('SettingsPanel', () => {
     const wrapper = mountSettingsPanel()
     const getNavButton = (label: string) => wrapper.findAll('nav button').find((button) => button.text() === label)!
 
+    await getNavButton('Auth Profiles').trigger('click')
+    expect(wrapper.find('[data-testid="auth-section"]').exists()).toBe(true)
+
     await getNavButton('Hooks').trigger('click')
     expect(wrapper.find('[data-testid="hooks-section"]').exists()).toBe(true)
 
