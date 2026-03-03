@@ -8,7 +8,7 @@ use tokio::time::{Duration, timeout};
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_traits::{SpawnRequest, SubagentManager};
+use restflow_traits::{InlineSubagentConfig, SpawnRequest, SubagentManager};
 
 #[cfg(feature = "ts")]
 const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
@@ -22,7 +22,11 @@ const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
 #[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
 pub struct SpawnSubagentParams {
     /// Agent type to spawn (researcher, coder, reviewer, writer, analyst).
-    pub agent: String,
+    ///
+    /// When omitted, runtime creates a temporary sub-agent from inline config.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub agent: Option<String>,
 
     /// Task description for the agent.
     pub task: String,
@@ -46,6 +50,26 @@ pub struct SpawnSubagentParams {
     #[cfg_attr(feature = "ts", ts(optional))]
     #[serde(default)]
     pub parent_execution_id: Option<String>,
+
+    /// Optional name for temporary sub-agent creation.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub inline_name: Option<String>,
+
+    /// Optional system prompt for temporary sub-agent creation.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub inline_system_prompt: Option<String>,
+
+    /// Optional allowlist for temporary sub-agent tools.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub inline_allowed_tools: Option<Vec<String>>,
+
+    /// Optional max iterations override for temporary sub-agent creation.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub inline_max_iterations: Option<u32>,
 }
 
 /// spawn_subagent tool for the shared agent execution engine.
@@ -139,6 +163,25 @@ impl SpawnSubagentTool {
             query, suggestions
         )))
     }
+
+    fn build_inline_config(params: &SpawnSubagentParams) -> Option<InlineSubagentConfig> {
+        let config = InlineSubagentConfig {
+            name: params.inline_name.clone(),
+            system_prompt: params.inline_system_prompt.clone(),
+            allowed_tools: params.inline_allowed_tools.clone(),
+            max_iterations: params.inline_max_iterations,
+        };
+
+        if config.name.is_none()
+            && config.system_prompt.is_none()
+            && config.allowed_tools.is_none()
+            && config.max_iterations.is_none()
+        {
+            None
+        } else {
+            Some(config)
+        }
+    }
 }
 
 #[async_trait]
@@ -156,7 +199,7 @@ impl Tool for SpawnSubagentTool {
         let agent_property = if available.is_empty() {
             json!({
                 "type": "string",
-                "description": "Agent ID or name. Call list_subagents to discover available agents."
+                "description": "Optional agent ID or name. Omit to create a temporary sub-agent. Call list_subagents to discover available agents."
             })
         } else {
             let enum_values: Vec<String> = available.iter().map(|agent| agent.id.clone()).collect();
@@ -168,7 +211,7 @@ impl Tool for SpawnSubagentTool {
                 "type": "string",
                 "enum": enum_values,
                 "x-enumNames": enum_labels,
-                "description": "Agent ID. You can also pass agent name at runtime."
+                "description": "Optional agent ID. You can also pass agent name at runtime. Omit to create a temporary sub-agent."
             })
         };
 
@@ -201,16 +244,44 @@ impl Tool for SpawnSubagentTool {
                 "parent_execution_id": {
                     "type": "string",
                     "description": "Optional parent execution ID for context propagation (runtime-injected)"
+                },
+                "inline_name": {
+                    "type": "string",
+                    "description": "Optional temporary sub-agent name when 'agent' is omitted."
+                },
+                "inline_system_prompt": {
+                    "type": "string",
+                    "description": "Optional system prompt for temporary sub-agent when 'agent' is omitted."
+                },
+                "inline_allowed_tools": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional tool allowlist for temporary sub-agent when 'agent' is omitted."
+                },
+                "inline_max_iterations": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "description": "Optional max iterations for temporary sub-agent when 'agent' is omitted."
                 }
             },
-            "required": ["agent", "task"]
+            "required": ["task"]
         })
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: SpawnSubagentParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
-        let agent_id = self.resolve_agent_id(&params.agent)?;
+        let inline_config = Self::build_inline_config(&params);
+        if params.agent.is_some() && inline_config.is_some() {
+            return Err(ToolError::Tool(
+                "Inline temporary-subagent fields cannot be combined with 'agent'.".to_string(),
+            ));
+        }
+        let agent_id = params
+            .agent
+            .as_deref()
+            .map(|requested| self.resolve_agent_id(requested))
+            .transpose()?;
         let has_model = params
             .model
             .as_ref()
@@ -229,6 +300,7 @@ impl Tool for SpawnSubagentTool {
 
         let request = SpawnRequest {
             agent_id,
+            inline: inline_config,
             task: params.task.clone(),
             timeout_secs: params.timeout_secs,
             priority: None,
@@ -392,7 +464,7 @@ mod tests {
     fn test_params_deserialization() {
         let json = r#"{"agent": "researcher", "task": "Research topic X"}"#;
         let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
-        assert_eq!(params.agent, "researcher");
+        assert_eq!(params.agent.as_deref(), Some("researcher"));
         assert!(!params.wait);
     }
 
@@ -401,6 +473,7 @@ mod tests {
         let json =
             r#"{"agent": "coder", "task": "Write function Y", "wait": true, "timeout_secs": 600}"#;
         let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.agent.as_deref(), Some("coder"));
         assert!(params.wait);
         assert_eq!(params.timeout_secs, Some(600));
     }
@@ -483,7 +556,7 @@ mod tests {
     async fn test_spawn_subagent_invalid_params() {
         let deps = make_test_deps(vec![], vec![]);
         let tool = SpawnSubagentTool::new(deps);
-        // Missing required "agent" and "task" fields
+        // Missing required "task" field
         let result = tool.execute(json!({"wait": true})).await;
         assert!(result.is_err());
     }
@@ -533,6 +606,41 @@ mod tests {
             .unwrap();
         assert!(result.success);
         assert_eq!(result.result["status"], "completed");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_without_agent_uses_temporary_mode() {
+        let deps = make_test_deps(
+            vec![("agent-123", "Code Planner")],
+            vec![MockStep::text("planned")],
+        );
+        let tool = SpawnSubagentTool::new(deps);
+        let result = tool
+            .execute(json!({"task": "plan task", "wait": true}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(result.result["status"], "completed");
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_rejects_inline_fields_with_agent() {
+        let deps = make_test_deps(vec![("coder", "Coder")], vec![MockStep::text("done")]);
+        let tool = SpawnSubagentTool::new(deps);
+        let result = tool
+            .execute(json!({
+                "agent": "coder",
+                "task": "Write code",
+                "inline_system_prompt": "You are temporary"
+            }))
+            .await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("cannot be combined")
+        );
     }
 
     #[test]

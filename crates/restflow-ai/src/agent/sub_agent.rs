@@ -15,12 +15,13 @@ use tokio::time::{Duration, timeout};
 // Re-export data types from restflow-traits
 use restflow_traits::ToolError;
 pub use restflow_traits::subagent::{
-    SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
-    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentManager, SubagentResult,
-    SubagentSpawner, SubagentState, SubagentStatus,
+    InlineSubagentConfig, SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion,
+    SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentManager,
+    SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
 };
 
-const MAX_PARALLEL_SUBAGENTS_CAP: usize = 200;
+const TEMPORARY_SUBAGENT_NAME: &str = "Temporary Subagent";
+const TEMPORARY_SUBAGENT_PROMPT: &str = "You are a temporary sub-agent. Complete the task autonomously, use tools when needed, and return a concise final result.";
 
 fn map_subagent_error(success: bool, error: Option<String>) -> Option<String> {
     if success {
@@ -665,9 +666,7 @@ pub fn spawn_subagent(
     request: SpawnRequest,
     llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
 ) -> Result<SpawnHandle> {
-    let agent_def = definitions
-        .lookup(&request.agent_id)
-        .ok_or_else(|| AiError::Agent(format!("Unknown agent type: {}", request.agent_id)))?;
+    let agent_def = resolve_subagent_definition(&definitions, &tool_registry, &request)?;
 
     // Resolve the LLM client: request.model > def.default_model > parent
     let llm_client = resolve_llm_client(
@@ -685,7 +684,8 @@ pub fn spawn_subagent(
     let agent_name_for_return = agent_def.name.clone();
     let task_for_register = request.task.clone();
     let parent_execution_id = request.parent_execution_id.clone();
-    let max_parallel = config.max_parallel_agents.min(MAX_PARALLEL_SUBAGENTS_CAP);
+    // Parallel limit is fully driven by runtime config (agent.max_parallel_subagents).
+    let max_parallel = config.max_parallel_agents;
 
     // Reserve a running slot before spawning the async task to avoid creating
     // orphaned tasks when the parallel limit is reached.
@@ -823,6 +823,64 @@ pub fn spawn_subagent(
         id: task_id,
         agent_name: agent_name_for_return,
     })
+}
+
+fn resolve_subagent_definition(
+    definitions: &Arc<dyn SubagentDefLookup>,
+    tool_registry: &Arc<ToolRegistry>,
+    request: &SpawnRequest,
+) -> Result<SubagentDefSnapshot> {
+    if let Some(agent_id) = request
+        .agent_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+    {
+        return definitions
+            .lookup(agent_id)
+            .ok_or_else(|| AiError::Agent(format!("Unknown agent type: {agent_id}")));
+    }
+
+    Ok(build_temporary_subagent_definition(
+        request.inline.as_ref(),
+        tool_registry,
+    ))
+}
+
+fn build_temporary_subagent_definition(
+    inline: Option<&InlineSubagentConfig>,
+    tool_registry: &Arc<ToolRegistry>,
+) -> SubagentDefSnapshot {
+    let fallback_tools = tool_registry
+        .list()
+        .into_iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let name = inline
+        .and_then(|cfg| cfg.name.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(TEMPORARY_SUBAGENT_NAME)
+        .to_string();
+    let system_prompt = inline
+        .and_then(|cfg| cfg.system_prompt.as_deref())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or(TEMPORARY_SUBAGENT_PROMPT)
+        .to_string();
+    let allowed_tools = inline
+        .and_then(|cfg| cfg.allowed_tools.clone())
+        .unwrap_or(fallback_tools);
+
+    SubagentDefSnapshot {
+        name,
+        system_prompt,
+        allowed_tools,
+        max_iterations: inline
+            .and_then(|cfg| cfg.max_iterations)
+            .filter(|value| *value > 0),
+        default_model: None,
+    }
 }
 
 async fn execute_subagent(
@@ -1058,6 +1116,12 @@ mod tests {
             );
             Self { defs }
         }
+
+        fn empty() -> Self {
+            Self {
+                defs: HashMap::new(),
+            }
+        }
     }
 
     impl SubagentDefLookup for MockDefLookup {
@@ -1067,6 +1131,79 @@ mod tests {
         fn list_callable(&self) -> Vec<SubagentDefSummary> {
             vec![]
         }
+    }
+
+    #[test]
+    fn test_resolve_subagent_definition_from_inline_config() {
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::empty());
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let request = SpawnRequest {
+            agent_id: None,
+            inline: Some(InlineSubagentConfig {
+                name: Some("tmp".to_string()),
+                system_prompt: Some("Inline prompt".to_string()),
+                allowed_tools: Some(vec!["http_request".to_string()]),
+                max_iterations: Some(7),
+            }),
+            task: "test".to_string(),
+            timeout_secs: None,
+            priority: None,
+            model: None,
+            model_provider: None,
+            parent_execution_id: None,
+        };
+
+        let snapshot = resolve_subagent_definition(&definitions, &tool_registry, &request)
+            .expect("inline definition should resolve");
+        assert_eq!(snapshot.name, "tmp");
+        assert_eq!(snapshot.system_prompt, "Inline prompt");
+        assert_eq!(snapshot.allowed_tools, vec!["http_request".to_string()]);
+        assert_eq!(snapshot.max_iterations, Some(7));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_without_agent_id_uses_temporary_definition() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::empty());
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
+            "mock",
+            vec![MockStep::text("temporary done")],
+        ));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: None,
+                inline: None,
+                task: "temporary task".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: None,
+                model_provider: None,
+                parent_execution_id: None,
+            },
+            None,
+        )
+        .expect("spawn should succeed without explicit agent");
+
+        let result = tracker
+            .wait(&handle.id)
+            .await
+            .expect("temporary subagent result should be available");
+        assert!(result.success);
+        assert_eq!(handle.agent_name, TEMPORARY_SUBAGENT_NAME);
     }
 
     #[derive(Clone)]
@@ -1159,7 +1296,8 @@ mod tests {
     #[test]
     fn test_spawn_request_serialization() {
         let request = SpawnRequest {
-            agent_id: "researcher".to_string(),
+            agent_id: Some("researcher".to_string()),
+            inline: None,
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
             priority: Some(SpawnPriority::High),
@@ -1172,7 +1310,7 @@ mod tests {
         assert!(json.contains("researcher"));
 
         let parsed: SpawnRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.agent_id, "researcher");
+        assert_eq!(parsed.agent_id.as_deref(), Some("researcher"));
     }
 
     #[test]
@@ -1388,7 +1526,8 @@ mod tests {
             tool_registry.clone(),
             config.clone(),
             SpawnRequest {
-                agent_id: "tester".to_string(),
+                agent_id: Some("tester".to_string()),
+                inline: None,
                 task: "first task".to_string(),
                 timeout_secs: Some(10),
                 priority: None,
@@ -1408,7 +1547,8 @@ mod tests {
             tool_registry.clone(),
             config.clone(),
             SpawnRequest {
-                agent_id: "tester".to_string(),
+                agent_id: Some("tester".to_string()),
+                inline: None,
                 task: "second task (should not execute)".to_string(),
                 timeout_secs: Some(10),
                 priority: None,
@@ -1452,7 +1592,8 @@ mod tests {
             tool_registry,
             config,
             SpawnRequest {
-                agent_id: "tester".to_string(),
+                agent_id: Some("tester".to_string()),
+                inline: None,
                 task: "force failure status".to_string(),
                 timeout_secs: Some(10),
                 priority: None,
@@ -1504,7 +1645,8 @@ mod tests {
             tool_registry,
             config,
             SpawnRequest {
-                agent_id: "tester".to_string(),
+                agent_id: Some("tester".to_string()),
+                inline: None,
                 task: "hit max iterations".to_string(),
                 timeout_secs: Some(10),
                 priority: None,
