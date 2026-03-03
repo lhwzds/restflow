@@ -167,18 +167,31 @@ impl Tool for ProcessTool {
                     ))),
                 }
             }
-            ProcessAction::Poll { session_id } => match self.manager.poll(&session_id) {
-                Ok(result) => Ok(ToolOutput::success(serde_json::to_value(result)?)),
-                Err(e) => {
-                    if e.to_string().contains("Session not found") {
-                        return Ok(ToolOutput::error(missing_session_message(&session_id)));
-                    }
-                    Ok(ToolOutput::error(format!(
-                        "Failed to poll process session '{}': {}",
-                        session_id, e
-                    )))
+            ProcessAction::Poll { session_id } => {
+                if let Some(message) = self
+                    .check_action_allowed(
+                        "poll",
+                        session_id.clone(),
+                        format!("Poll process session {}", session_id),
+                    )
+                    .await?
+                {
+                    return Ok(ToolOutput::error(message));
                 }
-            },
+
+                match self.manager.poll(&session_id) {
+                    Ok(result) => Ok(ToolOutput::success(serde_json::to_value(result)?)),
+                    Err(e) => {
+                        if e.to_string().contains("Session not found") {
+                            return Ok(ToolOutput::error(missing_session_message(&session_id)));
+                        }
+                        Ok(ToolOutput::error(format!(
+                            "Failed to poll process session '{}': {}",
+                            session_id, e
+                        )))
+                    }
+                }
+            }
             ProcessAction::Write { session_id, data } => {
                 if let Some(message) = self
                     .check_action_allowed(
@@ -233,13 +246,26 @@ impl Tool for ProcessTool {
                     }
                 }
             }
-            ProcessAction::List => match self.manager.list() {
-                Ok(sessions) => Ok(ToolOutput::success(serde_json::to_value(sessions)?)),
-                Err(e) => Ok(ToolOutput::error(format!(
-                    "Failed to list process sessions: {}",
-                    e
-                ))),
-            },
+            ProcessAction::List => {
+                if let Some(message) = self
+                    .check_action_allowed(
+                        "list",
+                        "process_sessions".to_string(),
+                        "List process sessions".to_string(),
+                    )
+                    .await?
+                {
+                    return Ok(ToolOutput::error(message));
+                }
+
+                match self.manager.list() {
+                    Ok(sessions) => Ok(ToolOutput::success(serde_json::to_value(sessions)?)),
+                    Err(e) => Ok(ToolOutput::error(format!(
+                        "Failed to list process sessions: {}",
+                        e
+                    ))),
+                }
+            }
             ProcessAction::Log {
                 session_id,
                 offset,
@@ -350,8 +376,10 @@ mod tests {
     #[derive(Default)]
     struct ProcessCallCounts {
         spawn: usize,
+        poll: usize,
         write: usize,
         kill: usize,
+        list: usize,
         log: usize,
     }
 
@@ -372,6 +400,7 @@ mod tests {
         }
 
         fn poll(&self, session_id: &str) -> anyhow::Result<ProcessPollResult> {
+            self.calls.lock().expect("calls lock poisoned").poll += 1;
             Ok(ProcessPollResult {
                 session_id: session_id.to_string(),
                 output: String::new(),
@@ -391,6 +420,7 @@ mod tests {
         }
 
         fn list(&self) -> anyhow::Result<Vec<ProcessSessionInfo>> {
+            self.calls.lock().expect("calls lock poisoned").list += 1;
             Ok(Vec::new())
         }
 
@@ -477,10 +507,15 @@ mod tests {
             .execute(json!({"action": "write", "session_id": "session-1", "data": "input"}))
             .await
             .unwrap();
+        let poll = tool
+            .execute(json!({"action": "poll", "session_id": "session-1"}))
+            .await
+            .unwrap();
         let kill = tool
             .execute(json!({"action": "kill", "session_id": "session-1"}))
             .await
             .unwrap();
+        let list = tool.execute(json!({"action": "list"})).await.unwrap();
         let log = tool
             .execute(json!({"action": "log", "session_id": "session-1"}))
             .await
@@ -488,18 +523,22 @@ mod tests {
 
         assert!(spawn.success);
         assert!(write.success);
+        assert!(poll.success);
         assert!(kill.success);
+        assert!(list.success);
         assert!(log.success);
 
         let calls = calls.lock().expect("calls lock poisoned");
         assert_eq!(calls.spawn, 1);
+        assert_eq!(calls.poll, 1);
         assert_eq!(calls.write, 1);
         assert_eq!(calls.kill, 1);
+        assert_eq!(calls.list, 1);
         assert_eq!(calls.log, 1);
     }
 
     #[tokio::test]
-    async fn process_tool_applies_security_gate_to_spawn_write_kill_and_log() {
+    async fn process_tool_applies_security_gate_to_all_operations() {
         let calls = Arc::new(Mutex::new(ProcessCallCounts::default()));
         let manager = Arc::new(CountingProcessManager::new(calls.clone()));
         let actions = Arc::new(Mutex::new(Vec::new()));
@@ -517,10 +556,15 @@ mod tests {
             .execute(json!({"action": "write", "session_id": "session-1", "data": "input"}))
             .await
             .unwrap();
+        let poll = tool
+            .execute(json!({"action": "poll", "session_id": "session-1"}))
+            .await
+            .unwrap();
         let kill = tool
             .execute(json!({"action": "kill", "session_id": "session-1"}))
             .await
             .unwrap();
+        let list = tool.execute(json!({"action": "list"})).await.unwrap();
         let log = tool
             .execute(json!({"action": "log", "session_id": "session-1"}))
             .await
@@ -528,7 +572,9 @@ mod tests {
 
         assert!(!spawn.success);
         assert!(!write.success);
+        assert!(!poll.success);
         assert!(!kill.success);
+        assert!(!list.success);
         assert!(!log.success);
         assert_eq!(
             spawn.error.as_deref(),
@@ -539,7 +585,15 @@ mod tests {
             Some("Action blocked: process operation blocked")
         );
         assert_eq!(
+            poll.error.as_deref(),
+            Some("Action blocked: process operation blocked")
+        );
+        assert_eq!(
             kill.error.as_deref(),
+            Some("Action blocked: process operation blocked")
+        );
+        assert_eq!(
+            list.error.as_deref(),
             Some("Action blocked: process operation blocked")
         );
         assert_eq!(
@@ -549,8 +603,10 @@ mod tests {
 
         let calls = calls.lock().expect("calls lock poisoned");
         assert_eq!(calls.spawn, 0);
+        assert_eq!(calls.poll, 0);
         assert_eq!(calls.write, 0);
         assert_eq!(calls.kill, 0);
+        assert_eq!(calls.list, 0);
         assert_eq!(calls.log, 0);
         drop(calls);
 
@@ -559,7 +615,10 @@ mod tests {
             .iter()
             .map(|action| action.operation.as_str())
             .collect();
-        assert_eq!(operations, vec!["spawn", "write", "kill", "log"]);
+        assert_eq!(
+            operations,
+            vec!["spawn", "write", "poll", "kill", "list", "log"]
+        );
     }
 
     #[tokio::test]
