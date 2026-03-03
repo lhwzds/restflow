@@ -851,14 +851,12 @@ impl BackgroundAgentRunner {
 
         // Execute tasks up to available slots
         for task in runnable_tasks.into_iter().take(available_slots) {
-            // Skip if already running
-            if self.running_tasks.read().await.contains(&task.id) {
-                continue;
-            }
-
             // Add to running set BEFORE enqueuing to prevent duplicates.
             let task_id = task.id.clone();
-            self.running_tasks.write().await.insert(task_id.clone());
+            let inserted = self.running_tasks.write().await.insert(task_id.clone());
+            if !inserted {
+                continue;
+            }
             let (cancel_tx, cancel_rx) = oneshot::channel();
             self.cancel_senders
                 .write()
@@ -878,74 +876,76 @@ impl BackgroundAgentRunner {
 
     /// Run a task immediately, bypassing schedule check
     async fn run_task_immediate(&self, task_id: &str) {
-        // Check if already running
-        if self.running_tasks.read().await.contains(task_id) {
-            warn!("Task {} is already running", task_id);
-            return;
-        }
-
-        // Check concurrency limit
-        let running_count = self.running_tasks.read().await.len();
-        if running_count >= self.config.max_concurrent_tasks {
-            warn!(
-                "Cannot run task {} - max concurrent tasks ({}) reached",
-                task_id, self.config.max_concurrent_tasks
-            );
-            return;
+        let task_id_owned = task_id.to_string();
+        {
+            let mut running_tasks = self.running_tasks.write().await;
+            if running_tasks.contains(task_id) {
+                warn!("Task {} is already running", task_id);
+                return;
+            }
+            if running_tasks.len() >= self.config.max_concurrent_tasks {
+                warn!(
+                    "Cannot run task {} - max concurrent tasks ({}) reached",
+                    task_id, self.config.max_concurrent_tasks
+                );
+                return;
+            }
+            running_tasks.insert(task_id_owned.clone());
         }
 
         // Verify task exists and is not paused/completed
-        match self.storage.get_task(task_id) {
+        match self.storage.get_task(&task_id_owned) {
             Ok(Some(task)) => {
                 if task.status == BackgroundAgentStatus::Paused {
                     warn!("Cannot run paused task {}", task_id);
+                    self.cleanup_task_tracking(&task_id_owned).await;
                     return;
                 }
                 if task.status == BackgroundAgentStatus::Completed {
                     warn!("Cannot run completed task {}", task_id);
+                    self.cleanup_task_tracking(&task_id_owned).await;
                     return;
                 }
             }
             Ok(None) => {
                 warn!("Task {} not found", task_id);
+                self.cleanup_task_tracking(&task_id_owned).await;
                 return;
             }
             Err(e) => {
                 error!("Failed to get task {}: {}", task_id, e);
+                self.cleanup_task_tracking(&task_id_owned).await;
                 return;
             }
         }
 
-        // Add to running set BEFORE enqueuing to prevent duplicates.
-        let task_id = task_id.to_string();
-        self.running_tasks.write().await.insert(task_id.clone());
         let (cancel_tx, cancel_rx) = oneshot::channel();
         self.cancel_senders
             .write()
             .await
-            .insert(task_id.clone(), cancel_tx);
+            .insert(task_id_owned.clone(), cancel_tx);
         self.pending_cancel_receivers
             .write()
             .await
-            .insert(task_id.clone(), cancel_rx);
+            .insert(task_id_owned.clone(), cancel_rx);
 
-        let task = match self.storage.get_task(&task_id) {
+        let task = match self.storage.get_task(&task_id_owned) {
             Ok(Some(task)) => task,
             Ok(None) => {
-                warn!("Task {} not found", task_id);
-                self.cleanup_task_tracking(&task_id).await;
+                warn!("Task {} not found", task_id_owned);
+                self.cleanup_task_tracking(&task_id_owned).await;
                 return;
             }
             Err(e) => {
-                error!("Failed to load task {}: {}", task_id, e);
-                self.cleanup_task_tracking(&task_id).await;
+                error!("Failed to load task {}: {}", task_id_owned, e);
+                self.cleanup_task_tracking(&task_id_owned).await;
                 return;
             }
         };
 
         if let Err(err) = self.task_queue.submit(task, TaskPriority::High).await {
-            warn!("Failed to enqueue task {}: {:?}", task_id, err);
-            self.cleanup_task_tracking(&task_id).await;
+            warn!("Failed to enqueue task {}: {:?}", task_id_owned, err);
+            self.cleanup_task_tracking(&task_id_owned).await;
         }
     }
 
