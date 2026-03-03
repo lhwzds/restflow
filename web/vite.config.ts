@@ -13,6 +13,52 @@ export default defineConfig({
     __INTLIFY_DROP_MESSAGE_COMPILER__: false,
     __INTLIFY_PROD_DEVTOOLS__: false,
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Core Vue ecosystem
+          'vue-vendor': ['vue', 'vue-router', 'pinia'],
+          // Shiki highlighter - lazy loaded syntax highlighting
+          'shiki': [
+            'shiki/core',
+            'shiki/engine/javascript',
+            '@shikijs/core',
+            '@shikijs/engine-javascript',
+            '@shikijs/types',
+            '@shikijs/vscode-textmate',
+          ],
+          // CodeMirror editor
+          'codemirror': [
+            '@codemirror/autocomplete',
+            '@codemirror/commands',
+            '@codemirror/lang-javascript',
+            '@codemirror/language',
+            '@codemirror/state',
+            '@codemirror/view',
+          ],
+          // Vue Flow diagram library
+          'vue-flow': [
+            '@vue-flow/background',
+            '@vue-flow/controls',
+            '@vue-flow/core',
+            '@vue-flow/minimap',
+          ],
+          // Terminal emulator
+          'xterm': [
+            '@xterm/xterm',
+            '@xterm/addon-fit',
+            '@xterm/addon-unicode11',
+            '@xterm/addon-webgl',
+          ],
+          // Markdown processing
+          'markdown': ['marked'],
+          // UI utilities
+          'ui-utils': ['@vueuse/core', 'clsx', 'tailwind-merge', 'class-variance-authority'],
+        },
+      },
+    },
+  },
   server: {
     port: 5173,
     strictPort: true,
