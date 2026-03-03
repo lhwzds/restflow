@@ -297,7 +297,7 @@ describe('Marketplace API', () => {
 
     const featured = await getFeaturedMarketplaceSkills()
 
-    expect(featured.at(0)?.manifest.id).toBe('skill-1')
+    expect(featured[0]?.manifest.id).toBe('skill-1')
   })
 
   it('updates skill via overwrite install', async () => {

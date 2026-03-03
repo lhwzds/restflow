@@ -71,7 +71,7 @@ describe('Hooks API', () => {
     const result = await hooksApi.listHooksForEvent('task_started')
 
     expect(result).toHaveLength(1)
-    expect(result.at(0)?.id).toBe('h1')
+    expect(result[0]?.id).toBe('h1')
   })
 
   it('creates a hook', async () => {
