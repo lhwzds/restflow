@@ -894,12 +894,16 @@ pub struct IpcClient;
 
 #[cfg(not(unix))]
 impl IpcClient {
+    fn unsupported<T>() -> Result<T> {
+        Err(anyhow::anyhow!("IPC is not supported on this platform"))
+    }
+
     pub async fn connect(_socket_path: &Path) -> Result<Self> {
-        bail!("IPC is not supported on this platform")
+        Self::unsupported()
     }
 
     pub async fn request(&mut self, _req: IpcRequest) -> Result<IpcResponse> {
-        bail!("IPC is not supported on this platform")
+        Self::unsupported()
     }
 
     pub async fn ping(&mut self) -> bool {
@@ -907,11 +911,11 @@ impl IpcClient {
     }
 
     pub async fn get_status(&mut self) -> Result<IpcDaemonStatus> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     async fn request_typed<T: DeserializeOwned>(&mut self, _req: IpcRequest) -> Result<T> {
-        bail!("IPC is not supported on this platform")
+        Self::unsupported()
     }
 
     pub async fn search_memory(
@@ -920,15 +924,15 @@ impl IpcClient {
         _agent_id: Option<String>,
         _limit: Option<u32>,
     ) -> Result<MemorySearchResult> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_skills(&mut self) -> Result<Vec<Skill>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_skill(&mut self, _id: String) -> Result<Option<Skill>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_skill_reference(
@@ -936,27 +940,27 @@ impl IpcClient {
         _skill_id: String,
         _ref_id: String,
     ) -> Result<Option<String>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn create_skill(&mut self, _skill: Skill) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn update_skill(&mut self, _id: String, _skill: Skill) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn delete_skill(&mut self, _id: String) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_agents(&mut self) -> Result<Vec<StoredAgent>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_agent(&mut self, _id: String) -> Result<StoredAgent> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn search_memory_ranked(
@@ -965,11 +969,11 @@ impl IpcClient {
         _min_score: Option<f64>,
         _scoring_preset: Option<String>,
     ) -> Result<crate::memory::RankedSearchResult> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_memory_chunk(&mut self, _id: String) -> Result<Option<MemoryChunk>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_memory(
@@ -977,7 +981,7 @@ impl IpcClient {
         _agent_id: Option<String>,
         _tag: Option<String>,
     ) -> Result<Vec<MemoryChunk>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn add_memory(
@@ -986,38 +990,38 @@ impl IpcClient {
         _agent_id: Option<String>,
         _tags: Vec<String>,
     ) -> Result<String> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn create_memory_chunk(&mut self, _chunk: MemoryChunk) -> Result<MemoryChunk> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_memory_by_session(
         &mut self,
         _session_id: String,
     ) -> Result<Vec<MemoryChunk>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn delete_memory(&mut self, _id: String) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn clear_memory(&mut self, _agent_id: Option<String>) -> Result<u32> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_memory_stats(&mut self, _agent_id: Option<String>) -> Result<MemoryStats> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn export_memory(&mut self, _agent_id: Option<String>) -> Result<ExportResult> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn export_memory_session(&mut self, _session_id: String) -> Result<ExportResult> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn export_memory_advanced(
@@ -1030,25 +1034,25 @@ impl IpcClient {
         _include_source: Option<bool>,
         _include_tags: Option<bool>,
     ) -> Result<ExportResult> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_memory_session(
         &mut self,
         _session_id: String,
     ) -> Result<Option<MemorySession>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_memory_sessions(&mut self, _agent_id: String) -> Result<Vec<MemorySession>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn create_memory_session(
         &mut self,
         _session: MemorySession,
     ) -> Result<MemorySession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn delete_memory_session(
@@ -1056,35 +1060,35 @@ impl IpcClient {
         _session_id: String,
         _delete_chunks: bool,
     ) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_sessions(&mut self) -> Result<Vec<ChatSessionSummary>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_full_sessions(&mut self) -> Result<Vec<ChatSession>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_sessions_by_agent(&mut self, _agent_id: String) -> Result<Vec<ChatSession>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_sessions_by_skill(&mut self, _skill_id: String) -> Result<Vec<ChatSession>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn count_sessions(&mut self) -> Result<usize> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn delete_sessions_older_than(&mut self, _older_than_ms: i64) -> Result<usize> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_session(&mut self, _id: String) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn create_session(
@@ -1094,7 +1098,7 @@ impl IpcClient {
         _name: Option<String>,
         _skill_id: Option<String>,
     ) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn update_session(
@@ -1102,23 +1106,23 @@ impl IpcClient {
         _id: String,
         _updates: ChatSessionUpdate,
     ) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn rename_session(&mut self, _id: String, _name: String) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn archive_session(&mut self, _id: String) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn delete_session(&mut self, _id: String) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn search_sessions(&mut self, _query: String) -> Result<Vec<ChatSessionSummary>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn add_message(
@@ -1127,7 +1131,7 @@ impl IpcClient {
         _role: ChatRole,
         _content: String,
     ) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn append_message(
@@ -1135,7 +1139,7 @@ impl IpcClient {
         _session_id: String,
         _message: ChatMessage,
     ) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn execute_chat_session(
@@ -1143,7 +1147,7 @@ impl IpcClient {
         _session_id: String,
         _user_input: Option<String>,
     ) -> Result<ChatSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn execute_chat_session_stream<F>(
@@ -1156,11 +1160,11 @@ impl IpcClient {
     where
         F: FnMut(StreamFrame) -> Result<()>,
     {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn cancel_chat_session_stream(&mut self, _stream_id: String) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn steer_chat_session_stream(
@@ -1168,7 +1172,7 @@ impl IpcClient {
         _session_id: String,
         _instruction: String,
     ) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_session_messages(
@@ -1176,7 +1180,7 @@ impl IpcClient {
         _session_id: String,
         _limit: Option<usize>,
     ) -> Result<Vec<ChatMessage>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_tool_traces(
@@ -1185,19 +1189,19 @@ impl IpcClient {
         _turn_id: Option<String>,
         _limit: Option<usize>,
     ) -> Result<Vec<crate::models::ToolTrace>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_terminal_sessions(&mut self) -> Result<Vec<TerminalSession>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_terminal_session(&mut self, _id: String) -> Result<TerminalSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn create_terminal_session(&mut self) -> Result<TerminalSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn rename_terminal_session(
@@ -1205,7 +1209,7 @@ impl IpcClient {
         _id: String,
         _name: String,
     ) -> Result<TerminalSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn update_terminal_session(
@@ -1215,30 +1219,30 @@ impl IpcClient {
         _working_directory: Option<String>,
         _startup_command: Option<String>,
     ) -> Result<TerminalSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn save_terminal_session(
         &mut self,
         _session: TerminalSession,
     ) -> Result<TerminalSession> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn delete_terminal_session(&mut self, _id: String) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn mark_all_terminal_sessions_stopped(&mut self) -> Result<usize> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_auth_profiles(&mut self) -> Result<Vec<AuthProfile>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_auth_profile(&mut self, _id: String) -> Result<AuthProfile> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn add_auth_profile(
@@ -1248,11 +1252,11 @@ impl IpcClient {
         _source: CredentialSource,
         _provider: AuthProvider,
     ) -> Result<AuthProfile> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn remove_auth_profile(&mut self, _id: String) -> Result<AuthProfile> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn update_auth_profile(
@@ -1260,61 +1264,61 @@ impl IpcClient {
         _id: String,
         _updates: ProfileUpdate,
     ) -> Result<AuthProfile> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn discover_auth(&mut self) -> Result<crate::auth::DiscoverySummary> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn enable_auth_profile(&mut self, _id: String) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn disable_auth_profile(&mut self, _id: String, _reason: String) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_api_key(&mut self, _provider: AuthProvider) -> Result<String> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_api_key_for_profile(&mut self, _id: String) -> Result<String> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn test_auth_profile(&mut self, _id: String) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn mark_auth_success(&mut self, _id: String) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn mark_auth_failure(&mut self, _id: String) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn clear_auth_profiles(&mut self) -> Result<()> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn list_background_agents(
         &mut self,
         _status: Option<String>,
     ) -> Result<Vec<BackgroundAgent>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_background_agent(&mut self, _id: String) -> Result<Option<BackgroundAgent>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn create_background_agent(
         &mut self,
         _spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn update_background_agent(
@@ -1322,11 +1326,11 @@ impl IpcClient {
         _id: String,
         _patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn delete_background_agent(&mut self, _id: String) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn control_background_agent(
@@ -1334,14 +1338,14 @@ impl IpcClient {
         _id: String,
         _action: BackgroundAgentControlAction,
     ) -> Result<BackgroundAgent> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_background_agent_history(
         &mut self,
         _id: String,
     ) -> Result<Vec<BackgroundAgentEvent>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn subscribe_background_agent_events<F>(
@@ -1352,19 +1356,19 @@ impl IpcClient {
     where
         F: FnMut(TaskStreamEvent) -> Result<()>,
     {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn build_agent_system_prompt(&mut self, _agent_node: AgentNode) -> Result<String> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn init_python(&mut self) -> Result<bool> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn get_available_tool_definitions(&mut self) -> Result<Vec<ToolDefinition>> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 
     pub async fn execute_tool(
@@ -1372,7 +1376,7 @@ impl IpcClient {
         _name: String,
         _input: serde_json::Value,
     ) -> Result<ToolExecutionResult> {
-        self.request_typed(IpcRequest::Ping).await
+        Self::unsupported()
     }
 }
 
