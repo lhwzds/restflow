@@ -2876,6 +2876,231 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_runner_run_task_now_deduplicates_same_task() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::with_delay(500));
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let config = RunnerConfig {
+            poll_interval_ms: 10_000,
+            max_concurrent_tasks: 4,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        let future_time = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let mut task = storage
+            .create_task(
+                "Dedup Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once {
+                    run_at: future_time,
+                },
+            )
+            .unwrap();
+        task.input = Some("dedup input".to_string());
+        storage.update_task(&task).unwrap();
+
+        // Fire duplicate run-now commands while the first execution is still running.
+        let task_id = task.id.clone();
+        let first = handle.run_task_now(task_id.clone());
+        let second = handle.run_task_now(task_id);
+        let _ = tokio::join!(first, second);
+
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(executor.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_runner_run_task_now_missing_task_does_not_leak_tracking() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let config = RunnerConfig {
+            poll_interval_ms: 10_000,
+            max_concurrent_tasks: 2,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage,
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+        handle
+            .run_task_now("missing-task-id".to_string())
+            .await
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(executor.call_count(), 0);
+        assert_eq!(runner.running_task_count().await, 0);
+        assert!(runner.running_task_ids().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_runner_run_task_now_paused_task_does_not_leak_tracking() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let config = RunnerConfig {
+            poll_interval_ms: 10_000,
+            max_concurrent_tasks: 2,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        let task = storage
+            .create_task(
+                "Paused Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::default(),
+            )
+            .unwrap();
+        storage.pause_task(&task.id).unwrap();
+
+        handle.run_task_now(task.id).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(executor.call_count(), 0);
+        assert_eq!(runner.running_task_count().await, 0);
+        assert!(runner.running_task_ids().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_runner_run_task_now_completed_task_does_not_leak_tracking() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let config = RunnerConfig {
+            poll_interval_ms: 10_000,
+            max_concurrent_tasks: 2,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        let task = storage
+            .create_task(
+                "Completed Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::default(),
+            )
+            .unwrap();
+        storage
+            .complete_task_execution(&task.id, Some("done".to_string()), 10)
+            .unwrap();
+
+        handle.run_task_now(task.id).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(150)).await;
+        handle.stop().await.unwrap();
+
+        assert_eq!(executor.call_count(), 0);
+        assert_eq!(runner.running_task_count().await, 0);
+        assert!(runner.running_task_ids().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_runner_run_task_now_respects_concurrency_guard() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::with_delay(500));
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let config = RunnerConfig {
+            poll_interval_ms: 10_000,
+            max_concurrent_tasks: 1,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        let future_time = chrono::Utc::now().timestamp_millis() + 3_600_000;
+        let mut task_a = storage
+            .create_task(
+                "Concurrency Task A".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once {
+                    run_at: future_time,
+                },
+            )
+            .unwrap();
+        task_a.input = Some("A".to_string());
+        storage.update_task(&task_a).unwrap();
+
+        let mut task_b = storage
+            .create_task(
+                "Concurrency Task B".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once {
+                    run_at: future_time,
+                },
+            )
+            .unwrap();
+        task_b.input = Some("B".to_string());
+        storage.update_task(&task_b).unwrap();
+
+        handle.run_task_now(task_a.id.clone()).await.unwrap();
+        handle.run_task_now(task_b.id.clone()).await.unwrap();
+
+        tokio::time::sleep(Duration::from_millis(800)).await;
+        handle.stop().await.unwrap();
+
+        // Task B is intentionally dropped by run-now guard when max concurrency is reached.
+        assert_eq!(executor.call_count(), 1);
+    }
+
+    #[tokio::test]
     async fn test_resume_from_checkpoint_reject_keeps_task_paused() {
         let (storage, _temp_dir) = create_test_storage();
         let executor = Arc::new(MockExecutor::new());
