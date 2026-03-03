@@ -673,11 +673,27 @@ struct IpcBackend {
 }
 
 impl IpcBackend {
+    fn format_ipc_error(code: i32, message: &str, details: Option<Value>) -> String {
+        match details {
+            Some(details) => serde_json::json!({
+                "code": code,
+                "message": message,
+                "details": details
+            })
+            .to_string(),
+            None => format!("IPC error {}: {}", code, message),
+        }
+    }
+
     async fn request_typed<T: DeserializeOwned>(&self, req: IpcRequest) -> Result<T, String> {
         let mut client = self.client.lock().await;
         match client.request(req).await.map_err(|e| e.to_string())? {
             IpcResponse::Success(value) => serde_json::from_value(value).map_err(|e| e.to_string()),
-            IpcResponse::Error { code, message } => Err(format!("IPC error {}: {}", code, message)),
+            IpcResponse::Error {
+                code,
+                message,
+                details,
+            } => Err(Self::format_ipc_error(code, &message, details)),
             IpcResponse::Pong => Err("Unexpected IPC pong response".to_string()),
         }
     }
@@ -2777,6 +2793,8 @@ mod tests {
     };
     use crate::prompt_files;
     use crate::storage::agent::StoredAgent;
+    use rmcp::ClientHandler;
+    use rmcp::model::ClientInfo;
     use std::time::Instant;
     use tempfile::TempDir;
     use tokio::time::{Duration, sleep};
@@ -3731,6 +3749,54 @@ mod tests {
         }
     }
 
+    #[derive(Debug, Clone, Default)]
+    struct DummyClientHandler;
+
+    impl ClientHandler for DummyClientHandler {
+        fn get_info(&self) -> ClientInfo {
+            ClientInfo::default()
+        }
+    }
+
+    async fn call_tool_through_mcp(
+        server: RestFlowMcpServer,
+        name: &str,
+        arguments: serde_json::Value,
+    ) -> CallToolResult {
+        let (server_transport, client_transport) = tokio::io::duplex(4096);
+        let server_handle = tokio::spawn(async move {
+            server.serve(server_transport).await?.waiting().await?;
+            anyhow::Ok(())
+        });
+
+        let client = DummyClientHandler
+            .serve(client_transport)
+            .await
+            .expect("client should connect to server");
+
+        let arguments = match arguments {
+            Value::Object(map) => Some(map),
+            _ => None,
+        };
+        let result = client
+            .call_tool(CallToolRequestParams {
+                name: name.to_string().into(),
+                arguments,
+                meta: None,
+                task: None,
+            })
+            .await
+            .expect("tool call should return a result");
+
+        client.cancel().await.expect("client cancel should succeed");
+        server_handle
+            .await
+            .expect("server task should join")
+            .expect("server should shut down cleanly");
+
+        result
+    }
+
     #[async_trait::async_trait]
     impl McpBackend for MockBackend {
         async fn list_skills(&self) -> Result<Vec<Skill>, String> {
@@ -3821,6 +3887,17 @@ mod tests {
         }
 
         async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
+            if id == "structured-ipc-error" {
+                return Err(serde_json::json!({
+                    "code": 409,
+                    "message": "session conflict",
+                    "details": {
+                        "error_kind": "session_lifecycle",
+                        "status_code": 409
+                    }
+                })
+                .to_string());
+            }
             if self.session.id == id {
                 Ok(self.session.clone())
             } else {
@@ -3976,16 +4053,30 @@ mod tests {
         }
 
         async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
-            Ok(vec![RuntimeToolDefinition {
-                name: "echo_runtime".to_string(),
-                description: "Echo the input payload.".to_string(),
-                parameters: serde_json::json!({
-                    "type": "object",
-                    "properties": {
-                        "value": { "type": "string" }
-                    }
-                }),
-            }])
+            Ok(vec![
+                RuntimeToolDefinition {
+                    name: "echo_runtime".to_string(),
+                    description: "Echo the input payload.".to_string(),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "value": { "type": "string" }
+                        }
+                    }),
+                },
+                RuntimeToolDefinition {
+                    name: "send_email".to_string(),
+                    description: "Send an email.".to_string(),
+                    parameters: serde_json::json!({
+                        "type": "object",
+                        "properties": {
+                            "to": { "type": "string" },
+                            "subject": { "type": "string" },
+                            "body": { "type": "string" }
+                        }
+                    }),
+                },
+            ])
         }
 
         async fn execute_runtime_tool(
@@ -4011,6 +4102,18 @@ mod tests {
                         "stderr": "err"
                     }),
                     error: Some("Command exited with code 7".to_string()),
+                    error_category: Some(ToolErrorCategory::Execution),
+                    retryable: Some(false),
+                    retry_after_ms: None,
+                })
+            } else if name == "send_email" {
+                Ok(RuntimeToolResult {
+                    success: false,
+                    result: serde_json::json!({
+                        "provider": "smtp",
+                        "status": 550
+                    }),
+                    error: Some("Mailbox unavailable".to_string()),
                     error_category: Some(ToolErrorCategory::Execution),
                     retryable: Some(false),
                     retry_after_ms: None,
@@ -4254,6 +4357,96 @@ mod tests {
 
         assert_eq!(value.is_error, Some(true));
         assert_eq!(value.structured_content, Some(payload));
+    }
+
+    #[tokio::test]
+    async fn test_call_tool_sets_structured_content_for_json_runtime_error() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let result = call_tool_through_mcp(server, "fail_runtime", serde_json::json!({})).await;
+
+        assert_eq!(result.is_error, Some(true));
+        assert!(result.structured_content.is_some());
+        let structured = result
+            .structured_content
+            .expect("structured payload should exist");
+        assert_eq!(structured["tool"], "fail_runtime");
+        assert_eq!(structured["error"], "Command exited with code 7");
+        assert_eq!(structured["error_category"], "Execution");
+    }
+
+    #[tokio::test]
+    async fn test_call_tool_keeps_text_only_for_non_json_runtime_error() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let result = call_tool_through_mcp(server, "unknown_runtime", serde_json::json!({})).await;
+
+        assert_eq!(result.is_error, Some(true));
+        assert_eq!(result.structured_content, None);
+        let text = result
+            .content
+            .first()
+            .and_then(|content| content.raw.as_text())
+            .map(|text| text.text.as_str())
+            .expect("error response should include text content");
+        assert!(text.contains("Unknown runtime tool: unknown_runtime"));
+    }
+
+    #[tokio::test]
+    async fn test_call_tool_alias_path_preserves_structured_runtime_error_contract() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+
+        let direct = call_tool_through_mcp(
+            server.clone(),
+            "send_email",
+            serde_json::json!({
+                "to": "a@example.com",
+                "subject": "s",
+                "body": "b"
+            }),
+        )
+        .await;
+        let alias = call_tool_through_mcp(
+            server,
+            "email",
+            serde_json::json!({
+                "to": "a@example.com",
+                "subject": "s",
+                "body": "b"
+            }),
+        )
+        .await;
+
+        assert_eq!(direct.is_error, Some(true));
+        assert_eq!(alias.is_error, Some(true));
+        assert_eq!(alias.structured_content, direct.structured_content);
+        assert_eq!(
+            alias.structured_content.as_ref().unwrap()["tool"],
+            "send_email"
+        );
+        assert_eq!(
+            alias.structured_content.as_ref().unwrap()["error"],
+            "Mailbox unavailable"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_call_tool_preserves_structured_content_for_non_runtime_backend_error() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let result = call_tool_through_mcp(
+            server,
+            "chat_session_get",
+            serde_json::json!({
+                "id": "structured-ipc-error"
+            }),
+        )
+        .await;
+
+        assert_eq!(result.is_error, Some(true));
+        let structured = result
+            .structured_content
+            .expect("structured payload should exist");
+        assert_eq!(structured["code"], 409);
+        assert_eq!(structured["message"], "session conflict");
+        assert_eq!(structured["details"]["error_kind"], "session_lifecycle");
     }
 
     #[tokio::test]
