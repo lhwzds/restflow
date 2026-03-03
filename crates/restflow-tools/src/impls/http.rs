@@ -72,6 +72,11 @@ impl HttpTool {
         Ok(())
     }
 
+    fn check_redirect_network_allowlist(&self, url: &str) -> std::result::Result<(), String> {
+        self.check_network_allowlist(url)
+            .map_err(|e| format!("Redirect target blocked by network allowlist: {}", e))
+    }
+
     fn classify_status(status: u16) -> (ToolErrorCategory, bool) {
         match status {
             401 | 403 => (ToolErrorCategory::Auth, false),
@@ -152,7 +157,7 @@ impl Tool for HttpTool {
         };
 
         let action = ToolAction {
-            tool_name: "http".to_string(),
+            tool_name: self.name().to_string(),
             operation: params.method.to_lowercase(),
             target: params.url.clone(),
             summary: format!("HTTP {} {}", params.method.to_uppercase(), params.url),
@@ -256,6 +261,10 @@ impl Tool for HttpTool {
                             }
                         };
 
+                        if let Err(e) = self.check_redirect_network_allowlist(&redirect_url) {
+                            return Ok(ToolOutput::non_retryable_error(e, ToolErrorCategory::Auth));
+                        }
+
                         let (new_parsed, new_addr) =
                             match resolve_and_validate_url(&redirect_url).await {
                                 Ok(v) => v,
@@ -327,7 +336,10 @@ impl Tool for HttpTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::SecurityDecision;
     use crate::security::validate_url;
+    use async_trait::async_trait;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn test_http_tool_schema() {
@@ -363,5 +375,87 @@ mod tests {
     fn test_url_validation_public_allowed() {
         assert!(validate_url("https://example.com/").is_ok());
         assert!(validate_url("http://8.8.8.8/").is_ok());
+    }
+
+    #[test]
+    fn test_redirect_allowlist_check_rejects_disallowed_target() {
+        let allowlist = NetworkAllowlist::new(vec![NetworkEcosystem::Custom(vec![
+            "example.com".to_string(),
+        ])]);
+        let tool = HttpTool::new().unwrap().with_network_allowlist(allowlist);
+
+        let err = tool
+            .check_redirect_network_allowlist("https://evil.example.org/next")
+            .unwrap_err();
+        assert!(err.starts_with("Redirect target blocked by network allowlist:"));
+    }
+
+    #[test]
+    fn test_redirect_allowlist_check_allows_listed_target() {
+        let allowlist = NetworkAllowlist::new(vec![NetworkEcosystem::Custom(vec![
+            "example.com".to_string(),
+        ])]);
+        let tool = HttpTool::new().unwrap().with_network_allowlist(allowlist);
+
+        assert!(
+            tool.check_redirect_network_allowlist("https://api.example.com/next")
+                .is_ok()
+        );
+    }
+
+    struct RecordingGate {
+        calls: Arc<Mutex<Vec<ToolAction>>>,
+    }
+
+    impl RecordingGate {
+        fn new(calls: Arc<Mutex<Vec<ToolAction>>>) -> Self {
+            Self { calls }
+        }
+    }
+
+    #[async_trait]
+    impl SecurityGate for RecordingGate {
+        async fn check_command(
+            &self,
+            _command: &str,
+            _task_id: &str,
+            _agent_id: &str,
+            _workdir: Option<&str>,
+        ) -> crate::Result<SecurityDecision> {
+            Ok(SecurityDecision::allowed(None))
+        }
+
+        async fn check_tool_action(
+            &self,
+            action: &ToolAction,
+            _agent_id: Option<&str>,
+            _task_id: Option<&str>,
+        ) -> crate::Result<SecurityDecision> {
+            self.calls.lock().unwrap().push(action.clone());
+            Ok(SecurityDecision::blocked(Some("blocked".to_string())))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_http_security_action_uses_consistent_tool_name() {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        let gate = Arc::new(RecordingGate::new(calls.clone()));
+        let tool = HttpTool::new()
+            .unwrap()
+            .with_security(gate, "agent-1", "task-1");
+
+        let output = tool
+            .execute(json!({
+                "method": "GET",
+                "url": "http://8.8.8.8/"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        let calls = calls.lock().unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].tool_name, "http_request");
+        assert_eq!(calls[0].operation, "get");
     }
 }
