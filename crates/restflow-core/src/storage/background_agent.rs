@@ -440,6 +440,9 @@ impl BackgroundAgentStorage {
                             "Failed to persist repaired next_run_at for task {}: {}",
                             task.id, err
                         );
+                        // Skip scheduling decisions for tasks whose repaired state
+                        // failed to persist to storage.
+                        continue;
                     }
                 }
             }
