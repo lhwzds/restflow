@@ -189,6 +189,22 @@ describe('useChatStream', () => {
     wrapper.unmount()
   })
 
+  it('rejects duplicate send while a stream is already in progress', async () => {
+    const wrapper = createHarness()
+    const vm = wrapper.vm as unknown as {
+      stream: ReturnType<typeof useChatStream>
+    }
+
+    vm.stream.state.value.isStreaming = true
+
+    await expect(vm.stream.send('duplicate')).rejects.toThrow(
+      'Streaming response is already in progress',
+    )
+    expect(sendChatMessageStream).not.toHaveBeenCalled()
+
+    wrapper.unmount()
+  })
+
   it('replays persisted tool steps after completion', async () => {
     vi.mocked(sendChatMessageStream).mockResolvedValue('msg-3')
     vi.mocked(listToolTraces).mockResolvedValue([
