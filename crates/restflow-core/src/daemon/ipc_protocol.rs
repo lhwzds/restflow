@@ -1103,6 +1103,30 @@ mod tests {
     }
 
     #[test]
+    fn test_tool_execution_result_serialization_preserves_error_metadata() {
+        let result = ToolExecutionResult {
+            success: false,
+            result: serde_json::json!({
+                "stderr": "permission denied"
+            }),
+            error: Some("execution failed".to_string()),
+            error_category: Some(ToolErrorCategory::Execution),
+            retryable: Some(false),
+            retry_after_ms: Some(2500),
+        };
+
+        let json = serde_json::to_string(&result).unwrap();
+        let parsed: ToolExecutionResult = serde_json::from_str(&json).unwrap();
+
+        assert!(!parsed.success);
+        assert_eq!(parsed.error.as_deref(), Some("execution failed"));
+        assert_eq!(parsed.error_category, Some(ToolErrorCategory::Execution));
+        assert_eq!(parsed.retryable, Some(false));
+        assert_eq!(parsed.retry_after_ms, Some(2500));
+        assert_eq!(parsed.result["stderr"], "permission denied");
+    }
+
+    #[test]
     fn test_list_runnable_background_agents_serialization() {
         let request = IpcRequest::ListRunnableBackgroundAgents {
             current_time: Some(1_700_000_000_000),
