@@ -28,6 +28,7 @@ import {
   listInstalledMarketplaceSkills,
   listMarketplaceCategories,
   searchMarketplace,
+  updateMarketplaceSkill,
   uninstallMarketplaceSkill,
   type MarketplaceCategory,
   type MarketplaceSearchItem,
@@ -62,6 +63,12 @@ const categories = ref<MarketplaceCategory[]>([])
 
 const showDetailDialog = ref(false)
 const detail = ref<MarketplaceSkillDetail | null>(null)
+const showInstallDialog = ref(false)
+const installTarget = ref<MarketplaceSearchItem | null>(null)
+const installVersionOptions = ref<string[]>([])
+const selectedInstallVersion = ref('__latest__')
+
+const latestVersionValue = '__latest__'
 
 const sortOptions: Array<{ value: MarketplaceSort; label: string }> = [
   { value: 'popular', label: 'settings.marketplace.sortPopular' },
@@ -132,21 +139,78 @@ async function runSearch() {
 async function installSkill(item: MarketplaceSearchItem) {
   error.value = null
   actionInProgressId.value = item.manifest.id
-  const result = await installMarketplaceSkill({
-    id: item.manifest.id,
-    source: resolveSource(item.source),
-    overwrite: false,
-  })
-
-  if (!result.success) {
-    error.value = result.error ?? 'Install failed.'
+  try {
+    const targetSource = resolveSource(item.source)
+    const skillDetail = await getMarketplaceSkillDetail(item.manifest.id, targetSource)
+    const versions = skillDetail.versions.map((version) => formatVersion(version))
+    installVersionOptions.value = versions
+    selectedInstallVersion.value = versions[0] ?? latestVersionValue
+    installTarget.value = item
+    showInstallDialog.value = true
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+    toast.error(t('settings.marketplace.loadDetailsFailed'))
+  } finally {
     actionInProgressId.value = null
-    return
   }
+}
 
-  toast.success(t('settings.marketplace.installSuccess'))
-  await loadInstalled()
-  actionInProgressId.value = null
+function closeInstallDialog() {
+  showInstallDialog.value = false
+  installTarget.value = null
+  installVersionOptions.value = []
+  selectedInstallVersion.value = latestVersionValue
+}
+
+async function confirmInstall() {
+  if (!installTarget.value) return
+
+  const item = installTarget.value
+  error.value = null
+  actionInProgressId.value = item.manifest.id
+  try {
+    const result = await installMarketplaceSkill({
+      id: item.manifest.id,
+      source: resolveSource(item.source),
+      version: selectedInstallVersion.value === latestVersionValue ? undefined : selectedInstallVersion.value,
+      overwrite: false,
+    })
+
+    if (!result.success) {
+      error.value = result.error ?? 'Install failed.'
+      return
+    }
+
+    toast.success(t('settings.marketplace.installSuccess'))
+    await loadInstalled()
+    closeInstallDialog()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+    toast.error(t('settings.marketplace.installFailed'))
+  } finally {
+    actionInProgressId.value = null
+  }
+}
+
+async function updateSkill(skill: Skill) {
+  error.value = null
+  actionInProgressId.value = skill.id
+  try {
+    const result = await updateMarketplaceSkill(skill.id, 'marketplace')
+    if (!result.success) {
+      error.value = result.error ?? 'Update failed.'
+      return
+    }
+
+    toast.success(t('settings.marketplace.updateSuccess'))
+    await loadInstalled()
+    await runSearch()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+    toast.error(t('settings.marketplace.updateFailed'))
+  } finally {
+    actionInProgressId.value = null
+  }
 }
 
 async function uninstallSkill(id: string, name: string) {
@@ -373,6 +437,14 @@ onMounted(async () => {
                 </Button>
                 <Button
                   size="sm"
+                  variant="outline"
+                  :disabled="actionInProgressId === skill.id"
+                  @click="updateSkill(skill)"
+                >
+                  {{ t('settings.marketplace.update') }}
+                </Button>
+                <Button
+                  size="sm"
                   variant="destructive"
                   :disabled="actionInProgressId === skill.id"
                   @click="uninstallSkill(skill.id, skill.name)"
@@ -385,6 +457,44 @@ onMounted(async () => {
         </div>
       </section>
     </div>
+
+    <Dialog v-model:open="showInstallDialog">
+      <DialogContent class="max-w-[32rem]">
+        <DialogHeader>
+          <DialogTitle>{{ t('settings.marketplace.install') }}</DialogTitle>
+          <DialogDescription>
+            {{ installTarget?.manifest.name || '' }}
+          </DialogDescription>
+        </DialogHeader>
+
+        <div class="space-y-2">
+          <Label>{{ t('settings.marketplace.version') }}</Label>
+          <Select v-model="selectedInstallVersion">
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem :value="latestVersionValue">{{ t('settings.marketplace.latestVersion') }}</SelectItem>
+              <SelectItem v-for="version in installVersionOptions" :key="version" :value="version">
+                {{ version }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" @click="closeInstallDialog">
+            {{ t('common.cancel') }}
+          </Button>
+          <Button
+            :disabled="!installTarget || actionInProgressId === installTarget.manifest.id"
+            @click="confirmInstall"
+          >
+            {{ t('settings.marketplace.install') }}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
 
     <Dialog v-model:open="showDetailDialog">
       <DialogContent class="max-w-[48rem]">

@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { Skill } from '@/types/generated/Skill'
-import { invokeCommand } from '../tauri-client'
+import { invokeCommand, tauriInvoke } from '../tauri-client'
 
 vi.mock('../tauri-client', () => ({
   isTauri: vi.fn(() => true),
   invokeCommand: vi.fn(),
+  tauriInvoke: vi.fn(),
 }))
 
 const mockedInvokeCommand = vi.mocked(invokeCommand)
+const mockedTauriInvoke = vi.mocked(tauriInvoke)
 
 describe('skills API', () => {
   const mockSkill: Skill = {
@@ -87,6 +89,20 @@ describe('skills API', () => {
       await deleteSkill('skill-1')
 
       expect(mockedInvokeCommand).toHaveBeenCalledWith('deleteSkill', 'skill-1')
+    })
+  })
+
+  describe('importSkillFromJson', () => {
+    it('should invoke import_skill with json payload', async () => {
+      mockedTauriInvoke.mockResolvedValue(mockSkill)
+
+      const { importSkillFromJson } = await import('../skills')
+      const result = await importSkillFromJson('{\"id\":\"skill-1\"}')
+
+      expect(mockedTauriInvoke).toHaveBeenCalledWith('import_skill', {
+        json: '{\"id\":\"skill-1\"}',
+      })
+      expect(result).toEqual(mockSkill)
     })
   })
 })

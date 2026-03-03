@@ -7,7 +7,7 @@
  */
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { ArrowLeft, Database, Key, KeyRound, Store, Webhook } from 'lucide-vue-next'
+import { ArrowLeft, Cpu, Database, Key, KeyRound, Store, Webhook } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import SecretsSection from './SecretsSection.vue'
@@ -15,6 +15,7 @@ import AuthProfiles from './AuthProfiles.vue'
 import HooksSection from './HooksSection.vue'
 import MarketplaceSection from './MarketplaceSection.vue'
 import MemorySection from './MemorySection.vue'
+import SystemSection from './SystemSection.vue'
 
 const emit = defineEmits<{
   back: []
@@ -22,7 +23,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 
-type SettingsSection = 'secrets' | 'auth' | 'hooks' | 'marketplace' | 'memory'
+type SettingsSection = 'secrets' | 'auth' | 'hooks' | 'marketplace' | 'memory' | 'system'
 
 const activeSection = ref<SettingsSection>('secrets')
 
@@ -32,6 +33,7 @@ const navItems = computed<{ id: SettingsSection; label: string; icon: typeof Key
   { id: 'hooks', label: t('settings.panel.hooks'), icon: Webhook },
   { id: 'marketplace', label: t('settings.panel.marketplace'), icon: Store },
   { id: 'memory', label: t('settings.panel.memory'), icon: Database },
+  { id: 'system', label: t('settings.panel.system'), icon: Cpu },
 ])
 </script>
 
@@ -98,6 +100,7 @@ const navItems = computed<{ id: SettingsSection; label: string; icon: typeof Key
         <HooksSection v-else-if="activeSection === 'hooks'" />
         <MarketplaceSection v-else-if="activeSection === 'marketplace'" />
         <MemorySection v-else-if="activeSection === 'memory'" />
+        <SystemSection v-else-if="activeSection === 'system'" />
       </div>
     </div>
   </div>

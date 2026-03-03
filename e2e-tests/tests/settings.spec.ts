@@ -23,6 +23,7 @@ test.describe('Settings Panel', () => {
     await expect(page.locator('nav button', { hasText: 'Hooks' })).toBeVisible()
     await expect(page.locator('nav button', { hasText: 'Marketplace' })).toBeVisible()
     await expect(page.locator('nav button', { hasText: 'Memory' })).toBeVisible()
+    await expect(page.locator('nav button', { hasText: 'System' })).toBeVisible()
 
     // Chat layout should be hidden
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).not.toBeVisible()
@@ -73,6 +74,11 @@ test.describe('Settings Panel', () => {
     await page.locator('nav button', { hasText: 'Memory' }).click()
     const memoryBtn = page.locator('nav button', { hasText: 'Memory' })
     await expect(memoryBtn).toHaveAttribute('data-active', 'true')
+
+    // Click System
+    await page.locator('nav button', { hasText: 'System' }).click()
+    const systemBtn = page.locator('nav button', { hasText: 'System' })
+    await expect(systemBtn).toHaveAttribute('data-active', 'true')
   })
 
   test('hooks section exposes add hook action', async ({ page }) => {
@@ -99,6 +105,16 @@ test.describe('Settings Panel', () => {
     await expect(page.getByRole('button', { name: 'Delete Session' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Export Markdown' })).toBeVisible()
     await expect(page.getByRole('button', { name: 'Copy' })).toBeVisible()
+  })
+
+  test('system section exposes config and utility actions', async ({ page }) => {
+    await openSettings(page)
+    await page.locator('nav button', { hasText: 'System' }).click()
+
+    await expect(page.getByRole('button', { name: 'Load Config' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Save Config' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Check' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Import Skill' })).toBeVisible()
   })
 
   test('settings replaces entire chat layout', async ({ page }) => {

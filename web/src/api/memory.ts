@@ -51,6 +51,33 @@ export interface ExportMemoryRequest {
   include_tags?: boolean | null
 }
 
+export class UnsupportedMemoryOperationError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'UnsupportedMemoryOperationError'
+  }
+}
+
+const DELETE_AGENT_TAG_COMMANDS = [
+  'delete_memory_chunks_for_agent_and_tag',
+  'delete_memory_chunks_for_tag',
+] as const
+
+function isUnsupportedCommandError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    /unknown command/i.test(message) ||
+    /command .* not found/i.test(message) ||
+    /not implemented/i.test(message) ||
+    /missing required key/i.test(message)
+  )
+}
+
+function isMemoryDataRuntimeError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return /not found/i.test(message) || /agent/i.test(message) || /session/i.test(message)
+}
+
 /** Search memory with default scoring. */
 export async function searchMemory(query: MemorySearchQuery): Promise<RankedSearchResult> {
   return tauriInvoke('search_memory', { query })
@@ -182,6 +209,64 @@ export async function exportMemoryAdvanced(request: ExportMemoryRequest): Promis
       include_tags: request.include_tags ?? null,
     },
   })
+}
+
+/** Delete all memory chunks for one agent/tag scope (if command exists). */
+export async function deleteMemoryChunksForAgentTag(agentId: string, tag: string): Promise<number> {
+  let lastUnsupportedError: unknown
+  for (const command of DELETE_AGENT_TAG_COMMANDS) {
+    try {
+      return await tauriInvoke<number>(command, { agentId, tag })
+    } catch (error) {
+      if (isUnsupportedCommandError(error)) {
+        lastUnsupportedError = error
+        continue
+      }
+      throw error
+    }
+  }
+
+  throw new UnsupportedMemoryOperationError(
+    `Delete memory chunks by agent/tag is not supported (${String(lastUnsupportedError ?? '')})`,
+  )
+}
+
+/** Check whether advanced export command is available in current backend. */
+export async function supportsExportMemoryAdvanced(): Promise<boolean> {
+  try {
+    await exportMemoryAdvanced({
+      agent_id: '__memory_capability_probe__',
+      session_id: null,
+      preset: null,
+      include_metadata: null,
+      include_timestamps: null,
+      include_source: null,
+      include_tags: null,
+    })
+    return true
+  } catch (error) {
+    if (isUnsupportedCommandError(error)) {
+      return false
+    }
+    return !isMemoryDataRuntimeError(error)
+  }
+}
+
+/** Check whether delete-by-agent-and-tag command is available in current backend. */
+export async function supportsDeleteMemoryChunksForAgentTag(): Promise<boolean> {
+  try {
+    await deleteMemoryChunksForAgentTag('__memory_capability_probe__', '__capability_tag__')
+    return true
+  } catch (error) {
+    if (error instanceof UnsupportedMemoryOperationError) {
+      return false
+    }
+    return !isMemoryDataRuntimeError(error)
+  }
+}
+
+export function isUnsupportedMemoryOperationError(error: unknown): boolean {
+  return error instanceof UnsupportedMemoryOperationError
 }
 
 /** Build the memory tag used by background agent tasks. */

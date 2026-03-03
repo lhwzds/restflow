@@ -1,4 +1,4 @@
-import { invokeCommand } from './tauri-client'
+import { invokeCommand, tauriInvoke } from './tauri-client'
 import type { Skill } from '@/types/generated/Skill'
 
 export interface CreateSkillRequest {
@@ -20,6 +20,11 @@ export interface ExportSkillResponse {
   id: string
   filename: string
   markdown: string
+}
+
+/** Import a skill from raw JSON payload. */
+export async function importSkillFromJson(json: string): Promise<Skill> {
+  return tauriInvoke<Skill>('import_skill', { json })
 }
 
 // List all skills
