@@ -368,6 +368,8 @@ impl SecurityChecker {
             }
         }
 
+        // Default-open behavior is intentional: if no rule matches, we allow
+        // the action to preserve existing local automation workflows.
         Ok(SecurityDecision::allowed(Some(
             "Tool action allowed by default".to_string(),
         )))

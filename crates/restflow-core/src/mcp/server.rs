@@ -927,22 +927,12 @@ impl McpBackend for IpcBackend {
         session_id: &str,
         limit: usize,
     ) -> Result<Vec<crate::models::ToolTrace>, String> {
-        let result = self
-            .execute_runtime_tool(
-                "manage_background_agents",
-                serde_json::json!({
-                    "operation": "list_traces",
-                    "id": session_id,
-                    "limit": limit,
-                }),
-            )
-            .await?;
-        if !result.success {
-            return Err(result
-                .error
-                .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
-        }
-        serde_json::from_value(result.result).map_err(|e| e.to_string())
+        self.request_typed(IpcRequest::ListToolTraces {
+            session_id: session_id.to_string(),
+            turn_id: None,
+            limit: Some(limit),
+        })
+        .await
     }
 
     async fn list_tool_traces_by_turn(
@@ -951,38 +941,22 @@ impl McpBackend for IpcBackend {
         turn_id: &str,
         limit: usize,
     ) -> Result<Vec<crate::models::ToolTrace>, String> {
-        let trace_id = format!("{}:{}", session_id, turn_id);
-        let result = self
-            .execute_runtime_tool(
-                "manage_background_agents",
-                serde_json::json!({
-                    "operation": "read_trace",
-                    "trace_id": trace_id,
-                    "line_limit": limit,
-                }),
-            )
-            .await?;
-        if !result.success {
-            return Err(result
-                .error
-                .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
-        }
-        // The read_trace result has { events: [...] }
-        let events = result
-            .result
-            .get("events")
-            .cloned()
-            .unwrap_or(Value::Array(vec![]));
-        serde_json::from_value(events).map_err(|e| e.to_string())
+        self.request_typed(IpcRequest::ListToolTraces {
+            session_id: session_id.to_string(),
+            turn_id: Some(turn_id.to_string()),
+            limit: Some(limit),
+        })
+        .await
     }
 
     async fn get_background_agent(&self, id: &str) -> Result<Value, String> {
-        self.request_typed(IpcRequest::GetBackgroundAgentProgress {
-            id: id.to_string(),
-            event_limit: Some(0),
-        })
-        .await
-        .map(|progress: BackgroundProgress| serde_json::to_value(progress).unwrap_or_default())
+        let mut client = self.client.lock().await;
+        let task: Option<BackgroundAgent> = client
+            .get_background_agent(id.to_string())
+            .await
+            .map_err(|e| e.to_string())?;
+        let task = task.ok_or_else(|| format!("Task {} not found", id))?;
+        serde_json::to_value(task).map_err(|e| e.to_string())
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {

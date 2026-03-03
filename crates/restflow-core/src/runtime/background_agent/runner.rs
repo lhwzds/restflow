@@ -770,6 +770,9 @@ impl BackgroundAgentRunner {
     /// started any yet). Any Running tasks are leftovers from a previous
     /// daemon that was killed mid-execution. Reset them to Active so they
     /// can be rescheduled.
+    ///
+    /// This assumes a single active daemon per workspace/database. If multiple
+    /// daemons operate on the same storage, this recovery strategy is unsafe.
     fn recover_stale_running_tasks(&self) {
         let tasks = match self.storage.list_tasks() {
             Ok(t) => t,
