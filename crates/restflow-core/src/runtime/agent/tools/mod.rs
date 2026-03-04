@@ -307,7 +307,14 @@ pub fn registry_from_allowlist_with_security_gate(
             // --- Subagent tools ---
             "spawn_subagent" => {
                 if let Some(manager) = &subagent_manager {
-                    builder = builder.with_spawn_subagent(manager.clone());
+                    if let Some(store) = storage {
+                        builder = builder.with_spawn_subagent_with_store(
+                            manager.clone(),
+                            Arc::new(KvStoreAdapter::new(store.kv_store.clone(), None)),
+                        );
+                    } else {
+                        builder = builder.with_spawn_subagent(manager.clone());
+                    }
                 } else {
                     debug!(
                         tool_name = "spawn_subagent",

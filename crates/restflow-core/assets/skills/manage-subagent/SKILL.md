@@ -30,6 +30,7 @@ Use this skill when a task should be split into one or more specialized subagent
 
 2. Spawn subagents with explicit task boundaries.
 - Use `spawn_subagent` with a clear, testable task prompt.
+- Use `spawn_subagent` `workers` and `team` fields when you need model/count fan-out or saved team presets.
 - Prefer a single subagent unless parallel execution is clearly beneficial.
 
 3. Wait and collect results.
