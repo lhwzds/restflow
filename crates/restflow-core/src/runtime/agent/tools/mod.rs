@@ -369,7 +369,10 @@ pub fn registry_from_allowlist_with_security_gate(
                         s.agents.clone(),
                         s.deliverables.clone(),
                     ));
-                    builder.with_background_agent(store)
+                    builder.with_background_agent_and_kv(
+                        store,
+                        Arc::new(KvStoreAdapter::new(s.kv_store.clone(), None)),
+                    )
                 });
             }
             "manage_agents" => {
