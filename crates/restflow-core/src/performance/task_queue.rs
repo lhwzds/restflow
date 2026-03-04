@@ -217,7 +217,7 @@ impl TaskQueue {
     pub fn get_stats(&self) -> QueueStatsSnapshot {
         loop {
             let version_before = self.stats.snapshot_version.load(Ordering::Acquire);
-            if version_before % 2 != 0 {
+            if !version_before.is_multiple_of(2) {
                 std::hint::spin_loop();
                 continue;
             }
@@ -548,7 +548,7 @@ mod tests {
                             .expect("test task id format should be numeric");
                         queue.mark_running(&task.task.id, worker_id, task.submitted_at.elapsed());
                         // Deterministic success/failure split for invariant checks.
-                        let success = numeric_id % 4 != 0;
+                        let success = !numeric_id.is_multiple_of(4);
                         queue.mark_completed(&task.task.id, success);
                         if success {
                             succeeded.fetch_add(1, Ordering::AcqRel);

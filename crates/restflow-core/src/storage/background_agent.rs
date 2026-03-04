@@ -2356,11 +2356,16 @@ mod tests {
             .create_task(
                 "Control Runnable".to_string(),
                 "agent-001".to_string(),
-                BackgroundAgentSchedule::Once {
-                    run_at: now - 10_000,
+                BackgroundAgentSchedule::Interval {
+                    interval_ms: 60_000,
+                    start_at: None,
                 },
             )
             .unwrap();
+        let mut ready_task = storage.get_task(&ready.id).unwrap().unwrap();
+        ready_task.next_run_at = Some(now - 10_000);
+        storage.update_task(&ready_task).unwrap();
+        assert!(ready_task.should_run(now));
 
         // Inject a conflicting task with same chat_session_id by bypassing uniqueness checks.
         // This makes update_task fail during repair persistence.
