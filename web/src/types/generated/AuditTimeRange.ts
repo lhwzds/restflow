@@ -2,13 +2,7 @@
 
 /**
  * Time range of audit events
+ * @deprecated Use ExecutionTraceTimeRange instead. This alias will be removed in a future version.
+ * Re-exported from ExecutionTraceTimeRange for backward compatibility.
  */
-export type AuditTimeRange = { 
-/**
- * earliest timestamp
- */
-earliest: number, 
-/**
- * Latest timestamp
- */
-latest: number, };
+export type { ExecutionTraceTimeRange as AuditTimeRange, ExecutionTraceTimeRange } from "./ExecutionTraceTimeRange";

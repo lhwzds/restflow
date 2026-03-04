@@ -2,5 +2,7 @@
 
 /**
  * Audit event category
+ * @deprecated Use ExecutionTraceCategory instead. This alias will be removed in a future version.
+ * Re-exported from ExecutionTraceCategory for backward compatibility.
  */
-export type AuditEventCategory = "llm_call" | "tool_call" | "model_switch" | "lifecycle" | "message";
+export type { ExecutionTraceCategory as AuditEventCategory, ExecutionTraceCategory } from "./ExecutionTraceCategory";

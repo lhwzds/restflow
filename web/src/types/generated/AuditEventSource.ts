@@ -2,5 +2,7 @@
 
 /**
  * Source of the audit event
+ * @deprecated Use ExecutionTraceSource instead. This alias will be removed in a future version.
+ * Re-exported from ExecutionTraceSource for backward compatibility.
  */
-export type AuditEventSource = "agent_executor" | "runtime" | "mcp_server" | "cli";
+export type { ExecutionTraceSource as AuditEventSource, ExecutionTraceSource } from "./ExecutionTraceSource";
