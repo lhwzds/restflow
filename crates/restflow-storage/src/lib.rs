@@ -19,6 +19,7 @@ pub mod checkpoint;
 pub mod config;
 pub mod daemon_state;
 pub mod deliverable;
+pub mod execution_trace;
 pub mod kv_store;
 pub mod memory;
 pub mod memory_index;
@@ -39,7 +40,9 @@ mod simple_storage;
 pub mod time_utils;
 
 pub use agent::AgentStorage;
-pub use audit::AuditStorage as AuditStorageBackend;
+// Deprecated: Use ExecutionTraceStorageBackend instead
+pub use execution_trace::ExecutionTraceStorage as AuditStorageBackend;
+pub use execution_trace::ExecutionTraceStorage as ExecutionTraceStorageBackend;
 pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use channel_session_binding::ChannelSessionBindingStorage;
