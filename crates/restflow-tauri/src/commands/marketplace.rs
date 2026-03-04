@@ -8,10 +8,11 @@ use restflow_core::registry::{
     SkillSortOrder,
 };
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use tauri::State;
 
 /// Search request from frontend
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchRequest {
     /// Search text
@@ -33,7 +34,7 @@ pub struct SearchRequest {
 }
 
 /// Search result for frontend
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct SearchResultResponse {
     pub manifest: SkillManifest,

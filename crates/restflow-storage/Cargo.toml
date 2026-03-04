@@ -26,6 +26,7 @@ bincode = { version = "2.0", features = ["serde"] }
 dirs = "6.0"
 tantivy = "0.25"
 toml = "0.8"
+specta = { version = "=2.0.0-rc.22", features = ["derive"] }
 
 [dev-dependencies]
 tempfile = "3.25.0"

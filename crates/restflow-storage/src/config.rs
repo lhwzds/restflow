@@ -3,6 +3,7 @@
 use anyhow::{Context, Result};
 use redb::{Database, ReadableDatabase, TableDefinition};
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -41,7 +42,7 @@ const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
 
 /// Agent execution defaults (configurable at runtime via `manage_config`).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
 pub struct AgentDefaults {
     /// Timeout for a single tool execution in seconds.
@@ -193,7 +194,7 @@ impl AgentDefaults {
 }
 
 /// API-facing default limits used by MCP and adapter query operations.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
 pub struct ApiDefaults {
     /// Default `memory_search` result limit.
@@ -260,7 +261,7 @@ impl ApiDefaults {
 }
 
 /// System configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
 pub struct SystemConfig {
     pub worker_count: usize,
