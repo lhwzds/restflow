@@ -15,9 +15,10 @@ use restflow_core::channel::ChannelRouter;
 use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
 use restflow_core::process::ProcessRegistry;
 use restflow_core::steer::SteerRegistry;
+use restflow_core::storage::SystemConfig;
 use std::sync::Arc;
 use tokio::sync::{Mutex, mpsc};
-use tracing::error;
+use tracing::{error, warn};
 
 /// Application state shared across Tauri commands.
 ///
@@ -66,9 +67,9 @@ impl AppState {
         let (completion_tx, completion_rx) = mpsc::channel(100);
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
-        let subagent_config = SubagentConfig::default();
         let daemon = Arc::new(Mutex::new(DaemonManager::new()));
         let executor = Arc::new(TauriExecutor::new(daemon.clone()));
+        let subagent_config = load_subagent_config_from_executor(&executor).await;
         let steer_registry = Arc::new(SteerRegistry::new());
 
         Ok(Self {
@@ -210,6 +211,28 @@ impl AppState {
     }
 }
 
+fn subagent_config_from_system_config(config: &SystemConfig) -> SubagentConfig {
+    SubagentConfig {
+        max_parallel_agents: config.agent.max_parallel_subagents,
+        subagent_timeout_secs: config.agent.subagent_timeout_secs,
+        max_iterations: config.agent.max_iterations,
+        ..SubagentConfig::default()
+    }
+}
+
+async fn load_subagent_config_from_executor(executor: &TauriExecutor) -> SubagentConfig {
+    match executor.get_config().await {
+        Ok(config) => subagent_config_from_system_config(&config),
+        Err(error) => {
+            warn!(
+                error = %error,
+                "Failed to load daemon config for sub-agent runtime; falling back to defaults"
+            );
+            SubagentConfig::default()
+        }
+    }
+}
+
 // ============================================================================
 // BackgroundAgentTrigger Implementation
 // ============================================================================
@@ -340,5 +363,25 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
             .executor()
             .handle_background_agent_approval(task_id.to_string(), approved)
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn subagent_config_from_system_config_prefers_runtime_config() {
+        let mut config = SystemConfig::default();
+        config.agent.max_parallel_subagents = 88;
+        config.agent.subagent_timeout_secs = 7200;
+        config.agent.max_iterations = 144;
+
+        let mapped = subagent_config_from_system_config(&config);
+
+        assert_eq!(mapped.max_parallel_agents, 88);
+        assert_eq!(mapped.subagent_timeout_secs, 7200);
+        assert_eq!(mapped.max_iterations, 144);
+        assert_eq!(mapped.max_depth, SubagentConfig::default().max_depth);
     }
 }

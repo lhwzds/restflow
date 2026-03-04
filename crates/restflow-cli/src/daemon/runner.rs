@@ -283,6 +283,7 @@ fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
     SubagentConfig {
         max_parallel_agents: defaults.max_parallel_subagents,
         subagent_timeout_secs: defaults.subagent_timeout_secs,
+        max_iterations: defaults.max_iterations,
         ..SubagentConfig::default()
     }
 }
@@ -470,6 +471,21 @@ mod tests {
     };
     use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    #[test]
+    fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
+        let mut defaults = AgentDefaults::default();
+        defaults.max_parallel_subagents = 20;
+        defaults.subagent_timeout_secs = 1800;
+        defaults.max_iterations = 99;
+
+        let config = build_subagent_config(&defaults);
+
+        assert_eq!(config.max_parallel_agents, 20);
+        assert_eq!(config.subagent_timeout_secs, 1800);
+        assert_eq!(config.max_iterations, 99);
+        assert_eq!(config.max_depth, SubagentConfig::default().max_depth);
+    }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();

@@ -2291,6 +2291,7 @@ fn subagent_config_from_defaults(defaults: &AgentDefaults) -> SubagentConfig {
     SubagentConfig {
         max_parallel_agents: defaults.max_parallel_subagents,
         subagent_timeout_secs: defaults.subagent_timeout_secs,
+        max_iterations: defaults.max_iterations,
         ..SubagentConfig::default()
     }
 }
@@ -2649,6 +2650,21 @@ mod tests {
         let db_path = temp.path().join("ipc-server-test.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
         (core, temp)
+    }
+
+    #[test]
+    fn subagent_config_from_defaults_maps_max_iterations() {
+        let mut defaults = AgentDefaults::default();
+        defaults.max_parallel_subagents = 21;
+        defaults.subagent_timeout_secs = 1200;
+        defaults.max_iterations = 111;
+
+        let config = subagent_config_from_defaults(&defaults);
+
+        assert_eq!(config.max_parallel_agents, 21);
+        assert_eq!(config.subagent_timeout_secs, 1200);
+        assert_eq!(config.max_iterations, 111);
+        assert_eq!(config.max_depth, SubagentConfig::default().max_depth);
     }
 
     #[test]

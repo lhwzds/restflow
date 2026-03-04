@@ -106,6 +106,7 @@ fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
     SubagentConfig {
         max_parallel_agents: defaults.max_parallel_subagents,
         subagent_timeout_secs: defaults.subagent_timeout_secs,
+        max_iterations: defaults.max_iterations,
         ..SubagentConfig::default()
     }
 }
@@ -307,7 +308,7 @@ pub fn create_tool_registry(
         .with_deliverable(deliverable_store)
         .with_unified_search(unified_search)
         .with_ops(ops_provider)
-        .with_kv_store(kv_store)
+        .with_kv_store(kv_store.clone())
         .with_work_items(work_item_provider)
         .with_task_list(Arc::new(DbWorkItemAdapter::new(work_item_storage.clone())))
         .with_auth_profile(auth_store)
@@ -339,7 +340,8 @@ pub fn create_tool_registry(
         llm_client_factory.clone(),
         config_storage,
     );
-    registry.register(SpawnSubagentTool::new(subagent_manager.clone()));
+    registry
+        .register(SpawnSubagentTool::new(subagent_manager.clone()).with_kv_store(kv_store.clone()));
     registry.register(WaitSubagentsTool::new(subagent_manager.clone()));
     registry.register(ListSubagentsTool::new(subagent_manager));
 
@@ -370,6 +372,21 @@ mod tests {
     use serde_json::json;
     use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    #[test]
+    fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
+        let mut defaults = AgentDefaults::default();
+        defaults.max_parallel_subagents = 64;
+        defaults.subagent_timeout_secs = 900;
+        defaults.max_iterations = 123;
+
+        let config = build_subagent_config(&defaults);
+
+        assert_eq!(config.max_parallel_agents, 64);
+        assert_eq!(config.subagent_timeout_secs, 900);
+        assert_eq!(config.max_iterations, 123);
+        assert_eq!(config.max_depth, SubagentConfig::default().max_depth);
+    }
 
     fn restflow_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
         static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
