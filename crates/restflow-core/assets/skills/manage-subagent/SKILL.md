@@ -31,7 +31,40 @@ Use this skill when a task should be split into one or more specialized subagent
 2. Spawn subagents with explicit task boundaries.
 - Use `spawn_subagent` with a clear, testable task prompt.
 - Use `spawn_subagent` `workers` and `team` fields when you need model/count fan-out or saved team presets.
+- Use `workers[].tasks` when each parallel instance needs a distinct prompt instead of one shared task.
 - Prefer a single subagent unless parallel execution is clearly beneficial.
+
+Example: build and reuse a mixed-provider planning team.
+```json
+{
+  "task": "Create implementation plans for pending features",
+  "wait": true,
+  "save_as_team": "planning-fanout",
+  "workers": [
+    {
+      "agent": "coder",
+      "count": 20,
+      "model": "minimax/coding-plan",
+      "provider": "minimax"
+    },
+    {
+      "agent": "coder",
+      "count": 3,
+      "model": "glm5/coding-plan",
+      "provider": "glm5"
+    }
+  ]
+}
+```
+
+Then reuse the same team:
+```json
+{
+  "task": "Run planning for the next batch",
+  "wait": true,
+  "team": "planning-fanout"
+}
+```
 
 3. Wait and collect results.
 - Use `wait_subagents` with all spawned task IDs.
