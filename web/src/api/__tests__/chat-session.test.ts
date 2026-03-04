@@ -112,8 +112,11 @@ describe('Chat Session API', () => {
     expect(mockedInvokeCommand).toHaveBeenCalledWith('getSessionChangeEventName')
     expect(listenMock).toHaveBeenCalledWith('session-change-event', expect.any(Function))
 
-    const listener = listenMock.mock.calls[0][1] as (event: { payload: unknown }) => void
-    listener({ payload: { type: 'Updated', session_id: 'session-1' } })
+    const listener = listenMock.mock.calls[0]?.[1] as
+      | ((event: { payload: unknown }) => void)
+      | undefined
+    expect(listener).toBeTypeOf('function')
+    listener?.({ payload: { type: 'Updated', session_id: 'session-1' } })
     expect(callback).toHaveBeenCalledWith({ type: 'Updated', session_id: 'session-1' })
     expect(result).toBe(unlisten)
   })

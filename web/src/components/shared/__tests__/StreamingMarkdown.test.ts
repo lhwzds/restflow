@@ -49,7 +49,8 @@ describe('StreamingMarkdown', () => {
       },
     })
 
-    const content = wrapper.get('[data-testid="markdown-renderer"]').attributes('data-content')
+    const content =
+      wrapper.get('[data-testid="markdown-renderer"]').attributes('data-content') ?? ''
     expect(content.endsWith('\n```')).toBe(true)
     return nextTick().then(() => {
       expect(wrapper.text()).toContain('▌')
