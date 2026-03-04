@@ -47,7 +47,7 @@ use tauri::State;
 // ============================================================================
 
 /// Request to search memories with optional scoring configuration.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct SearchMemoryRequest {
     /// The search query
     pub query: MemorySearchQuery,
@@ -60,7 +60,7 @@ pub struct SearchMemoryRequest {
 }
 
 /// Request to create a memory chunk manually.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct CreateMemoryChunkRequest {
     /// Agent ID this memory belongs to
     pub agent_id: String,
@@ -75,7 +75,7 @@ pub struct CreateMemoryChunkRequest {
 }
 
 /// Request to create a memory session.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct CreateMemorySessionRequest {
     /// Agent ID this session belongs to
     pub agent_id: String,
@@ -90,7 +90,7 @@ pub struct CreateMemorySessionRequest {
 }
 
 /// Request to export memories with options.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Type)]
 pub struct ExportMemoryRequest {
     /// Agent ID to export
     pub agent_id: String,
