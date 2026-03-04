@@ -8,6 +8,7 @@ pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
+pub mod execution_trace;
 pub mod hook;
 pub mod memory;
 pub mod security;
@@ -49,11 +50,20 @@ pub use memory::{
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 pub use work_item::{ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec};
-// Secret is now defined in restflow-storage
+
+// Export execution trace types (new naming)
+pub use execution_trace::{
+    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource,
+    ExecutionTraceStats, ExecutionTraceTimeRange, LifecycleTrace, LlmCallTrace, MessageTrace,
+    ModelSwitchTrace, ToolCallTrace,
+};
+
+// Re-export audit types for backward compatibility (aliases to execution_trace)
 pub use audit::{
     AuditEvent, AuditEventCategory, AuditEventSource, AuditQuery, AuditStats, AuditTimeRange,
     LifecycleAudit, LlmCallAudit, MessageAudit, ModelSwitchAudit, ToolCallAudit,
 };
+
 pub use chat_session::{
     ChatExecutionStatus, ChatMediaType, ChatMessage, ChatMessageMedia, ChatMessageTranscript,
     ChatRole, ChatSession, ChatSessionMetadata, ChatSessionSource, ChatSessionSummary,
