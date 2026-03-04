@@ -569,6 +569,14 @@ fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction> {
     }
 }
 
+fn truncate(s: &str, max_len: usize) -> String {
+    if s.len() > max_len {
+        format!("{}...", &s[..max_len])
+    } else {
+        s.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -599,13 +607,5 @@ mod tests {
         ];
         let input = derive_conversion_input(None, &messages);
         assert_eq!(input.as_deref(), Some("latest request"));
-    }
-}
-
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() > max_len {
-        format!("{}...", &s[..max_len])
-    } else {
-        s.to_string()
     }
 }
