@@ -71,6 +71,7 @@ pub struct WebhookServerHandle {
     /// Sender to signal shutdown
     shutdown_tx: Option<oneshot::Sender<()>>,
     /// Server address
+    #[allow(dead_code)]
     pub addr: SocketAddr,
     /// Running state
     running: Arc<RwLock<bool>>,
@@ -167,12 +168,14 @@ impl WebhookServerBuilder {
     }
 
     /// Set the host
+    #[allow(dead_code)]
     pub fn host(mut self, host: impl Into<String>) -> Self {
         self.config.host = host.into();
         self
     }
 
     /// Enable CORS
+    #[allow(dead_code)]
     pub fn enable_cors(mut self) -> Self {
         self.config.enable_cors = true;
         self
