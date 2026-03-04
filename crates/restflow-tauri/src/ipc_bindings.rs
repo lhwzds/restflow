@@ -166,13 +166,12 @@ mod tests {
                     continue;
                 }
 
-                if let Some((_, right)) = line.split_once("fn ") {
-                    if let Some(name) = right.split('(').next().map(str::trim) {
-                        if !name.is_empty() {
-                            names.insert(name.to_string());
-                            expect_fn_signature = false;
-                        }
-                    }
+                if let Some((_, right)) = line.split_once("fn ")
+                    && let Some(name) = right.split('(').next().map(str::trim)
+                    && !name.is_empty()
+                {
+                    names.insert(name.to_string());
+                    expect_fn_signature = false;
                 }
             }
         }
