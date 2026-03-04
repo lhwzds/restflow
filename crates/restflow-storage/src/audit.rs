@@ -1,6 +1,4 @@
-use crate::define_simple_storage;
+// Compatibility shim - use execution_trace module instead
+// This module is deprecated and will be removed in a future version
 
-define_simple_storage! {
-    /// Byte-level audit event storage.
-    pub struct AuditStorage { table: "audit_events_v2" }
-}
+pub use crate::execution_trace::ExecutionTraceStorage as AuditStorage;
