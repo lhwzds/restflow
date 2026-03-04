@@ -1,6 +1,7 @@
 use anyhow::Result;
 use restflow_core::daemon::{
-    IPC_PROTOCOL_VERSION, IpcClient, IpcDaemonStatus, IpcRequest, is_daemon_available,
+    IPC_PROTOCOL_VERSION, IpcClient, IpcDaemonStatus, IpcRequest, check_daemon_status,
+    is_daemon_available, stop_daemon,
 };
 use restflow_core::paths;
 use std::path::PathBuf;
@@ -11,6 +12,23 @@ use tracing::warn;
 pub struct DaemonManager {
     child_process: Option<Child>,
     client: Option<IpcClient>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DaemonLifecycle {
+    Running,
+    NotRunning,
+    Stale,
+}
+
+#[derive(Debug, Clone)]
+pub struct DaemonProbeStatus {
+    pub lifecycle: DaemonLifecycle,
+    pub pid: Option<u32>,
+    pub socket_available: bool,
+    pub ipc_status: Option<IpcDaemonStatus>,
+    pub managed_by_tauri: bool,
+    pub last_error: Option<String>,
 }
 
 impl Default for DaemonManager {
@@ -127,6 +145,84 @@ impl DaemonManager {
 
         self.wait_for_socket_shutdown().await;
         self.start_daemon().await
+    }
+
+    pub async fn probe_status(&mut self) -> Result<DaemonProbeStatus> {
+        let daemon_status = check_daemon_status()?;
+        let (lifecycle, pid) = map_daemon_lifecycle(daemon_status);
+
+        let socket_path = paths::socket_path()?;
+        let socket_available = is_daemon_available(&socket_path).await;
+
+        let mut ipc_status = None;
+        let mut last_error = None;
+
+        if socket_available {
+            if let Some(client) = self.client.as_mut() {
+                if client.ping().await {
+                    match client.get_status().await {
+                        Ok(status) => {
+                            ipc_status = Some(status);
+                        }
+                        Err(err) => {
+                            last_error = Some(err.to_string());
+                            self.client = None;
+                        }
+                    }
+                } else {
+                    self.client = None;
+                }
+            }
+
+            if ipc_status.is_none() {
+                match IpcClient::connect(&socket_path).await {
+                    Ok(mut client) => match client.get_status().await {
+                        Ok(status) => {
+                            ipc_status = Some(status);
+                            self.client = Some(client);
+                        }
+                        Err(err) => {
+                            last_error = Some(err.to_string());
+                        }
+                    },
+                    Err(err) => {
+                        last_error = Some(err.to_string());
+                    }
+                }
+            }
+        } else {
+            self.client = None;
+        }
+
+        Ok(DaemonProbeStatus {
+            lifecycle,
+            pid,
+            socket_available,
+            ipc_status,
+            managed_by_tauri: self.child_process.is_some(),
+            last_error,
+        })
+    }
+
+    pub async fn start_via_cli(&mut self) -> Result<IpcDaemonStatus> {
+        self.ensure_handshake().await
+    }
+
+    pub async fn stop_via_cli(&mut self) -> Result<bool> {
+        self.client = None;
+        let stopped = stop_daemon()?;
+
+        if let Some(mut child) = self.child_process.take() {
+            let _ = child.wait();
+        }
+
+        self.wait_for_socket_shutdown().await;
+        Ok(stopped)
+    }
+
+    pub async fn restart_via_cli(&mut self) -> Result<IpcDaemonStatus> {
+        self.restart_daemon().await?;
+        self.handshake_once().await
     }
 
     async fn wait_for_socket_shutdown(&self) {
@@ -246,6 +342,18 @@ impl DaemonManager {
     }
 }
 
+fn map_daemon_lifecycle(
+    status: restflow_core::daemon::DaemonStatus,
+) -> (DaemonLifecycle, Option<u32>) {
+    match status {
+        restflow_core::daemon::DaemonStatus::Running { pid } => {
+            (DaemonLifecycle::Running, Some(pid))
+        }
+        restflow_core::daemon::DaemonStatus::NotRunning => (DaemonLifecycle::NotRunning, None),
+        restflow_core::daemon::DaemonStatus::Stale { pid } => (DaemonLifecycle::Stale, Some(pid)),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -292,5 +400,29 @@ mod tests {
     fn restart_hint_ignores_unrelated_errors() {
         let err = anyhow::anyhow!("Connection reset by peer");
         assert!(!DaemonManager::should_restart_after_handshake_failure(&err));
+    }
+
+    #[test]
+    fn map_daemon_lifecycle_maps_running() {
+        let (lifecycle, pid) =
+            map_daemon_lifecycle(restflow_core::daemon::DaemonStatus::Running { pid: 42 });
+        assert_eq!(lifecycle, DaemonLifecycle::Running);
+        assert_eq!(pid, Some(42));
+    }
+
+    #[test]
+    fn map_daemon_lifecycle_maps_not_running() {
+        let (lifecycle, pid) =
+            map_daemon_lifecycle(restflow_core::daemon::DaemonStatus::NotRunning);
+        assert_eq!(lifecycle, DaemonLifecycle::NotRunning);
+        assert_eq!(pid, None);
+    }
+
+    #[test]
+    fn map_daemon_lifecycle_maps_stale() {
+        let (lifecycle, pid) =
+            map_daemon_lifecycle(restflow_core::daemon::DaemonStatus::Stale { pid: 77 });
+        assert_eq!(lifecycle, DaemonLifecycle::Stale);
+        assert_eq!(pid, Some(77));
     }
 }
