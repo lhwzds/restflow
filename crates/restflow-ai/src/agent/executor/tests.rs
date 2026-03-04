@@ -327,10 +327,13 @@ impl Tool for NonRetryableTool {
     }
 }
 
+type ToolStartRecord = (String, String, String);
+type ToolResultRecord = (String, String, String, bool);
+
 struct CapturingEmitter {
     text: Arc<AsyncMutex<Vec<String>>>,
-    tool_starts: Arc<AsyncMutex<Vec<(String, String, String)>>>,
-    tool_results: Arc<AsyncMutex<Vec<(String, String, String, bool)>>>,
+    tool_starts: Arc<AsyncMutex<Vec<ToolStartRecord>>>,
+    tool_results: Arc<AsyncMutex<Vec<ToolResultRecord>>>,
     completed: Arc<AtomicUsize>,
 }
 
