@@ -2,10 +2,28 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import TrayDashboard from '../TrayDashboard.vue'
+import * as daemonApi from '@/api/daemon'
+import type { CliDaemonStatus } from '@/api/daemon'
 import type { TrayDashboardMetrics } from '@/composables/tray/useTrayDashboardMetrics'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 
 const mockRefresh = vi.fn()
+
+function createDaemonStatus(overrides: Partial<CliDaemonStatus> = {}): CliDaemonStatus {
+  return {
+    lifecycle: 'running',
+    pid: 4321,
+    socket_available: true,
+    managed_by_tauri: false,
+    daemon_status: 'running',
+    daemon_version: '0.4.0',
+    protocol_version: '1.0',
+    started_at_ms: 1_700_000_000_000,
+    uptime_secs: 120,
+    last_error: null,
+    ...overrides,
+  }
+}
 
 function createEmptyMetrics(): TrayDashboardMetrics {
   return {
@@ -44,8 +62,15 @@ vi.mock('@/composables/tray/useTrayDashboardMetrics', () => ({
   useTrayDashboardMetrics: () => dashboardState,
 }))
 
+vi.mock('@/api/daemon', () => ({
+  getCliDaemonStatus: vi.fn(),
+  startCliDaemon: vi.fn(),
+  stopCliDaemon: vi.fn(),
+  restartCliDaemon: vi.fn(),
+}))
+
 vi.mock('@/api/tauri-client', () => ({
-  isTauri: () => false,
+  isTauri: () => true,
 }))
 
 vi.mock('@/composables/useToast', () => ({
@@ -73,7 +98,8 @@ function mountDashboard() {
         CardTitle: { template: '<h3><slot /></h3>' },
         CardContent: { template: '<div><slot /></div>' },
         Button: {
-          template: '<button><slot /></button>',
+          emits: ['click'],
+          template: '<button v-bind="$attrs" @click="$emit(\'click\')"><slot /></button>',
         },
         AgentStatusBadge: {
           props: ['status'],
@@ -94,6 +120,19 @@ describe('TrayDashboard', () => {
     dashboardState.isLoading.value = false
     dashboardState.isRefreshing.value = false
     dashboardState.lastUpdatedAt.value = 1_700_000_100_000
+    vi.mocked(daemonApi.getCliDaemonStatus).mockResolvedValue(createDaemonStatus())
+    vi.mocked(daemonApi.startCliDaemon).mockResolvedValue(createDaemonStatus())
+    vi.mocked(daemonApi.stopCliDaemon).mockResolvedValue(
+      createDaemonStatus({
+        lifecycle: 'not_running',
+        pid: null,
+        socket_available: false,
+        daemon_status: null,
+        uptime_secs: null,
+      }),
+    )
+    vi.mocked(daemonApi.restartCliDaemon).mockResolvedValue(createDaemonStatus())
+
     dashboardState.metrics.value = {
       kpis: {
         totalAgents: 3,
@@ -136,9 +175,11 @@ describe('TrayDashboard', () => {
     await flushPromises()
 
     expect(mockRefresh).toHaveBeenCalledTimes(1)
+    expect(daemonApi.getCliDaemonStatus).toHaveBeenCalledTimes(1)
     expect(wrapper.get('[data-testid="tray-dashboard-root"]')).toBeTruthy()
     expect(wrapper.get('[data-testid="tray-kpi-running"]').text()).toBe('2')
     expect(wrapper.get('[data-testid="tray-kpi-success-rate"]').text()).toContain('80.0%')
+    expect(wrapper.get('[data-testid="tray-daemon-status"]').text()).toContain('Running')
     expect(wrapper.get('[data-testid="tray-model-list"]').text()).toContain('gpt-5')
     expect(wrapper.get('[data-testid="tray-agent-list"]').text()).toContain('Agent One')
   })
@@ -162,5 +203,65 @@ describe('TrayDashboard', () => {
 
     expect(wrapper.text()).toContain('No background agents found.')
     expect(wrapper.text()).toContain('No model usage data yet.')
+  })
+
+  it('starts daemon when start button is clicked', async () => {
+    vi.mocked(daemonApi.getCliDaemonStatus).mockResolvedValue(
+      createDaemonStatus({
+        lifecycle: 'not_running',
+        pid: null,
+        socket_available: false,
+      }),
+    )
+    vi.mocked(daemonApi.startCliDaemon).mockResolvedValue(
+      createDaemonStatus({
+        lifecycle: 'running',
+        pid: 5678,
+        socket_available: true,
+      }),
+    )
+
+    const wrapper = mountDashboard()
+    await flushPromises()
+    await wrapper.get('[data-testid="tray-daemon-start"]').trigger('click')
+    await flushPromises()
+
+    expect(daemonApi.startCliDaemon).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[data-testid="tray-daemon-status"]').text()).toContain('Running')
+  })
+
+  it('stops daemon when stop button is clicked', async () => {
+    vi.mocked(daemonApi.stopCliDaemon).mockResolvedValue(
+      createDaemonStatus({
+        lifecycle: 'not_running',
+        pid: null,
+        socket_available: false,
+      }),
+    )
+
+    const wrapper = mountDashboard()
+    await flushPromises()
+    await wrapper.get('[data-testid="tray-daemon-stop"]').trigger('click')
+    await flushPromises()
+
+    expect(daemonApi.stopCliDaemon).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[data-testid="tray-daemon-status"]').text()).toContain('Not Running')
+  })
+
+  it('restarts daemon when restart button is clicked', async () => {
+    vi.mocked(daemonApi.restartCliDaemon).mockResolvedValue(
+      createDaemonStatus({
+        lifecycle: 'running',
+        pid: 6789,
+      }),
+    )
+
+    const wrapper = mountDashboard()
+    await flushPromises()
+    await wrapper.get('[data-testid="tray-daemon-restart"]').trigger('click')
+    await flushPromises()
+
+    expect(daemonApi.restartCliDaemon).toHaveBeenCalledTimes(1)
+    expect(wrapper.get('[data-testid="tray-daemon-status"]').text()).toContain('Running')
   })
 })

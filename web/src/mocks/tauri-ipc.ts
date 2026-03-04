@@ -18,6 +18,7 @@ import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { ChatSession } from '@/types/generated/ChatSession'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import type { CliDaemonStatus } from '@/api/daemon'
 
 import demoAgentsJson from './data/agents.json'
 import demoSecretsJson from './data/secrets.json'
@@ -87,6 +88,18 @@ const chatSessions: ChatSession[] = demoChatSessionsJson.map((s) => ({
 }))
 
 const activeChatStreams = new Map<string, { sessionId: string; cancelled: boolean }>()
+let cliDaemonStatus: CliDaemonStatus = {
+  lifecycle: 'running',
+  pid: 4242,
+  socket_available: true,
+  managed_by_tauri: false,
+  daemon_status: 'running',
+  daemon_version: '0.4.0-demo',
+  protocol_version: '1',
+  started_at_ms: Date.now() - 45_000,
+  uptime_secs: 45,
+  last_error: null,
+}
 
 // ============================================================================
 // Helper
@@ -610,6 +623,52 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
     // ---- Background Agents ----
     case 'list_background_agents':
       return []
+
+    // ---- CLI Daemon ----
+    case 'get_cli_daemon_status':
+      return cliDaemonStatus
+
+    case 'start_cli_daemon':
+      cliDaemonStatus = {
+        ...cliDaemonStatus,
+        lifecycle: 'running',
+        pid: (Date.now() % 100_000) + 1000,
+        socket_available: true,
+        managed_by_tauri: true,
+        daemon_status: 'running',
+        started_at_ms: Date.now(),
+        uptime_secs: 0,
+        last_error: null,
+      }
+      return cliDaemonStatus
+
+    case 'stop_cli_daemon':
+      cliDaemonStatus = {
+        ...cliDaemonStatus,
+        lifecycle: 'not_running',
+        pid: null,
+        socket_available: false,
+        managed_by_tauri: false,
+        daemon_status: null,
+        started_at_ms: null,
+        uptime_secs: null,
+        last_error: null,
+      }
+      return cliDaemonStatus
+
+    case 'restart_cli_daemon':
+      cliDaemonStatus = {
+        ...cliDaemonStatus,
+        lifecycle: 'running',
+        pid: (Date.now() % 100_000) + 2000,
+        socket_available: true,
+        managed_by_tauri: true,
+        daemon_status: 'running',
+        started_at_ms: Date.now(),
+        uptime_secs: 0,
+        last_error: null,
+      }
+      return cliDaemonStatus
 
     // ---- Fallback ----
     default:
