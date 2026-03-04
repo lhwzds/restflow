@@ -459,6 +459,19 @@ impl ToolRegistryBuilder {
         self
     }
 
+    pub fn with_background_agent_and_kv(
+        mut self,
+        store: Arc<dyn BackgroundAgentStore>,
+        kv_store: Arc<dyn KvStore>,
+    ) -> Self {
+        self.registry.register(
+            BackgroundAgentTool::new(store)
+                .with_kv_store(kv_store)
+                .with_write(true),
+        );
+        self
+    }
+
     pub fn with_marketplace(mut self, store: Arc<dyn MarketplaceStore>) -> Self {
         self.registry.register(MarketplaceTool::new(store));
         self
