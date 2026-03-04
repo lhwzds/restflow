@@ -13,6 +13,12 @@ const router = createRouter({
       component: () => import('../views/Workspace.vue'),
       meta: { titleKey: 'common.brandName' },
     },
+    {
+      path: '/tray',
+      name: 'tray-dashboard',
+      component: () => import('../views/TrayDashboard.vue'),
+      meta: { titleKey: 'common.brandName' },
+    },
   ],
 })
 

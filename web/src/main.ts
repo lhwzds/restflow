@@ -1,5 +1,6 @@
 import { createPinia } from 'pinia'
 import { createApp } from 'vue'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 
 /* Tailwind CSS v4 */
 import './styles/tailwind.css'
@@ -11,6 +12,7 @@ import 'vue-sonner/style.css'
 import './styles/theme/index.scss'
 
 import App from './App.vue'
+import { isTauri } from './api/tauri-client'
 import { preloadPlugin } from './plugins/pinia-preload'
 import i18n from './plugins/i18n'
 import { syncDocumentTitle } from './plugins/page-title'
@@ -32,7 +34,20 @@ async function enableMocking() {
   }
 }
 
-enableMocking().then(() => {
+async function applyWindowSpecificRoute() {
+  if (!isTauri()) return
+
+  try {
+    const label = getCurrentWindow().label
+    if (label === 'tray-dashboard' && router.currentRoute.value.path !== '/tray') {
+      await router.replace('/tray')
+    }
+  } catch (error) {
+    console.warn('[Bootstrap] Failed to resolve current window label', error)
+  }
+}
+
+enableMocking().then(async () => {
   const app = createApp(App)
   const pinia = createPinia()
 
@@ -41,6 +56,7 @@ enableMocking().then(() => {
   app.use(pinia)
   app.use(i18n)
   app.use(router)
+  await applyWindowSpecificRoute()
   syncDocumentTitle(router, i18n)
   app.mount('#app')
 })
