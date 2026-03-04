@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import MessageList from '../MessageList.vue'
+import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const toastSuccess = vi.fn()
 const toastError = vi.fn()
@@ -222,7 +223,7 @@ describe('MessageList', () => {
   })
 
   it('emits tool result view and toggles expanded result panel', async () => {
-    const step = {
+    const step: StreamStep = {
       type: 'tool_call',
       name: 'web_search',
       status: 'completed',
