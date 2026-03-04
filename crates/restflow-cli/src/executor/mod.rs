@@ -139,6 +139,7 @@ pub async fn create(_db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
     use std::sync::{Mutex, OnceLock};

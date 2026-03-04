@@ -474,10 +474,12 @@ mod tests {
 
     #[test]
     fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
-        let mut defaults = AgentDefaults::default();
-        defaults.max_parallel_subagents = 20;
-        defaults.subagent_timeout_secs = 1800;
-        defaults.max_iterations = 99;
+        let defaults = AgentDefaults {
+            max_parallel_subagents: 20,
+            subagent_timeout_secs: 1800,
+            max_iterations: 99,
+            ..AgentDefaults::default()
+        };
 
         let config = build_subagent_config(&defaults);
 
