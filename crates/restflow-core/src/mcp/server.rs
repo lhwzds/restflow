@@ -1234,6 +1234,15 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional task input
     #[serde(default)]
     pub input: Option<String>,
+    /// Optional batch/team name for run_batch/save_team/get_team/delete_team
+    #[serde(default)]
+    pub team: Option<String>,
+    /// Optional worker specs payload for run_batch/save_team
+    #[serde(default)]
+    pub workers: Option<Value>,
+    /// Optional team name to persist during run_batch
+    #[serde(default)]
+    pub save_as_team: Option<String>,
     /// Optional task input template
     #[serde(default)]
     pub input_template: Option<String>,
@@ -1921,7 +1930,7 @@ impl RestFlowMcpServer {
             .backend
             .get_session(&params.session_id)
             .await
-            .map_err(|e| format!("Failed to get session: {}", e))?;
+            .map_err(|e| Self::wrap_backend_error("Failed to get session", e))?;
 
         serde_json::to_string_pretty(&session)
             .map_err(|e| format!("Failed to serialize session: {}", e))
@@ -1938,6 +1947,21 @@ impl RestFlowMcpServer {
                 let status = Self::parse_task_status(params.status)?;
                 serde_json::to_value(self.backend.list_tasks(status).await?)
                     .map_err(|e| e.to_string())?
+            }
+            "run_batch" | "save_team" | "list_teams" | "get_team" | "delete_team" => {
+                let tool_input = serde_json::to_value(&params)
+                    .map_err(|e| format!("Failed to serialize params: {}", e))?;
+                let tool_result = self
+                    .backend
+                    .execute_runtime_tool("manage_background_agents", tool_input)
+                    .await
+                    .map_err(|e| Self::wrap_backend_error("Failed to execute runtime tool", e))?;
+                if !tool_result.success {
+                    return Err(tool_result
+                        .error
+                        .unwrap_or_else(|| "manage_background_agents tool failed".to_string()));
+                }
+                tool_result.result
             }
             "create" => {
                 let name = Self::required_string(params.name, "name")?;
@@ -1983,7 +2007,7 @@ impl RestFlowMcpServer {
                     .backend
                     .get_session(&session_id)
                     .await
-                    .map_err(|e| format!("Failed to get session: {}", e))?;
+                    .map_err(|e| Self::wrap_backend_error("Failed to get session", e))?;
                 let schedule = Self::parse_optional_value::<BackgroundAgentSchedule>(
                     "schedule",
                     params.schedule,
@@ -2389,6 +2413,13 @@ impl RestFlowMcpServer {
             .collect::<Vec<_>>()
             .join("; ");
         Some(format!("Warnings: {}", message))
+    }
+
+    fn wrap_backend_error(context: &str, error: String) -> String {
+        if serde_json::from_str::<Value>(&error).is_ok() {
+            return error;
+        }
+        format!("{}: {}", context, error)
     }
 
     fn to_call_tool_result(result: Result<String, String>) -> CallToolResult {
@@ -4416,7 +4447,7 @@ mod tests {
             server,
             "chat_session_get",
             serde_json::json!({
-                "id": "structured-ipc-error"
+                "session_id": "structured-ipc-error"
             }),
         )
         .await;
