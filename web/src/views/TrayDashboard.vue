@@ -1,10 +1,17 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { Window, getCurrentWindow } from '@tauri-apps/api/window'
 import { Activity, Bot, Clock3, RefreshCcw } from 'lucide-vue-next'
 import AgentStatusBadge from '@/components/background-agent/AgentStatusBadge.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import {
+  getCliDaemonStatus,
+  restartCliDaemon,
+  startCliDaemon,
+  stopCliDaemon,
+  type CliDaemonStatus,
+} from '@/api/daemon'
 import { isTauri } from '@/api/tauri-client'
 import { useToast } from '@/composables/useToast'
 import { useTrayDashboardMetrics } from '@/composables/tray/useTrayDashboardMetrics'
@@ -12,6 +19,11 @@ import { useTrayDashboardMetrics } from '@/composables/tray/useTrayDashboardMetr
 const toast = useToast()
 const { agents, error, isLoading, isRefreshing, lastUpdatedAt, metrics, refresh } =
   useTrayDashboardMetrics()
+const tauriAvailable = isTauri()
+const daemonStatus = ref<CliDaemonStatus | null>(null)
+const daemonError = ref<string | null>(null)
+const daemonLoading = ref(false)
+const daemonAction = ref<'start' | 'stop' | 'restart' | null>(null)
 
 const REFRESH_INTERVAL_MS = 15_000
 let refreshTimer: number | null = null
@@ -20,6 +32,32 @@ const hasTrendData = computed(() => metrics.value.trend.some((bucket) => bucket.
 const maxTrendTokens = computed(() =>
   Math.max(...metrics.value.trend.map((bucket) => bucket.tokens), 1),
 )
+const daemonLifecycleLabel = computed(() => {
+  const lifecycle = daemonStatus.value?.lifecycle
+  if (lifecycle === 'running') return 'Running'
+  if (lifecycle === 'not_running') return 'Not Running'
+  if (lifecycle === 'stale') return 'Stale'
+  if (daemonLoading.value) return 'Checking...'
+  return 'Unknown'
+})
+const daemonStatusClasses = computed(() => {
+  const lifecycle = daemonStatus.value?.lifecycle
+  if (lifecycle === 'running') {
+    return 'border border-emerald-500/40 bg-emerald-500/10 text-emerald-700'
+  }
+  if (lifecycle === 'stale') {
+    return 'border border-amber-500/40 bg-amber-500/10 text-amber-700'
+  }
+  if (lifecycle === 'not_running') {
+    return 'border border-border bg-muted text-muted-foreground'
+  }
+  return 'border border-border bg-muted text-muted-foreground'
+})
+const daemonIsRunning = computed(() => daemonStatus.value?.lifecycle === 'running')
+const daemonCanStop = computed(() => {
+  const lifecycle = daemonStatus.value?.lifecycle
+  return lifecycle === 'running' || lifecycle === 'stale'
+})
 
 function formatCompactNumber(value: number): string {
   return new Intl.NumberFormat('en-US', { notation: 'compact' }).format(value)
@@ -50,13 +88,22 @@ function formatTimestamp(value: number | null): string {
   return new Date(value).toLocaleString()
 }
 
+function formatUptime(value: number | null): string {
+  if (value == null || value <= 0) return 'N/A'
+  if (value < 60) return `${value}s`
+  if (value < 3600) return `${Math.floor(value / 60)}m ${value % 60}s`
+  const hours = Math.floor(value / 3600)
+  const minutes = Math.floor((value % 3600) / 60)
+  return `${hours}h ${minutes}m`
+}
+
 function trendBarHeight(tokens: number): string {
   const normalized = Math.max(0.08, tokens / maxTrendTokens.value)
   return `${Math.round(normalized * 100)}%`
 }
 
 async function openMainWorkspace(): Promise<void> {
-  if (!isTauri()) return
+  if (!tauriAvailable) return
 
   try {
     const mainWindow = await Window.getByLabel('main')
@@ -77,14 +124,51 @@ async function openMainWorkspace(): Promise<void> {
 }
 
 async function refreshNow(): Promise<void> {
-  await refresh()
+  await Promise.all([refresh(), refreshDaemonStatus()])
+}
+
+async function refreshDaemonStatus(): Promise<void> {
+  if (!tauriAvailable || daemonLoading.value) return
+
+  daemonLoading.value = true
+  try {
+    daemonStatus.value = await getCliDaemonStatus()
+    daemonError.value = null
+  } catch (statusError) {
+    daemonError.value =
+      statusError instanceof Error ? statusError.message : 'Failed to load CLI daemon status'
+  } finally {
+    daemonLoading.value = false
+  }
+}
+
+async function runDaemonAction(action: 'start' | 'stop' | 'restart'): Promise<void> {
+  if (!tauriAvailable || daemonAction.value != null) return
+
+  daemonAction.value = action
+  try {
+    if (action === 'start') {
+      daemonStatus.value = await startCliDaemon()
+    } else if (action === 'stop') {
+      daemonStatus.value = await stopCliDaemon()
+    } else {
+      daemonStatus.value = await restartCliDaemon()
+    }
+    daemonError.value = null
+  } catch (actionError) {
+    daemonError.value =
+      actionError instanceof Error ? actionError.message : `Failed to ${action} CLI daemon`
+    toast.error(daemonError.value)
+  } finally {
+    daemonAction.value = null
+  }
 }
 
 onMounted(async () => {
-  await refresh()
+  await refreshNow()
 
   refreshTimer = window.setInterval(() => {
-    void refresh()
+    void refreshNow()
   }, REFRESH_INTERVAL_MS)
 })
 
@@ -110,6 +194,7 @@ onUnmounted(() => {
               <p class="text-xs text-muted-foreground">
                 Running {{ metrics.kpis.runningAgents }} / {{ metrics.kpis.totalAgents }} agents
               </p>
+              <p class="text-xs text-muted-foreground">CLI daemon: {{ daemonLifecycleLabel }}</p>
             </div>
             <div class="flex items-center gap-2">
               <Button
@@ -129,6 +214,71 @@ onUnmounted(() => {
             Last update: {{ formatTimestamp(lastUpdatedAt) }}
           </p>
         </CardHeader>
+      </Card>
+
+      <Card>
+        <CardHeader class="pb-2">
+          <div class="flex items-center justify-between gap-2">
+            <CardTitle class="text-sm">CLI Daemon</CardTitle>
+            <span
+              data-testid="tray-daemon-status"
+              class="rounded-full px-2 py-0.5 text-xs font-medium"
+              :class="daemonStatusClasses"
+            >
+              {{ daemonLifecycleLabel }}
+            </span>
+          </div>
+        </CardHeader>
+        <CardContent class="space-y-2 pt-0">
+          <div class="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-muted-foreground">
+            <p>PID: {{ daemonStatus?.pid ?? 'N/A' }}</p>
+            <p>Socket: {{ daemonStatus?.socket_available ? 'Ready' : 'Unavailable' }}</p>
+            <p>Uptime: {{ formatUptime(daemonStatus?.uptime_secs ?? null) }}</p>
+            <p>Managed: {{ daemonStatus?.managed_by_tauri ? 'App' : 'External' }}</p>
+            <p>Version: {{ daemonStatus?.daemon_version ?? 'N/A' }}</p>
+            <p>Protocol: {{ daemonStatus?.protocol_version ?? 'N/A' }}</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <Button
+              data-testid="tray-daemon-start"
+              size="sm"
+              variant="outline"
+              class="h-7 px-2"
+              :disabled="!tauriAvailable || daemonLoading || daemonAction != null || daemonIsRunning"
+              @click="runDaemonAction('start')"
+            >
+              Start
+            </Button>
+            <Button
+              data-testid="tray-daemon-stop"
+              size="sm"
+              variant="outline"
+              class="h-7 px-2"
+              :disabled="
+                !tauriAvailable || daemonLoading || daemonAction != null || !daemonCanStop
+              "
+              @click="runDaemonAction('stop')"
+            >
+              Stop
+            </Button>
+            <Button
+              data-testid="tray-daemon-restart"
+              size="sm"
+              variant="outline"
+              class="h-7 px-2"
+              :disabled="!tauriAvailable || daemonLoading || daemonAction != null"
+              @click="runDaemonAction('restart')"
+            >
+              Restart
+            </Button>
+          </div>
+          <p
+            v-if="daemonError"
+            class="rounded-md border border-destructive/40 bg-destructive/10 px-2 py-1 text-xs text-destructive"
+          >
+            {{ daemonError }}
+          </p>
+        </CardContent>
       </Card>
 
       <div
