@@ -70,7 +70,7 @@ async fn list_agents(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     }
 
     let mut table = Table::new();
-    table.set_header(vec!["ID", "Name", "Model", "Updated"]);
+    table.set_header(vec!["ID", "Name", "Provider", "Model", "Updated"]);
 
     for agent in agents {
         let model_str = agent
@@ -79,9 +79,16 @@ async fn list_agents(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
             .as_ref()
             .map(|m| m.as_serialized_str())
             .unwrap_or("(not set)");
+        let provider_str = agent
+            .agent
+            .model
+            .as_ref()
+            .map(|m| m.provider().as_canonical_str())
+            .unwrap_or("auto");
         table.add_row(vec![
             Cell::new(short_id(&agent.id)),
             Cell::new(agent.name),
+            Cell::new(provider_str),
             Cell::new(model_str),
             Cell::new(format_timestamp(agent.updated_at)),
         ]);

@@ -1341,6 +1341,7 @@ pub struct AgentSummary {
     pub id: String,
     pub name: String,
     pub model: String,
+    pub provider: String,
 }
 
 // ============================================================================
@@ -1767,6 +1768,11 @@ impl RestFlowMcpServer {
                     .ok()
                     .and_then(|v| v.as_str().map(|s| s.to_string()))
                     .unwrap_or_else(|| format!("{:?}", a.agent.model)),
+                provider: a
+                    .agent
+                    .model
+                    .map(|model| model.provider().as_canonical_str().to_string())
+                    .unwrap_or_else(|| "auto".to_string()),
             })
             .collect();
 
@@ -2464,7 +2470,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "list_agents",
-                "List all available agents in RestFlow. Returns a summary of each agent including ID, name, and model.",
+                "List all available agents in RestFlow. Returns a summary of each agent including ID, name, model, and provider.",
                 schema_for_type::<EmptyParams>(),
             ),
             Tool::new(
@@ -2960,6 +2966,7 @@ mod tests {
             id: "test-id".to_string(),
             name: "Test Agent".to_string(),
             model: "gpt-5".to_string(),
+            provider: "openai".to_string(),
         };
 
         let json = serde_json::to_string(&summary).unwrap();
