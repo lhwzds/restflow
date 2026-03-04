@@ -254,7 +254,7 @@ impl Tool for SpawnSubagentTool {
                 "agent": agent_property,
                 "task": {
                     "type": "string",
-                    "description": "Detailed task description for the agent"
+                    "description": "Detailed task description for single spawn, or default fallback task for worker specs."
                 },
                 "wait": {
                     "type": "boolean",
@@ -305,6 +305,7 @@ impl Tool for SpawnSubagentTool {
                             "agent": { "type": "string", "description": "Optional agent ID or name." },
                             "count": { "type": "integer", "minimum": 1, "default": 1, "description": "Number of instances for this worker spec." },
                             "task": { "type": "string", "description": "Optional per-worker task override." },
+                            "tasks": { "type": "array", "items": { "type": "string" }, "description": "Optional per-instance task list for distinct prompts." },
                             "timeout_secs": { "type": "integer", "minimum": 0, "description": "Optional per-worker timeout." },
                             "model": { "type": "string", "description": "Optional model override for this worker." },
                             "provider": { "type": "string", "description": "Optional provider paired with model." },
@@ -785,6 +786,34 @@ mod tests {
                 .to_string()
                 .contains("Batch mode uses 'workers'/'team'")
         );
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_workers_support_distinct_tasks_list() {
+        let deps = make_test_deps(
+            vec![("coder", "Coder")],
+            vec![MockStep::text("done-a"), MockStep::text("done-b")],
+        );
+        let tool = SpawnSubagentTool::new(deps);
+        let result = tool
+            .execute(json!({
+                "task": "",
+                "wait": true,
+                "workers": [
+                    { "agent": "coder", "tasks": ["task-A", "task-B"] }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.result["status"], "completed");
+        assert_eq!(result.result["spawned_count"], 2);
+        let results = result.result["results"]
+            .as_array()
+            .expect("results should be array");
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|entry| entry["status"] == "completed"));
     }
 
     #[test]
