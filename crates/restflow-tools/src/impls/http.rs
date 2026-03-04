@@ -336,6 +336,7 @@ impl Tool for HttpTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::security::NetworkEcosystem;
     use crate::security::SecurityDecision;
     use crate::security::validate_url;
     use async_trait::async_trait;
