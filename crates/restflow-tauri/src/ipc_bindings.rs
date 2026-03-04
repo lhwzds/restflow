@@ -59,6 +59,7 @@ macro_rules! collect_ipc_commands {
             commands::get_background_agent_events,
             commands::get_background_agent_stream_event_name,
             commands::get_chat_session,
+            commands::get_cli_daemon_status,
             commands::get_config,
             commands::get_heartbeat_event_name,
             commands::get_memory_chunk,
@@ -102,9 +103,11 @@ macro_rules! collect_ipc_commands {
             commands::send_chat_message,
             commands::send_chat_message_stream,
             commands::send_live_audio_chunk,
+            commands::start_cli_daemon,
             commands::start_live_transcription,
             commands::steer_chat_stream,
             commands::steer_task,
+            commands::stop_cli_daemon,
             commands::stop_live_transcription,
             commands::test_hook,
             commands::transcribe_audio,
@@ -116,6 +119,7 @@ macro_rules! collect_ipc_commands {
             commands::update_hook,
             commands::update_secret,
             commands::update_skill,
+            commands::restart_cli_daemon,
         ]
     };
 }
