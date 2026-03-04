@@ -4544,6 +4544,7 @@ mod tests {
         let tools = RestFlowMcpServer::session_scoped_runtime_tools();
         assert!(tools.iter().any(|tool| tool.name == "switch_model"));
         assert!(!tools.iter().any(|tool| tool.name == "spawn_subagent"));
+        assert!(!tools.iter().any(|tool| tool.name == "spawn_subagent_batch"));
         assert!(!tools.iter().any(|tool| tool.name == "wait_subagents"));
         assert!(!tools.iter().any(|tool| tool.name == "list_subagents"));
 
@@ -4606,6 +4607,11 @@ mod tests {
             runtime_tools
                 .iter()
                 .any(|tool| tool.name == "spawn_subagent")
+        );
+        assert!(
+            !runtime_tools
+                .iter()
+                .any(|tool| tool.name == "spawn_subagent_batch")
         );
         assert!(
             runtime_tools
