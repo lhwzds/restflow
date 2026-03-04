@@ -23,7 +23,7 @@ restflow-ai = { path = "../restflow-ai" }
 restflow-tools = { workspace = true, features = ["ts"] }
 
 # Tauri
-tauri = { version = "2", features = ["devtools"] }
+tauri = { version = "2", features = ["devtools", "tray-icon"] }
 tauri-plugin-shell = "2"
 
 # Async runtime
