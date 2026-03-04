@@ -315,7 +315,7 @@ pub fn create_tool_registry(
         .with_secrets(Arc::new(secret_storage.clone()))
         .with_config(config_storage.clone())
         .with_agent_crud(agent_store)
-        .with_background_agent(background_agent_store)
+        .with_background_agent_and_kv(background_agent_store, kv_store.clone())
         .with_marketplace(marketplace_store)
         .with_trigger(trigger_store)
         .with_terminal(terminal_store)

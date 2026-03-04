@@ -3,7 +3,7 @@
 //! This module wires execution-scoped reply semantics for background tasks:
 //! - emit a live task stream output event
 //! - deliver to task-linked channel conversations (when available)
-//! - persist agent-originated reply messages for audit/debug history
+//! - persist agent-originated reply messages for trace/debug history
 
 use crate::channel::{ChannelRouter, OutboundMessage};
 use crate::storage::BackgroundAgentStorage;
