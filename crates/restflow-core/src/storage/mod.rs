@@ -10,6 +10,7 @@ pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
+pub mod execution_trace;
 pub mod hook;
 pub mod kv_store;
 pub mod memory;
@@ -40,6 +41,7 @@ pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use deliverable::DeliverableStorage;
+pub use execution_trace::ExecutionTraceStorage;
 pub use hook::HookStorage;
 pub use kv_store::KvStoreStorage;
 pub use memory::MemoryStorage;
@@ -73,6 +75,9 @@ pub struct Storage {
     pub work_items: WorkItemStorage,
     pub checkpoints: CheckpointStorage,
     pub pairing: PairingStorage,
+    /// Primary execution trace storage.
+    pub execution_traces: ExecutionTraceStorage,
+    /// Backward-compatible alias storage.
     pub audit: AuditStorage,
 }
 
@@ -123,6 +128,7 @@ impl Storage {
         let work_items = WorkItemStorage::new(db.clone())?;
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let pairing = PairingStorage::new(db.clone())?;
+        let execution_traces = ExecutionTraceStorage::new(db.clone())?;
         let audit = AuditStorage::new(db.clone())?;
 
         Ok(Self {
@@ -145,11 +151,12 @@ impl Storage {
             work_items,
             checkpoints,
             pairing,
+            execution_traces,
             audit,
         })
     }
 
-    /// Get a reference to the underlying database
+    /// Get a reference to the underlying database.
     pub fn get_db(&self) -> Arc<Database> {
         self.db.clone()
     }
