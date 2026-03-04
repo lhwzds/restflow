@@ -67,6 +67,14 @@ pub struct BatchSubagentSpec {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
 
+    /// Optional per-instance task list.
+    ///
+    /// When provided, each spawned instance uses the corresponding entry in this list.
+    /// This allows one worker spec to fan out with distinct prompts.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub tasks: Option<Vec<String>>,
+
     /// Optional per-spec timeout (seconds) passed to sub-agent execution.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
@@ -330,7 +338,44 @@ impl SpawnSubagentBatchTool {
 
     fn total_instances(specs: &[BatchSubagentSpec]) -> Result<usize> {
         let mut total: usize = 0;
-        for spec in specs {
+        for (spec_index, spec) in specs.iter().enumerate() {
+            if spec.task.is_some() && spec.tasks.is_some() {
+                return Err(ToolError::Tool(format!(
+                    "Spec index {} cannot set both 'task' and 'tasks'.",
+                    spec_index
+                )));
+            }
+
+            if let Some(tasks) = &spec.tasks {
+                if tasks.is_empty() {
+                    return Err(ToolError::Tool(format!(
+                        "Spec index {} has empty 'tasks'.",
+                        spec_index
+                    )));
+                }
+
+                for (task_index, task) in tasks.iter().enumerate() {
+                    if task.trim().is_empty() {
+                        return Err(ToolError::Tool(format!(
+                            "Spec index {} has empty task at tasks[{}].",
+                            spec_index, task_index
+                        )));
+                    }
+                }
+
+                if spec.count != 1 && spec.count as usize != tasks.len() {
+                    return Err(ToolError::Tool(format!(
+                        "Spec index {} has count={} but tasks.len()={}. Set count to 1 (default) or match tasks length.",
+                        spec_index,
+                        spec.count,
+                        tasks.len()
+                    )));
+                }
+
+                total = total.saturating_add(tasks.len());
+                continue;
+            }
+
             if spec.count == 0 {
                 return Err(ToolError::Tool("Each spec count must be >= 1.".to_string()));
             }
@@ -340,6 +385,61 @@ impl SpawnSubagentBatchTool {
             return Err(ToolError::Tool("No sub-agents requested.".to_string()));
         }
         Ok(total)
+    }
+
+    fn resolve_instance_tasks(
+        spec: &BatchSubagentSpec,
+        fallback_task: Option<&str>,
+        spec_index: usize,
+    ) -> Result<Vec<String>> {
+        if spec.task.is_some() && spec.tasks.is_some() {
+            return Err(ToolError::Tool(format!(
+                "Spec index {} cannot set both 'task' and 'tasks'.",
+                spec_index
+            )));
+        }
+
+        if let Some(tasks) = &spec.tasks {
+            if tasks.is_empty() {
+                return Err(ToolError::Tool(format!(
+                    "Spec index {} has empty 'tasks'.",
+                    spec_index
+                )));
+            }
+
+            let mut resolved = Vec::with_capacity(tasks.len());
+            for (task_index, task) in tasks.iter().enumerate() {
+                let trimmed = task.trim();
+                if trimmed.is_empty() {
+                    return Err(ToolError::Tool(format!(
+                        "Spec index {} has empty task at tasks[{}].",
+                        spec_index, task_index
+                    )));
+                }
+                resolved.push(trimmed.to_string());
+            }
+            return Ok(resolved);
+        }
+
+        let task = spec
+            .task
+            .as_deref()
+            .or(fallback_task)
+            .ok_or_else(|| {
+                ToolError::Tool(format!(
+                    "Missing task for spec index {}. Provide top-level 'task', per-spec 'task', or per-spec 'tasks'.",
+                    spec_index
+                ))
+            })?;
+        let trimmed = task.trim();
+        if trimmed.is_empty() {
+            return Err(ToolError::Tool(format!(
+                "Task for spec index {} must not be empty.",
+                spec_index
+            )));
+        }
+
+        Ok((0..spec.count).map(|_| trimmed.to_string()).collect())
     }
 
     fn load_team_specs(&self, team_name: &str) -> Result<Vec<BatchSubagentSpec>> {
@@ -529,6 +629,11 @@ impl SpawnSubagentBatchTool {
                     "Inline temporary-subagent fields cannot be combined with 'agent'.".to_string(),
                 ));
             }
+            if spec.task.is_some() && spec.tasks.is_some() {
+                return Err(ToolError::Tool(
+                    "Each spec can use either 'task' or 'tasks', not both.".to_string(),
+                ));
+            }
             Self::validate_model_provider(&spec.model, &spec.provider)?;
         }
 
@@ -577,17 +682,16 @@ impl SpawnSubagentBatchTool {
                 .map(|requested| self.resolve_agent_id(requested))
                 .transpose()?;
 
-            for instance_index in 0..spec.count {
-                let task = spec
-                    .task
-                    .clone()
-                    .or_else(|| params.task.clone())
-                    .ok_or_else(|| {
-                        ToolError::Tool(format!(
-                            "Missing task for spec index {}. Provide top-level 'task' or per-spec 'task'.",
-                            spec_index
-                        ))
-                    })?;
+            let instance_tasks =
+                Self::resolve_instance_tasks(spec, params.task.as_deref(), spec_index)?;
+            for (instance_index, task) in instance_tasks.into_iter().enumerate() {
+                if instance_index > u32::MAX as usize {
+                    return Err(ToolError::Tool(format!(
+                        "Spec index {} has too many instances to index as u32.",
+                        spec_index
+                    )));
+                }
+                let instance_index = instance_index as u32;
 
                 let request = SpawnRequest {
                     agent_id: agent_id.clone(),
@@ -724,6 +828,11 @@ impl Tool for SpawnSubagentBatchTool {
                                 "type": "string",
                                 "description": "Optional per-spec task override."
                             },
+                            "tasks": {
+                                "type": "array",
+                                "items": { "type": "string" },
+                                "description": "Optional per-instance task list. When set, each spawned instance uses one prompt from this list."
+                            },
                             "timeout_secs": {
                                 "type": "integer",
                                 "minimum": 0,
@@ -760,7 +869,7 @@ impl Tool for SpawnSubagentBatchTool {
                 },
                 "task": {
                     "type": "string",
-                    "description": "Default task for all specs without per-spec task."
+                    "description": "Default task for specs that do not define per-spec 'task' or 'tasks'."
                 },
                 "wait": {
                     "type": "boolean",
@@ -798,7 +907,13 @@ impl Tool for SpawnSubagentBatchTool {
                 let specs = params.specs.ok_or_else(|| {
                     ToolError::Tool("save_team requires non-empty 'specs'.".to_string())
                 })?;
+                let _ = Self::total_instances(&specs)?;
                 for spec in &specs {
+                    if spec.task.is_some() && spec.tasks.is_some() {
+                        return Err(ToolError::Tool(
+                            "Each spec can use either 'task' or 'tasks', not both.".to_string(),
+                        ));
+                    }
                     Self::validate_model_provider(&spec.model, &spec.provider)?;
                 }
                 let payload = self.save_team_specs(team_name, &specs)?;
@@ -1044,6 +1159,84 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("requires both 'model' and 'provider'")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spawn_batch_supports_distinct_tasks_list() {
+        let manager = make_test_manager(
+            vec![("coder", "Coder")],
+            vec![
+                MockStep::text("done-1"),
+                MockStep::text("done-2"),
+                MockStep::text("done-3"),
+            ],
+        );
+        let tool = SpawnSubagentBatchTool::new(manager);
+        let output = tool
+            .execute(json!({
+                "operation": "spawn",
+                "wait": true,
+                "specs": [
+                    { "agent": "coder", "tasks": ["task-1", "task-2", "task-3"] }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["status"], "completed");
+        assert_eq!(output.result["spawned_count"], 3);
+        let results = output.result["results"]
+            .as_array()
+            .expect("results should be array");
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|entry| entry["status"] == "completed"));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_batch_rejects_task_and_tasks_together() {
+        let manager = make_test_manager(vec![("coder", "Coder")], vec![MockStep::text("done")]);
+        let tool = SpawnSubagentBatchTool::new(manager);
+
+        let result = tool
+            .execute(json!({
+                "operation": "spawn",
+                "specs": [
+                    { "agent": "coder", "task": "single", "tasks": ["task-1"] }
+                ]
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("either 'task' or 'tasks'")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spawn_batch_rejects_tasks_count_mismatch() {
+        let manager = make_test_manager(vec![("coder", "Coder")], vec![MockStep::text("done")]);
+        let tool = SpawnSubagentBatchTool::new(manager);
+
+        let result = tool
+            .execute(json!({
+                "operation": "spawn",
+                "specs": [
+                    { "agent": "coder", "count": 2, "tasks": ["task-1", "task-2", "task-3"] }
+                ]
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Set count to 1 (default) or match tasks length")
         );
     }
 
