@@ -14,6 +14,7 @@ use crate::impls::list_subagents::ListSubagentsTool;
 use crate::impls::monty_python::{PythonTool, RunPythonTool};
 use crate::impls::spawn::SpawnTool;
 use crate::impls::spawn_subagent::SpawnSubagentTool;
+use crate::impls::spawn_subagent_batch::SpawnSubagentBatchTool;
 use crate::impls::transcribe::TranscribeTool;
 use crate::impls::use_skill::UseSkillTool;
 use crate::impls::vision::VisionTool;
@@ -266,6 +267,31 @@ impl ToolRegistryBuilder {
 
     pub fn with_spawn_subagent(mut self, manager: Arc<dyn SubagentManager>) -> Self {
         self.registry.register(SpawnSubagentTool::new(manager));
+        self
+    }
+
+    pub fn with_spawn_subagent_with_store(
+        mut self,
+        manager: Arc<dyn SubagentManager>,
+        kv_store: Arc<dyn KvStore>,
+    ) -> Self {
+        self.registry
+            .register(SpawnSubagentTool::new(manager).with_kv_store(kv_store));
+        self
+    }
+
+    pub fn with_spawn_subagent_batch(mut self, manager: Arc<dyn SubagentManager>) -> Self {
+        self.registry.register(SpawnSubagentBatchTool::new(manager));
+        self
+    }
+
+    pub fn with_spawn_subagent_batch_with_store(
+        mut self,
+        manager: Arc<dyn SubagentManager>,
+        kv_store: Arc<dyn KvStore>,
+    ) -> Self {
+        self.registry
+            .register(SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store));
         self
     }
 

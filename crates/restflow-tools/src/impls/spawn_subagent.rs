@@ -6,8 +6,11 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::time::{Duration, timeout};
 
+use super::spawn_subagent_batch::SpawnSubagentBatchTool;
+use crate::impls::spawn_subagent_batch::BatchSubagentSpec;
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
+use restflow_traits::store::KvStore;
 use restflow_traits::{InlineSubagentConfig, SpawnRequest, SubagentManager};
 
 #[cfg(feature = "ts")]
@@ -70,16 +73,42 @@ pub struct SpawnSubagentParams {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub inline_max_iterations: Option<u32>,
+
+    /// Optional list-based worker specs for unified single/multi spawn.
+    ///
+    /// When provided, this tool enters batch mode and spawns one or more workers.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub workers: Option<Vec<BatchSubagentSpec>>,
+
+    /// Optional team name for batch mode spawn.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub team: Option<String>,
+
+    /// Optionally persist the provided workers as a named team during batch spawn.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub save_as_team: Option<String>,
 }
 
 /// spawn_subagent tool for the shared agent execution engine.
 pub struct SpawnSubagentTool {
     manager: Arc<dyn SubagentManager>,
+    kv_store: Option<Arc<dyn KvStore>>,
 }
 
 impl SpawnSubagentTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
-        Self { manager }
+        Self {
+            manager,
+            kv_store: None,
+        }
+    }
+
+    pub fn with_kv_store(mut self, kv_store: Arc<dyn KvStore>) -> Self {
+        self.kv_store = Some(kv_store);
+        self
     }
 
     fn available_agents(&self) -> Vec<restflow_traits::subagent::SubagentDefSummary> {
@@ -182,6 +211,10 @@ impl SpawnSubagentTool {
             Some(config)
         }
     }
+
+    fn uses_batch_mode(params: &SpawnSubagentParams) -> bool {
+        params.workers.is_some() || params.team.is_some() || params.save_as_team.is_some()
+    }
 }
 
 #[async_trait]
@@ -262,6 +295,33 @@ impl Tool for SpawnSubagentTool {
                     "type": "integer",
                     "minimum": 1,
                     "description": "Optional max iterations for temporary sub-agent when 'agent' is omitted."
+                },
+                "workers": {
+                    "type": "array",
+                    "description": "Optional unified list-based spawn specs. Use one item for single spawn or many items/count for batch.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "agent": { "type": "string", "description": "Optional agent ID or name." },
+                            "count": { "type": "integer", "minimum": 1, "default": 1, "description": "Number of instances for this worker spec." },
+                            "task": { "type": "string", "description": "Optional per-worker task override." },
+                            "timeout_secs": { "type": "integer", "minimum": 0, "description": "Optional per-worker timeout." },
+                            "model": { "type": "string", "description": "Optional model override for this worker." },
+                            "provider": { "type": "string", "description": "Optional provider paired with model." },
+                            "inline_name": { "type": "string", "description": "Optional temporary sub-agent name." },
+                            "inline_system_prompt": { "type": "string", "description": "Optional temporary sub-agent system prompt." },
+                            "inline_allowed_tools": { "type": "array", "items": { "type": "string" }, "description": "Optional temporary sub-agent tool allowlist." },
+                            "inline_max_iterations": { "type": "integer", "minimum": 1, "description": "Optional temporary sub-agent max iterations." }
+                        }
+                    }
+                },
+                "team": {
+                    "type": "string",
+                    "description": "Optional team name for batch spawn."
+                },
+                "save_as_team": {
+                    "type": "string",
+                    "description": "Optionally save provided workers as team during spawn."
                 }
             },
             "required": ["task"]
@@ -271,6 +331,46 @@ impl Tool for SpawnSubagentTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: SpawnSubagentParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
+
+        if Self::uses_batch_mode(&params) {
+            if params.agent.is_some()
+                || params.model.is_some()
+                || params.provider.is_some()
+                || params.inline_name.is_some()
+                || params.inline_system_prompt.is_some()
+                || params.inline_allowed_tools.is_some()
+                || params.inline_max_iterations.is_some()
+            {
+                return Err(ToolError::Tool(
+                    "Batch mode uses 'workers'/'team'; do not combine with single-spawn fields like 'agent', top-level model/provider, or top-level inline settings.".to_string(),
+                ));
+            }
+
+            let mut batch_tool = SpawnSubagentBatchTool::new(self.manager.clone());
+            if let Some(kv_store) = self.kv_store.clone() {
+                batch_tool = batch_tool.with_kv_store(kv_store);
+            }
+
+            let task = if params.task.trim().is_empty() {
+                None
+            } else {
+                Some(params.task.clone())
+            };
+
+            return batch_tool
+                .execute(json!({
+                    "operation": "spawn",
+                    "team": params.team,
+                    "specs": params.workers,
+                    "task": task,
+                    "wait": params.wait,
+                    "timeout_secs": params.timeout_secs,
+                    "save_as_team": params.save_as_team,
+                    "parent_execution_id": params.parent_execution_id
+                }))
+                .await;
+        }
+
         let inline_config = Self::build_inline_config(&params);
         if params.agent.is_some() && inline_config.is_some() {
             return Err(ToolError::Tool(
@@ -640,6 +740,50 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("cannot be combined")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_supports_workers_list_mode() {
+        let deps = make_test_deps(
+            vec![("coder", "Coder")],
+            vec![MockStep::text("done-1"), MockStep::text("done-2")],
+        );
+        let tool = SpawnSubagentTool::new(deps);
+        let result = tool
+            .execute(json!({
+                "task": "batch task",
+                "wait": true,
+                "workers": [
+                    { "agent": "coder", "count": 2 }
+                ]
+            }))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(result.result["status"], "completed");
+        assert_eq!(result.result["spawned_count"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_rejects_mixed_single_and_workers_mode_fields() {
+        let deps = make_test_deps(vec![("coder", "Coder")], vec![MockStep::text("done")]);
+        let tool = SpawnSubagentTool::new(deps);
+        let result = tool
+            .execute(json!({
+                "task": "batch task",
+                "agent": "coder",
+                "workers": [
+                    { "agent": "coder", "count": 1 }
+                ]
+            }))
+            .await;
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Batch mode uses 'workers'/'team'")
         );
     }
 

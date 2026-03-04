@@ -65,6 +65,7 @@ pub mod list_subagents;
 pub mod registry_builder;
 pub mod spawn;
 pub mod spawn_subagent;
+pub mod spawn_subagent_batch;
 pub mod use_skill;
 pub mod wait_subagents;
 
@@ -131,5 +132,6 @@ pub use registry_builder::{
 };
 pub use spawn::SpawnTool;
 pub use spawn_subagent::SpawnSubagentTool;
+pub use spawn_subagent_batch::SpawnSubagentBatchTool;
 pub use use_skill::UseSkillTool;
 pub use wait_subagents::WaitSubagentsTool;
