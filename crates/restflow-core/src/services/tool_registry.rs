@@ -375,10 +375,12 @@ mod tests {
 
     #[test]
     fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
-        let mut defaults = AgentDefaults::default();
-        defaults.max_parallel_subagents = 64;
-        defaults.subagent_timeout_secs = 900;
-        defaults.max_iterations = 123;
+        let defaults = AgentDefaults {
+            max_parallel_subagents: 64,
+            subagent_timeout_secs: 900,
+            max_iterations: 123,
+            ..AgentDefaults::default()
+        };
 
         let config = build_subagent_config(&defaults);
 
@@ -993,14 +995,14 @@ mod tests {
             "ops".to_string(),
         );
         skill_storage.create(&ops_skill).unwrap();
-        let audit_skill = crate::models::Skill::new(
-            "audit-skill".to_string(),
-            "Audit Skill".to_string(),
+        let trace_skill = crate::models::Skill::new(
+            "trace-skill".to_string(),
+            "Trace Skill".to_string(),
             None,
             None,
-            "audit".to_string(),
+            "trace".to_string(),
         );
-        skill_storage.create(&audit_skill).unwrap();
+        skill_storage.create(&trace_skill).unwrap();
 
         let known_tools = Arc::new(RwLock::new(
             [
@@ -1063,7 +1065,7 @@ mod tests {
                     "model": "gpt-5-mini",
                     "prompt": "Updated prompt",
                     "tools": ["manage_background_agents", "manage_agents"],
-                    "skills": ["ops-skill", "audit-skill"]
+                    "skills": ["ops-skill", "trace-skill"]
                 })),
             },
         )
