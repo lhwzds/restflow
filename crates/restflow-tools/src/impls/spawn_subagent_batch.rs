@@ -23,6 +23,8 @@ const SUBAGENT_TEAM_VERSION: u32 = 1;
 
 /// Operation for spawn_subagent_batch tool.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[cfg_attr(feature = "ts", derive(ts_rs::TS))]
+#[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
 #[serde(rename_all = "snake_case")]
 pub enum SpawnSubagentBatchOperation {
     /// Spawn one batch of sub-agents immediately.
