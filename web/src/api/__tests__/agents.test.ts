@@ -71,6 +71,34 @@ describe('Agents API', () => {
       expect(mockedInvokeCommand).toHaveBeenCalledWith('createAgent', request)
       expect(result).toEqual(mockResponse)
     })
+
+    it('should pass model_ref in create request', async () => {
+      const request: agentsApi.CreateAgentRequest = {
+        name: 'Model Ref Agent',
+        agent: {
+          model: 'gpt-5',
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        },
+      }
+      const mockResponse = createMockAgent('agent-model-ref')
+      mockedInvokeCommand.mockResolvedValue(mockResponse)
+
+      await agentsApi.createAgent(request)
+
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('createAgent', {
+        name: 'Model Ref Agent',
+        agent: {
+          model: 'gpt-5',
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        },
+      })
+    })
   })
 
   describe('updateAgent', () => {
@@ -87,6 +115,33 @@ describe('Agents API', () => {
         agent: null,
       })
       expect(result.name).toBe('Updated Name')
+    })
+
+    it('should invoke update_agent with model_ref payload', async () => {
+      const updateData: agentsApi.UpdateAgentRequest = {
+        agent: {
+          model: 'gpt-5-mini',
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5-mini',
+          },
+        },
+      }
+      const mockResponse = createMockAgent('agent1')
+      mockedInvokeCommand.mockResolvedValue(mockResponse)
+
+      await agentsApi.updateAgent('agent1', updateData)
+
+      expect(mockedInvokeCommand).toHaveBeenCalledWith('updateAgent', 'agent1', {
+        name: null,
+        agent: {
+          model: 'gpt-5-mini',
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5-mini',
+          },
+        },
+      })
     })
   })
 
