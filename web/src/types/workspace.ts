@@ -2,6 +2,7 @@
 
 import type { ChatSessionSource } from '@/types/generated/ChatSessionSource'
 import type { ModelRef } from '@/types/generated/ModelRef'
+import type { AIModel } from '@/types/generated/AIModel'
 
 export type SessionStatus = 'pending' | 'running' | 'completed' | 'failed'
 
@@ -28,7 +29,7 @@ export interface AgentFile {
 export interface WorkspaceAgentModelSelection {
   id: string
   name: string
-  model: string
+  model: AIModel
   model_ref: ModelRef
 }
 

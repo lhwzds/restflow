@@ -37,7 +37,6 @@ import { rebuildExternalChatSession } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, SessionItem, WorkspaceAgentModelSelection } from '@/types/workspace'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
-import type { ModelRef } from '@/types/generated/ModelRef'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 
 const toast = useToast()
@@ -51,7 +50,6 @@ const showSettings = ref(false)
 
 const availableAgents = ref<AgentFile[]>([])
 const agentModelById = ref<Map<string, string>>(new Map())
-const agentModelRefById = ref<Map<string, ModelRef>>(new Map())
 const sidebarMode = ref<'sessions' | 'agents'>('sessions')
 const selectedAgentId = ref<string | null>(null)
 
@@ -109,11 +107,6 @@ async function loadAgents() {
       path: `agents/${agent.id}`,
     }))
     agentModelById.value = new Map(agents.map((agent) => [agent.id, agent.agent.model ?? 'gpt-5']))
-    agentModelRefById.value = new Map(
-      agents
-        .filter((agent) => !!agent.agent.model_ref)
-        .map((agent) => [agent.id, agent.agent.model_ref as ModelRef]),
-    )
 
     if (!selectedAgentId.value && agents.length > 0) {
       selectedAgentId.value = agents[0]?.id ?? null
@@ -314,7 +307,6 @@ async function onDeleteAgent(id: string, name: string) {
     await deleteAgentApi(id)
     availableAgents.value = availableAgents.value.filter((agent) => agent.id !== id)
     agentModelById.value.delete(id)
-    agentModelRefById.value.delete(id)
 
     if (selectedAgentId.value === id) {
       selectedAgentId.value = availableAgents.value[0]?.id ?? null
@@ -335,7 +327,6 @@ async function onDeleteAgent(id: string, name: string) {
 function onAgentCreated(agent: WorkspaceAgentModelSelection) {
   availableAgents.value.push({ id: agent.id, name: agent.name, path: `agents/${agent.id}` })
   agentModelById.value.set(agent.id, agent.model)
-  agentModelRefById.value.set(agent.id, agent.model_ref)
   selectedAgentId.value = agent.id
   sidebarMode.value = 'agents'
 }
@@ -346,7 +337,6 @@ function onAgentUpdated(agent: WorkspaceAgentModelSelection) {
     target.name = agent.name
   }
   agentModelById.value.set(agent.id, agent.model)
-  agentModelRefById.value.set(agent.id, agent.model_ref)
 }
 
 function isProtectedDefaultAssistant(agentId: string): boolean {
