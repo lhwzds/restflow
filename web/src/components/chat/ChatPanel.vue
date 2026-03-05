@@ -24,6 +24,7 @@ import { sendChatMessage as sendChatMessageApi, subscribeSessionEvents } from '@
 import type { UnlistenFn } from '@tauri-apps/api/event'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
+import type { AIModel } from '@/types/generated/AIModel'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 
@@ -359,8 +360,20 @@ async function onUpdateSelectedModel(model: string) {
   if (agentId) {
     try {
       const stored = await getAgent(agentId)
+      const nextModel = model as AIModel
+      const metadata = modelsStore.getModelMetadata(nextModel)
+      const resolvedProvider = metadata?.provider ?? stored.agent.model_ref?.provider
       await updateAgent(agentId, {
-        agent: { ...stored.agent, model: model as any },
+        agent: {
+          ...stored.agent,
+          model: nextModel,
+          model_ref: resolvedProvider
+            ? {
+                provider: resolvedProvider,
+                model: nextModel,
+              }
+            : undefined,
+        },
       })
     } catch {
       // Non-critical: session model was updated, agent default is best-effort
