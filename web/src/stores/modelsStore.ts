@@ -39,6 +39,32 @@ export const useModelsStore = defineStore('models', {
       },
 
     /**
+     * Get all unique providers that currently have available models.
+     */
+    getProviders: (state): Provider[] => {
+      const providers = Array.from(new Set(state.models.map((m) => m.provider)))
+      return providers.sort()
+    },
+
+    /**
+     * Get the first model for a provider.
+     */
+    getFirstModelByProvider:
+      (state) =>
+      (provider: Provider): AIModel | undefined => {
+        return state.models.find((m) => m.provider === provider)?.model
+      },
+
+    /**
+     * Check whether a model belongs to a provider.
+     */
+    isModelInProvider:
+      (state) =>
+      (provider: Provider, model: AIModel): boolean => {
+        return state.models.some((m) => m.provider === provider && m.model === model)
+      },
+
+    /**
      * Get all available models
      */
     getAllModels: (state): ModelMetadataDTO[] => state.models,
