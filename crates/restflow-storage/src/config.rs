@@ -2,6 +2,9 @@
 
 use anyhow::{Context, Result};
 use redb::{Database, ReadableDatabase, TableDefinition};
+use restflow_traits::{
+    DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashSet;
@@ -94,9 +97,9 @@ impl Default for AgentDefaults {
             browser_timeout_secs: DEFAULT_BROWSER_TIMEOUT_SECS,
             process_session_ttl_secs: DEFAULT_PROCESS_SESSION_TTL_SECS,
             approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
-            max_iterations: 100,
-            subagent_timeout_secs: 3600,
-            max_parallel_subagents: 200,
+            max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
+            subagent_timeout_secs: DEFAULT_SUBAGENT_TIMEOUT_SECS,
+            max_parallel_subagents: DEFAULT_MAX_PARALLEL_SUBAGENTS,
             max_tool_calls: 200,
             max_wall_clock_secs: None,
             default_task_timeout_secs: 1800,
