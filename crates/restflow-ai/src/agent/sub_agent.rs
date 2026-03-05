@@ -13,12 +13,12 @@ use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::{Duration, timeout};
 
 // Re-export data types from restflow-traits
-use restflow_traits::ToolError;
 pub use restflow_traits::subagent::{
     InlineSubagentConfig, SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion,
     SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentManager,
     SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
 };
+use restflow_traits::{ModelProvider, ToolError};
 
 const TEMPORARY_SUBAGENT_NAME: &str = "Temporary Subagent";
 const TEMPORARY_SUBAGENT_PROMPT: &str = "You are a temporary sub-agent. Complete the task autonomously, use tools when needed, and return a concise final result.";
@@ -616,25 +616,38 @@ fn resolve_model_alias(normalized_query: &str, available: &[String]) -> Option<S
 
 fn parse_provider_selector(value: &str) -> Option<LlmProvider> {
     let normalized = normalize_model_identifier(value);
-    match normalized.as_str() {
-        "openai" | "gpt" | "openai-codex" | "codex" | "codex-cli" => Some(LlmProvider::OpenAI),
-        "anthropic" | "claude" | "claude-code" => Some(LlmProvider::Anthropic),
-        "deepseek" => Some(LlmProvider::DeepSeek),
-        "google" | "gemini" | "gemini-cli" => Some(LlmProvider::Google),
-        "groq" => Some(LlmProvider::Groq),
-        "openrouter" => Some(LlmProvider::OpenRouter),
-        "xai" | "grok" => Some(LlmProvider::XAI),
-        "qwen" => Some(LlmProvider::Qwen),
-        "zai" => Some(LlmProvider::Zai),
-        "zai-coding-plan" | "zai-coding" => Some(LlmProvider::ZaiCodingPlan),
-        "moonshot" | "kimi" => Some(LlmProvider::Moonshot),
-        "doubao" => Some(LlmProvider::Doubao),
-        "yi" => Some(LlmProvider::Yi),
-        "siliconflow" => Some(LlmProvider::SiliconFlow),
-        "minimax" => Some(LlmProvider::MiniMax),
-        "minimax-coding-plan" | "minimax-coding" => Some(LlmProvider::MiniMaxCodingPlan),
-        _ => None,
+    if matches!(
+        normalized.as_str(),
+        "openai-codex" | "codex" | "codex-cli" | "claude-code" | "gemini-cli"
+    ) {
+        // Provider selector can include CLI transport families; these still
+        // map to base provider for model ownership validation.
+        return Some(match normalized.as_str() {
+            "claude-code" => LlmProvider::Anthropic,
+            "gemini-cli" => LlmProvider::Google,
+            _ => LlmProvider::OpenAI,
+        });
     }
+
+    let provider = ModelProvider::parse_alias(&normalized)?;
+    Some(match provider {
+        ModelProvider::OpenAI => LlmProvider::OpenAI,
+        ModelProvider::Anthropic => LlmProvider::Anthropic,
+        ModelProvider::DeepSeek => LlmProvider::DeepSeek,
+        ModelProvider::Google => LlmProvider::Google,
+        ModelProvider::Groq => LlmProvider::Groq,
+        ModelProvider::OpenRouter => LlmProvider::OpenRouter,
+        ModelProvider::XAI => LlmProvider::XAI,
+        ModelProvider::Qwen => LlmProvider::Qwen,
+        ModelProvider::Zai => LlmProvider::Zai,
+        ModelProvider::ZaiCodingPlan => LlmProvider::ZaiCodingPlan,
+        ModelProvider::Moonshot => LlmProvider::Moonshot,
+        ModelProvider::Doubao => LlmProvider::Doubao,
+        ModelProvider::Yi => LlmProvider::Yi,
+        ModelProvider::SiliconFlow => LlmProvider::SiliconFlow,
+        ModelProvider::MiniMax => LlmProvider::MiniMax,
+        ModelProvider::MiniMaxCodingPlan => LlmProvider::MiniMaxCodingPlan,
+    })
 }
 
 fn normalize_model_identifier(value: &str) -> String {
@@ -1093,6 +1106,24 @@ mod tests {
         assert_eq!(
             config.context["execution_context"]["parent_execution_id"],
             "exec-parent-1"
+        );
+    }
+
+    #[test]
+    fn parse_provider_selector_accepts_shared_aliases() {
+        assert_eq!(parse_provider_selector("gpt"), Some(LlmProvider::OpenAI));
+        assert_eq!(parse_provider_selector("gemini"), Some(LlmProvider::Google));
+        assert_eq!(
+            parse_provider_selector("zhipu-coding-plan"),
+            Some(LlmProvider::ZaiCodingPlan)
+        );
+        assert_eq!(
+            parse_provider_selector("minimax-coding"),
+            Some(LlmProvider::MiniMaxCodingPlan)
+        );
+        assert_eq!(
+            parse_provider_selector("openai-codex"),
+            Some(LlmProvider::OpenAI)
         );
     }
 

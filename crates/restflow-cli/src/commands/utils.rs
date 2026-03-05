@@ -1,6 +1,7 @@
 use anyhow::{Result, bail};
 use chrono::{DateTime, Local, TimeZone};
 use restflow_core::models::{AIModel, Provider};
+use restflow_traits::ModelProvider;
 
 pub fn format_timestamp(timestamp: Option<i64>) -> String {
     let Some(ts) = timestamp else {
@@ -88,28 +89,26 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
 }
 
 pub fn parse_provider(input: &str) -> Result<Provider> {
-    let normalized = input.trim().to_ascii_lowercase();
-    let provider = match normalized.as_str() {
-        "openai" | "gpt" => Provider::OpenAI,
-        "anthropic" | "claude" => Provider::Anthropic,
-        "deepseek" => Provider::DeepSeek,
-        "google" | "gemini" => Provider::Google,
-        "groq" => Provider::Groq,
-        "openrouter" => Provider::OpenRouter,
-        "xai" | "x.ai" => Provider::XAI,
-        "qwen" => Provider::Qwen,
-        "zai" | "zhipu" => Provider::Zai,
-        "zai-coding-plan" | "zai-coding" | "zhipu-coding-plan" => Provider::ZaiCodingPlan,
-        "moonshot" | "kimi" => Provider::Moonshot,
-        "doubao" | "ark" => Provider::Doubao,
-        "yi" => Provider::Yi,
-        "siliconflow" => Provider::SiliconFlow,
-        "minimax" => Provider::MiniMax,
-        "minimax-coding-plan" | "minimax-coding" => Provider::MiniMaxCodingPlan,
-        _ => bail!("Unknown provider: {input}"),
-    };
-
-    Ok(provider)
+    let provider = ModelProvider::parse_alias(input)
+        .ok_or_else(|| anyhow::anyhow!("Unknown provider: {input}"))?;
+    Ok(match provider {
+        ModelProvider::OpenAI => Provider::OpenAI,
+        ModelProvider::Anthropic => Provider::Anthropic,
+        ModelProvider::DeepSeek => Provider::DeepSeek,
+        ModelProvider::Google => Provider::Google,
+        ModelProvider::Groq => Provider::Groq,
+        ModelProvider::OpenRouter => Provider::OpenRouter,
+        ModelProvider::XAI => Provider::XAI,
+        ModelProvider::Qwen => Provider::Qwen,
+        ModelProvider::Zai => Provider::Zai,
+        ModelProvider::ZaiCodingPlan => Provider::ZaiCodingPlan,
+        ModelProvider::Moonshot => Provider::Moonshot,
+        ModelProvider::Doubao => Provider::Doubao,
+        ModelProvider::Yi => Provider::Yi,
+        ModelProvider::SiliconFlow => Provider::SiliconFlow,
+        ModelProvider::MiniMax => Provider::MiniMax,
+        ModelProvider::MiniMaxCodingPlan => Provider::MiniMaxCodingPlan,
+    })
 }
 
 pub fn parse_model_for_provider(provider: Provider, input: &str) -> Result<AIModel> {
@@ -192,4 +191,20 @@ pub fn preview_text(input: &str, max_len: usize) -> String {
     let mut preview = input.chars().take(max_len).collect::<String>();
     preview.push('…');
     preview
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_provider;
+    use restflow_core::models::Provider;
+
+    #[test]
+    fn parse_provider_accepts_shared_aliases() {
+        assert_eq!(parse_provider("gpt").unwrap(), Provider::OpenAI);
+        assert_eq!(parse_provider("zhipu").unwrap(), Provider::Zai);
+        assert_eq!(
+            parse_provider("minimax-coding").unwrap(),
+            Provider::MiniMaxCodingPlan
+        );
+    }
 }

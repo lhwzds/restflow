@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_traits::LlmSwitcher;
+use restflow_traits::{LlmSwitcher, ModelProvider};
 
 #[derive(Clone)]
 pub struct SwitchModelTool {
@@ -34,29 +34,12 @@ impl SwitchModelTool {
     fn parse_provider(value: &str) -> Option<ProviderSelector> {
         let normalized = Self::normalize_provider(value);
         match normalized.as_str() {
-            "openai" | "gpt" => Some(ProviderSelector::Api("openai")),
-            "anthropic" => Some(ProviderSelector::Api("anthropic")),
             "claudecode" => Some(ProviderSelector::ClaudeCode),
-            "deepseek" => Some(ProviderSelector::Api("deepseek")),
-            "google" | "gemini" => Some(ProviderSelector::Api("google")),
-            "groq" => Some(ProviderSelector::Api("groq")),
-            "openrouter" => Some(ProviderSelector::Api("openrouter")),
-            "xai" => Some(ProviderSelector::Api("xai")),
-            "qwen" => Some(ProviderSelector::Api("qwen")),
-            "zai" => Some(ProviderSelector::Api("zai")),
-            "zaicodingplan" | "zaicoding" => Some(ProviderSelector::Api("zai-coding-plan")),
-            "moonshot" => Some(ProviderSelector::Api("moonshot")),
-            "doubao" => Some(ProviderSelector::Api("doubao")),
-            "yi" => Some(ProviderSelector::Api("yi")),
-            "siliconflow" => Some(ProviderSelector::Api("siliconflow")),
-            "minimax" => Some(ProviderSelector::Api("minimax")),
-            "minimaxcodingplan" | "minimaxcoding" => {
-                Some(ProviderSelector::Api("minimax-coding-plan"))
-            }
             "codex" | "codexcli" | "openaicodex" => Some(ProviderSelector::OpenAICodex),
             "opencode" | "opencodecli" => Some(ProviderSelector::OpenCodeCli),
             "geminicli" => Some(ProviderSelector::GeminiCli),
-            _ => None,
+            _ => ModelProvider::parse_alias(value)
+                .map(|provider| ProviderSelector::Api(provider.canonical_str())),
         }
     }
 
