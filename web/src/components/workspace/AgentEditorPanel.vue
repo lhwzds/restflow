@@ -19,7 +19,9 @@ import { tauriInvoke } from '@/api/config'
 import { useModelsStore } from '@/stores/modelsStore'
 import { useToast } from '@/composables/useToast'
 import type { AIModel } from '@/types/generated/AIModel'
+import type { Provider } from '@/types/generated/Provider'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
+import type { WorkspaceAgentModelSelection } from '@/types/workspace'
 
 const props = defineProps<{
   agentId: string | null
@@ -27,7 +29,7 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   backToSessions: []
-  updated: [agent: { id: string; name: string; model: string }]
+  updated: [agent: WorkspaceAgentModelSelection]
 }>()
 
 const { t } = useI18n()
@@ -38,13 +40,17 @@ const loading = ref(false)
 const saving = ref(false)
 const current = ref<StoredAgent | null>(null)
 const name = ref('')
-const model = ref('')
+const provider = ref<Provider | ''>('')
+const model = ref<AIModel | ''>('')
 const temperature = ref('')
 const prompt = ref('')
 const availableToolCount = ref(0)
 const availableSkillCount = ref(0)
 
-const models = computed(() => modelsStore.getAllModels)
+const providers = computed(() => modelsStore.getProviders)
+const models = computed(() =>
+  provider.value ? modelsStore.getModelsByProvider(provider.value as Provider) : [],
+)
 const hasAgent = computed(() => !!props.agentId)
 const effectiveToolCount = computed(() => {
   const configured = current.value?.agent.tools
@@ -66,11 +72,30 @@ const templateType = computed(() => {
 function applyForm(agent: StoredAgent) {
   current.value = agent
   name.value = agent.name
-  model.value = agent.agent.model ?? ''
+  const resolvedModel = agent.agent.model ?? ''
+  model.value = resolvedModel
+  const inferredProvider =
+    agent.agent.model_ref?.provider ??
+    (resolvedModel ? (modelsStore.getModelMetadata(resolvedModel as AIModel)?.provider ?? '') : '')
+  provider.value = inferredProvider
   temperature.value =
     typeof agent.agent.temperature === 'number' ? String(agent.agent.temperature) : ''
   prompt.value = agent.agent.prompt ?? ''
 }
+
+watch(
+  provider,
+  (selectedProvider) => {
+    if (!selectedProvider) {
+      model.value = ''
+      return
+    }
+    if (!model.value || !modelsStore.isModelInProvider(selectedProvider, model.value)) {
+      model.value = modelsStore.getFirstModelByProvider(selectedProvider) ?? ''
+    }
+  },
+  { immediate: true },
+)
 
 async function loadAgent(agentId: string) {
   loading.value = true
@@ -122,6 +147,10 @@ async function save() {
   if (!props.agentId || !current.value) return
   const nextName = name.value.trim()
   if (!nextName) return
+  if (!provider.value || !model.value) {
+    toast.error(t('workspace.agent.providerModelRequired'))
+    return
+  }
 
   const parsedTemperature =
     temperature.value.trim() === '' ? undefined : Number(temperature.value.trim())
@@ -137,15 +166,34 @@ async function save() {
       agent: {
         ...current.value.agent,
         model: model.value ? (model.value as AIModel) : undefined,
+        model_ref:
+          provider.value && model.value
+            ? {
+                provider: provider.value as Provider,
+                model: model.value as AIModel,
+              }
+            : undefined,
         prompt: prompt.value.trim() || undefined,
         temperature: parsedTemperature,
       },
     })
     applyForm(updated)
+    const emittedModelRef =
+      updated.agent.model_ref ??
+      (provider.value && model.value
+        ? {
+            provider: provider.value as Provider,
+            model: model.value as AIModel,
+          }
+        : undefined)
+    if (!emittedModelRef) {
+      throw new Error('Missing model_ref after agent update')
+    }
     emit('updated', {
       id: updated.id,
       name: updated.name,
-      model: (updated.agent.model ?? model.value) || 'gpt-5',
+      model: emittedModelRef.model || 'gpt-5',
+      model_ref: emittedModelRef,
     })
     toast.success(t('workspace.agent.saveSuccess'))
   } catch (error) {
@@ -190,6 +238,20 @@ async function save() {
         <div class="space-y-2">
           <Label>{{ t('workspace.agent.nameLabel') }}</Label>
           <Input v-model="name" :placeholder="t('workspace.agent.namePlaceholder')" />
+        </div>
+
+        <div class="space-y-2">
+          <Label>{{ t('workspace.agent.providerLabel') }}</Label>
+          <Select :model-value="provider" @update:model-value="provider = $event">
+            <SelectTrigger>
+              <SelectValue :placeholder="t('workspace.agent.providerPlaceholder')" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="p in providers" :key="p" :value="p">
+                {{ p }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
         </div>
 
         <div class="space-y-2">

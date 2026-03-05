@@ -16,7 +16,10 @@ vi.mock('@/api/agents', () => ({
 
 vi.mock('@/stores/modelsStore', () => ({
   useModelsStore: () => ({
-    getAllModels: [{ model: 'gpt-5', name: 'GPT-5' }],
+    getProviders: ['openai'],
+    getModelsByProvider: () => [{ model: 'gpt-5', provider: 'openai', name: 'GPT-5' }],
+    getFirstModelByProvider: () => 'gpt-5',
+    isModelInProvider: () => true,
   }),
 }))
 
@@ -37,10 +40,10 @@ describe('CreateAgentDialog', () => {
     })
   })
 
-  it('creates agent when name and model are empty (both optional)', async () => {
+  it('creates agent with default provider/model when name is empty', async () => {
     const wrapper = mount(CreateAgentDialog, {
       props: {
-        open: true,
+        open: false,
       },
       global: {
         stubs: {
@@ -87,6 +90,8 @@ describe('CreateAgentDialog', () => {
       },
     })
 
+    await wrapper.setProps({ open: true })
+
     const createButton = wrapper
       .findAll('button')
       .find((button) => button.text().includes('workspace.agent.createButton'))
@@ -94,12 +99,31 @@ describe('CreateAgentDialog', () => {
     await createButton!.trigger('click')
 
     expect(mockCreateAgent).toHaveBeenCalledTimes(1)
-    const request = mockCreateAgent.mock.calls[0]![0] as { name: string; agent: object }
+    const request = mockCreateAgent.mock.calls[0]![0] as {
+      name: string
+      agent: { model: string; model_ref: { provider: string; model: string } }
+    }
     expect(request.name).toMatch(/^Agent \d{14}$/)
-    expect(request.agent).toEqual({})
+    expect(request.agent).toEqual({
+      model: 'gpt-5',
+      model_ref: {
+        provider: 'openai',
+        model: 'gpt-5',
+      },
+    })
 
     expect(wrapper.emitted('created')).toEqual([
-      [{ id: 'agent-1', name: 'Agent 20260101010101', model: 'gpt-5' }],
+      [
+        {
+          id: 'agent-1',
+          name: 'Agent 20260101010101',
+          model: 'gpt-5',
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        },
+      ],
     ])
     expect(wrapper.emitted('update:open')).toEqual([[false]])
   })

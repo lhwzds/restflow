@@ -1,6 +1,7 @@
 // Workspace shared types
 
 import type { ChatSessionSource } from '@/types/generated/ChatSessionSource'
+import type { ModelRef } from '@/types/generated/ModelRef'
 
 export type SessionStatus = 'pending' | 'running' | 'completed' | 'failed'
 
@@ -22,6 +23,13 @@ export interface AgentFile {
   id: string
   name: string
   path: string
+}
+
+export interface WorkspaceAgentModelSelection {
+  id: string
+  name: string
+  model: string
+  model_ref: ModelRef
 }
 
 export interface ModelOption {

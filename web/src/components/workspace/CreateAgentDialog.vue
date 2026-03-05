@@ -25,12 +25,14 @@ import { createAgent } from '@/api/agents'
 import { useModelsStore } from '@/stores/modelsStore'
 import { useToast } from '@/composables/useToast'
 import type { AIModel } from '@/types/generated/AIModel'
+import type { Provider } from '@/types/generated/Provider'
+import type { WorkspaceAgentModelSelection } from '@/types/workspace'
 
 const props = defineProps<{ open: boolean }>()
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
-  created: [agent: { id: string; name: string; model: string }]
+  created: [agent: WorkspaceAgentModelSelection]
 }>()
 
 const { t } = useI18n()
@@ -38,10 +40,14 @@ const toast = useToast()
 const modelsStore = useModelsStore()
 
 const name = ref('')
-const model = ref('')
+const provider = ref<Provider | ''>('')
+const model = ref<AIModel | ''>('')
 const isSubmitting = ref(false)
 
-const models = computed(() => modelsStore.getAllModels)
+const providers = computed(() => modelsStore.getProviders)
+const models = computed(() =>
+  provider.value ? modelsStore.getModelsByProvider(provider.value as Provider) : [],
+)
 
 function generateDefaultAgentName(): string {
   const timestamp = new Date()
@@ -56,26 +62,61 @@ watch(
   (open) => {
     if (open) {
       name.value = ''
-      model.value = ''
+      const firstProvider = providers.value[0]
+      provider.value = firstProvider ?? ''
+      model.value = firstProvider
+        ? (modelsStore.getFirstModelByProvider(firstProvider) ?? '')
+        : ''
     }
   },
 )
 
+watch(
+  provider,
+  (selectedProvider) => {
+    if (!selectedProvider) {
+      model.value = ''
+      return
+    }
+    if (!model.value || !modelsStore.isModelInProvider(selectedProvider, model.value)) {
+      model.value = modelsStore.getFirstModelByProvider(selectedProvider) ?? ''
+    }
+  },
+  { immediate: true },
+)
+
 async function submit() {
+  const selectedProvider = provider.value
+  const selectedModel = model.value
+  if (!selectedProvider || !selectedModel) {
+    toast.error(t('workspace.agent.providerModelRequired'))
+    return
+  }
+
   isSubmitting.value = true
   try {
-    const selectedModel = model.value.trim()
     const resolvedName = name.value.trim() || generateDefaultAgentName()
     const agent = await createAgent({
       name: resolvedName,
-      agent: selectedModel ? { model: selectedModel as AIModel } : {},
+      agent: {
+        model: selectedModel as AIModel,
+        model_ref: {
+          provider: selectedProvider as Provider,
+          model: selectedModel as AIModel,
+        },
+      },
     })
     toast.success(t('workspace.agent.createSuccess'))
-    const emittedModel = agent.agent.model || selectedModel || models.value[0]?.model || 'gpt-5'
+    const emittedModelRef = agent.agent.model_ref ?? {
+      provider: selectedProvider as Provider,
+      model: selectedModel as AIModel,
+    }
+    const emittedModel = emittedModelRef.model || models.value[0]?.model || 'gpt-5'
     emit('created', {
       id: agent.id,
       name: agent.name,
       model: emittedModel,
+      model_ref: emittedModelRef,
     })
     emit('update:open', false)
   } catch {
@@ -104,8 +145,21 @@ async function submit() {
           />
         </div>
         <div class="space-y-2">
+          <Label>{{ t('workspace.agent.providerLabel') }}</Label>
+          <Select v-model="provider">
+            <SelectTrigger>
+              <SelectValue :placeholder="t('workspace.agent.providerPlaceholder')" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="p in providers" :key="p" :value="p">
+                {{ p }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div class="space-y-2">
           <Label>
-            {{ t('workspace.agent.modelLabel') }} ({{ t('workspace.agent.optional') }})
+            {{ t('workspace.agent.modelLabel') }}
           </Label>
           <Select v-model="model">
             <SelectTrigger>
