@@ -5,6 +5,10 @@
 use serde::{Deserialize, Serialize};
 
 use crate::error::ToolError;
+use crate::{
+    DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
+    DEFAULT_SUBAGENT_TIMEOUT_SECS,
+};
 
 /// Snapshot of a sub-agent definition with all fields needed for execution.
 ///
@@ -68,10 +72,10 @@ pub struct SubagentConfig {
 impl Default for SubagentConfig {
     fn default() -> Self {
         Self {
-            max_parallel_agents: 200,
-            subagent_timeout_secs: 3600,
-            max_iterations: 100,
-            max_depth: 1,
+            max_parallel_agents: DEFAULT_MAX_PARALLEL_SUBAGENTS,
+            subagent_timeout_secs: DEFAULT_SUBAGENT_TIMEOUT_SECS,
+            max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
+            max_depth: DEFAULT_SUBAGENT_MAX_DEPTH,
         }
     }
 }
