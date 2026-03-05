@@ -3,6 +3,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import AgentEditorPanel from '../AgentEditorPanel.vue'
 
 const mockGetAgent = vi.fn()
+const mockUpdateAgent = vi.fn()
 const mockTauriInvoke = vi.fn()
 const mockListSkills = vi.fn()
 
@@ -14,7 +15,7 @@ vi.mock('vue-i18n', () => ({
 
 vi.mock('@/api/agents', () => ({
   getAgent: (...args: unknown[]) => mockGetAgent(...args),
-  updateAgent: vi.fn(),
+  updateAgent: (...args: unknown[]) => mockUpdateAgent(...args),
 }))
 
 vi.mock('@/api/config', () => ({
@@ -27,7 +28,11 @@ vi.mock('@/api/skills', () => ({
 
 vi.mock('@/stores/modelsStore', () => ({
   useModelsStore: () => ({
-    getAllModels: [{ model: 'gpt-5', name: 'GPT-5' }],
+    getProviders: ['openai'],
+    getModelsByProvider: () => [{ model: 'gpt-5', provider: 'openai', name: 'GPT-5' }],
+    getFirstModelByProvider: () => 'gpt-5',
+    isModelInProvider: () => true,
+    getModelMetadata: () => ({ provider: 'openai' }),
     loadModels: vi.fn().mockResolvedValue(undefined),
   }),
 }))
@@ -66,6 +71,7 @@ function baseAgent(overrides?: {
 describe('AgentEditorPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUpdateAgent.mockResolvedValue(baseAgent())
     mockTauriInvoke.mockResolvedValue([
       { name: 'bash', description: 'Tool: bash' },
       { name: 'web_search', description: 'Tool: web_search' },
@@ -142,5 +148,72 @@ describe('AgentEditorPanel', () => {
     expect(wrapper.get('[data-testid=\"agent-template-type\"]').text()).toBe(
       'workspace.agent.templateBackground',
     )
+  })
+
+  it('emits updated payload with model_ref after save', async () => {
+    mockGetAgent.mockResolvedValue(baseAgent())
+    mockUpdateAgent.mockResolvedValue({
+      ...baseAgent(),
+      agent: {
+        ...baseAgent().agent,
+        model_ref: {
+          provider: 'openai',
+          model: 'gpt-5',
+        },
+      },
+    })
+
+    const wrapper = mount(AgentEditorPanel, {
+      props: {
+        agentId: 'agent-1',
+      },
+      global: {
+        stubs: {
+          Button: { template: '<button><slot /></button>' },
+          Input: { template: '<input />' },
+          Label: { template: '<label><slot /></label>' },
+          Textarea: { template: '<textarea />' },
+          Select: { template: '<div><slot /></div>' },
+          SelectTrigger: { template: '<div><slot /></div>' },
+          SelectValue: { template: '<div><slot /></div>' },
+          SelectContent: { template: '<div><slot /></div>' },
+          SelectItem: { template: '<div><slot /></div>' },
+        },
+      },
+    })
+
+    await flushPromises()
+    const saveButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('workspace.agent.save'))
+    expect(saveButton).toBeDefined()
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(mockUpdateAgent).toHaveBeenCalledWith(
+      'agent-1',
+      expect.objectContaining({
+        agent: expect.objectContaining({
+          model: 'gpt-5',
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        }),
+      }),
+    )
+    expect(wrapper.emitted('updated')).toEqual([
+      [
+        {
+          id: 'agent-1',
+          name: 'Agent One',
+          model: 'gpt-5',
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        },
+      ],
+    ])
   })
 })
