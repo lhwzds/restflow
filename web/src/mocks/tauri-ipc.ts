@@ -454,6 +454,7 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
         source_conversation_id: null,
       }
       chatSessions.push(newSession)
+      updateChatSessionSummary(newSession, null)
       return newSession
     }
 
@@ -473,6 +474,7 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
       if (updates.agentId) session.agent_id = updates.agentId
       if (updates.model) session.model = updates.model
       session.updated_at = BigInt(Date.now())
+      updateChatSessionSummary(session)
       return session
     }
 
@@ -480,6 +482,10 @@ function handleCommand(cmd: string, args?: InvokeArgs): unknown {
       const idx = chatSessions.findIndex((s) => s.id === a.id)
       if (idx === -1) throw `Chat session not found: ${a.id}`
       chatSessions.splice(idx, 1)
+      const summaryIndex = chatSessionSummaries.findIndex((summary) => summary.id === a.id)
+      if (summaryIndex !== -1) {
+        chatSessionSummaries.splice(summaryIndex, 1)
+      }
       return true
     }
 

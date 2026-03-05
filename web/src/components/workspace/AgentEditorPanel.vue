@@ -242,7 +242,10 @@ async function save() {
 
         <div class="space-y-2">
           <Label>{{ t('workspace.agent.providerLabel') }}</Label>
-          <Select :model-value="provider" @update:model-value="provider = $event">
+          <Select
+            :model-value="provider"
+            @update:model-value="provider = $event as Provider | ''"
+          >
             <SelectTrigger>
               <SelectValue :placeholder="t('workspace.agent.providerPlaceholder')" />
             </SelectTrigger>
@@ -256,7 +259,7 @@ async function save() {
 
         <div class="space-y-2">
           <Label>{{ t('workspace.agent.modelLabel') }}</Label>
-          <Select :model-value="model" @update:model-value="model = $event">
+          <Select :model-value="model" @update:model-value="model = $event as AIModel | ''">
             <SelectTrigger>
               <SelectValue :placeholder="t('workspace.agent.modelPlaceholder')" />
             </SelectTrigger>
