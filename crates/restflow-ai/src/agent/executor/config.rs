@@ -5,6 +5,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
+use restflow_traits::DEFAULT_AGENT_MAX_ITERATIONS;
 use serde_json::Value;
 
 use crate::agent::PromptFlags;
@@ -99,7 +100,7 @@ impl AgentConfig {
         Self {
             goal: goal.into(),
             system_prompt: None,
-            max_iterations: 100,
+            max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
             temperature: None, // None = use model default
             context: HashMap::new(),
             tool_timeout: Duration::from_secs(300),
