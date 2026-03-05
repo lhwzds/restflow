@@ -7,7 +7,7 @@ import { useChatStream } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useModelsStore } from '@/stores/modelsStore'
-import { listAgents } from '@/api/agents'
+import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage } from '@/api/chat-session'
 
@@ -55,7 +55,9 @@ const mockSendStream = vi.fn()
 const mockCancelStream = vi.fn()
 const mockResetStream = vi.fn()
 const mockLoadModels = vi.fn()
-const mockModels: Array<{ model: string; name: string }> = []
+const mockGetAgentApi = vi.fn()
+const mockUpdateAgentApi = vi.fn()
+const mockModels: Array<{ model: string; name: string; provider: string }> = []
 
 let chatBoxMountCount = 0
 const mockSteerChatStream = vi.fn()
@@ -90,7 +92,7 @@ vi.mock('@/components/workspace/ChatBox.vue', () => ({
         default: '',
       },
     },
-    emits: ['send'],
+    emits: ['send', 'update:selectedModel'],
     setup(props, { emit }) {
       chatBoxMountCount += 1
       return () =>
@@ -109,6 +111,14 @@ vi.mock('@/components/workspace/ChatBox.vue', () => ({
                 onClick: () => emit('send', 'follow-up'),
               },
               'send',
+            ),
+            h(
+              'button',
+              {
+                'data-testid': 'chatbox-model-change',
+                onClick: () => emit('update:selectedModel', 'gpt-5'),
+              },
+              'model',
             ),
           ],
         )
@@ -138,6 +148,8 @@ vi.mock('@/stores/modelsStore', () => ({
 
 vi.mock('@/api/agents', () => ({
   listAgents: vi.fn(),
+  getAgent: vi.fn(),
+  updateAgent: vi.fn(),
 }))
 
 vi.mock('@/api/chat-session', () => ({
@@ -204,8 +216,8 @@ describe('ChatPanel', () => {
       mockModels.splice(
         0,
         mockModels.length,
-        { model: 'gpt-4', name: 'GPT-4' },
-        { model: 'gpt-5', name: 'GPT-5' },
+        { model: 'gpt-4', name: 'GPT-4', provider: 'openai' },
+        { model: 'gpt-5', name: 'GPT-5', provider: 'openai' },
       )
     })
 
@@ -247,6 +259,7 @@ describe('ChatPanel', () => {
       get getAllModels() {
         return mockModels
       },
+      getModelMetadata: (model: string) => mockModels.find((item) => item.model === model),
     } as any)
 
     vi.mocked(listAgents).mockResolvedValue([
@@ -257,6 +270,30 @@ describe('ChatPanel', () => {
     ] as any)
     mockSteerChatStream.mockResolvedValue(true)
     mockSendChatMessageApi.mockResolvedValue(mockCurrentSession.value)
+    mockGetAgentApi.mockResolvedValue({
+      id: 'agent-1',
+      name: 'Agent One',
+      agent: {
+        model: 'gpt-4',
+        model_ref: {
+          provider: 'openai',
+          model: 'gpt-4',
+        },
+      },
+    })
+    mockUpdateAgentApi.mockResolvedValue({
+      id: 'agent-1',
+      name: 'Agent One',
+      agent: {
+        model: 'gpt-5',
+        model_ref: {
+          provider: 'openai',
+          model: 'gpt-5',
+        },
+      },
+    })
+    vi.mocked(getAgent).mockImplementation(mockGetAgentApi)
+    vi.mocked(updateAgent).mockImplementation(mockUpdateAgentApi)
     vi.mocked(steerChatStream).mockImplementation(mockSteerChatStream)
     vi.mocked(sendChatMessage).mockImplementation(mockSendChatMessageApi)
   })
@@ -294,7 +331,10 @@ describe('ChatPanel', () => {
 
     expect(wrapper.get('[data-testid="chatbox"]').attributes('data-selected-model')).toBe('gpt-4')
 
-    mockModels.push({ model: 'gpt-4', name: 'GPT-4' }, { model: 'gpt-5', name: 'GPT-5' })
+    mockModels.push(
+      { model: 'gpt-4', name: 'GPT-4', provider: 'openai' },
+      { model: 'gpt-5', name: 'GPT-5', provider: 'openai' },
+    )
     await nextTick()
 
     expect(wrapper.get('[data-testid="chatbox"]').attributes('data-selected-model')).toBe('gpt-4')
@@ -327,6 +367,31 @@ describe('ChatPanel', () => {
     expect(mockSteerChatStream).toHaveBeenCalledWith('session-1', 'follow-up')
     expect(mockSendChatMessageApi).not.toHaveBeenCalled()
     expect(mockSendStream).toHaveBeenCalledWith('follow-up')
+  })
+
+  it('persists updated agent model with model_ref when session model changes', async () => {
+    mockUpdateSessionModel.mockResolvedValue({
+      ...mockCurrentSession.value!,
+      model: 'gpt-5',
+    })
+
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="chatbox-model-change"]').trigger('click')
+    await flushPromises()
+
+    expect(mockUpdateSessionModel).toHaveBeenCalledWith('session-1', 'gpt-5')
+    expect(mockGetAgentApi).toHaveBeenCalledWith('agent-1')
+    expect(mockUpdateAgentApi).toHaveBeenCalledWith('agent-1', {
+      agent: {
+        model: 'gpt-5',
+        model_ref: {
+          provider: 'openai',
+          model: 'gpt-5',
+        },
+      },
+    })
   })
 
   it('emits toolResult for failed tool calls with result payload', async () => {
