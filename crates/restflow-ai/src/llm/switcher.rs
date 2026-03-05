@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use restflow_traits::ModelProvider;
 use restflow_traits::ToolError;
 use restflow_traits::llm::{LlmSwitcher, SwapResult};
 
@@ -79,30 +80,43 @@ impl LlmSwitcher for LlmSwitcherImpl {
 
 /// Parse a provider string into `LlmProvider`.
 fn parse_provider_str(value: &str) -> Option<LlmProvider> {
-    let normalized: String = value
-        .trim()
-        .chars()
-        .filter(|ch| ch.is_ascii_alphanumeric())
-        .collect::<String>()
-        .to_lowercase();
+    let provider = ModelProvider::parse_alias(value)?;
+    Some(match provider {
+        ModelProvider::OpenAI => LlmProvider::OpenAI,
+        ModelProvider::Anthropic => LlmProvider::Anthropic,
+        ModelProvider::DeepSeek => LlmProvider::DeepSeek,
+        ModelProvider::Google => LlmProvider::Google,
+        ModelProvider::Groq => LlmProvider::Groq,
+        ModelProvider::OpenRouter => LlmProvider::OpenRouter,
+        ModelProvider::XAI => LlmProvider::XAI,
+        ModelProvider::Qwen => LlmProvider::Qwen,
+        ModelProvider::Zai => LlmProvider::Zai,
+        ModelProvider::ZaiCodingPlan => LlmProvider::ZaiCodingPlan,
+        ModelProvider::Moonshot => LlmProvider::Moonshot,
+        ModelProvider::Doubao => LlmProvider::Doubao,
+        ModelProvider::Yi => LlmProvider::Yi,
+        ModelProvider::SiliconFlow => LlmProvider::SiliconFlow,
+        ModelProvider::MiniMax => LlmProvider::MiniMax,
+        ModelProvider::MiniMaxCodingPlan => LlmProvider::MiniMaxCodingPlan,
+    })
+}
 
-    match normalized.as_str() {
-        "openai" | "gpt" => Some(LlmProvider::OpenAI),
-        "anthropic" => Some(LlmProvider::Anthropic),
-        "deepseek" => Some(LlmProvider::DeepSeek),
-        "google" | "gemini" => Some(LlmProvider::Google),
-        "groq" => Some(LlmProvider::Groq),
-        "openrouter" => Some(LlmProvider::OpenRouter),
-        "xai" => Some(LlmProvider::XAI),
-        "qwen" => Some(LlmProvider::Qwen),
-        "zai" => Some(LlmProvider::Zai),
-        "zaicodingplan" | "zaicoding" => Some(LlmProvider::ZaiCodingPlan),
-        "moonshot" => Some(LlmProvider::Moonshot),
-        "doubao" => Some(LlmProvider::Doubao),
-        "yi" => Some(LlmProvider::Yi),
-        "siliconflow" => Some(LlmProvider::SiliconFlow),
-        "minimax" => Some(LlmProvider::MiniMax),
-        "minimaxcodingplan" | "minimaxcoding" => Some(LlmProvider::MiniMaxCodingPlan),
-        _ => None,
+#[cfg(test)]
+mod tests {
+    use super::parse_provider_str;
+    use crate::llm::factory::LlmProvider;
+
+    #[test]
+    fn parse_provider_aliases_from_shared_model_provider() {
+        assert_eq!(parse_provider_str("gpt"), Some(LlmProvider::OpenAI));
+        assert_eq!(parse_provider_str("gemini"), Some(LlmProvider::Google));
+        assert_eq!(
+            parse_provider_str("zai-coding"),
+            Some(LlmProvider::ZaiCodingPlan)
+        );
+        assert_eq!(
+            parse_provider_str("minimaxcodingplan"),
+            Some(LlmProvider::MiniMaxCodingPlan)
+        );
     }
 }
