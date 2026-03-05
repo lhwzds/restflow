@@ -9,11 +9,13 @@
 //! - Sub-agent data types and lookup traits
 
 pub mod cache;
+pub mod defaults;
 pub mod error;
 pub mod filtered;
 #[cfg(feature = "http-client")]
 pub mod http_client;
 pub mod llm;
+pub mod model;
 pub mod network;
 pub mod registry;
 pub mod security;
@@ -76,6 +78,15 @@ pub use subagent::{
 
 // LLM switching
 pub use llm::{LlmSwitcher, SwapResult};
+
+// Shared model/provider normalization
+pub use model::ModelProvider;
+
+// Shared default constants
+pub use defaults::{
+    DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
+    DEFAULT_SUBAGENT_TIMEOUT_SECS,
+};
 
 // Cache types
 pub use cache::{AgentCache, CachedSearchResult, SearchMatch};
