@@ -87,4 +87,9 @@ source_channel?: ChatSessionSource | null,
 /**
  * Optional channel-specific conversation identifier.
  */
-source_conversation_id?: string | null, };
+source_conversation_id?: string | null, 
+/**
+ * Unix timestamp in milliseconds when the session was archived.
+ * None means the session is active.
+ */
+archived_at?: bigint | null, };

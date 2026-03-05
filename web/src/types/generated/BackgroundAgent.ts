@@ -34,6 +34,12 @@ agent_id: string,
  */
 chat_session_id: string, 
 /**
+ * Whether the bound chat session was auto-created by background-agent storage.
+ *
+ * This is used to decide safe cleanup behavior when the background agent is deleted.
+ */
+owns_chat_session: boolean, 
+/**
  * Input/prompt to send to the agent
  */
 input: string | null, 

@@ -9,6 +9,8 @@ export type WaitSubagentsParams = {
  */
 task_ids: Array<string>, 
 /**
- * Timeout in seconds (default: 300).
+ * Timeout in seconds.
+ * - `Some(0)` means wait without timeout.
+ * - `None` uses subagent manager default timeout.
  */
 timeout_secs: bigint | null, };
