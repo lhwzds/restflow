@@ -2,7 +2,9 @@
 import type { AIModel } from "./AIModel";
 import type { ApiKeyConfig } from "./ApiKeyConfig";
 import type { CodexCliExecutionMode } from "./CodexCliExecutionMode";
+import type { ModelRef } from "./ModelRef";
 import type { ModelRoutingConfig } from "./ModelRoutingConfig";
+import type { SkillPreflightPolicyMode } from "./SkillPreflightPolicyMode";
 
 /**
  * Agent configuration for AI-powered execution
@@ -12,6 +14,10 @@ export type AgentNode = {
  * AI model to use for this agent (None = auto-select based on auth profile)
  */
 model?: AIModel, 
+/**
+ * Explicit provider + model reference (preferred over legacy `model` field).
+ */
+model_ref?: ModelRef, 
 /**
  * System prompt for the agent
  */
@@ -44,6 +50,10 @@ skills?: Array<string>,
  * Variables available for skill prompt substitution
  */
 skill_variables?: { [key in string]: string }, 
+/**
+ * Optional skill preflight policy mode (`off` | `warn` | `enforce`).
+ */
+skill_preflight_policy_mode?: SkillPreflightPolicyMode, 
 /**
  * Optional tier-based model routing policy.
  */
