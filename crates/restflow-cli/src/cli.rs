@@ -190,6 +190,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: TriggerCommands,
     },
+
+    /// UI integration utilities
+    Ui {
+        #[command(subcommand)]
+        command: UiCommands,
+    },
 }
 
 #[derive(Args)]
@@ -455,6 +461,30 @@ mod tests {
                 command: super::McpCommands::Sync { port: 9900 }
             })
         ));
+    }
+
+    #[test]
+    fn parses_ui_snapshot_command() {
+        let cli = Cli::try_parse_from(["restflow", "ui", "snapshot"]).expect("parse ui snapshot");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Ui {
+                command: super::UiCommands::Snapshot
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_ui_snapshot_with_json_format() {
+        let cli = Cli::try_parse_from(["restflow", "ui", "snapshot", "--format", "json"])
+            .expect("parse ui snapshot with format");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Ui {
+                command: super::UiCommands::Snapshot
+            })
+        ));
+        assert!(matches!(cli.format, super::OutputFormat::Json));
     }
 }
 
@@ -1286,4 +1316,10 @@ pub enum TriggerCommands {
         /// Trigger ID
         id: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum UiCommands {
+    /// Export lightweight runtime snapshot for menubar integration
+    Snapshot,
 }

@@ -26,5 +26,6 @@ pub mod start;
 pub mod status;
 pub mod stop;
 pub mod trigger;
+pub mod ui;
 pub mod upgrade;
 pub mod utils;
