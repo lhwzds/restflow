@@ -3,12 +3,18 @@
 use anyhow::{Context, Result};
 use redb::{Database, ReadableDatabase, TableDefinition};
 use restflow_traits::{
-    DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_AGENT_MAX_TOOL_CALLS,
-    DEFAULT_AGENT_TASK_TIMEOUT_SECS, DEFAULT_BG_MESSAGE_LIST_LIMIT,
-    DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT, DEFAULT_BG_TRACE_LIST_LIMIT,
-    DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS, DEFAULT_AGENT_BASH_TIMEOUT_SECS,
+    DEFAULT_AGENT_BROWSER_TIMEOUT_SECS, DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
+    DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_MAX_ITERATIONS,
+    DEFAULT_AGENT_MAX_TOOL_CALLS, DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
+    DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
+    DEFAULT_AGENT_PYTHON_TIMEOUT_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
+    DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
+    DEFAULT_API_WEB_SEARCH_RESULTS, DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT,
+    DEFAULT_BG_TRACE_LINE_LIMIT, DEFAULT_BG_TRACE_LIST_LIMIT, DEFAULT_MAX_PARALLEL_SUBAGENTS,
+    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_TIMEOUT_SECS, MAX_API_WEB_SEARCH_RESULTS,
 };
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use std::collections::HashSet;
 use std::env;
@@ -35,10 +41,6 @@ const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
 const DEFAULT_MEMORY_SEARCH_LIMIT: u32 = 10;
 const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
-const DEFAULT_BROWSER_TIMEOUT_SECS: u64 = 120;
-const DEFAULT_LLM_TIMEOUT_SECS: u64 = 600;
-const DEFAULT_PROCESS_SESSION_TTL_SECS: u64 = 30 * 60;
-const DEFAULT_APPROVAL_TIMEOUT_SECS: u64 = 300;
 const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
@@ -71,6 +73,14 @@ pub struct AgentDefaults {
     pub max_parallel_subagents: usize,
     /// Maximum tool calls allowed per agent run.
     pub max_tool_calls: usize,
+    /// Maximum number of tool calls that may run concurrently.
+    pub max_tool_concurrency: usize,
+    /// Maximum tool result length kept in the LLM context.
+    pub max_tool_result_length: usize,
+    /// Maximum characters preserved for pruned historical tool output.
+    pub prune_tool_max_chars: usize,
+    /// Tokens preserved from the recent tail during context compaction.
+    pub compact_preserve_tokens: usize,
     /// Maximum wall-clock time per agent run in seconds.
     ///
     /// `None` disables wall-clock timeout for foreground agent runs.
@@ -89,17 +99,21 @@ pub struct AgentDefaults {
 impl Default for AgentDefaults {
     fn default() -> Self {
         Self {
-            tool_timeout_secs: 300,
-            llm_timeout_secs: Some(DEFAULT_LLM_TIMEOUT_SECS),
-            bash_timeout_secs: 300,
-            python_timeout_secs: 120,
-            browser_timeout_secs: DEFAULT_BROWSER_TIMEOUT_SECS,
+            tool_timeout_secs: DEFAULT_AGENT_TOOL_TIMEOUT_SECS,
+            llm_timeout_secs: Some(DEFAULT_AGENT_LLM_TIMEOUT_SECS),
+            bash_timeout_secs: DEFAULT_AGENT_BASH_TIMEOUT_SECS,
+            python_timeout_secs: DEFAULT_AGENT_PYTHON_TIMEOUT_SECS,
+            browser_timeout_secs: DEFAULT_AGENT_BROWSER_TIMEOUT_SECS,
             process_session_ttl_secs: DEFAULT_PROCESS_SESSION_TTL_SECS,
-            approval_timeout_secs: DEFAULT_APPROVAL_TIMEOUT_SECS,
+            approval_timeout_secs: DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS,
             max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
             subagent_timeout_secs: DEFAULT_SUBAGENT_TIMEOUT_SECS,
             max_parallel_subagents: DEFAULT_MAX_PARALLEL_SUBAGENTS,
             max_tool_calls: DEFAULT_AGENT_MAX_TOOL_CALLS,
+            max_tool_concurrency: DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
+            max_tool_result_length: DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
+            prune_tool_max_chars: DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
+            compact_preserve_tokens: DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
             max_wall_clock_secs: None,
             default_task_timeout_secs: DEFAULT_AGENT_TASK_TIMEOUT_SECS,
             default_max_duration_secs: DEFAULT_AGENT_MAX_DURATION_SECS,
@@ -171,6 +185,26 @@ impl AgentDefaults {
         if self.max_tool_calls == 0 {
             return Err(anyhow::anyhow!("agent.max_tool_calls must be at least 1"));
         }
+        if self.max_tool_concurrency == 0 {
+            return Err(anyhow::anyhow!(
+                "agent.max_tool_concurrency must be at least 1"
+            ));
+        }
+        if self.max_tool_result_length == 0 {
+            return Err(anyhow::anyhow!(
+                "agent.max_tool_result_length must be at least 1"
+            ));
+        }
+        if self.prune_tool_max_chars == 0 {
+            return Err(anyhow::anyhow!(
+                "agent.prune_tool_max_chars must be at least 1"
+            ));
+        }
+        if self.compact_preserve_tokens == 0 {
+            return Err(anyhow::anyhow!(
+                "agent.compact_preserve_tokens must be at least 1"
+            ));
+        }
         if let Some(timeout_secs) = self.max_wall_clock_secs
             && timeout_secs < MIN_TIMEOUT_SECONDS
         {
@@ -211,6 +245,10 @@ pub struct ApiDefaults {
     pub background_trace_list_limit: usize,
     /// Default trailing line limit when reading trace output.
     pub background_trace_line_limit: usize,
+    /// Default result count for `web_search`.
+    pub web_search_num_results: usize,
+    /// Default diagnostics wait timeout in milliseconds.
+    pub diagnostics_timeout_ms: u64,
 }
 
 impl Default for ApiDefaults {
@@ -222,6 +260,8 @@ impl Default for ApiDefaults {
             background_message_list_limit: DEFAULT_BG_MESSAGE_LIST_LIMIT,
             background_trace_list_limit: DEFAULT_BG_TRACE_LIST_LIMIT,
             background_trace_line_limit: DEFAULT_BG_TRACE_LINE_LIMIT,
+            web_search_num_results: DEFAULT_API_WEB_SEARCH_RESULTS,
+            diagnostics_timeout_ms: DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
         }
     }
 }
@@ -256,6 +296,22 @@ impl ApiDefaults {
         if self.background_trace_line_limit == 0 {
             return Err(anyhow::anyhow!(
                 "api_defaults.background_trace_line_limit must be at least 1"
+            ));
+        }
+        if self.web_search_num_results == 0 {
+            return Err(anyhow::anyhow!(
+                "api_defaults.web_search_num_results must be at least 1"
+            ));
+        }
+        if self.web_search_num_results > MAX_API_WEB_SEARCH_RESULTS {
+            return Err(anyhow::anyhow!(
+                "api_defaults.web_search_num_results must be at most {}",
+                MAX_API_WEB_SEARCH_RESULTS
+            ));
+        }
+        if self.diagnostics_timeout_ms == 0 {
+            return Err(anyhow::anyhow!(
+                "api_defaults.diagnostics_timeout_ms must be at least 1"
             ));
         }
         Ok(())
@@ -426,10 +482,73 @@ impl SystemConfig {
     }
 }
 
+fn deserialize_optional_u64_override<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<u64>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ValueOrClear {
+        Value(u64),
+        Clear(String),
+    }
+
+    let parsed = Option::<ValueOrClear>::deserialize(deserializer)?;
+    Ok(match parsed {
+        None => None,
+        Some(ValueOrClear::Value(value)) => Some(Some(value)),
+        Some(ValueOrClear::Clear(value)) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "none" | "null" | "unset" => Some(None),
+                _ => {
+                    return Err(serde::de::Error::custom(
+                        "expected a number or one of: \"none\", \"null\", \"unset\"",
+                    ));
+                }
+            }
+        }
+    })
+}
+
+fn deserialize_optional_string_list_override<'de, D>(
+    deserializer: D,
+) -> std::result::Result<Option<Option<Vec<String>>>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum ValueOrClear {
+        Values(Vec<String>),
+        Clear(String),
+    }
+
+    let parsed = Option::<ValueOrClear>::deserialize(deserializer)?;
+    Ok(match parsed {
+        None => None,
+        Some(ValueOrClear::Values(values)) => Some(Some(values)),
+        Some(ValueOrClear::Clear(value)) => {
+            let normalized = value.trim().to_ascii_lowercase();
+            match normalized.as_str() {
+                "none" | "null" | "unset" => Some(None),
+                _ => {
+                    return Err(serde::de::Error::custom(
+                        "expected an array of strings or one of: \"none\", \"null\", \"unset\"",
+                    ));
+                }
+            }
+        }
+    })
+}
+
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct AgentDefaultsOverride {
     pub tool_timeout_secs: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub llm_timeout_secs: Option<Option<u64>>,
     pub bash_timeout_secs: Option<u64>,
     pub python_timeout_secs: Option<u64>,
@@ -440,9 +559,18 @@ struct AgentDefaultsOverride {
     pub subagent_timeout_secs: Option<u64>,
     pub max_parallel_subagents: Option<usize>,
     pub max_tool_calls: Option<usize>,
+    pub max_tool_concurrency: Option<usize>,
+    pub max_tool_result_length: Option<usize>,
+    pub prune_tool_max_chars: Option<usize>,
+    pub compact_preserve_tokens: Option<usize>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub max_wall_clock_secs: Option<Option<u64>>,
     pub default_task_timeout_secs: Option<u64>,
     pub default_max_duration_secs: Option<u64>,
+    #[serde(
+        default,
+        deserialize_with = "deserialize_optional_string_list_override"
+    )]
     pub fallback_models: Option<Option<Vec<String>>>,
 }
 
@@ -481,6 +609,18 @@ impl AgentDefaultsOverride {
         if let Some(value) = self.max_tool_calls {
             agent.max_tool_calls = value;
         }
+        if let Some(value) = self.max_tool_concurrency {
+            agent.max_tool_concurrency = value;
+        }
+        if let Some(value) = self.max_tool_result_length {
+            agent.max_tool_result_length = value;
+        }
+        if let Some(value) = self.prune_tool_max_chars {
+            agent.prune_tool_max_chars = value;
+        }
+        if let Some(value) = self.compact_preserve_tokens {
+            agent.compact_preserve_tokens = value;
+        }
         if let Some(value) = self.max_wall_clock_secs {
             agent.max_wall_clock_secs = value;
         }
@@ -497,7 +637,7 @@ impl AgentDefaultsOverride {
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct ApiDefaultsOverride {
     pub memory_search_limit: Option<u32>,
     pub session_list_limit: Option<u32>,
@@ -505,6 +645,8 @@ struct ApiDefaultsOverride {
     pub background_message_list_limit: Option<usize>,
     pub background_trace_list_limit: Option<usize>,
     pub background_trace_line_limit: Option<usize>,
+    pub web_search_num_results: Option<usize>,
+    pub diagnostics_timeout_ms: Option<u64>,
 }
 
 impl ApiDefaultsOverride {
@@ -527,16 +669,24 @@ impl ApiDefaultsOverride {
         if let Some(value) = self.background_trace_line_limit {
             api_defaults.background_trace_line_limit = value;
         }
+        if let Some(value) = self.web_search_num_results {
+            api_defaults.web_search_num_results = value;
+        }
+        if let Some(value) = self.diagnostics_timeout_ms {
+            api_defaults.diagnostics_timeout_ms = value;
+        }
     }
 }
 
 #[derive(Debug, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 struct SystemConfigOverride {
     pub worker_count: Option<usize>,
     pub task_timeout_seconds: Option<u64>,
     pub stall_timeout_seconds: Option<u64>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub background_api_timeout_seconds: Option<Option<u64>>,
+    #[serde(default, deserialize_with = "deserialize_optional_u64_override")]
     pub chat_response_timeout_seconds: Option<Option<u64>>,
     pub max_retries: Option<u32>,
     pub chat_session_retention_days: Option<u32>,
@@ -861,7 +1011,7 @@ mod tests {
         assert_eq!(config.chat_response_timeout_seconds, None);
         assert_eq!(
             config.agent.browser_timeout_secs,
-            DEFAULT_BROWSER_TIMEOUT_SECS
+            DEFAULT_AGENT_BROWSER_TIMEOUT_SECS
         );
         assert_eq!(
             config.agent.process_session_ttl_secs,
@@ -869,13 +1019,37 @@ mod tests {
         );
         assert_eq!(
             config.agent.approval_timeout_secs,
-            DEFAULT_APPROVAL_TIMEOUT_SECS
+            DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS
         );
         assert_eq!(
             config.agent.llm_timeout_secs,
-            Some(DEFAULT_LLM_TIMEOUT_SECS)
+            Some(DEFAULT_AGENT_LLM_TIMEOUT_SECS)
+        );
+        assert_eq!(
+            config.agent.max_tool_concurrency,
+            DEFAULT_AGENT_MAX_TOOL_CONCURRENCY
+        );
+        assert_eq!(
+            config.agent.max_tool_result_length,
+            DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH
+        );
+        assert_eq!(
+            config.agent.prune_tool_max_chars,
+            DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS
+        );
+        assert_eq!(
+            config.agent.compact_preserve_tokens,
+            DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS
         );
         assert_eq!(config.agent.max_wall_clock_secs, None);
+        assert_eq!(
+            config.api_defaults.web_search_num_results,
+            DEFAULT_API_WEB_SEARCH_RESULTS
+        );
+        assert_eq!(
+            config.api_defaults.diagnostics_timeout_ms,
+            DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS
+        );
     }
 
     #[test]
@@ -984,17 +1158,26 @@ mod tests {
         let (storage, _temp_dir) = setup_test_storage();
 
         let mut config = storage.get_config().unwrap().unwrap();
-        assert_eq!(config.agent.tool_timeout_secs, 300);
+        assert_eq!(
+            config.agent.tool_timeout_secs,
+            DEFAULT_AGENT_TOOL_TIMEOUT_SECS
+        );
         assert_eq!(
             config.agent.llm_timeout_secs,
-            Some(DEFAULT_LLM_TIMEOUT_SECS)
+            Some(DEFAULT_AGENT_LLM_TIMEOUT_SECS)
         );
-        assert_eq!(config.agent.bash_timeout_secs, 300);
-        assert_eq!(config.agent.max_iterations, 100);
-        assert_eq!(config.agent.max_parallel_subagents, 200);
+        assert_eq!(
+            config.agent.bash_timeout_secs,
+            DEFAULT_AGENT_BASH_TIMEOUT_SECS
+        );
+        assert_eq!(config.agent.max_iterations, DEFAULT_AGENT_MAX_ITERATIONS);
+        assert_eq!(
+            config.agent.max_parallel_subagents,
+            DEFAULT_MAX_PARALLEL_SUBAGENTS
+        );
         assert_eq!(
             config.agent.browser_timeout_secs,
-            DEFAULT_BROWSER_TIMEOUT_SECS
+            DEFAULT_AGENT_BROWSER_TIMEOUT_SECS
         );
         assert_eq!(
             config.agent.process_session_ttl_secs,
@@ -1002,7 +1185,7 @@ mod tests {
         );
         assert_eq!(
             config.agent.approval_timeout_secs,
-            DEFAULT_APPROVAL_TIMEOUT_SECS
+            DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS
         );
 
         config.agent.tool_timeout_secs = 180;
@@ -1082,6 +1265,22 @@ mod tests {
         let mut config = SystemConfig::default();
         config.agent.max_wall_clock_secs = None;
         assert!(config.validate().is_ok());
+
+        let mut config = SystemConfig::default();
+        config.agent.max_tool_concurrency = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.max_tool_result_length = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.prune_tool_max_chars = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.compact_preserve_tokens = 0;
+        assert!(config.validate().is_err());
 
         let mut config = SystemConfig::default();
         config.agent.browser_timeout_secs = 5;
@@ -1164,6 +1363,38 @@ fallback_models = ["alpha", "beta"]
     }
 
     #[test]
+    fn test_partial_api_defaults_override() {
+        let _env_guard = env_lock();
+        let (storage, _temp_dir) = setup_test_storage();
+        let file = write_override_file(
+            r#"[api_defaults]
+web_search_num_results = 7
+diagnostics_timeout_ms = 9000
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        let effective = storage.get_effective_config().unwrap();
+        assert_eq!(effective.api_defaults.web_search_num_results, 7);
+        assert_eq!(effective.api_defaults.diagnostics_timeout_ms, 9000);
+    }
+
+    #[test]
+    fn test_partial_agent_override_can_clear_optional_timeout() {
+        let _env_guard = env_lock();
+        let (storage, _temp_dir) = setup_test_storage();
+        let file = write_override_file(
+            r#"[agent]
+llm_timeout_secs = "none"
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        let effective = storage.get_effective_config().unwrap();
+        assert_eq!(effective.agent.llm_timeout_secs, None);
+    }
+
+    #[test]
     fn test_effective_config_sources_reports_paths_and_existence() {
         let _env_guard = env_lock();
         let global_file = write_override_file("worker_count = 7");
@@ -1199,6 +1430,22 @@ fallback_models = ["alpha", "beta"]
     }
 
     #[test]
+    fn test_unknown_override_field_rejected() {
+        let _env_guard = env_lock();
+        let (storage, _temp_dir) = setup_test_storage();
+        let file = write_override_file(
+            r#"[api_defaults]
+unknown_limit = 1
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        storage
+            .get_effective_config()
+            .expect_err("unknown override field should fail");
+    }
+
+    #[test]
     fn test_api_defaults_round_trip() {
         let (storage, _temp_dir) = setup_test_storage();
         let mut config = storage.get_config().unwrap().unwrap();
@@ -1218,6 +1465,14 @@ fallback_models = ["alpha", "beta"]
     fn test_invalid_api_defaults_rejected() {
         let mut config = SystemConfig::default();
         config.api_defaults.background_message_list_limit = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.api_defaults.web_search_num_results = MAX_API_WEB_SEARCH_RESULTS + 1;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.api_defaults.diagnostics_timeout_ms = 0;
         assert!(config.validate().is_err());
     }
 
