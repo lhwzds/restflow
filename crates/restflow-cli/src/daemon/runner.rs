@@ -127,8 +127,12 @@ impl CliBackgroundAgentRunner {
                 Arc::new(executor),
                 Arc::new(notifier),
                 RunnerConfig {
-                    poll_interval_ms: 30_000,
-                    max_concurrent_tasks: 5,
+                    poll_interval_ms: system_config
+                        .runtime_defaults
+                        .background_runner_poll_interval_ms,
+                    max_concurrent_tasks: system_config
+                        .runtime_defaults
+                        .background_runner_max_concurrent_tasks,
                     task_timeout_secs: system_config.background_api_timeout_seconds,
                 },
                 Arc::new(NoopHeartbeatEmitter),
@@ -160,6 +164,7 @@ impl CliBackgroundAgentRunner {
         if let Some((tg_channel, default_chat_id)) = telegram::setup_telegram_channel(
             &self.core.storage.secrets,
             &self.core.storage.daemon_state,
+            &system_config.channel_defaults,
         )? {
             if let Some(chat_id) = default_chat_id {
                 channel_router.register_with_default(tg_channel, chat_id);
@@ -213,12 +218,13 @@ impl CliBackgroundAgentRunner {
             let session_manager = Arc::new(
                 ChatSessionManager::new(
                     storage.clone(),
-                    20, // max history messages
+                    system_config.runtime_defaults.chat_max_session_history,
                 )
                 .with_default_agent(default_chat_agent_id),
             );
             let debouncer = Arc::new(MessageDebouncer::default_timeout());
             let chat_dispatcher_config = ChatDispatcherConfig {
+                max_session_history: system_config.runtime_defaults.chat_max_session_history,
                 response_timeout_secs: system_config.chat_response_timeout_seconds,
                 ..ChatDispatcherConfig::default()
             };
