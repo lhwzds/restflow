@@ -6,7 +6,7 @@ use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{debug, info};
 
-use super::cli_utils;
+use super::utils;
 
 use crate::error::{AiError, Result};
 use crate::llm::client::{
@@ -200,12 +200,12 @@ impl LlmClient for CodexClient {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         info!("CodexClient: executing via CLI");
 
-        let prompt = cli_utils::build_prompt(&request.messages);
+        let prompt = utils::build_prompt(&request.messages);
         let args = self.build_cli_args(&prompt);
-        let executable = cli_utils::resolve_executable(
+        let executable = utils::resolve_executable(
             "codex",
             "RESTFLOW_CODEX_BIN",
-            &cli_utils::standard_fallbacks("codex"),
+            &utils::standard_fallbacks("codex"),
         )?;
 
         let mut cmd = Command::new(executable);
@@ -214,7 +214,7 @@ impl LlmClient for CodexClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let raw_output = cli_utils::execute_cli_command(
+        let raw_output = utils::execute_cli_command(
             cmd,
             "Codex",
             "Install with: npm install -g @openai/codex",
@@ -236,7 +236,7 @@ impl LlmClient for CodexClient {
     }
 
     fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
-        cli_utils::unsupported_stream("Codex CLI")
+        utils::unsupported_stream("Codex CLI")
     }
 
     fn supports_streaming(&self) -> bool {

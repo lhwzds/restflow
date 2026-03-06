@@ -10,7 +10,7 @@ use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult,
 };
 
-use super::cli_utils;
+use super::utils;
 
 const DEFAULT_MODEL: &str = "opencode";
 
@@ -46,7 +46,7 @@ impl OpenCodeClient {
     }
 
     fn parse_json_output(output: &str) -> Result<String> {
-        cli_utils::parse_json_response(output, "OpenCode")
+        utils::parse_json_response(output, "OpenCode")
     }
 }
 
@@ -69,7 +69,7 @@ impl LlmClient for OpenCodeClient {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         info!("OpenCodeClient: executing via CLI");
 
-        let prompt = cli_utils::build_prompt(&request.messages);
+        let prompt = utils::build_prompt(&request.messages);
 
         let mut cmd = Command::new("opencode");
         cmd.arg("-p")
@@ -85,7 +85,7 @@ impl LlmClient for OpenCodeClient {
             cmd.env(env_var, value);
         }
 
-        let raw_output = cli_utils::execute_cli_command(
+        let raw_output = utils::execute_cli_command(
             cmd,
             "OpenCode",
             "Install with: go install github.com/opencode-ai/opencode@latest",
@@ -103,7 +103,7 @@ impl LlmClient for OpenCodeClient {
     }
 
     fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
-        cli_utils::unsupported_stream("OpenCode CLI")
+        utils::unsupported_stream("OpenCode CLI")
     }
 
     fn supports_streaming(&self) -> bool {
@@ -142,7 +142,7 @@ mod tests {
             crate::llm::Message::user("hello"),
             crate::llm::Message::assistant("world"),
         ];
-        let prompt = super::cli_utils::build_prompt(&messages);
+        let prompt = super::utils::build_prompt(&messages);
         assert_eq!(prompt, "hello\n\nworld");
     }
 

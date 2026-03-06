@@ -10,7 +10,7 @@ use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult,
 };
 
-use super::cli_utils;
+use super::utils;
 
 const DEFAULT_MODEL: &str = "gemini-2.5-pro";
 
@@ -42,7 +42,7 @@ impl GeminiCliClient {
     }
 
     fn parse_json_output(output: &str) -> Result<String> {
-        cli_utils::parse_json_response(output, "Gemini")
+        utils::parse_json_response(output, "Gemini")
     }
 }
 
@@ -65,7 +65,7 @@ impl LlmClient for GeminiCliClient {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         info!("GeminiCliClient: executing via CLI");
 
-        let prompt = cli_utils::build_prompt(&request.messages);
+        let prompt = utils::build_prompt(&request.messages);
         let mut cmd = Command::new("gemini");
         cmd.arg("-p")
             .arg(&prompt)
@@ -82,7 +82,7 @@ impl LlmClient for GeminiCliClient {
             cmd.env("GEMINI_API_KEY", api_key);
         }
 
-        let raw_output = cli_utils::execute_cli_command(
+        let raw_output = utils::execute_cli_command(
             cmd,
             "Gemini",
             "Install with: npm install -g @google/gemini-cli",
@@ -100,7 +100,7 @@ impl LlmClient for GeminiCliClient {
     }
 
     fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
-        cli_utils::unsupported_stream("Gemini CLI")
+        utils::unsupported_stream("Gemini CLI")
     }
 
     fn supports_streaming(&self) -> bool {
