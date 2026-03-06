@@ -1,0 +1,103 @@
+use std::sync::Arc;
+
+use crate::llm::{LlmClient, LlmClientFactory};
+use crate::tools::ToolRegistry;
+use restflow_traits::subagent::{
+    SpawnHandle, SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSummary,
+    SubagentManager, SubagentResult, SubagentState,
+};
+use restflow_traits::ToolError;
+
+use super::spawn::spawn_subagent;
+use super::tracker::SubagentTracker;
+
+/// Dependencies needed for sub-agent tools.
+#[derive(Clone)]
+pub struct SubagentDeps {
+    pub tracker: Arc<SubagentTracker>,
+    pub definitions: Arc<dyn SubagentDefLookup>,
+    pub llm_client: Arc<dyn LlmClient>,
+    pub tool_registry: Arc<ToolRegistry>,
+    pub config: SubagentConfig,
+    /// Optional factory for creating LLM clients when a per-spawn model is requested.
+    pub llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
+}
+
+/// Concrete implementation of [`SubagentManager`].
+#[derive(Clone)]
+pub struct SubagentManagerImpl {
+    pub tracker: Arc<SubagentTracker>,
+    pub definitions: Arc<dyn SubagentDefLookup>,
+    pub llm_client: Arc<dyn LlmClient>,
+    pub tool_registry: Arc<ToolRegistry>,
+    pub config: SubagentConfig,
+    /// Optional factory for creating LLM clients when a per-spawn model is requested.
+    pub llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
+}
+
+impl SubagentManagerImpl {
+    pub fn new(
+        tracker: Arc<SubagentTracker>,
+        definitions: Arc<dyn SubagentDefLookup>,
+        llm_client: Arc<dyn LlmClient>,
+        tool_registry: Arc<ToolRegistry>,
+        config: SubagentConfig,
+    ) -> Self {
+        Self {
+            tracker,
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            llm_client_factory: None,
+        }
+    }
+
+    /// Create from existing [`SubagentDeps`].
+    pub fn from_deps(deps: &SubagentDeps) -> Self {
+        Self {
+            tracker: deps.tracker.clone(),
+            definitions: deps.definitions.clone(),
+            llm_client: deps.llm_client.clone(),
+            tool_registry: deps.tool_registry.clone(),
+            config: deps.config.clone(),
+            llm_client_factory: deps.llm_client_factory.clone(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SubagentManager for SubagentManagerImpl {
+    fn spawn(&self, request: SpawnRequest) -> std::result::Result<SpawnHandle, ToolError> {
+        spawn_subagent(
+            self.tracker.clone(),
+            self.definitions.clone(),
+            self.llm_client.clone(),
+            self.tool_registry.clone(),
+            self.config.clone(),
+            request,
+            self.llm_client_factory.clone(),
+        )
+        .map_err(|error| ToolError::Tool(error.to_string()))
+    }
+
+    fn list_callable(&self) -> Vec<SubagentDefSummary> {
+        self.definitions.list_callable()
+    }
+
+    fn list_running(&self) -> Vec<SubagentState> {
+        self.tracker.running()
+    }
+
+    fn running_count(&self) -> usize {
+        self.tracker.running_count()
+    }
+
+    async fn wait(&self, task_id: &str) -> Option<SubagentResult> {
+        self.tracker.wait(task_id).await
+    }
+
+    fn config(&self) -> &SubagentConfig {
+        &self.config
+    }
+}
