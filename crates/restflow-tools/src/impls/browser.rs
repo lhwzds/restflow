@@ -10,14 +10,13 @@ use restflow_browser::{
     BrowserAction, BrowserService, NewSessionRequest, RunActionsRequest, RunScriptRequest,
     ScriptLanguage, ScriptRuntime,
 };
+use restflow_traits::DEFAULT_AGENT_BROWSER_TIMEOUT_SECS;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolErrorCategory, ToolOutput};
-
-const DEFAULT_TIMEOUT_SECS: u64 = 120;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "action", rename_all = "snake_case")]
@@ -63,7 +62,7 @@ pub struct BrowserTool {
 
 impl BrowserTool {
     pub fn new() -> Result<Self> {
-        Self::new_with_timeout(DEFAULT_TIMEOUT_SECS)
+        Self::new_with_timeout(DEFAULT_AGENT_BROWSER_TIMEOUT_SECS)
     }
 
     pub fn new_with_timeout(default_timeout_secs: u64) -> Result<Self> {
@@ -76,7 +75,7 @@ impl BrowserTool {
     pub fn with_service(service: Arc<BrowserService>) -> Self {
         Self {
             service,
-            default_timeout_secs: DEFAULT_TIMEOUT_SECS,
+            default_timeout_secs: DEFAULT_AGENT_BROWSER_TIMEOUT_SECS,
         }
     }
 

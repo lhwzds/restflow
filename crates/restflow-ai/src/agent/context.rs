@@ -2,6 +2,9 @@
 //!
 //! Collects context from multiple sources and formats it for prompt injection.
 
+use restflow_traits::{
+    DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES, DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES,
+};
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -162,8 +165,8 @@ impl Default for ContextDiscoveryConfig {
             ],
             scan_directories: true,
             case_insensitive_dedup: true,
-            max_total_size: 100_000,
-            max_file_size: 50_000,
+            max_total_size: DEFAULT_WORKSPACE_CONTEXT_MAX_TOTAL_BYTES,
+            max_file_size: DEFAULT_WORKSPACE_CONTEXT_MAX_FILE_BYTES,
         }
     }
 }

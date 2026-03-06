@@ -12,8 +12,8 @@ use crate::runtime::agent::tools::assembly::{
     register_file_execution_tool, register_http_execution_tool, register_python_execution_tools,
     register_send_email_execution_tool,
 };
-use crate::runtime::channel::ToolTraceSubagentSink;
 use crate::runtime::subagent::StorageBackedSubagentLookup;
+use crate::runtime::trace::ToolTraceRunSink;
 use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
@@ -26,7 +26,7 @@ use restflow_ai::llm::{
     CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
     LlmSwitcherImpl, SwappableLlm,
 };
-use restflow_storage::AgentDefaults;
+use restflow_storage::{AgentDefaults, ApiDefaults, SystemConfig};
 use restflow_tools::{
     ListSubagentsTool, ProcessTool, ReplyTool, SpawnSubagentTool, SwitchModelTool,
     ToolRegistryBuilder, WaitSubagentsTool,
@@ -112,17 +112,25 @@ fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
     }
 }
 
-fn load_agent_defaults(config_storage: &ConfigStorage) -> AgentDefaults {
+fn load_system_config(config_storage: &ConfigStorage) -> SystemConfig {
     match config_storage.get_effective_config() {
-        Ok(config) => config.agent,
+        Ok(config) => config,
         Err(error) => {
             warn!(
                 error = %error,
                 "Failed to load system config defaults; falling back to built-in defaults"
             );
-            AgentDefaults::default()
+            SystemConfig::default()
         }
     }
+}
+
+fn load_agent_defaults(config_storage: &ConfigStorage) -> AgentDefaults {
+    load_system_config(config_storage).agent
+}
+
+fn load_api_defaults(config_storage: &ConfigStorage) -> ApiDefaults {
+    load_system_config(config_storage).api_defaults
 }
 
 fn load_subagent_config(config_storage: &ConfigStorage) -> SubagentConfig {
@@ -139,10 +147,7 @@ fn create_subagent_manager(
 ) -> Arc<dyn restflow_traits::SubagentManager> {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-    tracker.set_trace_sink(Arc::new(ToolTraceSubagentSink::new(
-        tool_trace_storage,
-        None,
-    )));
+    tracker.set_run_trace_sink(Arc::new(ToolTraceRunSink::new(tool_trace_storage, None)));
     let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let subagent_config = load_subagent_config(&config_storage);
@@ -190,6 +195,7 @@ pub fn create_tool_registry(
 
     let config_storage = Arc::new(config_storage);
     let agent_defaults = load_agent_defaults(&config_storage);
+    let api_defaults = load_api_defaults(&config_storage);
 
     let secret_resolver: SecretResolver = {
         let secrets = Arc::new(secret_storage.clone());
@@ -304,8 +310,11 @@ pub fn create_tool_registry(
         .with_grep()
         .with_web_fetch()
         .with_jina_reader()?
-        .with_web_search_with_resolver(secret_resolver.clone())?
-        .with_diagnostics(lsp_manager.clone())
+        .with_web_search_with_resolver_and_defaults(
+            secret_resolver.clone(),
+            api_defaults.web_search_num_results,
+        )?
+        .with_diagnostics_with_timeout(lsp_manager.clone(), api_defaults.diagnostics_timeout_ms)
         .with_transcribe(secret_resolver.clone())?
         .with_vision(secret_resolver)?
         .with_session(session_store)

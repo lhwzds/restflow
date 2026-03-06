@@ -8,6 +8,7 @@
 use async_trait::async_trait;
 use reqwest::Client;
 use reqwest::StatusCode;
+use restflow_traits::{DEFAULT_API_WEB_SEARCH_RESULTS, MAX_API_WEB_SEARCH_RESULTS};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
@@ -28,13 +29,21 @@ struct WebSearchInput {
 pub struct WebSearchTool {
     client: Client,
     secret_resolver: Option<SecretResolver>,
+    default_num_results: usize,
 }
 
 impl WebSearchTool {
     pub fn new() -> std::result::Result<Self, reqwest::Error> {
+        Self::with_default_num_results(DEFAULT_API_WEB_SEARCH_RESULTS)
+    }
+
+    pub fn with_default_num_results(
+        default_num_results: usize,
+    ) -> std::result::Result<Self, reqwest::Error> {
         Ok(Self {
             client: build_http_client()?,
             secret_resolver: None,
+            default_num_results: default_num_results.clamp(1, MAX_API_WEB_SEARCH_RESULTS),
         })
     }
 
@@ -284,8 +293,12 @@ impl Tool for WebSearchTool {
                 },
                 "num_results": {
                     "type": "integer",
-                    "description": "Number of results to return (default: 5, max: 10)",
-                    "default": 5
+                    "description": format!(
+                        "Number of results to return (default: {}, max: {})",
+                        self.default_num_results,
+                        MAX_API_WEB_SEARCH_RESULTS
+                    ),
+                    "default": self.default_num_results
                 }
             },
             "required": ["query"]
@@ -297,12 +310,15 @@ impl Tool for WebSearchTool {
             Ok(params) => params,
             Err(e) => {
                 return Ok(ToolOutput::error(format!(
-                    "Invalid input: {}. Required fields: query (string), optional: num_results (integer, max 10).",
-                    e
+                    "Invalid input: {}. Required fields: query (string), optional: num_results (integer, max {}).",
+                    e, MAX_API_WEB_SEARCH_RESULTS
                 )));
             }
         };
-        let num = params.num_results.unwrap_or(5).min(10);
+        let num = params
+            .num_results
+            .unwrap_or(self.default_num_results)
+            .clamp(1, MAX_API_WEB_SEARCH_RESULTS);
 
         // Auto-select provider: Brave -> Tavily -> DuckDuckGo
         if let Some(key) = self.resolve_secret("BRAVE_API_KEY") {
@@ -346,6 +362,10 @@ mod tests {
         let schema = tool.parameters_schema();
         assert!(schema.get("properties").is_some());
         assert_eq!(schema["required"][0], "query");
+        assert_eq!(
+            schema["properties"]["num_results"]["default"],
+            json!(DEFAULT_API_WEB_SEARCH_RESULTS)
+        );
     }
 
     #[test]
@@ -459,5 +479,13 @@ mod tests {
                 "Required fields: query (string), optional: num_results (integer, max 10)."
             )
         );
+    }
+
+    #[test]
+    fn test_web_search_tool_uses_custom_default_result_count() {
+        let tool = WebSearchTool::with_default_num_results(7).unwrap();
+        let schema = tool.parameters_schema();
+
+        assert_eq!(schema["properties"]["num_results"]["default"], json!(7));
     }
 }

@@ -2,6 +2,7 @@ use anyhow::Result;
 use dashmap::DashMap;
 use portable_pty::{CommandBuilder, PtySize, native_pty_system};
 use restflow_storage::time_utils;
+use restflow_traits::DEFAULT_PROCESS_SESSION_TTL_SECS;
 use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -19,7 +20,6 @@ pub use session::{
 };
 
 const DEFAULT_MAX_OUTPUT_BYTES: usize = 1_000_000;
-const DEFAULT_TTL_SECONDS: u64 = 30 * 60;
 const CLEANUP_INTERVAL_SECONDS: u64 = 60;
 const SESSION_REAP_TIMEOUT: Duration = Duration::from_secs(2);
 const DEFAULT_PTY_SIZE: PtySize = PtySize {
@@ -78,7 +78,7 @@ impl ProcessRegistry {
             sessions: Arc::new(DashMap::new()),
             finished: Arc::new(DashMap::new()),
             max_output_bytes: DEFAULT_MAX_OUTPUT_BYTES,
-            ttl_seconds: Arc::new(AtomicU64::new(DEFAULT_TTL_SECONDS)),
+            ttl_seconds: Arc::new(AtomicU64::new(DEFAULT_PROCESS_SESSION_TTL_SECS)),
         };
 
         registry.spawn_cleanup_task();

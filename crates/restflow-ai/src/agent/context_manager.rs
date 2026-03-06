@@ -13,6 +13,10 @@
 
 use crate::error::Result;
 use crate::llm::{CompletionRequest, LlmClient, Message, Role};
+use restflow_traits::{
+    DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS, DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
+};
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -20,11 +24,9 @@ use crate::llm::{CompletionRequest, LlmClient, Message, Role};
 
 const CHARS_PER_TOKEN: usize = 4;
 const ROLE_OVERHEAD_TOKENS: usize = 4;
-const DEFAULT_PRUNE_TOOL_MAX: usize = 2048;
 const MIN_PRUNE_SAVINGS_TOKENS: usize = 5_000;
 const PRUNE_PROTECTED_TURNS: usize = 3;
 const COMPACT_TRIGGER_RATIO: f64 = 0.90;
-const COMPACT_PRESERVE_TOKENS: usize = 20_000;
 const SUMMARY_TRUNCATE_CHARS: usize = 4000;
 /// Minimum token reduction ratio for compact to be considered effective.
 /// If compact doesn't reduce tokens by at least this factor, we enter cooldown.
@@ -50,12 +52,12 @@ pub struct ContextManagerConfig {
 impl Default for ContextManagerConfig {
     fn default() -> Self {
         Self {
-            context_window: 128_000,
-            prune_tool_max: DEFAULT_PRUNE_TOOL_MAX,
+            context_window: DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
+            prune_tool_max: DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
             prune_protected_turns: PRUNE_PROTECTED_TURNS,
             min_prune_savings_tokens: MIN_PRUNE_SAVINGS_TOKENS,
             compact_trigger_ratio: COMPACT_TRIGGER_RATIO,
-            compact_preserve_tokens: COMPACT_PRESERVE_TOKENS,
+            compact_preserve_tokens: DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
         }
     }
 }
@@ -64,6 +66,18 @@ impl ContextManagerConfig {
     /// Override the context window size.
     pub fn with_context_window(mut self, tokens: usize) -> Self {
         self.context_window = tokens;
+        self
+    }
+
+    /// Override the pruned tool output size limit.
+    pub fn with_prune_tool_max(mut self, max_chars: usize) -> Self {
+        self.prune_tool_max = max_chars;
+        self
+    }
+
+    /// Override the preserved recent token budget for compaction.
+    pub fn with_compact_preserve_tokens(mut self, tokens: usize) -> Self {
+        self.compact_preserve_tokens = tokens;
         self
     }
 }

@@ -5,7 +5,12 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
 
-use restflow_traits::DEFAULT_AGENT_MAX_ITERATIONS;
+use restflow_traits::{
+    DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS, DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
+    DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_ITERATIONS,
+    DEFAULT_AGENT_MAX_TOOL_CONCURRENCY, DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
+    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_TOOL_TIMEOUT_SECS,
+};
 use serde_json::Value;
 
 use crate::agent::PromptFlags;
@@ -16,10 +21,8 @@ use crate::agent::state::AgentState;
 use crate::agent::stuck::StuckDetectorConfig;
 use crate::error::Result;
 
-/// Default maximum number of tool calls that can execute concurrently.
-pub const DEFAULT_MAX_TOOL_CONCURRENCY: usize = 100;
-
 pub const MAX_TOOL_RETRIES: usize = 2;
+pub const DEFAULT_MAX_TOOL_CONCURRENCY: usize = DEFAULT_AGENT_MAX_TOOL_CONCURRENCY;
 
 /// Persistence frequency for execution checkpoints.
 #[derive(Debug, Clone)]
@@ -64,6 +67,10 @@ pub struct AgentConfig {
     pub max_tool_result_length: usize,
     /// Context window size in tokens (default: 128000).
     pub context_window: usize,
+    /// Maximum characters preserved when pruning old tool outputs.
+    pub prune_tool_max_chars: usize,
+    /// Tokens preserved from the recent tail during context compaction.
+    pub compact_preserve_tokens: usize,
     /// Optional maximum output tokens for each LLM completion request.
     pub max_output_tokens: Option<u32>,
     /// Optional agent context injected into the system prompt.
@@ -103,10 +110,12 @@ impl AgentConfig {
             max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
             temperature: None, // None = use model default
             context: HashMap::new(),
-            tool_timeout: Duration::from_secs(300),
-            llm_timeout: Some(Duration::from_secs(600)),
-            max_tool_result_length: 4000,
-            context_window: 128_000,
+            tool_timeout: Duration::from_secs(DEFAULT_AGENT_TOOL_TIMEOUT_SECS),
+            llm_timeout: Some(Duration::from_secs(DEFAULT_AGENT_LLM_TIMEOUT_SECS)),
+            max_tool_result_length: DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
+            context_window: DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
+            prune_tool_max_chars: DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
+            compact_preserve_tokens: DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
             max_output_tokens: None,
             agent_context: None,
             inject_agent_context: true,
@@ -119,7 +128,7 @@ impl AgentConfig {
             checkpoint_durability: CheckpointDurability::Periodic { interval: 5 },
             checkpoint_callback: None,
             prompt_flags: PromptFlags::default(),
-            max_tool_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+            max_tool_concurrency: DEFAULT_AGENT_MAX_TOOL_CONCURRENCY,
         }
     }
 
@@ -177,6 +186,18 @@ impl AgentConfig {
     /// Set max tool result length
     pub fn with_max_tool_result_length(mut self, max: usize) -> Self {
         self.max_tool_result_length = max;
+        self
+    }
+
+    /// Set maximum characters preserved when pruning tool output.
+    pub fn with_prune_tool_max_chars(mut self, max: usize) -> Self {
+        self.prune_tool_max_chars = max;
+        self
+    }
+
+    /// Set preserved recent tokens during context compaction.
+    pub fn with_compact_preserve_tokens(mut self, tokens: usize) -> Self {
+        self.compact_preserve_tokens = tokens;
         self
     }
 
@@ -238,6 +259,12 @@ impl AgentConfig {
     /// Set prompt flags for conditional section inclusion.
     pub fn with_prompt_flags(mut self, flags: PromptFlags) -> Self {
         self.prompt_flags = flags;
+        self
+    }
+
+    /// Set the maximum number of concurrent tool calls.
+    pub fn with_max_tool_concurrency(mut self, max: usize) -> Self {
+        self.max_tool_concurrency = max;
         self
     }
 

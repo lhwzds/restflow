@@ -351,8 +351,10 @@ impl AgentExecutor {
         let mut total_tokens: u32 = 0;
         let mut total_cost_usd: f64 = 0.0;
         let tracker = ResourceTracker::new(config.resource_limits.clone());
-        let context_config =
-            ContextManagerConfig::default().with_context_window(config.context_window);
+        let context_config = ContextManagerConfig::default()
+            .with_context_window(config.context_window)
+            .with_prune_tool_max(config.prune_tool_max_chars)
+            .with_compact_preserve_tokens(config.compact_preserve_tokens);
         let mut token_estimator = TokenEstimator::default();
 
         // Initialize stuck detector
