@@ -7,6 +7,10 @@ use std::fmt;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
+use restflow_traits::{DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_MAX_TOOL_CALLS};
+
+const DEFAULT_RESOURCE_MAX_DEPTH: usize = 20;
+
 /// Configurable limits for a single agent run.
 #[derive(Debug, Clone)]
 pub struct ResourceLimits {
@@ -23,9 +27,9 @@ pub struct ResourceLimits {
 impl Default for ResourceLimits {
     fn default() -> Self {
         Self {
-            max_tool_calls: 200,
-            max_wall_clock: Duration::from_secs(30 * 60), // 30 minutes
-            max_depth: 20,
+            max_tool_calls: DEFAULT_AGENT_MAX_TOOL_CALLS,
+            max_wall_clock: Duration::from_secs(DEFAULT_AGENT_MAX_DURATION_SECS),
+            max_depth: DEFAULT_RESOURCE_MAX_DEPTH,
             max_cost_usd: None,
         }
     }
@@ -216,9 +220,12 @@ mod tests {
     #[test]
     fn test_default_limits() {
         let limits = ResourceLimits::default();
-        assert_eq!(limits.max_tool_calls, 200);
-        assert_eq!(limits.max_wall_clock, Duration::from_secs(30 * 60));
-        assert_eq!(limits.max_depth, 20);
+        assert_eq!(limits.max_tool_calls, DEFAULT_AGENT_MAX_TOOL_CALLS);
+        assert_eq!(
+            limits.max_wall_clock,
+            Duration::from_secs(DEFAULT_AGENT_MAX_DURATION_SECS)
+        );
+        assert_eq!(limits.max_depth, DEFAULT_RESOURCE_MAX_DEPTH);
         assert_eq!(limits.max_cost_usd, None);
     }
 

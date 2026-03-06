@@ -8,7 +8,7 @@ use tokio::time::{Duration, timeout};
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_traits::SubagentManager;
+use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
 
 #[cfg(feature = "ts")]
 const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
@@ -62,7 +62,7 @@ impl Tool for WaitSubagentsTool {
                 },
                 "timeout_secs": {
                     "type": "integer",
-                    "default": 3600,
+                    "default": DEFAULT_SUBAGENT_TIMEOUT_SECS,
                     "minimum": 0,
                     "description": "Timeout in seconds. Use 0 to wait without timeout. If omitted, uses subagent manager default timeout."
                 }
@@ -226,6 +226,17 @@ mod tests {
         let params: WaitSubagentsParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.task_ids.len(), 2);
         assert_eq!(params.timeout_secs, Some(120));
+    }
+
+    #[test]
+    fn test_parameters_schema_uses_shared_timeout_default() {
+        let (_deps, manager) = make_deps(vec![]);
+        let tool = WaitSubagentsTool::new(manager);
+        let schema = tool.parameters_schema();
+        assert_eq!(
+            schema["properties"]["timeout_secs"]["default"],
+            json!(DEFAULT_SUBAGENT_TIMEOUT_SECS)
+        );
     }
 
     #[tokio::test]

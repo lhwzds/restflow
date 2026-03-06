@@ -3,7 +3,10 @@
 use anyhow::{Context, Result};
 use redb::{Database, ReadableDatabase, TableDefinition};
 use restflow_traits::{
-    DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_AGENT_MAX_TOOL_CALLS,
+    DEFAULT_AGENT_TASK_TIMEOUT_SECS, DEFAULT_BG_MESSAGE_LIST_LIMIT,
+    DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT, DEFAULT_BG_TRACE_LIST_LIMIT,
+    DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_TIMEOUT_SECS,
 };
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -32,10 +35,6 @@ const DEFAULT_MEMORY_CHUNK_RETENTION_DAYS: u32 = 90;
 const DEFAULT_LOG_FILE_RETENTION_DAYS: u32 = 30;
 const DEFAULT_MEMORY_SEARCH_LIMIT: u32 = 10;
 const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
-const DEFAULT_BG_PROGRESS_EVENT_LIMIT: usize = 10;
-const DEFAULT_BG_MESSAGE_LIST_LIMIT: usize = 50;
-const DEFAULT_BG_TRACE_LIST_LIMIT: usize = 50;
-const DEFAULT_BG_TRACE_LINE_LIMIT: usize = 200;
 const DEFAULT_BROWSER_TIMEOUT_SECS: u64 = 120;
 const DEFAULT_LLM_TIMEOUT_SECS: u64 = 600;
 const DEFAULT_PROCESS_SESSION_TTL_SECS: u64 = 30 * 60;
@@ -100,10 +99,10 @@ impl Default for AgentDefaults {
             max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
             subagent_timeout_secs: DEFAULT_SUBAGENT_TIMEOUT_SECS,
             max_parallel_subagents: DEFAULT_MAX_PARALLEL_SUBAGENTS,
-            max_tool_calls: 200,
+            max_tool_calls: DEFAULT_AGENT_MAX_TOOL_CALLS,
             max_wall_clock_secs: None,
-            default_task_timeout_secs: 1800,
-            default_max_duration_secs: 1800,
+            default_task_timeout_secs: DEFAULT_AGENT_TASK_TIMEOUT_SECS,
+            default_max_duration_secs: DEFAULT_AGENT_MAX_DURATION_SECS,
             fallback_models: None,
         }
     }

@@ -3,6 +3,10 @@
 //! Agent tasks represent recurring or one-time scheduled executions of agents
 //! with optional notification configurations for reporting results.
 
+use restflow_traits::{
+    DEFAULT_AGENT_MAX_DURATION_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
+    DEFAULT_BACKGROUND_MAX_TOOL_CALLS,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
@@ -54,7 +58,7 @@ pub struct CliExecutionConfig {
 }
 
 fn default_timeout_secs() -> u64 {
-    1800 // 30 minutes default
+    DEFAULT_AGENT_TASK_TIMEOUT_SECS
 }
 
 impl Default for CliExecutionConfig {
@@ -177,11 +181,11 @@ fn default_max_summary_tokens() -> usize {
 }
 
 fn default_max_tool_calls() -> usize {
-    100
+    DEFAULT_BACKGROUND_MAX_TOOL_CALLS
 }
 
 fn default_max_duration_secs() -> u64 {
-    1800 // 30 minutes
+    DEFAULT_AGENT_MAX_DURATION_SECS
 }
 
 fn default_max_output_bytes() -> usize {
