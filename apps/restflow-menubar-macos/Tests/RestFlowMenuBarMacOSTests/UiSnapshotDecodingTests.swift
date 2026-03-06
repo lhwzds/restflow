@@ -72,4 +72,38 @@ struct UiSnapshotDecodingTests {
         #expect(snapshot.summary.tokens == nil)
         #expect(snapshot.summary.cost == nil)
     }
+
+    @Test
+    func resolveExecutablePrefersExplicitEnvironmentPath() {
+        let resolved = RestFlowCLIClient.resolveExecutable(
+            preferred: "restflow",
+            environment: [
+                "HOME": "/Users/tester",
+                "RESTFLOW_CLI_PATH": "/custom/restflow",
+            ],
+            searchRoots: ["/workspace/restflow/apps/restflow-menubar-macos"],
+            isExecutable: { path in
+                path == "/custom/restflow" || path == "/workspace/restflow/target/debug/restflow"
+            }
+        )
+
+        #expect(resolved == "/custom/restflow")
+    }
+
+    @Test
+    func resolveExecutablePrefersWorkspaceBuildBeforeInstalledBinary() {
+        let resolved = RestFlowCLIClient.resolveExecutable(
+            preferred: "restflow",
+            environment: [
+                "HOME": "/Users/tester",
+            ],
+            searchRoots: ["/workspace/restflow/apps/restflow-menubar-macos"],
+            isExecutable: { path in
+                path == "/workspace/restflow/target/debug/restflow"
+                    || path == "/Users/tester/.local/bin/restflow"
+            }
+        )
+
+        #expect(resolved == "/workspace/restflow/target/debug/restflow")
+    }
 }
