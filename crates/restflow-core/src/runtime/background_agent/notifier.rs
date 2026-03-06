@@ -13,8 +13,8 @@ use crate::{
     models::{BackgroundAgent, NotificationConfig},
     storage::SecretStorage,
 };
-use restflow_ai::text_utils::floor_char_boundary;
 use restflow_tools::send_telegram_notification;
+use restflow_traits::floor_char_boundary;
 
 use super::runner::NotificationSender;
 
