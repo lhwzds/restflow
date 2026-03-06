@@ -10,7 +10,7 @@ mod setup;
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{Cli, Commands};
+use cli::{Cli, Commands, UiCommands};
 use restflow_core::paths;
 use std::io;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -90,6 +90,13 @@ async fn run() -> Result<()> {
 
     if let Some(Commands::Status) = cli.command {
         commands::status::run(cli.format).await?;
+        return Ok(());
+    }
+
+    if let Some(Commands::Ui { command }) = &cli.command {
+        match command {
+            UiCommands::Snapshot => commands::ui::snapshot(cli.format).await?,
+        }
         return Ok(());
     }
 
@@ -202,6 +209,7 @@ async fn run() -> Result<()> {
             Some(Commands::Completions { .. }) => Ok(()),
             Some(Commands::Stop) => Ok(()),
             Some(Commands::Status) => Ok(()),
+            Some(Commands::Ui { .. }) => Ok(()),
             Some(Commands::Upgrade(_)) => Ok(()),
             Some(Commands::Restart(_)) => Ok(()),
             None => {
