@@ -133,6 +133,10 @@ fn load_api_defaults(config_storage: &ConfigStorage) -> ApiDefaults {
     load_system_config(config_storage).api_defaults
 }
 
+fn load_registry_defaults(config_storage: &ConfigStorage) -> restflow_storage::RegistryDefaults {
+    load_system_config(config_storage).registry_defaults
+}
+
 fn load_subagent_config(config_storage: &ConfigStorage) -> SubagentConfig {
     let defaults = load_agent_defaults(config_storage);
     build_subagent_config(&defaults)
@@ -196,6 +200,7 @@ pub fn create_tool_registry(
     let config_storage = Arc::new(config_storage);
     let agent_defaults = load_agent_defaults(&config_storage);
     let api_defaults = load_api_defaults(&config_storage);
+    let registry_defaults = load_registry_defaults(&config_storage);
 
     let secret_resolver: SecretResolver = {
         let secrets = Arc::new(secret_storage.clone());
@@ -236,7 +241,10 @@ pub fn create_tool_registry(
         agent_storage.clone(),
         deliverable_storage,
     ));
-    let marketplace_store = Arc::new(MarketplaceStoreAdapter::new(skill_storage));
+    let marketplace_store = Arc::new(MarketplaceStoreAdapter::new_with_defaults(
+        skill_storage,
+        registry_defaults,
+    ));
     let trigger_store = Arc::new(TriggerStoreAdapter::new(trigger_storage));
     let terminal_store = Arc::new(TerminalStoreAdapter::new(terminal_storage));
     let security_provider: Arc<_> = Arc::new(SecurityQueryProviderAdapter::with_config_storage(

@@ -20,12 +20,10 @@ use super::{
 use crate::models::{
     GatingRequirements, SkillAuthor, SkillManifest, SkillPermissions, SkillSource, SkillVersion,
 };
+use restflow_traits::DEFAULT_GITHUB_CACHE_TTL_SECS;
 
 /// GitHub API base URL
 const GITHUB_API_URL: &str = "https://api.github.com";
-
-/// Cache TTL for GitHub data
-const CACHE_TTL: Duration = Duration::from_secs(600); // 10 minutes
 
 /// GitHub repository search result
 #[allow(dead_code)]
@@ -101,6 +99,8 @@ pub struct GitHubProvider {
     client: Client,
     /// GitHub personal access token (optional, for higher rate limits)
     token: Option<String>,
+    /// Cache TTL for provider results.
+    cache_ttl: Duration,
     /// Cache for manifests
     manifest_cache: Arc<RwLock<HashMap<String, CacheEntry<SkillManifest>>>>,
     /// Cache for repo to manifest mapping (reserved for future use)
@@ -118,6 +118,7 @@ impl GitHubProvider {
                 .build()
                 .unwrap_or_default(),
             token: None,
+            cache_ttl: Duration::from_secs(DEFAULT_GITHUB_CACHE_TTL_SECS),
             manifest_cache: Arc::new(RwLock::new(HashMap::new())),
             repo_cache: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -126,6 +127,12 @@ impl GitHubProvider {
     /// Set the GitHub personal access token
     pub fn with_token(mut self, token: String) -> Self {
         self.token = Some(token);
+        self
+    }
+
+    /// Override cache TTL in seconds.
+    pub fn with_cache_ttl_secs(mut self, ttl_secs: u64) -> Self {
+        self.cache_ttl = Duration::from_secs(ttl_secs);
         self
     }
 
@@ -414,7 +421,10 @@ impl SkillProvider for GitHubProvider {
         // Update cache
         {
             let mut cache = self.manifest_cache.write().await;
-            cache.insert(id.to_string(), CacheEntry::new(manifest.clone(), CACHE_TTL));
+            cache.insert(
+                id.to_string(),
+                CacheEntry::new(manifest.clone(), self.cache_ttl),
+            );
         }
 
         Ok(manifest)
@@ -514,11 +524,21 @@ mod tests {
     fn test_default_provider() {
         let provider = GitHubProvider::new();
         assert!(provider.token.is_none());
+        assert_eq!(
+            provider.cache_ttl,
+            Duration::from_secs(DEFAULT_GITHUB_CACHE_TTL_SECS)
+        );
     }
 
     #[test]
     fn test_provider_with_token() {
         let provider = GitHubProvider::new().with_token("test-token".to_string());
         assert_eq!(provider.token, Some("test-token".to_string()));
+    }
+
+    #[test]
+    fn test_provider_with_cache_ttl() {
+        let provider = GitHubProvider::new().with_cache_ttl_secs(1200);
+        assert_eq!(provider.cache_ttl, Duration::from_secs(1200));
     }
 }

@@ -14,6 +14,7 @@ use restflow_core::models::{Skill, StorageMode};
 use restflow_core::paths;
 use restflow_core::registry::{MarketplaceProvider, SkillRegistry, SkillSearchQuery};
 use restflow_core::services::skills as skill_service;
+use restflow_storage::RegistryDefaults;
 use serde_json::json;
 
 pub async fn run(
@@ -48,7 +49,7 @@ pub async fn run(
         SkillCommands::Delete { id } => delete_skill(executor, &id, format).await,
         SkillCommands::Import { path } => import_skill(executor, &path, format).await,
         SkillCommands::Export { id, output } => export_skill(executor, &id, output, format).await,
-        SkillCommands::Search { query } => search_skills(&query, format).await,
+        SkillCommands::Search { query } => search_skills(executor, &query, format).await,
         SkillCommands::Install {
             source,
             path,
@@ -238,9 +239,21 @@ async fn export_skill(
     Ok(())
 }
 
-async fn search_skills(query: &str, format: OutputFormat) -> Result<()> {
+async fn search_skills(
+    executor: Arc<dyn CommandExecutor>,
+    query: &str,
+    format: OutputFormat,
+) -> Result<()> {
     let mut registry = SkillRegistry::with_defaults();
-    registry.add_provider(Arc::new(MarketplaceProvider::new()));
+    let registry_defaults = executor
+        .get_config()
+        .await
+        .map(|config| config.registry_defaults)
+        .unwrap_or_else(|_| RegistryDefaults::default());
+    registry.add_provider(Arc::new(
+        MarketplaceProvider::new()
+            .with_cache_ttl_secs(registry_defaults.marketplace_cache_ttl_secs),
+    ));
 
     let query = SkillSearchQuery {
         query: Some(query.to_string()),
@@ -303,7 +316,15 @@ async fn install_from_marketplace(
     format: OutputFormat,
 ) -> Result<()> {
     let mut registry = SkillRegistry::with_defaults();
-    registry.add_provider(Arc::new(MarketplaceProvider::new()));
+    let registry_defaults = executor
+        .get_config()
+        .await
+        .map(|config| config.registry_defaults)
+        .unwrap_or_else(|_| RegistryDefaults::default());
+    registry.add_provider(Arc::new(
+        MarketplaceProvider::new()
+            .with_cache_ttl_secs(registry_defaults.marketplace_cache_ttl_secs),
+    ));
 
     let installed = registry.install(name).await?;
 

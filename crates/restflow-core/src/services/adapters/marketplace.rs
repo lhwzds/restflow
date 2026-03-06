@@ -4,17 +4,32 @@ use crate::models::Skill;
 use crate::registry::{GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery};
 use crate::storage::skill::SkillStorage;
 use chrono::Utc;
+use restflow_storage::RegistryDefaults;
 use restflow_tools::ToolError;
 use restflow_traits::store::MarketplaceStore;
 use serde_json::{Value, json};
 
 pub struct MarketplaceStoreAdapter {
     storage: SkillStorage,
+    github_provider: GitHubProvider,
+    marketplace_provider: MarketplaceProvider,
 }
 
 impl MarketplaceStoreAdapter {
     pub fn new(storage: SkillStorage) -> Self {
-        Self { storage }
+        Self::new_with_defaults(storage, RegistryDefaults::default())
+    }
+
+    pub fn new_with_defaults(storage: SkillStorage, registry_defaults: RegistryDefaults) -> Self {
+        let github_provider =
+            GitHubProvider::new().with_cache_ttl_secs(registry_defaults.github_cache_ttl_secs);
+        let marketplace_provider = MarketplaceProvider::new()
+            .with_cache_ttl_secs(registry_defaults.marketplace_cache_ttl_secs);
+        Self {
+            storage,
+            github_provider,
+            marketplace_provider,
+        }
     }
 
     fn provider_name(source: Option<&str>) -> &str {
@@ -25,15 +40,18 @@ impl MarketplaceStoreAdapter {
     }
 
     async fn search_source(
+        &self,
         source: &str,
         query: &SkillSearchQuery,
     ) -> Result<Vec<crate::registry::SkillSearchResult>, ToolError> {
         match source {
-            "github" => GitHubProvider::new()
+            "github" => self
+                .github_provider
                 .search(query)
                 .await
                 .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
+            _ => self
+                .marketplace_provider
                 .search(query)
                 .await
                 .map_err(|e| ToolError::Tool(e.to_string())),
@@ -41,15 +59,18 @@ impl MarketplaceStoreAdapter {
     }
 
     async fn get_manifest(
+        &self,
         source: &str,
         id: &str,
     ) -> Result<crate::models::SkillManifest, ToolError> {
         match source {
-            "github" => GitHubProvider::new()
+            "github" => self
+                .github_provider
                 .get_manifest(id)
                 .await
                 .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
+            _ => self
+                .marketplace_provider
                 .get_manifest(id)
                 .await
                 .map_err(|e| ToolError::Tool(e.to_string())),
@@ -57,16 +78,19 @@ impl MarketplaceStoreAdapter {
     }
 
     async fn get_content(
+        &self,
         source: &str,
         id: &str,
         version: &crate::models::SkillVersion,
     ) -> Result<String, ToolError> {
         match source {
-            "github" => GitHubProvider::new()
+            "github" => self
+                .github_provider
                 .get_content(id, version)
                 .await
                 .map_err(|e| ToolError::Tool(e.to_string())),
-            _ => MarketplaceProvider::new()
+            _ => self
+                .marketplace_provider
                 .get_content(id, version)
                 .await
                 .map_err(|e| ToolError::Tool(e.to_string())),
@@ -123,13 +147,13 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
             sort: None,
         };
         let source_name = Self::provider_name(source);
-        let results = Self::search_source(source_name, &q).await?;
+        let results = self.search_source(source_name, &q).await?;
         Ok(serde_json::to_value(results)?)
     }
 
     async fn skill_info(&self, id: &str, source: Option<&str>) -> restflow_tools::Result<Value> {
         let source_name = Self::provider_name(source);
-        let manifest = Self::get_manifest(source_name, id).await?;
+        let manifest = self.get_manifest(source_name, id).await?;
         Ok(serde_json::to_value(manifest)?)
     }
 
@@ -140,8 +164,8 @@ impl MarketplaceStore for MarketplaceStoreAdapter {
         overwrite: bool,
     ) -> restflow_tools::Result<Value> {
         let source_name = Self::provider_name(source);
-        let manifest = Self::get_manifest(source_name, id).await?;
-        let content = Self::get_content(source_name, id, &manifest.version).await?;
+        let manifest = self.get_manifest(source_name, id).await?;
+        let content = self.get_content(source_name, id, &manifest.version).await?;
         let skill = Self::manifest_to_skill(manifest, content);
 
         let exists = self.storage.exists(id)?;
