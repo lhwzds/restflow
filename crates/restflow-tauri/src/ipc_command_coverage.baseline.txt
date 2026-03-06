@@ -1,7 +1,7 @@
 # tauri-ipc-command-coverage baseline
 # format-version: 1
-tauri_total=128
-bound_total=105
+tauri_total=134
+bound_total=111
 dangling_total=0
 unbound_total=23
 

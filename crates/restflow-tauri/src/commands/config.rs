@@ -2,7 +2,7 @@
 
 use crate::state::AppState;
 use restflow_core::AIModel;
-use restflow_core::models::ModelMetadataDTO;
+use restflow_core::models::{ModelMetadataDTO, Provider};
 use restflow_storage::SystemConfig;
 use serde::Serialize;
 use specta::Type;
@@ -45,6 +45,48 @@ pub async fn update_config(
 #[tauri::command]
 pub async fn get_available_models() -> Result<Vec<ModelMetadataDTO>, String> {
     Ok(AIModel::all_with_metadata())
+}
+
+/// Catalog entry for provider-scoped model discovery.
+#[derive(Debug, Serialize, Type)]
+pub struct ProviderModelCatalogItem {
+    pub provider: Provider,
+    pub models: Vec<ModelMetadataDTO>,
+}
+
+/// Get all providers that currently have at least one available model.
+#[specta::specta]
+#[tauri::command]
+pub async fn get_available_providers() -> Result<Vec<Provider>, String> {
+    let metadata = AIModel::all_with_metadata();
+    let mut providers: Vec<Provider> = metadata.iter().map(|entry| entry.provider).collect();
+    providers.sort_by_key(|provider| provider.as_canonical_str());
+    providers.dedup();
+    Ok(providers)
+}
+
+/// Get provider -> models catalog for UI selector workflows.
+#[specta::specta]
+#[tauri::command]
+pub async fn get_model_catalog() -> Result<Vec<ProviderModelCatalogItem>, String> {
+    let metadata = AIModel::all_with_metadata();
+    let mut providers: Vec<Provider> = metadata.iter().map(|entry| entry.provider).collect();
+    providers.sort_by_key(|provider| provider.as_canonical_str());
+    providers.dedup();
+
+    let catalog = providers
+        .into_iter()
+        .map(|provider| ProviderModelCatalogItem {
+            provider,
+            models: metadata
+                .iter()
+                .filter(|entry| entry.provider == provider)
+                .cloned()
+                .collect(),
+        })
+        .collect();
+
+    Ok(catalog)
 }
 
 /// Tool information for the frontend
