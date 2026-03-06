@@ -78,6 +78,15 @@ pub const DEFAULT_BG_TRACE_LIST_LIMIT: usize = 50;
 /// Default trailing line limit for background trace reads.
 pub const DEFAULT_BG_TRACE_LINE_LIMIT: usize = 200;
 
+/// Default background runner poll interval in milliseconds.
+pub const DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS: u64 = 30_000;
+
+/// Default maximum concurrent background runner tasks.
+pub const DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS: usize = 5;
+
+/// Default maximum chat session history preserved for channel conversations.
+pub const DEFAULT_CHAT_MAX_SESSION_HISTORY: usize = 20;
+
 /// Default number of results returned by web search when no limit is specified.
 pub const DEFAULT_API_WEB_SEARCH_RESULTS: usize = 5;
 
@@ -86,6 +95,18 @@ pub const MAX_API_WEB_SEARCH_RESULTS: usize = 10;
 
 /// Default timeout (milliseconds) for diagnostics collection.
 pub const DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS: u64 = 5_000;
+
+/// Default timeout (seconds) for Telegram Bot API HTTP requests.
+pub const DEFAULT_TELEGRAM_API_TIMEOUT_SECS: u64 = 30;
+
+/// Default timeout (seconds) for Telegram long polling requests.
+pub const DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS: u32 = 30;
+
+/// Default cache TTL (seconds) for GitHub registry results.
+pub const DEFAULT_GITHUB_CACHE_TTL_SECS: u64 = 600;
+
+/// Default cache TTL (seconds) for marketplace registry results.
+pub const DEFAULT_MARKETPLACE_CACHE_TTL_SECS: u64 = 300;
 
 /// Default file cache entry cap for agent session caches.
 pub const DEFAULT_AGENT_CACHE_FILE_MAX_ENTRIES: usize = 100;

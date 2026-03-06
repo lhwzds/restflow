@@ -10,9 +10,14 @@ use restflow_traits::{
     DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH, DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS,
     DEFAULT_AGENT_PYTHON_TIMEOUT_SECS, DEFAULT_AGENT_TASK_TIMEOUT_SECS,
     DEFAULT_AGENT_TOOL_TIMEOUT_SECS, DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS,
-    DEFAULT_API_WEB_SEARCH_RESULTS, DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT,
-    DEFAULT_BG_TRACE_LINE_LIMIT, DEFAULT_BG_TRACE_LIST_LIMIT, DEFAULT_MAX_PARALLEL_SUBAGENTS,
-    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_TIMEOUT_SECS, MAX_API_WEB_SEARCH_RESULTS,
+    DEFAULT_API_WEB_SEARCH_RESULTS, DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
+    DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS, DEFAULT_BG_MESSAGE_LIST_LIMIT,
+    DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT, DEFAULT_BG_TRACE_LIST_LIMIT,
+    DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
+    DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
+    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_TELEGRAM_API_TIMEOUT_SECS, DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS,
+    MAX_API_WEB_SEARCH_RESULTS,
 };
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -92,7 +97,7 @@ pub struct AgentDefaults {
     /// Fallback models for cross-provider failover (manually configured).
     /// Only used when primary model fails - does not auto-discover providers.
     /// Format: model names as strings (e.g., ["glm-4.7", "claude-sonnet-4-5"])
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
 }
 
@@ -318,6 +323,120 @@ impl ApiDefaults {
     }
 }
 
+/// Runtime execution defaults for daemon/background/chat behavior.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub struct RuntimeDefaults {
+    /// Background runner poll interval in milliseconds.
+    pub background_runner_poll_interval_ms: u64,
+    /// Maximum concurrent tasks for the background runner.
+    pub background_runner_max_concurrent_tasks: usize,
+    /// Maximum session history kept for channel chat sessions.
+    pub chat_max_session_history: usize,
+}
+
+impl Default for RuntimeDefaults {
+    fn default() -> Self {
+        Self {
+            background_runner_poll_interval_ms: DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
+            background_runner_max_concurrent_tasks: DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
+            chat_max_session_history: DEFAULT_CHAT_MAX_SESSION_HISTORY,
+        }
+    }
+}
+
+impl RuntimeDefaults {
+    fn validate(&self) -> Result<()> {
+        if self.background_runner_poll_interval_ms == 0 {
+            return Err(anyhow::anyhow!(
+                "runtime_defaults.background_runner_poll_interval_ms must be at least 1"
+            ));
+        }
+        if self.background_runner_max_concurrent_tasks == 0 {
+            return Err(anyhow::anyhow!(
+                "runtime_defaults.background_runner_max_concurrent_tasks must be at least 1"
+            ));
+        }
+        if self.chat_max_session_history == 0 {
+            return Err(anyhow::anyhow!(
+                "runtime_defaults.chat_max_session_history must be at least 1"
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Channel-specific defaults for external integrations.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub struct ChannelDefaults {
+    /// Timeout for Telegram API HTTP calls in seconds.
+    pub telegram_api_timeout_secs: u64,
+    /// Telegram long-poll timeout in seconds.
+    pub telegram_polling_timeout_secs: u32,
+}
+
+impl Default for ChannelDefaults {
+    fn default() -> Self {
+        Self {
+            telegram_api_timeout_secs: DEFAULT_TELEGRAM_API_TIMEOUT_SECS,
+            telegram_polling_timeout_secs: DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS,
+        }
+    }
+}
+
+impl ChannelDefaults {
+    fn validate(&self) -> Result<()> {
+        if self.telegram_api_timeout_secs < MIN_TIMEOUT_SECONDS {
+            return Err(anyhow::anyhow!(
+                "channel_defaults.telegram_api_timeout_secs must be at least {} seconds",
+                MIN_TIMEOUT_SECONDS
+            ));
+        }
+        if self.telegram_polling_timeout_secs == 0 {
+            return Err(anyhow::anyhow!(
+                "channel_defaults.telegram_polling_timeout_secs must be at least 1"
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// Registry and marketplace integration defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub struct RegistryDefaults {
+    /// GitHub provider cache TTL in seconds.
+    pub github_cache_ttl_secs: u64,
+    /// Marketplace provider cache TTL in seconds.
+    pub marketplace_cache_ttl_secs: u64,
+}
+
+impl Default for RegistryDefaults {
+    fn default() -> Self {
+        Self {
+            github_cache_ttl_secs: DEFAULT_GITHUB_CACHE_TTL_SECS,
+            marketplace_cache_ttl_secs: DEFAULT_MARKETPLACE_CACHE_TTL_SECS,
+        }
+    }
+}
+
+impl RegistryDefaults {
+    fn validate(&self) -> Result<()> {
+        if self.github_cache_ttl_secs == 0 {
+            return Err(anyhow::anyhow!(
+                "registry_defaults.github_cache_ttl_secs must be at least 1"
+            ));
+        }
+        if self.marketplace_cache_ttl_secs == 0 {
+            return Err(anyhow::anyhow!(
+                "registry_defaults.marketplace_cache_ttl_secs must be at least 1"
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// System configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
@@ -351,6 +470,15 @@ pub struct SystemConfig {
     /// API operation default limits.
     #[serde(default)]
     pub api_defaults: ApiDefaults,
+    /// Runtime execution defaults for daemon/background/chat services.
+    #[serde(default)]
+    pub runtime_defaults: RuntimeDefaults,
+    /// Channel integration defaults.
+    #[serde(default)]
+    pub channel_defaults: ChannelDefaults,
+    /// Registry provider defaults.
+    #[serde(default)]
+    pub registry_defaults: RegistryDefaults,
 }
 
 impl Default for SystemConfig {
@@ -370,6 +498,9 @@ impl Default for SystemConfig {
             experimental_features: Vec::new(),
             agent: AgentDefaults::default(),
             api_defaults: ApiDefaults::default(),
+            runtime_defaults: RuntimeDefaults::default(),
+            channel_defaults: ChannelDefaults::default(),
+            registry_defaults: RegistryDefaults::default(),
         }
     }
 }
@@ -477,6 +608,9 @@ impl SystemConfig {
 
         self.agent.validate()?;
         self.api_defaults.validate()?;
+        self.runtime_defaults.validate()?;
+        self.channel_defaults.validate()?;
+        self.registry_defaults.validate()?;
 
         Ok(())
     }
@@ -680,6 +814,64 @@ impl ApiDefaultsOverride {
 
 #[derive(Debug, Default, Deserialize)]
 #[serde(default, deny_unknown_fields)]
+struct RuntimeDefaultsOverride {
+    pub background_runner_poll_interval_ms: Option<u64>,
+    pub background_runner_max_concurrent_tasks: Option<usize>,
+    pub chat_max_session_history: Option<usize>,
+}
+
+impl RuntimeDefaultsOverride {
+    fn apply_to(&self, runtime_defaults: &mut RuntimeDefaults) {
+        if let Some(value) = self.background_runner_poll_interval_ms {
+            runtime_defaults.background_runner_poll_interval_ms = value;
+        }
+        if let Some(value) = self.background_runner_max_concurrent_tasks {
+            runtime_defaults.background_runner_max_concurrent_tasks = value;
+        }
+        if let Some(value) = self.chat_max_session_history {
+            runtime_defaults.chat_max_session_history = value;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct ChannelDefaultsOverride {
+    pub telegram_api_timeout_secs: Option<u64>,
+    pub telegram_polling_timeout_secs: Option<u32>,
+}
+
+impl ChannelDefaultsOverride {
+    fn apply_to(&self, channel_defaults: &mut ChannelDefaults) {
+        if let Some(value) = self.telegram_api_timeout_secs {
+            channel_defaults.telegram_api_timeout_secs = value;
+        }
+        if let Some(value) = self.telegram_polling_timeout_secs {
+            channel_defaults.telegram_polling_timeout_secs = value;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct RegistryDefaultsOverride {
+    pub github_cache_ttl_secs: Option<u64>,
+    pub marketplace_cache_ttl_secs: Option<u64>,
+}
+
+impl RegistryDefaultsOverride {
+    fn apply_to(&self, registry_defaults: &mut RegistryDefaults) {
+        if let Some(value) = self.github_cache_ttl_secs {
+            registry_defaults.github_cache_ttl_secs = value;
+        }
+        if let Some(value) = self.marketplace_cache_ttl_secs {
+            registry_defaults.marketplace_cache_ttl_secs = value;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 struct SystemConfigOverride {
     pub worker_count: Option<usize>,
     pub task_timeout_seconds: Option<u64>,
@@ -697,6 +889,9 @@ struct SystemConfigOverride {
     pub experimental_features: Option<Vec<String>>,
     pub agent: Option<AgentDefaultsOverride>,
     pub api_defaults: Option<ApiDefaultsOverride>,
+    pub runtime_defaults: Option<RuntimeDefaultsOverride>,
+    pub channel_defaults: Option<ChannelDefaultsOverride>,
+    pub registry_defaults: Option<RegistryDefaultsOverride>,
 }
 
 impl SystemConfigOverride {
@@ -742,6 +937,15 @@ impl SystemConfigOverride {
         }
         if let Some(api_defaults_override) = &self.api_defaults {
             api_defaults_override.apply_to(&mut config.api_defaults);
+        }
+        if let Some(runtime_defaults_override) = &self.runtime_defaults {
+            runtime_defaults_override.apply_to(&mut config.runtime_defaults);
+        }
+        if let Some(channel_defaults_override) = &self.channel_defaults {
+            channel_defaults_override.apply_to(&mut config.channel_defaults);
+        }
+        if let Some(registry_defaults_override) = &self.registry_defaults {
+            registry_defaults_override.apply_to(&mut config.registry_defaults);
         }
     }
 }
@@ -1049,6 +1253,36 @@ mod tests {
         assert_eq!(
             config.api_defaults.diagnostics_timeout_ms,
             DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS
+        );
+        assert_eq!(
+            config.runtime_defaults.background_runner_poll_interval_ms,
+            DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS
+        );
+        assert_eq!(
+            config
+                .runtime_defaults
+                .background_runner_max_concurrent_tasks,
+            DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS
+        );
+        assert_eq!(
+            config.runtime_defaults.chat_max_session_history,
+            DEFAULT_CHAT_MAX_SESSION_HISTORY
+        );
+        assert_eq!(
+            config.channel_defaults.telegram_api_timeout_secs,
+            DEFAULT_TELEGRAM_API_TIMEOUT_SECS
+        );
+        assert_eq!(
+            config.channel_defaults.telegram_polling_timeout_secs,
+            DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS
+        );
+        assert_eq!(
+            config.registry_defaults.github_cache_ttl_secs,
+            DEFAULT_GITHUB_CACHE_TTL_SECS
+        );
+        assert_eq!(
+            config.registry_defaults.marketplace_cache_ttl_secs,
+            DEFAULT_MARKETPLACE_CACHE_TTL_SECS
         );
     }
 
@@ -1380,6 +1614,47 @@ diagnostics_timeout_ms = 9000
     }
 
     #[test]
+    fn test_partial_runtime_channel_and_registry_override() {
+        let _env_guard = env_lock();
+        let (storage, _temp_dir) = setup_test_storage();
+        let file = write_override_file(
+            r#"[runtime_defaults]
+background_runner_poll_interval_ms = 15000
+background_runner_max_concurrent_tasks = 8
+chat_max_session_history = 42
+
+[channel_defaults]
+telegram_api_timeout_secs = 45
+telegram_polling_timeout_secs = 55
+
+[registry_defaults]
+github_cache_ttl_secs = 900
+marketplace_cache_ttl_secs = 450
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        let effective = storage.get_effective_config().unwrap();
+        assert_eq!(
+            effective
+                .runtime_defaults
+                .background_runner_poll_interval_ms,
+            15000
+        );
+        assert_eq!(
+            effective
+                .runtime_defaults
+                .background_runner_max_concurrent_tasks,
+            8
+        );
+        assert_eq!(effective.runtime_defaults.chat_max_session_history, 42);
+        assert_eq!(effective.channel_defaults.telegram_api_timeout_secs, 45);
+        assert_eq!(effective.channel_defaults.telegram_polling_timeout_secs, 55);
+        assert_eq!(effective.registry_defaults.github_cache_ttl_secs, 900);
+        assert_eq!(effective.registry_defaults.marketplace_cache_ttl_secs, 450);
+    }
+
+    #[test]
     fn test_partial_agent_override_can_clear_optional_timeout() {
         let _env_guard = env_lock();
         let (storage, _temp_dir) = setup_test_storage();
@@ -1473,6 +1748,39 @@ unknown_limit = 1
 
         let mut config = SystemConfig::default();
         config.api_defaults.diagnostics_timeout_ms = 0;
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_invalid_runtime_channel_and_registry_defaults_rejected() {
+        let mut config = SystemConfig::default();
+        config.runtime_defaults.background_runner_poll_interval_ms = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config
+            .runtime_defaults
+            .background_runner_max_concurrent_tasks = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.runtime_defaults.chat_max_session_history = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.channel_defaults.telegram_api_timeout_secs = 5;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.channel_defaults.telegram_polling_timeout_secs = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.registry_defaults.github_cache_ttl_secs = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.registry_defaults.marketplace_cache_ttl_secs = 0;
         assert!(config.validate().is_err());
     }
 

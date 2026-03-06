@@ -41,19 +41,20 @@ pub mod time_utils;
 
 pub use agent::AgentStorage;
 // Deprecated: Use ExecutionTraceStorageBackend instead
-pub use execution_trace::ExecutionTraceStorage as AuditStorageBackend;
-pub use execution_trace::ExecutionTraceStorage as ExecutionTraceStorageBackend;
 pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use config::{
-    AgentDefaults, ApiDefaults, ConfigSourcePathInfo, ConfigStorage, EffectiveConfigSources,
-    SystemConfig, effective_config_sources,
+    AgentDefaults, ApiDefaults, ChannelDefaults, ConfigSourcePathInfo, ConfigStorage,
+    EffectiveConfigSources, RegistryDefaults, RuntimeDefaults, SystemConfig,
+    effective_config_sources,
 };
 pub use daemon_state::DaemonStateStorage;
 pub use deliverable::DeliverableStorage;
+pub use execution_trace::ExecutionTraceStorage as AuditStorageBackend;
+pub use execution_trace::ExecutionTraceStorage as ExecutionTraceStorageBackend;
 pub use kv_store::KvStoreStorage;
 pub use memory::{MemoryStorage, PutChunkResult};
 pub use memory_index::{IndexableChunk, MemoryIndex, SearchHit};
