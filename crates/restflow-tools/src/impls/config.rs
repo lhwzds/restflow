@@ -41,7 +41,7 @@ impl ConfigTool {
             Ok(())
         } else {
             Err(crate::ToolError::Tool(
-                "Write access to config is disabled. Available read-only operations: get, list. To modify config, the user must grant write permissions.".to_string(),
+                "Write access to config is disabled. Available read-only operations: get, show, list. To modify config, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -141,6 +141,10 @@ impl ConfigTool {
                             ToolError::Tool("agent.tool_timeout_secs must be a number".to_string())
                         })?;
                     }
+                    "llm_timeout_secs" => {
+                        config.agent.llm_timeout_secs =
+                            Self::parse_optional_timeout(value, "agent.llm_timeout_secs")?;
+                    }
                     "bash_timeout_secs" => {
                         config.agent.bash_timeout_secs = value.as_u64().ok_or_else(|| {
                             ToolError::Tool("agent.bash_timeout_secs must be a number".to_string())
@@ -199,6 +203,34 @@ impl ConfigTool {
                             ToolError::Tool("agent.max_tool_calls must be a number".to_string())
                         })? as usize;
                     }
+                    "max_tool_concurrency" => {
+                        config.agent.max_tool_concurrency = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "agent.max_tool_concurrency must be a number".to_string(),
+                            )
+                        })? as usize;
+                    }
+                    "max_tool_result_length" => {
+                        config.agent.max_tool_result_length = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "agent.max_tool_result_length must be a number".to_string(),
+                            )
+                        })? as usize;
+                    }
+                    "prune_tool_max_chars" => {
+                        config.agent.prune_tool_max_chars = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "agent.prune_tool_max_chars must be a number".to_string(),
+                            )
+                        })? as usize;
+                    }
+                    "compact_preserve_tokens" => {
+                        config.agent.compact_preserve_tokens = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "agent.compact_preserve_tokens must be a number".to_string(),
+                            )
+                        })? as usize;
+                    }
                     "max_wall_clock_secs" => {
                         config.agent.max_wall_clock_secs =
                             Self::parse_optional_timeout(value, "agent.max_wall_clock_secs")?;
@@ -219,16 +251,100 @@ impl ConfigTool {
                                 )
                             })?;
                     }
+                    "fallback_models" => {
+                        config.agent.fallback_models =
+                            Self::parse_optional_string_list(value, "agent.fallback_models")?;
+                    }
                     unknown => {
                         return Err(crate::ToolError::Tool(format!(
-                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.browser_timeout_secs, agent.process_session_ttl_secs, agent.approval_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs."
+                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.llm_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.browser_timeout_secs, agent.process_session_ttl_secs, agent.approval_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_tool_concurrency, agent.max_tool_result_length, agent.prune_tool_max_chars, agent.compact_preserve_tokens, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs, agent.fallback_models."
+                        )));
+                    }
+                }
+            }
+            key if key.starts_with("api_defaults.") => {
+                let field = &key["api_defaults.".len()..];
+                match field {
+                    "memory_search_limit" => {
+                        config.api_defaults.memory_search_limit =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "api_defaults.memory_search_limit must be a number".to_string(),
+                                )
+                            })? as u32;
+                    }
+                    "session_list_limit" => {
+                        config.api_defaults.session_list_limit =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "api_defaults.session_list_limit must be a number".to_string(),
+                                )
+                            })? as u32;
+                    }
+                    "background_progress_event_limit" => {
+                        config.api_defaults.background_progress_event_limit =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "api_defaults.background_progress_event_limit must be a number"
+                                        .to_string(),
+                                )
+                            })? as usize;
+                    }
+                    "background_message_list_limit" => {
+                        config.api_defaults.background_message_list_limit =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "api_defaults.background_message_list_limit must be a number"
+                                        .to_string(),
+                                )
+                            })? as usize;
+                    }
+                    "background_trace_list_limit" => {
+                        config.api_defaults.background_trace_list_limit =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "api_defaults.background_trace_list_limit must be a number"
+                                        .to_string(),
+                                )
+                            })? as usize;
+                    }
+                    "background_trace_line_limit" => {
+                        config.api_defaults.background_trace_line_limit =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "api_defaults.background_trace_line_limit must be a number"
+                                        .to_string(),
+                                )
+                            })? as usize;
+                    }
+                    "web_search_num_results" => {
+                        config.api_defaults.web_search_num_results =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "api_defaults.web_search_num_results must be a number"
+                                        .to_string(),
+                                )
+                            })? as usize;
+                    }
+                    "diagnostics_timeout_ms" => {
+                        config.api_defaults.diagnostics_timeout_ms =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "api_defaults.diagnostics_timeout_ms must be a number"
+                                        .to_string(),
+                                )
+                            })?;
+                    }
+                    unknown => {
+                        return Err(crate::ToolError::Tool(format!(
+                            "Unknown api_defaults config field: 'api_defaults.{unknown}'. Valid api_defaults fields: api_defaults.memory_search_limit, api_defaults.session_list_limit, api_defaults.background_progress_event_limit, api_defaults.background_message_list_limit, api_defaults.background_trace_list_limit, api_defaults.background_trace_line_limit, api_defaults.web_search_num_results, api_defaults.diagnostics_timeout_ms."
                         )));
                     }
                 }
             }
             _ => {
                 return Err(crate::ToolError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*."
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*, api_defaults.*."
                 )));
             }
         }
@@ -244,6 +360,26 @@ impl ConfigTool {
             .as_u64()
             .map(Some)
             .ok_or_else(|| ToolError::Tool(format!("{key} must be a number or null")))
+    }
+
+    fn parse_optional_string_list(value: &Value, key: &str) -> Result<Option<Vec<String>>> {
+        if value.is_null() {
+            return Ok(None);
+        }
+
+        let entries = value
+            .as_array()
+            .ok_or_else(|| ToolError::Tool(format!("{key} must be an array of strings or null")))?;
+
+        let mut result = Vec::with_capacity(entries.len());
+        for entry in entries {
+            let text = entry.as_str().ok_or_else(|| {
+                ToolError::Tool(format!("{key} must be an array of strings or null"))
+            })?;
+            result.push(text.to_string());
+        }
+
+        Ok(Some(result))
     }
 }
 
@@ -321,6 +457,7 @@ impl Tool for ConfigTool {
                     "memory_chunk_retention_days",
                     "experimental_features",
                     "agent.tool_timeout_secs",
+                    "agent.llm_timeout_secs",
                     "agent.bash_timeout_secs",
                     "agent.python_timeout_secs",
                     "agent.browser_timeout_secs",
@@ -330,9 +467,22 @@ impl Tool for ConfigTool {
                     "agent.subagent_timeout_secs",
                     "agent.max_parallel_subagents",
                     "agent.max_tool_calls",
+                    "agent.max_tool_concurrency",
+                    "agent.max_tool_result_length",
+                    "agent.prune_tool_max_chars",
+                    "agent.compact_preserve_tokens",
                     "agent.max_wall_clock_secs",
                     "agent.default_task_timeout_secs",
-                    "agent.default_max_duration_secs"
+                    "agent.default_max_duration_secs",
+                    "agent.fallback_models",
+                    "api_defaults.memory_search_limit",
+                    "api_defaults.session_list_limit",
+                    "api_defaults.background_progress_event_limit",
+                    "api_defaults.background_message_list_limit",
+                    "api_defaults.background_trace_list_limit",
+                    "api_defaults.background_trace_line_limit",
+                    "api_defaults.web_search_num_results",
+                    "api_defaults.diagnostics_timeout_ms"
                 ]
             })),
             ConfigAction::Reset => {
@@ -404,7 +554,7 @@ mod tests {
         let err = result.expect_err("expected write-guard error");
         assert!(
             err.to_string()
-                .contains("Available read-only operations: get, list")
+                .contains("Available read-only operations: get, show, list")
         );
     }
 
@@ -425,7 +575,7 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*"
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*, api_defaults.*"
         ));
     }
 
@@ -549,6 +699,7 @@ mod tests {
 
         let updates = [
             ("agent.tool_timeout_secs", json!(180)),
+            ("agent.llm_timeout_secs", json!(900)),
             ("agent.bash_timeout_secs", json!(600)),
             ("agent.python_timeout_secs", json!(60)),
             ("agent.browser_timeout_secs", json!(240)),
@@ -558,9 +709,14 @@ mod tests {
             ("agent.subagent_timeout_secs", json!(900)),
             ("agent.max_parallel_subagents", json!(12)),
             ("agent.max_tool_calls", json!(300)),
+            ("agent.max_tool_concurrency", json!(24)),
+            ("agent.max_tool_result_length", json!(8192)),
+            ("agent.prune_tool_max_chars", json!(4096)),
+            ("agent.compact_preserve_tokens", json!(16000)),
             ("agent.max_wall_clock_secs", json!(3600)),
             ("agent.default_task_timeout_secs", json!(3600)),
             ("agent.default_max_duration_secs", json!(3600)),
+            ("agent.fallback_models", json!(["glm-5", "gpt-5"])),
         ];
 
         for (key, value) in updates {
@@ -584,6 +740,10 @@ mod tests {
         assert_eq!(
             agent.get("tool_timeout_secs").and_then(|v| v.as_u64()),
             Some(180)
+        );
+        assert_eq!(
+            agent.get("llm_timeout_secs").and_then(|v| v.as_u64()),
+            Some(900)
         );
         assert_eq!(
             agent.get("bash_timeout_secs").and_then(|v| v.as_u64()),
@@ -610,6 +770,28 @@ mod tests {
         assert_eq!(
             agent.get("max_parallel_subagents").and_then(|v| v.as_u64()),
             Some(12)
+        );
+        assert_eq!(
+            agent.get("max_tool_concurrency").and_then(|v| v.as_u64()),
+            Some(24)
+        );
+        assert_eq!(
+            agent.get("max_tool_result_length").and_then(|v| v.as_u64()),
+            Some(8192)
+        );
+        assert_eq!(
+            agent.get("prune_tool_max_chars").and_then(|v| v.as_u64()),
+            Some(4096)
+        );
+        assert_eq!(
+            agent
+                .get("compact_preserve_tokens")
+                .and_then(|v| v.as_u64()),
+            Some(16000)
+        );
+        assert_eq!(
+            agent.get("fallback_models"),
+            Some(&json!(["glm-5", "gpt-5"]))
         );
     }
 
@@ -641,10 +823,102 @@ mod tests {
             .get("agent")
             .expect("agent block should exist");
         assert!(agent.get("tool_timeout_secs").is_some());
+        assert!(agent.get("llm_timeout_secs").is_some());
         assert!(agent.get("bash_timeout_secs").is_some());
         assert!(agent.get("browser_timeout_secs").is_some());
         assert!(agent.get("process_session_ttl_secs").is_some());
         assert!(agent.get("approval_timeout_secs").is_some());
         assert!(agent.get("max_iterations").is_some());
+        assert!(agent.get("max_tool_concurrency").is_some());
+        assert!(agent.get("max_tool_result_length").is_some());
+        assert!(agent.get("prune_tool_max_chars").is_some());
+        assert!(agent.get("compact_preserve_tokens").is_some());
+        assert!(agent.get("fallback_models").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_set_agent_fallback_models_allows_null_clear() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        tool.execute(json!({
+            "operation": "set",
+            "key": "agent.fallback_models",
+            "value": ["glm-5", "gpt-5"]
+        }))
+        .await
+        .expect("initial fallback_models set should succeed");
+
+        let output = tool
+            .execute(json!({
+                "operation": "set",
+                "key": "agent.fallback_models",
+                "value": null
+            }))
+            .await
+            .expect("clearing fallback_models should succeed");
+
+        assert!(output.success);
+        let agent = output
+            .result
+            .get("agent")
+            .expect("agent block should exist");
+        assert!(
+            agent
+                .get("fallback_models")
+                .is_some_and(|value| value.is_null())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_set_api_defaults() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let updates = [
+            ("api_defaults.memory_search_limit", json!(25)),
+            ("api_defaults.session_list_limit", json!(30)),
+            ("api_defaults.background_progress_event_limit", json!(12)),
+            ("api_defaults.background_message_list_limit", json!(60)),
+            ("api_defaults.background_trace_list_limit", json!(80)),
+            ("api_defaults.background_trace_line_limit", json!(300)),
+            ("api_defaults.web_search_num_results", json!(7)),
+            ("api_defaults.diagnostics_timeout_ms", json!(9000)),
+        ];
+
+        for (key, value) in updates {
+            let output = tool
+                .execute(json!({
+                    "operation": "set",
+                    "key": key,
+                    "value": value
+                }))
+                .await
+                .unwrap_or_else(|err| {
+                    panic!("set should support api_defaults field '{key}': {err}")
+                });
+            assert!(
+                output.success,
+                "set should succeed for api_defaults field '{key}'"
+            );
+        }
+
+        let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
+        let api_defaults = output
+            .result
+            .get("api_defaults")
+            .expect("api_defaults block should exist");
+        assert_eq!(
+            api_defaults
+                .get("web_search_num_results")
+                .and_then(|v| v.as_u64()),
+            Some(7)
+        );
+        assert_eq!(
+            api_defaults
+                .get("diagnostics_timeout_ms")
+                .and_then(|v| v.as_u64()),
+            Some(9000)
+        );
     }
 }
