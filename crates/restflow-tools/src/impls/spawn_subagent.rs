@@ -11,7 +11,9 @@ use crate::impls::spawn_subagent_batch::BatchSubagentSpec;
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::store::KvStore;
-use restflow_traits::{InlineSubagentConfig, SpawnRequest, SubagentManager};
+use restflow_traits::{
+    DEFAULT_SUBAGENT_TIMEOUT_SECS, InlineSubagentConfig, SpawnRequest, SubagentManager,
+};
 
 #[cfg(feature = "ts")]
 const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
@@ -38,7 +40,7 @@ pub struct SpawnSubagentParams {
     #[serde(default)]
     pub wait: bool,
 
-    /// Timeout in seconds (default: 3600).
+    /// Timeout in seconds. If omitted, uses sub-agent manager default timeout.
     pub timeout_secs: Option<u64>,
 
     /// Optional model override for this spawn (e.g., "minimax/coding-plan").
@@ -263,8 +265,11 @@ impl Tool for SpawnSubagentTool {
                 },
                 "timeout_secs": {
                     "type": "integer",
-                    "default": 3600,
-                    "description": "Timeout in seconds (default: 3600)"
+                    "default": DEFAULT_SUBAGENT_TIMEOUT_SECS,
+                    "description": format!(
+                        "Timeout in seconds (default: {})",
+                        DEFAULT_SUBAGENT_TIMEOUT_SECS
+                    )
                 },
                 "model": {
                     "type": "string",
@@ -833,5 +838,9 @@ mod tests {
             .collect::<Vec<_>>();
         assert!(ids.contains(&"agent-1"));
         assert!(ids.contains(&"agent-2"));
+        assert_eq!(
+            schema["properties"]["timeout_secs"]["default"],
+            json!(DEFAULT_SUBAGENT_TIMEOUT_SECS)
+        );
     }
 }

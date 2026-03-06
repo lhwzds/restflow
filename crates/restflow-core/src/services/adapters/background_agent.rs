@@ -17,6 +17,10 @@ use restflow_traits::store::{
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
     BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
 };
+use restflow_traits::{
+    DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT,
+    DEFAULT_BG_TRACE_LIST_LIMIT,
+};
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::HashSet;
@@ -343,7 +347,10 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let resolved_id = self.resolve_task_id(&request.id)?;
         let progress = self.storage.get_background_agent_progress(
             &resolved_id,
-            request.event_limit.unwrap_or(10).max(1),
+            request
+                .event_limit
+                .unwrap_or(DEFAULT_BG_PROGRESS_EVENT_LIMIT)
+                .max(1),
         )?;
         Ok(serde_json::to_value(progress)?)
     }
@@ -365,9 +372,13 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentMessageListRequest,
     ) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let messages = self
-            .storage
-            .list_background_agent_messages(&resolved_id, request.limit.unwrap_or(50).max(1))?;
+        let messages = self.storage.list_background_agent_messages(
+            &resolved_id,
+            request
+                .limit
+                .unwrap_or(DEFAULT_BG_MESSAGE_LIST_LIMIT)
+                .max(1),
+        )?;
         Ok(serde_json::to_value(messages)?)
     }
 
@@ -383,7 +394,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentTraceListRequest,
     ) -> restflow_tools::Result<Value> {
-        let limit = request.limit.unwrap_or(50).max(1);
+        let limit = request.limit.unwrap_or(DEFAULT_BG_TRACE_LIST_LIMIT).max(1);
         let session_ids = if let Some(task_id) = request.id.as_deref() {
             vec![self.task_session_id(task_id)?]
         } else {
@@ -434,7 +445,10 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             return Err(ToolError::Tool("trace_id must not be empty".to_string()));
         }
 
-        let limit = request.line_limit.unwrap_or(200).max(1);
+        let limit = request
+            .line_limit
+            .unwrap_or(DEFAULT_BG_TRACE_LINE_LIMIT)
+            .max(1);
         let mut found = None;
         for session_id in self.all_session_ids()? {
             if let Some(trace) = self
