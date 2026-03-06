@@ -12,6 +12,7 @@ use crate::models::execution_trace::{
 };
 
 /// Typed execution trace storage wrapper around `restflow-storage`.
+#[derive(Clone)]
 pub struct ExecutionTraceStorage {
     inner: restflow_storage::ExecutionTraceStorageBackend,
 }
@@ -40,7 +41,8 @@ impl ExecutionTraceStorage {
     /// Store an execution trace event.
     pub fn store(&self, event: &ExecutionTraceEvent) -> Result<()> {
         let key = format!("{}:{}", event.task_id, event.id);
-        let bytes = serde_json::to_vec(event).context("Failed to serialize execution trace event")?;
+        let bytes =
+            serde_json::to_vec(event).context("Failed to serialize execution trace event")?;
         self.inner
             .put_raw(&key, &bytes)
             .context("Failed to store execution trace event")?;
@@ -98,6 +100,24 @@ impl ExecutionTraceStorage {
         events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         let events: Vec<_> = events.into_iter().skip(offset).take(limit).collect();
         Ok(events)
+    }
+
+    /// Get a single execution trace event by event ID.
+    pub fn get_by_id(&self, event_id: &str) -> Result<Option<ExecutionTraceEvent>> {
+        let raw_entries = self
+            .inner
+            .list_raw()
+            .context("Failed to list execution trace events")?;
+
+        for (_, bytes) in raw_entries {
+            if let Ok(event) = serde_json::from_slice::<ExecutionTraceEvent>(&bytes)
+                && event.id == event_id
+            {
+                return Ok(Some(event));
+            }
+        }
+
+        Ok(None)
     }
 
     /// Get statistics about execution trace events.
@@ -215,5 +235,9 @@ mod tests {
         let stats = storage.stats(Some("task-123")).unwrap();
         assert_eq!(stats.total_events, 1);
         assert_eq!(stats.llm_call_count, 1);
+
+        let fetched = storage.get_by_id(&event.id).unwrap();
+        assert!(fetched.is_some());
+        assert_eq!(fetched.unwrap().id, event.id);
     }
 }

@@ -21,7 +21,8 @@ use crate::models::{
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
-    ToolTraceEmitter, append_turn_completed, append_turn_failed, append_turn_started,
+    ToolTraceEmitter, append_message_trace, append_turn_completed_with_execution,
+    append_turn_failed_with_execution, append_turn_started_with_execution,
     build_turn_persistence_payload, hydrate_voice_message_metadata,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
@@ -788,14 +789,28 @@ impl ChatDispatcher {
         self.maybe_send_acknowledgement(&executor, &mut session, &input, message)
             .await;
         let turn_id = uuid::Uuid::new_v4().to_string();
-        append_turn_started(&self.storage.tool_traces, &session.id, &turn_id);
+        append_turn_started_with_execution(
+            &self.storage.tool_traces,
+            Some(&self.storage.execution_traces),
+            &session.id,
+            &turn_id,
+            &session.id,
+            &session.agent_id,
+        );
         let started_at = Instant::now();
-        let mut tool_event_emitter = Some(Box::new(ToolTraceEmitter::new(
-            Box::new(NullEmitter),
-            self.storage.tool_traces.clone(),
-            session.id.clone(),
-            turn_id.clone(),
-        )) as Box<dyn StreamEmitter>);
+        let mut tool_event_emitter = Some(Box::new(
+            ToolTraceEmitter::new(
+                Box::new(NullEmitter),
+                self.storage.tool_traces.clone(),
+                session.id.clone(),
+                turn_id.clone(),
+            )
+            .with_execution_trace_context(
+                self.storage.execution_traces.clone(),
+                session.id.clone(),
+                session.agent_id.clone(),
+            ),
+        ) as Box<dyn StreamEmitter>);
         let execution_result = if let Some(timeout_secs) = self.config.response_timeout_secs {
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(timeout_secs),
@@ -811,10 +826,13 @@ impl ChatDispatcher {
             {
                 Ok(result) => result,
                 Err(_) => {
-                    append_turn_failed(
+                    append_turn_failed_with_execution(
                         &self.storage.tool_traces,
+                        Some(&self.storage.execution_traces),
                         &session.id,
                         &turn_id,
+                        &session.id,
+                        &session.agent_id,
                         &format!("execution timed out after {} seconds", timeout_secs),
                     );
                     error!("Agent execution timed out after {} seconds", timeout_secs);
@@ -838,10 +856,13 @@ impl ChatDispatcher {
         let exec_result = match execution_result {
             Ok(result) => result,
             Err(error) => {
-                append_turn_failed(
+                append_turn_failed_with_execution(
                     &self.storage.tool_traces,
+                    Some(&self.storage.execution_traces),
                     &session.id,
                     &turn_id,
+                    &session.id,
+                    &session.agent_id,
                     &error.to_string(),
                 );
                 error!("Agent execution failed: {}", error);
@@ -850,7 +871,14 @@ impl ChatDispatcher {
                 return Ok(());
             }
         };
-        append_turn_completed(&self.storage.tool_traces, &session.id, &turn_id);
+        append_turn_completed_with_execution(
+            &self.storage.tool_traces,
+            Some(&self.storage.execution_traces),
+            &session.id,
+            &turn_id,
+            &session.id,
+            &session.agent_id,
+        );
 
         if session.agent_id != original_agent_id {
             match self
@@ -896,6 +924,20 @@ impl ChatDispatcher {
         ) {
             warn!("Failed to save exchange to session: {}", e);
         } else {
+            append_message_trace(
+                &self.storage.execution_traces,
+                &session.id,
+                &session.agent_id,
+                "user",
+                &persisted_input,
+            );
+            append_message_trace(
+                &self.storage.execution_traces,
+                &session.id,
+                &session.agent_id,
+                "assistant",
+                &structured_output,
+            );
             match self.storage.chat_sessions.get(&session.id) {
                 Ok(Some(persisted_session)) => {
                     match crate::runtime::background_agent::persist::persist_chat_session_memory(

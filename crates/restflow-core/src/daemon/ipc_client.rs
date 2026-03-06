@@ -8,8 +8,9 @@ use crate::memory::ExportResult;
 use crate::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
     BackgroundAgentPatch, BackgroundAgentSpec, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, ChatSessionUpdate, MemoryChunk, MemorySearchResult, MemorySession,
-    MemoryStats, Skill, TerminalSession,
+    ChatSessionSummary, ChatSessionUpdate, ExecutionTraceEvent, ExecutionTraceQuery,
+    ExecutionTraceStats, MemoryChunk, MemorySearchResult, MemorySession, MemoryStats, Skill,
+    TerminalSession,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
@@ -607,6 +608,30 @@ impl IpcClient {
             limit,
         })
         .await
+    }
+
+    pub async fn query_execution_traces(
+        &mut self,
+        query: ExecutionTraceQuery,
+    ) -> Result<Vec<ExecutionTraceEvent>> {
+        self.request_typed(IpcRequest::QueryExecutionTraces { query })
+            .await
+    }
+
+    pub async fn get_execution_trace_stats(
+        &mut self,
+        task_id: Option<String>,
+    ) -> Result<ExecutionTraceStats> {
+        self.request_typed(IpcRequest::GetExecutionTraceStats { task_id })
+            .await
+    }
+
+    pub async fn get_execution_trace_by_id(
+        &mut self,
+        id: String,
+    ) -> Result<Option<ExecutionTraceEvent>> {
+        self.request_optional(IpcRequest::GetExecutionTraceById { id })
+            .await
     }
 
     pub async fn list_terminal_sessions(&mut self) -> Result<Vec<TerminalSession>> {
@@ -1308,6 +1333,27 @@ impl IpcClient {
         _turn_id: Option<String>,
         _limit: Option<usize>,
     ) -> Result<Vec<crate::models::ToolTrace>> {
+        Self::unsupported()
+    }
+
+    pub async fn query_execution_traces(
+        &mut self,
+        _query: ExecutionTraceQuery,
+    ) -> Result<Vec<ExecutionTraceEvent>> {
+        Self::unsupported()
+    }
+
+    pub async fn get_execution_trace_stats(
+        &mut self,
+        _task_id: Option<String>,
+    ) -> Result<ExecutionTraceStats> {
+        Self::unsupported()
+    }
+
+    pub async fn get_execution_trace_by_id(
+        &mut self,
+        _id: String,
+    ) -> Result<Option<ExecutionTraceEvent>> {
         Self::unsupported()
     }
 

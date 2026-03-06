@@ -1,9 +1,14 @@
 use crate::models::chat_session::ExecutionStepInfo;
-use crate::models::{ToolCallCompletion, ToolTrace, ToolTraceEvent};
-use crate::storage::ToolTraceStorage;
+use crate::models::{
+    ExecutionTraceEvent, LifecycleTrace, MessageTrace, ToolCallCompletion, ToolCallTrace,
+    ToolTrace, ToolTraceEvent,
+};
+use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use async_trait::async_trait;
 use regex::Regex;
-use restflow_ai::agent::StreamEmitter;
+use restflow_ai::agent::{
+    NullEmitter, StreamEmitter, SubagentResult, SubagentTraceContext, SubagentTraceSink,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -210,13 +215,258 @@ pub fn append_turn_cancelled(
     }
 }
 
+fn append_lifecycle_trace(
+    storage: Option<&ExecutionTraceStorage>,
+    task_id: &str,
+    agent_id: &str,
+    status: &str,
+    message: Option<String>,
+    error: Option<String>,
+) {
+    let Some(storage) = storage else {
+        return;
+    };
+
+    let event = ExecutionTraceEvent::lifecycle(
+        task_id,
+        agent_id,
+        LifecycleTrace {
+            status: status.to_string(),
+            message,
+            error,
+        },
+    );
+    if let Err(err) = storage.store(&event) {
+        warn!(
+            task_id,
+            agent_id,
+            error = %err,
+            "Failed to append lifecycle execution trace"
+        );
+    }
+}
+
+/// Append turn-started events to both tool trace and execution trace storages.
+pub fn append_turn_started_with_execution(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+) {
+    append_turn_started(tool_trace_storage, session_id, turn_id);
+    append_lifecycle_trace(
+        execution_trace_storage,
+        task_id,
+        agent_id,
+        "turn_started",
+        Some(format!("Turn started: {}", turn_id)),
+        None,
+    );
+}
+
+/// Append turn-completed events to both tool trace and execution trace storages.
+pub fn append_turn_completed_with_execution(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+) {
+    append_turn_completed(tool_trace_storage, session_id, turn_id);
+    append_lifecycle_trace(
+        execution_trace_storage,
+        task_id,
+        agent_id,
+        "turn_completed",
+        Some(format!("Turn completed: {}", turn_id)),
+        None,
+    );
+}
+
+/// Append turn-failed events to both tool trace and execution trace storages.
+pub fn append_turn_failed_with_execution(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    error_text: &str,
+) {
+    append_turn_failed(tool_trace_storage, session_id, turn_id, error_text);
+    let sanitized_error = truncate_text(&sanitize_secrets(error_text), MAX_EVENT_TEXT_CHARS);
+    append_lifecycle_trace(
+        execution_trace_storage,
+        task_id,
+        agent_id,
+        "turn_failed",
+        Some(format!("Turn failed: {}", turn_id)),
+        Some(sanitized_error),
+    );
+}
+
+/// Append turn-cancelled events to both tool trace and execution trace storages.
+pub fn append_turn_cancelled_with_execution(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    reason: &str,
+) {
+    append_turn_cancelled(tool_trace_storage, session_id, turn_id, reason);
+    let sanitized_reason = truncate_text(&sanitize_secrets(reason), MAX_EVENT_TEXT_CHARS);
+    append_lifecycle_trace(
+        execution_trace_storage,
+        task_id,
+        agent_id,
+        "turn_cancelled",
+        Some(format!("Turn cancelled: {}", turn_id)),
+        Some(sanitized_reason),
+    );
+}
+
+fn subagent_trace_session_id(context: &SubagentTraceContext) -> String {
+    context
+        .parent_execution_id
+        .clone()
+        .unwrap_or_else(|| context.task_id.clone())
+}
+
+fn subagent_trace_turn_id(context: &SubagentTraceContext) -> String {
+    format!("subagent-{}", context.task_id)
+}
+
+/// Sub-agent trace sink that persists lifecycle and tool-call events using
+/// the existing tool/execution trace storages.
+#[derive(Clone)]
+pub struct ToolTraceSubagentSink {
+    tool_trace_storage: ToolTraceStorage,
+    execution_trace_storage: Option<ExecutionTraceStorage>,
+}
+
+impl ToolTraceSubagentSink {
+    pub fn new(
+        tool_trace_storage: ToolTraceStorage,
+        execution_trace_storage: Option<ExecutionTraceStorage>,
+    ) -> Self {
+        Self {
+            tool_trace_storage,
+            execution_trace_storage,
+        }
+    }
+}
+
+impl SubagentTraceSink for ToolTraceSubagentSink {
+    fn on_subagent_started(&self, context: &SubagentTraceContext) {
+        let session_id = subagent_trace_session_id(context);
+        let turn_id = subagent_trace_turn_id(context);
+        append_turn_started_with_execution(
+            &self.tool_trace_storage,
+            self.execution_trace_storage.as_ref(),
+            &session_id,
+            &turn_id,
+            &context.task_id,
+            &context.agent_name,
+        );
+    }
+
+    fn build_subagent_emitter(&self, context: &SubagentTraceContext) -> Box<dyn StreamEmitter> {
+        let session_id = subagent_trace_session_id(context);
+        let turn_id = subagent_trace_turn_id(context);
+        let emitter = ToolTraceEmitter::new(
+            Box::new(NullEmitter),
+            self.tool_trace_storage.clone(),
+            session_id,
+            turn_id,
+        );
+        if let Some(storage) = self.execution_trace_storage.as_ref() {
+            Box::new(emitter.with_execution_trace_context(
+                storage.clone(),
+                context.task_id.clone(),
+                context.agent_name.clone(),
+            ))
+        } else {
+            Box::new(emitter)
+        }
+    }
+
+    fn on_subagent_finished(&self, context: &SubagentTraceContext, result: &SubagentResult) {
+        let session_id = subagent_trace_session_id(context);
+        let turn_id = subagent_trace_turn_id(context);
+        if result.success {
+            append_turn_completed_with_execution(
+                &self.tool_trace_storage,
+                self.execution_trace_storage.as_ref(),
+                &session_id,
+                &turn_id,
+                &context.task_id,
+                &context.agent_name,
+            );
+            return;
+        }
+
+        let error_text = result
+            .error
+            .as_deref()
+            .unwrap_or("Sub-agent execution failed");
+        append_turn_failed_with_execution(
+            &self.tool_trace_storage,
+            self.execution_trace_storage.as_ref(),
+            &session_id,
+            &turn_id,
+            &context.task_id,
+            &context.agent_name,
+            error_text,
+        );
+    }
+}
+
+/// Append message trace event to execution trace storage.
+pub fn append_message_trace(
+    storage: &ExecutionTraceStorage,
+    task_id: &str,
+    agent_id: &str,
+    role: &str,
+    content: &str,
+) {
+    let content_preview = normalize_payload(content);
+    let event = ExecutionTraceEvent::message(
+        task_id,
+        agent_id,
+        MessageTrace {
+            role: role.to_string(),
+            content_preview,
+            tool_call_count: None,
+        },
+    );
+
+    if let Err(err) = storage.store(&event) {
+        warn!(
+            task_id,
+            agent_id,
+            role,
+            error = %err,
+            "Failed to append message execution trace"
+        );
+    }
+}
+
 /// Stream emitter that forwards events and persists tool call records to storage.
 pub struct ToolTraceEmitter {
     inner: Box<dyn StreamEmitter>,
     trace_storage: ToolTraceStorage,
+    execution_trace_storage: Option<ExecutionTraceStorage>,
     session_id: String,
     turn_id: String,
     tool_start_times: HashMap<String, Instant>,
+    tool_inputs: HashMap<String, Option<String>>,
+    execution_task_id: Option<String>,
+    execution_agent_id: Option<String>,
     _base_dir: Option<PathBuf>,
 }
 
@@ -231,11 +481,28 @@ impl ToolTraceEmitter {
         Self {
             inner,
             trace_storage,
+            execution_trace_storage: None,
             session_id: session_id.into(),
             turn_id: turn_id.into(),
             tool_start_times: HashMap::new(),
+            tool_inputs: HashMap::new(),
+            execution_task_id: None,
+            execution_agent_id: None,
             _base_dir: crate::paths::ensure_restflow_dir().ok(),
         }
+    }
+
+    /// Attach execution trace context for dual-write into execution trace storage.
+    pub fn with_execution_trace_context(
+        mut self,
+        execution_trace_storage: ExecutionTraceStorage,
+        task_id: impl Into<String>,
+        agent_id: impl Into<String>,
+    ) -> Self {
+        self.execution_trace_storage = Some(execution_trace_storage);
+        self.execution_task_id = Some(task_id.into());
+        self.execution_agent_id = Some(agent_id.into());
+        self
     }
 
     fn append_event(&self, event: ToolTrace) {
@@ -263,6 +530,8 @@ impl StreamEmitter for ToolTraceEmitter {
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
         self.inner.emit_tool_call_start(id, name, arguments).await;
         self.tool_start_times.insert(id.to_string(), Instant::now());
+        self.tool_inputs
+            .insert(id.to_string(), normalize_payload(arguments));
         let event = ToolTrace::tool_call_started(
             self.session_id.clone(),
             self.turn_id.clone(),
@@ -282,6 +551,7 @@ impl StreamEmitter for ToolTraceEmitter {
             .tool_start_times
             .remove(id)
             .map(|start| start.elapsed().as_millis() as u64);
+        let input_summary = self.tool_inputs.remove(id).flatten();
         let full_output = normalize_full_payload(result);
         let output = full_output
             .as_deref()
@@ -308,10 +578,35 @@ impl StreamEmitter for ToolTraceEmitter {
                 output_ref,
                 success,
                 duration_ms,
-                error,
+                error: error.clone(),
             },
         );
         self.append_event(event);
+
+        if let (Some(execution_storage), Some(task_id), Some(agent_id)) = (
+            self.execution_trace_storage.as_ref(),
+            self.execution_task_id.as_deref(),
+            self.execution_agent_id.as_deref(),
+        ) {
+            let trace = ToolCallTrace {
+                tool_name: name.to_string(),
+                input_summary,
+                success,
+                error,
+                duration_ms: duration_ms.map(|value| value as i64),
+            };
+            let trace_event = ExecutionTraceEvent::tool_call(task_id, agent_id, trace);
+            if let Err(err) = execution_storage.store(&trace_event) {
+                warn!(
+                    task_id,
+                    agent_id,
+                    tool_call_id = id,
+                    tool_name = name,
+                    error = %err,
+                    "Failed to append tool-call execution trace"
+                );
+            }
+        }
     }
 
     async fn emit_complete(&mut self) {
@@ -442,5 +737,48 @@ mod tests {
         assert_eq!(steps.len(), 2);
         assert_eq!(steps[0].name, "unknown_tool");
         assert_eq!(steps[1].name, "unknown_tool");
+    }
+
+    #[tokio::test]
+    async fn test_tool_trace_subagent_sink_writes_lifecycle_and_tool_events() {
+        let storage = setup_storage();
+        let sink = ToolTraceSubagentSink::new(storage.clone(), None);
+        let context = SubagentTraceContext {
+            task_id: "task-1".to_string(),
+            agent_name: "worker".to_string(),
+            parent_execution_id: Some("parent-1".to_string()),
+        };
+
+        sink.on_subagent_started(&context);
+
+        let mut emitter = sink.build_subagent_emitter(&context);
+        emitter
+            .emit_tool_call_start("call-1", "bash", "{\"cmd\":\"echo hi\"}")
+            .await;
+        emitter
+            .emit_tool_call_result("call-1", "bash", "{\"ok\":true}", true)
+            .await;
+
+        sink.on_subagent_finished(
+            &context,
+            &SubagentResult {
+                success: true,
+                output: "ok".to_string(),
+                summary: None,
+                duration_ms: 10,
+                tokens_used: Some(1),
+                cost_usd: None,
+                error: None,
+            },
+        );
+
+        let events = storage
+            .list_by_session_turn("parent-1", "subagent-task-1", None)
+            .expect("list");
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[0].event_type, ToolTraceEvent::TurnStarted);
+        assert_eq!(events[1].event_type, ToolTraceEvent::ToolCallStarted);
+        assert_eq!(events[2].event_type, ToolTraceEvent::ToolCallCompleted);
+        assert_eq!(events[3].event_type, ToolTraceEvent::TurnCompleted);
     }
 }

@@ -2,8 +2,8 @@ use crate::auth::{AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::daemon::session_events::ChatSessionEvent;
 use crate::models::{
     AgentNode, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
-    BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, Hook, ItemQuery,
-    MemoryChunk, MemorySession, Skill, TerminalSession, WorkItemPatch, WorkItemSpec,
+    BackgroundMessageSource, ChatMessage, ChatRole, ChatSessionUpdate, ExecutionTraceQuery, Hook,
+    ItemQuery, MemoryChunk, MemorySession, Skill, TerminalSession, WorkItemPatch, WorkItemSpec,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::SystemConfig;
@@ -297,6 +297,17 @@ pub enum IpcRequest {
         session_id: String,
         turn_id: Option<String>,
         limit: Option<usize>,
+    },
+    QueryExecutionTraces {
+        #[serde(default)]
+        query: ExecutionTraceQuery,
+    },
+    GetExecutionTraceStats {
+        task_id: Option<String>,
+    },
+    GetExecutionTraceById {
+        #[serde(alias = "event_id")]
+        id: String,
     },
 
     ListTerminalSessions,
@@ -1222,6 +1233,95 @@ mod tests {
         assert_eq!(encoded["error_category"], "RateLimit");
         assert_eq!(encoded["retryable"], true);
         assert_eq!(encoded["retry_after_ms"], 1200);
+    }
+
+    #[test]
+    fn test_query_execution_traces_serialization() {
+        let request = IpcRequest::QueryExecutionTraces {
+            query: ExecutionTraceQuery {
+                task_id: Some("task-1".to_string()),
+                limit: Some(25),
+                ..Default::default()
+            },
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::QueryExecutionTraces { query } = parsed {
+            assert_eq!(query.task_id.as_deref(), Some("task-1"));
+            assert_eq!(query.limit, Some(25));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_query_execution_traces_backward_compat_with_missing_query() {
+        let legacy = serde_json::json!({
+            "type": "QueryExecutionTraces",
+            "data": {}
+        });
+
+        let parsed: IpcRequest = serde_json::from_value(legacy).unwrap();
+        if let IpcRequest::QueryExecutionTraces { query } = parsed {
+            assert_eq!(query.task_id, None);
+            assert_eq!(query.agent_id, None);
+            assert_eq!(query.category, None);
+            assert_eq!(query.source, None);
+            assert_eq!(query.from_timestamp, None);
+            assert_eq!(query.to_timestamp, None);
+            assert_eq!(query.limit, None);
+            assert_eq!(query.offset, None);
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_get_execution_trace_stats_serialization() {
+        let request = IpcRequest::GetExecutionTraceStats {
+            task_id: Some("task-42".to_string()),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::GetExecutionTraceStats { task_id } = parsed {
+            assert_eq!(task_id.as_deref(), Some("task-42"));
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_get_execution_trace_by_id_serialization() {
+        let request = IpcRequest::GetExecutionTraceById {
+            id: "trace-1".to_string(),
+        };
+        let json = serde_json::to_string(&request).unwrap();
+        let parsed: IpcRequest = serde_json::from_str(&json).unwrap();
+
+        if let IpcRequest::GetExecutionTraceById { id } = parsed {
+            assert_eq!(id, "trace-1");
+        } else {
+            panic!("Wrong variant");
+        }
+    }
+
+    #[test]
+    fn test_get_execution_trace_by_id_backward_compat_event_id_alias() {
+        let legacy = serde_json::json!({
+            "type": "GetExecutionTraceById",
+            "data": {
+                "event_id": "trace-legacy"
+            }
+        });
+
+        let parsed: IpcRequest = serde_json::from_value(legacy).unwrap();
+        if let IpcRequest::GetExecutionTraceById { id } = parsed {
+            assert_eq!(id, "trace-legacy");
+        } else {
+            panic!("Wrong variant");
+        }
     }
 
     #[test]

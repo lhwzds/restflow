@@ -33,8 +33,8 @@ use super::broadcast_emitter::BroadcastStreamEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
 use crate::runtime::channel::tool_trace_emitter::{
-    ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
-    append_turn_started,
+    ToolTraceEmitter, append_turn_cancelled_with_execution, append_turn_completed_with_execution,
+    append_turn_failed_with_execution, append_turn_started_with_execution,
 };
 
 use super::heartbeat::{
@@ -605,6 +605,11 @@ impl BackgroundAgentRunner {
     /// Get the tool trace storage for persisting execution events.
     fn tool_trace_storage(&self) -> crate::storage::ToolTraceStorage {
         self.storage.tool_traces().clone()
+    }
+
+    /// Get the execution trace storage for persisting runtime events.
+    fn execution_trace_storage(&self) -> &crate::storage::ExecutionTraceStorage {
+        self.storage.execution_traces()
     }
 
     /// Install RestFlow git hooks in the given repository.
@@ -1251,7 +1256,15 @@ impl BackgroundAgentRunner {
             uuid::Uuid::new_v4()
         );
         let tool_trace_storage = self.tool_trace_storage();
-        append_turn_started(&tool_trace_storage, &trace_session_id, &trace_turn_id);
+        let execution_trace_storage = self.execution_trace_storage();
+        append_turn_started_with_execution(
+            &tool_trace_storage,
+            Some(execution_trace_storage),
+            &trace_session_id,
+            &trace_turn_id,
+            &task.id,
+            &task.agent_id,
+        );
 
         if resolved_input
             .as_deref()
@@ -1260,10 +1273,13 @@ impl BackgroundAgentRunner {
             let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
             let reason = "Background task requires non-empty input or input_template";
             let error_msg = format!("Execution error: {}", reason);
-            append_turn_failed(
+            append_turn_failed_with_execution(
                 &tool_trace_storage,
+                Some(execution_trace_storage),
                 &trace_session_id,
                 &trace_turn_id,
+                &task.id,
+                &task.agent_id,
                 &error_msg,
             );
 
@@ -1318,12 +1334,19 @@ impl BackgroundAgentRunner {
                 Some(emitter) => emitter,
                 None => Box::new(NoopStreamEmitter),
             };
-            Some(Box::new(ToolTraceEmitter::new(
-                inner,
-                tool_trace_storage.clone(),
-                trace_session_id.clone(),
-                trace_turn_id.clone(),
-            )) as Box<dyn StreamEmitter>)
+            Some(Box::new(
+                ToolTraceEmitter::new(
+                    inner,
+                    tool_trace_storage.clone(),
+                    trace_session_id.clone(),
+                    trace_turn_id.clone(),
+                )
+                .with_execution_trace_context(
+                    execution_trace_storage.clone(),
+                    task.id.clone(),
+                    task.agent_id.clone(),
+                ),
+            ) as Box<dyn StreamEmitter>)
         } else {
             broadcast_emitter
         };
@@ -1468,10 +1491,13 @@ impl BackgroundAgentRunner {
                     "Task '{}' cancelled by user (duration={}ms)",
                     task.name, duration_ms
                 );
-                append_turn_cancelled(
+                append_turn_cancelled_with_execution(
                     &tool_trace_storage,
+                    Some(execution_trace_storage),
                     &trace_session_id,
                     &trace_turn_id,
+                    &task.id,
+                    &task.agent_id,
                     "Cancelled by user",
                 );
                 pump_cancel.cancel();
@@ -1531,10 +1557,13 @@ impl BackgroundAgentRunner {
                             "Task '{}' interrupted by pause request (duration={}ms)",
                             task.name, duration_ms
                         );
-                        append_turn_cancelled(
+                        append_turn_cancelled_with_execution(
                             &tool_trace_storage,
+                            Some(execution_trace_storage),
                             &trace_session_id,
                             &trace_turn_id,
+                            &task.id,
+                            &task.agent_id,
                             "Paused by user",
                         );
                         self.event_emitter
@@ -1559,10 +1588,13 @@ impl BackgroundAgentRunner {
                             "Task '{}' stopped because task record was deleted (duration={}ms)",
                             task.name, duration_ms
                         );
-                        append_turn_cancelled(
+                        append_turn_cancelled_with_execution(
                             &tool_trace_storage,
+                            Some(execution_trace_storage),
                             &trace_session_id,
                             &trace_turn_id,
+                            &task.id,
+                            &task.agent_id,
                             "Task deleted",
                         );
                         self.event_emitter
@@ -1602,7 +1634,14 @@ impl BackgroundAgentRunner {
                     "Task '{}' completed successfully (duration={}ms)",
                     task.name, duration_ms
                 );
-                append_turn_completed(&tool_trace_storage, &trace_session_id, &trace_turn_id);
+                append_turn_completed_with_execution(
+                    &tool_trace_storage,
+                    Some(execution_trace_storage),
+                    &trace_session_id,
+                    &trace_turn_id,
+                    &task.id,
+                    &task.agent_id,
+                );
 
                 self.event_emitter
                     .emit(TaskStreamEvent::completed(
@@ -1677,10 +1716,13 @@ impl BackgroundAgentRunner {
                 // Execution error
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
-                append_turn_failed(
+                append_turn_failed_with_execution(
                     &tool_trace_storage,
+                    Some(execution_trace_storage),
                     &trace_session_id,
                     &trace_turn_id,
+                    &task.id,
+                    &task.agent_id,
                     &error_msg,
                 );
 
@@ -1723,10 +1765,13 @@ impl BackgroundAgentRunner {
                     "Task timed out".to_string()
                 };
                 error!("Task '{}' timed out", task.name);
-                append_turn_failed(
+                append_turn_failed_with_execution(
                     &tool_trace_storage,
+                    Some(execution_trace_storage),
                     &trace_session_id,
                     &trace_turn_id,
+                    &task.id,
+                    &task.agent_id,
                     &error_msg,
                 );
 
