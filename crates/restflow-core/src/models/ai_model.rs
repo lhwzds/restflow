@@ -1,7 +1,10 @@
 use restflow_ai::llm::{LlmProvider, ModelSpec};
+use restflow_traits::ModelProvider;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
+
+use crate::models::ValidationError;
 
 /// AI model provider
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
@@ -91,51 +94,60 @@ impl Provider {
         }
     }
 
+    /// Convert to shared provider identity used by cross-crate parsers.
+    pub fn as_model_provider(&self) -> ModelProvider {
+        match self {
+            Self::OpenAI => ModelProvider::OpenAI,
+            Self::Anthropic => ModelProvider::Anthropic,
+            Self::DeepSeek => ModelProvider::DeepSeek,
+            Self::Google => ModelProvider::Google,
+            Self::Groq => ModelProvider::Groq,
+            Self::OpenRouter => ModelProvider::OpenRouter,
+            Self::XAI => ModelProvider::XAI,
+            Self::Qwen => ModelProvider::Qwen,
+            Self::Zai => ModelProvider::Zai,
+            Self::ZaiCodingPlan => ModelProvider::ZaiCodingPlan,
+            Self::Moonshot => ModelProvider::Moonshot,
+            Self::Doubao => ModelProvider::Doubao,
+            Self::Yi => ModelProvider::Yi,
+            Self::SiliconFlow => ModelProvider::SiliconFlow,
+            Self::MiniMax => ModelProvider::MiniMax,
+            Self::MiniMaxCodingPlan => ModelProvider::MiniMaxCodingPlan,
+        }
+    }
+
+    /// Convert from shared provider identity.
+    pub fn from_model_provider(provider: ModelProvider) -> Self {
+        match provider {
+            ModelProvider::OpenAI => Self::OpenAI,
+            ModelProvider::Anthropic => Self::Anthropic,
+            ModelProvider::DeepSeek => Self::DeepSeek,
+            ModelProvider::Google => Self::Google,
+            ModelProvider::Groq => Self::Groq,
+            ModelProvider::OpenRouter => Self::OpenRouter,
+            ModelProvider::XAI => Self::XAI,
+            ModelProvider::Qwen => Self::Qwen,
+            ModelProvider::Zai => Self::Zai,
+            ModelProvider::ZaiCodingPlan => Self::ZaiCodingPlan,
+            ModelProvider::Moonshot => Self::Moonshot,
+            ModelProvider::Doubao => Self::Doubao,
+            ModelProvider::Yi => Self::Yi,
+            ModelProvider::SiliconFlow => Self::SiliconFlow,
+            ModelProvider::MiniMax => Self::MiniMax,
+            ModelProvider::MiniMaxCodingPlan => Self::MiniMaxCodingPlan,
+        }
+    }
+
     /// Get the canonical provider identifier for use in canonical model IDs.
     /// Returns lowercase provider name (e.g., "openai", "anthropic").
     pub fn as_canonical_str(&self) -> &'static str {
-        match self {
-            Self::OpenAI => "openai",
-            Self::Anthropic => "anthropic",
-            Self::DeepSeek => "deepseek",
-            Self::Google => "google",
-            Self::Groq => "groq",
-            Self::OpenRouter => "openrouter",
-            Self::XAI => "xai",
-            Self::Qwen => "qwen",
-            Self::Zai => "zai",
-            Self::ZaiCodingPlan => "zai-coding-plan",
-            Self::Moonshot => "moonshot",
-            Self::Doubao => "doubao",
-            Self::Yi => "yi",
-            Self::SiliconFlow => "siliconflow",
-            Self::MiniMax => "minimax",
-            Self::MiniMaxCodingPlan => "minimax-coding-plan",
-        }
+        self.as_model_provider().canonical_str()
     }
 
     /// Parse a canonical provider string back to Provider.
     /// Returns None if the string is not recognized.
     pub fn from_canonical_str(s: &str) -> Option<Self> {
-        match s {
-            "openai" => Some(Self::OpenAI),
-            "anthropic" => Some(Self::Anthropic),
-            "deepseek" => Some(Self::DeepSeek),
-            "google" => Some(Self::Google),
-            "groq" => Some(Self::Groq),
-            "openrouter" => Some(Self::OpenRouter),
-            "xai" => Some(Self::XAI),
-            "qwen" => Some(Self::Qwen),
-            "zai" => Some(Self::Zai),
-            "zai-coding-plan" => Some(Self::ZaiCodingPlan),
-            "moonshot" => Some(Self::Moonshot),
-            "doubao" => Some(Self::Doubao),
-            "yi" => Some(Self::Yi),
-            "siliconflow" => Some(Self::SiliconFlow),
-            "minimax" => Some(Self::MiniMax),
-            "minimax-coding-plan" => Some(Self::MiniMaxCodingPlan),
-            _ => None,
-        }
+        ModelProvider::parse_alias(s).map(Self::from_model_provider)
     }
 
     /// Get the best available model for this provider.
@@ -177,6 +189,49 @@ pub struct ModelMetadataDTO {
     pub provider: Provider,
     pub supports_temperature: bool,
     pub name: String,
+}
+
+/// Provider + model pair used by API and persistence layers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
+#[ts(export)]
+pub struct ModelRef {
+    pub provider: Provider,
+    pub model: AIModel,
+}
+
+impl ModelRef {
+    /// Build a consistent model reference from a model enum.
+    pub fn from_model(model: AIModel) -> Self {
+        Self {
+            provider: model.provider(),
+            model,
+        }
+    }
+
+    /// Validate that provider and model provider metadata are consistent.
+    pub fn validate(&self) -> Result<(), ValidationError> {
+        let expected_provider = self.model.provider();
+        if self.provider != expected_provider {
+            return Err(ValidationError::new(
+                "model_ref",
+                format!(
+                    "provider '{}' does not match model provider '{}'",
+                    self.provider.as_canonical_str(),
+                    expected_provider.as_canonical_str()
+                ),
+            ));
+        }
+        Ok(())
+    }
+
+    /// Return canonical ID in `provider:model` format.
+    pub fn canonical_id(&self) -> String {
+        format!(
+            "{}:{}",
+            self.provider.as_canonical_str(),
+            self.model.as_serialized_str()
+        )
+    }
 }
 
 /// AI model enum - Single Source of Truth for all supported models
@@ -1665,6 +1720,28 @@ mod tests {
     }
 
     #[test]
+    fn test_model_ref_from_model_is_consistent() {
+        let model_ref = ModelRef::from_model(AIModel::Gpt5);
+        assert_eq!(model_ref.provider, Provider::OpenAI);
+        assert_eq!(model_ref.model, AIModel::Gpt5);
+        assert_eq!(model_ref.canonical_id(), "openai:gpt-5");
+        assert!(model_ref.validate().is_ok());
+    }
+
+    #[test]
+    fn test_model_ref_validate_rejects_provider_mismatch() {
+        let model_ref = ModelRef {
+            provider: Provider::Anthropic,
+            model: AIModel::Gpt5,
+        };
+        let error = model_ref
+            .validate()
+            .expect_err("provider mismatch should fail");
+        assert_eq!(error.field, "model_ref");
+        assert!(error.message.contains("does not match"));
+    }
+
+    #[test]
     fn test_provider_canonical_str() {
         // Test provider canonical strings
         assert_eq!(Provider::OpenAI.as_canonical_str(), "openai");
@@ -1684,11 +1761,12 @@ mod tests {
 
     #[test]
     fn test_provider_from_canonical_str() {
-        // Test parsing provider canonical strings
+        // Test parsing provider canonical strings and supported aliases
         assert_eq!(
             Provider::from_canonical_str("openai"),
             Some(Provider::OpenAI)
         );
+        assert_eq!(Provider::from_canonical_str("gpt"), Some(Provider::OpenAI));
         assert_eq!(
             Provider::from_canonical_str("anthropic"),
             Some(Provider::Anthropic)
@@ -1700,6 +1778,14 @@ mod tests {
         assert_eq!(
             Provider::from_canonical_str("google"),
             Some(Provider::Google)
+        );
+        assert_eq!(
+            Provider::from_canonical_str("gemini"),
+            Some(Provider::Google)
+        );
+        assert_eq!(
+            Provider::from_canonical_str("zhipu-coding-plan"),
+            Some(Provider::ZaiCodingPlan)
         );
         assert_eq!(Provider::from_canonical_str("invalid"), None);
     }

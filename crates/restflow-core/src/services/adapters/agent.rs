@@ -35,8 +35,12 @@ impl AgentStoreAdapter {
     }
 
     fn parse_agent_node(value: Value) -> Result<crate::models::AgentNode, ToolError> {
-        serde_json::from_value(value)
-            .map_err(|e| ToolError::Tool(format!("Invalid agent payload: {}", e)))
+        let mut agent: crate::models::AgentNode = serde_json::from_value(value)
+            .map_err(|e| ToolError::Tool(format!("Invalid agent payload: {}", e)))?;
+        agent.normalize_model_fields().map_err(|error| {
+            ToolError::Tool(crate::models::encode_validation_error(vec![error]))
+        })?;
+        Ok(agent)
     }
 
     fn validate_agent_node(&self, agent: &crate::models::AgentNode) -> Result<(), ToolError> {

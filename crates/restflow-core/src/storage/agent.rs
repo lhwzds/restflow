@@ -47,6 +47,7 @@ impl AgentStorage {
     }
 
     pub fn create_agent(&self, name: String, mut agent: AgentNode) -> Result<StoredAgent> {
+        normalize_model_fields(&mut agent)?;
         let now = time_utils::now_ms();
         let id = Uuid::new_v4().to_string();
 
@@ -71,14 +72,16 @@ impl AgentStorage {
 
     pub fn get_agent(&self, id: String) -> Result<Option<StoredAgent>> {
         if let Some(bytes) = self.inner.get_raw(&id)? {
-            let agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            normalize_model_fields(&mut agent.agent)?;
             Ok(Some(self.hydrate_prompt_from_file(agent)?))
         } else {
             let Some(resolved_id) = self.resolve_agent_id_candidate(&id)? else {
                 return Ok(None);
             };
             if let Some(bytes) = self.inner.get_raw(&resolved_id)? {
-                let agent: StoredAgent = serde_json::from_slice(&bytes)?;
+                let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
+                normalize_model_fields(&mut agent.agent)?;
                 Ok(Some(self.hydrate_prompt_from_file(agent)?))
             } else {
                 Ok(None)
@@ -90,7 +93,8 @@ impl AgentStorage {
         let agents = self.inner.list_raw()?;
         let mut result = Vec::new();
         for (_, bytes) in agents {
-            let agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            let mut agent: StoredAgent = serde_json::from_slice(&bytes)?;
+            normalize_model_fields(&mut agent.agent)?;
             result.push(self.hydrate_prompt_from_file(agent)?);
         }
         Ok(result)
@@ -164,6 +168,7 @@ impl AgentStorage {
 
         let mut prompt_override: Option<String> = None;
         if let Some(mut new_agent) = agent {
+            normalize_model_fields(&mut new_agent)?;
             prompt_override = new_agent.prompt.take();
             existing_agent.agent = new_agent;
         }
@@ -314,6 +319,13 @@ impl AgentStorage {
     }
 }
 
+fn normalize_model_fields(agent: &mut AgentNode) -> Result<()> {
+    if let Err(error) = agent.normalize_model_fields() {
+        anyhow::bail!(crate::models::encode_validation_error(vec![error]));
+    }
+    Ok(())
+}
+
 fn path_file_name(path: &std::path::Path) -> Result<String> {
     path.file_name()
         .and_then(|value| value.to_str())
@@ -339,6 +351,9 @@ mod tests {
 
         AgentNode {
             model: Some(AIModel::ClaudeSonnet4_5),
+            model_ref: Some(crate::models::ModelRef::from_model(
+                AIModel::ClaudeSonnet4_5,
+            )),
             prompt: Some("You are a helpful assistant".to_string()),
             temperature: Some(0.7),
             codex_cli_reasoning_effort: None,
