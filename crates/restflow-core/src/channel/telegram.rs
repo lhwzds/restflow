@@ -7,6 +7,7 @@ use anyhow::{Result, anyhow};
 use async_trait::async_trait;
 use futures::Stream;
 use reqwest::Client;
+use restflow_traits::{DEFAULT_TELEGRAM_API_TIMEOUT_SECS, DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 use std::pin::Pin;
@@ -22,8 +23,6 @@ use super::traits::{Channel, StreamReceiver};
 use super::types::{ChannelType, InboundMessage, OutboundMessage};
 
 const TELEGRAM_API_BASE: &str = "https://api.telegram.org/bot";
-/// Default timeout for Telegram API calls (seconds)
-const API_TIMEOUT_SECS: u64 = 30;
 
 /// Telegram channel configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,13 +31,20 @@ pub struct TelegramConfig {
     pub bot_token: String,
     /// Default chat ID for broadcasts (optional)
     pub default_chat_id: Option<String>,
+    /// API timeout in seconds for Telegram HTTP calls.
+    #[serde(default = "default_api_timeout_secs")]
+    pub api_timeout_secs: u64,
     /// Polling timeout in seconds (default: 30)
     #[serde(default = "default_polling_timeout")]
     pub polling_timeout: u32,
 }
 
+fn default_api_timeout_secs() -> u64 {
+    DEFAULT_TELEGRAM_API_TIMEOUT_SECS
+}
+
 fn default_polling_timeout() -> u32 {
-    30
+    DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS
 }
 
 impl TelegramConfig {
@@ -47,6 +53,7 @@ impl TelegramConfig {
         Self {
             bot_token: bot_token.into(),
             default_chat_id: None,
+            api_timeout_secs: default_api_timeout_secs(),
             polling_timeout: default_polling_timeout(),
         }
     }
@@ -54,6 +61,12 @@ impl TelegramConfig {
     /// Set default chat ID
     pub fn with_default_chat_id(mut self, chat_id: impl Into<String>) -> Self {
         self.default_chat_id = Some(chat_id.into());
+        self
+    }
+
+    /// Set API timeout in seconds.
+    pub fn with_api_timeout(mut self, timeout: u64) -> Self {
+        self.api_timeout_secs = timeout;
         self
     }
 
@@ -119,6 +132,18 @@ impl TelegramChannel {
         self
     }
 
+    /// Set API timeout in seconds.
+    pub fn with_api_timeout(mut self, timeout: u64) -> Self {
+        self.config.api_timeout_secs = timeout;
+        self
+    }
+
+    /// Set polling timeout in seconds.
+    pub fn with_polling_timeout(mut self, timeout: u32) -> Self {
+        self.config.polling_timeout = timeout;
+        self
+    }
+
     /// Restore the last processed Telegram update ID.
     pub fn with_last_update_id(self, update_id: i64) -> Self {
         self.last_update_id.store(update_id, Ordering::SeqCst);
@@ -134,6 +159,11 @@ impl TelegramChannel {
     /// Return current last processed update ID.
     pub fn last_update_id(&self) -> i64 {
         self.last_update_id.load(Ordering::SeqCst)
+    }
+
+    /// Return channel configuration.
+    pub fn config(&self) -> &TelegramConfig {
+        &self.config
     }
 
     /// Get the API URL for a method
@@ -183,7 +213,7 @@ impl TelegramChannel {
             .client
             .post(&url)
             .json(&params)
-            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(self.config.api_timeout_secs))
             .send()
             .await?;
 
@@ -264,7 +294,7 @@ impl TelegramChannel {
             .client
             .post(&url)
             .json(&params)
-            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(self.config.api_timeout_secs))
             .send()
             .await?;
 
@@ -294,7 +324,7 @@ impl TelegramChannel {
         let response = self
             .client
             .get(&file_url)
-            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(self.config.api_timeout_secs))
             .send()
             .await?;
 
@@ -459,7 +489,7 @@ impl TelegramChannel {
         let response = self
             .client
             .get(&url)
-            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(self.config.api_timeout_secs))
             .send()
             .await?;
 
@@ -490,7 +520,7 @@ impl TelegramChannel {
             .client
             .post(&url)
             .json(&params)
-            .timeout(std::time::Duration::from_secs(API_TIMEOUT_SECS))
+            .timeout(std::time::Duration::from_secs(self.config.api_timeout_secs))
             .send()
             .await?;
 
@@ -779,10 +809,12 @@ mod tests {
     fn test_telegram_config_builder() {
         let config = TelegramConfig::new("test-token")
             .with_default_chat_id("12345")
+            .with_api_timeout(45)
             .with_polling_timeout(60);
 
         assert_eq!(config.bot_token, "test-token");
         assert_eq!(config.default_chat_id, Some("12345".to_string()));
+        assert_eq!(config.api_timeout_secs, 45);
         assert_eq!(config.polling_timeout, 60);
     }
 

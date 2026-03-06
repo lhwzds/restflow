@@ -36,6 +36,9 @@ use crate::runtime::channel::tool_trace_emitter::{
     ToolTraceEmitter, append_turn_cancelled_with_execution, append_turn_completed_with_execution,
     append_turn_failed_with_execution, append_turn_started_with_execution,
 };
+use restflow_traits::{
+    DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
+};
 
 use super::heartbeat::{
     HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, NoopHeartbeatEmitter, RunnerStatus,
@@ -159,8 +162,8 @@ pub struct RunnerConfig {
 impl Default for RunnerConfig {
     fn default() -> Self {
         Self {
-            poll_interval_ms: 10_000, // 10 seconds
-            max_concurrent_tasks: 5,
+            poll_interval_ms: DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
+            max_concurrent_tasks: DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
             task_timeout_secs: None,
         }
     }
@@ -2506,6 +2509,20 @@ mod tests {
 
         let result = runner.take_cancel_receiver("nonexistent-task").await;
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_runner_config_defaults() {
+        let config = RunnerConfig::default();
+        assert_eq!(
+            config.poll_interval_ms,
+            DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS
+        );
+        assert_eq!(
+            config.max_concurrent_tasks,
+            DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS
+        );
+        assert_eq!(config.task_timeout_secs, None);
     }
 
     #[tokio::test]

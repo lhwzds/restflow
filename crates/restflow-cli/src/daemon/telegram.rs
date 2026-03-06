@@ -1,6 +1,7 @@
 use anyhow::Result;
 use restflow_core::channel::TelegramChannel;
 use restflow_core::storage::{DaemonStateStorage, SecretStorage};
+use restflow_storage::ChannelDefaults;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -10,6 +11,7 @@ const TELEGRAM_LAST_UPDATE_KEY: &str = "telegram_last_update_id";
 pub fn setup_telegram_channel(
     secrets: &SecretStorage,
     daemon_state: &DaemonStateStorage,
+    channel_defaults: &ChannelDefaults,
 ) -> Result<Option<(TelegramChannel, Option<String>)>> {
     let token = secrets.get_non_empty("TELEGRAM_BOT_TOKEN")?;
 
@@ -42,6 +44,8 @@ pub fn setup_telegram_channel(
     });
 
     let channel = TelegramChannel::with_token(&token)
+        .with_api_timeout(channel_defaults.telegram_api_timeout_secs)
+        .with_polling_timeout(channel_defaults.telegram_polling_timeout_secs)
         .with_last_update_id(initial_offset)
         .with_offset_persister(persister);
 
@@ -63,7 +67,8 @@ mod tests {
         let secrets = SecretStorage::new(db.clone()).unwrap();
         let daemon_state = DaemonStateStorage::new(db).unwrap();
 
-        let result = setup_telegram_channel(&secrets, &daemon_state).unwrap();
+        let result =
+            setup_telegram_channel(&secrets, &daemon_state, &ChannelDefaults::default()).unwrap();
         assert!(result.is_none());
     }
 
@@ -82,9 +87,10 @@ mod tests {
             .set_secret("TELEGRAM_CHAT_ID", "12345678", None)
             .unwrap();
 
-        let (_, default_chat_id) = setup_telegram_channel(&secrets, &daemon_state)
-            .unwrap()
-            .unwrap();
+        let (_, default_chat_id) =
+            setup_telegram_channel(&secrets, &daemon_state, &ChannelDefaults::default())
+                .unwrap()
+                .unwrap();
         assert_eq!(default_chat_id, Some("12345678".to_string()));
     }
 
@@ -103,9 +109,10 @@ mod tests {
             .set_secret("TELEGRAM_DEFAULT_CHAT_ID", "87654321", None)
             .unwrap();
 
-        let (_, default_chat_id) = setup_telegram_channel(&secrets, &daemon_state)
-            .unwrap()
-            .unwrap();
+        let (_, default_chat_id) =
+            setup_telegram_channel(&secrets, &daemon_state, &ChannelDefaults::default())
+                .unwrap()
+                .unwrap();
         assert_eq!(default_chat_id, Some("87654321".to_string()));
     }
 
@@ -124,8 +131,34 @@ mod tests {
             .put_raw("telegram_last_update_id", &[1, 2, 3])
             .unwrap();
 
-        let result = setup_telegram_channel(&secrets, &daemon_state);
+        let result = setup_telegram_channel(&secrets, &daemon_state, &ChannelDefaults::default());
         assert!(result.is_ok());
         assert!(result.unwrap().is_some());
+    }
+
+    #[test]
+    fn test_setup_telegram_channel_applies_channel_defaults() {
+        let temp_dir = tempdir().unwrap();
+        let db_path = temp_dir.path().join("test.db");
+        let db = Arc::new(Database::create(db_path).unwrap());
+        let secrets = SecretStorage::new(db.clone()).unwrap();
+        let daemon_state = DaemonStateStorage::new(db).unwrap();
+
+        secrets
+            .set_secret("TELEGRAM_BOT_TOKEN", "bot-token", None)
+            .unwrap();
+
+        let defaults = ChannelDefaults {
+            telegram_api_timeout_secs: 45,
+            telegram_polling_timeout_secs: 60,
+        };
+
+        let (channel, _) = setup_telegram_channel(&secrets, &daemon_state, &defaults)
+            .unwrap()
+            .unwrap();
+        assert_eq!(channel.last_update_id(), 0);
+        let config = channel.config();
+        assert_eq!(config.api_timeout_secs, 45);
+        assert_eq!(config.polling_timeout, 60);
     }
 }

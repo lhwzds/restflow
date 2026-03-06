@@ -28,6 +28,7 @@ use crate::runtime::channel::{
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::storage::Storage;
 use restflow_storage::AgentDefaults;
+use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 
 use super::debounce::MessageDebouncer;
 use restflow_ai::agent::{
@@ -52,7 +53,7 @@ pub struct ChatDispatcherConfig {
 impl Default for ChatDispatcherConfig {
     fn default() -> Self {
         Self {
-            max_session_history: 20,
+            max_session_history: DEFAULT_CHAT_MAX_SESSION_HISTORY,
             response_timeout_secs: None,
             send_typing_indicator: true,
             default_agent_name: "default".to_string(),
@@ -1118,7 +1119,7 @@ mod tests {
     #[test]
     fn test_config_defaults() {
         let config = ChatDispatcherConfig::default();
-        assert_eq!(config.max_session_history, 20);
+        assert_eq!(config.max_session_history, DEFAULT_CHAT_MAX_SESSION_HISTORY);
         assert_eq!(config.response_timeout_secs, None);
         assert!(config.send_typing_indicator);
     }
