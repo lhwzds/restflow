@@ -127,6 +127,22 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.agent.max_tool_calls),
     ]);
     table.add_row(vec![
+        Cell::new("agent.max_tool_concurrency"),
+        Cell::new(config.agent.max_tool_concurrency),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.max_tool_result_length"),
+        Cell::new(config.agent.max_tool_result_length),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.prune_tool_max_chars"),
+        Cell::new(config.agent.prune_tool_max_chars),
+    ]);
+    table.add_row(vec![
+        Cell::new("agent.compact_preserve_tokens"),
+        Cell::new(config.agent.compact_preserve_tokens),
+    ]);
+    table.add_row(vec![
         Cell::new("agent.max_wall_clock_secs"),
         Cell::new(format_optional_u64(config.agent.max_wall_clock_secs)),
     ]);
@@ -148,6 +164,38 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
                 .map(|m| m.join(", "))
                 .unwrap_or_else(|| "none".to_string()),
         ),
+    ]);
+    table.add_row(vec![
+        Cell::new("api_defaults.memory_search_limit"),
+        Cell::new(config.api_defaults.memory_search_limit),
+    ]);
+    table.add_row(vec![
+        Cell::new("api_defaults.session_list_limit"),
+        Cell::new(config.api_defaults.session_list_limit),
+    ]);
+    table.add_row(vec![
+        Cell::new("api_defaults.background_progress_event_limit"),
+        Cell::new(config.api_defaults.background_progress_event_limit),
+    ]);
+    table.add_row(vec![
+        Cell::new("api_defaults.background_message_list_limit"),
+        Cell::new(config.api_defaults.background_message_list_limit),
+    ]);
+    table.add_row(vec![
+        Cell::new("api_defaults.background_trace_list_limit"),
+        Cell::new(config.api_defaults.background_trace_list_limit),
+    ]);
+    table.add_row(vec![
+        Cell::new("api_defaults.background_trace_line_limit"),
+        Cell::new(config.api_defaults.background_trace_line_limit),
+    ]);
+    table.add_row(vec![
+        Cell::new("api_defaults.web_search_num_results"),
+        Cell::new(config.api_defaults.web_search_num_results),
+    ]);
+    table.add_row(vec![
+        Cell::new("api_defaults.diagnostics_timeout_ms"),
+        Cell::new(config.api_defaults.diagnostics_timeout_ms),
     ]);
     table.add_row(vec![
         Cell::new("sources.global"),
@@ -190,10 +238,33 @@ async fn get_config_value(
         "agent.subagent_timeout_secs" => json!(config.agent.subagent_timeout_secs),
         "agent.max_parallel_subagents" => json!(config.agent.max_parallel_subagents),
         "agent.max_tool_calls" => json!(config.agent.max_tool_calls),
+        "agent.max_tool_concurrency" => json!(config.agent.max_tool_concurrency),
+        "agent.max_tool_result_length" => json!(config.agent.max_tool_result_length),
+        "agent.prune_tool_max_chars" => json!(config.agent.prune_tool_max_chars),
+        "agent.compact_preserve_tokens" => json!(config.agent.compact_preserve_tokens),
         "agent.max_wall_clock_secs" => json!(config.agent.max_wall_clock_secs),
         "agent.default_task_timeout_secs" => json!(config.agent.default_task_timeout_secs),
         "agent.default_max_duration_secs" => json!(config.agent.default_max_duration_secs),
         "agent.fallback_models" => json!(config.agent.fallback_models),
+        "api_defaults" => json!(config.api_defaults),
+        "api_defaults.memory_search_limit" => json!(config.api_defaults.memory_search_limit),
+        "api_defaults.session_list_limit" => json!(config.api_defaults.session_list_limit),
+        "api_defaults.background_progress_event_limit" => {
+            json!(config.api_defaults.background_progress_event_limit)
+        }
+        "api_defaults.background_message_list_limit" => {
+            json!(config.api_defaults.background_message_list_limit)
+        }
+        "api_defaults.background_trace_list_limit" => {
+            json!(config.api_defaults.background_trace_list_limit)
+        }
+        "api_defaults.background_trace_line_limit" => {
+            json!(config.api_defaults.background_trace_line_limit)
+        }
+        "api_defaults.web_search_num_results" => json!(config.api_defaults.web_search_num_results),
+        "api_defaults.diagnostics_timeout_ms" => {
+            json!(config.api_defaults.diagnostics_timeout_ms)
+        }
         "effective_sources" => json!(effective_config_sources()),
         _ => bail!("Unsupported config key: {key}"),
     };
@@ -278,6 +349,18 @@ async fn set_config_value(
         "agent.max_tool_calls" => {
             config.agent.max_tool_calls = parse_value(value)?;
         }
+        "agent.max_tool_concurrency" => {
+            config.agent.max_tool_concurrency = parse_value(value)?;
+        }
+        "agent.max_tool_result_length" => {
+            config.agent.max_tool_result_length = parse_value(value)?;
+        }
+        "agent.prune_tool_max_chars" => {
+            config.agent.prune_tool_max_chars = parse_value(value)?;
+        }
+        "agent.compact_preserve_tokens" => {
+            config.agent.compact_preserve_tokens = parse_value(value)?;
+        }
         "agent.max_wall_clock_secs" => {
             config.agent.max_wall_clock_secs = parse_optional_u64(value)?;
         }
@@ -291,6 +374,30 @@ async fn set_config_value(
             let models: Vec<String> = serde_json::from_str(value)
                 .map_err(|e| anyhow::anyhow!("Invalid JSON array: {}", e))?;
             config.agent.fallback_models = Some(models);
+        }
+        "api_defaults.memory_search_limit" => {
+            config.api_defaults.memory_search_limit = parse_value(value)?;
+        }
+        "api_defaults.session_list_limit" => {
+            config.api_defaults.session_list_limit = parse_value(value)?;
+        }
+        "api_defaults.background_progress_event_limit" => {
+            config.api_defaults.background_progress_event_limit = parse_value(value)?;
+        }
+        "api_defaults.background_message_list_limit" => {
+            config.api_defaults.background_message_list_limit = parse_value(value)?;
+        }
+        "api_defaults.background_trace_list_limit" => {
+            config.api_defaults.background_trace_list_limit = parse_value(value)?;
+        }
+        "api_defaults.background_trace_line_limit" => {
+            config.api_defaults.background_trace_line_limit = parse_value(value)?;
+        }
+        "api_defaults.web_search_num_results" => {
+            config.api_defaults.web_search_num_results = parse_value(value)?;
+        }
+        "api_defaults.diagnostics_timeout_ms" => {
+            config.api_defaults.diagnostics_timeout_ms = parse_value(value)?;
         }
         _ => bail!("Unsupported config key: {key}"),
     }
