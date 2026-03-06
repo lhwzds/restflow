@@ -16,12 +16,10 @@ use crate::models::{
     BinaryRequirement, EnvVarRequirement, GatingRequirements, OsType, SkillAuthor, SkillManifest,
     SkillPermission, SkillPermissions, SkillSource, SkillVersion,
 };
+use restflow_traits::DEFAULT_MARKETPLACE_CACHE_TTL_SECS;
 
 /// Default marketplace API URL
 pub const DEFAULT_MARKETPLACE_URL: &str = "https://api.restflow.dev/v1";
-
-/// Cache TTL for marketplace data
-const CACHE_TTL: Duration = Duration::from_secs(300); // 5 minutes
 
 /// RestFlow Marketplace API response for skill list
 #[allow(dead_code)]
@@ -80,6 +78,8 @@ pub struct MarketplaceProvider {
     base_url: String,
     /// API key (optional, for rate limiting bypass)
     api_key: Option<String>,
+    /// Cache TTL for provider results.
+    cache_ttl: Duration,
     /// Cache for manifests
     manifest_cache: Arc<RwLock<HashMap<String, CacheEntry<SkillManifest>>>>,
     /// Cache for search results
@@ -102,6 +102,7 @@ impl MarketplaceProvider {
                 .unwrap_or_default(),
             base_url: url.trim_end_matches('/').to_string(),
             api_key: None,
+            cache_ttl: Duration::from_secs(DEFAULT_MARKETPLACE_CACHE_TTL_SECS),
             manifest_cache: Arc::new(RwLock::new(HashMap::new())),
             search_cache: Arc::new(RwLock::new(HashMap::new())),
         }
@@ -110,6 +111,12 @@ impl MarketplaceProvider {
     /// Set the API key for authenticated requests
     pub fn with_api_key(mut self, key: String) -> Self {
         self.api_key = Some(key);
+        self
+    }
+
+    /// Override cache TTL in seconds.
+    pub fn with_cache_ttl_secs(mut self, ttl_secs: u64) -> Self {
+        self.cache_ttl = Duration::from_secs(ttl_secs);
         self
     }
 
@@ -351,7 +358,7 @@ impl SkillProvider for MarketplaceProvider {
         // Update cache
         {
             let mut cache = self.search_cache.write().await;
-            cache.insert(cache_key, CacheEntry::new(results.clone(), CACHE_TTL));
+            cache.insert(cache_key, CacheEntry::new(results.clone(), self.cache_ttl));
         }
 
         Ok(results)
@@ -392,7 +399,10 @@ impl SkillProvider for MarketplaceProvider {
         // Update cache
         {
             let mut cache = self.manifest_cache.write().await;
-            cache.insert(id.to_string(), CacheEntry::new(manifest.clone(), CACHE_TTL));
+            cache.insert(
+                id.to_string(),
+                CacheEntry::new(manifest.clone(), self.cache_ttl),
+            );
         }
 
         Ok(manifest)
@@ -493,11 +503,21 @@ mod tests {
         let provider = MarketplaceProvider::new();
         assert_eq!(provider.base_url, DEFAULT_MARKETPLACE_URL);
         assert!(provider.api_key.is_none());
+        assert_eq!(
+            provider.cache_ttl,
+            Duration::from_secs(DEFAULT_MARKETPLACE_CACHE_TTL_SECS)
+        );
     }
 
     #[test]
     fn test_provider_with_api_key() {
         let provider = MarketplaceProvider::new().with_api_key("test-key".to_string());
         assert_eq!(provider.api_key, Some("test-key".to_string()));
+    }
+
+    #[test]
+    fn test_provider_with_cache_ttl() {
+        let provider = MarketplaceProvider::new().with_cache_ttl_secs(900);
+        assert_eq!(provider.cache_ttl, Duration::from_secs(900));
     }
 }

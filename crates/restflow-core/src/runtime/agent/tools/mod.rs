@@ -401,8 +401,14 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "manage_marketplace" => {
                 with_storage!(storage, "manage_marketplace", builder, |s| {
-                    builder
-                        .with_marketplace(Arc::new(MarketplaceStoreAdapter::new(s.skills.clone())))
+                    let registry_defaults = effective_config
+                        .as_ref()
+                        .map(|config| config.registry_defaults.clone())
+                        .unwrap_or_default();
+                    builder.with_marketplace(Arc::new(MarketplaceStoreAdapter::new_with_defaults(
+                        s.skills.clone(),
+                        registry_defaults,
+                    )))
                 });
             }
             "manage_triggers" => {
