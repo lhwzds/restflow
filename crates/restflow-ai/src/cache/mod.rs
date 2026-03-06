@@ -6,6 +6,11 @@ pub use file_cache::{CacheStats, FileContentCache};
 pub use permission_cache::PermissionCache;
 pub use search_cache::{CachedSearchResult, SearchCache, SearchMatch};
 
+use restflow_traits::{
+    DEFAULT_AGENT_CACHE_FILE_MAX_BYTES, DEFAULT_AGENT_CACHE_FILE_MAX_ENTRIES,
+    DEFAULT_AGENT_CACHE_PERMISSION_TTL_SECS, DEFAULT_AGENT_CACHE_SEARCH_MAX_ENTRIES,
+    DEFAULT_AGENT_CACHE_SEARCH_TTL_SECS,
+};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,9 +25,17 @@ pub struct AgentCacheManager {
 impl AgentCacheManager {
     pub fn new() -> Self {
         Self {
-            files: Arc::new(FileContentCache::new(100, 1_000_000)),
-            permissions: Arc::new(PermissionCache::new(Duration::from_secs(3600))),
-            search: Arc::new(SearchCache::new(Duration::from_secs(30), 50)),
+            files: Arc::new(FileContentCache::new(
+                DEFAULT_AGENT_CACHE_FILE_MAX_ENTRIES,
+                DEFAULT_AGENT_CACHE_FILE_MAX_BYTES,
+            )),
+            permissions: Arc::new(PermissionCache::new(Duration::from_secs(
+                DEFAULT_AGENT_CACHE_PERMISSION_TTL_SECS,
+            ))),
+            search: Arc::new(SearchCache::new(
+                Duration::from_secs(DEFAULT_AGENT_CACHE_SEARCH_TTL_SECS),
+                DEFAULT_AGENT_CACHE_SEARCH_MAX_ENTRIES,
+            )),
         }
     }
 

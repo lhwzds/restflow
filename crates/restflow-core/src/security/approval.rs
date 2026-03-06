@@ -4,6 +4,7 @@
 //! callbacks for notifying users about pending approvals.
 
 use async_trait::async_trait;
+use restflow_traits::DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -46,7 +47,7 @@ pub struct ApprovalManager {
 }
 
 impl ApprovalManager {
-    pub const DEFAULT_TIMEOUT_SECS: u64 = 300;
+    pub const DEFAULT_TIMEOUT_SECS: u64 = DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS;
 
     /// Create a new approval manager with default timeout.
     pub fn new() -> Self {

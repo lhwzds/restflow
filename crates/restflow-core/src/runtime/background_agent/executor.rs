@@ -641,7 +641,7 @@ impl AgentRuntimeExecutor {
             .collect();
 
         // Get manually configured fallback models from config
-        let config = self.storage.config.get_config().ok().flatten();
+        let config = self.storage.config.get_effective_config().ok();
         let fallback_models: Option<Vec<AIModel>> = config
             .as_ref()
             .and_then(|c| c.agent.fallback_models.clone())
@@ -1161,9 +1161,8 @@ impl AgentRuntimeExecutor {
         let agent_defaults = self
             .storage
             .config
-            .get_config()
+            .get_effective_config()
             .ok()
-            .flatten()
             .map(|c| c.agent)
             .unwrap_or_default();
         let bash_config = BashConfig {
@@ -1192,7 +1191,10 @@ impl AgentRuntimeExecutor {
                     .unwrap_or(entry.capabilities.context_window)
             })
             .unwrap_or_else(|| Self::context_window_for_model(model));
-        let max_tool_result_length = Self::effective_max_tool_result_length(4_000, context_window);
+        let max_tool_result_length = Self::effective_max_tool_result_length(
+            agent_defaults.max_tool_result_length,
+            context_window,
+        );
         let execution_context =
             ExecutionContext::main(agent_id.unwrap_or(&session.agent_id), &session.id);
 
@@ -1205,7 +1207,10 @@ impl AgentRuntimeExecutor {
                 agent_defaults.max_tool_calls,
                 agent_defaults.max_wall_clock_secs,
             ))
-            .with_max_tool_result_length(max_tool_result_length);
+            .with_max_tool_result_length(max_tool_result_length)
+            .with_max_tool_concurrency(agent_defaults.max_tool_concurrency)
+            .with_prune_tool_max_chars(agent_defaults.prune_tool_max_chars)
+            .with_compact_preserve_tokens(agent_defaults.compact_preserve_tokens);
         if let Some(entry) = model_entry
             && !model.is_cli_model()
         {
@@ -1667,9 +1672,8 @@ impl AgentRuntimeExecutor {
         let agent_defaults = self
             .storage
             .config
-            .get_config()
+            .get_effective_config()
             .ok()
-            .flatten()
             .map(|c| c.agent)
             .unwrap_or_default();
 
@@ -1751,6 +1755,9 @@ impl AgentRuntimeExecutor {
             .with_context_window(context_window)
             .with_resource_limits(Self::to_agent_resource_limits(resource_limits))
             .with_max_tool_result_length(max_tool_result_length)
+            .with_max_tool_concurrency(agent_defaults.max_tool_concurrency)
+            .with_prune_tool_max_chars(agent_defaults.prune_tool_max_chars)
+            .with_compact_preserve_tokens(agent_defaults.compact_preserve_tokens)
             .with_yolo_mode(background_task_id.is_some());
         if let Some(entry) = model_entry
             && !model.is_cli_model()

@@ -9,17 +9,26 @@ use std::time::Duration;
 use crate::Result;
 
 use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS;
 use restflow_traits::store::DiagnosticsProvider;
 
 /// Tool for querying diagnostics from the provider.
 #[derive(Clone)]
 pub struct DiagnosticsTool {
     provider: Arc<dyn DiagnosticsProvider>,
+    default_timeout_ms: u64,
 }
 
 impl DiagnosticsTool {
     pub fn new(provider: Arc<dyn DiagnosticsProvider>) -> Self {
-        Self { provider }
+        Self::with_timeout(provider, DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS)
+    }
+
+    pub fn with_timeout(provider: Arc<dyn DiagnosticsProvider>, default_timeout_ms: u64) -> Self {
+        Self {
+            provider,
+            default_timeout_ms,
+        }
     }
 }
 
@@ -44,8 +53,8 @@ impl Tool for DiagnosticsTool {
                 "timeout_ms": {
                     "type": "integer",
                     "description": "Max time to wait for diagnostics",
-                    "default": 5000,
-                    "minimum": 0
+                    "default": self.default_timeout_ms,
+                    "minimum": 1
                 }
             },
             "required": ["path"]
@@ -60,7 +69,10 @@ impl Tool for DiagnosticsTool {
         let timeout_ms = args
             .get("timeout_ms")
             .and_then(|v| v.as_u64())
-            .unwrap_or(5000);
+            .unwrap_or(self.default_timeout_ms);
+        if timeout_ms == 0 {
+            return Err(ToolError::Tool("timeout_ms must be at least 1".to_string()));
+        }
 
         let path = Path::new(path);
 
@@ -160,5 +172,33 @@ mod tests {
         assert!(message.contains("Diagnostics timed out or failed"));
         assert!(message.contains("provider wait error"));
         assert!(message.contains("language server is overloaded"));
+    }
+
+    #[test]
+    fn parameters_schema_uses_configured_timeout_default() {
+        let provider = Arc::new(MockDiagnosticsProvider {
+            fail_open: AtomicBool::new(false),
+            fail_wait: AtomicBool::new(false),
+        });
+        let tool = DiagnosticsTool::with_timeout(provider, 9_000);
+        let schema = tool.parameters_schema();
+
+        assert_eq!(schema["properties"]["timeout_ms"]["default"], json!(9_000));
+    }
+
+    #[tokio::test]
+    async fn execute_rejects_zero_timeout() {
+        let provider = Arc::new(MockDiagnosticsProvider {
+            fail_open: AtomicBool::new(false),
+            fail_wait: AtomicBool::new(false),
+        });
+        let tool = DiagnosticsTool::new(provider);
+
+        let error = tool
+            .execute(json!({ "path": "src/lib.rs", "timeout_ms": 0 }))
+            .await
+            .expect_err("zero timeout should be rejected");
+
+        assert!(error.to_string().contains("timeout_ms must be at least 1"));
     }
 }

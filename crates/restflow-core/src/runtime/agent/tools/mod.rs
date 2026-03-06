@@ -19,7 +19,7 @@ use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
-use restflow_storage::AgentDefaults;
+use restflow_storage::{AgentDefaults, ApiDefaults};
 use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::DiagnosticsProvider;
@@ -165,6 +165,7 @@ pub fn registry_from_allowlist_with_security_gate(
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let mut allowlisted_skill_ids: Vec<String> = Vec::new();
     let mut recorded_skill_ids: HashSet<String> = HashSet::new();
+    let effective_config = storage.and_then(|value| value.config.get_effective_config().ok());
 
     // Pre-create shared diagnostics provider when any of diagnostics/edit/multiedit
     // are in the allowlist, so they all share the same LspManager instance.
@@ -243,8 +244,8 @@ pub fn registry_from_allowlist_with_security_gate(
                 );
             }
             "browser" => {
-                let timeout_secs = storage
-                    .and_then(|value| value.config.get_effective_config().ok())
+                let timeout_secs = effective_config
+                    .as_ref()
                     .map(|config| config.agent.browser_timeout_secs)
                     .unwrap_or_else(|| AgentDefaults::default().browser_timeout_secs);
                 builder = builder.with_browser_timeout(timeout_secs)?;
@@ -267,10 +268,17 @@ pub fn registry_from_allowlist_with_security_gate(
                 }
             }
             "web_search" => {
+                let default_num_results = effective_config
+                    .as_ref()
+                    .map(|config| config.api_defaults.web_search_num_results)
+                    .unwrap_or_else(|| ApiDefaults::default().web_search_num_results);
                 if let Some(resolver) = secret_resolver.clone() {
-                    builder = builder.with_web_search_with_resolver(resolver)?;
+                    builder = builder.with_web_search_with_resolver_and_defaults(
+                        resolver,
+                        default_num_results,
+                    )?;
                 } else {
-                    builder = builder.with_web_search()?;
+                    builder = builder.with_web_search_with_defaults(default_num_results)?;
                 }
             }
             "web_fetch" => {
@@ -281,7 +289,11 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "diagnostics" => {
                 if let Some(diag) = &shared_diagnostics {
-                    builder = builder.with_diagnostics(diag.clone());
+                    let timeout_ms = effective_config
+                        .as_ref()
+                        .map(|config| config.api_defaults.diagnostics_timeout_ms)
+                        .unwrap_or_else(|| ApiDefaults::default().diagnostics_timeout_ms);
+                    builder = builder.with_diagnostics_with_timeout(diag.clone(), timeout_ms);
                 }
             }
             "security_query" => {
@@ -794,6 +806,44 @@ mod tests {
         assert_eq!(
             merged.iter().filter(|name| name.as_str() == "bash").count(),
             1
+        );
+    }
+
+    #[test]
+    fn test_registry_from_allowlist_uses_configured_api_defaults() {
+        let dir = tempdir().expect("temp dir should be created");
+        let db_path = dir.path().join("registry-api-defaults.db");
+        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
+            .expect("storage should be created");
+        let mut config = storage
+            .config
+            .get_config()
+            .expect("config should load")
+            .expect("config should exist");
+        config.api_defaults.web_search_num_results = 7;
+        config.api_defaults.diagnostics_timeout_ms = 9_000;
+        storage
+            .config
+            .update_config(config)
+            .expect("config should update");
+
+        let names = vec!["web_search".to_string(), "diagnostics".to_string()];
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None).unwrap();
+
+        let web_search_schema = registry
+            .get("web_search")
+            .expect("web_search tool should exist")
+            .parameters_schema();
+        assert_eq!(web_search_schema["properties"]["num_results"]["default"], 7);
+
+        let diagnostics_schema = registry
+            .get("diagnostics")
+            .expect("diagnostics tool should exist")
+            .parameters_schema();
+        assert_eq!(
+            diagnostics_schema["properties"]["timeout_ms"]["default"],
+            9_000
         );
     }
 }

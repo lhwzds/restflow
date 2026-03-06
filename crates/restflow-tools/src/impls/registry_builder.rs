@@ -339,6 +339,17 @@ impl ToolRegistryBuilder {
         Ok(self)
     }
 
+    pub fn with_web_search_with_defaults(
+        mut self,
+        default_num_results: usize,
+    ) -> Result<Self, reqwest::Error> {
+        self.registry
+            .register(WebSearchTool::with_default_num_results(
+                default_num_results,
+            )?);
+        Ok(self)
+    }
+
     pub fn with_web_search_with_resolver(
         mut self,
         resolver: SecretResolver,
@@ -348,10 +359,32 @@ impl ToolRegistryBuilder {
         Ok(self)
     }
 
+    pub fn with_web_search_with_resolver_and_defaults(
+        mut self,
+        resolver: SecretResolver,
+        default_num_results: usize,
+    ) -> Result<Self, reqwest::Error> {
+        self.registry.register(
+            WebSearchTool::with_default_num_results(default_num_results)?
+                .with_secret_resolver(resolver),
+        );
+        Ok(self)
+    }
+
     // --- Storage-backed tools ---
 
     pub fn with_diagnostics(mut self, provider: Arc<dyn DiagnosticsProvider>) -> Self {
         self.registry.register(DiagnosticsTool::new(provider));
+        self
+    }
+
+    pub fn with_diagnostics_with_timeout(
+        mut self,
+        provider: Arc<dyn DiagnosticsProvider>,
+        default_timeout_ms: u64,
+    ) -> Self {
+        self.registry
+            .register(DiagnosticsTool::with_timeout(provider, default_timeout_ms));
         self
     }
 
