@@ -5,7 +5,7 @@ use std::process::Stdio;
 use tokio::process::Command;
 use tracing::{debug, info};
 
-use super::cli_utils;
+use super::utils;
 
 use crate::error::Result;
 use crate::llm::client::{
@@ -34,10 +34,10 @@ impl ClaudeCodeClient {
     }
 
     fn build_cli_command(&self, prompt: &str) -> Result<Command> {
-        let executable = cli_utils::resolve_executable(
+        let executable = utils::resolve_executable(
             "claude",
             "RESTFLOW_CLAUDE_BIN",
-            &cli_utils::standard_fallbacks("claude"),
+            &utils::standard_fallbacks("claude"),
         )?;
         let mut cmd = Command::new(executable);
         cmd.env("CLAUDE_CODE_OAUTH_TOKEN", &self.oauth_token)
@@ -69,10 +69,10 @@ impl LlmClient for ClaudeCodeClient {
     async fn complete(&self, request: CompletionRequest) -> Result<CompletionResponse> {
         info!("ClaudeCodeClient: executing via CLI");
 
-        let prompt = cli_utils::build_prompt(&request.messages);
+        let prompt = utils::build_prompt(&request.messages);
 
         let cmd = self.build_cli_command(&prompt)?;
-        let raw_output = cli_utils::execute_cli_command(
+        let raw_output = utils::execute_cli_command(
             cmd,
             "Claude",
             "Install with: npm install -g @anthropic-ai/claude-code",
@@ -90,7 +90,7 @@ impl LlmClient for ClaudeCodeClient {
     }
 
     fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
-        cli_utils::unsupported_stream("Claude Code CLI")
+        utils::unsupported_stream("Claude Code CLI")
     }
 
     fn supports_streaming(&self) -> bool {
