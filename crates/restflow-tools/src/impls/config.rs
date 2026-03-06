@@ -342,9 +342,99 @@ impl ConfigTool {
                     }
                 }
             }
+            key if key.starts_with("runtime_defaults.") => {
+                let field = &key["runtime_defaults.".len()..];
+                match field {
+                    "background_runner_poll_interval_ms" => {
+                        config.runtime_defaults.background_runner_poll_interval_ms =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "runtime_defaults.background_runner_poll_interval_ms must be a number".to_string(),
+                                )
+                            })?;
+                    }
+                    "background_runner_max_concurrent_tasks" => {
+                        config.runtime_defaults.background_runner_max_concurrent_tasks =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "runtime_defaults.background_runner_max_concurrent_tasks must be a number".to_string(),
+                                )
+                            })? as usize;
+                    }
+                    "chat_max_session_history" => {
+                        config.runtime_defaults.chat_max_session_history =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "runtime_defaults.chat_max_session_history must be a number"
+                                        .to_string(),
+                                )
+                            })? as usize;
+                    }
+                    unknown => {
+                        return Err(crate::ToolError::Tool(format!(
+                            "Unknown runtime_defaults config field: 'runtime_defaults.{unknown}'. Valid runtime_defaults fields: runtime_defaults.background_runner_poll_interval_ms, runtime_defaults.background_runner_max_concurrent_tasks, runtime_defaults.chat_max_session_history."
+                        )));
+                    }
+                }
+            }
+            key if key.starts_with("channel_defaults.") => {
+                let field = &key["channel_defaults.".len()..];
+                match field {
+                    "telegram_api_timeout_secs" => {
+                        config.channel_defaults.telegram_api_timeout_secs =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "channel_defaults.telegram_api_timeout_secs must be a number"
+                                        .to_string(),
+                                )
+                            })?;
+                    }
+                    "telegram_polling_timeout_secs" => {
+                        config.channel_defaults.telegram_polling_timeout_secs =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "channel_defaults.telegram_polling_timeout_secs must be a number".to_string(),
+                                )
+                            })? as u32;
+                    }
+                    unknown => {
+                        return Err(crate::ToolError::Tool(format!(
+                            "Unknown channel_defaults config field: 'channel_defaults.{unknown}'. Valid channel_defaults fields: channel_defaults.telegram_api_timeout_secs, channel_defaults.telegram_polling_timeout_secs."
+                        )));
+                    }
+                }
+            }
+            key if key.starts_with("registry_defaults.") => {
+                let field = &key["registry_defaults.".len()..];
+                match field {
+                    "github_cache_ttl_secs" => {
+                        config.registry_defaults.github_cache_ttl_secs =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "registry_defaults.github_cache_ttl_secs must be a number"
+                                        .to_string(),
+                                )
+                            })?;
+                    }
+                    "marketplace_cache_ttl_secs" => {
+                        config.registry_defaults.marketplace_cache_ttl_secs =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "registry_defaults.marketplace_cache_ttl_secs must be a number"
+                                        .to_string(),
+                                )
+                            })?;
+                    }
+                    unknown => {
+                        return Err(crate::ToolError::Tool(format!(
+                            "Unknown registry_defaults config field: 'registry_defaults.{unknown}'. Valid registry_defaults fields: registry_defaults.github_cache_ttl_secs, registry_defaults.marketplace_cache_ttl_secs."
+                        )));
+                    }
+                }
+            }
             _ => {
                 return Err(crate::ToolError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*, api_defaults.*."
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*, api_defaults.*, runtime_defaults.*, channel_defaults.*, registry_defaults.*."
                 )));
             }
         }
@@ -482,7 +572,14 @@ impl Tool for ConfigTool {
                     "api_defaults.background_trace_list_limit",
                     "api_defaults.background_trace_line_limit",
                     "api_defaults.web_search_num_results",
-                    "api_defaults.diagnostics_timeout_ms"
+                    "api_defaults.diagnostics_timeout_ms",
+                    "runtime_defaults.background_runner_poll_interval_ms",
+                    "runtime_defaults.background_runner_max_concurrent_tasks",
+                    "runtime_defaults.chat_max_session_history",
+                    "channel_defaults.telegram_api_timeout_secs",
+                    "channel_defaults.telegram_polling_timeout_secs",
+                    "registry_defaults.github_cache_ttl_secs",
+                    "registry_defaults.marketplace_cache_ttl_secs"
                 ]
             })),
             ConfigAction::Reset => {
@@ -575,7 +672,7 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*, api_defaults.*"
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*, api_defaults.*, runtime_defaults.*, channel_defaults.*, registry_defaults.*"
         ));
     }
 
@@ -834,6 +931,94 @@ mod tests {
         assert!(agent.get("prune_tool_max_chars").is_some());
         assert!(agent.get("compact_preserve_tokens").is_some());
         assert!(agent.get("fallback_models").is_some());
+    }
+
+    #[tokio::test]
+    async fn test_set_runtime_channel_and_registry_defaults() {
+        let storage = setup_storage();
+        let tool = ConfigTool::new(storage).with_write(true);
+
+        let updates = [
+            (
+                "runtime_defaults.background_runner_poll_interval_ms",
+                json!(15000),
+            ),
+            (
+                "runtime_defaults.background_runner_max_concurrent_tasks",
+                json!(8),
+            ),
+            ("runtime_defaults.chat_max_session_history", json!(40)),
+            ("channel_defaults.telegram_api_timeout_secs", json!(45)),
+            ("channel_defaults.telegram_polling_timeout_secs", json!(55)),
+            ("registry_defaults.github_cache_ttl_secs", json!(900)),
+            ("registry_defaults.marketplace_cache_ttl_secs", json!(450)),
+        ];
+
+        for (key, value) in updates {
+            let output = tool
+                .execute(json!({
+                    "operation": "set",
+                    "key": key,
+                    "value": value
+                }))
+                .await
+                .unwrap_or_else(|err| panic!("set should support config field '{key}': {err}"));
+            assert!(
+                output.success,
+                "set should succeed for config field '{key}'"
+            );
+        }
+
+        let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
+        assert_eq!(
+            output
+                .result
+                .pointer("/runtime_defaults/background_runner_poll_interval_ms")
+                .and_then(|value| value.as_u64()),
+            Some(15000)
+        );
+        assert_eq!(
+            output
+                .result
+                .pointer("/runtime_defaults/background_runner_max_concurrent_tasks")
+                .and_then(|value| value.as_u64()),
+            Some(8)
+        );
+        assert_eq!(
+            output
+                .result
+                .pointer("/runtime_defaults/chat_max_session_history")
+                .and_then(|value| value.as_u64()),
+            Some(40)
+        );
+        assert_eq!(
+            output
+                .result
+                .pointer("/channel_defaults/telegram_api_timeout_secs")
+                .and_then(|value| value.as_u64()),
+            Some(45)
+        );
+        assert_eq!(
+            output
+                .result
+                .pointer("/channel_defaults/telegram_polling_timeout_secs")
+                .and_then(|value| value.as_u64()),
+            Some(55)
+        );
+        assert_eq!(
+            output
+                .result
+                .pointer("/registry_defaults/github_cache_ttl_secs")
+                .and_then(|value| value.as_u64()),
+            Some(900)
+        );
+        assert_eq!(
+            output
+                .result
+                .pointer("/registry_defaults/marketplace_cache_ttl_secs")
+                .and_then(|value| value.as_u64()),
+            Some(450)
+        );
     }
 
     #[tokio::test]

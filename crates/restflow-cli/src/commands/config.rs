@@ -198,6 +198,38 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.api_defaults.diagnostics_timeout_ms),
     ]);
     table.add_row(vec![
+        Cell::new("runtime_defaults.background_runner_poll_interval_ms"),
+        Cell::new(config.runtime_defaults.background_runner_poll_interval_ms),
+    ]);
+    table.add_row(vec![
+        Cell::new("runtime_defaults.background_runner_max_concurrent_tasks"),
+        Cell::new(
+            config
+                .runtime_defaults
+                .background_runner_max_concurrent_tasks,
+        ),
+    ]);
+    table.add_row(vec![
+        Cell::new("runtime_defaults.chat_max_session_history"),
+        Cell::new(config.runtime_defaults.chat_max_session_history),
+    ]);
+    table.add_row(vec![
+        Cell::new("channel_defaults.telegram_api_timeout_secs"),
+        Cell::new(config.channel_defaults.telegram_api_timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("channel_defaults.telegram_polling_timeout_secs"),
+        Cell::new(config.channel_defaults.telegram_polling_timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("registry_defaults.github_cache_ttl_secs"),
+        Cell::new(config.registry_defaults.github_cache_ttl_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("registry_defaults.marketplace_cache_ttl_secs"),
+        Cell::new(config.registry_defaults.marketplace_cache_ttl_secs),
+    ]);
+    table.add_row(vec![
         Cell::new("sources.global"),
         Cell::new(format_source_info(&sources.global)),
     ]);
@@ -264,6 +296,34 @@ async fn get_config_value(
         "api_defaults.web_search_num_results" => json!(config.api_defaults.web_search_num_results),
         "api_defaults.diagnostics_timeout_ms" => {
             json!(config.api_defaults.diagnostics_timeout_ms)
+        }
+        "runtime_defaults" => json!(config.runtime_defaults),
+        "runtime_defaults.background_runner_poll_interval_ms" => {
+            json!(config.runtime_defaults.background_runner_poll_interval_ms)
+        }
+        "runtime_defaults.background_runner_max_concurrent_tasks" => {
+            json!(
+                config
+                    .runtime_defaults
+                    .background_runner_max_concurrent_tasks
+            )
+        }
+        "runtime_defaults.chat_max_session_history" => {
+            json!(config.runtime_defaults.chat_max_session_history)
+        }
+        "channel_defaults" => json!(config.channel_defaults),
+        "channel_defaults.telegram_api_timeout_secs" => {
+            json!(config.channel_defaults.telegram_api_timeout_secs)
+        }
+        "channel_defaults.telegram_polling_timeout_secs" => {
+            json!(config.channel_defaults.telegram_polling_timeout_secs)
+        }
+        "registry_defaults" => json!(config.registry_defaults),
+        "registry_defaults.github_cache_ttl_secs" => {
+            json!(config.registry_defaults.github_cache_ttl_secs)
+        }
+        "registry_defaults.marketplace_cache_ttl_secs" => {
+            json!(config.registry_defaults.marketplace_cache_ttl_secs)
         }
         "effective_sources" => json!(effective_config_sources()),
         _ => bail!("Unsupported config key: {key}"),
@@ -398,6 +458,29 @@ async fn set_config_value(
         }
         "api_defaults.diagnostics_timeout_ms" => {
             config.api_defaults.diagnostics_timeout_ms = parse_value(value)?;
+        }
+        "runtime_defaults.background_runner_poll_interval_ms" => {
+            config.runtime_defaults.background_runner_poll_interval_ms = parse_value(value)?;
+        }
+        "runtime_defaults.background_runner_max_concurrent_tasks" => {
+            config
+                .runtime_defaults
+                .background_runner_max_concurrent_tasks = parse_value(value)?;
+        }
+        "runtime_defaults.chat_max_session_history" => {
+            config.runtime_defaults.chat_max_session_history = parse_value(value)?;
+        }
+        "channel_defaults.telegram_api_timeout_secs" => {
+            config.channel_defaults.telegram_api_timeout_secs = parse_value(value)?;
+        }
+        "channel_defaults.telegram_polling_timeout_secs" => {
+            config.channel_defaults.telegram_polling_timeout_secs = parse_value(value)?;
+        }
+        "registry_defaults.github_cache_ttl_secs" => {
+            config.registry_defaults.github_cache_ttl_secs = parse_value(value)?;
+        }
+        "registry_defaults.marketplace_cache_ttl_secs" => {
+            config.registry_defaults.marketplace_cache_ttl_secs = parse_value(value)?;
         }
         _ => bail!("Unsupported config key: {key}"),
     }
