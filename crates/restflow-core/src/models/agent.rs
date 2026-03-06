@@ -2,7 +2,7 @@
 //!
 //! These models define the configuration structure for AI agents.
 
-use crate::models::AIModel;
+use crate::models::{AIModel, ModelRef};
 use crate::{AppCore, models::ValidationError};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -110,6 +110,10 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<AIModel>,
+    /// Explicit provider + model reference (preferred over legacy `model` field).
+    #[ts(optional)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_ref: Option<ModelRef>,
     /// System prompt for the agent
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -162,6 +166,16 @@ impl AgentNode {
     pub fn with_model(model: AIModel) -> Self {
         Self {
             model: Some(model),
+            model_ref: Some(ModelRef::from_model(model)),
+            ..Default::default()
+        }
+    }
+
+    /// Create a new agent with an explicit provider + model reference.
+    pub fn with_model_ref(model_ref: ModelRef) -> Self {
+        Self {
+            model: Some(model_ref.model),
+            model_ref: Some(model_ref),
             ..Default::default()
         }
     }
@@ -235,15 +249,47 @@ impl AgentNode {
         self
     }
 
+    /// Resolve effective provider + model, preferring `model_ref`.
+    pub fn resolved_model_ref(&self) -> Option<ModelRef> {
+        self.model_ref
+            .or_else(|| self.model.map(ModelRef::from_model))
+    }
+
+    /// Normalize legacy/new model fields into a consistent representation.
+    pub fn normalize_model_fields(&mut self) -> Result<(), ValidationError> {
+        if let Some(model_ref) = self.model_ref {
+            model_ref.validate()?;
+            if let Some(model) = self.model
+                && model != model_ref.model
+            {
+                return Err(ValidationError::new(
+                    "model_ref",
+                    "model_ref.model must match legacy model field when both are set",
+                ));
+            }
+            self.model = Some(model_ref.model);
+            return Ok(());
+        }
+
+        if let Some(model) = self.model {
+            self.model_ref = Some(ModelRef::from_model(model));
+        }
+
+        Ok(())
+    }
+
     /// Get the model, returning an error if not specified
     pub fn require_model(&self) -> Result<AIModel, &'static str> {
-        self.model
+        self.resolved_model_ref()
+            .map(|model_ref| model_ref.model)
             .ok_or("Model not specified. Please set a model for this agent.")
     }
 
     /// Get the model or use a fallback default
     pub fn get_model_or(&self, default: AIModel) -> AIModel {
-        self.model.unwrap_or(default)
+        self.resolved_model_ref()
+            .map(|model_ref| model_ref.model)
+            .unwrap_or(default)
     }
 
     /// Validate fields that do not depend on storage or runtime state.
@@ -258,10 +304,25 @@ impl AgentNode {
     ///   would be silently ignored at runtime.
     pub fn validate(&self) -> Result<(), Vec<ValidationError>> {
         let mut errors = Vec::new();
+        let resolved_model_ref = self.resolved_model_ref();
+        if let (Some(model), Some(model_ref)) = (self.model, self.model_ref)
+            && model != model_ref.model
+        {
+            errors.push(ValidationError::new(
+                "model_ref",
+                "model_ref.model must match legacy model field when both are set",
+            ));
+        }
+        if let Some(model_ref) = resolved_model_ref
+            && let Err(error) = model_ref.validate()
+        {
+            errors.push(error);
+        }
+        let selected_model = resolved_model_ref.map(|model_ref| model_ref.model);
 
         // Temperature: reject if model explicitly doesn't support it (GPT-5, Codex CLI, etc.)
         if let Some(temperature) = self.temperature {
-            if let Some(model) = &self.model
+            if let Some(model) = selected_model
                 && !model.supports_temperature()
             {
                 errors.push(ValidationError::new(
@@ -283,7 +344,7 @@ impl AgentNode {
 
         // codex_cli_reasoning_effort: only applies to Codex CLI models
         if let Some(effort) = &self.codex_cli_reasoning_effort {
-            if let Some(model) = &self.model
+            if let Some(model) = selected_model
                 && !model.is_codex_cli()
             {
                 errors.push(ValidationError::new(
@@ -305,7 +366,7 @@ impl AgentNode {
 
         // codex_cli_execution_mode: only applies to Codex CLI models
         if self.codex_cli_execution_mode.is_some()
-            && let Some(model) = &self.model
+            && let Some(model) = selected_model
             && !model.is_codex_cli()
         {
             errors.push(ValidationError::new(
@@ -481,6 +542,7 @@ impl AgentNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::Provider;
 
     #[test]
     fn with_codex_cli_reasoning_effort_sets_trimmed_value() {
@@ -690,5 +752,33 @@ mod tests {
                 .iter()
                 .any(|error| error.field == "model_routing.routine_model")
         );
+    }
+
+    #[test]
+    fn normalize_model_fields_backfills_model_ref_from_legacy_model() {
+        let mut node = AgentNode {
+            model: Some(AIModel::Gpt5),
+            model_ref: None,
+            ..AgentNode::new()
+        };
+        node.normalize_model_fields()
+            .expect("normalization should pass");
+        let model_ref = node.model_ref.expect("model_ref should be backfilled");
+        assert_eq!(model_ref.provider, Provider::OpenAI);
+        assert_eq!(model_ref.model, AIModel::Gpt5);
+    }
+
+    #[test]
+    fn validate_rejects_mismatched_model_and_model_ref() {
+        let node = AgentNode {
+            model: Some(AIModel::Gpt5),
+            model_ref: Some(ModelRef {
+                provider: Provider::Anthropic,
+                model: AIModel::ClaudeSonnet4_5,
+            }),
+            ..AgentNode::new()
+        };
+        let errors = node.validate().expect_err("expected validation error");
+        assert!(errors.iter().any(|error| error.field == "model_ref"));
     }
 }

@@ -33,8 +33,9 @@ pub async fn get_agent(core: &Arc<AppCore>, id: &str) -> Result<StoredAgent> {
 pub async fn create_agent(
     core: &Arc<AppCore>,
     name: String,
-    agent: AgentNode,
+    mut agent: AgentNode,
 ) -> Result<StoredAgent> {
+    normalize_model_fields(&mut agent)?;
     validate_agent_node(core, &agent).await?;
     core.storage
         .agents
@@ -46,9 +47,10 @@ pub async fn update_agent(
     core: &Arc<AppCore>,
     id: &str,
     name: Option<String>,
-    agent: Option<AgentNode>,
+    mut agent: Option<AgentNode>,
 ) -> Result<StoredAgent> {
-    if let Some(agent_node) = agent.as_ref() {
+    if let Some(agent_node) = agent.as_mut() {
+        normalize_model_fields(agent_node)?;
         validate_agent_node(core, agent_node).await?;
     }
     core.storage
@@ -232,6 +234,13 @@ pub async fn delete_agent(core: &Arc<AppCore>, id: &str) -> Result<()> {
         .with_context(|| format!("Failed to delete agent {}", id))
 }
 
+fn normalize_model_fields(agent: &mut AgentNode) -> Result<()> {
+    if let Err(error) = agent.normalize_model_fields() {
+        anyhow::bail!(encode_validation_error(vec![error]));
+    }
+    Ok(())
+}
+
 fn archive_agent_workspace_sessions(
     chat_storage: &ChatSessionStorage,
     agent_id: &str,
@@ -313,6 +322,9 @@ mod tests {
     fn create_test_agent_node(prompt: &str) -> AgentNode {
         AgentNode {
             model: Some(AIModel::ClaudeSonnet4_5),
+            model_ref: Some(crate::models::ModelRef::from_model(
+                AIModel::ClaudeSonnet4_5,
+            )),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
             codex_cli_reasoning_effort: None,
