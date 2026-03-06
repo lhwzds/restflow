@@ -93,30 +93,101 @@ public final class RestFlowCLIClient {
         return stdoutData
     }
 
-    private static func resolveExecutable(preferred: String) -> String {
+    static func resolveExecutable(
+        preferred: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        searchRoots: [String]? = nil,
+        isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) }
+    ) -> String {
         if preferred != "restflow" {
             return preferred
         }
 
-        let env = ProcessInfo.processInfo.environment
-        if let explicitPath = env["RESTFLOW_CLI_PATH"],
-           FileManager.default.isExecutableFile(atPath: explicitPath)
+        if let explicitPath = environment["RESTFLOW_CLI_PATH"],
+           isExecutable(explicitPath)
         {
             return explicitPath
         }
 
-        let home = NSHomeDirectory()
-        let candidates = [
+        let roots = searchRoots ?? defaultSearchRoots()
+        for candidate in developmentExecutableCandidates(searchRoots: roots) where isExecutable(candidate) {
+            return candidate
+        }
+
+        let home = environment["HOME"] ?? NSHomeDirectory()
+        let installedCandidates = [
             "\(home)/.local/bin/restflow",
             "/opt/homebrew/bin/restflow",
             "/usr/local/bin/restflow",
         ]
 
-        for candidate in candidates where FileManager.default.isExecutableFile(atPath: candidate) {
+        for candidate in installedCandidates where isExecutable(candidate) {
             return candidate
         }
 
         return "restflow"
+    }
+
+    private static func defaultSearchRoots() -> [String] {
+        var roots: [String] = [FileManager.default.currentDirectoryPath]
+
+        if let executablePath = Bundle.main.executablePath {
+            roots.append((executablePath as NSString).deletingLastPathComponent)
+        }
+
+        if let processPath = CommandLine.arguments.first {
+            roots.append((processPath as NSString).deletingLastPathComponent)
+        }
+
+        return roots
+    }
+
+    private static func developmentExecutableCandidates(searchRoots: [String]) -> [String] {
+        let suffixes = [
+            "target/debug/restflow",
+            "target/release/restflow",
+        ]
+
+        var candidates: [String] = []
+        var seen = Set<String>()
+
+        for root in searchRoots {
+            for ancestor in ancestorPaths(for: root, maxDepth: 8) {
+                for suffix in suffixes {
+                    let candidate = (ancestor as NSString).appendingPathComponent(suffix)
+                    if seen.insert(candidate).inserted {
+                        candidates.append(candidate)
+                    }
+                }
+            }
+        }
+
+        return candidates
+    }
+
+    private static func ancestorPaths(for path: String, maxDepth: Int) -> [String] {
+        guard !path.isEmpty else {
+            return []
+        }
+
+        var current = URL(fileURLWithPath: path).standardizedFileURL
+        var paths: [String] = []
+        var seen = Set<String>()
+
+        for _ in 0..<maxDepth {
+            let currentPath = current.path
+            if seen.insert(currentPath).inserted {
+                paths.append(currentPath)
+            }
+
+            let parent = current.deletingLastPathComponent()
+            if parent.path == currentPath {
+                break
+            }
+            current = parent
+        }
+
+        return paths
     }
 }
 
