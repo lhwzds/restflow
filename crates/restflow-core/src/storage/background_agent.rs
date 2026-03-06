@@ -16,7 +16,9 @@ use std::sync::Arc;
 use tracing::warn;
 use uuid::Uuid;
 
-use super::{AgentStorage, ChatSessionStorage, CheckpointStorage, ToolTraceStorage};
+use super::{
+    AgentStorage, ChatSessionStorage, CheckpointStorage, ExecutionTraceStorage, ToolTraceStorage,
+};
 
 /// Typed agent task storage wrapper around restflow-storage::BackgroundAgentStorage.
 #[derive(Clone)]
@@ -26,6 +28,7 @@ pub struct BackgroundAgentStorage {
     agents: AgentStorage,
     chat_sessions: ChatSessionStorage,
     tool_traces: ToolTraceStorage,
+    execution_traces: ExecutionTraceStorage,
 }
 
 #[derive(Debug, Clone)]
@@ -226,12 +229,14 @@ impl BackgroundAgentStorage {
     pub fn new(db: Arc<Database>) -> Result<Self> {
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let tool_traces = ToolTraceStorage::new(db.clone())?;
+        let execution_traces = ExecutionTraceStorage::new(db.clone())?;
         Ok(Self {
             inner: restflow_storage::BackgroundAgentStorage::new(db.clone())?,
             checkpoints,
             agents: AgentStorage::new(db.clone())?,
             chat_sessions: ChatSessionStorage::new(db)?,
             tool_traces,
+            execution_traces,
         })
     }
 
@@ -243,6 +248,11 @@ impl BackgroundAgentStorage {
     /// Access the tool trace storage.
     pub fn tool_traces(&self) -> &ToolTraceStorage {
         &self.tool_traces
+    }
+
+    /// Access the execution trace storage.
+    pub fn execution_traces(&self) -> &ExecutionTraceStorage {
+        &self.execution_traces
     }
 
     // ============== Agent Task Operations ==============

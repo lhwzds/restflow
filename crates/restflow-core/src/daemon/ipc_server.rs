@@ -1818,6 +1818,25 @@ impl IpcServer {
                     Err(err) => IpcResponse::error(500, err.to_string()),
                 }
             }
+            IpcRequest::QueryExecutionTraces { query } => {
+                match core.storage.execution_traces.query(&query) {
+                    Ok(events) => IpcResponse::success(events),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::GetExecutionTraceStats { task_id } => {
+                match core.storage.execution_traces.stats(task_id.as_deref()) {
+                    Ok(stats) => IpcResponse::success(stats),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
+            IpcRequest::GetExecutionTraceById { id } => {
+                match core.storage.execution_traces.get_by_id(&id) {
+                    Ok(Some(event)) => IpcResponse::success(event),
+                    Ok(None) => IpcResponse::not_found("Execution trace"),
+                    Err(err) => IpcResponse::error(500, err.to_string()),
+                }
+            }
             IpcRequest::ListTerminalSessions => match core.storage.terminal_sessions.list() {
                 Ok(sessions) => IpcResponse::success(sessions),
                 Err(err) => IpcResponse::error(500, err.to_string()),

@@ -2,12 +2,13 @@
 
 use crate::agent::PromptFlags;
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
+use crate::agent::stream::StreamEmitter;
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory, LlmProvider};
 use crate::tools::{FilteredToolset, ToolRegistry, Toolset};
 use dashmap::DashMap;
 use serde_json::json;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::{Duration, timeout};
@@ -31,6 +32,21 @@ fn map_subagent_error(success: bool, error: Option<String>) -> Option<String> {
     }
 }
 
+/// Context describing a spawned sub-agent execution.
+#[derive(Debug, Clone)]
+pub struct SubagentTraceContext {
+    pub task_id: String,
+    pub agent_name: String,
+    pub parent_execution_id: Option<String>,
+}
+
+/// Optional sink for sub-agent trace lifecycle and tool-call events.
+pub trait SubagentTraceSink: Send + Sync {
+    fn on_subagent_started(&self, context: &SubagentTraceContext);
+    fn build_subagent_emitter(&self, context: &SubagentTraceContext) -> Box<dyn StreamEmitter>;
+    fn on_subagent_finished(&self, context: &SubagentTraceContext, result: &SubagentResult);
+}
+
 /// Sub-agent tracker with concurrent access support
 pub struct SubagentTracker {
     /// All sub-agent states
@@ -50,6 +66,9 @@ pub struct SubagentTracker {
 
     /// Lock to prevent TOCTOU race between running_count() check and register()
     spawn_lock: std::sync::Mutex<()>,
+
+    /// Optional sink for persisting sub-agent traces outside in-memory tracker state.
+    trace_sink: RwLock<Option<Arc<dyn SubagentTraceSink>>>,
 }
 
 impl SubagentTracker {
@@ -65,7 +84,19 @@ impl SubagentTracker {
             completion_tx,
             completion_rx: Mutex::new(completion_rx),
             spawn_lock: std::sync::Mutex::new(()),
+            trace_sink: RwLock::new(None),
         }
+    }
+
+    /// Install or replace the trace sink used for spawned sub-agents.
+    pub fn set_trace_sink(&self, sink: Arc<dyn SubagentTraceSink>) {
+        if let Ok(mut guard) = self.trace_sink.write() {
+            *guard = Some(sink);
+        }
+    }
+
+    fn trace_sink(&self) -> Option<Arc<dyn SubagentTraceSink>> {
+        self.trace_sink.read().ok().and_then(|guard| guard.clone())
     }
 
     fn insert_running_state(&self, id: String, agent_name: String, task: String) {
@@ -697,6 +728,12 @@ pub fn spawn_subagent(
     let agent_name_for_return = agent_def.name.clone();
     let task_for_register = request.task.clone();
     let parent_execution_id = request.parent_execution_id.clone();
+    let trace_context = SubagentTraceContext {
+        task_id: task_id.clone(),
+        agent_name: agent_name_for_return.clone(),
+        parent_execution_id: parent_execution_id.clone(),
+    };
+    let trace_sink = tracker.trace_sink();
     // Parallel limit is fully driven by runtime config (agent.max_parallel_subagents).
     let max_parallel = config.max_parallel_agents;
 
@@ -709,12 +746,18 @@ pub fn spawn_subagent(
         task_for_register,
     )?;
 
+    if let Some(sink) = trace_sink.as_ref() {
+        sink.on_subagent_started(&trace_context);
+    }
+
     let task = request.task.clone();
     let tracker_clone = tracker.clone();
     let task_id_for_spawn = task_id.clone();
     let llm_client = llm_client.clone();
     let tool_registry = tool_registry.clone();
     let config_clone = config.clone();
+    let trace_context_for_spawn = trace_context.clone();
+    let trace_sink_for_spawn = trace_sink.clone();
 
     let (completion_tx, completion_rx) = oneshot::channel();
     let (start_tx, start_rx) = oneshot::channel();
@@ -736,19 +779,39 @@ pub fn spawn_subagent(
             };
         }
         let start = std::time::Instant::now();
+        let mut trace_emitter = trace_sink_for_spawn
+            .as_ref()
+            .map(|sink| sink.build_subagent_emitter(&trace_context_for_spawn));
 
-        let result = timeout(
-            Duration::from_secs(timeout_secs),
-            execute_subagent(
-                llm_client,
-                tool_registry,
-                agent_def,
-                task.clone(),
-                config_clone,
-                parent_execution_id.clone(),
-            ),
-        )
-        .await;
+        let result = if let Some(emitter) = trace_emitter.as_mut() {
+            timeout(
+                Duration::from_secs(timeout_secs),
+                execute_subagent(
+                    llm_client,
+                    tool_registry,
+                    agent_def,
+                    task.clone(),
+                    config_clone,
+                    parent_execution_id.clone(),
+                    Some(emitter.as_mut()),
+                ),
+            )
+            .await
+        } else {
+            timeout(
+                Duration::from_secs(timeout_secs),
+                execute_subagent(
+                    llm_client,
+                    tool_registry,
+                    agent_def,
+                    task.clone(),
+                    config_clone,
+                    parent_execution_id.clone(),
+                    None,
+                ),
+            )
+            .await
+        };
 
         let duration_ms = start.elapsed().as_millis() as u64;
 
@@ -812,6 +875,10 @@ pub fn spawn_subagent(
             tracker_clone.mark_completed(&task_id, subagent_result.clone());
         }
 
+        if let Some(sink) = trace_sink_for_spawn.as_ref() {
+            sink.on_subagent_finished(&trace_context_for_spawn, &subagent_result);
+        }
+
         let _ = completion_tx.send(subagent_result.clone());
         subagent_result
     });
@@ -826,6 +893,9 @@ pub fn spawn_subagent(
             cost_usd: None,
             error: Some(error.to_string()),
         };
+        if let Some(sink) = trace_sink.as_ref() {
+            sink.on_subagent_finished(&trace_context, &failure);
+        }
         tracker.mark_completed(&task_id, failure);
         return Err(error);
     }
@@ -903,6 +973,7 @@ async fn execute_subagent(
     task: String,
     config: SubagentConfig,
     parent_execution_id: Option<String>,
+    mut emitter: Option<&mut dyn StreamEmitter>,
 ) -> Result<AgentResult> {
     // depth=1: direct child of the parent agent
     let registry = build_registry_for_agent(
@@ -926,7 +997,11 @@ async fn execute_subagent(
     );
 
     let executor = AgentExecutor::new(llm_client, registry);
-    let result = executor.run(agent_config).await?;
+    let result = if let Some(emitter) = emitter.as_mut() {
+        executor.run_with_emitter(agent_config, *emitter).await?
+    } else {
+        executor.run(agent_config).await?
+    };
 
     Ok(result)
 }

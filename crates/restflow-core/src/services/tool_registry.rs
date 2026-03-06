@@ -12,6 +12,7 @@ use crate::runtime::agent::tools::assembly::{
     register_file_execution_tool, register_http_execution_tool, register_python_execution_tools,
     register_send_email_execution_tool,
 };
+use crate::runtime::channel::ToolTraceSubagentSink;
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
@@ -134,9 +135,14 @@ fn create_subagent_manager(
     base_registry: &ToolRegistry,
     llm_client_factory: Arc<dyn LlmClientFactory>,
     config_storage: Arc<ConfigStorage>,
+    tool_trace_storage: ToolTraceStorage,
 ) -> Arc<dyn restflow_traits::SubagentManager> {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+    tracker.set_trace_sink(Arc::new(ToolTraceSubagentSink::new(
+        tool_trace_storage,
+        None,
+    )));
     let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let subagent_config = load_subagent_config(&config_storage);
@@ -197,7 +203,7 @@ pub fn create_tool_registry(
         agent_storage.clone(),
         background_agent_storage.clone(),
         channel_session_binding_storage,
-        tool_trace_storage,
+        tool_trace_storage.clone(),
     ));
     let memory_manager = Arc::new(MemoryManagerAdapter::new(memory_storage.clone()));
     let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
@@ -339,6 +345,7 @@ pub fn create_tool_registry(
         &registry,
         llm_client_factory.clone(),
         config_storage,
+        tool_trace_storage,
     );
     registry
         .register(SpawnSubagentTool::new(subagent_manager.clone()).with_kv_store(kv_store.clone()));
@@ -1021,6 +1028,9 @@ mod tests {
         );
         let base_node = crate::models::AgentNode {
             model: Some(crate::models::AIModel::ClaudeSonnet4_5),
+            model_ref: Some(crate::models::ModelRef::from_model(
+                crate::models::AIModel::ClaudeSonnet4_5,
+            )),
             prompt: Some("You are a testing assistant".to_string()),
             temperature: Some(0.3),
             codex_cli_reasoning_effort: None,
@@ -1895,7 +1905,7 @@ mod tests {
             memory_storage,
             chat_storage,
             channel_session_binding_storage,
-            tool_trace_storage,
+            tool_trace_storage.clone(),
             kv_store_storage,
             work_item_storage,
             secret_storage.clone(),
@@ -1916,6 +1926,7 @@ mod tests {
             &service_registry,
             build_llm_factory(Some(&secret_storage)),
             Arc::new(config_storage),
+            tool_trace_storage,
         );
 
         let allowlist = vec![

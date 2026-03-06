@@ -11,7 +11,8 @@ use crate::models::{
     BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSource,
     ChatSessionSummary, Deliverable, DurabilityMode, Hook, HookAction, HookEvent, HookFilter,
     MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource,
-    MemoryStats, Provider, ResourceLimits, SearchMode, Skill, SkillStatus, ValidationError,
+    MemoryStats, Provider, ResourceLimits, SearchMode, Skill, SkillStatus, ToolTrace,
+    ToolTraceEvent, ValidationError,
 };
 use crate::services::background_agent_conversion::{
     ConvertSessionSpecOptions, build_convert_session_spec, default_conversion_schedule,
@@ -42,7 +43,7 @@ use rmcp::{
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::io::{stdin, stdout};
 use tokio::sync::Mutex;
@@ -1225,6 +1226,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Agent ID for execution
     #[serde(default)]
     pub agent_id: Option<String>,
+    /// Optional task ID selector for trace queries (list_traces)
+    #[serde(default)]
+    pub task_id: Option<String>,
     /// Optional bound chat session ID
     #[serde(default)]
     pub chat_session_id: Option<String>,
@@ -1285,12 +1289,27 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional message body
     #[serde(default)]
     pub message: Option<String>,
-    /// Optional message source
+    /// Optional message source for send_message, or trace source filter for list_traces
     #[serde(default)]
     pub source: Option<String>,
     /// Optional message list limit
     #[serde(default)]
     pub limit: Option<usize>,
+    /// Optional pagination offset (for list_traces)
+    #[serde(default)]
+    pub offset: Option<usize>,
+    /// Optional trace category filter (turn/tool/event type) for list_traces
+    #[serde(default)]
+    pub category: Option<String>,
+    /// Optional lower bound for trace event timestamp (Unix milliseconds)
+    #[serde(default)]
+    pub from_time_ms: Option<i64>,
+    /// Optional upper bound for trace event timestamp (Unix milliseconds)
+    #[serde(default)]
+    pub to_time_ms: Option<i64>,
+    /// Whether to include trace stats payload in list_traces response
+    #[serde(default)]
+    pub include_stats: Option<bool>,
     /// Trace ID for read_trace
     #[serde(default)]
     pub trace_id: Option<String>,
@@ -1366,6 +1385,208 @@ pub struct EmptyParams {}
 // ============================================================================
 
 impl RestFlowMcpServer {
+    fn tool_trace_event_name(event: &ToolTraceEvent) -> &'static str {
+        match event {
+            ToolTraceEvent::TurnStarted => "turn_started",
+            ToolTraceEvent::ToolCallStarted => "tool_call_started",
+            ToolTraceEvent::ToolCallCompleted => "tool_call_completed",
+            ToolTraceEvent::TurnCompleted => "turn_completed",
+            ToolTraceEvent::TurnFailed => "turn_failed",
+            ToolTraceEvent::TurnCancelled => "turn_cancelled",
+        }
+    }
+
+    fn tool_trace_category_name(event: &ToolTraceEvent) -> &'static str {
+        match event {
+            ToolTraceEvent::ToolCallStarted | ToolTraceEvent::ToolCallCompleted => "tool",
+            ToolTraceEvent::TurnStarted
+            | ToolTraceEvent::TurnCompleted
+            | ToolTraceEvent::TurnFailed
+            | ToolTraceEvent::TurnCancelled => "turn",
+        }
+    }
+
+    fn parse_trace_category(value: Option<String>) -> Result<Option<String>, String> {
+        match value.map(|s| s.trim().to_lowercase()) {
+            None => Ok(None),
+            Some(s) if s.is_empty() => Ok(None),
+            Some(s)
+                if matches!(
+                    s.as_str(),
+                    "turn"
+                        | "tool"
+                        | "turn_started"
+                        | "tool_call_started"
+                        | "tool_call_completed"
+                        | "turn_completed"
+                        | "turn_failed"
+                        | "turn_cancelled"
+                ) =>
+            {
+                Ok(Some(s))
+            }
+            Some(s) => Err(format!(
+                "Unknown trace category: {}. Supported: turn, tool, turn_started, tool_call_started, tool_call_completed, turn_completed, turn_failed, turn_cancelled",
+                s
+            )),
+        }
+    }
+
+    fn normalize_optional_filter(value: Option<String>) -> Option<String> {
+        value
+            .map(|s| s.trim().to_lowercase())
+            .filter(|s| !s.is_empty())
+    }
+
+    fn validate_trace_time_range(
+        from_time_ms: Option<i64>,
+        to_time_ms: Option<i64>,
+    ) -> Result<(), String> {
+        if let (Some(from), Some(to)) = (from_time_ms, to_time_ms)
+            && from > to
+        {
+            return Err(
+                "Invalid time range: from_time_ms must be less than or equal to to_time_ms"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
+
+    fn trace_matches_category(trace: &ToolTrace, category: Option<&str>) -> bool {
+        let Some(category) = category else {
+            return true;
+        };
+
+        match category {
+            "turn" => Self::tool_trace_category_name(&trace.event_type) == "turn",
+            "tool" => Self::tool_trace_category_name(&trace.event_type) == "tool",
+            event_type => Self::tool_trace_event_name(&trace.event_type) == event_type,
+        }
+    }
+
+    fn trace_matches_source(trace: &ToolTrace, source: Option<&str>) -> bool {
+        let Some(source) = source else {
+            return true;
+        };
+
+        trace
+            .tool_name
+            .as_deref()
+            .map(|name| name.trim().eq_ignore_ascii_case(source))
+            .unwrap_or(false)
+    }
+
+    fn trace_matches_time_range(
+        trace: &ToolTrace,
+        from_time_ms: Option<i64>,
+        to_time_ms: Option<i64>,
+    ) -> bool {
+        if let Some(from) = from_time_ms
+            && trace.created_at < from
+        {
+            return false;
+        }
+        if let Some(to) = to_time_ms
+            && trace.created_at > to
+        {
+            return false;
+        }
+        true
+    }
+
+    fn build_trace_stats(
+        traces: &[ToolTrace],
+        limit: usize,
+        offset: usize,
+        tasks_scanned: usize,
+        sessions_scanned: usize,
+        from_time_ms: Option<i64>,
+        to_time_ms: Option<i64>,
+    ) -> Value {
+        let mut by_event_type: BTreeMap<String, u64> = BTreeMap::new();
+        let mut by_category: BTreeMap<String, u64> = BTreeMap::new();
+        let mut by_tool: BTreeMap<String, u64> = BTreeMap::new();
+        let mut success_true = 0u64;
+        let mut success_false = 0u64;
+        let mut success_unknown = 0u64;
+        let mut duration_total = 0u64;
+        let mut duration_count = 0u64;
+        let mut duration_min: Option<u64> = None;
+        let mut duration_max: Option<u64> = None;
+        let mut created_at_min: Option<i64> = None;
+        let mut created_at_max: Option<i64> = None;
+
+        for trace in traces {
+            let event_name = Self::tool_trace_event_name(&trace.event_type).to_string();
+            *by_event_type.entry(event_name).or_insert(0) += 1;
+
+            let category_name = Self::tool_trace_category_name(&trace.event_type).to_string();
+            *by_category.entry(category_name).or_insert(0) += 1;
+
+            if let Some(tool_name) = trace
+                .tool_name
+                .as_deref()
+                .map(str::trim)
+                .filter(|name| !name.is_empty())
+            {
+                *by_tool.entry(tool_name.to_string()).or_insert(0) += 1;
+            }
+
+            match trace.success {
+                Some(true) => success_true += 1,
+                Some(false) => success_false += 1,
+                None => success_unknown += 1,
+            }
+
+            if let Some(duration_ms) = trace.duration_ms {
+                duration_total = duration_total.saturating_add(duration_ms);
+                duration_count += 1;
+                duration_min = Some(duration_min.map_or(duration_ms, |v| v.min(duration_ms)));
+                duration_max = Some(duration_max.map_or(duration_ms, |v| v.max(duration_ms)));
+            }
+
+            created_at_min =
+                Some(created_at_min.map_or(trace.created_at, |v| v.min(trace.created_at)));
+            created_at_max =
+                Some(created_at_max.map_or(trace.created_at, |v| v.max(trace.created_at)));
+        }
+
+        let duration_avg = if duration_count > 0 {
+            Some(duration_total as f64 / duration_count as f64)
+        } else {
+            None
+        };
+
+        serde_json::json!({
+            "total": traces.len(),
+            "limit": limit,
+            "offset": offset,
+            "tasks_scanned": tasks_scanned,
+            "sessions_scanned": sessions_scanned,
+            "time_range": {
+                "from_time_ms": from_time_ms,
+                "to_time_ms": to_time_ms,
+                "matched_min_created_at": created_at_min,
+                "matched_max_created_at": created_at_max,
+            },
+            "by_event_type": by_event_type,
+            "by_category": by_category,
+            "by_tool": by_tool,
+            "success": {
+                "true": success_true,
+                "false": success_false,
+                "unknown": success_unknown,
+            },
+            "duration_ms": {
+                "count": duration_count,
+                "min": duration_min,
+                "max": duration_max,
+                "avg": duration_avg,
+            }
+        })
+    }
+
     fn required_string(value: Option<String>, field: &str) -> Result<String, String> {
         value
             .map(|v| v.trim().to_string())
@@ -2188,24 +2409,155 @@ impl RestFlowMcpServer {
                     .limit
                     .unwrap_or(defaults.background_trace_list_limit)
                     .max(1);
-                if let Some(task_id) = &params.id {
+                let offset = params.offset.unwrap_or(0);
+                let include_stats = params.include_stats.unwrap_or(false)
+                    || params
+                        .action
+                        .as_deref()
+                        .map(|action| action.trim().eq_ignore_ascii_case("stats"))
+                        .unwrap_or(false);
+                let category = Self::parse_trace_category(params.category)?;
+                let source_filter = Self::normalize_optional_filter(params.source);
+                Self::validate_trace_time_range(params.from_time_ms, params.to_time_ms)?;
+                let status_filter = Self::parse_task_status(params.status)?;
+                let query_task_id = params.task_id.clone();
+                let query_id = params.id.clone();
+
+                let task_selector = query_task_id.clone().or(query_id.clone());
+                let scoped_tasks: Vec<BackgroundAgent> = if let Some(task_id) = task_selector {
                     let task = self
                         .backend
-                        .get_background_agent(task_id)
+                        .get_background_agent(&task_id)
                         .await
                         .map_err(|e| format!("Failed to get task: {}", e))?;
                     let session_id = task
                         .get("chat_session_id")
                         .and_then(|v| v.as_str())
-                        .unwrap_or(task_id);
+                        .filter(|v| !v.trim().is_empty())
+                        .unwrap_or(task_id.as_str())
+                        .to_string();
+                    let agent_id = task
+                        .get("agent_id")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or_default()
+                        .to_string();
+
+                    if let Some(agent_filter) = params.agent_id.as_deref()
+                        && !agent_id.is_empty()
+                        && agent_filter != agent_id
+                    {
+                        Vec::new()
+                    } else {
+                        vec![BackgroundAgent {
+                            id: task_id,
+                            name: "trace_query_task".to_string(),
+                            description: None,
+                            agent_id,
+                            chat_session_id: session_id,
+                            owns_chat_session: false,
+                            input: None,
+                            input_template: None,
+                            schedule: BackgroundAgentSchedule::default(),
+                            execution_mode: crate::models::ExecutionMode::default(),
+                            timeout_secs: None,
+                            notification: crate::models::NotificationConfig::default(),
+                            memory: MemoryConfig::default(),
+                            durability_mode: DurabilityMode::default(),
+                            resource_limits: ResourceLimits::default(),
+                            prerequisites: Vec::new(),
+                            continuation: crate::models::ContinuationConfig::default(),
+                            continuation_total_iterations: 0,
+                            continuation_segments_completed: 0,
+                            status: BackgroundAgentStatus::default(),
+                            created_at: 0,
+                            updated_at: 0,
+                            last_run_at: None,
+                            next_run_at: None,
+                            success_count: 0,
+                            failure_count: 0,
+                            total_tokens_used: 0,
+                            total_cost_usd: 0.0,
+                            last_error: None,
+                            webhook: None,
+                            summary_message_id: None,
+                        }]
+                    }
+                } else {
+                    let mut tasks = self
+                        .backend
+                        .list_tasks(status_filter)
+                        .await
+                        .map_err(|e| format!("Failed to list tasks: {}", e))?;
+                    if let Some(agent_id) = params.agent_id.as_deref() {
+                        tasks.retain(|task| task.agent_id == agent_id);
+                    }
+                    tasks
+                };
+
+                let trace_fetch_limit = offset.saturating_add(limit).max(limit);
+                let mut filtered_traces = Vec::new();
+                for task in &scoped_tasks {
+                    let session_id = if task.chat_session_id.trim().is_empty() {
+                        task.id.as_str()
+                    } else {
+                        task.chat_session_id.as_str()
+                    };
                     let traces = self
                         .backend
-                        .list_tool_traces(session_id, limit)
+                        .list_tool_traces(session_id, trace_fetch_limit)
                         .await
                         .map_err(|e| format!("Failed to list traces: {}", e))?;
-                    serde_json::to_value(traces).map_err(|e| e.to_string())?
+                    filtered_traces.extend(traces.into_iter().filter(|trace| {
+                        Self::trace_matches_category(trace, category.as_deref())
+                            && Self::trace_matches_source(trace, source_filter.as_deref())
+                            && Self::trace_matches_time_range(
+                                trace,
+                                params.from_time_ms,
+                                params.to_time_ms,
+                            )
+                    }));
+                }
+
+                filtered_traces.sort_by(|a, b| {
+                    b.created_at
+                        .cmp(&a.created_at)
+                        .then_with(|| a.id.cmp(&b.id))
+                });
+                let total = filtered_traces.len();
+                let events: Vec<ToolTrace> = filtered_traces
+                    .iter()
+                    .skip(offset)
+                    .take(limit)
+                    .cloned()
+                    .collect();
+
+                if include_stats {
+                    serde_json::json!({
+                        "events": serde_json::to_value(events).map_err(|e| e.to_string())?,
+                        "stats": Self::build_trace_stats(
+                            &filtered_traces,
+                            limit,
+                            offset,
+                            scoped_tasks.len(),
+                            scoped_tasks.len(),
+                            params.from_time_ms,
+                            params.to_time_ms,
+                        ),
+                        "query": {
+                            "task_id": query_task_id,
+                            "id": query_id,
+                            "agent_id": params.agent_id,
+                            "category": category,
+                            "source": source_filter,
+                            "from_time_ms": params.from_time_ms,
+                            "to_time_ms": params.to_time_ms,
+                            "limit": limit,
+                            "offset": offset,
+                            "total": total,
+                        },
+                    })
                 } else {
-                    Value::Array(vec![])
+                    serde_json::to_value(events).map_err(|e| e.to_string())?
                 }
             }
             "read_trace" => {
@@ -2873,6 +3225,9 @@ mod tests {
     fn create_test_agent_node(prompt: &str) -> AgentNode {
         AgentNode {
             model: Some(AIModel::ClaudeSonnet4_5),
+            model_ref: Some(crate::models::ModelRef::from_model(
+                AIModel::ClaudeSonnet4_5,
+            )),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
             codex_cli_reasoning_effort: None,
@@ -3743,6 +4098,9 @@ mod tests {
                 name: "Mock Agent".to_string(),
                 agent: AgentNode {
                     model: Some(AIModel::ClaudeSonnet4_5),
+                    model_ref: Some(crate::models::ModelRef::from_model(
+                        AIModel::ClaudeSonnet4_5,
+                    )),
                     prompt: Some("Mock prompt".to_string()),
                     temperature: Some(0.5),
                     codex_cli_reasoning_effort: None,
@@ -4174,6 +4532,7 @@ mod tests {
             id: None,
             name: None,
             agent_id: None,
+            task_id: None,
             chat_session_id: None,
             description: None,
             input: None,
@@ -4196,6 +4555,11 @@ mod tests {
             message: None,
             source: None,
             limit: None,
+            offset: None,
+            category: None,
+            from_time_ms: None,
+            to_time_ms: None,
+            include_stats: None,
             trace_id: None,
             line_limit: None,
             run_now: None,
@@ -4261,6 +4625,63 @@ mod tests {
         assert_eq!(value["source_session"]["id"], session_id);
         assert_eq!(value["task"]["chat_session_id"], session_id);
         assert_eq!(value["run_now"], true);
+    }
+
+    #[test]
+    fn test_parse_trace_category_rejects_unknown_value() {
+        let err = RestFlowMcpServer::parse_trace_category(Some("unknown".to_string())).unwrap_err();
+        assert!(err.contains("Unknown trace category"));
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_list_traces_keeps_backward_compatible_array_shape() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let mut params = base_manage_background_params("list_traces");
+        params.id = Some("task-1".to_string());
+
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .expect("list_traces should succeed");
+        let value: serde_json::Value =
+            serde_json::from_str(&json).expect("list_traces response should be valid json");
+        assert!(value.is_array());
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_list_traces_supports_stats_payload() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let mut params = base_manage_background_params("list_traces");
+        params.id = Some("task-1".to_string());
+        params.include_stats = Some(true);
+        params.category = Some("tool".to_string());
+        params.offset = Some(0);
+        params.limit = Some(5);
+
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .expect("list_traces with stats should succeed");
+        let value: serde_json::Value =
+            serde_json::from_str(&json).expect("list_traces stats response should be valid json");
+        assert!(value["events"].is_array());
+        assert!(value["stats"].is_object());
+        assert_eq!(value["stats"]["limit"], 5);
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_list_traces_validates_time_range() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let mut params = base_manage_background_params("list_traces");
+        params.id = Some("task-1".to_string());
+        params.from_time_ms = Some(200);
+        params.to_time_ms = Some(100);
+
+        let err = server
+            .handle_manage_background_agents(params)
+            .await
+            .expect_err("invalid time range should fail");
+        assert!(err.contains("Invalid time range"));
     }
 
     #[tokio::test]
@@ -4828,6 +5249,7 @@ mod tests {
             id: None,
             name: None,
             agent_id: None,
+            task_id: None,
             chat_session_id: None,
             description: None,
             input: None,
@@ -4850,6 +5272,11 @@ mod tests {
             message: None,
             source: None,
             limit: None,
+            offset: None,
+            category: None,
+            from_time_ms: None,
+            to_time_ms: None,
+            include_stats: None,
             trace_id: None,
             line_limit: None,
             run_now: None,
