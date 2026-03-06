@@ -240,7 +240,7 @@ impl TextChunker {
 
     /// Round a byte index down to the nearest char boundary.
     fn floor_char_boundary(text: &str, index: usize) -> usize {
-        restflow_ai::text_utils::floor_char_boundary(text, index)
+        restflow_traits::floor_char_boundary(text, index)
     }
 
     /// Round a byte index up to the nearest char boundary.
