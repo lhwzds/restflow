@@ -269,6 +269,39 @@ async createChatSession(agentId: string, model: string, name: string | null, ski
 }
 },
 /**
+ * Create a new hook.
+ */
+async createHook(hook: Hook) : Promise<Result<Hook, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_hook", { hook }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Create a new memory chunk manually.
+ */
+async createMemoryChunk(request: CreateMemoryChunkRequest) : Promise<Result<MemoryChunk, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_memory_chunk", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Create a new memory session.
+ */
+async createMemorySession(request: CreateMemorySessionRequest) : Promise<Result<MemorySession, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("create_memory_session", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Create a new secret (fails if key already exists)
  */
 async createSecret(request: CreateSecretRequest) : Promise<Result<SecretInfo, string>> {
@@ -324,6 +357,52 @@ async deleteChatSession(id: string) : Promise<Result<boolean, string>> {
 }
 },
 /**
+ * Delete a hook.
+ */
+async deleteHook(id: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_hook", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Delete a memory chunk by ID.
+ */
+async deleteMemoryChunk(chunkId: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_memory_chunk", { chunkId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Delete all memory chunks for an agent.
+ */
+async deleteMemoryChunksForAgent(agentId: string) : Promise<Result<number, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_memory_chunks_for_agent", { agentId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Delete a memory session and optionally its chunks.
+ * 
+ * By default, deletes the session and all associated chunks.
+ */
+async deleteMemorySession(sessionId: string, deleteChunks: boolean | null) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("delete_memory_session", { sessionId, deleteChunks }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Delete a secret by key
  */
 async deleteSecret(key: string) : Promise<Result<null, string>> {
@@ -364,6 +443,39 @@ async executeChatSession(sessionId: string) : Promise<Result<ChatSession, string
 }
 },
 /**
+ * Export memories with custom options.
+ */
+async exportMemoryAdvanced(request: ExportMemoryRequest) : Promise<Result<ExportResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_memory_advanced", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Export memories to Markdown format.
+ */
+async exportMemoryMarkdown(agentId: string) : Promise<Result<ExportResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_memory_markdown", { agentId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Export a specific session to Markdown format.
+ */
+async exportMemorySessionMarkdown(sessionId: string) : Promise<Result<ExportResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("export_memory_session_markdown", { sessionId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Export a skill to JSON
  */
 async exportSkill(id: string) : Promise<Result<string, string>> {
@@ -391,6 +503,39 @@ async getAgent(id: string) : Promise<Result<StoredAgent, string>> {
 async getAvailableModels() : Promise<Result<ModelMetadataDTO[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_available_models") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get all providers that currently have at least one available model.
+ */
+async getAvailableProviders() : Promise<Result<Provider[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_available_providers") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get available tools for agents
+ */
+async getAvailableTools() : Promise<Result<ToolInfo[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_available_tools") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get provider -> models catalog for UI selector workflows.
+ */
+async getModelCatalog() : Promise<Result<ProviderModelCatalogItem[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_model_catalog") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -447,6 +592,25 @@ async getChatSession(id: string) : Promise<Result<ChatSession, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+async getCliDaemonStatus() : Promise<Result<CliDaemonStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_cli_daemon_status") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get system configuration
+ */
+async getConfig() : Promise<Result<SystemConfig, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_config") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Get the heartbeat event name for frontend subscription
  * 
@@ -466,6 +630,39 @@ async getChatSession(id: string) : Promise<Result<ChatSession, string>> {
  */
 async getHeartbeatEventName() : Promise<string> {
     return await TAURI_INVOKE("get_heartbeat_event_name");
+},
+/**
+ * Get a memory chunk by ID.
+ */
+async getMemoryChunk(chunkId: string) : Promise<Result<MemoryChunk | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_memory_chunk", { chunkId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get a memory session by ID.
+ */
+async getMemorySession(sessionId: string) : Promise<Result<MemorySession | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_memory_session", { sessionId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get memory statistics for an agent.
+ */
+async getMemoryStats(agentId: string) : Promise<Result<MemoryStats, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_memory_stats", { agentId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 },
 /**
  * Get the session change event name and start the event bridge.
@@ -498,6 +695,28 @@ async getSessionChangeEventName() : Promise<Result<string, string>> {
 async getSkill(id: string) : Promise<Result<Skill, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_skill", { id }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check if a secret exists
+ */
+async hasSecret(key: string) : Promise<Result<boolean, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("has_secret", { key }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Import a skill from JSON
+ */
+async importSkill(json: string) : Promise<Result<Skill, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("import_skill", { json }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -574,6 +793,28 @@ async listChatSessionsBySkill(skillId: string) : Promise<Result<ChatSession[], s
 }
 },
 /**
+ * List all hooks.
+ */
+async listHooks() : Promise<Result<Hook[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_hooks") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * List all memory chunks for an agent.
+ */
+async listMemoryChunks(agentId: string, limit: number | null, offset: number | null) : Promise<Result<MemoryListResponse<MemoryChunk>, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("list_memory_chunks", { agentId, limit, offset }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * List chunks for a specific session.
  */
 async listMemoryChunksForSession(sessionId: string) : Promise<Result<MemoryChunk[], string>> {
@@ -634,6 +875,94 @@ async listSkills() : Promise<Result<Skill[], string>> {
 async listToolTraces(sessionId: string, turnId: string | null, limit: number | null) : Promise<Result<ToolTrace[], string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("list_tool_traces", { sessionId, turnId, limit }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Check gating requirements for a skill
+ */
+async marketplaceCheckGating(id: string, source: string | null) : Promise<Result<GatingCheckResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("marketplace_check_gating", { id, source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get skill content (readme/documentation)
+ */
+async marketplaceGetContent(id: string, version: string | null, source: string | null) : Promise<Result<string, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("marketplace_get_content", { id, version, source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get skill details from marketplace
+ */
+async marketplaceGetSkill(id: string, source: string | null) : Promise<Result<SkillManifest, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("marketplace_get_skill", { id, source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get skill versions
+ */
+async marketplaceGetVersions(id: string, source: string | null) : Promise<Result<SkillVersion[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("marketplace_get_versions", { id, source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Install a skill from marketplace
+ */
+async marketplaceInstallSkill(id: string, version: string | null, source: string | null) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("marketplace_install_skill", { id, version, source }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Get installed skills with marketplace info
+ */
+async marketplaceListInstalled() : Promise<Result<Skill[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("marketplace_list_installed") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Search the marketplace for skills
+ */
+async marketplaceSearch(request: SearchRequest) : Promise<Result<SearchResultResponse[], string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("marketplace_search", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Uninstall a skill
+ */
+async marketplaceUninstallSkill(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("marketplace_uninstall_skill", { id }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -762,6 +1091,30 @@ async saveVoiceMessage(audioBase64: string, sessionId: string | null) : Promise<
 }
 },
 /**
+ * Search memories with relevance scoring.
+ * 
+ * Returns ranked results based on keyword frequency, recency, and tag matches.
+ */
+async searchMemory(query: MemorySearchQuery) : Promise<Result<RankedSearchResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("search_memory", { query }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Search memories with custom scoring configuration.
+ */
+async searchMemoryAdvanced(request: SearchMemoryRequest) : Promise<Result<RankedSearchResult, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("search_memory_advanced", { request }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Send a chat message and get a response.
  * 
  * This is a convenience command that:
@@ -810,6 +1163,14 @@ async sendLiveAudioChunk(transcribeId: string, audioBase64: string) : Promise<Re
     else return { status: "error", error: e  as any };
 }
 },
+async startCliDaemon() : Promise<Result<CliDaemonStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("start_cli_daemon") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Start a live transcription session using the OpenAI Realtime WebSocket API.
  * Returns a transcribe_id; text deltas arrive via Tauri `voice:transcribe-stream` events.
@@ -850,12 +1211,31 @@ async steerTask(taskId: string, instruction: string) : Promise<Result<boolean, s
     else return { status: "error", error: e  as any };
 }
 },
+async stopCliDaemon() : Promise<Result<CliDaemonStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("stop_cli_daemon") };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 /**
  * Stop a live transcription session gracefully.
  */
 async stopLiveTranscription(transcribeId: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("stop_live_transcription", { transcribeId }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Execute a hook once with synthetic context for verification.
+ */
+async testHook(id: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_hook", { id }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -918,6 +1298,28 @@ async updateChatSession(sessionId: string, updates: ChatSessionUpdateInput) : Pr
 }
 },
 /**
+ * Update system configuration
+ */
+async updateConfig(config: SystemConfig) : Promise<Result<SystemConfig, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_config", { config }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Update an existing hook.
+ */
+async updateHook(id: string, hook: Hook) : Promise<Result<Hook, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("update_hook", { id, hook }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
  * Update an existing secret (fails if key doesn't exist)
  */
 async updateSecret(key: string, request: UpdateSecretRequest) : Promise<Result<SecretInfo, string>> {
@@ -934,6 +1336,14 @@ async updateSecret(key: string, request: UpdateSecretRequest) : Promise<Result<S
 async updateSkill(id: string, skill: Skill) : Promise<Result<Skill, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("update_skill", { id, skill }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async restartCliDaemon() : Promise<Result<CliDaemonStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("restart_cli_daemon") };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
@@ -980,6 +1390,92 @@ email?: string | null;
  */
 priority?: number }
 /**
+ * Agent execution defaults (configurable at runtime via `manage_config`).
+ */
+export type AgentDefaults = { 
+/**
+ * Timeout for a single tool execution in seconds.
+ */
+tool_timeout_secs: number; 
+/**
+ * Default timeout for each LLM completion request in seconds.
+ * 
+ * `None` disables the per-request LLM timeout.
+ */
+llm_timeout_secs: number | null; 
+/**
+ * Default timeout for bash command execution in seconds.
+ */
+bash_timeout_secs: number; 
+/**
+ * Default timeout for Python code execution in seconds.
+ */
+python_timeout_secs: number; 
+/**
+ * Default timeout for browser tool execution in seconds.
+ */
+browser_timeout_secs: number; 
+/**
+ * TTL for finished process sessions in seconds.
+ */
+process_session_ttl_secs: number; 
+/**
+ * Default approval timeout for security checks in seconds.
+ */
+approval_timeout_secs: number; 
+/**
+ * Maximum ReAct loop iterations per agent run.
+ */
+max_iterations: number; 
+/**
+ * Default timeout for sub-agent execution in seconds.
+ */
+subagent_timeout_secs: number; 
+/**
+ * Maximum number of sub-agents that can run in parallel.
+ */
+max_parallel_subagents: number; 
+/**
+ * Maximum tool calls allowed per agent run.
+ */
+max_tool_calls: number; 
+/**
+ * Maximum number of tool calls that may run concurrently.
+ */
+max_tool_concurrency: number; 
+/**
+ * Maximum tool result length kept in the LLM context.
+ */
+max_tool_result_length: number; 
+/**
+ * Maximum characters preserved for pruned historical tool output.
+ */
+prune_tool_max_chars: number; 
+/**
+ * Tokens preserved from the recent tail during context compaction.
+ */
+compact_preserve_tokens: number; 
+/**
+ * Maximum wall-clock time per agent run in seconds.
+ * 
+ * `None` disables wall-clock timeout for foreground agent runs.
+ */
+max_wall_clock_secs: number | null; 
+/**
+ * Default timeout for background agent task execution in seconds.
+ */
+default_task_timeout_secs: number; 
+/**
+ * Default max duration for background agent resource limits in seconds.
+ */
+default_max_duration_secs: number; 
+/**
+ * Fallback models for cross-provider failover (manually configured).
+ * Only used when primary model fails - does not auto-discover providers.
+ * Format: model names as strings (e.g., ["glm-4.7", "claude-sonnet-4-5"])
+ */
+fallback_models?: string[] | null }
+/**
  * Agent configuration for AI-powered execution
  */
 export type AgentNode = { 
@@ -987,6 +1483,10 @@ export type AgentNode = {
  * AI model to use for this agent (None = auto-select based on auth profile)
  */
 model?: AIModel | null; 
+/**
+ * Explicit provider + model reference (preferred over legacy `model` field).
+ */
+model_ref?: ModelRef | null; 
 /**
  * System prompt for the agent
  */
@@ -1020,9 +1520,49 @@ skills?: string[] | null;
  */
 skill_variables?: Partial<{ [key in string]: string }> | null; 
 /**
+ * Optional skill preflight policy mode (`off` | `warn` | `enforce`).
+ */
+skill_preflight_policy_mode?: SkillPreflightPolicyMode | null; 
+/**
  * Optional tier-based model routing policy.
  */
 model_routing?: ModelRoutingConfig | null }
+/**
+ * API-facing default limits used by MCP and adapter query operations.
+ */
+export type ApiDefaults = { 
+/**
+ * Default `memory_search` result limit.
+ */
+memory_search_limit: number; 
+/**
+ * Default `chat_session_list` result limit.
+ */
+session_list_limit: number; 
+/**
+ * Default event limit for background progress queries.
+ */
+background_progress_event_limit: number; 
+/**
+ * Default message list limit for background agents.
+ */
+background_message_list_limit: number; 
+/**
+ * Default trace list limit for background agents.
+ */
+background_trace_list_limit: number; 
+/**
+ * Default trailing line limit when reading trace output.
+ */
+background_trace_line_limit: number; 
+/**
+ * Default result count for `web_search`.
+ */
+web_search_num_results: number; 
+/**
+ * Default diagnostics wait timeout in milliseconds.
+ */
+diagnostics_timeout_ms: number }
 /**
  * API key or password configuration (direct value or secret reference)
  */
@@ -1287,6 +1827,38 @@ export type BackgroundAgentStatus =
  * Task execution interrupted, waiting for external input to resume.
  */
 "interrupted"
+/**
+ * Binary requirement for gating
+ */
+export type BinaryRequirement = { 
+/**
+ * Name of the binary (e.g., "git", "docker")
+ */
+name: string; 
+/**
+ * Optional minimum version requirement
+ */
+version: VersionRequirement | null; 
+/**
+ * Version check command (e.g., "--version")
+ */
+version_command: string | null; 
+/**
+ * Regex pattern to extract version from command output
+ */
+version_pattern: string | null }
+/**
+ * Channel-specific defaults for external integrations.
+ */
+export type ChannelDefaults = { 
+/**
+ * Timeout for Telegram API HTTP calls in seconds.
+ */
+telegram_api_timeout_secs: number; 
+/**
+ * Telegram long-poll timeout in seconds.
+ */
+telegram_polling_timeout_secs: number }
 /**
  * Status of message execution (distinct from workflow ExecutionStatus).
  */
@@ -1575,6 +2147,8 @@ source_conversation_id?: string | null;
  */
 archived_at?: number | null }
 export type ChatSessionUpdateInput = { agentId: string | null; model: string | null; name: string | null }
+export type CliDaemonLifecycle = "running" | "not_running" | "stale"
+export type CliDaemonStatus = { lifecycle: CliDaemonLifecycle; pid: number | null; socket_available: boolean; managed_by_tauri: boolean; daemon_status: string | null; daemon_version: string | null; protocol_version: string | null; started_at_ms: number | null; uptime_secs: number | null; last_error: string | null }
 /**
  * Configuration for CLI-based execution
  */
@@ -1662,6 +2236,46 @@ run_now?: boolean | null }
  */
 export type CreateAgentRequest = { name: string; agent: AgentNode }
 /**
+ * Request to create a memory chunk manually.
+ */
+export type CreateMemoryChunkRequest = { 
+/**
+ * Agent ID this memory belongs to
+ */
+agent_id: string; 
+/**
+ * The memory content
+ */
+content: string; 
+/**
+ * Optional session ID
+ */
+session_id?: string | null; 
+/**
+ * Optional tags for categorization
+ */
+tags?: string[] }
+/**
+ * Request to create a memory session.
+ */
+export type CreateMemorySessionRequest = { 
+/**
+ * Agent ID this session belongs to
+ */
+agent_id: string; 
+/**
+ * Session name
+ */
+name: string; 
+/**
+ * Optional description
+ */
+description?: string | null; 
+/**
+ * Optional tags for the session
+ */
+tags?: string[] }
+/**
  * Create secret request
  */
 export type CreateSecretRequest = { key: string; value: string; description: string | null }
@@ -1730,6 +2344,22 @@ export type DurabilityMode =
  */
 "exit"
 /**
+ * Environment variable requirement for gating
+ */
+export type EnvVarRequirement = { 
+/**
+ * Name of the environment variable
+ */
+name: string; 
+/**
+ * Whether the variable must be set
+ */
+required: boolean; 
+/**
+ * Optional description of what this variable is for
+ */
+description: string | null }
+/**
  * Execution mode for agent tasks
  */
 export type ExecutionMode = 
@@ -1764,6 +2394,143 @@ status: string;
  * Duration of this step in milliseconds (if completed)
  */
 duration_ms?: number | null }
+/**
+ * Request to export memories with options.
+ */
+export type ExportMemoryRequest = { 
+/**
+ * Agent ID to export
+ */
+agent_id: string; 
+/**
+ * Optional session ID to export (if None, exports all)
+ */
+session_id?: string | null; 
+/**
+ * Export options preset: "default", "minimal", "compact"
+ */
+preset?: string | null; 
+/**
+ * Include metadata as HTML comments
+ */
+include_metadata?: boolean | null; 
+/**
+ * Include timestamps
+ */
+include_timestamps?: boolean | null; 
+/**
+ * Include source information
+ */
+include_source?: boolean | null; 
+/**
+ * Include tags
+ */
+include_tags?: boolean | null }
+/**
+ * Result of an export operation.
+ */
+export type ExportResult = { 
+/**
+ * The exported Markdown content
+ */
+markdown: string; 
+/**
+ * Number of chunks exported
+ */
+chunk_count: number; 
+/**
+ * Number of sessions included
+ */
+session_count: number; 
+/**
+ * Agent ID
+ */
+agent_id: string; 
+/**
+ * Suggested filename
+ */
+suggested_filename: string }
+/**
+ * Gating check result
+ */
+export type GatingCheckResult = { 
+/**
+ * Whether all requirements are met
+ */
+passed: boolean; 
+/**
+ * List of missing binaries
+ */
+missing_binaries: string[]; 
+/**
+ * List of missing environment variables
+ */
+missing_env_vars: string[]; 
+/**
+ * Whether OS is supported
+ */
+os_supported: boolean; 
+/**
+ * Whether RestFlow version is sufficient
+ */
+restflow_version_ok: boolean; 
+/**
+ * Human-readable summary
+ */
+summary: string }
+/**
+ * Gating requirements for a skill
+ */
+export type GatingRequirements = { 
+/**
+ * Required binaries
+ */
+binaries: BinaryRequirement[]; 
+/**
+ * Required environment variables
+ */
+env_vars: EnvVarRequirement[]; 
+/**
+ * Supported operating systems
+ */
+supported_os: OsType[]; 
+/**
+ * Minimum RestFlow version required
+ */
+min_restflow_version: SkillVersion | null }
+/**
+ * Persisted hook definition.
+ */
+export type Hook = { id: string; name: string; description?: string | null; event: HookEvent; action: HookAction; filter?: HookFilter | null; enabled?: boolean; created_at: number; updated_at: number }
+/**
+ * Hook action definition.
+ */
+export type HookAction = 
+/**
+ * Send an HTTP request with the hook context as JSON body.
+ */
+{ type: "webhook"; url: string; method?: string | null; headers?: Partial<{ [key in string]: string }> | null } | 
+/**
+ * Execute a local script and pass context as environment variables.
+ */
+{ type: "script"; path: string; args?: string[] | null; timeout_secs?: number | null } | 
+/**
+ * Send a templated message via channel router.
+ */
+{ type: "send_message"; channel_type: string; message_template: string } | 
+/**
+ * Trigger a follow-up task.
+ */
+{ type: "run_task"; agent_id: string; input_template: string }
+/**
+ * Hook trigger event.
+ */
+export type HookEvent = "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "tool_executed" | "approval_required"
+/**
+ * Optional filter to limit when a hook is executed.
+ */
+export type HookFilter = { task_name_pattern?: string | null; agent_id?: string | null; success_only?: boolean | null }
+export type JsonValue = null | boolean | number | string | JsonValue[] | Partial<{ [key in string]: JsonValue }>
 /**
  * Summary of the auth profile manager state
  */
@@ -1908,6 +2675,53 @@ export type MemoryScope =
  */
 "per_background_agent"
 /**
+ * Search query for finding memory chunks.
+ * 
+ * Supports keyword search, tag filtering, time range filtering,
+ * and source type filtering.
+ */
+export type MemorySearchQuery = { 
+/**
+ * Agent ID to search within (required)
+ */
+agent_id: string; 
+/**
+ * Text query for content search (keyword, phrase, or regex)
+ */
+query?: string | null; 
+/**
+ * Search mode for the query
+ */
+search_mode?: SearchMode; 
+/**
+ * Filter by session ID
+ */
+session_id?: string | null; 
+/**
+ * Filter by tags (chunks must have ALL specified tags)
+ */
+tags?: string[]; 
+/**
+ * Filter by source type
+ */
+source_type?: SourceTypeFilter | null; 
+/**
+ * Start of time range (unix timestamp in ms)
+ */
+from_time?: number | null; 
+/**
+ * End of time range (unix timestamp in ms)
+ */
+to_time?: number | null; 
+/**
+ * Maximum number of results to return
+ */
+limit?: number; 
+/**
+ * Offset for pagination
+ */
+offset?: number }
+/**
  * A memory session representing a group of related memory chunks.
  * 
  * Sessions help organize memories by conversation or task execution.
@@ -1984,6 +2798,34 @@ export type MemorySource =
  */
 { type: "agent_generated"; tool_name: string }
 /**
+ * Statistics about an agent's memory storage.
+ */
+export type MemoryStats = { 
+/**
+ * Agent ID
+ */
+agent_id: string; 
+/**
+ * Total number of sessions
+ */
+session_count: number; 
+/**
+ * Total number of chunks
+ */
+chunk_count: number; 
+/**
+ * Total tokens across all chunks
+ */
+total_tokens: number; 
+/**
+ * Oldest memory timestamp
+ */
+oldest_memory: number | null; 
+/**
+ * Newest memory timestamp
+ */
+newest_memory: number | null }
+/**
  * Execution details for an assistant message.
  * 
  * Contains information about what the agent did to generate the response,
@@ -2022,6 +2864,10 @@ status: ChatExecutionStatus }
  * Serializable model metadata for transferring to frontend
  */
 export type ModelMetadataDTO = { model: AIModel; provider: Provider; supports_temperature: boolean; name: string }
+/**
+ * Provider + model pair used by API and persistence layers.
+ */
+export type ModelRef = { provider: Provider; model: AIModel }
 /**
  * Model routing configuration for automatic tier-based model selection.
  */
@@ -2063,6 +2909,10 @@ include_output?: boolean;
  */
 broadcast_steps?: boolean }
 /**
+ * Operating system type
+ */
+export type OsType = "windows" | "macos" | "linux" | "any"
+/**
  * Health status of an auth profile
  */
 export type ProfileHealth = 
@@ -2095,6 +2945,38 @@ export type ProfileUpdate = { name: string | null; enabled: boolean | null; prio
  */
 export type Provider = "openai" | "anthropic" | "deepseek" | "google" | "groq" | "openrouter" | "xai" | "qwen" | "zai" | "zaicodingplan" | "moonshot" | "doubao" | "yi" | "siliconflow" | "minimax" | "minimaxcodingplan"
 /**
+ * Catalog entry for provider-scoped model discovery.
+ */
+export type ProviderModelCatalogItem = { provider: Provider; models: ModelMetadataDTO[] }
+/**
+ * Results from a ranked search.
+ */
+export type RankedSearchResult = { 
+/**
+ * Scored chunks sorted by relevance
+ */
+chunks: ScoredChunk[]; 
+/**
+ * Total number of matching chunks (before pagination)
+ */
+total_count: number; 
+/**
+ * Whether there are more results available
+ */
+has_more: boolean }
+/**
+ * Registry and marketplace integration defaults.
+ */
+export type RegistryDefaults = { 
+/**
+ * GitHub provider cache TTL in seconds.
+ */
+github_cache_ttl_secs: number; 
+/**
+ * Marketplace provider cache TTL in seconds.
+ */
+marketplace_cache_ttl_secs: number }
+/**
  * Resource guardrails for background agent executions.
  */
 export type ResourceLimits = { 
@@ -2114,6 +2996,130 @@ max_output_bytes?: number;
  * Maximum estimated LLM cost in USD for one execution.
  */
 max_cost_usd?: number | null }
+/**
+ * Runtime execution defaults for daemon/background/chat behavior.
+ */
+export type RuntimeDefaults = { 
+/**
+ * Background runner poll interval in milliseconds.
+ */
+background_runner_poll_interval_ms: number; 
+/**
+ * Maximum concurrent tasks for the background runner.
+ */
+background_runner_max_concurrent_tasks: number; 
+/**
+ * Maximum session history kept for channel chat sessions.
+ */
+chat_max_session_history: number }
+/**
+ * Breakdown of how the score was calculated.
+ */
+export type ScoreBreakdown = { 
+/**
+ * Score contribution from keyword frequency
+ */
+frequency_score: number; 
+/**
+ * Score contribution from recency
+ */
+recency_score: number; 
+/**
+ * Score contribution from tag matches
+ */
+tag_score: number }
+/**
+ * A search result with relevance score.
+ */
+export type ScoredChunk = { 
+/**
+ * The memory chunk
+ */
+chunk: MemoryChunk; 
+/**
+ * Relevance score (0.0 - 100.0)
+ */
+score: number; 
+/**
+ * Number of keyword matches found
+ */
+match_count: number; 
+/**
+ * Breakdown of score components
+ */
+score_breakdown: ScoreBreakdown }
+/**
+ * Request to search memories with optional scoring configuration.
+ */
+export type SearchMemoryRequest = { 
+/**
+ * The search query
+ */
+query: MemorySearchQuery; 
+/**
+ * Optional minimum score threshold (0-100)
+ */
+min_score?: number | null; 
+/**
+ * Optional scoring config preset: "default", "frequency_focused", "recency_focused", "balanced"
+ */
+scoring_preset?: string | null }
+/**
+ * Search mode for memory queries.
+ */
+export type SearchMode = 
+/**
+ * Simple keyword search (case-insensitive contains)
+ */
+"keyword" | 
+/**
+ * Exact phrase search
+ */
+"phrase" | 
+/**
+ * Regular expression search
+ */
+"regex"
+/**
+ * Search request from frontend
+ */
+export type SearchRequest = { 
+/**
+ * Search text
+ */
+query: string | null; 
+/**
+ * Filter by category
+ */
+category: string | null; 
+/**
+ * Filter by tags
+ */
+tags: string[] | null; 
+/**
+ * Filter by author
+ */
+author: string | null; 
+/**
+ * Maximum results
+ */
+limit: number | null; 
+/**
+ * Offset for pagination
+ */
+offset: number | null; 
+/**
+ * Sort order
+ */
+sort: string | null; 
+/**
+ * Include GitHub results
+ */
+includeGithub: boolean | null }
+/**
+ * Search result for frontend
+ */
+export type SearchResultResponse = { manifest: SkillManifest; score: number; downloads: number | null; rating: number | null; source: string }
 /**
  * Secret info without the actual value
  */
@@ -2222,13 +3228,265 @@ created_at: number;
  * Timestamp when the skill was last updated (milliseconds since epoch)
  */
 updated_at: number }
+/**
+ * Author information
+ */
+export type SkillAuthor = { 
+/**
+ * Author name
+ */
+name: string; 
+/**
+ * Optional email
+ */
+email: string | null; 
+/**
+ * Optional URL (website, GitHub profile)
+ */
+url: string | null }
+/**
+ * Skill dependency
+ */
+export type SkillDependency = { 
+/**
+ * ID of the required skill
+ */
+skill_id: string; 
+/**
+ * Version requirement
+ */
+version: VersionRequirement; 
+/**
+ * Whether this dependency is optional
+ */
+optional: boolean }
 export type SkillGating = { bins?: string[] | null; env?: string[] | null; os?: string[] | null }
+/**
+ * Extended skill metadata for marketplace
+ */
+export type SkillManifest = { 
+/**
+ * Skill ID (unique identifier)
+ */
+id: string; 
+/**
+ * Display name
+ */
+name: string; 
+/**
+ * Semantic version
+ */
+version: SkillVersion; 
+/**
+ * Description
+ */
+description: string | null; 
+/**
+ * Author information
+ */
+author: SkillAuthor | null; 
+/**
+ * License (SPDX identifier)
+ */
+license: string | null; 
+/**
+ * Homepage URL
+ */
+homepage: string | null; 
+/**
+ * Repository URL
+ */
+repository: string | null; 
+/**
+ * Keywords for search
+ */
+keywords: string[]; 
+/**
+ * Categories
+ */
+categories: string[]; 
+/**
+ * Dependencies on other skills
+ */
+dependencies: SkillDependency[]; 
+/**
+ * Permissions required
+ */
+permissions: SkillPermissions; 
+/**
+ * Gating requirements
+ */
+gating: GatingRequirements; 
+/**
+ * Source information
+ */
+source?: SkillSource; 
+/**
+ * Icon URL or data URI
+ */
+icon: string | null; 
+/**
+ * Readme content (markdown)
+ */
+readme: string | null; 
+/**
+ * Changelog content (markdown)
+ */
+changelog: string | null; 
+/**
+ * Additional metadata
+ */
+metadata: Partial<{ [key in string]: JsonValue }> }
+/**
+ * Permission types that skills can request
+ */
+export type SkillPermission = 
+/**
+ * Read files from the filesystem
+ */
+"file_read" | 
+/**
+ * Write files to the filesystem
+ */
+"file_write" | 
+/**
+ * Execute shell commands
+ */
+"shell_exec" | 
+/**
+ * Make network requests
+ */
+"network" | 
+/**
+ * Access environment variables
+ */
+"environment" | 
+/**
+ * Access clipboard
+ */
+"clipboard" | 
+/**
+ * Access system notifications
+ */
+"notifications" | 
+/**
+ * Access keychain/secrets
+ */
+"keychain" | 
+/**
+ * Access camera
+ */
+"camera" | 
+/**
+ * Access microphone
+ */
+"microphone" | 
+/**
+ * Access location
+ */
+"location" | 
+/**
+ * Custom permission with a name
+ */
+{ custom: string }
+/**
+ * Skill permissions configuration
+ */
+export type SkillPermissions = { 
+/**
+ * Required permissions (skill won't work without these)
+ */
+required: SkillPermission[]; 
+/**
+ * Optional permissions (enhances functionality if granted)
+ */
+optional: SkillPermission[] }
+/**
+ * Skill preflight policy mode.
+ */
+export type SkillPreflightPolicyMode = 
+/**
+ * Disable skill-related preflight issues.
+ */
+"off" | 
+/**
+ * Keep skill-related preflight issues as warnings.
+ */
+"warn" | 
+/**
+ * Promote critical skill-related warnings to blockers.
+ */
+"enforce"
 export type SkillReference = { id: string; path: string; title?: string | null; summary?: string | null }
 export type SkillScript = { id: string; path: string; lang?: string | null }
+/**
+ * Skill source information
+ */
+export type SkillSource = 
+/**
+ * Local skill (user-created)
+ */
+{ type: "local" } | 
+/**
+ * Built-in skill (bundled with RestFlow)
+ */
+{ type: "builtin" } | 
+/**
+ * From RestFlow marketplace
+ */
+{ type: "marketplace"; url: string } | 
+/**
+ * From GitHub repository
+ */
+{ type: "git_hub"; owner: string; repo: string; ref: string | null; path: string | null } | 
+/**
+ * From a Git URL
+ */
+{ type: "git"; url: string; ref: string | null }
 /**
  * Skill lifecycle status used for discovery and planning.
  */
 export type SkillStatus = "active" | "completed" | "archived" | "draft"
+/**
+ * Semantic version for skills
+ */
+export type SkillVersion = { 
+/**
+ * Major version (breaking changes)
+ */
+major: number; 
+/**
+ * Minor version (new features, backward compatible)
+ */
+minor: number; 
+/**
+ * Patch version (bug fixes)
+ */
+patch: number; 
+/**
+ * Optional prerelease tag (e.g., "alpha", "beta.1")
+ */
+prerelease: string | null }
+/**
+ * Filter for memory source types.
+ */
+export type SourceTypeFilter = 
+/**
+ * Only task execution memories
+ */
+"task_execution" | 
+/**
+ * Only conversation memories
+ */
+"conversation" | 
+/**
+ * Only manual notes
+ */
+"manual_note" | 
+/**
+ * Only agent-generated memories
+ */
+"agent_generated"
 export type StorageMode = "DatabaseOnly" | "FileSystemOnly" | "Hybrid"
 /**
  * Stored agent with metadata
@@ -2256,6 +3514,48 @@ already_running: boolean }
  * plus its own tool_call_id. This enables hierarchical execution tracking.
  */
 export type SubflowPath = string[]
+/**
+ * System configuration
+ */
+export type SystemConfig = { worker_count: number; task_timeout_seconds: number; stall_timeout_seconds: number; 
+/**
+ * Default timeout for background API tasks in seconds.
+ * 
+ * `None` disables timeout by default. Individual tasks may still configure
+ * their own `timeout_secs` and resource limits.
+ */
+background_api_timeout_seconds?: number | null; 
+/**
+ * Timeout for interactive channel chat responses in seconds.
+ * 
+ * `None` disables timeout for chat dispatching.
+ */
+chat_response_timeout_seconds?: number | null; max_retries: number; chat_session_retention_days: number; background_task_retention_days: number; checkpoint_retention_days: number; memory_chunk_retention_days: number; 
+/**
+ * Retention period for daemon and event log files on disk.
+ * 0 = keep forever, otherwise delete files older than N days.
+ */
+log_file_retention_days: number; experimental_features: string[]; 
+/**
+ * Agent execution defaults.
+ */
+agent?: AgentDefaults; 
+/**
+ * API operation default limits.
+ */
+api_defaults?: ApiDefaults; 
+/**
+ * Runtime execution defaults for daemon/background/chat services.
+ */
+runtime_defaults?: RuntimeDefaults; 
+/**
+ * Channel integration defaults.
+ */
+channel_defaults?: ChannelDefaults; 
+/**
+ * Registry provider defaults.
+ */
+registry_defaults?: RegistryDefaults }
 /**
  * Record of a task execution event
  */
@@ -2361,6 +3661,10 @@ export type TaskSchedule =
  * Run on a cron schedule
  */
 { type: "cron"; expression: string; timezone?: string | null }
+/**
+ * Tool information for the frontend
+ */
+export type ToolInfo = { name: string; description: string }
 /**
  * Append-only execution event for chat turns.
  */
@@ -2513,6 +3817,42 @@ resource_limits?: ResourceLimits | null }
  * Update secret request
  */
 export type UpdateSecretRequest = { value: string; description: string | null }
+/**
+ * Version requirement for dependencies
+ */
+export type VersionRequirement = 
+/**
+ * Exact version match
+ */
+{ type: "Exact"; version: SkillVersion } | 
+/**
+ * Caret requirement (^1.2.3)
+ */
+{ type: "Caret"; version: SkillVersion } | 
+/**
+ * Tilde requirement (~1.2.3)
+ */
+{ type: "Tilde"; version: SkillVersion } | 
+/**
+ * Greater than
+ */
+{ type: "GreaterThan"; version: SkillVersion } | 
+/**
+ * Greater than or equal
+ */
+{ type: "GreaterOrEqual"; version: SkillVersion } | 
+/**
+ * Less than
+ */
+{ type: "LessThan"; version: SkillVersion } | 
+/**
+ * Less than or equal
+ */
+{ type: "LessOrEqual"; version: SkillVersion } | 
+/**
+ * Any version
+ */
+{ type: "Any" }
 /**
  * Webhook configuration for a task
  */
