@@ -6,7 +6,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::time::{Duration, timeout};
 
-use super::spawn_subagent_batch::SpawnSubagentBatchTool;
+use super::spawn_subagent_batch::{SpawnSubagentBatchOperation, SpawnSubagentBatchTool};
 use crate::impls::spawn_subagent_batch::BatchSubagentSpec;
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
@@ -26,6 +26,10 @@ const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
 #[cfg_attr(feature = "ts", derive(ts_rs::TS))]
 #[cfg_attr(feature = "ts", ts(export, export_to = TS_EXPORT_TO_WEB_TYPES))]
 pub struct SpawnSubagentParams {
+    /// Operation to perform. Defaults to `spawn`.
+    #[serde(default)]
+    pub operation: SpawnSubagentBatchOperation,
+
     /// Agent type to spawn (researcher, coder, reviewer, writer, analyst).
     ///
     /// When omitted, runtime creates a temporary sub-agent from inline config.
@@ -33,8 +37,12 @@ pub struct SpawnSubagentParams {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub agent: Option<String>,
 
-    /// Task description for the agent.
-    pub task: String,
+    /// Task description for single spawn, or fallback task for batch spawn.
+    ///
+    /// Required for single spawn. Optional for team management operations.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub task: Option<String>,
 
     /// If true, wait for completion. If false (default), run concurrently.
     #[serde(default)]
@@ -88,7 +96,9 @@ pub struct SpawnSubagentParams {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub team: Option<String>,
 
-    /// Optionally persist the provided workers as a named team during batch spawn.
+    /// Optionally persist the provided workers as a named team during spawn.
+    ///
+    /// To save a team without spawning, use `operation = "save_team"` and `team`.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub save_as_team: Option<String>,
@@ -217,6 +227,41 @@ impl SpawnSubagentTool {
     fn uses_batch_mode(params: &SpawnSubagentParams) -> bool {
         params.workers.is_some() || params.team.is_some() || params.save_as_team.is_some()
     }
+
+    fn routes_to_batch_tool(params: &SpawnSubagentParams) -> bool {
+        params.operation != SpawnSubagentBatchOperation::Spawn || Self::uses_batch_mode(params)
+    }
+
+    fn normalize_optional_text(value: Option<&str>) -> Option<String> {
+        value
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    }
+
+    fn resolve_batch_team(params: &SpawnSubagentParams) -> Result<Option<String>> {
+        let team = Self::normalize_optional_text(params.team.as_deref());
+        let save_as_team = Self::normalize_optional_text(params.save_as_team.as_deref());
+
+        if params.operation == SpawnSubagentBatchOperation::SaveTeam {
+            return match (team, save_as_team) {
+                (Some(team_name), Some(alias)) if team_name != alias => Err(ToolError::Tool(
+                    "When operation is 'save_team', 'team' and 'save_as_team' must match if both are provided.".to_string(),
+                )),
+                (Some(team_name), _) => Ok(Some(team_name)),
+                (None, Some(alias)) => Ok(Some(alias)),
+                (None, None) => Ok(None),
+            };
+        }
+
+        if params.operation != SpawnSubagentBatchOperation::Spawn && save_as_team.is_some() {
+            return Err(ToolError::Tool(
+                "'save_as_team' is only supported for 'spawn', or as an alias of 'team' when operation is 'save_team'.".to_string(),
+            ));
+        }
+
+        Ok(team)
+    }
 }
 
 #[async_trait]
@@ -253,21 +298,27 @@ impl Tool for SpawnSubagentTool {
         json!({
             "type": "object",
             "properties": {
+                "operation": {
+                    "type": "string",
+                    "enum": ["spawn", "save_team", "list_teams", "get_team", "delete_team"],
+                    "default": "spawn",
+                    "description": "Operation to perform. Use team management operations to save/list/read/delete teams without spawning."
+                },
                 "agent": agent_property,
                 "task": {
                     "type": "string",
-                    "description": "Detailed task description for single spawn, or default fallback task for worker specs."
+                    "description": "Detailed task description for single spawn, or default fallback task for batch worker specs. Required for single spawn."
                 },
                 "wait": {
                     "type": "boolean",
                     "default": false,
-                    "description": "If true, wait for completion. If false, run concurrently."
+                    "description": "If true, wait for completion. Applies to spawn only."
                 },
                 "timeout_secs": {
                     "type": "integer",
                     "default": DEFAULT_SUBAGENT_TIMEOUT_SECS,
                     "description": format!(
-                        "Timeout in seconds (default: {})",
+                        "Timeout in seconds for single spawn or batch spawn (default: {})",
                         DEFAULT_SUBAGENT_TIMEOUT_SECS
                     )
                 },
@@ -303,7 +354,7 @@ impl Tool for SpawnSubagentTool {
                 },
                 "workers": {
                     "type": "array",
-                    "description": "Optional unified list-based spawn specs. Use one item for single spawn or many items/count for batch.",
+                    "description": "Optional unified list-based batch specs. Use for batch spawn or save_team.",
                     "items": {
                         "type": "object",
                         "properties": {
@@ -323,14 +374,13 @@ impl Tool for SpawnSubagentTool {
                 },
                 "team": {
                     "type": "string",
-                    "description": "Optional team name for batch spawn."
+                    "description": "Team name for save_team/get_team/delete_team, or spawn from a saved team."
                 },
                 "save_as_team": {
                     "type": "string",
-                    "description": "Optionally save provided workers as team during spawn."
+                    "description": "Spawn-only convenience flag to save provided workers as a team during spawn. For save-only, use operation='save_team'."
                 }
-            },
-            "required": ["task"]
+            }
         })
     }
 
@@ -338,7 +388,7 @@ impl Tool for SpawnSubagentTool {
         let params: SpawnSubagentParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
 
-        if Self::uses_batch_mode(&params) {
+        if Self::routes_to_batch_tool(&params) {
             if params.agent.is_some()
                 || params.model.is_some()
                 || params.provider.is_some()
@@ -357,25 +407,32 @@ impl Tool for SpawnSubagentTool {
                 batch_tool = batch_tool.with_kv_store(kv_store);
             }
 
-            let task = if params.task.trim().is_empty() {
-                None
+            let operation = params.operation.clone();
+            let task = Self::normalize_optional_text(params.task.as_deref());
+            let team = Self::resolve_batch_team(&params)?;
+            let save_as_team = if operation == SpawnSubagentBatchOperation::Spawn {
+                Self::normalize_optional_text(params.save_as_team.as_deref())
             } else {
-                Some(params.task.clone())
+                None
             };
 
             return batch_tool
                 .execute(json!({
-                    "operation": "spawn",
-                    "team": params.team,
+                    "operation": operation,
+                    "team": team,
                     "specs": params.workers,
                     "task": task,
                     "wait": params.wait,
                     "timeout_secs": params.timeout_secs,
-                    "save_as_team": params.save_as_team,
+                    "save_as_team": save_as_team,
                     "parent_execution_id": params.parent_execution_id
                 }))
                 .await;
         }
+
+        let task = Self::normalize_optional_text(params.task.as_deref()).ok_or_else(|| {
+            ToolError::Tool("Single spawn requires non-empty 'task'.".to_string())
+        })?;
 
         let inline_config = Self::build_inline_config(&params);
         if params.agent.is_some() && inline_config.is_some() {
@@ -407,7 +464,7 @@ impl Tool for SpawnSubagentTool {
         let request = SpawnRequest {
             agent_id,
             inline: inline_config,
-            task: params.task.clone(),
+            task,
             timeout_secs: params.timeout_secs,
             priority: None,
             model: params.model.clone(),
@@ -499,7 +556,10 @@ mod tests {
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
     use restflow_traits::SubagentManager;
+    use restflow_traits::store::KvStore;
+    use serde_json::Value;
     use std::collections::HashMap;
+    use std::sync::Mutex;
     use tokio::sync::mpsc;
 
     struct MockDefLookup {
@@ -542,6 +602,85 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct MockKvStore {
+        entries: Mutex<HashMap<String, String>>,
+    }
+
+    impl KvStore for MockKvStore {
+        fn get_entry(&self, key: &str) -> crate::Result<Value> {
+            let entries = self
+                .entries
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(value) = entries.get(key) {
+                Ok(json!({
+                    "found": true,
+                    "key": key,
+                    "value": value
+                }))
+            } else {
+                Ok(json!({
+                    "found": false,
+                    "key": key
+                }))
+            }
+        }
+
+        fn set_entry(
+            &self,
+            key: &str,
+            content: &str,
+            _visibility: Option<&str>,
+            _content_type: Option<&str>,
+            _type_hint: Option<&str>,
+            _tags: Option<Vec<String>>,
+            _accessor_id: Option<&str>,
+        ) -> crate::Result<Value> {
+            let mut entries = self
+                .entries
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            entries.insert(key.to_string(), content.to_string());
+            Ok(json!({"success": true, "key": key}))
+        }
+
+        fn delete_entry(
+            &self,
+            key: &str,
+            _accessor_id: Option<&str>,
+        ) -> crate::Result<Value> {
+            let mut entries = self
+                .entries
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let deleted = entries.remove(key).is_some();
+            Ok(json!({"deleted": deleted, "key": key}))
+        }
+
+        fn list_entries(&self, namespace: Option<&str>) -> crate::Result<Value> {
+            let entries = self
+                .entries
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let prefix = namespace.map(|value| format!("{value}:"));
+            let list = entries
+                .keys()
+                .filter(|key| {
+                    prefix
+                        .as_ref()
+                        .map(|value| key.starts_with(value))
+                        .unwrap_or(true)
+                })
+                .map(|key| json!({ "key": key }))
+                .collect::<Vec<_>>();
+            Ok(json!({
+                "count": list.len(),
+                "entries": list
+            }))
+        }
+    }
+
     fn make_test_deps(
         agents: Vec<(&str, &str)>,
         mock_steps: Vec<MockStep>,
@@ -570,7 +709,9 @@ mod tests {
     fn test_params_deserialization() {
         let json = r#"{"agent": "researcher", "task": "Research topic X"}"#;
         let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.operation, SpawnSubagentBatchOperation::Spawn);
         assert_eq!(params.agent.as_deref(), Some("researcher"));
+        assert_eq!(params.task.as_deref(), Some("Research topic X"));
         assert!(!params.wait);
     }
 
@@ -580,6 +721,7 @@ mod tests {
             r#"{"agent": "coder", "task": "Write function Y", "wait": true, "timeout_secs": 600}"#;
         let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.agent.as_deref(), Some("coder"));
+        assert_eq!(params.task.as_deref(), Some("Write function Y"));
         assert!(params.wait);
         assert_eq!(params.timeout_secs, Some(600));
     }
@@ -590,6 +732,15 @@ mod tests {
         let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.model.as_deref(), Some("gpt-5.3-codex"));
         assert_eq!(params.provider.as_deref(), Some("openai-codex"));
+    }
+
+    #[test]
+    fn test_params_with_team_operation() {
+        let json = r#"{"operation":"save_team","team":"TeamOnly","workers":[{"count":2}]}"#;
+        let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
+        assert_eq!(params.operation, SpawnSubagentBatchOperation::SaveTeam);
+        assert_eq!(params.team.as_deref(), Some("TeamOnly"));
+        assert!(params.task.is_none());
     }
 
     #[tokio::test]
@@ -662,9 +813,14 @@ mod tests {
     async fn test_spawn_subagent_invalid_params() {
         let deps = make_test_deps(vec![], vec![]);
         let tool = SpawnSubagentTool::new(deps);
-        // Missing required "task" field
         let result = tool.execute(json!({"wait": true})).await;
         assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Single spawn requires non-empty 'task'")
+        );
     }
 
     #[tokio::test]
@@ -819,6 +975,43 @@ mod tests {
             .expect("results should be array");
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|entry| entry["status"] == "completed"));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_save_team_operation_persists_without_spawning() {
+        let deps = make_test_deps(
+            vec![("coder", "Coder")],
+            vec![MockStep::text("should-not-run")],
+        );
+        let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
+        let tool = SpawnSubagentTool::new(deps.clone()).with_kv_store(kv_store);
+
+        let output = tool
+            .execute(json!({
+                "operation": "save_team",
+                "team": "TeamOnly",
+                "workers": [
+                    { "agent": "coder", "count": 2 }
+                ]
+            }))
+            .await
+            .unwrap();
+
+        assert!(output.success);
+        assert_eq!(output.result["operation"], "save_team");
+        assert_eq!(deps.running_count(), 0);
+
+        let reuse = tool
+            .execute(json!({
+                "task": "Use saved team",
+                "wait": true,
+                "team": "TeamOnly"
+            }))
+            .await
+            .unwrap();
+
+        assert!(reuse.success);
+        assert_eq!(reuse.result["spawned_count"], 2);
     }
 
     #[test]
