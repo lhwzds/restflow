@@ -21,19 +21,19 @@ use crate::models::{
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
-    ToolTraceEmitter, append_message_trace, append_turn_completed_with_execution,
-    append_turn_failed_with_execution, append_turn_started_with_execution,
-    build_turn_persistence_payload, hydrate_voice_message_metadata,
+    append_message_trace, build_turn_persistence_payload, hydrate_voice_message_metadata,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
+use crate::runtime::trace::{
+    RestflowTrace, append_restflow_trace_completed, append_restflow_trace_failed,
+    append_restflow_trace_started, build_restflow_trace_emitter,
+};
 use crate::storage::Storage;
 use restflow_storage::AgentDefaults;
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 
 use super::debounce::MessageDebouncer;
-use restflow_ai::agent::{
-    NullEmitter, StreamEmitter, SubagentConfig, SubagentDefLookup, SubagentTracker,
-};
+use restflow_ai::agent::{NullEmitter, SubagentConfig, SubagentDefLookup, SubagentTracker};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -789,29 +789,25 @@ impl ChatDispatcher {
         let executor = self.create_executor().with_reply_sender(reply_sender);
         self.maybe_send_acknowledgement(&executor, &mut session, &input, message)
             .await;
-        let turn_id = uuid::Uuid::new_v4().to_string();
-        append_turn_started_with_execution(
+        let run_id = uuid::Uuid::new_v4().to_string();
+        let trace = RestflowTrace::new(
+            run_id.clone(),
+            session.id.clone(),
+            session.id.clone(),
+            session.agent_id.clone(),
+        );
+        append_restflow_trace_started(
             &self.storage.tool_traces,
             Some(&self.storage.execution_traces),
-            &session.id,
-            &turn_id,
-            &session.id,
-            &session.agent_id,
+            &trace,
         );
         let started_at = Instant::now();
-        let mut tool_event_emitter = Some(Box::new(
-            ToolTraceEmitter::new(
-                Box::new(NullEmitter),
-                self.storage.tool_traces.clone(),
-                session.id.clone(),
-                turn_id.clone(),
-            )
-            .with_execution_trace_context(
-                self.storage.execution_traces.clone(),
-                session.id.clone(),
-                session.agent_id.clone(),
-            ),
-        ) as Box<dyn StreamEmitter>);
+        let mut tool_event_emitter = Some(build_restflow_trace_emitter(
+            Box::new(NullEmitter),
+            self.storage.tool_traces.clone(),
+            Some(self.storage.execution_traces.clone()),
+            &trace,
+        ));
         let execution_result = if let Some(timeout_secs) = self.config.response_timeout_secs {
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(timeout_secs),
@@ -827,14 +823,12 @@ impl ChatDispatcher {
             {
                 Ok(result) => result,
                 Err(_) => {
-                    append_turn_failed_with_execution(
+                    append_restflow_trace_failed(
                         &self.storage.tool_traces,
                         Some(&self.storage.execution_traces),
-                        &session.id,
-                        &turn_id,
-                        &session.id,
-                        &session.agent_id,
+                        &trace,
                         &format!("execution timed out after {} seconds", timeout_secs),
+                        Some(started_at.elapsed().as_millis() as u64),
                     );
                     error!("Agent execution timed out after {} seconds", timeout_secs);
                     self.send_error_response(message, ChatError::Timeout)
@@ -857,14 +851,12 @@ impl ChatDispatcher {
         let exec_result = match execution_result {
             Ok(result) => result,
             Err(error) => {
-                append_turn_failed_with_execution(
+                append_restflow_trace_failed(
                     &self.storage.tool_traces,
                     Some(&self.storage.execution_traces),
-                    &session.id,
-                    &turn_id,
-                    &session.id,
-                    &session.agent_id,
+                    &trace,
                     &error.to_string(),
+                    Some(started_at.elapsed().as_millis() as u64),
                 );
                 error!("Agent execution failed: {}", error);
                 self.send_error_response(message, Self::map_execution_error(&error))
@@ -872,13 +864,11 @@ impl ChatDispatcher {
                 return Ok(());
             }
         };
-        append_turn_completed_with_execution(
+        append_restflow_trace_completed(
             &self.storage.tool_traces,
             Some(&self.storage.execution_traces),
-            &session.id,
-            &turn_id,
-            &session.id,
-            &session.agent_id,
+            &trace,
+            Some(started_at.elapsed().as_millis() as u64),
         );
 
         if session.agent_id != original_agent_id {
@@ -911,7 +901,7 @@ impl ChatDispatcher {
         let (execution, persisted_input) = build_turn_persistence_payload(
             &self.storage.tool_traces,
             &session.id,
-            &turn_id,
+            &trace.turn_id,
             &input,
             duration_ms,
             exec_result.iterations,

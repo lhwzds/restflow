@@ -6,9 +6,7 @@ use crate::models::{
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use async_trait::async_trait;
 use regex::Regex;
-use restflow_ai::agent::{
-    NullEmitter, StreamEmitter, SubagentResult, SubagentTraceContext, SubagentTraceSink,
-};
+use restflow_ai::agent::StreamEmitter;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -160,7 +158,19 @@ pub fn append_turn_started(storage: &ToolTraceStorage, session_id: &str, turn_id
 
 /// Append turn-completed event to tool trace storage.
 pub fn append_turn_completed(storage: &ToolTraceStorage, session_id: &str, turn_id: &str) {
+    append_turn_completed_with_ai_duration(storage, session_id, turn_id, None);
+}
+
+/// Append turn-completed event to tool trace storage with optional AI duration.
+pub fn append_turn_completed_with_ai_duration(
+    storage: &ToolTraceStorage,
+    session_id: &str,
+    turn_id: &str,
+    ai_duration_ms: Option<u64>,
+) {
     let event = ToolTrace::turn_completed(session_id, turn_id);
+    let mut event = event;
+    event.duration_ms = ai_duration_ms;
     if let Err(error) = storage.append(&event) {
         warn!(
             session_id,
@@ -178,11 +188,24 @@ pub fn append_turn_failed(
     turn_id: &str,
     error_text: &str,
 ) {
+    append_turn_failed_with_ai_duration(storage, session_id, turn_id, error_text, None);
+}
+
+/// Append turn-failed event to tool trace storage with optional AI duration.
+pub fn append_turn_failed_with_ai_duration(
+    storage: &ToolTraceStorage,
+    session_id: &str,
+    turn_id: &str,
+    error_text: &str,
+    ai_duration_ms: Option<u64>,
+) {
     let event = ToolTrace::turn_failed(
         session_id,
         turn_id,
         truncate_text(&sanitize_secrets(error_text), MAX_EVENT_TEXT_CHARS),
     );
+    let mut event = event;
+    event.duration_ms = ai_duration_ms;
     if let Err(error) = storage.append(&event) {
         warn!(
             session_id,
@@ -200,11 +223,24 @@ pub fn append_turn_cancelled(
     turn_id: &str,
     reason: &str,
 ) {
+    append_turn_cancelled_with_ai_duration(storage, session_id, turn_id, reason, None);
+}
+
+/// Append turn-cancelled event to tool trace storage with optional AI duration.
+pub fn append_turn_cancelled_with_ai_duration(
+    storage: &ToolTraceStorage,
+    session_id: &str,
+    turn_id: &str,
+    reason: &str,
+    ai_duration_ms: Option<u64>,
+) {
     let event = ToolTrace::turn_cancelled(
         session_id,
         turn_id,
         truncate_text(&sanitize_secrets(reason), MAX_EVENT_TEXT_CHARS),
     );
+    let mut event = event;
+    event.duration_ms = ai_duration_ms;
     if let Err(error) = storage.append(&event) {
         warn!(
             session_id,
@@ -275,7 +311,29 @@ pub fn append_turn_completed_with_execution(
     task_id: &str,
     agent_id: &str,
 ) {
-    append_turn_completed(tool_trace_storage, session_id, turn_id);
+    append_turn_completed_with_execution_and_ai_duration(
+        tool_trace_storage,
+        execution_trace_storage,
+        session_id,
+        turn_id,
+        task_id,
+        agent_id,
+        None,
+    );
+}
+
+/// Append turn-completed events to both tool trace and execution trace storages
+/// with optional AI duration.
+pub fn append_turn_completed_with_execution_and_ai_duration(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    append_turn_completed_with_ai_duration(tool_trace_storage, session_id, turn_id, ai_duration_ms);
     append_lifecycle_trace(
         execution_trace_storage,
         task_id,
@@ -296,7 +354,37 @@ pub fn append_turn_failed_with_execution(
     agent_id: &str,
     error_text: &str,
 ) {
-    append_turn_failed(tool_trace_storage, session_id, turn_id, error_text);
+    append_turn_failed_with_execution_and_ai_duration(
+        tool_trace_storage,
+        execution_trace_storage,
+        session_id,
+        turn_id,
+        task_id,
+        agent_id,
+        error_text,
+        None,
+    );
+}
+
+/// Append turn-failed events to both tool trace and execution trace storages with optional AI duration.
+#[allow(clippy::too_many_arguments)]
+pub fn append_turn_failed_with_execution_and_ai_duration(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    error_text: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    append_turn_failed_with_ai_duration(
+        tool_trace_storage,
+        session_id,
+        turn_id,
+        error_text,
+        ai_duration_ms,
+    );
     let sanitized_error = truncate_text(&sanitize_secrets(error_text), MAX_EVENT_TEXT_CHARS);
     append_lifecycle_trace(
         execution_trace_storage,
@@ -318,7 +406,37 @@ pub fn append_turn_cancelled_with_execution(
     agent_id: &str,
     reason: &str,
 ) {
-    append_turn_cancelled(tool_trace_storage, session_id, turn_id, reason);
+    append_turn_cancelled_with_execution_and_ai_duration(
+        tool_trace_storage,
+        execution_trace_storage,
+        session_id,
+        turn_id,
+        task_id,
+        agent_id,
+        reason,
+        None,
+    );
+}
+
+/// Append turn-cancelled events to both tool trace and execution trace storages with optional AI duration.
+#[allow(clippy::too_many_arguments)]
+pub fn append_turn_cancelled_with_execution_and_ai_duration(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    reason: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    append_turn_cancelled_with_ai_duration(
+        tool_trace_storage,
+        session_id,
+        turn_id,
+        reason,
+        ai_duration_ms,
+    );
     let sanitized_reason = truncate_text(&sanitize_secrets(reason), MAX_EVENT_TEXT_CHARS);
     append_lifecycle_trace(
         execution_trace_storage,
@@ -328,102 +446,6 @@ pub fn append_turn_cancelled_with_execution(
         Some(format!("Turn cancelled: {}", turn_id)),
         Some(sanitized_reason),
     );
-}
-
-fn subagent_trace_session_id(context: &SubagentTraceContext) -> String {
-    context
-        .parent_execution_id
-        .clone()
-        .unwrap_or_else(|| context.task_id.clone())
-}
-
-fn subagent_trace_turn_id(context: &SubagentTraceContext) -> String {
-    format!("subagent-{}", context.task_id)
-}
-
-/// Sub-agent trace sink that persists lifecycle and tool-call events using
-/// the existing tool/execution trace storages.
-#[derive(Clone)]
-pub struct ToolTraceSubagentSink {
-    tool_trace_storage: ToolTraceStorage,
-    execution_trace_storage: Option<ExecutionTraceStorage>,
-}
-
-impl ToolTraceSubagentSink {
-    pub fn new(
-        tool_trace_storage: ToolTraceStorage,
-        execution_trace_storage: Option<ExecutionTraceStorage>,
-    ) -> Self {
-        Self {
-            tool_trace_storage,
-            execution_trace_storage,
-        }
-    }
-}
-
-impl SubagentTraceSink for ToolTraceSubagentSink {
-    fn on_subagent_started(&self, context: &SubagentTraceContext) {
-        let session_id = subagent_trace_session_id(context);
-        let turn_id = subagent_trace_turn_id(context);
-        append_turn_started_with_execution(
-            &self.tool_trace_storage,
-            self.execution_trace_storage.as_ref(),
-            &session_id,
-            &turn_id,
-            &context.task_id,
-            &context.agent_name,
-        );
-    }
-
-    fn build_subagent_emitter(&self, context: &SubagentTraceContext) -> Box<dyn StreamEmitter> {
-        let session_id = subagent_trace_session_id(context);
-        let turn_id = subagent_trace_turn_id(context);
-        let emitter = ToolTraceEmitter::new(
-            Box::new(NullEmitter),
-            self.tool_trace_storage.clone(),
-            session_id,
-            turn_id,
-        );
-        if let Some(storage) = self.execution_trace_storage.as_ref() {
-            Box::new(emitter.with_execution_trace_context(
-                storage.clone(),
-                context.task_id.clone(),
-                context.agent_name.clone(),
-            ))
-        } else {
-            Box::new(emitter)
-        }
-    }
-
-    fn on_subagent_finished(&self, context: &SubagentTraceContext, result: &SubagentResult) {
-        let session_id = subagent_trace_session_id(context);
-        let turn_id = subagent_trace_turn_id(context);
-        if result.success {
-            append_turn_completed_with_execution(
-                &self.tool_trace_storage,
-                self.execution_trace_storage.as_ref(),
-                &session_id,
-                &turn_id,
-                &context.task_id,
-                &context.agent_name,
-            );
-            return;
-        }
-
-        let error_text = result
-            .error
-            .as_deref()
-            .unwrap_or("Sub-agent execution failed");
-        append_turn_failed_with_execution(
-            &self.tool_trace_storage,
-            self.execution_trace_storage.as_ref(),
-            &session_id,
-            &turn_id,
-            &context.task_id,
-            &context.agent_name,
-            error_text,
-        );
-    }
 }
 
 /// Append message trace event to execution trace storage.
@@ -737,48 +759,5 @@ mod tests {
         assert_eq!(steps.len(), 2);
         assert_eq!(steps[0].name, "unknown_tool");
         assert_eq!(steps[1].name, "unknown_tool");
-    }
-
-    #[tokio::test]
-    async fn test_tool_trace_subagent_sink_writes_lifecycle_and_tool_events() {
-        let storage = setup_storage();
-        let sink = ToolTraceSubagentSink::new(storage.clone(), None);
-        let context = SubagentTraceContext {
-            task_id: "task-1".to_string(),
-            agent_name: "worker".to_string(),
-            parent_execution_id: Some("parent-1".to_string()),
-        };
-
-        sink.on_subagent_started(&context);
-
-        let mut emitter = sink.build_subagent_emitter(&context);
-        emitter
-            .emit_tool_call_start("call-1", "bash", "{\"cmd\":\"echo hi\"}")
-            .await;
-        emitter
-            .emit_tool_call_result("call-1", "bash", "{\"ok\":true}", true)
-            .await;
-
-        sink.on_subagent_finished(
-            &context,
-            &SubagentResult {
-                success: true,
-                output: "ok".to_string(),
-                summary: None,
-                duration_ms: 10,
-                tokens_used: Some(1),
-                cost_usd: None,
-                error: None,
-            },
-        );
-
-        let events = storage
-            .list_by_session_turn("parent-1", "subagent-task-1", None)
-            .expect("list");
-        assert_eq!(events.len(), 4);
-        assert_eq!(events[0].event_type, ToolTraceEvent::TurnStarted);
-        assert_eq!(events[1].event_type, ToolTraceEvent::ToolCallStarted);
-        assert_eq!(events[2].event_type, ToolTraceEvent::ToolCallCompleted);
-        assert_eq!(events[3].event_type, ToolTraceEvent::TurnCompleted);
     }
 }

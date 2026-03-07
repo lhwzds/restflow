@@ -1,19 +1,5 @@
 use crate::agent::stream::StreamEmitter;
-
-/// Context describing a traced run execution.
-#[derive(Debug, Clone)]
-pub struct RunTraceContext {
-    pub run_id: String,
-    pub actor_id: String,
-    pub parent_run_id: Option<String>,
-}
-
-/// Outcome for traced run completion.
-#[derive(Debug, Clone)]
-pub struct RunTraceOutcome {
-    pub success: bool,
-    pub error: Option<String>,
-}
+pub use restflow_trace::{RunTraceContext, RunTraceOutcome};
 
 /// Optional sink for run trace lifecycle and tool-call events.
 pub trait RunTraceSink: Send + Sync {
