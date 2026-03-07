@@ -4,6 +4,9 @@ target/
 
 # Internal development documentation
 /doc/
+/docs
+
+# Agent and Claude documentation
 CLAUDE.md
 AGENTS.md
 
