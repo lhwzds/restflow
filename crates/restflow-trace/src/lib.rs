@@ -18,6 +18,53 @@ pub struct RunTraceOutcome {
     pub error: Option<String>,
 }
 
+/// Canonical event payload for one traced run lifecycle transition.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceEvent {
+    pub trace: RestflowTrace,
+    pub kind: TraceEventKind,
+}
+
+/// Tool-call start payload carried by the canonical trace event schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceToolCallStart {
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub input: Option<String>,
+}
+
+/// Tool-call completion payload carried by the canonical trace event schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceToolCallCompleted {
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub input_summary: Option<String>,
+    pub output: Option<String>,
+    pub output_ref: Option<String>,
+    pub success: bool,
+    pub duration_ms: Option<u64>,
+    pub error: Option<String>,
+}
+
+/// Lifecycle event kinds emitted for a traced run.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TraceEventKind {
+    RunStarted,
+    RunCompleted {
+        ai_duration_ms: Option<u64>,
+    },
+    RunFailed {
+        error: String,
+        ai_duration_ms: Option<u64>,
+    },
+    RunCancelled {
+        reason: String,
+        ai_duration_ms: Option<u64>,
+    },
+    ToolCallStarted(TraceToolCallStart),
+    ToolCallCompleted(TraceToolCallCompleted),
+}
+
 /// Canonical RestFlow trace descriptor for one run.
 ///
 /// `created_at_ms` captures trace metadata creation time.
@@ -68,9 +115,99 @@ impl RestflowTrace {
     }
 }
 
+impl TraceEvent {
+    pub fn run_started(trace: RestflowTrace) -> Self {
+        Self {
+            trace,
+            kind: TraceEventKind::RunStarted,
+        }
+    }
+
+    pub fn run_completed(trace: RestflowTrace, ai_duration_ms: Option<u64>) -> Self {
+        Self {
+            trace,
+            kind: TraceEventKind::RunCompleted { ai_duration_ms },
+        }
+    }
+
+    pub fn run_failed(
+        trace: RestflowTrace,
+        error: impl Into<String>,
+        ai_duration_ms: Option<u64>,
+    ) -> Self {
+        Self {
+            trace,
+            kind: TraceEventKind::RunFailed {
+                error: error.into(),
+                ai_duration_ms,
+            },
+        }
+    }
+
+    pub fn run_cancelled(
+        trace: RestflowTrace,
+        reason: impl Into<String>,
+        ai_duration_ms: Option<u64>,
+    ) -> Self {
+        Self {
+            trace,
+            kind: TraceEventKind::RunCancelled {
+                reason: reason.into(),
+                ai_duration_ms,
+            },
+        }
+    }
+
+    pub fn tool_call_started(
+        trace: RestflowTrace,
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        input: Option<String>,
+    ) -> Self {
+        Self {
+            trace,
+            kind: TraceEventKind::ToolCallStarted(TraceToolCallStart {
+                tool_call_id: tool_call_id.into(),
+                tool_name: tool_name.into(),
+                input,
+            }),
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn tool_call_completed(
+        trace: RestflowTrace,
+        tool_call_id: impl Into<String>,
+        tool_name: impl Into<String>,
+        input_summary: Option<String>,
+        output: Option<String>,
+        output_ref: Option<String>,
+        success: bool,
+        duration_ms: Option<u64>,
+        error: Option<String>,
+    ) -> Self {
+        Self {
+            trace,
+            kind: TraceEventKind::ToolCallCompleted(TraceToolCallCompleted {
+                tool_call_id: tool_call_id.into(),
+                tool_name: tool_name.into(),
+                input_summary,
+                output,
+                output_ref,
+                success,
+                duration_ms,
+                error,
+            }),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{RestflowTrace, RunTraceContext, RunTraceOutcome};
+    use super::{
+        RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind,
+        TraceToolCallCompleted,
+    };
 
     #[test]
     fn new_uses_run_prefixed_turn_id() {
@@ -116,5 +253,63 @@ mod tests {
         let restored: RunTraceOutcome = serde_json::from_str(&json).expect("deserialize outcome");
 
         assert_eq!(restored, outcome);
+    }
+
+    #[test]
+    fn trace_event_roundtrips_through_json() {
+        let event = TraceEvent::run_failed(
+            RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
+            "boom",
+            Some(123),
+        );
+
+        let json = serde_json::to_string(&event).expect("serialize event");
+        let restored: TraceEvent = serde_json::from_str(&json).expect("deserialize event");
+
+        assert_eq!(restored, event);
+    }
+
+    #[test]
+    fn trace_event_run_completed_preserves_duration() {
+        let event = TraceEvent::run_completed(
+            RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
+            Some(321),
+        );
+
+        assert_eq!(
+            event.kind,
+            TraceEventKind::RunCompleted {
+                ai_duration_ms: Some(321)
+            }
+        );
+    }
+
+    #[test]
+    fn trace_event_tool_call_completed_roundtrips_payload() {
+        let event = TraceEvent::tool_call_completed(
+            RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
+            "call-1",
+            "bash",
+            Some("{\"cmd\":\"echo hi\"}".to_string()),
+            Some("{\"ok\":true}".to_string()),
+            Some("/tmp/output.txt".to_string()),
+            true,
+            Some(42),
+            None,
+        );
+
+        assert_eq!(
+            event.kind,
+            TraceEventKind::ToolCallCompleted(TraceToolCallCompleted {
+                tool_call_id: "call-1".to_string(),
+                tool_name: "bash".to_string(),
+                input_summary: Some("{\"cmd\":\"echo hi\"}".to_string()),
+                output: Some("{\"ok\":true}".to_string()),
+                output_ref: Some("/tmp/output.txt".to_string()),
+                success: true,
+                duration_ms: Some(42),
+                error: None,
+            })
+        );
     }
 }

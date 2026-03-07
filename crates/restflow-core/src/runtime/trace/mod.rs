@@ -1,5 +1,6 @@
 //! Shared runtime helpers for RestFlow run traces.
 
+use crate::models::{ExecutionTraceEvent, ToolCallCompletion, ToolCallTrace, ToolTrace};
 use crate::runtime::channel::tool_trace_emitter::{
     ToolTraceEmitter, append_turn_cancelled_with_execution_and_ai_duration,
     append_turn_completed_with_execution_and_ai_duration,
@@ -7,7 +8,11 @@ use crate::runtime::channel::tool_trace_emitter::{
 };
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use restflow_ai::agent::{NullEmitter, RunTraceSink, StreamEmitter};
-pub use restflow_trace::{RestflowTrace, RunTraceContext, RunTraceOutcome};
+pub use restflow_trace::{
+    RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind,
+    TraceToolCallCompleted, TraceToolCallStart,
+};
+use tracing::warn;
 
 fn restflow_trace_from_context(context: &RunTraceContext) -> RestflowTrace {
     RestflowTrace::from_run(
@@ -16,6 +21,77 @@ fn restflow_trace_from_context(context: &RunTraceContext) -> RestflowTrace {
         context.parent_run_id.clone(),
         None,
     )
+}
+
+/// Persist one canonical trace lifecycle event into the existing storages.
+pub fn append_trace_event(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    event: &TraceEvent,
+) {
+    match &event.kind {
+        TraceEventKind::RunStarted => {
+            append_restflow_trace_started(
+                tool_trace_storage,
+                execution_trace_storage,
+                &event.trace,
+            );
+        }
+        TraceEventKind::RunCompleted { ai_duration_ms } => {
+            append_restflow_trace_completed(
+                tool_trace_storage,
+                execution_trace_storage,
+                &event.trace,
+                *ai_duration_ms,
+            );
+        }
+        TraceEventKind::RunFailed {
+            error,
+            ai_duration_ms,
+        } => {
+            append_restflow_trace_failed(
+                tool_trace_storage,
+                execution_trace_storage,
+                &event.trace,
+                error,
+                *ai_duration_ms,
+            );
+        }
+        TraceEventKind::RunCancelled {
+            reason,
+            ai_duration_ms,
+        } => {
+            append_restflow_trace_cancelled(
+                tool_trace_storage,
+                execution_trace_storage,
+                &event.trace,
+                reason,
+                *ai_duration_ms,
+            );
+        }
+        TraceEventKind::ToolCallStarted(tool_call) => {
+            append_restflow_tool_call_started(tool_trace_storage, &event.trace, tool_call);
+        }
+        TraceEventKind::ToolCallCompleted(tool_call) => {
+            append_restflow_tool_call_completed(
+                tool_trace_storage,
+                execution_trace_storage,
+                &event.trace,
+                tool_call,
+            );
+        }
+    }
+}
+
+fn append_tool_trace_event(storage: &ToolTraceStorage, event: ToolTrace) {
+    if let Err(error) = storage.append(&event) {
+        warn!(
+            session_id = %event.session_id,
+            turn_id = %event.turn_id,
+            error = %error,
+            "Failed to append trace event"
+        );
+    }
 }
 
 /// Append run-started events for a canonical RestFlow trace.
@@ -92,6 +168,75 @@ pub fn append_restflow_trace_cancelled(
     );
 }
 
+/// Append tool-call start events for a canonical RestFlow trace.
+pub fn append_restflow_tool_call_started(
+    tool_trace_storage: &ToolTraceStorage,
+    trace: &RestflowTrace,
+    tool_call: &TraceToolCallStart,
+) {
+    append_tool_trace_event(
+        tool_trace_storage,
+        ToolTrace::tool_call_started(
+            trace.session_id.clone(),
+            trace.turn_id.clone(),
+            tool_call.tool_call_id.clone(),
+            tool_call.tool_name.clone(),
+            tool_call.input.clone(),
+        ),
+    );
+}
+
+/// Append tool-call completion events for a canonical RestFlow trace.
+pub fn append_restflow_tool_call_completed(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    trace: &RestflowTrace,
+    tool_call: &TraceToolCallCompleted,
+) {
+    append_tool_trace_event(
+        tool_trace_storage,
+        ToolTrace::tool_call_completed(
+            trace.session_id.clone(),
+            trace.turn_id.clone(),
+            tool_call.tool_call_id.clone(),
+            tool_call.tool_name.clone(),
+            ToolCallCompletion {
+                output: tool_call.output.clone(),
+                output_ref: tool_call.output_ref.clone(),
+                success: tool_call.success,
+                duration_ms: tool_call.duration_ms,
+                error: tool_call.error.clone(),
+            },
+        ),
+    );
+
+    let Some(storage) = execution_trace_storage else {
+        return;
+    };
+
+    let trace_event = ExecutionTraceEvent::tool_call(
+        trace.execution_task_id.clone(),
+        trace.actor_id.clone(),
+        ToolCallTrace {
+            tool_name: tool_call.tool_name.clone(),
+            input_summary: tool_call.input_summary.clone(),
+            success: tool_call.success,
+            error: tool_call.error.clone(),
+            duration_ms: tool_call.duration_ms.map(|value| value as i64),
+        },
+    );
+    if let Err(error) = storage.store(&trace_event) {
+        warn!(
+            task_id = %trace.execution_task_id,
+            agent_id = %trace.actor_id,
+            tool_call_id = %tool_call.tool_call_id,
+            tool_name = %tool_call.tool_name,
+            error = %error,
+            "Failed to append execution trace event"
+        );
+    }
+}
+
 /// Build a tool trace emitter bound to a canonical RestFlow trace.
 pub fn build_restflow_trace_emitter(
     inner: Box<dyn StreamEmitter>,
@@ -99,18 +244,9 @@ pub fn build_restflow_trace_emitter(
     execution_trace_storage: Option<ExecutionTraceStorage>,
     trace: &RestflowTrace,
 ) -> Box<dyn StreamEmitter> {
-    let emitter = ToolTraceEmitter::new(
-        inner,
-        tool_trace_storage,
-        trace.session_id.clone(),
-        trace.turn_id.clone(),
-    );
+    let emitter = ToolTraceEmitter::new(inner, tool_trace_storage, trace.clone());
     if let Some(storage) = execution_trace_storage {
-        Box::new(emitter.with_execution_trace_context(
-            storage,
-            trace.execution_task_id.clone(),
-            trace.actor_id.clone(),
-        ))
+        Box::new(emitter.with_execution_trace_storage(storage))
     } else {
         Box::new(emitter)
     }
@@ -138,11 +274,11 @@ impl ToolTraceRunSink {
 
 impl RunTraceSink for ToolTraceRunSink {
     fn on_run_started(&self, context: &RunTraceContext) {
-        let trace = restflow_trace_from_context(context);
-        append_restflow_trace_started(
+        let event = TraceEvent::run_started(restflow_trace_from_context(context));
+        append_trace_event(
             &self.tool_trace_storage,
             self.execution_trace_storage.as_ref(),
-            &trace,
+            &event,
         );
     }
 
@@ -159,22 +295,21 @@ impl RunTraceSink for ToolTraceRunSink {
     fn on_run_finished(&self, context: &RunTraceContext, outcome: &RunTraceOutcome) {
         let trace = restflow_trace_from_context(context);
         if outcome.success {
-            append_restflow_trace_completed(
+            let event = TraceEvent::run_completed(trace, None);
+            append_trace_event(
                 &self.tool_trace_storage,
                 self.execution_trace_storage.as_ref(),
-                &trace,
-                None,
+                &event,
             );
             return;
         }
 
         let error_text = outcome.error.as_deref().unwrap_or("Run execution failed");
-        append_restflow_trace_failed(
+        let event = TraceEvent::run_failed(trace, error_text, None);
+        append_trace_event(
             &self.tool_trace_storage,
             self.execution_trace_storage.as_ref(),
-            &trace,
-            error_text,
-            None,
+            &event,
         );
     }
 }
@@ -182,7 +317,7 @@ impl RunTraceSink for ToolTraceRunSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ToolTraceEvent;
+    use crate::models::{ExecutionTraceCategory, ToolTraceEvent};
     use crate::storage::ToolTraceStorage;
     use redb::Database;
     use std::sync::Arc;
@@ -248,5 +383,74 @@ mod tests {
         assert_eq!(events[1].event_type, ToolTraceEvent::TurnCompleted);
         assert_eq!(events[1].duration_ms, Some(321));
         assert!(events[1].created_at >= trace.created_at_ms);
+    }
+
+    #[test]
+    fn test_append_trace_event_persists_cancelled_lifecycle() {
+        let storage = setup_storage();
+        let event = TraceEvent::run_cancelled(
+            RestflowTrace::new("run-c", "session-c", "task-c", "agent-c"),
+            "cancelled",
+            Some(77),
+        );
+
+        append_trace_event(&storage, None, &event);
+
+        let events = storage
+            .list_by_session_turn("session-c", "run-run-c", None)
+            .expect("list");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, ToolTraceEvent::TurnCancelled);
+        assert_eq!(events[0].duration_ms, Some(77));
+        assert_eq!(events[0].error.as_deref(), Some("cancelled"));
+    }
+
+    #[test]
+    fn test_append_trace_event_persists_tool_call_completion() {
+        let storage = setup_storage();
+        let temp_dir = tempdir().expect("tempdir");
+        let db_path = temp_dir.path().join("execution.db");
+        let db = Arc::new(Database::create(db_path).expect("db"));
+        let execution_storage = ExecutionTraceStorage::new(db).expect("execution storage");
+        let event = TraceEvent::tool_call_completed(
+            RestflowTrace::new("run-t", "session-t", "task-t", "agent-t"),
+            "call-1",
+            "bash",
+            Some("{\"cmd\":\"echo hi\"}".to_string()),
+            Some("{\"ok\":true}".to_string()),
+            None,
+            true,
+            Some(11),
+            None,
+        );
+
+        append_trace_event(&storage, Some(&execution_storage), &event);
+
+        let tool_events = storage
+            .list_by_session_turn("session-t", "run-run-t", None)
+            .expect("list");
+        assert_eq!(tool_events.len(), 1);
+        assert_eq!(tool_events[0].event_type, ToolTraceEvent::ToolCallCompleted);
+        assert_eq!(tool_events[0].tool_name.as_deref(), Some("bash"));
+        assert_eq!(tool_events[0].duration_ms, Some(11));
+
+        let execution_events = execution_storage
+            .query(&crate::models::ExecutionTraceQuery {
+                task_id: Some("task-t".to_string()),
+                ..Default::default()
+            })
+            .expect("query");
+        assert_eq!(execution_events.len(), 1);
+        assert_eq!(
+            execution_events[0].category,
+            ExecutionTraceCategory::ToolCall
+        );
+        assert_eq!(
+            execution_events[0]
+                .tool_call
+                .as_ref()
+                .and_then(|trace| trace.input_summary.as_deref()),
+            Some("{\"cmd\":\"echo hi\"}")
+        );
     }
 }

@@ -1,12 +1,13 @@
 use crate::models::chat_session::ExecutionStepInfo;
 use crate::models::{
-    ExecutionTraceEvent, LifecycleTrace, MessageTrace, ToolCallCompletion, ToolCallTrace,
-    ToolTrace, ToolTraceEvent,
+    ExecutionTraceEvent, LifecycleTrace, MessageTrace, ToolTrace, ToolTraceEvent,
 };
+use crate::runtime::trace::{RestflowTrace, append_trace_event};
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use async_trait::async_trait;
 use regex::Regex;
 use restflow_ai::agent::StreamEmitter;
+use restflow_trace::TraceEvent;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::LazyLock;
@@ -483,12 +484,9 @@ pub struct ToolTraceEmitter {
     inner: Box<dyn StreamEmitter>,
     trace_storage: ToolTraceStorage,
     execution_trace_storage: Option<ExecutionTraceStorage>,
-    session_id: String,
-    turn_id: String,
+    trace: RestflowTrace,
     tool_start_times: HashMap<String, Instant>,
     tool_inputs: HashMap<String, Option<String>>,
-    execution_task_id: Option<String>,
-    execution_agent_id: Option<String>,
     _base_dir: Option<PathBuf>,
 }
 
@@ -497,45 +495,26 @@ impl ToolTraceEmitter {
     pub fn new(
         inner: Box<dyn StreamEmitter>,
         trace_storage: ToolTraceStorage,
-        session_id: impl Into<String>,
-        turn_id: impl Into<String>,
+        trace: RestflowTrace,
     ) -> Self {
         Self {
             inner,
             trace_storage,
             execution_trace_storage: None,
-            session_id: session_id.into(),
-            turn_id: turn_id.into(),
+            trace,
             tool_start_times: HashMap::new(),
             tool_inputs: HashMap::new(),
-            execution_task_id: None,
-            execution_agent_id: None,
             _base_dir: crate::paths::ensure_restflow_dir().ok(),
         }
     }
 
-    /// Attach execution trace context for dual-write into execution trace storage.
-    pub fn with_execution_trace_context(
+    /// Attach execution trace storage for dual-write.
+    pub fn with_execution_trace_storage(
         mut self,
         execution_trace_storage: ExecutionTraceStorage,
-        task_id: impl Into<String>,
-        agent_id: impl Into<String>,
     ) -> Self {
         self.execution_trace_storage = Some(execution_trace_storage);
-        self.execution_task_id = Some(task_id.into());
-        self.execution_agent_id = Some(agent_id.into());
         self
-    }
-
-    fn append_event(&self, event: ToolTrace) {
-        if let Err(error) = self.trace_storage.append(&event) {
-            warn!(
-                session_id = %self.session_id,
-                turn_id = %self.turn_id,
-                error = %error,
-                "Failed to append tool trace event"
-            );
-        }
     }
 }
 
@@ -552,16 +531,20 @@ impl StreamEmitter for ToolTraceEmitter {
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
         self.inner.emit_tool_call_start(id, name, arguments).await;
         self.tool_start_times.insert(id.to_string(), Instant::now());
+        let normalized_input = normalize_payload(arguments);
         self.tool_inputs
-            .insert(id.to_string(), normalize_payload(arguments));
-        let event = ToolTrace::tool_call_started(
-            self.session_id.clone(),
-            self.turn_id.clone(),
+            .insert(id.to_string(), normalized_input.clone());
+        let event = TraceEvent::tool_call_started(
+            self.trace.clone(),
             id.to_string(),
             name.to_string(),
-            normalize_payload(arguments),
+            normalized_input,
         );
-        self.append_event(event);
+        append_trace_event(
+            &self.trace_storage,
+            self.execution_trace_storage.as_ref(),
+            &event,
+        );
     }
 
     async fn emit_tool_call_result(&mut self, id: &str, name: &str, result: &str, success: bool) {
@@ -579,7 +562,7 @@ impl StreamEmitter for ToolTraceEmitter {
             .as_deref()
             .map(|value| truncate_text(value, MAX_EVENT_TEXT_CHARS));
         let output_ref = full_output.as_deref().and_then(|value| {
-            maybe_persist_full_output(&self.session_id, &self.turn_id, id, name, value)
+            maybe_persist_full_output(&self.trace.session_id, &self.trace.turn_id, id, name, value)
         });
         let error = if success {
             None
@@ -590,45 +573,22 @@ impl StreamEmitter for ToolTraceEmitter {
                     .unwrap_or_else(|| "tool call failed".to_string()),
             )
         };
-        let event = ToolTrace::tool_call_completed(
-            self.session_id.clone(),
-            self.turn_id.clone(),
+        let event = TraceEvent::tool_call_completed(
+            self.trace.clone(),
             id.to_string(),
             name.to_string(),
-            ToolCallCompletion {
-                output,
-                output_ref,
-                success,
-                duration_ms,
-                error: error.clone(),
-            },
+            input_summary,
+            output,
+            output_ref,
+            success,
+            duration_ms,
+            error,
         );
-        self.append_event(event);
-
-        if let (Some(execution_storage), Some(task_id), Some(agent_id)) = (
+        append_trace_event(
+            &self.trace_storage,
             self.execution_trace_storage.as_ref(),
-            self.execution_task_id.as_deref(),
-            self.execution_agent_id.as_deref(),
-        ) {
-            let trace = ToolCallTrace {
-                tool_name: name.to_string(),
-                input_summary,
-                success,
-                error,
-                duration_ms: duration_ms.map(|value| value as i64),
-            };
-            let trace_event = ExecutionTraceEvent::tool_call(task_id, agent_id, trace);
-            if let Err(err) = execution_storage.store(&trace_event) {
-                warn!(
-                    task_id,
-                    agent_id,
-                    tool_call_id = id,
-                    tool_name = name,
-                    error = %err,
-                    "Failed to append tool-call execution trace"
-                );
-            }
-        }
+            &event,
+        );
     }
 
     async fn emit_complete(&mut self) {
@@ -658,8 +618,7 @@ mod tests {
         let mut emitter = ToolTraceEmitter::new(
             Box::new(NullEmitter),
             storage.clone(),
-            "session-1",
-            "turn-1",
+            RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
         );
 
         emitter
@@ -670,7 +629,7 @@ mod tests {
             .await;
 
         let events = storage
-            .list_by_session_turn("session-1", "turn-1", None)
+            .list_by_session_turn("session-1", "run-run-1", None)
             .expect("list");
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].tool_name.as_deref(), Some("bash"));
