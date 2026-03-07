@@ -394,7 +394,6 @@ mod tests {
         BackgroundAgentUpdateRequest, MemoryStore as _,
     };
     use serde_json::json;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
     #[test]
@@ -412,13 +411,6 @@ mod tests {
         assert_eq!(config.subagent_timeout_secs, 900);
         assert_eq!(config.max_iterations, 123);
         assert_eq!(config.max_depth, SubagentConfig::default().max_depth);
-    }
-
-    fn restflow_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     #[allow(clippy::type_complexity)]
@@ -442,7 +434,7 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
-        let _restflow_env_lock = restflow_dir_env_lock();
+        let _restflow_env_lock = crate::paths::restflow_dir_env_lock();
 
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -730,7 +722,7 @@ mod tests {
 
     #[test]
     fn test_manage_ops_log_tail_rejects_path_outside_logs_dir() {
-        let _lock = restflow_dir_env_lock();
+        let _lock = crate::paths::restflow_dir_env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -759,7 +751,7 @@ mod tests {
 
     #[test]
     fn test_manage_ops_log_tail_allows_relative_path_in_logs_dir() {
-        let _lock = restflow_dir_env_lock();
+        let _lock = crate::paths::restflow_dir_env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();
@@ -798,7 +790,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn test_manage_ops_log_tail_rejects_symlink_path() {
-        let _lock = restflow_dir_env_lock();
+        let _lock = crate::paths::restflow_dir_env_lock();
         let temp_dir = tempdir().unwrap();
         let state_dir = temp_dir.path().join("state");
         std::fs::create_dir_all(&state_dir).unwrap();

@@ -134,15 +134,12 @@ impl AuthProfileStore for AuthProfileStorageAdapter {
 mod tests {
     use super::*;
     use restflow_traits::store::{AuthProfileStore, CredentialInput};
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     /// Guard to serialize tests that modify RESTFLOW_DIR env var.
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::paths::restflow_dir_env_lock()
     }
 
     fn setup() -> (

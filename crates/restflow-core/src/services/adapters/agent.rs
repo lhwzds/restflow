@@ -190,14 +190,11 @@ impl AgentStore for AgentStoreAdapter {
 mod tests {
     use super::*;
     use restflow_traits::store::AgentStore;
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::paths::restflow_dir_env_lock()
     }
 
     fn setup() -> (

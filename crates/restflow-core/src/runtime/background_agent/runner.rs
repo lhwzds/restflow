@@ -4157,6 +4157,8 @@ mod tests {
         use std::fs;
         use tempfile::tempdir;
 
+        let _lock = crate::paths::restflow_dir_env_lock();
+
         // Create a temporary directory to act as RESTFLOW_DIR
         let temp_dir = tempdir().expect("Failed to create temp dir");
         let tool_output_base_dir = temp_dir.path().join("tool-output");

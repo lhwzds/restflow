@@ -87,13 +87,11 @@ fn ensure_skill_file(skills_root: &Path, skill_id: &str, content: &str) -> Resul
 mod tests {
     use super::*;
     use regex::Regex;
-    use std::sync::{Mutex, OnceLock};
 
     const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
+        crate::paths::restflow_dir_env_lock()
     }
 
     #[test]
