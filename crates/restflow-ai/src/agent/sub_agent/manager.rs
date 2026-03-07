@@ -2,11 +2,11 @@ use std::sync::Arc;
 
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::ToolRegistry;
+use restflow_traits::ToolError;
 use restflow_traits::subagent::{
     SpawnHandle, SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSummary,
     SubagentManager, SubagentResult, SubagentState,
 };
-use restflow_traits::ToolError;
 
 use super::spawn::spawn_subagent;
 use super::tracker::SubagentTracker;
