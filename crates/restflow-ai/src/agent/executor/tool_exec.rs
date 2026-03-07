@@ -19,6 +19,8 @@ use super::{AgentExecutor, MAX_TOOL_RETRIES};
 pub(crate) struct ToolInvocationContext<'a> {
     pub parent_execution_id: Option<&'a str>,
     pub chat_session_id: Option<&'a str>,
+    pub trace_session_id: Option<&'a str>,
+    pub trace_scope_id: Option<&'a str>,
 }
 
 impl AgentExecutor {
@@ -36,6 +38,28 @@ impl AgentExecutor {
         if let Some(map) = args.as_object_mut() {
             map.entry("parent_execution_id".to_string())
                 .or_insert_with(|| Value::String(parent_execution_id.to_string()));
+        }
+    }
+
+    fn inject_spawn_trace_context(
+        tool_name: &str,
+        args: &mut Value,
+        trace_session_id: Option<&str>,
+        trace_scope_id: Option<&str>,
+    ) {
+        if tool_name != "spawn_subagent" {
+            return;
+        }
+        let Some(map) = args.as_object_mut() else {
+            return;
+        };
+        if let Some(trace_session_id) = trace_session_id {
+            map.entry("trace_session_id".to_string())
+                .or_insert_with(|| Value::String(trace_session_id.to_string()));
+        }
+        if let Some(trace_scope_id) = trace_scope_id {
+            map.entry("trace_scope_id".to_string())
+                .or_insert_with(|| Value::String(trace_scope_id.to_string()));
         }
     }
 
@@ -236,6 +260,12 @@ impl AgentExecutor {
                 &mut args,
                 context.parent_execution_id,
             );
+            Self::inject_spawn_trace_context(
+                &call.name,
+                &mut args,
+                context.trace_session_id,
+                context.trace_scope_id,
+            );
             Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
             let arguments = serde_json::to_string(&args).unwrap_or_default();
             emitter
@@ -256,6 +286,12 @@ impl AgentExecutor {
                 &call.name,
                 &mut args,
                 context.parent_execution_id,
+            );
+            Self::inject_spawn_trace_context(
+                &call.name,
+                &mut args,
+                context.trace_session_id,
+                context.trace_scope_id,
             );
             Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
             let tool_call_id = call.id.clone();

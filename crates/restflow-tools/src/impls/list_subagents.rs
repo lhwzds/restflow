@@ -260,6 +260,8 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
             },
             None,
         )

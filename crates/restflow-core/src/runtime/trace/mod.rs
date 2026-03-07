@@ -424,7 +424,7 @@ pub fn append_restflow_trace_started(
         execution_trace_storage,
         &trace.session_id,
         &trace.turn_id,
-        &trace.execution_task_id,
+        &trace.scope_id,
         &trace.actor_id,
     );
 }
@@ -441,7 +441,7 @@ pub fn append_restflow_trace_completed(
         execution_trace_storage,
         &trace.session_id,
         &trace.turn_id,
-        &trace.execution_task_id,
+        &trace.scope_id,
         &trace.actor_id,
         ai_duration_ms,
     );
@@ -460,7 +460,7 @@ pub fn append_restflow_trace_failed(
         execution_trace_storage,
         &trace.session_id,
         &trace.turn_id,
-        &trace.execution_task_id,
+        &trace.scope_id,
         &trace.actor_id,
         error_text,
         ai_duration_ms,
@@ -480,7 +480,7 @@ pub fn append_restflow_trace_cancelled(
         execution_trace_storage,
         &trace.session_id,
         &trace.turn_id,
-        &trace.execution_task_id,
+        &trace.scope_id,
         &trace.actor_id,
         reason,
         ai_duration_ms,
@@ -534,7 +534,7 @@ pub fn append_restflow_tool_call_completed(
     };
 
     let trace_event = ExecutionTraceEvent::tool_call(
-        trace.execution_task_id.clone(),
+        trace.scope_id.clone(),
         trace.actor_id.clone(),
         ToolCallTrace {
             tool_name: tool_call.tool_name.clone(),
@@ -546,7 +546,7 @@ pub fn append_restflow_tool_call_completed(
     );
     if let Err(error) = storage.store(&trace_event) {
         warn!(
-            task_id = %trace.execution_task_id,
+            scope_id = %trace.scope_id,
             agent_id = %trace.actor_id,
             tool_call_id = %tool_call.tool_call_id,
             tool_name = %tool_call.tool_name,
@@ -567,7 +567,7 @@ pub fn append_restflow_message(
     };
 
     let trace_event = ExecutionTraceEvent::message(
-        trace.execution_task_id.clone(),
+        trace.scope_id.clone(),
         trace.actor_id.clone(),
         MessageTrace {
             role: message.role.clone(),
@@ -577,7 +577,7 @@ pub fn append_restflow_message(
     );
     if let Err(error) = storage.store(&trace_event) {
         warn!(
-            task_id = %trace.execution_task_id,
+            scope_id = %trace.scope_id,
             agent_id = %trace.actor_id,
             role = %message.role,
             error = %error,
@@ -639,14 +639,14 @@ impl TraceEventSink for ToolTraceRunSink {
         append_trace_event(
             &self.tool_trace_storage,
             self.execution_trace_storage.as_ref(),
-            &event,
+            event,
         );
     }
 }
 
 impl RunTraceEmitterFactory for ToolTraceRunSink {
     fn build_run_emitter(&self, context: &RunTraceContext) -> Box<dyn StreamEmitter> {
-        let trace = RestflowTrace::from_context(context, None);
+        let trace = RestflowTrace::from_context(context);
         build_restflow_trace_emitter(
             Box::new(NullEmitter),
             self.tool_trace_storage.clone(),
@@ -680,6 +680,8 @@ mod tests {
             run_id: "run-1".to_string(),
             actor_id: "worker".to_string(),
             parent_run_id: Some("parent-1".to_string()),
+            session_id: "session-1".to_string(),
+            scope_id: "scope-1".to_string(),
         };
 
         sink.on_run_started(&context);
@@ -701,7 +703,7 @@ mod tests {
         );
 
         let events = storage
-            .list_by_session_turn("parent-1", "run-run-1", None)
+            .list_by_session_turn("session-1", "run-run-1", None)
             .expect("list");
         assert_eq!(events.len(), 4);
         assert_eq!(events[0].event_type, ToolTraceEvent::TurnStarted);

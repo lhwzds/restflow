@@ -9,6 +9,10 @@ pub struct RunTraceContext {
     pub run_id: String,
     pub actor_id: String,
     pub parent_run_id: Option<String>,
+    #[serde(default)]
+    pub session_id: String,
+    #[serde(default)]
+    pub scope_id: String,
 }
 
 /// Outcome for traced run completion.
@@ -27,12 +31,12 @@ pub trait TraceEventSink: Send + Sync {
 pub trait RunTraceLifecycleSink: TraceEventSink {
     fn on_run_started(&self, context: &RunTraceContext) {
         self.record_trace_event(&TraceEvent::run_started(RestflowTrace::from_context(
-            context, None,
+            context,
         )));
     }
 
     fn on_run_finished(&self, context: &RunTraceContext, outcome: &RunTraceOutcome) {
-        let trace = RestflowTrace::from_context(context, None);
+        let trace = RestflowTrace::from_context(context);
         let event = if outcome.success {
             TraceEvent::run_completed(trace, None)
         } else {
@@ -111,10 +115,19 @@ pub enum TraceEventKind {
 /// terminal events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RestflowTrace {
+    /// Stable identifier for this traced run.
     pub run_id: String,
+    /// Optional parent run identifier for hierarchical traces (for example sub-agents).
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
+    /// Session grouping key used by the legacy tool-trace storage.
     pub session_id: String,
+    /// Legacy run key stored in tool traces.
     pub turn_id: String,
-    pub execution_task_id: String,
+    /// Neutral execution scope identifier used by execution traces.
+    #[serde(alias = "execution_task_id")]
+    pub scope_id: String,
+    /// Logical actor executing this run.
     pub actor_id: String,
     pub created_at_ms: i64,
 }
@@ -124,42 +137,64 @@ impl RestflowTrace {
     pub fn new(
         run_id: impl Into<String>,
         session_id: impl Into<String>,
-        execution_task_id: impl Into<String>,
+        scope_id: impl Into<String>,
         actor_id: impl Into<String>,
     ) -> Self {
         let run_id = run_id.into();
         Self {
+            parent_run_id: None,
             turn_id: format!("run-{}", run_id),
             run_id,
             session_id: session_id.into(),
-            execution_task_id: execution_task_id.into(),
+            scope_id: scope_id.into(),
             actor_id: actor_id.into(),
             created_at_ms: Utc::now().timestamp_millis(),
         }
     }
 
-    /// Build from run metadata with sane defaults for missing parent/scope.
+    /// Attach an explicit parent run relationship to this trace.
+    pub fn with_parent_run_id(mut self, parent_run_id: Option<String>) -> Self {
+        self.parent_run_id = parent_run_id;
+        self
+    }
+
+    /// Build from run metadata with sane defaults for missing session/scope.
     pub fn from_run(
         run_id: impl Into<String>,
         actor_id: impl Into<String>,
         parent_run_id: Option<String>,
-        execution_scope_id: Option<String>,
+        session_id: Option<String>,
+        scope_id: Option<String>,
     ) -> Self {
         let run_id = run_id.into();
-        let session_id = parent_run_id.clone().unwrap_or_else(|| run_id.clone());
-        let execution_task_id = execution_scope_id
-            .or(parent_run_id)
+        let session_id = session_id
+            .filter(|value| !value.trim().is_empty())
+            .or(scope_id.clone().filter(|value| !value.trim().is_empty()))
+            .or(parent_run_id.clone())
             .unwrap_or_else(|| run_id.clone());
-        Self::new(run_id, session_id, execution_task_id, actor_id)
+        let scope_id = scope_id
+            .filter(|value| !value.trim().is_empty())
+            .or_else(|| {
+                let session_id = session_id.trim();
+                if session_id.is_empty() {
+                    None
+                } else {
+                    Some(session_id.to_string())
+                }
+            })
+            .or(parent_run_id.clone())
+            .unwrap_or_else(|| run_id.clone());
+        Self::new(run_id, session_id, scope_id, actor_id).with_parent_run_id(parent_run_id)
     }
 
     /// Build directly from a run-trace context.
-    pub fn from_context(context: &RunTraceContext, execution_scope_id: Option<String>) -> Self {
+    pub fn from_context(context: &RunTraceContext) -> Self {
         Self::from_run(
             context.run_id.clone(),
             context.actor_id.clone(),
             context.parent_run_id.clone(),
-            execution_scope_id,
+            Some(context.session_id.clone()),
+            Some(context.scope_id.clone()),
         )
     }
 }
@@ -290,18 +325,25 @@ mod tests {
     fn new_uses_run_prefixed_turn_id() {
         let trace = RestflowTrace::new("run-1", "session-1", "task-1", "agent-1");
         assert_eq!(trace.run_id, "run-1");
+        assert_eq!(trace.parent_run_id, None);
         assert_eq!(trace.turn_id, "run-run-1");
         assert_eq!(trace.session_id, "session-1");
-        assert_eq!(trace.execution_task_id, "task-1");
+        assert_eq!(trace.scope_id, "task-1");
         assert_eq!(trace.actor_id, "agent-1");
     }
 
     #[test]
     fn from_run_defaults_to_parent_when_present() {
-        let trace =
-            RestflowTrace::from_run("child-run", "worker", Some("parent-run".to_string()), None);
+        let trace = RestflowTrace::from_run(
+            "child-run",
+            "worker",
+            Some("parent-run".to_string()),
+            None,
+            None,
+        );
+        assert_eq!(trace.parent_run_id.as_deref(), Some("parent-run"));
         assert_eq!(trace.session_id, "parent-run");
-        assert_eq!(trace.execution_task_id, "parent-run");
+        assert_eq!(trace.scope_id, "parent-run");
         assert_eq!(trace.turn_id, "run-child-run");
     }
 
@@ -311,12 +353,15 @@ mod tests {
             run_id: "child-run".to_string(),
             actor_id: "worker".to_string(),
             parent_run_id: Some("parent-run".to_string()),
+            session_id: "session-1".to_string(),
+            scope_id: "scope-1".to_string(),
         };
 
-        let trace = RestflowTrace::from_context(&context, Some("scope-1".to_string()));
+        let trace = RestflowTrace::from_context(&context);
         assert_eq!(trace.run_id, "child-run");
-        assert_eq!(trace.session_id, "parent-run");
-        assert_eq!(trace.execution_task_id, "scope-1");
+        assert_eq!(trace.parent_run_id.as_deref(), Some("parent-run"));
+        assert_eq!(trace.session_id, "session-1");
+        assert_eq!(trace.scope_id, "scope-1");
         assert_eq!(trace.actor_id, "worker");
     }
 
@@ -326,6 +371,8 @@ mod tests {
             run_id: "run-1".to_string(),
             actor_id: "worker".to_string(),
             parent_run_id: Some("parent-1".to_string()),
+            session_id: "session-1".to_string(),
+            scope_id: "scope-1".to_string(),
         };
 
         let json = serde_json::to_string(&context).expect("serialize context");
@@ -359,6 +406,22 @@ mod tests {
         let restored: TraceEvent = serde_json::from_str(&json).expect("deserialize event");
 
         assert_eq!(restored, event);
+    }
+
+    #[test]
+    fn trace_roundtrips_legacy_execution_task_id_as_scope_id() {
+        let json = r#"{
+            "run_id":"run-1",
+            "session_id":"session-1",
+            "turn_id":"run-run-1",
+            "execution_task_id":"task-legacy",
+            "actor_id":"agent-1",
+            "created_at_ms":123
+        }"#;
+
+        let restored: RestflowTrace = serde_json::from_str(json).expect("deserialize legacy trace");
+        assert_eq!(restored.scope_id, "task-legacy");
+        assert_eq!(restored.parent_run_id, None);
     }
 
     #[test]
@@ -431,6 +494,8 @@ mod tests {
             run_id: "run-5".to_string(),
             actor_id: "worker".to_string(),
             parent_run_id: Some("parent-5".to_string()),
+            session_id: "session-5".to_string(),
+            scope_id: "scope-5".to_string(),
         };
 
         sink.on_run_started(&context);
@@ -453,6 +518,8 @@ mod tests {
             } if e == "boom"
         ));
         assert_eq!(events[0].trace.run_id, "run-5");
-        assert_eq!(events[0].trace.session_id, "parent-5");
+        assert_eq!(events[0].trace.parent_run_id.as_deref(), Some("parent-5"));
+        assert_eq!(events[0].trace.session_id, "session-5");
+        assert_eq!(events[0].trace.scope_id, "scope-5");
     }
 }

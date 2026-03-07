@@ -643,6 +643,8 @@ mod tests {
             run_id: "run-1".to_string(),
             actor_id: "worker".to_string(),
             parent_run_id: Some("parent-1".to_string()),
+            session_id: "session-1".to_string(),
+            scope_id: "scope-1".to_string(),
         };
 
         let lifecycle_sink = tracker
