@@ -25,8 +25,7 @@ use crate::runtime::channel::{
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::runtime::trace::{
-    RestflowTrace, append_restflow_trace_completed, append_restflow_trace_failed,
-    append_restflow_trace_started, build_restflow_trace_emitter,
+    RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
 };
 use crate::storage::Storage;
 use restflow_storage::AgentDefaults;
@@ -796,10 +795,10 @@ impl ChatDispatcher {
             session.id.clone(),
             session.agent_id.clone(),
         );
-        append_restflow_trace_started(
+        append_trace_event(
             &self.storage.tool_traces,
             Some(&self.storage.execution_traces),
-            &trace,
+            &TraceEvent::run_started(trace.clone()),
         );
         let started_at = Instant::now();
         let mut tool_event_emitter = Some(build_restflow_trace_emitter(
@@ -823,12 +822,14 @@ impl ChatDispatcher {
             {
                 Ok(result) => result,
                 Err(_) => {
-                    append_restflow_trace_failed(
+                    append_trace_event(
                         &self.storage.tool_traces,
                         Some(&self.storage.execution_traces),
-                        &trace,
-                        &format!("execution timed out after {} seconds", timeout_secs),
-                        Some(started_at.elapsed().as_millis() as u64),
+                        &TraceEvent::run_failed(
+                            trace.clone(),
+                            format!("execution timed out after {} seconds", timeout_secs),
+                            Some(started_at.elapsed().as_millis() as u64),
+                        ),
                     );
                     error!("Agent execution timed out after {} seconds", timeout_secs);
                     self.send_error_response(message, ChatError::Timeout)
@@ -851,12 +852,14 @@ impl ChatDispatcher {
         let exec_result = match execution_result {
             Ok(result) => result,
             Err(error) => {
-                append_restflow_trace_failed(
+                append_trace_event(
                     &self.storage.tool_traces,
                     Some(&self.storage.execution_traces),
-                    &trace,
-                    &error.to_string(),
-                    Some(started_at.elapsed().as_millis() as u64),
+                    &TraceEvent::run_failed(
+                        trace.clone(),
+                        error.to_string(),
+                        Some(started_at.elapsed().as_millis() as u64),
+                    ),
                 );
                 error!("Agent execution failed: {}", error);
                 self.send_error_response(message, Self::map_execution_error(&error))
@@ -864,11 +867,13 @@ impl ChatDispatcher {
                 return Ok(());
             }
         };
-        append_restflow_trace_completed(
+        append_trace_event(
             &self.storage.tool_traces,
             Some(&self.storage.execution_traces),
-            &trace,
-            Some(started_at.elapsed().as_millis() as u64),
+            &TraceEvent::run_completed(
+                trace.clone(),
+                Some(started_at.elapsed().as_millis() as u64),
+            ),
         );
 
         if session.agent_id != original_agent_id {
@@ -916,16 +921,16 @@ impl ChatDispatcher {
             warn!("Failed to save exchange to session: {}", e);
         } else {
             append_message_trace(
+                &self.storage.tool_traces,
                 &self.storage.execution_traces,
-                &session.id,
-                &session.agent_id,
+                &trace,
                 "user",
                 &persisted_input,
             );
             append_message_trace(
+                &self.storage.tool_traces,
                 &self.storage.execution_traces,
-                &session.id,
-                &session.agent_id,
+                &trace,
                 "assistant",
                 &structured_output,
             );
