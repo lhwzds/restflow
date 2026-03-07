@@ -2,9 +2,9 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 use super::spawn_subagent_batch::{SpawnSubagentBatchOperation, SpawnSubagentBatchTool};
 use crate::impls::spawn_subagent_batch::BatchSubagentSpec;
@@ -12,7 +12,7 @@ use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::store::KvStore;
 use restflow_traits::{
-    DEFAULT_SUBAGENT_TIMEOUT_SECS, InlineSubagentConfig, SpawnRequest, SubagentManager,
+    InlineSubagentConfig, SpawnRequest, SubagentManager, DEFAULT_SUBAGENT_TIMEOUT_SECS,
 };
 
 #[cfg(feature = "ts")]
@@ -37,12 +37,19 @@ pub struct SpawnSubagentParams {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub agent: Option<String>,
 
-    /// Task description for single spawn, or fallback task for batch spawn.
+    /// Task description for single spawn, or transient fallback task for batch spawn.
     ///
     /// Required for single spawn. Optional for team management operations.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
+
+    /// Transient per-instance task list for batch or team spawn.
+    ///
+    /// Tasks are assigned in worker order and are never persisted in saved teams.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub tasks: Option<Vec<String>>,
 
     /// If true, wait for completion. If false (default), run concurrently.
     #[serde(default)]
@@ -225,7 +232,10 @@ impl SpawnSubagentTool {
     }
 
     fn uses_batch_mode(params: &SpawnSubagentParams) -> bool {
-        params.workers.is_some() || params.team.is_some() || params.save_as_team.is_some()
+        params.workers.is_some()
+            || params.team.is_some()
+            || params.save_as_team.is_some()
+            || params.tasks.is_some()
     }
 
     fn routes_to_batch_tool(params: &SpawnSubagentParams) -> bool {
@@ -307,7 +317,12 @@ impl Tool for SpawnSubagentTool {
                 "agent": agent_property,
                 "task": {
                     "type": "string",
-                    "description": "Detailed task description for single spawn, or default fallback task for batch worker specs. Required for single spawn."
+                    "description": "Detailed task description for single spawn, or transient fallback task for batch worker specs. Required for single spawn."
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Transient per-instance task list for batch/team spawn. Tasks are assigned in worker order and are never persisted in saved teams."
                 },
                 "wait": {
                     "type": "boolean",
@@ -360,8 +375,8 @@ impl Tool for SpawnSubagentTool {
                         "properties": {
                             "agent": { "type": "string", "description": "Optional agent ID or name." },
                             "count": { "type": "integer", "minimum": 1, "default": 1, "description": "Number of instances for this worker spec." },
-                            "task": { "type": "string", "description": "Optional per-worker task override." },
-                            "tasks": { "type": "array", "items": { "type": "string" }, "description": "Optional per-instance task list for distinct prompts." },
+                            "task": { "type": "string", "description": "Optional transient per-worker task override." },
+                            "tasks": { "type": "array", "items": { "type": "string" }, "description": "Optional transient per-instance task list for distinct prompts." },
                             "timeout_secs": { "type": "integer", "minimum": 0, "description": "Optional per-worker timeout." },
                             "model": { "type": "string", "description": "Optional model override for this worker." },
                             "provider": { "type": "string", "description": "Optional provider paired with model." },
@@ -378,7 +393,7 @@ impl Tool for SpawnSubagentTool {
                 },
                 "save_as_team": {
                     "type": "string",
-                    "description": "Spawn-only convenience flag to save provided workers as a team during spawn. For save-only, use operation='save_team'."
+                    "description": "Spawn-only convenience flag to save provided workers as a structural team during spawn. For save-only, use operation='save_team'."
                 }
             }
         })
@@ -409,6 +424,7 @@ impl Tool for SpawnSubagentTool {
 
             let operation = params.operation.clone();
             let task = Self::normalize_optional_text(params.task.as_deref());
+            let tasks = params.tasks.clone();
             let team = Self::resolve_batch_team(&params)?;
             let save_as_team = if operation == SpawnSubagentBatchOperation::Spawn {
                 Self::normalize_optional_text(params.save_as_team.as_deref())
@@ -422,6 +438,7 @@ impl Tool for SpawnSubagentTool {
                     "team": team,
                     "specs": params.workers,
                     "task": task,
+                    "tasks": tasks,
                     "wait": params.wait,
                     "timeout_secs": params.timeout_secs,
                     "save_as_team": save_as_team,
@@ -555,8 +572,8 @@ mod tests {
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
-    use restflow_traits::SubagentManager;
     use restflow_traits::store::KvStore;
+    use restflow_traits::SubagentManager;
     use serde_json::Value;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -645,11 +662,7 @@ mod tests {
             Ok(json!({"success": true, "key": key}))
         }
 
-        fn delete_entry(
-            &self,
-            key: &str,
-            _accessor_id: Option<&str>,
-        ) -> crate::Result<Value> {
+        fn delete_entry(&self, key: &str, _accessor_id: Option<&str>) -> crate::Result<Value> {
             let mut entries = self
                 .entries
                 .lock()
@@ -712,6 +725,7 @@ mod tests {
         assert_eq!(params.operation, SpawnSubagentBatchOperation::Spawn);
         assert_eq!(params.agent.as_deref(), Some("researcher"));
         assert_eq!(params.task.as_deref(), Some("Research topic X"));
+        assert!(params.tasks.is_none());
         assert!(!params.wait);
     }
 
@@ -741,6 +755,7 @@ mod tests {
         assert_eq!(params.operation, SpawnSubagentBatchOperation::SaveTeam);
         assert_eq!(params.team.as_deref(), Some("TeamOnly"));
         assert!(params.task.is_none());
+        assert!(params.tasks.is_none());
     }
 
     #[tokio::test]
@@ -774,12 +789,10 @@ mod tests {
             .unwrap();
         assert!(result.success);
         assert_eq!(result.result["status"], "completed");
-        assert!(
-            result.result["output"]
-                .as_str()
-                .unwrap()
-                .contains("function written")
-        );
+        assert!(result.result["output"]
+            .as_str()
+            .unwrap()
+            .contains("function written"));
     }
 
     #[tokio::test]
@@ -815,12 +828,10 @@ mod tests {
         let tool = SpawnSubagentTool::new(deps);
         let result = tool.execute(json!({"wait": true})).await;
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Single spawn requires non-empty 'task'")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Single spawn requires non-empty 'task'"));
     }
 
     #[tokio::test]
@@ -831,12 +842,10 @@ mod tests {
             .execute(json!({"agent": "coder", "task": "Write code", "model": "gpt-5.3-codex"}))
             .await;
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("requires both 'model' and 'provider'")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("requires both 'model' and 'provider'"));
     }
 
     #[tokio::test]
@@ -847,12 +856,10 @@ mod tests {
             .execute(json!({"agent": "coder", "task": "Write code", "provider": "openai-codex"}))
             .await;
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("requires both 'model' and 'provider'")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("requires both 'model' and 'provider'"));
     }
 
     #[tokio::test]
@@ -897,12 +904,10 @@ mod tests {
             }))
             .await;
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("cannot be combined")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("cannot be combined"));
     }
 
     #[tokio::test]
@@ -941,12 +946,10 @@ mod tests {
             }))
             .await;
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Batch mode uses 'workers'/'team'")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Batch mode uses 'workers'/'team'"));
     }
 
     #[tokio::test]
@@ -975,6 +978,41 @@ mod tests {
             .expect("results should be array");
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|entry| entry["status"] == "completed"));
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_team_supports_runtime_tasks_list() {
+        let deps = make_test_deps(
+            vec![("coder", "Coder")],
+            vec![MockStep::text("done-a"), MockStep::text("done-b")],
+        );
+        let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
+        let tool = SpawnSubagentTool::new(deps).with_kv_store(kv_store);
+
+        let saved = tool
+            .execute(json!({
+                "operation": "save_team",
+                "team": "RuntimeTasksTeam",
+                "workers": [
+                    { "agent": "coder", "count": 2 }
+                ]
+            }))
+            .await
+            .unwrap();
+        assert!(saved.success);
+
+        let result = tool
+            .execute(json!({
+                "team": "RuntimeTasksTeam",
+                "tasks": ["task-a", "task-b"],
+                "wait": true
+            }))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.result["status"], "completed");
+        assert_eq!(result.result["spawned_count"], 2);
     }
 
     #[tokio::test]
@@ -1012,6 +1050,29 @@ mod tests {
 
         assert!(reuse.success);
         assert_eq!(reuse.result["spawned_count"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_save_team_rejects_prompt_fields() {
+        let deps = make_test_deps(vec![("coder", "Coder")], vec![]);
+        let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
+        let tool = SpawnSubagentTool::new(deps).with_kv_store(kv_store);
+
+        let result = tool
+            .execute(json!({
+                "operation": "save_team",
+                "team": "PromptfulTeam",
+                "workers": [
+                    { "agent": "coder", "task": "Should not persist" }
+                ]
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("stores worker structure only"));
     }
 
     #[test]
