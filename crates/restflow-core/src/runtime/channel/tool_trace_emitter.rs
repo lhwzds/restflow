@@ -209,6 +209,49 @@ impl StreamEmitter for ToolTraceEmitter {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
+    async fn emit_llm_call(
+        &mut self,
+        model: &str,
+        input_tokens: Option<u32>,
+        output_tokens: Option<u32>,
+        total_tokens: Option<u32>,
+        cost_usd: Option<f64>,
+        duration_ms: Option<u64>,
+        is_reasoning: Option<bool>,
+        message_count: Option<u32>,
+    ) {
+        self.inner
+            .emit_llm_call(
+                model,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                cost_usd,
+                duration_ms,
+                is_reasoning,
+                message_count,
+            )
+            .await;
+
+        let event = TraceEvent::llm_call(
+            self.trace.clone(),
+            model.to_string(),
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            cost_usd,
+            duration_ms,
+            is_reasoning,
+            message_count,
+        );
+        append_trace_event(
+            &self.trace_storage,
+            self.execution_trace_storage.as_ref(),
+            &event,
+        );
+    }
+
     async fn emit_complete(&mut self) {
         self.inner.emit_complete().await;
     }
@@ -217,7 +260,8 @@ impl StreamEmitter for ToolTraceEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::ToolCallCompletion;
+    use crate::models::{ExecutionTraceCategory, ToolCallCompletion};
+    use crate::storage::ExecutionTraceStorage;
     use redb::Database;
     use restflow_ai::agent::NullEmitter;
     use std::sync::Arc;
@@ -228,6 +272,13 @@ mod tests {
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).expect("db"));
         ToolTraceStorage::new(db).expect("storage")
+    }
+
+    fn setup_execution_storage() -> ExecutionTraceStorage {
+        let temp_dir = tempdir().expect("tempdir");
+        let db_path = temp_dir.path().join("execution.db");
+        let db = Arc::new(Database::create(db_path).expect("db"));
+        ExecutionTraceStorage::new(db).expect("execution storage")
     }
 
     #[tokio::test]
@@ -252,6 +303,48 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].tool_name.as_deref(), Some("bash"));
         assert_eq!(events[1].success, Some(true));
+    }
+
+    #[tokio::test]
+    async fn test_tool_trace_emitter_writes_llm_events_to_execution_trace() {
+        let storage = setup_storage();
+        let execution_storage = setup_execution_storage();
+        let mut emitter = ToolTraceEmitter::new(
+            Box::new(NullEmitter),
+            storage,
+            RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
+        )
+        .with_execution_trace_storage(execution_storage.clone());
+
+        emitter
+            .emit_llm_call(
+                "gpt-5",
+                Some(10),
+                Some(6),
+                Some(16),
+                Some(0.02),
+                Some(140),
+                None,
+                Some(3),
+            )
+            .await;
+
+        let events = execution_storage
+            .query(&crate::models::ExecutionTraceQuery {
+                task_id: Some("task-1".to_string()),
+                ..Default::default()
+            })
+            .expect("query");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].category, ExecutionTraceCategory::LlmCall);
+        assert_eq!(
+            events[0]
+                .llm_call
+                .as_ref()
+                .map(|trace| trace.model.as_str()),
+            Some("gpt-5")
+        );
+        assert_eq!(events[0].subflow_path, vec!["run-1".to_string()]);
     }
 
     #[test]

@@ -34,7 +34,7 @@ pub use config::*;
 use tool_exec::ToolInvocationContext;
 
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use std::{fs, path::Path};
 
 use serde_json::Value;
@@ -486,6 +486,7 @@ impl AgentExecutor {
                 request = request.with_max_tokens(max_tokens);
             }
 
+            let llm_started_at = Instant::now();
             let response = self
                 .execute_llm_completion(
                     request,
@@ -497,6 +498,26 @@ impl AgentExecutor {
                     config.llm_timeout,
                 )
                 .await?;
+            let llm_duration_ms = llm_started_at.elapsed().as_millis() as u64;
+            let request_message_count = state.messages.len().min(u32::MAX as usize) as u32;
+            let current_model = config
+                .model_switcher
+                .as_ref()
+                .map(|switcher| switcher.current_model())
+                .unwrap_or_else(|| self.llm.model().to_string());
+            let usage = response.usage.as_ref();
+            emitter
+                .emit_llm_call(
+                    &current_model,
+                    usage.map(|value| value.prompt_tokens),
+                    usage.map(|value| value.completion_tokens),
+                    usage.map(|value| value.total_tokens),
+                    usage.and_then(|value| value.cost_usd),
+                    Some(llm_duration_ms),
+                    None,
+                    Some(request_message_count),
+                )
+                .await;
 
             // Track token usage
             if let Some(usage) = &response.usage {
