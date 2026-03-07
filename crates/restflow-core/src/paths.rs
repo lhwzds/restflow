@@ -78,6 +78,16 @@ pub fn daemon_log_path() -> Result<PathBuf> {
     Ok(logs_dir()?.join("daemon.log"))
 }
 
+#[cfg(test)]
+pub(crate) fn restflow_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    use std::sync::{Mutex, OnceLock};
+
+    static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 /// Ensure the RestFlow data directory exists and return its path.
 #[deprecated(note = "Use ensure_restflow_dir instead")]
 pub fn ensure_data_dir() -> Result<PathBuf> {
@@ -87,16 +97,10 @@ pub fn ensure_data_dir() -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(())).lock().unwrap()
-    }
 
     #[test]
     fn test_default_restflow_dir() {
-        let _lock = env_lock();
+        let _lock = restflow_dir_env_lock();
         unsafe { std::env::remove_var("RESTFLOW_DIR") };
         let dir = resolve_restflow_dir().unwrap();
         assert!(dir.ends_with(".restflow"));
@@ -104,7 +108,7 @@ mod tests {
 
     #[test]
     fn test_env_override() {
-        let _lock = env_lock();
+        let _lock = restflow_dir_env_lock();
         unsafe { std::env::set_var("RESTFLOW_DIR", "/tmp/test-restflow") };
         let dir = resolve_restflow_dir().unwrap();
         assert_eq!(dir, PathBuf::from("/tmp/test-restflow"));
@@ -113,7 +117,7 @@ mod tests {
 
     #[test]
     fn test_database_path() {
-        let _lock = env_lock();
+        let _lock = restflow_dir_env_lock();
         unsafe { std::env::remove_var("RESTFLOW_DIR") };
         let path = database_path().unwrap();
         assert!(path.ends_with(DB_FILE));
@@ -122,7 +126,7 @@ mod tests {
 
     #[test]
     fn test_daemon_lock_path() {
-        let _lock = env_lock();
+        let _lock = restflow_dir_env_lock();
         unsafe { std::env::remove_var("RESTFLOW_DIR") };
         let path = daemon_lock_path().unwrap();
         assert!(path.ends_with("daemon.lock"));

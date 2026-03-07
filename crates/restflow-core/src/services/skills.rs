@@ -214,20 +214,14 @@ pub fn validate_skill_complete(
 mod tests {
     use super::*;
     use crate::models::SkillReference;
-    use std::sync::OnceLock;
     use tempfile::tempdir;
-    use tokio::sync::Mutex;
 
     const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
     const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-    }
-
+    #[allow(clippy::await_holding_lock)]
     async fn create_test_core() -> Arc<AppCore> {
-        let _env_lock = env_lock().lock().await;
+        let _env_lock = crate::paths::restflow_dir_env_lock();
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let state_dir = temp_dir.path().join("state");

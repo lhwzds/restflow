@@ -504,23 +504,17 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::prompt_files;
     use restflow_traits::store::BackgroundAgentStore;
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::Arc;
     use tempfile::tempdir;
-
-    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
 
     fn setup() -> (
         BackgroundAgentStoreAdapter,
         tempfile::TempDir,
         std::sync::MutexGuard<'static, ()>,
     ) {
-        let guard = env_lock();
+        let guard = prompt_files::agents_dir_env_lock();
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
@@ -528,11 +522,10 @@ mod tests {
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let deliverable_storage = crate::storage::DeliverableStorage::new(db).unwrap();
 
-        // Set RESTFLOW_DIR so create_agent can write agent prompt files
-        let state_dir = temp_dir.path().join("state");
-        std::fs::create_dir_all(&state_dir).unwrap();
-        let prev_dir = std::env::var_os("RESTFLOW_DIR");
-        unsafe { std::env::set_var("RESTFLOW_DIR", &state_dir) };
+        let prompts_dir = temp_dir.path().join("state").join("agents");
+        std::fs::create_dir_all(&prompts_dir).unwrap();
+        let prev_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
 
         // Create a default agent for referencing
         let agent = crate::models::AgentNode::default();
@@ -542,9 +535,9 @@ mod tests {
 
         // Restore env var immediately after agent creation
         unsafe {
-            match prev_dir {
-                Some(v) => std::env::set_var("RESTFLOW_DIR", v),
-                None => std::env::remove_var("RESTFLOW_DIR"),
+            match prev_agents_dir {
+                Some(v) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, v),
+                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
             }
         }
 
