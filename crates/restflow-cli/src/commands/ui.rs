@@ -10,7 +10,7 @@ use restflow_core::{
 use serde::Serialize;
 
 use crate::commands::daemon_state::{self, EffectiveDaemonStatus};
-use crate::output::{json::print_json, OutputFormat};
+use crate::output::{OutputFormat, json::print_json};
 
 #[derive(Debug, Serialize, PartialEq)]
 pub struct UiSnapshotOutput {

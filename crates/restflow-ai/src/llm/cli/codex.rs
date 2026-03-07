@@ -214,12 +214,9 @@ impl LlmClient for CodexClient {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let raw_output = utils::execute_cli_command(
-            cmd,
-            "Codex",
-            "Install with: npm install -g @openai/codex",
-        )
-        .await?;
+        let raw_output =
+            utils::execute_cli_command(cmd, "Codex", "Install with: npm install -g @openai/codex")
+                .await?;
         let (content, thread_id) = Self::parse_jsonl_output(&raw_output)?;
         debug!(
             content_len = content.len(),
