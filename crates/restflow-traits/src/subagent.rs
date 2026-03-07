@@ -120,6 +120,18 @@ pub struct SpawnRequest {
     /// agent execution loop.
     #[serde(default)]
     pub parent_execution_id: Option<String>,
+
+    /// Optional trace session identifier used to keep child runs in the same trace session.
+    ///
+    /// This is injected by runtime and should not be supplied by users directly.
+    #[serde(default)]
+    pub trace_session_id: Option<String>,
+
+    /// Optional trace scope identifier used to group execution events for this child run.
+    ///
+    /// This is injected by runtime and should not be supplied by users directly.
+    #[serde(default)]
+    pub trace_scope_id: Option<String>,
 }
 
 /// Inline configuration for temporary sub-agent creation.
@@ -282,6 +294,8 @@ mod tests {
             model: None,
             model_provider: None,
             parent_execution_id: None,
+            trace_session_id: Some("session-1".to_string()),
+            trace_scope_id: Some("scope-1".to_string()),
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -289,6 +303,8 @@ mod tests {
 
         let parsed: SpawnRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.agent_id.as_deref(), Some("researcher"));
+        assert_eq!(parsed.trace_session_id.as_deref(), Some("session-1"));
+        assert_eq!(parsed.trace_scope_id.as_deref(), Some("scope-1"));
     }
 
     #[test]

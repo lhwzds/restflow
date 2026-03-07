@@ -2,9 +2,9 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 use super::spawn_subagent_batch::{SpawnSubagentBatchOperation, SpawnSubagentBatchTool};
 use crate::impls::spawn_subagent_batch::BatchSubagentSpec;
@@ -12,7 +12,7 @@ use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::store::KvStore;
 use restflow_traits::{
-    InlineSubagentConfig, SpawnRequest, SubagentManager, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_SUBAGENT_TIMEOUT_SECS, InlineSubagentConfig, SpawnRequest, SubagentManager,
 };
 
 #[cfg(feature = "ts")]
@@ -70,6 +70,16 @@ pub struct SpawnSubagentParams {
     #[cfg_attr(feature = "ts", ts(optional))]
     #[serde(default)]
     pub parent_execution_id: Option<String>,
+
+    /// Optional trace session ID (runtime-injected, internal use).
+    #[cfg_attr(feature = "ts", ts(optional))]
+    #[serde(default)]
+    pub trace_session_id: Option<String>,
+
+    /// Optional trace scope ID (runtime-injected, internal use).
+    #[cfg_attr(feature = "ts", ts(optional))]
+    #[serde(default)]
+    pub trace_scope_id: Option<String>,
 
     /// Optional name for temporary sub-agent creation.
     #[serde(default)]
@@ -349,6 +359,14 @@ impl Tool for SpawnSubagentTool {
                     "type": "string",
                     "description": "Optional parent execution ID for context propagation (runtime-injected)"
                 },
+                "trace_session_id": {
+                    "type": "string",
+                    "description": "Optional trace session ID for context propagation (runtime-injected)"
+                },
+                "trace_scope_id": {
+                    "type": "string",
+                    "description": "Optional trace scope ID for context propagation (runtime-injected)"
+                },
                 "inline_name": {
                     "type": "string",
                     "description": "Optional temporary sub-agent name when 'agent' is omitted."
@@ -442,7 +460,9 @@ impl Tool for SpawnSubagentTool {
                     "wait": params.wait,
                     "timeout_secs": params.timeout_secs,
                     "save_as_team": save_as_team,
-                    "parent_execution_id": params.parent_execution_id
+                    "parent_execution_id": params.parent_execution_id,
+                    "trace_session_id": params.trace_session_id,
+                    "trace_scope_id": params.trace_scope_id
                 }))
                 .await;
         }
@@ -487,6 +507,8 @@ impl Tool for SpawnSubagentTool {
             model: params.model.clone(),
             model_provider: params.provider.clone(),
             parent_execution_id: params.parent_execution_id.clone(),
+            trace_session_id: params.trace_session_id.clone(),
+            trace_scope_id: params.trace_scope_id.clone(),
         };
 
         let handle = self.manager.spawn(request)?;
@@ -572,8 +594,8 @@ mod tests {
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
-    use restflow_traits::store::KvStore;
     use restflow_traits::SubagentManager;
+    use restflow_traits::store::KvStore;
     use serde_json::Value;
     use std::collections::HashMap;
     use std::sync::Mutex;
@@ -789,10 +811,12 @@ mod tests {
             .unwrap();
         assert!(result.success);
         assert_eq!(result.result["status"], "completed");
-        assert!(result.result["output"]
-            .as_str()
-            .unwrap()
-            .contains("function written"));
+        assert!(
+            result.result["output"]
+                .as_str()
+                .unwrap()
+                .contains("function written")
+        );
     }
 
     #[tokio::test]
@@ -828,10 +852,12 @@ mod tests {
         let tool = SpawnSubagentTool::new(deps);
         let result = tool.execute(json!({"wait": true})).await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Single spawn requires non-empty 'task'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Single spawn requires non-empty 'task'")
+        );
     }
 
     #[tokio::test]
@@ -842,10 +868,12 @@ mod tests {
             .execute(json!({"agent": "coder", "task": "Write code", "model": "gpt-5.3-codex"}))
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("requires both 'model' and 'provider'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires both 'model' and 'provider'")
+        );
     }
 
     #[tokio::test]
@@ -856,10 +884,12 @@ mod tests {
             .execute(json!({"agent": "coder", "task": "Write code", "provider": "openai-codex"}))
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("requires both 'model' and 'provider'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires both 'model' and 'provider'")
+        );
     }
 
     #[tokio::test]
@@ -904,10 +934,12 @@ mod tests {
             }))
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("cannot be combined"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("cannot be combined")
+        );
     }
 
     #[tokio::test]
@@ -946,10 +978,12 @@ mod tests {
             }))
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Batch mode uses 'workers'/'team'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Batch mode uses 'workers'/'team'")
+        );
     }
 
     #[tokio::test]
@@ -1069,10 +1103,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("stores worker structure only"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("stores worker structure only")
+        );
     }
 
     #[test]

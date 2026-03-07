@@ -24,6 +24,13 @@ pub use restflow_traits::subagent::{
 const TEMPORARY_SUBAGENT_NAME: &str = "Temporary Subagent";
 const TEMPORARY_SUBAGENT_PROMPT: &str = "You are a temporary sub-agent. Complete the task autonomously, use tools when needed, and return a concise final result.";
 
+fn normalize_trace_identity(value: Option<&str>) -> Option<String> {
+    value
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
 fn map_subagent_error(success: bool, error: Option<String>) -> Option<String> {
     if success {
         None
@@ -59,10 +66,20 @@ pub fn spawn_subagent(
     let agent_name_for_return = agent_def.name.clone();
     let task_for_register = request.task.clone();
     let parent_execution_id = request.parent_execution_id.clone();
+    let trace_session_id = normalize_trace_identity(request.trace_session_id.as_deref())
+        .or_else(|| normalize_trace_identity(request.trace_scope_id.as_deref()))
+        .or_else(|| normalize_trace_identity(parent_execution_id.as_deref()))
+        .unwrap_or_else(|| task_id.clone());
+    let trace_scope_id = normalize_trace_identity(request.trace_scope_id.as_deref())
+        .or_else(|| normalize_trace_identity(request.trace_session_id.as_deref()))
+        .or_else(|| normalize_trace_identity(parent_execution_id.as_deref()))
+        .unwrap_or_else(|| task_id.clone());
     let trace_context = RunTraceContext {
         run_id: task_id.clone(),
         actor_id: agent_name_for_return.clone(),
         parent_run_id: parent_execution_id.clone(),
+        session_id: trace_session_id.clone(),
+        scope_id: trace_scope_id.clone(),
     };
     let trace_lifecycle_sink = tracker.trace_lifecycle_sink();
     let trace_emitter_factory = tracker.trace_emitter_factory();
@@ -119,7 +136,7 @@ pub fn spawn_subagent(
                     agent_def,
                     task.clone(),
                     config_clone,
-                    parent_execution_id.clone(),
+                    trace_context_for_spawn.clone(),
                     Some(emitter.as_mut()),
                 ),
             )
@@ -133,7 +150,7 @@ pub fn spawn_subagent(
                     agent_def,
                     task.clone(),
                     config_clone,
-                    parent_execution_id.clone(),
+                    trace_context_for_spawn.clone(),
                     None,
                 ),
             )
@@ -311,7 +328,7 @@ async fn execute_subagent(
     agent_def: SubagentDefSnapshot,
     task: String,
     config: SubagentConfig,
-    parent_execution_id: Option<String>,
+    trace_context: RunTraceContext,
     mut emitter: Option<&mut dyn StreamEmitter>,
 ) -> Result<AgentResult> {
     let registry = build_registry_for_agent(
@@ -331,7 +348,9 @@ async fn execute_subagent(
         task.clone(),
         agent_def.system_prompt.clone(),
         max_iterations,
-        parent_execution_id.as_deref(),
+        trace_context.parent_run_id.as_deref(),
+        Some(trace_context.session_id.as_str()),
+        Some(trace_context.scope_id.as_str()),
     );
 
     let executor = AgentExecutor::new(llm_client, registry);
@@ -349,6 +368,8 @@ fn build_subagent_agent_config(
     system_prompt: String,
     max_iterations: usize,
     parent_execution_id: Option<&str>,
+    trace_session_id: Option<&str>,
+    trace_scope_id: Option<&str>,
 ) -> AgentConfig {
     let mut agent_config = AgentConfig::new(task);
     agent_config.system_prompt = Some(system_prompt);
@@ -360,9 +381,17 @@ fn build_subagent_agent_config(
         json!({
             "role": "subagent",
             "parent_execution_id": parent_execution_id,
+            "trace_session_id": trace_session_id,
+            "trace_scope_id": trace_scope_id,
         }),
     );
     agent_config = agent_config.with_context("execution_role", json!("subagent"));
+    if let Some(trace_session_id) = trace_session_id {
+        agent_config = agent_config.with_context("trace_session_id", json!(trace_session_id));
+    }
+    if let Some(trace_scope_id) = trace_scope_id {
+        agent_config = agent_config.with_context("trace_scope_id", json!(trace_scope_id));
+    }
     agent_config
 }
 
@@ -399,12 +428,13 @@ fn build_registry_for_agent(
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
-    use std::sync::Arc;
+    use std::sync::{Arc, Mutex};
 
     use async_trait::async_trait;
     use tokio::sync::mpsc;
     use tokio::time::Duration;
 
+    use crate::agent::{NullEmitter, StreamEmitter};
     use crate::llm::{
         CompletionRequest, CompletionResponse, FinishReason, LlmClient, MockLlmClient, MockStep,
         StreamResult, TokenUsage,
@@ -412,6 +442,7 @@ mod tests {
 
     use super::super::tracker::SubagentTracker;
     use super::*;
+    use restflow_trace::{TraceEvent, TraceEventKind, TraceEventSink};
     use restflow_traits::subagent::{
         SpawnPriority, SubagentDefLookup, SubagentDefSummary, SubagentStatus,
     };
@@ -423,6 +454,8 @@ mod tests {
             "System prompt".to_string(),
             3,
             None,
+            Some("session-1"),
+            Some("scope-1"),
         );
 
         assert_eq!(
@@ -430,6 +463,8 @@ mod tests {
             Some(&serde_json::Value::String("subagent".to_string()))
         );
         assert_eq!(config.context["execution_context"]["role"], "subagent");
+        assert_eq!(config.context["trace_session_id"], "session-1");
+        assert_eq!(config.context["trace_scope_id"], "scope-1");
     }
 
     #[test]
@@ -439,11 +474,21 @@ mod tests {
             "System prompt".to_string(),
             3,
             Some("exec-parent-1"),
+            Some("session-2"),
+            Some("scope-2"),
         );
 
         assert_eq!(
             config.context["execution_context"]["parent_execution_id"],
             "exec-parent-1"
+        );
+        assert_eq!(
+            config.context["execution_context"]["trace_session_id"],
+            "session-2"
+        );
+        assert_eq!(
+            config.context["execution_context"]["trace_scope_id"],
+            "scope-2"
         );
     }
 
@@ -484,6 +529,23 @@ mod tests {
         }
     }
 
+    #[derive(Default)]
+    struct RecordingTraceSink {
+        events: Mutex<Vec<TraceEvent>>,
+    }
+
+    impl TraceEventSink for RecordingTraceSink {
+        fn record_trace_event(&self, event: &TraceEvent) {
+            self.events.lock().expect("events lock").push(event.clone());
+        }
+    }
+
+    impl super::super::trace::RunTraceEmitterFactory for RecordingTraceSink {
+        fn build_run_emitter(&self, _context: &RunTraceContext) -> Box<dyn StreamEmitter> {
+            Box::new(NullEmitter)
+        }
+    }
+
     #[test]
     fn resolve_subagent_definition_from_inline_config() {
         let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::empty());
@@ -502,6 +564,8 @@ mod tests {
             model: None,
             model_provider: None,
             parent_execution_id: None,
+            trace_session_id: None,
+            trace_scope_id: None,
         };
 
         let snapshot = resolve_subagent_definition(&definitions, &tool_registry, &request)
@@ -544,6 +608,8 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
             },
             None,
         )
@@ -604,6 +670,8 @@ mod tests {
             model: None,
             model_provider: None,
             parent_execution_id: None,
+            trace_session_id: Some("session-1".to_string()),
+            trace_scope_id: Some("scope-1".to_string()),
         };
 
         let json = serde_json::to_string(&request).unwrap();
@@ -611,6 +679,8 @@ mod tests {
 
         let parsed: SpawnRequest = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.agent_id.as_deref(), Some("researcher"));
+        assert_eq!(parsed.trace_session_id.as_deref(), Some("session-1"));
+        assert_eq!(parsed.trace_scope_id.as_deref(), Some("scope-1"));
     }
 
     #[test]
@@ -622,6 +692,68 @@ mod tests {
 
         let json = serde_json::to_string(&handle).unwrap();
         assert!(json.contains("task-123"));
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_uses_explicit_trace_session_and_scope() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let sink = Arc::new(RecordingTraceSink::default());
+        tracker.set_run_trace_sink(sink.clone());
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
+            "mock",
+            vec![MockStep::text("done")],
+        ));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: Some("tester".to_string()),
+                inline: None,
+                task: "trace me".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: None,
+                model_provider: None,
+                parent_execution_id: Some("exec-parent-1".to_string()),
+                trace_session_id: Some("session-main-1".to_string()),
+                trace_scope_id: Some("scope-main-1".to_string()),
+            },
+            None,
+        )
+        .expect("spawn should succeed");
+
+        let result = tracker
+            .wait(&handle.id)
+            .await
+            .expect("subagent result should be available");
+        assert!(result.success);
+
+        let events = sink.events.lock().expect("events lock").clone();
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0].kind, TraceEventKind::RunStarted));
+        assert!(matches!(
+            events[1].kind,
+            TraceEventKind::RunCompleted { .. }
+        ));
+        for event in events {
+            assert_eq!(event.trace.run_id, handle.id);
+            assert_eq!(event.trace.parent_run_id.as_deref(), Some("exec-parent-1"));
+            assert_eq!(event.trace.session_id, "session-main-1");
+            assert_eq!(event.trace.scope_id, "scope-main-1");
+        }
     }
 
     #[tokio::test]
@@ -659,6 +791,8 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
             },
             None,
         );
@@ -679,6 +813,8 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
             },
             None,
         );
@@ -717,6 +853,8 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
             },
             None,
         )
@@ -770,6 +908,8 @@ mod tests {
                 model: None,
                 model_provider: None,
                 parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
             },
             None,
         )
@@ -868,11 +1008,15 @@ mod tests {
             "You are subagent".to_string(),
             7,
             None,
+            Some("session-3"),
+            Some("scope-3"),
         );
         assert_eq!(config.max_iterations, 7);
         assert_eq!(config.system_prompt.as_deref(), Some("You are subagent"));
         assert!(!config.prompt_flags.include_workspace_context);
         assert!(config.yolo_mode);
+        assert_eq!(config.context["trace_session_id"], "session-3");
+        assert_eq!(config.context["trace_scope_id"], "scope-3");
     }
 
     #[test]

@@ -2,9 +2,9 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
-use tokio::time::{timeout, Duration};
+use tokio::time::{Duration, timeout};
 
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_traits::store::KvStore;
@@ -165,6 +165,16 @@ pub struct SpawnSubagentBatchParams {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub parent_execution_id: Option<String>,
+
+    /// Optional trace session ID for context propagation (runtime-injected).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub trace_session_id: Option<String>,
+
+    /// Optional trace scope ID for context propagation (runtime-injected).
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub trace_scope_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -897,6 +907,8 @@ impl SpawnSubagentBatchTool {
                     model: spec.model.clone(),
                     model_provider: spec.provider.clone(),
                     parent_execution_id: params.parent_execution_id.clone(),
+                    trace_session_id: params.trace_session_id.clone(),
+                    trace_scope_id: params.trace_scope_id.clone(),
                 };
                 let handle = self.manager.spawn(request)?;
                 spawned.push(SpawnedTask {
@@ -1088,6 +1100,14 @@ impl Tool for SpawnSubagentBatchTool {
                 "parent_execution_id": {
                     "type": "string",
                     "description": "Optional parent execution ID for context propagation (runtime-injected)."
+                },
+                "trace_session_id": {
+                    "type": "string",
+                    "description": "Optional trace session ID for context propagation (runtime-injected)."
+                },
+                "trace_scope_id": {
+                    "type": "string",
+                    "description": "Optional trace scope ID for context propagation (runtime-injected)."
                 }
             }
         })
@@ -1359,10 +1379,12 @@ mod tests {
             }))
             .await;
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("requires both 'model' and 'provider'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("requires both 'model' and 'provider'")
+        );
     }
 
     #[tokio::test]
@@ -1412,10 +1434,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("either 'task' or 'tasks'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("either 'task' or 'tasks'")
+        );
     }
 
     #[tokio::test]
@@ -1433,10 +1457,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Set count to 1 (default) or match tasks length"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Set count to 1 (default) or match tasks length")
+        );
     }
 
     #[tokio::test]
@@ -1457,10 +1483,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("either 'team' or 'specs'"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("either 'team' or 'specs'")
+        );
     }
 
     #[tokio::test]
@@ -1478,10 +1506,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Missing task for spec index 0"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Missing task for spec index 0")
+        );
     }
 
     #[tokio::test]
@@ -1522,10 +1552,12 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(result
-            .unwrap_err()
-            .to_string()
-            .contains("Team storage is unavailable"));
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("Team storage is unavailable")
+        );
     }
 
     #[tokio::test]
