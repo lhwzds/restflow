@@ -15,16 +15,17 @@ agent?: string,
  */
 count: number, 
 /**
- * Optional per-spec task override.
+ * Optional transient per-spec task override.
  *
- * If omitted, top-level `task` is used.
+ * If omitted, top-level `task` is used. This field is never persisted in saved teams.
  */
 task?: string, 
 /**
- * Optional per-instance task list.
+ * Optional transient per-instance task list.
  *
  * When provided, each spawned instance uses the corresponding entry in this list.
- * This allows one worker spec to fan out with distinct prompts.
+ * This allows one worker spec to fan out with distinct prompts. This field is never
+ * persisted in saved teams.
  */
 tasks?: Array<string>, 
 /**

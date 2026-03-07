@@ -10,9 +10,9 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_tools::{SpawnSubagentBatchTool, SpawnSubagentTool, Tool};
-use restflow_traits::SubagentManager;
 use restflow_traits::store::KvStore;
-use serde_json::{Value, json};
+use restflow_traits::SubagentManager;
+use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 struct MockDefLookup {
@@ -240,6 +240,43 @@ async fn test_spawn_subagent_batch_team_persistence() {
 }
 
 #[tokio::test]
+async fn test_spawn_subagent_batch_team_spawn_supports_runtime_tasks_list() {
+    let manager = make_manager(
+        vec![("coder", "Coder")],
+        vec![
+            MockStep::text("team-result-1"),
+            MockStep::text("team-result-2"),
+        ],
+    );
+    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
+    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+
+    tool.execute(json!({
+        "operation": "save_team",
+        "team": "RuntimeTasksTeam",
+        "specs": [
+            { "agent": "coder", "count": 2 }
+        ]
+    }))
+    .await
+    .expect("save_team should succeed");
+
+    let spawn_output = tool
+        .execute(json!({
+            "operation": "spawn",
+            "team": "RuntimeTasksTeam",
+            "tasks": ["prompt-1", "prompt-2"],
+            "wait": true
+        }))
+        .await
+        .expect("spawn from team with runtime tasks should succeed");
+
+    assert!(spawn_output.success);
+    assert_eq!(spawn_output.result["spawned_count"], 2);
+    assert_eq!(spawn_output.result["status"], "completed");
+}
+
+#[tokio::test]
 async fn test_spawn_subagent_batch_rejects_team_and_specs_combined() {
     let manager = make_manager(vec![("coder", "Coder")], vec![MockStep::text("done")]);
     let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
@@ -257,12 +294,10 @@ async fn test_spawn_subagent_batch_rejects_team_and_specs_combined() {
         .await;
 
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("either 'team' or 'specs'")
-    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("either 'team' or 'specs'"));
 }
 
 #[tokio::test]
@@ -280,12 +315,10 @@ async fn test_spawn_subagent_batch_requires_task_when_unspecified() {
         .await;
 
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Missing task for spec index 0")
-    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Missing task for spec index 0"));
 }
 
 #[tokio::test]
@@ -326,12 +359,10 @@ async fn test_spawn_subagent_batch_save_as_team_requires_store() {
         .await;
 
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Team storage is unavailable")
-    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Team storage is unavailable"));
 }
 
 #[tokio::test]
@@ -346,11 +377,10 @@ async fn test_spawn_subagent_batch_save_as_team_persists_and_reloads() {
     let spawn_output = tool
         .execute(json!({
             "operation": "spawn",
-            "task": "Team review",
             "wait": true,
             "save_as_team": "SavedTeam",
             "specs": [
-                { "agent": "coder", "count": 2 }
+                { "agent": "coder", "tasks": ["task-1", "task-2"] }
             ]
         }))
         .await
@@ -369,6 +399,10 @@ async fn test_spawn_subagent_batch_save_as_team_persists_and_reloads() {
     assert!(get_output.success);
     assert_eq!(get_output.result["team"], "SavedTeam");
     assert_eq!(get_output.result["total_instances"], 2);
+    let spec = get_output.result["specs"][0].clone();
+    assert_eq!(spec["count"], 2);
+    assert!(spec.get("task").is_none() || spec["task"].is_null());
+    assert!(spec.get("tasks").is_none() || spec["tasks"].is_null());
 }
 
 #[tokio::test]
@@ -423,12 +457,10 @@ async fn test_spawn_subagent_wrapper_rejects_mixed_single_and_batch_fields() {
         .await;
 
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Batch mode uses 'workers'/'team'")
-    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Batch mode uses 'workers'/'team'"));
 }
 
 #[tokio::test]
@@ -512,6 +544,52 @@ async fn test_spawn_subagent_batch_supports_distinct_tasks_list() {
 }
 
 #[tokio::test]
+async fn test_spawn_subagent_batch_rejects_prompt_fields_during_save_team() {
+    let manager = make_manager(vec![("coder", "Coder")], vec![]);
+    let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
+    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+
+    let result = tool
+        .execute(json!({
+            "operation": "save_team",
+            "team": "PromptfulTeam",
+            "specs": [
+                { "agent": "coder", "task": "Do not persist" }
+            ]
+        }))
+        .await;
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("stores worker structure only"));
+}
+
+#[tokio::test]
+async fn test_spawn_subagent_batch_rejects_top_level_task_and_tasks_combined() {
+    let manager = make_manager(vec![("coder", "Coder")], vec![MockStep::text("done")]);
+    let tool = SpawnSubagentBatchTool::new(manager);
+
+    let result = tool
+        .execute(json!({
+            "operation": "spawn",
+            "task": "single",
+            "tasks": ["a"],
+            "specs": [
+                { "agent": "coder", "count": 1 }
+            ]
+        }))
+        .await;
+
+    assert!(result.is_err());
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("either top-level 'task' or top-level 'tasks'"));
+}
+
+#[tokio::test]
 async fn test_spawn_subagent_wrapper_supports_distinct_tasks_list() {
     let manager = make_manager(
         vec![("coder", "Coder")],
@@ -550,12 +628,10 @@ async fn test_spawn_subagent_batch_rejects_task_and_tasks_combined() {
         .await;
 
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("either 'task' or 'tasks'")
-    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("either 'task' or 'tasks'"));
 }
 
 #[tokio::test]
@@ -573,10 +649,8 @@ async fn test_spawn_subagent_batch_rejects_tasks_count_mismatch() {
         .await;
 
     assert!(result.is_err());
-    assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("Set count to 1 (default) or match tasks length")
-    );
+    assert!(result
+        .unwrap_err()
+        .to_string()
+        .contains("Set count to 1 (default) or match tasks length"));
 }
