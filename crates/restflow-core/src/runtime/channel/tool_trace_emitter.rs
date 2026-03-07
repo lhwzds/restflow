@@ -1,5 +1,5 @@
-use crate::models::{ToolTrace, ToolTraceEvent};
 use crate::models::chat_session::ExecutionStepInfo;
+use crate::models::{ToolTrace, ToolTraceEvent};
 use crate::runtime::trace::{
     MAX_TRACE_EVENT_TEXT_CHARS, RestflowTrace, append_trace_event, normalize_trace_payload,
     sanitize_trace_secrets, truncate_trace_text,

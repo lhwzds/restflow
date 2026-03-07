@@ -21,8 +21,7 @@ use crate::runtime::channel::{
 };
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::runtime::trace::{
-    RestflowTrace, append_restflow_trace_cancelled, append_restflow_trace_completed,
-    append_restflow_trace_failed, append_restflow_trace_started, build_restflow_trace_emitter,
+    RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
@@ -586,12 +585,14 @@ impl IpcServer {
         if let Some(existing) = active_chat_streams().lock().await.remove(&stream_id) {
             existing.abort();
             let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
-            append_restflow_trace_cancelled(
+            append_trace_event(
                 &core.storage.tool_traces,
                 Some(&core.storage.execution_traces),
-                &trace,
-                "replaced by a newer stream with the same stream_id",
-                None,
+                &TraceEvent::run_cancelled(
+                    trace,
+                    "replaced by a newer stream with the same stream_id",
+                    None,
+                ),
             );
         }
         active_chat_stream_steers().lock().await.remove(&stream_id);
@@ -610,12 +611,14 @@ impl IpcServer {
             {
                 previous.abort();
                 let trace = resolve_chat_stream_trace(&core, &session_id, &previous_stream_id);
-                append_restflow_trace_cancelled(
+                append_trace_event(
                     &core.storage.tool_traces,
                     Some(&core.storage.execution_traces),
-                    &trace,
-                    "replaced by a newer stream for the same session",
-                    None,
+                    &TraceEvent::run_cancelled(
+                        trace,
+                        "replaced by a newer stream for the same session",
+                        None,
+                    ),
                 );
             }
             active_chat_stream_steers()
@@ -710,12 +713,10 @@ impl IpcServer {
         if !reached_terminal {
             // Worker stopped unexpectedly (usually canceled).
             let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
-            append_restflow_trace_cancelled(
+            append_trace_event(
                 &core.storage.tool_traces,
                 Some(&core.storage.execution_traces),
-                &trace,
-                "chat stream cancelled",
-                None,
+                &TraceEvent::run_cancelled(trace, "chat stream cancelled", None),
             );
             let _ = Self::send_stream_frame(
                 stream,
@@ -2546,10 +2547,10 @@ async fn execute_chat_session(
         session.id.clone(),
         session.agent_id.clone(),
     );
-    append_restflow_trace_started(
+    append_trace_event(
         &core.storage.tool_traces,
         Some(&core.storage.execution_traces),
-        &trace,
+        &TraceEvent::run_started(trace.clone()),
     );
 
     let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
@@ -2573,12 +2574,14 @@ async fn execute_chat_session(
     let exec_result = match exec_result {
         Ok(result) => result,
         Err(error) => {
-            append_restflow_trace_failed(
+            append_trace_event(
                 &core.storage.tool_traces,
                 Some(&core.storage.execution_traces),
-                &trace,
-                &error.to_string(),
-                Some(started_at.elapsed().as_millis() as u64),
+                &TraceEvent::run_failed(
+                    trace.clone(),
+                    error.to_string(),
+                    Some(started_at.elapsed().as_millis() as u64),
+                ),
             );
             return Err(error);
         }
@@ -2611,11 +2614,10 @@ async fn execute_chat_session(
         // so that switch_model calls during execution don't permanently override it.
         session.metadata.last_model = Some(normalized_model);
     }
-    append_restflow_trace_completed(
+    append_trace_event(
         &core.storage.tool_traces,
         Some(&core.storage.execution_traces),
-        &trace,
-        Some(duration_ms),
+        &TraceEvent::run_completed(trace.clone(), Some(duration_ms)),
     );
 
     // Auto-persist chat session conversation to long-term memory
@@ -2745,9 +2747,10 @@ mod tests {
         let trace = resolve_chat_stream_trace(&core, &session.id, "stream-123");
 
         assert_eq!(trace.run_id, "stream-123");
+        assert_eq!(trace.parent_run_id, None);
         assert_eq!(trace.turn_id, "run-stream-123");
         assert_eq!(trace.session_id, session.id);
-        assert_eq!(trace.execution_task_id, session.id);
+        assert_eq!(trace.scope_id, session.id);
         assert_eq!(trace.actor_id, "agent-trace");
     }
 
@@ -2758,9 +2761,10 @@ mod tests {
         let trace = resolve_chat_stream_trace(&core, "missing-session", "stream-123");
 
         assert_eq!(trace.run_id, "stream-123");
+        assert_eq!(trace.parent_run_id, None);
         assert_eq!(trace.turn_id, "run-stream-123");
         assert_eq!(trace.session_id, "missing-session");
-        assert_eq!(trace.execution_task_id, "missing-session");
+        assert_eq!(trace.scope_id, "missing-session");
         assert_eq!(trace.actor_id, UNKNOWN_TRACE_ACTOR_ID);
     }
 
