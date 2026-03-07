@@ -9,12 +9,59 @@ use crate::runtime::channel::tool_trace_emitter::{
     append_turn_failed_with_execution_and_ai_duration, append_turn_started_with_execution,
 };
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
+use regex::Regex;
 use restflow_ai::agent::{NullEmitter, RunTraceSink, StreamEmitter};
 pub use restflow_trace::{
     RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind, TraceMessage,
     TraceToolCallCompleted, TraceToolCallStart,
 };
+use std::sync::LazyLock;
 use tracing::warn;
+
+pub(crate) const MAX_TRACE_EVENT_TEXT_CHARS: usize = 10_000;
+
+pub(crate) fn truncate_trace_text(value: &str, max_chars: usize) -> String {
+    let char_count = value.chars().count();
+    if char_count <= max_chars {
+        return value.to_string();
+    }
+    let mut truncated = value.chars().take(max_chars).collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
+pub(crate) fn sanitize_trace_secrets(input: &str) -> String {
+    static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(concat!(
+            r"(?i)(?:",
+            r"sk-[a-zA-Z0-9_-]{20,}",
+            r"|xoxb-[a-zA-Z0-9_-]{20,}",
+            r"|xoxp-[a-zA-Z0-9_-]{20,}",
+            r"|Bearer\s+[a-zA-Z0-9._\-/+=]{20,}",
+            r"|AKIA[0-9A-Z]{16}",
+            r"|ghp_[a-zA-Z0-9]{36,}",
+            r"|gho_[a-zA-Z0-9]{36,}",
+            r"|glpat-[a-zA-Z0-9_-]{20,}",
+            r#"|(?:api[_\-]?key|apikey|secret[_\-]?key|access[_\-]?token|auth[_\-]?token)\s*[=:]\s*["']?[a-zA-Z0-9._\-/+=]{8,}"#,
+            r")",
+        ))
+        .expect("invalid secret pattern regex")
+    });
+    SECRET_PATTERN.replace_all(input, "[REDACTED]").into_owned()
+}
+
+pub(crate) fn normalize_trace_payload(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let sanitized = sanitize_trace_secrets(trimmed);
+    let normalized = match serde_json::from_str::<serde_json::Value>(&sanitized) {
+        Ok(json) => json.to_string(),
+        Err(_) => sanitized,
+    };
+    Some(truncate_trace_text(&normalized, MAX_TRACE_EVENT_TEXT_CHARS))
+}
 
 fn restflow_trace_from_context(context: &RunTraceContext) -> RestflowTrace {
     RestflowTrace::from_run(
@@ -270,6 +317,19 @@ pub fn append_restflow_message(
             "Failed to append message trace event"
         );
     }
+}
+
+/// Append a canonical message trace event through the shared trace adapter.
+pub fn append_message_trace(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: &ExecutionTraceStorage,
+    trace: &RestflowTrace,
+    role: &str,
+    content: &str,
+) {
+    let content_preview = normalize_trace_payload(content);
+    let event = TraceEvent::message(trace.clone(), role.to_string(), content_preview, None);
+    append_trace_event(tool_trace_storage, Some(execution_trace_storage), &event);
 }
 
 /// Build a tool trace emitter bound to a canonical RestFlow trace.

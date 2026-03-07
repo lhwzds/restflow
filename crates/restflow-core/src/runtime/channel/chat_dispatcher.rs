@@ -20,12 +20,11 @@ use crate::models::{
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
-use crate::runtime::channel::{
-    append_message_trace, build_turn_persistence_payload, hydrate_voice_message_metadata,
-};
+use crate::runtime::channel::{build_turn_persistence_payload, hydrate_voice_message_metadata};
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::runtime::trace::{
-    RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
+    RestflowTrace, TraceEvent, append_message_trace, append_trace_event,
+    build_restflow_trace_emitter,
 };
 use crate::storage::Storage;
 use restflow_storage::AgentDefaults;

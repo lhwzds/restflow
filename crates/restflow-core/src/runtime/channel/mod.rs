@@ -78,7 +78,7 @@ pub use handler::{
 };
 pub use router::{MessageRouter, RouteDecision};
 pub use tool_trace_emitter::{
-    ToolTraceEmitter, append_message_trace, append_turn_cancelled, append_turn_completed,
+    ToolTraceEmitter, append_turn_cancelled, append_turn_completed,
     append_turn_completed_with_execution, append_turn_failed, append_turn_failed_with_execution,
     append_turn_started, append_turn_started_with_execution, build_execution_steps,
 };

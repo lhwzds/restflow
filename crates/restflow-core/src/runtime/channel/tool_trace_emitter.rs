@@ -1,68 +1,24 @@
 use crate::models::chat_session::ExecutionStepInfo;
 use crate::models::{ExecutionTraceEvent, LifecycleTrace, ToolTrace, ToolTraceEvent};
-use crate::runtime::trace::{RestflowTrace, append_trace_event};
+use crate::runtime::trace::{
+    MAX_TRACE_EVENT_TEXT_CHARS, RestflowTrace, append_trace_event, normalize_trace_payload,
+    sanitize_trace_secrets, truncate_trace_text,
+};
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use async_trait::async_trait;
-use regex::Regex;
 use restflow_ai::agent::StreamEmitter;
 use restflow_trace::TraceEvent;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::LazyLock;
 use std::time::Instant;
 use tracing::warn;
-
-const MAX_EVENT_TEXT_CHARS: usize = 10_000;
-
-fn truncate_text(value: &str, max_chars: usize) -> String {
-    let char_count = value.chars().count();
-    if char_count <= max_chars {
-        return value.to_string();
-    }
-    let mut truncated = value.chars().take(max_chars).collect::<String>();
-    truncated.push_str("...");
-    truncated
-}
-
-fn sanitize_secrets(input: &str) -> String {
-    static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(concat!(
-            r"(?i)(?:",
-            r"sk-[a-zA-Z0-9_-]{20,}",
-            r"|xoxb-[a-zA-Z0-9_-]{20,}",
-            r"|xoxp-[a-zA-Z0-9_-]{20,}",
-            r"|Bearer\s+[a-zA-Z0-9._\-/+=]{20,}",
-            r"|AKIA[0-9A-Z]{16}",
-            r"|ghp_[a-zA-Z0-9]{36,}",
-            r"|gho_[a-zA-Z0-9]{36,}",
-            r"|glpat-[a-zA-Z0-9_-]{20,}",
-            r#"|(?:api[_\-]?key|apikey|secret[_\-]?key|access[_\-]?token|auth[_\-]?token)\s*[=:]\s*["']?[a-zA-Z0-9._\-/+=]{8,}"#,
-            r")",
-        ))
-        .expect("invalid secret pattern regex")
-    });
-    SECRET_PATTERN.replace_all(input, "[REDACTED]").into_owned()
-}
-
-fn normalize_payload(value: &str) -> Option<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return None;
-    }
-    let sanitized = sanitize_secrets(trimmed);
-    let normalized = match serde_json::from_str::<serde_json::Value>(&sanitized) {
-        Ok(json) => json.to_string(),
-        Err(_) => sanitized,
-    };
-    Some(truncate_text(&normalized, MAX_EVENT_TEXT_CHARS))
-}
 
 fn normalize_full_payload(value: &str) -> Option<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return None;
     }
-    let sanitized = sanitize_secrets(trimmed);
+    let sanitized = sanitize_trace_secrets(trimmed);
     match serde_json::from_str::<serde_json::Value>(&sanitized) {
         Ok(json) => Some(json.to_string()),
         Err(_) => Some(sanitized),
@@ -89,7 +45,7 @@ fn maybe_persist_full_output(
     tool_name: &str,
     full_output: &str,
 ) -> Option<String> {
-    if full_output.chars().count() <= MAX_EVENT_TEXT_CHARS {
+    if full_output.chars().count() <= MAX_TRACE_EVENT_TEXT_CHARS {
         return None;
     }
 
@@ -201,7 +157,10 @@ pub fn append_turn_failed_with_ai_duration(
     let event = ToolTrace::turn_failed(
         session_id,
         turn_id,
-        truncate_text(&sanitize_secrets(error_text), MAX_EVENT_TEXT_CHARS),
+        truncate_trace_text(
+            &sanitize_trace_secrets(error_text),
+            MAX_TRACE_EVENT_TEXT_CHARS,
+        ),
     );
     let mut event = event;
     event.duration_ms = ai_duration_ms;
@@ -236,7 +195,7 @@ pub fn append_turn_cancelled_with_ai_duration(
     let event = ToolTrace::turn_cancelled(
         session_id,
         turn_id,
-        truncate_text(&sanitize_secrets(reason), MAX_EVENT_TEXT_CHARS),
+        truncate_trace_text(&sanitize_trace_secrets(reason), MAX_TRACE_EVENT_TEXT_CHARS),
     );
     let mut event = event;
     event.duration_ms = ai_duration_ms;
@@ -384,7 +343,10 @@ pub fn append_turn_failed_with_execution_and_ai_duration(
         error_text,
         ai_duration_ms,
     );
-    let sanitized_error = truncate_text(&sanitize_secrets(error_text), MAX_EVENT_TEXT_CHARS);
+    let sanitized_error = truncate_trace_text(
+        &sanitize_trace_secrets(error_text),
+        MAX_TRACE_EVENT_TEXT_CHARS,
+    );
     append_lifecycle_trace(
         execution_trace_storage,
         task_id,
@@ -436,7 +398,8 @@ pub fn append_turn_cancelled_with_execution_and_ai_duration(
         reason,
         ai_duration_ms,
     );
-    let sanitized_reason = truncate_text(&sanitize_secrets(reason), MAX_EVENT_TEXT_CHARS);
+    let sanitized_reason =
+        truncate_trace_text(&sanitize_trace_secrets(reason), MAX_TRACE_EVENT_TEXT_CHARS);
     append_lifecycle_trace(
         execution_trace_storage,
         task_id,
@@ -445,19 +408,6 @@ pub fn append_turn_cancelled_with_execution_and_ai_duration(
         Some(format!("Turn cancelled: {}", turn_id)),
         Some(sanitized_reason),
     );
-}
-
-/// Append message trace event to execution trace storage.
-pub fn append_message_trace(
-    tool_trace_storage: &ToolTraceStorage,
-    storage: &ExecutionTraceStorage,
-    trace: &RestflowTrace,
-    role: &str,
-    content: &str,
-) {
-    let content_preview = normalize_payload(content);
-    let event = TraceEvent::message(trace.clone(), role.to_string(), content_preview, None);
-    append_trace_event(tool_trace_storage, Some(storage), &event);
 }
 
 /// Stream emitter that forwards events and persists tool call records to storage.
@@ -512,7 +462,7 @@ impl StreamEmitter for ToolTraceEmitter {
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
         self.inner.emit_tool_call_start(id, name, arguments).await;
         self.tool_start_times.insert(id.to_string(), Instant::now());
-        let normalized_input = normalize_payload(arguments);
+        let normalized_input = normalize_trace_payload(arguments);
         self.tool_inputs
             .insert(id.to_string(), normalized_input.clone());
         let event = TraceEvent::tool_call_started(
@@ -541,7 +491,7 @@ impl StreamEmitter for ToolTraceEmitter {
         let full_output = normalize_full_payload(result);
         let output = full_output
             .as_deref()
-            .map(|value| truncate_text(value, MAX_EVENT_TEXT_CHARS));
+            .map(|value| truncate_trace_text(value, MAX_TRACE_EVENT_TEXT_CHARS));
         let output_ref = full_output.as_deref().and_then(|value| {
             maybe_persist_full_output(&self.trace.session_id, &self.trace.turn_id, id, name, value)
         });
