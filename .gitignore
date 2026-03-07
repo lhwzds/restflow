@@ -39,3 +39,6 @@ __pycache__/
 *.swp
 *.swo
 *~
+
+# VS Code local debug configurations
+.vscode/launch.json
