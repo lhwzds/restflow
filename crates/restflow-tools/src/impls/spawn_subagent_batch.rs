@@ -2,9 +2,9 @@
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::sync::Arc;
-use tokio::time::{Duration, timeout};
+use tokio::time::{timeout, Duration};
 
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_traits::store::KvStore;
@@ -60,17 +60,18 @@ pub struct BatchSubagentSpec {
     #[serde(default = "default_member_count")]
     pub count: u32,
 
-    /// Optional per-spec task override.
+    /// Optional transient per-spec task override.
     ///
-    /// If omitted, top-level `task` is used.
+    /// If omitted, top-level `task` is used. This field is never persisted in saved teams.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
 
-    /// Optional per-instance task list.
+    /// Optional transient per-instance task list.
     ///
     /// When provided, each spawned instance uses the corresponding entry in this list.
-    /// This allows one worker spec to fan out with distinct prompts.
+    /// This allows one worker spec to fan out with distinct prompts. This field is never
+    /// persisted in saved teams.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub tasks: Option<Vec<String>>,
@@ -133,10 +134,18 @@ pub struct SpawnSubagentBatchParams {
     #[cfg_attr(feature = "ts", ts(optional))]
     pub specs: Option<Vec<BatchSubagentSpec>>,
 
-    /// Default task for all specs that do not set per-spec `task`.
+    /// Default transient task for all specs that do not set per-spec `task`.
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub task: Option<String>,
+
+    /// Transient per-instance task list for this spawn.
+    ///
+    /// When provided, tasks are assigned across all instances in spec order and are not
+    /// persisted in saved teams.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub tasks: Option<Vec<String>>,
 
     /// If true, wait for all spawned tasks to complete.
     #[serde(default)]
@@ -158,11 +167,33 @@ pub struct SpawnSubagentBatchParams {
     pub parent_execution_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 struct StoredSubagentTeam {
     version: u32,
     name: String,
-    specs: Vec<BatchSubagentSpec>,
+    specs: Vec<StoredBatchSubagentSpec>,
+    created_at: i64,
+    updated_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct StoredBatchSubagentSpec {
+    agent: Option<String>,
+    count: u32,
+    timeout_secs: Option<u64>,
+    model: Option<String>,
+    provider: Option<String>,
+    inline_name: Option<String>,
+    inline_system_prompt: Option<String>,
+    inline_allowed_tools: Option<Vec<String>>,
+    inline_max_iterations: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct StoredSubagentTeamEnvelope {
+    version: u32,
+    name: String,
+    specs: Vec<Value>,
     created_at: i64,
     updated_at: i64,
 }
@@ -387,6 +418,79 @@ impl SpawnSubagentBatchTool {
         Ok(total)
     }
 
+    fn structural_count(spec: &BatchSubagentSpec, spec_index: usize) -> Result<u32> {
+        if let Some(tasks) = &spec.tasks {
+            return u32::try_from(tasks.len()).map_err(|_| {
+                ToolError::Tool(format!(
+                    "Spec index {} has too many tasks to store as a team member count.",
+                    spec_index
+                ))
+            });
+        }
+        Ok(spec.count)
+    }
+
+    fn stored_spec_from_batch(
+        spec: &BatchSubagentSpec,
+        spec_index: usize,
+    ) -> Result<StoredBatchSubagentSpec> {
+        Ok(StoredBatchSubagentSpec {
+            agent: spec.agent.clone(),
+            count: Self::structural_count(spec, spec_index)?,
+            timeout_secs: spec.timeout_secs,
+            model: spec.model.clone(),
+            provider: spec.provider.clone(),
+            inline_name: spec.inline_name.clone(),
+            inline_system_prompt: spec.inline_system_prompt.clone(),
+            inline_allowed_tools: spec.inline_allowed_tools.clone(),
+            inline_max_iterations: spec.inline_max_iterations,
+        })
+    }
+
+    fn batch_spec_from_stored_value(value: Value, spec_index: usize) -> Result<BatchSubagentSpec> {
+        let spec: BatchSubagentSpec = serde_json::from_value(value).map_err(|err| {
+            ToolError::Tool(format!(
+                "Stored team has invalid spec at index {}: {}",
+                spec_index, err
+            ))
+        })?;
+        let count = Self::structural_count(&spec, spec_index)?;
+        Ok(BatchSubagentSpec {
+            agent: spec.agent,
+            count,
+            task: None,
+            tasks: None,
+            timeout_secs: spec.timeout_secs,
+            model: spec.model,
+            provider: spec.provider,
+            inline_name: spec.inline_name,
+            inline_system_prompt: spec.inline_system_prompt,
+            inline_allowed_tools: spec.inline_allowed_tools,
+            inline_max_iterations: spec.inline_max_iterations,
+        })
+    }
+
+    fn validate_save_team_request(
+        task: Option<&str>,
+        tasks: Option<&[String]>,
+        specs: &[BatchSubagentSpec],
+    ) -> Result<()> {
+        if task.is_some() || tasks.is_some() {
+            return Err(ToolError::Tool(
+                "save_team stores worker structure only. Remove top-level 'task'/'tasks' and pass prompts during spawn.".to_string(),
+            ));
+        }
+        for (spec_index, spec) in specs.iter().enumerate() {
+            if spec.task.is_some() || spec.tasks.is_some() {
+                return Err(ToolError::Tool(format!(
+                    "save_team stores worker structure only. Remove 'task'/'tasks' from spec index {} and pass prompts during spawn.",
+                    spec_index
+                )));
+            }
+        }
+        Ok(())
+    }
+
     fn resolve_instance_tasks(
         spec: &BatchSubagentSpec,
         fallback_task: Option<&str>,
@@ -427,7 +531,7 @@ impl SpawnSubagentBatchTool {
             .or(fallback_task)
             .ok_or_else(|| {
                 ToolError::Tool(format!(
-                    "Missing task for spec index {}. Provide top-level 'task', per-spec 'task', or per-spec 'tasks'.",
+                    "Missing task for spec index {}. Provide top-level 'task', top-level 'tasks', per-spec 'task', or per-spec 'tasks'.",
                     spec_index
                 ))
             })?;
@@ -440,6 +544,79 @@ impl SpawnSubagentBatchTool {
         }
 
         Ok((0..spec.count).map(|_| trimmed.to_string()).collect())
+    }
+
+    fn resolve_batch_tasks(
+        specs: &[BatchSubagentSpec],
+        fallback_task: Option<&str>,
+        fallback_tasks: Option<&[String]>,
+    ) -> Result<Vec<Vec<String>>> {
+        if fallback_task.is_some() && fallback_tasks.is_some() {
+            return Err(ToolError::Tool(
+                "Use either top-level 'task' or top-level 'tasks', not both.".to_string(),
+            ));
+        }
+
+        if let Some(tasks) = fallback_tasks {
+            if tasks.is_empty() {
+                return Err(ToolError::Tool(
+                    "Top-level 'tasks' must not be empty.".to_string(),
+                ));
+            }
+
+            for (spec_index, spec) in specs.iter().enumerate() {
+                if spec.task.is_some() || spec.tasks.is_some() {
+                    return Err(ToolError::Tool(format!(
+                        "Top-level 'tasks' cannot be combined with per-spec 'task' or 'tasks' (spec index {}).",
+                        spec_index
+                    )));
+                }
+            }
+
+            let mut normalized = Vec::with_capacity(tasks.len());
+            for (task_index, task) in tasks.iter().enumerate() {
+                let trimmed = task.trim();
+                if trimmed.is_empty() {
+                    return Err(ToolError::Tool(format!(
+                        "Top-level 'tasks' has empty task at index {}.",
+                        task_index
+                    )));
+                }
+                normalized.push(trimmed.to_string());
+            }
+
+            let expected = Self::total_instances(specs)?;
+            if normalized.len() != expected {
+                return Err(ToolError::Tool(format!(
+                    "Top-level 'tasks' length {} does not match total requested instances {}.",
+                    normalized.len(),
+                    expected
+                )));
+            }
+
+            let mut offset = 0usize;
+            let mut resolved = Vec::with_capacity(specs.len());
+            for (spec_index, spec) in specs.iter().enumerate() {
+                let count =
+                    usize::try_from(Self::structural_count(spec, spec_index)?).map_err(|_| {
+                        ToolError::Tool(format!(
+                            "Spec index {} count exceeds supported runtime size.",
+                            spec_index
+                        ))
+                    })?;
+                let end = offset + count;
+                resolved.push(normalized[offset..end].to_vec());
+                offset = end;
+            }
+
+            return Ok(resolved);
+        }
+
+        specs
+            .iter()
+            .enumerate()
+            .map(|(spec_index, spec)| Self::resolve_instance_tasks(spec, fallback_task, spec_index))
+            .collect()
     }
 
     fn load_team_specs(&self, team_name: &str) -> Result<Vec<BatchSubagentSpec>> {
@@ -460,7 +637,7 @@ impl SpawnSubagentBatchTool {
             .get("value")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::Tool("Stored team payload is invalid.".to_string()))?;
-        let team: StoredSubagentTeam = serde_json::from_str(raw).map_err(|err| {
+        let team: StoredSubagentTeamEnvelope = serde_json::from_str(raw).map_err(|err| {
             ToolError::Tool(format!(
                 "Stored team '{}' has invalid JSON payload: {}",
                 team_name, err
@@ -472,7 +649,11 @@ impl SpawnSubagentBatchTool {
                 team_name
             )));
         }
-        Ok(team.specs)
+        team.specs
+            .into_iter()
+            .enumerate()
+            .map(|(spec_index, value)| Self::batch_spec_from_stored_value(value, spec_index))
+            .collect()
     }
 
     fn save_team_specs(&self, team_name: &str, specs: &[BatchSubagentSpec]) -> Result<Value> {
@@ -494,17 +675,22 @@ impl SpawnSubagentBatchTool {
                 existing
                     .get("value")
                     .and_then(Value::as_str)
-                    .and_then(|raw| serde_json::from_str::<StoredSubagentTeam>(raw).ok())
+                    .and_then(|raw| serde_json::from_str::<StoredSubagentTeamEnvelope>(raw).ok())
                     .map(|team| team.created_at)
             })
             .flatten()
             .unwrap_or(now);
 
         let normalized_team_name = Self::validate_team_name(team_name)?;
+        let stored_specs = specs
+            .iter()
+            .enumerate()
+            .map(|(spec_index, spec)| Self::stored_spec_from_batch(spec, spec_index))
+            .collect::<Result<Vec<_>>>()?;
         let document = StoredSubagentTeam {
             version: SUBAGENT_TEAM_VERSION,
             name: normalized_team_name.clone(),
-            specs: specs.to_vec(),
+            specs: stored_specs,
             created_at,
             updated_at: now,
         };
@@ -579,17 +765,23 @@ impl SpawnSubagentBatchTool {
             .get("value")
             .and_then(Value::as_str)
             .ok_or_else(|| ToolError::Tool("Stored team payload is invalid.".to_string()))?;
-        let team: StoredSubagentTeam = serde_json::from_str(raw)
+        let team: StoredSubagentTeamEnvelope = serde_json::from_str(raw)
             .map_err(|err| ToolError::Tool(format!("Failed to parse stored team: {}", err)))?;
+        let specs = team
+            .specs
+            .into_iter()
+            .enumerate()
+            .map(|(spec_index, value)| Self::batch_spec_from_stored_value(value, spec_index))
+            .collect::<Result<Vec<_>>>()?;
         Ok(ToolOutput::success(json!({
             "operation": "get_team",
             "team": team.name,
             "version": team.version,
             "created_at": team.created_at,
             "updated_at": team.updated_at,
-            "member_groups": team.specs.len(),
-            "total_instances": Self::total_instances(&team.specs)?,
-            "specs": team.specs
+            "member_groups": specs.len(),
+            "total_instances": Self::total_instances(&specs)?,
+            "specs": specs
         })))
     }
 
@@ -673,8 +865,13 @@ impl SpawnSubagentBatchTool {
             self.save_team_specs(team_name, &specs)?;
         }
 
+        let resolved_tasks =
+            Self::resolve_batch_tasks(&specs, params.task.as_deref(), params.tasks.as_deref())?;
+
         let mut spawned = Vec::with_capacity(total_requested);
-        for (spec_index, spec) in specs.iter().enumerate() {
+        for (spec_index, (spec, instance_tasks)) in
+            specs.iter().zip(resolved_tasks.into_iter()).enumerate()
+        {
             let inline = Self::build_inline_config(spec);
             let agent_id = spec
                 .agent
@@ -682,8 +879,6 @@ impl SpawnSubagentBatchTool {
                 .map(|requested| self.resolve_agent_id(requested))
                 .transpose()?;
 
-            let instance_tasks =
-                Self::resolve_instance_tasks(spec, params.task.as_deref(), spec_index)?;
             for (instance_index, task) in instance_tasks.into_iter().enumerate() {
                 if instance_index > u32::MAX as usize {
                     return Err(ToolError::Tool(format!(
@@ -869,7 +1064,12 @@ impl Tool for SpawnSubagentBatchTool {
                 },
                 "task": {
                     "type": "string",
-                    "description": "Default task for specs that do not define per-spec 'task' or 'tasks'."
+                    "description": "Transient default task for specs that do not define per-spec 'task' or 'tasks'. Saved teams never persist this field."
+                },
+                "tasks": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Transient per-instance task list for this spawn. Tasks are assigned in spec order and are never persisted in saved teams."
                 },
                 "wait": {
                     "type": "boolean",
@@ -883,7 +1083,7 @@ impl Tool for SpawnSubagentBatchTool {
                 },
                 "save_as_team": {
                     "type": "string",
-                    "description": "Optionally save provided specs as team during spawn."
+                    "description": "Optionally save provided specs as a structural team during spawn. Prompt fields are not persisted."
                 },
                 "parent_execution_id": {
                     "type": "string",
@@ -907,6 +1107,11 @@ impl Tool for SpawnSubagentBatchTool {
                 let specs = params.specs.ok_or_else(|| {
                     ToolError::Tool("save_team requires non-empty 'specs'.".to_string())
                 })?;
+                Self::validate_save_team_request(
+                    params.task.as_deref(),
+                    params.tasks.as_deref(),
+                    &specs,
+                )?;
                 let _ = Self::total_instances(&specs)?;
                 for spec in &specs {
                     if spec.task.is_some() && spec.tasks.is_some() {
@@ -1154,12 +1359,10 @@ mod tests {
             }))
             .await;
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("requires both 'model' and 'provider'")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("requires both 'model' and 'provider'"));
     }
 
     #[tokio::test]
@@ -1209,12 +1412,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("either 'task' or 'tasks'")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("either 'task' or 'tasks'"));
     }
 
     #[tokio::test]
@@ -1232,12 +1433,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Set count to 1 (default) or match tasks length")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Set count to 1 (default) or match tasks length"));
     }
 
     #[tokio::test]
@@ -1258,12 +1457,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("either 'team' or 'specs'")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("either 'team' or 'specs'"));
     }
 
     #[tokio::test]
@@ -1281,12 +1478,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Missing task for spec index 0")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing task for spec index 0"));
     }
 
     #[tokio::test]
@@ -1327,12 +1522,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
-        assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("Team storage is unavailable")
-        );
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Team storage is unavailable"));
     }
 
     #[tokio::test]
@@ -1347,11 +1540,10 @@ mod tests {
         let spawn_output = tool
             .execute(json!({
                 "operation": "spawn",
-                "task": "Run task",
                 "wait": true,
                 "save_as_team": "SavedTeam",
                 "specs": [
-                    { "agent": "coder", "count": 2 }
+                    { "agent": "coder", "tasks": ["task-1", "task-2"] }
                 ]
             }))
             .await
@@ -1369,6 +1561,10 @@ mod tests {
         assert!(get_output.success);
         assert_eq!(get_output.result["team"], "SavedTeam");
         assert_eq!(get_output.result["total_instances"], 2);
+        let spec = get_output.result["specs"][0].clone();
+        assert_eq!(spec["count"], 2);
+        assert!(spec.get("task").is_none() || spec["task"].is_null());
+        assert!(spec.get("tasks").is_none() || spec["tasks"].is_null());
     }
 
     #[tokio::test]

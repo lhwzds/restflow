@@ -22,9 +22,16 @@ team?: string,
  */
 specs?: Array<BatchSubagentSpec>, 
 /**
- * Default task for all specs that do not set per-spec `task`.
+ * Default transient task for all specs that do not set per-spec `task`.
  */
 task?: string, 
+/**
+ * Transient per-instance task list for this spawn.
+ *
+ * When provided, tasks are assigned across all instances in spec order and are not
+ * persisted in saved teams.
+ */
+tasks?: Array<string>, 
 /**
  * If true, wait for all spawned tasks to complete.
  */
