@@ -5,12 +5,15 @@ use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio::time::Duration;
 
-use crate::error::AiError;
 use crate::Result;
+use crate::error::AiError;
+use restflow_trace::RunTraceLifecycleSink;
 
-use super::trace::RunTraceSink;
+use super::trace::{RunTraceEmitterFactory, RunTraceSink};
 
-pub use restflow_traits::subagent::{SubagentCompletion, SubagentResult, SubagentState, SubagentStatus};
+pub use restflow_traits::subagent::{
+    SubagentCompletion, SubagentResult, SubagentState, SubagentStatus,
+};
 
 /// Sub-agent tracker with concurrent access support.
 pub struct SubagentTracker {
@@ -32,8 +35,11 @@ pub struct SubagentTracker {
     /// Lock to prevent TOCTOU race between running_count() check and register().
     spawn_lock: std::sync::Mutex<()>,
 
-    /// Optional sink for persisting sub-agent traces outside in-memory tracker state.
-    trace_sink: RwLock<Option<Arc<dyn RunTraceSink>>>,
+    /// Optional lifecycle sink for persisting sub-agent run boundaries.
+    trace_lifecycle_sink: RwLock<Option<Arc<dyn RunTraceLifecycleSink>>>,
+
+    /// Optional emitter factory for streaming tool-call trace events.
+    trace_emitter_factory: RwLock<Option<Arc<dyn RunTraceEmitterFactory>>>,
 }
 
 impl SubagentTracker {
@@ -49,19 +55,40 @@ impl SubagentTracker {
             completion_tx,
             completion_rx: Mutex::new(completion_rx),
             spawn_lock: std::sync::Mutex::new(()),
-            trace_sink: RwLock::new(None),
+            trace_lifecycle_sink: RwLock::new(None),
+            trace_emitter_factory: RwLock::new(None),
         }
     }
 
     /// Install or replace the trace sink used for spawned sub-agents.
-    pub fn set_run_trace_sink(&self, sink: Arc<dyn RunTraceSink>) {
-        if let Ok(mut guard) = self.trace_sink.write() {
-            *guard = Some(sink);
+    pub fn set_run_trace_sink<T>(&self, sink: Arc<T>)
+    where
+        T: RunTraceSink + 'static,
+    {
+        let lifecycle_sink: Arc<dyn RunTraceLifecycleSink> = sink.clone();
+        let emitter_factory: Arc<dyn RunTraceEmitterFactory> = sink;
+
+        if let Ok(mut guard) = self.trace_lifecycle_sink.write() {
+            *guard = Some(lifecycle_sink);
+        }
+
+        if let Ok(mut guard) = self.trace_emitter_factory.write() {
+            *guard = Some(emitter_factory);
         }
     }
 
-    pub(crate) fn trace_sink(&self) -> Option<Arc<dyn RunTraceSink>> {
-        self.trace_sink.read().ok().and_then(|guard| guard.clone())
+    pub(crate) fn trace_lifecycle_sink(&self) -> Option<Arc<dyn RunTraceLifecycleSink>> {
+        self.trace_lifecycle_sink
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
+    }
+
+    pub(crate) fn trace_emitter_factory(&self) -> Option<Arc<dyn RunTraceEmitterFactory>> {
+        self.trace_emitter_factory
+            .read()
+            .ok()
+            .and_then(|guard| guard.clone())
     }
 
     fn insert_running_state(&self, id: String, agent_name: String, task: String) {
@@ -164,9 +191,7 @@ impl SubagentTracker {
             )));
         }
         if self.states.contains_key(&id) {
-            return Err(AiError::Agent(format!(
-                "Sub-agent id already exists: {id}"
-            )));
+            return Err(AiError::Agent(format!("Sub-agent id already exists: {id}")));
         }
         self.insert_running_state(id, agent_name, task);
         Ok(())
@@ -193,7 +218,10 @@ impl SubagentTracker {
 
     /// Get all sub-agent states.
     pub fn all(&self) -> Vec<SubagentState> {
-        self.states.iter().map(|record| record.value().clone()).collect()
+        self.states
+            .iter()
+            .map(|record| record.value().clone())
+            .collect()
     }
 
     /// Get all running sub-agents.
@@ -243,7 +271,11 @@ impl SubagentTracker {
 
     /// Wait for all running sub-agents to complete.
     pub async fn wait_all(&self) -> Vec<SubagentResult> {
-        let ids: Vec<String> = self.abort_handles.iter().map(|record| record.key().clone()).collect();
+        let ids: Vec<String> = self
+            .abort_handles
+            .iter()
+            .map(|record| record.key().clone())
+            .collect();
 
         let mut results = Vec::new();
         for id in ids {
@@ -279,7 +311,11 @@ impl SubagentTracker {
 
     /// Cancel all running sub-agents.
     pub fn cancel_all(&self) -> usize {
-        let ids: Vec<String> = self.abort_handles.iter().map(|record| record.key().clone()).collect();
+        let ids: Vec<String> = self
+            .abort_handles
+            .iter()
+            .map(|record| record.key().clone())
+            .collect();
         let mut cancelled = 0;
         for id in ids {
             if self.cancel(&id) {
@@ -398,11 +434,44 @@ impl SubagentTracker {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use tokio::sync::{mpsc, oneshot};
     use tokio::time::Duration;
 
     use super::*;
+    use crate::agent::{NullEmitter, StreamEmitter};
+    use restflow_trace::{
+        RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind, TraceEventSink,
+    };
+
+    #[derive(Default)]
+    struct MockRunTraceSink {
+        started: AtomicUsize,
+        finished: AtomicUsize,
+        emitters_built: AtomicUsize,
+    }
+
+    impl TraceEventSink for MockRunTraceSink {
+        fn record_trace_event(&self, event: &TraceEvent) {
+            match event.kind {
+                TraceEventKind::RunStarted => {
+                    self.started.fetch_add(1, Ordering::Relaxed);
+                }
+                TraceEventKind::RunCompleted { .. } | TraceEventKind::RunFailed { .. } => {
+                    self.finished.fetch_add(1, Ordering::Relaxed);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    impl RunTraceEmitterFactory for MockRunTraceSink {
+        fn build_run_emitter(&self, _context: &RunTraceContext) -> Box<dyn StreamEmitter> {
+            self.emitters_built.fetch_add(1, Ordering::Relaxed);
+            Box::new(NullEmitter)
+        }
+    }
 
     #[tokio::test]
     async fn mark_completed_does_not_overwrite_cancelled() {
@@ -561,5 +630,41 @@ mod tests {
             .expect("completed task should return result");
         assert!(result.success);
         assert_eq!(result.output, "done");
+    }
+
+    #[tokio::test]
+    async fn set_run_trace_sink_installs_lifecycle_and_emitter_dependencies() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let sink = Arc::new(MockRunTraceSink::default());
+        tracker.set_run_trace_sink(sink.clone());
+
+        let context = RunTraceContext {
+            run_id: "run-1".to_string(),
+            actor_id: "worker".to_string(),
+            parent_run_id: Some("parent-1".to_string()),
+        };
+
+        let lifecycle_sink = tracker
+            .trace_lifecycle_sink()
+            .expect("lifecycle sink should be installed");
+        lifecycle_sink.on_run_started(&context);
+        lifecycle_sink.on_run_finished(
+            &context,
+            &RunTraceOutcome {
+                success: true,
+                error: None,
+            },
+        );
+
+        let emitter_factory = tracker
+            .trace_emitter_factory()
+            .expect("emitter factory should be installed");
+        let mut emitter = emitter_factory.build_run_emitter(&context);
+        emitter.emit_complete().await;
+
+        assert_eq!(sink.started.load(Ordering::Relaxed), 1);
+        assert_eq!(sink.finished.load(Ordering::Relaxed), 1);
+        assert_eq!(sink.emitters_built.load(Ordering::Relaxed), 1);
     }
 }

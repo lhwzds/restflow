@@ -18,6 +18,36 @@ pub struct RunTraceOutcome {
     pub error: Option<String>,
 }
 
+/// Lifecycle recorder for traced runs.
+pub trait TraceEventSink: Send + Sync {
+    fn record_trace_event(&self, event: &TraceEvent);
+}
+
+/// Lifecycle recorder for traced runs.
+pub trait RunTraceLifecycleSink: TraceEventSink {
+    fn on_run_started(&self, context: &RunTraceContext) {
+        self.record_trace_event(&TraceEvent::run_started(RestflowTrace::from_context(
+            context, None,
+        )));
+    }
+
+    fn on_run_finished(&self, context: &RunTraceContext, outcome: &RunTraceOutcome) {
+        let trace = RestflowTrace::from_context(context, None);
+        let event = if outcome.success {
+            TraceEvent::run_completed(trace, None)
+        } else {
+            TraceEvent::run_failed(
+                trace,
+                outcome.error.as_deref().unwrap_or("Run execution failed"),
+                None,
+            )
+        };
+        self.record_trace_event(&event);
+    }
+}
+
+impl<T> RunTraceLifecycleSink for T where T: TraceEventSink + ?Sized {}
+
 /// Canonical event payload for one traced run lifecycle transition.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraceEvent {
@@ -121,6 +151,16 @@ impl RestflowTrace {
             .or(parent_run_id)
             .unwrap_or_else(|| run_id.clone());
         Self::new(run_id, session_id, execution_task_id, actor_id)
+    }
+
+    /// Build directly from a run-trace context.
+    pub fn from_context(context: &RunTraceContext, execution_scope_id: Option<String>) -> Self {
+        Self::from_run(
+            context.run_id.clone(),
+            context.actor_id.clone(),
+            context.parent_run_id.clone(),
+            execution_scope_id,
+        )
     }
 }
 
@@ -230,9 +270,21 @@ impl TraceEvent {
 #[cfg(test)]
 mod tests {
     use super::{
-        RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind, TraceMessage,
-        TraceToolCallCompleted,
+        RestflowTrace, RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome, TraceEvent,
+        TraceEventKind, TraceEventSink, TraceMessage, TraceToolCallCompleted,
     };
+    use std::sync::Mutex;
+
+    #[derive(Default)]
+    struct RecordingSink {
+        events: Mutex<Vec<TraceEvent>>,
+    }
+
+    impl TraceEventSink for RecordingSink {
+        fn record_trace_event(&self, event: &TraceEvent) {
+            self.events.lock().expect("events lock").push(event.clone());
+        }
+    }
 
     #[test]
     fn new_uses_run_prefixed_turn_id() {
@@ -251,6 +303,21 @@ mod tests {
         assert_eq!(trace.session_id, "parent-run");
         assert_eq!(trace.execution_task_id, "parent-run");
         assert_eq!(trace.turn_id, "run-child-run");
+    }
+
+    #[test]
+    fn from_context_maps_context_fields() {
+        let context = RunTraceContext {
+            run_id: "child-run".to_string(),
+            actor_id: "worker".to_string(),
+            parent_run_id: Some("parent-run".to_string()),
+        };
+
+        let trace = RestflowTrace::from_context(&context, Some("scope-1".to_string()));
+        assert_eq!(trace.run_id, "child-run");
+        assert_eq!(trace.session_id, "parent-run");
+        assert_eq!(trace.execution_task_id, "scope-1");
+        assert_eq!(trace.actor_id, "worker");
     }
 
     #[test]
@@ -355,5 +422,37 @@ mod tests {
                 tool_call_count: Some(2),
             })
         );
+    }
+
+    #[test]
+    fn lifecycle_sink_defaults_emit_started_and_failed_events() {
+        let sink = RecordingSink::default();
+        let context = RunTraceContext {
+            run_id: "run-5".to_string(),
+            actor_id: "worker".to_string(),
+            parent_run_id: Some("parent-5".to_string()),
+        };
+
+        sink.on_run_started(&context);
+        sink.on_run_finished(
+            &context,
+            &RunTraceOutcome {
+                success: false,
+                error: Some("boom".to_string()),
+            },
+        );
+
+        let events = sink.events.lock().expect("events lock");
+        assert_eq!(events.len(), 2);
+        assert!(matches!(events[0].kind, TraceEventKind::RunStarted));
+        assert!(matches!(
+            events[1].kind,
+            TraceEventKind::RunFailed {
+                error: ref e,
+                ai_duration_ms: None,
+            } if e == "boom"
+        ));
+        assert_eq!(events[0].trace.run_id, "run-5");
+        assert_eq!(events[0].trace.session_id, "parent-5");
     }
 }

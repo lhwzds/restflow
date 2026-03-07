@@ -4,9 +4,9 @@ use serde_json::json;
 use tokio::sync::oneshot;
 use tokio::time::{Duration, timeout};
 
+use crate::agent::PromptFlags;
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::agent::stream::StreamEmitter;
-use crate::agent::PromptFlags;
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::{FilteredToolset, ToolRegistry};
@@ -16,10 +16,10 @@ use super::model_resolution::resolve_llm_client;
 use super::trace::{RunTraceContext, RunTraceOutcome};
 use super::tracker::SubagentTracker;
 
+pub use restflow_traits::SubagentConfig;
 pub use restflow_traits::subagent::{
     InlineSubagentConfig, SpawnHandle, SpawnRequest, SubagentDefLookup, SubagentDefSnapshot,
 };
-pub use restflow_traits::SubagentConfig;
 
 const TEMPORARY_SUBAGENT_NAME: &str = "Temporary Subagent";
 const TEMPORARY_SUBAGENT_PROMPT: &str = "You are a temporary sub-agent. Complete the task autonomously, use tools when needed, and return a concise final result.";
@@ -64,7 +64,8 @@ pub fn spawn_subagent(
         actor_id: agent_name_for_return.clone(),
         parent_run_id: parent_execution_id.clone(),
     };
-    let trace_sink = tracker.trace_sink();
+    let trace_lifecycle_sink = tracker.trace_lifecycle_sink();
+    let trace_emitter_factory = tracker.trace_emitter_factory();
     let max_parallel = config.max_parallel_agents;
 
     tracker.try_reserve(
@@ -74,7 +75,7 @@ pub fn spawn_subagent(
         task_for_register,
     )?;
 
-    if let Some(sink) = trace_sink.as_ref() {
+    if let Some(sink) = trace_lifecycle_sink.as_ref() {
         sink.on_run_started(&trace_context);
     }
 
@@ -85,7 +86,8 @@ pub fn spawn_subagent(
     let tool_registry = tool_registry.clone();
     let config_clone = config.clone();
     let trace_context_for_spawn = trace_context.clone();
-    let trace_sink_for_spawn = trace_sink.clone();
+    let trace_lifecycle_sink_for_spawn = trace_lifecycle_sink.clone();
+    let trace_emitter_factory_for_spawn = trace_emitter_factory.clone();
 
     let (completion_tx, completion_rx) = oneshot::channel();
     let (start_tx, start_rx) = oneshot::channel();
@@ -104,9 +106,9 @@ pub fn spawn_subagent(
             };
         }
         let start = std::time::Instant::now();
-        let mut trace_emitter = trace_sink_for_spawn
+        let mut trace_emitter = trace_emitter_factory_for_spawn
             .as_ref()
-            .map(|sink| sink.build_run_emitter(&trace_context_for_spawn));
+            .map(|factory| factory.build_run_emitter(&trace_context_for_spawn));
 
         let result = if let Some(emitter) = trace_emitter.as_mut() {
             timeout(
@@ -200,7 +202,7 @@ pub fn spawn_subagent(
             tracker_clone.mark_completed(&task_id, subagent_result.clone());
         }
 
-        if let Some(sink) = trace_sink_for_spawn.as_ref() {
+        if let Some(sink) = trace_lifecycle_sink_for_spawn.as_ref() {
             sink.on_run_finished(
                 &trace_context_for_spawn,
                 &RunTraceOutcome {
@@ -224,7 +226,7 @@ pub fn spawn_subagent(
             cost_usd: None,
             error: Some(error.to_string()),
         };
-        if let Some(sink) = trace_sink.as_ref() {
+        if let Some(sink) = trace_lifecycle_sink.as_ref() {
             sink.on_run_finished(
                 &trace_context,
                 &RunTraceOutcome {
@@ -296,7 +298,9 @@ fn build_temporary_subagent_definition(
         name,
         system_prompt,
         allowed_tools,
-        max_iterations: inline.and_then(|cfg| cfg.max_iterations).filter(|value| *value > 0),
+        max_iterations: inline
+            .and_then(|cfg| cfg.max_iterations)
+            .filter(|value| *value > 0),
         default_model: None,
     }
 }
@@ -310,7 +314,12 @@ async fn execute_subagent(
     parent_execution_id: Option<String>,
     mut emitter: Option<&mut dyn StreamEmitter>,
 ) -> Result<AgentResult> {
-    let registry = build_registry_for_agent(&tool_registry, &agent_def.allowed_tools, 1, config.max_depth);
+    let registry = build_registry_for_agent(
+        &tool_registry,
+        &agent_def.allowed_tools,
+        1,
+        config.max_depth,
+    );
     let registry = Arc::new(registry);
 
     let max_iterations = agent_def
@@ -401,8 +410,8 @@ mod tests {
         StreamResult, TokenUsage,
     };
 
-    use super::*;
     use super::super::tracker::SubagentTracker;
+    use super::*;
     use restflow_traits::subagent::{
         SpawnPriority, SubagentDefLookup, SubagentDefSummary, SubagentStatus,
     };
@@ -800,7 +809,8 @@ mod tests {
             async fn execute(
                 &self,
                 _input: serde_json::Value,
-            ) -> std::result::Result<restflow_traits::ToolOutput, restflow_traits::ToolError> {
+            ) -> std::result::Result<restflow_traits::ToolOutput, restflow_traits::ToolError>
+            {
                 unimplemented!()
             }
         }
@@ -828,7 +838,11 @@ mod tests {
         .collect();
 
         let registry = build_registry_for_agent(&parent, &all_tools, 1, 1);
-        let names: Vec<String> = registry.list_tools().into_iter().map(|schema| schema.name).collect();
+        let names: Vec<String> = registry
+            .list_tools()
+            .into_iter()
+            .map(|schema| schema.name)
+            .collect();
         assert!(names.contains(&"http".to_string()));
         assert!(names.contains(&"bash".to_string()));
         assert!(!names.contains(&"spawn_subagent".to_string()));
@@ -838,7 +852,11 @@ mod tests {
         assert!(!names.contains(&"send_input".to_string()));
 
         let registry = build_registry_for_agent(&parent, &all_tools, 0, 2);
-        let names: Vec<String> = registry.list_tools().into_iter().map(|schema| schema.name).collect();
+        let names: Vec<String> = registry
+            .list_tools()
+            .into_iter()
+            .map(|schema| schema.name)
+            .collect();
         assert!(names.contains(&"spawn_subagent".to_string()));
         assert!(names.contains(&"wait_subagents".to_string()));
     }

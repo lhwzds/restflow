@@ -7,9 +7,9 @@ mod trace;
 mod tracker;
 
 pub use manager::{SubagentDeps, SubagentManagerImpl};
-pub use restflow_trace::{RunTraceContext, RunTraceOutcome};
+pub use restflow_trace::{RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome};
 pub use spawn::spawn_subagent;
-pub use trace::RunTraceSink;
+pub use trace::{RunTraceEmitterFactory, RunTraceSink};
 pub use tracker::SubagentTracker;
 
 pub use restflow_traits::subagent::{

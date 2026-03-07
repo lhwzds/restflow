@@ -6,10 +6,10 @@ use crate::models::{
 use crate::runtime::channel::tool_trace_emitter::ToolTraceEmitter;
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use regex::Regex;
-use restflow_ai::agent::{NullEmitter, RunTraceSink, StreamEmitter};
+use restflow_ai::agent::{NullEmitter, RunTraceEmitterFactory, StreamEmitter};
 pub use restflow_trace::{
-    RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind, TraceMessage,
-    TraceToolCallCompleted, TraceToolCallStart,
+    RestflowTrace, RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome, TraceEvent,
+    TraceEventKind, TraceEventSink, TraceMessage, TraceToolCallCompleted, TraceToolCallStart,
 };
 use std::sync::LazyLock;
 use tracing::warn;
@@ -57,15 +57,6 @@ pub(crate) fn normalize_trace_payload(value: &str) -> Option<String> {
         Err(_) => sanitized,
     };
     Some(truncate_trace_text(&normalized, MAX_TRACE_EVENT_TEXT_CHARS))
-}
-
-fn restflow_trace_from_context(context: &RunTraceContext) -> RestflowTrace {
-    RestflowTrace::from_run(
-        context.run_id.clone(),
-        context.actor_id.clone(),
-        context.parent_run_id.clone(),
-        None,
-    )
 }
 
 /// Persist one canonical trace lifecycle event into the existing storages.
@@ -643,45 +634,25 @@ impl ToolTraceRunSink {
     }
 }
 
-impl RunTraceSink for ToolTraceRunSink {
-    fn on_run_started(&self, context: &RunTraceContext) {
-        let event = TraceEvent::run_started(restflow_trace_from_context(context));
+impl TraceEventSink for ToolTraceRunSink {
+    fn record_trace_event(&self, event: &TraceEvent) {
         append_trace_event(
             &self.tool_trace_storage,
             self.execution_trace_storage.as_ref(),
             &event,
         );
     }
+}
 
+impl RunTraceEmitterFactory for ToolTraceRunSink {
     fn build_run_emitter(&self, context: &RunTraceContext) -> Box<dyn StreamEmitter> {
-        let trace = restflow_trace_from_context(context);
+        let trace = RestflowTrace::from_context(context, None);
         build_restflow_trace_emitter(
             Box::new(NullEmitter),
             self.tool_trace_storage.clone(),
             self.execution_trace_storage.clone(),
             &trace,
         )
-    }
-
-    fn on_run_finished(&self, context: &RunTraceContext, outcome: &RunTraceOutcome) {
-        let trace = restflow_trace_from_context(context);
-        if outcome.success {
-            let event = TraceEvent::run_completed(trace, None);
-            append_trace_event(
-                &self.tool_trace_storage,
-                self.execution_trace_storage.as_ref(),
-                &event,
-            );
-            return;
-        }
-
-        let error_text = outcome.error.as_deref().unwrap_or("Run execution failed");
-        let event = TraceEvent::run_failed(trace, error_text, None);
-        append_trace_event(
-            &self.tool_trace_storage,
-            self.execution_trace_storage.as_ref(),
-            &event,
-        );
     }
 }
 
