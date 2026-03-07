@@ -338,6 +338,11 @@ mod tests {
         }
     }
 
+    fn set_test_model(node: &mut AgentNode, model: AIModel) {
+        node.model = Some(model);
+        node.model_ref = Some(crate::models::ModelRef::from_model(model));
+    }
+
     #[tokio::test]
     async fn test_list_agents_empty() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
@@ -446,7 +451,7 @@ mod tests {
         // Use DeepseekChat which supports temperature (unlike Gpt5Mini)
         let mut new_agent_node = create_test_agent_node("Updated prompt");
         new_agent_node.temperature = Some(0.9);
-        new_agent_node.model = Some(AIModel::DeepseekChat);
+        set_test_model(&mut new_agent_node, AIModel::DeepseekChat);
 
         let updated = update_agent(&core, &created.id, None, Some(new_agent_node))
             .await
@@ -719,7 +724,7 @@ mod tests {
     async fn test_create_agent_rejects_temperature_on_unsupported_model() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let mut node = create_test_agent_node("test");
-        node.model = Some(AIModel::Gpt5);
+        set_test_model(&mut node, AIModel::Gpt5);
         node.temperature = Some(0.5);
 
         let err = create_agent(&core, "Bad Temp Agent".to_string(), node)
