@@ -1,13 +1,9 @@
 //! Shared runtime helpers for RestFlow run traces.
 
 use crate::models::{
-    ExecutionTraceEvent, MessageTrace, ToolCallCompletion, ToolCallTrace, ToolTrace,
+    ExecutionTraceEvent, LifecycleTrace, MessageTrace, ToolCallCompletion, ToolCallTrace, ToolTrace,
 };
-use crate::runtime::channel::tool_trace_emitter::{
-    ToolTraceEmitter, append_turn_cancelled_with_execution_and_ai_duration,
-    append_turn_completed_with_execution_and_ai_duration,
-    append_turn_failed_with_execution_and_ai_duration, append_turn_started_with_execution,
-};
+use crate::runtime::channel::tool_trace_emitter::ToolTraceEmitter;
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use regex::Regex;
 use restflow_ai::agent::{NullEmitter, RunTraceSink, StreamEmitter};
@@ -144,6 +140,286 @@ fn append_tool_trace_event(storage: &ToolTraceStorage, event: ToolTrace) {
             "Failed to append trace event"
         );
     }
+}
+
+fn append_lifecycle_trace(
+    storage: Option<&ExecutionTraceStorage>,
+    task_id: &str,
+    agent_id: &str,
+    status: &str,
+    message: Option<String>,
+    error: Option<String>,
+) {
+    let Some(storage) = storage else {
+        return;
+    };
+
+    let event = ExecutionTraceEvent::lifecycle(
+        task_id,
+        agent_id,
+        LifecycleTrace {
+            status: status.to_string(),
+            message,
+            error,
+        },
+    );
+    if let Err(err) = storage.store(&event) {
+        warn!(
+            task_id,
+            agent_id,
+            error = %err,
+            "Failed to append lifecycle execution trace"
+        );
+    }
+}
+
+/// Append turn-start event to tool trace storage.
+pub fn append_turn_started(storage: &ToolTraceStorage, session_id: &str, turn_id: &str) {
+    append_tool_trace_event(storage, ToolTrace::turn_started(session_id, turn_id));
+}
+
+/// Append turn-completed event to tool trace storage.
+pub fn append_turn_completed(storage: &ToolTraceStorage, session_id: &str, turn_id: &str) {
+    append_turn_completed_with_ai_duration(storage, session_id, turn_id, None);
+}
+
+/// Append turn-completed event to tool trace storage with optional AI duration.
+pub fn append_turn_completed_with_ai_duration(
+    storage: &ToolTraceStorage,
+    session_id: &str,
+    turn_id: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    let mut event = ToolTrace::turn_completed(session_id, turn_id);
+    event.duration_ms = ai_duration_ms;
+    append_tool_trace_event(storage, event);
+}
+
+/// Append turn-failed event to tool trace storage.
+pub fn append_turn_failed(
+    storage: &ToolTraceStorage,
+    session_id: &str,
+    turn_id: &str,
+    error_text: &str,
+) {
+    append_turn_failed_with_ai_duration(storage, session_id, turn_id, error_text, None);
+}
+
+/// Append turn-failed event to tool trace storage with optional AI duration.
+pub fn append_turn_failed_with_ai_duration(
+    storage: &ToolTraceStorage,
+    session_id: &str,
+    turn_id: &str,
+    error_text: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    let mut event = ToolTrace::turn_failed(
+        session_id,
+        turn_id,
+        truncate_trace_text(
+            &sanitize_trace_secrets(error_text),
+            MAX_TRACE_EVENT_TEXT_CHARS,
+        ),
+    );
+    event.duration_ms = ai_duration_ms;
+    append_tool_trace_event(storage, event);
+}
+
+/// Append turn-cancelled event to tool trace storage.
+pub fn append_turn_cancelled(
+    storage: &ToolTraceStorage,
+    session_id: &str,
+    turn_id: &str,
+    reason: &str,
+) {
+    append_turn_cancelled_with_ai_duration(storage, session_id, turn_id, reason, None);
+}
+
+/// Append turn-cancelled event to tool trace storage with optional AI duration.
+pub fn append_turn_cancelled_with_ai_duration(
+    storage: &ToolTraceStorage,
+    session_id: &str,
+    turn_id: &str,
+    reason: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    let mut event = ToolTrace::turn_cancelled(
+        session_id,
+        turn_id,
+        truncate_trace_text(&sanitize_trace_secrets(reason), MAX_TRACE_EVENT_TEXT_CHARS),
+    );
+    event.duration_ms = ai_duration_ms;
+    append_tool_trace_event(storage, event);
+}
+
+/// Append turn-started events to both tool trace and execution trace storages.
+pub fn append_turn_started_with_execution(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+) {
+    append_turn_started(tool_trace_storage, session_id, turn_id);
+    append_lifecycle_trace(
+        execution_trace_storage,
+        task_id,
+        agent_id,
+        "turn_started",
+        Some(format!("Turn started: {}", turn_id)),
+        None,
+    );
+}
+
+/// Append turn-completed events to both tool trace and execution trace storages.
+pub fn append_turn_completed_with_execution(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+) {
+    append_turn_completed_with_execution_and_ai_duration(
+        tool_trace_storage,
+        execution_trace_storage,
+        session_id,
+        turn_id,
+        task_id,
+        agent_id,
+        None,
+    );
+}
+
+/// Append turn-completed events to both tool trace and execution trace storages
+/// with optional AI duration.
+pub fn append_turn_completed_with_execution_and_ai_duration(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    append_turn_completed_with_ai_duration(tool_trace_storage, session_id, turn_id, ai_duration_ms);
+    append_lifecycle_trace(
+        execution_trace_storage,
+        task_id,
+        agent_id,
+        "turn_completed",
+        Some(format!("Turn completed: {}", turn_id)),
+        None,
+    );
+}
+
+/// Append turn-failed events to both tool trace and execution trace storages.
+pub fn append_turn_failed_with_execution(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    error_text: &str,
+) {
+    append_turn_failed_with_execution_and_ai_duration(
+        tool_trace_storage,
+        execution_trace_storage,
+        session_id,
+        turn_id,
+        task_id,
+        agent_id,
+        error_text,
+        None,
+    );
+}
+
+/// Append turn-failed events to both tool trace and execution trace storages with optional AI duration.
+#[allow(clippy::too_many_arguments)]
+pub fn append_turn_failed_with_execution_and_ai_duration(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    error_text: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    append_turn_failed_with_ai_duration(
+        tool_trace_storage,
+        session_id,
+        turn_id,
+        error_text,
+        ai_duration_ms,
+    );
+    let sanitized_error = truncate_trace_text(
+        &sanitize_trace_secrets(error_text),
+        MAX_TRACE_EVENT_TEXT_CHARS,
+    );
+    append_lifecycle_trace(
+        execution_trace_storage,
+        task_id,
+        agent_id,
+        "turn_failed",
+        Some(format!("Turn failed: {}", turn_id)),
+        Some(sanitized_error),
+    );
+}
+
+/// Append turn-cancelled events to both tool trace and execution trace storages.
+pub fn append_turn_cancelled_with_execution(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    reason: &str,
+) {
+    append_turn_cancelled_with_execution_and_ai_duration(
+        tool_trace_storage,
+        execution_trace_storage,
+        session_id,
+        turn_id,
+        task_id,
+        agent_id,
+        reason,
+        None,
+    );
+}
+
+/// Append turn-cancelled events to both tool trace and execution trace storages with optional AI duration.
+#[allow(clippy::too_many_arguments)]
+pub fn append_turn_cancelled_with_execution_and_ai_duration(
+    tool_trace_storage: &ToolTraceStorage,
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    session_id: &str,
+    turn_id: &str,
+    task_id: &str,
+    agent_id: &str,
+    reason: &str,
+    ai_duration_ms: Option<u64>,
+) {
+    append_turn_cancelled_with_ai_duration(
+        tool_trace_storage,
+        session_id,
+        turn_id,
+        reason,
+        ai_duration_ms,
+    );
+    let sanitized_reason =
+        truncate_trace_text(&sanitize_trace_secrets(reason), MAX_TRACE_EVENT_TEXT_CHARS);
+    append_lifecycle_trace(
+        execution_trace_storage,
+        task_id,
+        agent_id,
+        "turn_cancelled",
+        Some(format!("Turn cancelled: {}", turn_id)),
+        Some(sanitized_reason),
+    );
 }
 
 /// Append run-started events for a canonical RestFlow trace.

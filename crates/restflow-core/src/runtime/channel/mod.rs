@@ -70,6 +70,11 @@ mod trigger;
 mod turn_persistence;
 mod voice_transcript;
 
+pub use crate::runtime::trace::{
+    append_turn_cancelled, append_turn_completed, append_turn_completed_with_execution,
+    append_turn_failed, append_turn_failed_with_execution, append_turn_started,
+    append_turn_started_with_execution,
+};
 pub use chat_dispatcher::{ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager};
 pub use debounce::MessageDebouncer;
 pub use handler::{
@@ -77,11 +82,7 @@ pub use handler::{
     start_message_handler_with_chat, start_message_handler_with_pairing,
 };
 pub use router::{MessageRouter, RouteDecision};
-pub use tool_trace_emitter::{
-    ToolTraceEmitter, append_turn_cancelled, append_turn_completed,
-    append_turn_completed_with_execution, append_turn_failed, append_turn_failed_with_execution,
-    append_turn_started, append_turn_started_with_execution, build_execution_steps,
-};
+pub use tool_trace_emitter::{ToolTraceEmitter, build_execution_steps};
 pub use trigger::{BackgroundAgentTrigger, SystemStatus};
 pub(crate) use turn_persistence::build_turn_persistence_payload;
 pub(crate) use voice_transcript::{
