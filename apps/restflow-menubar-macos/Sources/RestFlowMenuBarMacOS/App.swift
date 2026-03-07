@@ -32,11 +32,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupStatusItem() {
-        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "RF"
-        item.button?.toolTip = "RestFlow Menu Bar"
-        item.button?.target = self
-        item.button?.action = #selector(togglePopover)
+        let item = NSStatusBar.system.statusItem(withLength: 30)
+        if let button = item.button {
+            button.image = StatusBarAppearance.loadStatusBarImage()
+            button.imagePosition = .imageOnly
+            button.imageScaling = .scaleProportionallyUpOrDown
+            button.appearsDisabled = false
+            button.title = ""
+            button.toolTip = StatusBarAppearance.tooltip(for: nil)
+            button.target = self
+            button.action = #selector(togglePopover)
+        }
         statusItem = item
     }
 
@@ -55,25 +61,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] snapshot in
                 guard let self else { return }
-                guard let snapshot else {
-                    self.statusItem?.button?.title = "RF"
+                guard let button = self.statusItem?.button else { return }
+                button.toolTip = StatusBarAppearance.tooltip(for: snapshot)
+
+                guard snapshot != nil else {
+                    button.image = StatusBarAppearance.loadStatusBarImage()
+                    button.imagePosition = .imageOnly
+                    button.imageScaling = .scaleProportionallyUpOrDown
+                    button.title = ""
                     return
                 }
 
-                let status = snapshot.daemon.status
-                let activeTasks = snapshot.summary.tasks.active
-                let indicator: String
-                switch status {
-                case "running":
-                    indicator = "●"
-                case "stale":
-                    indicator = "!"
-                default:
-                    indicator = "○"
-                }
-                self.statusItem?.button?.title = activeTasks > 0
-                    ? "RF\(activeTasks)\(indicator)"
-                    : "RF\(indicator)"
+                button.image = StatusBarAppearance.loadStatusBarImage()
+                button.imagePosition = .imageOnly
+                button.imageScaling = .scaleProportionallyUpOrDown
+                button.title = ""
+                button.contentTintColor = nil
             }
             .store(in: &cancellables)
     }
