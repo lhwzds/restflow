@@ -5,6 +5,7 @@ use crate::models::{
     BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, DurabilityMode,
     MemoryConfig, MemoryScope, ResourceLimits,
 };
+use crate::runtime::trace::{list_run_trace_summaries, read_run_trace};
 use crate::services::background_agent_conversion::{
     ConvertSessionSpecOptions, build_convert_session_spec, default_conversion_schedule,
 };
@@ -150,33 +151,35 @@ impl BackgroundAgentStoreAdapter {
         Ok(self.storage.resolve_existing_task_id(id_or_prefix)?)
     }
 
-    fn task_session_id(&self, task_id_or_prefix: &str) -> Result<String, ToolError> {
+    fn task_trace_target(&self, task_id_or_prefix: &str) -> Result<(String, String), ToolError> {
         let resolved_id = self.resolve_task_id(task_id_or_prefix)?;
         let task = self.storage.get_task(&resolved_id)?.ok_or_else(|| {
             ToolError::Tool(format!("background agent {} not found", resolved_id))
         })?;
         let session_id = task.chat_session_id.trim();
-        if session_id.is_empty() {
-            Ok(task.id)
+        let session_id = if session_id.is_empty() {
+            task.id.clone()
         } else {
-            Ok(session_id.to_string())
-        }
+            session_id.to_string()
+        };
+        Ok((resolved_id, session_id))
     }
 
-    fn all_session_ids(&self) -> Result<Vec<String>, ToolError> {
+    fn all_trace_targets(&self) -> Result<Vec<(String, String)>, ToolError> {
         let mut seen = HashSet::new();
-        let mut session_ids = Vec::new();
+        let mut targets = Vec::new();
         for task in self.storage.list_tasks()? {
             let session_id = if task.chat_session_id.trim().is_empty() {
-                task.id
+                task.id.clone()
             } else {
-                task.chat_session_id
+                task.chat_session_id.clone()
             };
-            if seen.insert(session_id.clone()) {
-                session_ids.push(session_id);
+            let dedupe_key = format!("{}:{}", task.id, session_id);
+            if seen.insert(dedupe_key) {
+                targets.push((task.id, session_id));
             }
         }
-        Ok(session_ids)
+        Ok(targets)
     }
 }
 
@@ -395,41 +398,50 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentTraceListRequest,
     ) -> restflow_tools::Result<Value> {
         let limit = request.limit.unwrap_or(DEFAULT_BG_TRACE_LIST_LIMIT).max(1);
-        let session_ids = if let Some(task_id) = request.id.as_deref() {
-            vec![self.task_session_id(task_id)?]
+        let trace_targets = if let Some(task_id) = request.id.as_deref() {
+            vec![self.task_trace_target(task_id)?]
         } else {
-            self.all_session_ids()?
+            self.all_trace_targets()?
         };
 
-        let mut traces = Vec::new();
-        for session_id in session_ids {
-            let mut session_traces = self
-                .storage
-                .tool_traces()
-                .list_by_session(&session_id, None)?;
-            traces.append(&mut session_traces);
+        let mut summaries = Vec::new();
+        for (scope_id, session_id) in trace_targets {
+            let mut session_summaries = list_run_trace_summaries(
+                self.storage.tool_traces(),
+                self.storage.execution_traces(),
+                &session_id,
+                &scope_id,
+                limit,
+            )
+            .map_err(|e| ToolError::Tool(format!("failed to list traces: {}", e)))?;
+            summaries.append(&mut session_summaries);
         }
-        traces.sort_by(|a, b| {
-            b.created_at
-                .cmp(&a.created_at)
-                .then_with(|| b.id.cmp(&a.id))
+        summaries.sort_by(|a, b| {
+            b.last_event_at_ms
+                .cmp(&a.last_event_at_ms)
+                .then_with(|| b.trace.run_id.cmp(&a.trace.run_id))
         });
-        traces.truncate(limit);
+        summaries.truncate(limit);
 
-        let data = traces
+        let data = summaries
             .into_iter()
-            .map(|trace| {
+            .map(|summary| {
                 json!({
-                    "trace_id": trace.id,
-                    "session_id": trace.session_id,
-                    "turn_id": trace.turn_id,
-                    "event_type": trace.event_type,
-                    "tool_call_id": trace.tool_call_id,
-                    "tool_name": trace.tool_name,
-                    "success": trace.success,
-                    "duration_ms": trace.duration_ms,
-                    "created_at": trace.created_at,
-                    "output_ref": trace.output_ref,
+                    "trace_id": summary.trace.run_id,
+                    "run_id": summary.trace.run_id,
+                    "parent_run_id": summary.trace.parent_run_id,
+                    "session_id": summary.trace.session_id,
+                    "turn_id": summary.trace.turn_id,
+                    "scope_id": summary.trace.scope_id,
+                    "actor_id": summary.trace.actor_id,
+                    "status": summary.status,
+                    "started_at_ms": summary.started_at_ms,
+                    "ended_at_ms": summary.ended_at_ms,
+                    "last_event_at_ms": summary.last_event_at_ms,
+                    "event_count": summary.event_count,
+                    "tool_call_count": summary.tool_call_count,
+                    "message_count": summary.message_count,
+                    "llm_call_count": summary.llm_call_count,
                 })
             })
             .collect::<Vec<_>>();
@@ -449,55 +461,54 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .line_limit
             .unwrap_or(DEFAULT_BG_TRACE_LINE_LIMIT)
             .max(1);
-        let mut found = None;
-        for session_id in self.all_session_ids()? {
-            if let Some(trace) = self
-                .storage
-                .tool_traces()
-                .list_by_session(&session_id, None)?
-                .into_iter()
-                .find(|trace| trace.id == trace_id)
+        let mut timeline = None;
+
+        for (scope_id, session_id) in self.all_trace_targets()? {
+            if let Some(found) = read_run_trace(
+                self.storage.tool_traces(),
+                self.storage.execution_traces(),
+                &session_id,
+                &scope_id,
+                trace_id,
+                limit,
+            )
+            .map_err(|e| ToolError::Tool(format!("failed to read trace: {}", e)))?
             {
-                found = Some(trace);
+                timeline = Some(found);
                 break;
             }
         }
-        let trace =
-            found.ok_or_else(|| ToolError::Tool(format!("trace {} not found", trace_id)))?;
 
-        let mut response = serde_json::Map::new();
-        response.insert("trace".to_string(), serde_json::to_value(&trace)?);
-        response.insert("line_limit".to_string(), json!(limit));
-
-        if let Some(path) = trace.output_ref.as_deref() {
-            match std::fs::read_to_string(path) {
-                Ok(content) => {
-                    let lines = content.lines().collect::<Vec<_>>();
-                    let total_lines = lines.len();
-                    let start = total_lines.saturating_sub(limit);
-                    let tail = lines[start..]
-                        .iter()
-                        .map(|line| (*line).to_string())
-                        .collect::<Vec<_>>();
-                    response.insert(
-                        "output".to_string(),
-                        json!({
-                            "path": path,
-                            "total_lines": total_lines,
-                            "lines": tail,
-                        }),
-                    );
-                }
-                Err(error) => {
-                    response.insert(
-                        "output_error".to_string(),
-                        json!(format!("failed to read output_ref {}: {}", path, error)),
-                    );
+        if timeline.is_none() {
+            for (scope_id, session_id) in self.all_trace_targets()? {
+                let maybe_run_id = self
+                    .storage
+                    .tool_traces()
+                    .list_by_session(&session_id, None)?
+                    .into_iter()
+                    .find(|trace| trace.id == trace_id)
+                    .and_then(|trace| trace.turn_id.strip_prefix("run-").map(str::to_string));
+                let Some(run_id) = maybe_run_id else {
+                    continue;
+                };
+                timeline = read_run_trace(
+                    self.storage.tool_traces(),
+                    self.storage.execution_traces(),
+                    &session_id,
+                    &scope_id,
+                    &run_id,
+                    limit,
+                )
+                .map_err(|e| ToolError::Tool(format!("failed to read trace: {}", e)))?;
+                if timeline.is_some() {
+                    break;
                 }
             }
         }
 
-        Ok(Value::Object(response))
+        let timeline =
+            timeline.ok_or_else(|| ToolError::Tool(format!("trace {} not found", trace_id)))?;
+        serde_json::to_value(timeline).map_err(Into::into)
     }
 }
 
@@ -768,7 +779,7 @@ mod tests {
 
         let mut trace = crate::models::ToolTrace::tool_call_completed(
             &session_id,
-            "turn-1",
+            "run-run-1",
             "call-1",
             "bash",
             crate::models::ToolCallCompletion {
@@ -789,9 +800,10 @@ mod tests {
             })
             .unwrap();
 
-        assert_eq!(value["trace"]["id"], "trace-id-1");
-        assert_eq!(value["output"]["total_lines"], 4);
-        assert_eq!(value["output"]["lines"][0], "line-3");
-        assert_eq!(value["output"]["lines"][1], "line-4");
+        assert_eq!(value["summary"]["trace"]["run_id"], "run-1");
+        assert_eq!(value["events"][0]["record_id"], "trace-id-1");
+        assert_eq!(value["events"][0]["artifact_preview"]["total_lines"], 4);
+        assert_eq!(value["events"][0]["artifact_preview"]["lines"][0], "line-3");
+        assert_eq!(value["events"][0]["artifact_preview"]["lines"][1], "line-4");
     }
 }

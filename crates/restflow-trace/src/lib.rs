@@ -53,7 +53,7 @@ pub trait RunTraceLifecycleSink: TraceEventSink {
 impl<T> RunTraceLifecycleSink for T where T: TraceEventSink + ?Sized {}
 
 /// Canonical event payload for one traced run lifecycle transition.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TraceEvent {
     pub trace: RestflowTrace,
     pub kind: TraceEventKind,
@@ -80,6 +80,19 @@ pub struct TraceToolCallCompleted {
     pub error: Option<String>,
 }
 
+/// LLM-call payload carried by the canonical trace event schema.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceLlmCall {
+    pub model: String,
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+    pub cost_usd: Option<f64>,
+    pub duration_ms: Option<u64>,
+    pub is_reasoning: Option<bool>,
+    pub message_count: Option<u32>,
+}
+
 /// Message payload carried by the canonical trace event schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraceMessage {
@@ -89,7 +102,7 @@ pub struct TraceMessage {
 }
 
 /// Lifecycle event kinds emitted for a traced run.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum TraceEventKind {
     RunStarted,
     RunCompleted {
@@ -105,7 +118,56 @@ pub enum TraceEventKind {
     },
     ToolCallStarted(TraceToolCallStart),
     ToolCallCompleted(TraceToolCallCompleted),
+    LlmCall(TraceLlmCall),
     Message(TraceMessage),
+}
+
+/// Source storage for a timeline event returned by backend trace queries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum TraceTimelineSource {
+    ToolTrace,
+    ExecutionTrace,
+}
+
+/// Optional artifact tail preview attached to a timeline event.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceArtifactPreview {
+    pub path: String,
+    pub total_lines: usize,
+    pub lines: Vec<String>,
+}
+
+/// One persisted timeline record for a run trace.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TraceTimelineEvent {
+    pub record_id: Option<String>,
+    pub timestamp_ms: i64,
+    pub source: TraceTimelineSource,
+    pub event: TraceEvent,
+    #[serde(default)]
+    pub artifact_preview: Option<TraceArtifactPreview>,
+}
+
+/// Aggregated summary for one traced run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunTraceSummary {
+    pub trace: RestflowTrace,
+    pub status: String,
+    pub started_at_ms: Option<i64>,
+    pub ended_at_ms: Option<i64>,
+    pub last_event_at_ms: i64,
+    pub event_count: usize,
+    pub tool_call_count: usize,
+    pub message_count: usize,
+    pub llm_call_count: usize,
+}
+
+/// Full backend timeline for one traced run.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct RunTraceTimeline {
+    pub summary: RunTraceSummary,
+    pub events: Vec<TraceTimelineEvent>,
 }
 
 /// Canonical RestFlow trace descriptor for one run.
@@ -285,6 +347,33 @@ impl TraceEvent {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
+    pub fn llm_call(
+        trace: RestflowTrace,
+        model: impl Into<String>,
+        input_tokens: Option<u32>,
+        output_tokens: Option<u32>,
+        total_tokens: Option<u32>,
+        cost_usd: Option<f64>,
+        duration_ms: Option<u64>,
+        is_reasoning: Option<bool>,
+        message_count: Option<u32>,
+    ) -> Self {
+        Self {
+            trace,
+            kind: TraceEventKind::LlmCall(TraceLlmCall {
+                model: model.into(),
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                cost_usd,
+                duration_ms,
+                is_reasoning,
+                message_count,
+            }),
+        }
+    }
+
     pub fn message(
         trace: RestflowTrace,
         role: impl Into<String>,
@@ -305,8 +394,10 @@ impl TraceEvent {
 #[cfg(test)]
 mod tests {
     use super::{
-        RestflowTrace, RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome, TraceEvent,
-        TraceEventKind, TraceEventSink, TraceMessage, TraceToolCallCompleted,
+        RestflowTrace, RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome, RunTraceSummary,
+        RunTraceTimeline, TraceArtifactPreview, TraceEvent, TraceEventKind, TraceEventSink,
+        TraceLlmCall, TraceMessage, TraceTimelineEvent, TraceTimelineSource,
+        TraceToolCallCompleted,
     };
     use std::sync::Mutex;
 
@@ -488,6 +579,35 @@ mod tests {
     }
 
     #[test]
+    fn trace_event_llm_call_roundtrips_payload() {
+        let event = TraceEvent::llm_call(
+            RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
+            "claude-sonnet",
+            Some(100),
+            Some(50),
+            Some(150),
+            Some(0.25),
+            Some(321),
+            Some(false),
+            Some(4),
+        );
+
+        assert_eq!(
+            event.kind,
+            TraceEventKind::LlmCall(TraceLlmCall {
+                model: "claude-sonnet".to_string(),
+                input_tokens: Some(100),
+                output_tokens: Some(50),
+                total_tokens: Some(150),
+                cost_usd: Some(0.25),
+                duration_ms: Some(321),
+                is_reasoning: Some(false),
+                message_count: Some(4),
+            })
+        );
+    }
+
+    #[test]
     fn lifecycle_sink_defaults_emit_started_and_failed_events() {
         let sink = RecordingSink::default();
         let context = RunTraceContext {
@@ -521,5 +641,48 @@ mod tests {
         assert_eq!(events[0].trace.parent_run_id.as_deref(), Some("parent-5"));
         assert_eq!(events[0].trace.session_id, "session-5");
         assert_eq!(events[0].trace.scope_id, "scope-5");
+    }
+
+    #[test]
+    fn run_trace_timeline_roundtrips_through_json() {
+        let trace = RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+        let timeline = RunTraceTimeline {
+            summary: RunTraceSummary {
+                trace: trace.clone(),
+                status: "completed".to_string(),
+                started_at_ms: Some(100),
+                ended_at_ms: Some(200),
+                last_event_at_ms: 200,
+                event_count: 2,
+                tool_call_count: 1,
+                message_count: 0,
+                llm_call_count: 1,
+            },
+            events: vec![TraceTimelineEvent {
+                record_id: Some("event-1".to_string()),
+                timestamp_ms: 200,
+                source: TraceTimelineSource::ExecutionTrace,
+                event: TraceEvent::llm_call(
+                    trace,
+                    "gpt-5",
+                    Some(10),
+                    Some(20),
+                    Some(30),
+                    None,
+                    Some(123),
+                    None,
+                    Some(4),
+                ),
+                artifact_preview: Some(TraceArtifactPreview {
+                    path: "/tmp/output.txt".to_string(),
+                    total_lines: 2,
+                    lines: vec!["a".to_string(), "b".to_string()],
+                }),
+            }],
+        };
+
+        let json = serde_json::to_string(&timeline).expect("serialize timeline");
+        let restored: RunTraceTimeline = serde_json::from_str(&json).expect("deserialize timeline");
+        assert_eq!(restored, timeline);
     }
 }

@@ -12,6 +12,19 @@ pub trait StreamEmitter: Send + Sync {
     async fn emit_thinking_delta(&mut self, text: &str);
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str);
     async fn emit_tool_call_result(&mut self, id: &str, name: &str, result: &str, success: bool);
+    #[allow(clippy::too_many_arguments)]
+    async fn emit_llm_call(
+        &mut self,
+        _model: &str,
+        _input_tokens: Option<u32>,
+        _output_tokens: Option<u32>,
+        _total_tokens: Option<u32>,
+        _cost_usd: Option<f64>,
+        _duration_ms: Option<u64>,
+        _is_reasoning: Option<bool>,
+        _message_count: Option<u32>,
+    ) {
+    }
     async fn emit_complete(&mut self);
 }
 

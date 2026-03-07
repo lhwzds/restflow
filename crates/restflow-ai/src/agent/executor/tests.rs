@@ -329,11 +329,22 @@ impl Tool for NonRetryableTool {
 
 type ToolStartRecord = (String, String, String);
 type ToolResultRecord = (String, String, String, bool);
+type LlmCallRecord = (
+    String,
+    Option<u32>,
+    Option<u32>,
+    Option<u32>,
+    Option<f64>,
+    Option<u64>,
+    Option<bool>,
+    Option<u32>,
+);
 
 struct CapturingEmitter {
     text: Arc<AsyncMutex<Vec<String>>>,
     tool_starts: Arc<AsyncMutex<Vec<ToolStartRecord>>>,
     tool_results: Arc<AsyncMutex<Vec<ToolResultRecord>>>,
+    llm_calls: Arc<AsyncMutex<Vec<LlmCallRecord>>>,
     completed: Arc<AtomicUsize>,
 }
 
@@ -343,6 +354,7 @@ impl CapturingEmitter {
             text: Arc::new(AsyncMutex::new(Vec::new())),
             tool_starts: Arc::new(AsyncMutex::new(Vec::new())),
             tool_results: Arc::new(AsyncMutex::new(Vec::new())),
+            llm_calls: Arc::new(AsyncMutex::new(Vec::new())),
             completed: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -370,6 +382,30 @@ impl StreamEmitter for CapturingEmitter {
             name.to_string(),
             result.to_string(),
             success,
+        ));
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn emit_llm_call(
+        &mut self,
+        model: &str,
+        input_tokens: Option<u32>,
+        output_tokens: Option<u32>,
+        total_tokens: Option<u32>,
+        cost_usd: Option<f64>,
+        duration_ms: Option<u64>,
+        is_reasoning: Option<bool>,
+        message_count: Option<u32>,
+    ) {
+        self.llm_calls.lock().await.push((
+            model.to_string(),
+            input_tokens,
+            output_tokens,
+            total_tokens,
+            cost_usd,
+            duration_ms,
+            is_reasoning,
+            message_count,
         ));
     }
 
@@ -1002,13 +1038,23 @@ async fn test_non_stream_run_with_emitter_emits_tool_trace() {
                 arguments: serde_json::json!({"message":"hello"}),
             }],
             finish_reason: FinishReason::ToolCalls,
-            usage: None,
+            usage: Some(TokenUsage {
+                prompt_tokens: 12,
+                completion_tokens: 6,
+                total_tokens: 18,
+                cost_usd: Some(0.02),
+            }),
         },
         CompletionResponse {
             content: Some("done".to_string()),
             tool_calls: vec![],
             finish_reason: FinishReason::Stop,
-            usage: None,
+            usage: Some(TokenUsage {
+                prompt_tokens: 8,
+                completion_tokens: 4,
+                total_tokens: 12,
+                cost_usd: Some(0.01),
+            }),
         },
     ];
 
@@ -1027,6 +1073,7 @@ async fn test_non_stream_run_with_emitter_emits_tool_trace() {
     assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
     assert_eq!(emitter.tool_starts.lock().await.len(), 1);
     assert_eq!(emitter.tool_results.lock().await.len(), 1);
+    assert_eq!(emitter.llm_calls.lock().await.len(), 2);
     let tool_result = emitter.tool_results.lock().await;
     assert!(tool_result[0].3);
 }
@@ -1070,6 +1117,43 @@ async fn test_non_stream_run_from_state_with_emitter_emits_tool_trace() {
     assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
     assert_eq!(emitter.tool_starts.lock().await.len(), 1);
     assert_eq!(emitter.tool_results.lock().await.len(), 1);
+    assert_eq!(emitter.llm_calls.lock().await.len(), 2);
+}
+
+#[tokio::test]
+async fn test_non_stream_run_with_emitter_records_llm_usage() {
+    let response = CompletionResponse {
+        content: Some("done".to_string()),
+        tool_calls: vec![],
+        finish_reason: FinishReason::Stop,
+        usage: Some(TokenUsage {
+            prompt_tokens: 10,
+            completion_tokens: 5,
+            total_tokens: 15,
+            cost_usd: Some(0.03),
+        }),
+    };
+
+    let llm = Arc::new(MockLlmClient::new(vec![response]));
+    let executor = AgentExecutor::new(llm, Arc::new(ToolRegistry::new()));
+    let mut emitter = CapturingEmitter::new();
+
+    let result = executor
+        .run_with_emitter(AgentConfig::new("non-stream llm trace"), &mut emitter)
+        .await
+        .unwrap();
+
+    assert!(result.success);
+    let llm_calls = emitter.llm_calls.lock().await;
+    assert_eq!(llm_calls.len(), 1);
+    assert_eq!(llm_calls[0].0, "mock-model");
+    assert_eq!(llm_calls[0].1, Some(10));
+    assert_eq!(llm_calls[0].2, Some(5));
+    assert_eq!(llm_calls[0].3, Some(15));
+    assert_eq!(llm_calls[0].4, Some(0.03));
+    assert_eq!(llm_calls[0].6, None);
+    assert!(llm_calls[0].5.is_some());
+    assert!(llm_calls[0].7.unwrap_or_default() >= 2);
 }
 
 #[test]
