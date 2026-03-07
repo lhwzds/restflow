@@ -16,11 +16,14 @@ use crate::models::{
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
-    ToolTraceEmitter, append_turn_cancelled, append_turn_completed, append_turn_failed,
-    append_turn_started, build_turn_persistence_payload, hydrate_voice_message_metadata,
+    build_turn_persistence_payload, hydrate_voice_message_metadata,
     replace_latest_user_message_content,
 };
 use crate::runtime::subagent::StorageBackedSubagentLookup;
+use crate::runtime::trace::{
+    RestflowTrace, append_restflow_trace_cancelled, append_restflow_trace_completed,
+    append_restflow_trace_failed, append_restflow_trace_started, build_restflow_trace_emitter,
+};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -76,6 +79,46 @@ fn active_chat_stream_steers() -> &'static Mutex<HashMap<String, mpsc::Sender<St
 fn daemon_started_at_ms() -> i64 {
     static STARTED_AT_MS: OnceLock<i64> = OnceLock::new();
     *STARTED_AT_MS.get_or_init(|| Utc::now().timestamp_millis())
+}
+
+const UNKNOWN_TRACE_ACTOR_ID: &str = "unknown";
+
+fn build_chat_stream_trace(
+    session_id: &str,
+    stream_id: &str,
+    actor_id: impl Into<String>,
+) -> RestflowTrace {
+    RestflowTrace::new(
+        stream_id.to_string(),
+        session_id.to_string(),
+        session_id.to_string(),
+        actor_id,
+    )
+}
+
+fn resolve_chat_stream_trace(core: &AppCore, session_id: &str, stream_id: &str) -> RestflowTrace {
+    let actor_id = match core.storage.chat_sessions.get(session_id) {
+        Ok(Some(session)) => session.agent_id,
+        Ok(None) => {
+            warn!(
+                session_id = %session_id,
+                stream_id = %stream_id,
+                "Chat session missing while building stream trace; using fallback actor"
+            );
+            UNKNOWN_TRACE_ACTOR_ID.to_string()
+        }
+        Err(error) => {
+            warn!(
+                session_id = %session_id,
+                stream_id = %stream_id,
+                error = %error,
+                "Failed to load chat session while building stream trace; using fallback actor"
+            );
+            UNKNOWN_TRACE_ACTOR_ID.to_string()
+        }
+    };
+
+    build_chat_stream_trace(session_id, stream_id, actor_id)
 }
 
 fn build_daemon_status() -> IpcDaemonStatus {
@@ -542,11 +585,13 @@ impl IpcServer {
         // Abort an existing stream with the same ID to avoid duplicate workers.
         if let Some(existing) = active_chat_streams().lock().await.remove(&stream_id) {
             existing.abort();
-            append_turn_cancelled(
+            let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
+            append_restflow_trace_cancelled(
                 &core.storage.tool_traces,
-                &session_id,
-                &stream_id,
+                Some(&core.storage.execution_traces),
+                &trace,
                 "replaced by a newer stream with the same stream_id",
+                None,
             );
         }
         active_chat_stream_steers().lock().await.remove(&stream_id);
@@ -564,11 +609,13 @@ impl IpcServer {
                 .remove(&previous_stream_id)
             {
                 previous.abort();
-                append_turn_cancelled(
+                let trace = resolve_chat_stream_trace(&core, &session_id, &previous_stream_id);
+                append_restflow_trace_cancelled(
                     &core.storage.tool_traces,
-                    &session_id,
-                    &previous_stream_id,
+                    Some(&core.storage.execution_traces),
+                    &trace,
                     "replaced by a newer stream for the same session",
+                    None,
                 );
             }
             active_chat_stream_steers()
@@ -662,11 +709,13 @@ impl IpcServer {
 
         if !reached_terminal {
             // Worker stopped unexpectedly (usually canceled).
-            append_turn_cancelled(
+            let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
+            append_restflow_trace_cancelled(
                 &core.storage.tool_traces,
-                &session_id,
-                &stream_id,
+                Some(&core.storage.execution_traces),
+                &trace,
                 "chat stream cancelled",
+                None,
             );
             let _ = Self::send_stream_frame(
                 stream,
@@ -2491,15 +2540,25 @@ async fn execute_chat_session(
         }
     }
 
-    append_turn_started(&core.storage.tool_traces, &session.id, &turn_id);
+    let trace = RestflowTrace::new(
+        turn_id.clone(),
+        session.id.clone(),
+        session.id.clone(),
+        session.agent_id.clone(),
+    );
+    append_restflow_trace_started(
+        &core.storage.tool_traces,
+        Some(&core.storage.execution_traces),
+        &trace,
+    );
 
     let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
-    let persisting_emitter: Box<dyn StreamEmitter> = Box::new(ToolTraceEmitter::new(
+    let persisting_emitter: Box<dyn StreamEmitter> = build_restflow_trace_emitter(
         inner_emitter,
         core.storage.tool_traces.clone(),
-        session.id.clone(),
-        turn_id.clone(),
-    ));
+        Some(core.storage.execution_traces.clone()),
+        &trace,
+    );
     let started_at = Instant::now();
     let exec_result = executor
         .execute_session_turn_with_emitter_and_steer(
@@ -2514,11 +2573,12 @@ async fn execute_chat_session(
     let exec_result = match exec_result {
         Ok(result) => result,
         Err(error) => {
-            append_turn_failed(
+            append_restflow_trace_failed(
                 &core.storage.tool_traces,
-                &session.id,
-                &turn_id,
+                Some(&core.storage.execution_traces),
+                &trace,
                 &error.to_string(),
+                Some(started_at.elapsed().as_millis() as u64),
             );
             return Err(error);
         }
@@ -2528,7 +2588,7 @@ async fn execute_chat_session(
     let (execution, persisted_input) = build_turn_persistence_payload(
         &core.storage.tool_traces,
         &session.id,
-        &turn_id,
+        &trace.turn_id,
         &input,
         duration_ms,
         exec_result.iterations,
@@ -2551,7 +2611,12 @@ async fn execute_chat_session(
         // so that switch_model calls during execution don't permanently override it.
         session.metadata.last_model = Some(normalized_model);
     }
-    append_turn_completed(&core.storage.tool_traces, &session.id, &turn_id);
+    append_restflow_trace_completed(
+        &core.storage.tool_traces,
+        Some(&core.storage.execution_traces),
+        &trace,
+        Some(duration_ms),
+    );
 
     // Auto-persist chat session conversation to long-term memory
     persist_chat_session_memory(core, &session);
@@ -2659,7 +2724,7 @@ fn build_agent_system_prompt(core: &Arc<AppCore>, agent_node: AgentNode) -> Resu
 mod tests {
     use super::*;
     use crate::models::{AgentNode, ChannelSessionBinding, Skill};
-    use restflow_ai::steer::SteerCommand;
+    use restflow_traits::SteerCommand;
     use restflow_traits::store::ReplySender;
     use restflow_traits::tool::ToolErrorCategory;
     use tempfile::tempdir;
@@ -2669,6 +2734,34 @@ mod tests {
         let db_path = temp.path().join("ipc-server-test.db");
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
         (core, temp)
+    }
+
+    #[tokio::test]
+    async fn resolve_chat_stream_trace_uses_session_agent_and_run_turn_id() {
+        let (core, _temp) = create_test_core().await;
+        let session = ChatSession::new("agent-trace".to_string(), "gpt-5".to_string());
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        let trace = resolve_chat_stream_trace(&core, &session.id, "stream-123");
+
+        assert_eq!(trace.run_id, "stream-123");
+        assert_eq!(trace.turn_id, "run-stream-123");
+        assert_eq!(trace.session_id, session.id);
+        assert_eq!(trace.execution_task_id, session.id);
+        assert_eq!(trace.actor_id, "agent-trace");
+    }
+
+    #[tokio::test]
+    async fn resolve_chat_stream_trace_falls_back_when_session_is_missing() {
+        let (core, _temp) = create_test_core().await;
+
+        let trace = resolve_chat_stream_trace(&core, "missing-session", "stream-123");
+
+        assert_eq!(trace.run_id, "stream-123");
+        assert_eq!(trace.turn_id, "run-stream-123");
+        assert_eq!(trace.session_id, "missing-session");
+        assert_eq!(trace.execution_task_id, "missing-session");
+        assert_eq!(trace.actor_id, UNKNOWN_TRACE_ACTOR_ID);
     }
 
     #[test]

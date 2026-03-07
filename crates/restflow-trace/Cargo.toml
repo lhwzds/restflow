@@ -1,0 +1,15 @@
+[package]
+name = "restflow-trace"
+version.workspace = true
+edition.workspace = true
+
+[lib]
+name = "restflow_trace"
+path = "src/lib.rs"
+
+[dependencies]
+chrono = { workspace = true }
+serde = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

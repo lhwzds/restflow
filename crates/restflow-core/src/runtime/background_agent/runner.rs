@@ -32,9 +32,9 @@ use tracing::{debug, error, info, warn};
 use super::broadcast_emitter::BroadcastStreamEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
-use crate::runtime::channel::tool_trace_emitter::{
-    ToolTraceEmitter, append_turn_cancelled_with_execution, append_turn_completed_with_execution,
-    append_turn_failed_with_execution, append_turn_started_with_execution,
+use crate::runtime::trace::{
+    RestflowTrace, append_restflow_trace_cancelled, append_restflow_trace_completed,
+    append_restflow_trace_failed, append_restflow_trace_started, build_restflow_trace_emitter,
 };
 use restflow_traits::{
     DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
@@ -1253,20 +1253,23 @@ impl BackgroundAgentRunner {
                 session_id.to_string()
             }
         };
-        let trace_turn_id = format!(
+        let run_id = format!(
             "{}-{}",
             chrono::Utc::now().timestamp_millis(),
             uuid::Uuid::new_v4()
         );
+        let restflow_trace = RestflowTrace::new(
+            run_id,
+            trace_session_id.clone(),
+            task.id.clone(),
+            task.agent_id.clone(),
+        );
         let tool_trace_storage = self.tool_trace_storage();
         let execution_trace_storage = self.execution_trace_storage();
-        append_turn_started_with_execution(
+        append_restflow_trace_started(
             &tool_trace_storage,
             Some(execution_trace_storage),
-            &trace_session_id,
-            &trace_turn_id,
-            &task.id,
-            &task.agent_id,
+            &restflow_trace,
         );
 
         if resolved_input
@@ -1276,14 +1279,12 @@ impl BackgroundAgentRunner {
             let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
             let reason = "Background task requires non-empty input or input_template";
             let error_msg = format!("Execution error: {}", reason);
-            append_turn_failed_with_execution(
+            append_restflow_trace_failed(
                 &tool_trace_storage,
                 Some(execution_trace_storage),
-                &trace_session_id,
-                &trace_turn_id,
-                &task.id,
-                &task.agent_id,
+                &restflow_trace,
                 &error_msg,
+                Some(duration_ms.max(0) as u64),
             );
 
             error!("Task '{}' failed preflight: {}", task.name, reason);
@@ -1337,19 +1338,12 @@ impl BackgroundAgentRunner {
                 Some(emitter) => emitter,
                 None => Box::new(NoopStreamEmitter),
             };
-            Some(Box::new(
-                ToolTraceEmitter::new(
-                    inner,
-                    tool_trace_storage.clone(),
-                    trace_session_id.clone(),
-                    trace_turn_id.clone(),
-                )
-                .with_execution_trace_context(
-                    execution_trace_storage.clone(),
-                    task.id.clone(),
-                    task.agent_id.clone(),
-                ),
-            ) as Box<dyn StreamEmitter>)
+            Some(build_restflow_trace_emitter(
+                inner,
+                tool_trace_storage.clone(),
+                Some(execution_trace_storage.clone()),
+                &restflow_trace,
+            ))
         } else {
             broadcast_emitter
         };
@@ -1494,14 +1488,12 @@ impl BackgroundAgentRunner {
                     "Task '{}' cancelled by user (duration={}ms)",
                     task.name, duration_ms
                 );
-                append_turn_cancelled_with_execution(
+                append_restflow_trace_cancelled(
                     &tool_trace_storage,
                     Some(execution_trace_storage),
-                    &trace_session_id,
-                    &trace_turn_id,
-                    &task.id,
-                    &task.agent_id,
+                    &restflow_trace,
                     "Cancelled by user",
+                    Some(duration_ms.max(0) as u64),
                 );
                 pump_cancel.cancel();
                 if let Some(pump) = message_pump.take() {
@@ -1560,14 +1552,12 @@ impl BackgroundAgentRunner {
                             "Task '{}' interrupted by pause request (duration={}ms)",
                             task.name, duration_ms
                         );
-                        append_turn_cancelled_with_execution(
+                        append_restflow_trace_cancelled(
                             &tool_trace_storage,
                             Some(execution_trace_storage),
-                            &trace_session_id,
-                            &trace_turn_id,
-                            &task.id,
-                            &task.agent_id,
+                            &restflow_trace,
                             "Paused by user",
+                            Some(duration_ms.max(0) as u64),
                         );
                         self.event_emitter
                             .emit(TaskStreamEvent::cancelled(
@@ -1591,14 +1581,12 @@ impl BackgroundAgentRunner {
                             "Task '{}' stopped because task record was deleted (duration={}ms)",
                             task.name, duration_ms
                         );
-                        append_turn_cancelled_with_execution(
+                        append_restflow_trace_cancelled(
                             &tool_trace_storage,
                             Some(execution_trace_storage),
-                            &trace_session_id,
-                            &trace_turn_id,
-                            &task.id,
-                            &task.agent_id,
+                            &restflow_trace,
                             "Task deleted",
+                            Some(duration_ms.max(0) as u64),
                         );
                         self.event_emitter
                             .emit(TaskStreamEvent::cancelled(
@@ -1637,13 +1625,11 @@ impl BackgroundAgentRunner {
                     "Task '{}' completed successfully (duration={}ms)",
                     task.name, duration_ms
                 );
-                append_turn_completed_with_execution(
+                append_restflow_trace_completed(
                     &tool_trace_storage,
                     Some(execution_trace_storage),
-                    &trace_session_id,
-                    &trace_turn_id,
-                    &task.id,
-                    &task.agent_id,
+                    &restflow_trace,
+                    Some(duration_ms.max(0) as u64),
                 );
 
                 self.event_emitter
@@ -1719,14 +1705,12 @@ impl BackgroundAgentRunner {
                 // Execution error
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
-                append_turn_failed_with_execution(
+                append_restflow_trace_failed(
                     &tool_trace_storage,
                     Some(execution_trace_storage),
-                    &trace_session_id,
-                    &trace_turn_id,
-                    &task.id,
-                    &task.agent_id,
+                    &restflow_trace,
                     &error_msg,
+                    Some(duration_ms.max(0) as u64),
                 );
 
                 self.event_emitter
@@ -1768,14 +1752,12 @@ impl BackgroundAgentRunner {
                     "Task timed out".to_string()
                 };
                 error!("Task '{}' timed out", task.name);
-                append_turn_failed_with_execution(
+                append_restflow_trace_failed(
                     &tool_trace_storage,
                     Some(execution_trace_storage),
-                    &trace_session_id,
-                    &trace_turn_id,
-                    &task.id,
-                    &task.agent_id,
+                    &restflow_trace,
                     &error_msg,
+                    Some(duration_ms.max(0) as u64),
                 );
 
                 self.event_emitter
