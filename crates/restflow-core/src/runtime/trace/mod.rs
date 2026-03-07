@@ -1,6 +1,8 @@
 //! Shared runtime helpers for RestFlow run traces.
 
-use crate::models::{ExecutionTraceEvent, ToolCallCompletion, ToolCallTrace, ToolTrace};
+use crate::models::{
+    ExecutionTraceEvent, MessageTrace, ToolCallCompletion, ToolCallTrace, ToolTrace,
+};
 use crate::runtime::channel::tool_trace_emitter::{
     ToolTraceEmitter, append_turn_cancelled_with_execution_and_ai_duration,
     append_turn_completed_with_execution_and_ai_duration,
@@ -9,7 +11,7 @@ use crate::runtime::channel::tool_trace_emitter::{
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use restflow_ai::agent::{NullEmitter, RunTraceSink, StreamEmitter};
 pub use restflow_trace::{
-    RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind,
+    RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind, TraceMessage,
     TraceToolCallCompleted, TraceToolCallStart,
 };
 use tracing::warn;
@@ -79,6 +81,9 @@ pub fn append_trace_event(
                 &event.trace,
                 tool_call,
             );
+        }
+        TraceEventKind::Message(message) => {
+            append_restflow_message(execution_trace_storage, &event.trace, message);
         }
     }
 }
@@ -233,6 +238,36 @@ pub fn append_restflow_tool_call_completed(
             tool_name = %tool_call.tool_name,
             error = %error,
             "Failed to append execution trace event"
+        );
+    }
+}
+
+/// Append message events for a canonical RestFlow trace.
+pub fn append_restflow_message(
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    trace: &RestflowTrace,
+    message: &TraceMessage,
+) {
+    let Some(storage) = execution_trace_storage else {
+        return;
+    };
+
+    let trace_event = ExecutionTraceEvent::message(
+        trace.execution_task_id.clone(),
+        trace.actor_id.clone(),
+        MessageTrace {
+            role: message.role.clone(),
+            content_preview: message.content_preview.clone(),
+            tool_call_count: message.tool_call_count,
+        },
+    );
+    if let Err(error) = storage.store(&trace_event) {
+        warn!(
+            task_id = %trace.execution_task_id,
+            agent_id = %trace.actor_id,
+            role = %message.role,
+            error = %error,
+            "Failed to append message trace event"
         );
     }
 }
@@ -451,6 +486,43 @@ mod tests {
                 .as_ref()
                 .and_then(|trace| trace.input_summary.as_deref()),
             Some("{\"cmd\":\"echo hi\"}")
+        );
+    }
+
+    #[test]
+    fn test_append_trace_event_persists_message() {
+        let storage = setup_storage();
+        let temp_dir = tempdir().expect("tempdir");
+        let db_path = temp_dir.path().join("execution.db");
+        let db = Arc::new(Database::create(db_path).expect("db"));
+        let execution_storage = ExecutionTraceStorage::new(db).expect("execution storage");
+        let event = TraceEvent::message(
+            RestflowTrace::new("run-m", "session-m", "task-m", "agent-m"),
+            "assistant",
+            Some("hello".to_string()),
+            Some(1),
+        );
+
+        append_trace_event(&storage, Some(&execution_storage), &event);
+
+        let execution_events = execution_storage
+            .query(&crate::models::ExecutionTraceQuery {
+                task_id: Some("task-m".to_string()),
+                ..Default::default()
+            })
+            .expect("query");
+        assert_eq!(execution_events.len(), 1);
+        assert_eq!(
+            execution_events[0].category,
+            ExecutionTraceCategory::Message
+        );
+        assert_eq!(
+            execution_events[0].message.as_ref().map(|trace| (
+                trace.role.as_str(),
+                trace.content_preview.as_deref(),
+                trace.tool_call_count
+            )),
+            Some(("assistant", Some("hello"), Some(1)))
         );
     }
 }

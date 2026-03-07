@@ -1,7 +1,5 @@
 use crate::models::chat_session::ExecutionStepInfo;
-use crate::models::{
-    ExecutionTraceEvent, LifecycleTrace, MessageTrace, ToolTrace, ToolTraceEvent,
-};
+use crate::models::{ExecutionTraceEvent, LifecycleTrace, ToolTrace, ToolTraceEvent};
 use crate::runtime::trace::{RestflowTrace, append_trace_event};
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use async_trait::async_trait;
@@ -451,32 +449,15 @@ pub fn append_turn_cancelled_with_execution_and_ai_duration(
 
 /// Append message trace event to execution trace storage.
 pub fn append_message_trace(
+    tool_trace_storage: &ToolTraceStorage,
     storage: &ExecutionTraceStorage,
-    task_id: &str,
-    agent_id: &str,
+    trace: &RestflowTrace,
     role: &str,
     content: &str,
 ) {
     let content_preview = normalize_payload(content);
-    let event = ExecutionTraceEvent::message(
-        task_id,
-        agent_id,
-        MessageTrace {
-            role: role.to_string(),
-            content_preview,
-            tool_call_count: None,
-        },
-    );
-
-    if let Err(err) = storage.store(&event) {
-        warn!(
-            task_id,
-            agent_id,
-            role,
-            error = %err,
-            "Failed to append message execution trace"
-        );
-    }
+    let event = TraceEvent::message(trace.clone(), role.to_string(), content_preview, None);
+    append_trace_event(tool_trace_storage, Some(storage), &event);
 }
 
 /// Stream emitter that forwards events and persists tool call records to storage.

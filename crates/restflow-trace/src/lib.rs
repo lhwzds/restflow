@@ -46,6 +46,14 @@ pub struct TraceToolCallCompleted {
     pub error: Option<String>,
 }
 
+/// Message payload carried by the canonical trace event schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceMessage {
+    pub role: String,
+    pub content_preview: Option<String>,
+    pub tool_call_count: Option<u32>,
+}
+
 /// Lifecycle event kinds emitted for a traced run.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TraceEventKind {
@@ -63,6 +71,7 @@ pub enum TraceEventKind {
     },
     ToolCallStarted(TraceToolCallStart),
     ToolCallCompleted(TraceToolCallCompleted),
+    Message(TraceMessage),
 }
 
 /// Canonical RestFlow trace descriptor for one run.
@@ -200,12 +209,28 @@ impl TraceEvent {
             }),
         }
     }
+
+    pub fn message(
+        trace: RestflowTrace,
+        role: impl Into<String>,
+        content_preview: Option<String>,
+        tool_call_count: Option<u32>,
+    ) -> Self {
+        Self {
+            trace,
+            kind: TraceEventKind::Message(TraceMessage {
+                role: role.into(),
+                content_preview,
+                tool_call_count,
+            }),
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind,
+        RestflowTrace, RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind, TraceMessage,
         TraceToolCallCompleted,
     };
 
@@ -309,6 +334,25 @@ mod tests {
                 success: true,
                 duration_ms: Some(42),
                 error: None,
+            })
+        );
+    }
+
+    #[test]
+    fn trace_event_message_roundtrips_payload() {
+        let event = TraceEvent::message(
+            RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
+            "assistant",
+            Some("hello".to_string()),
+            Some(2),
+        );
+
+        assert_eq!(
+            event.kind,
+            TraceEventKind::Message(TraceMessage {
+                role: "assistant".to_string(),
+                content_preview: Some("hello".to_string()),
+                tool_call_count: Some(2),
             })
         );
     }
