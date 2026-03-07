@@ -16,6 +16,7 @@ struct RestFlowMenuBarApp: App {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private let stateModel = PollingStateModel()
+    private let setupModel = SetupAssistantStateModel()
     private var cancellables = Set<AnyCancellable>()
     private var statusItem: NSStatusItem?
     private let popover = NSPopover()
@@ -25,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setupPopover()
         bindState()
         stateModel.start()
+        setupModel.refresh()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -47,7 +49,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func setupPopover() {
-        let contentView = MenuPopoverRootView(stateModel: stateModel)
+        let contentView = MenuPopoverRootView(stateModel: stateModel, setupModel: setupModel)
         let host = NSHostingController(rootView: contentView)
 
         popover.contentSize = NSSize(width: 660, height: 440)

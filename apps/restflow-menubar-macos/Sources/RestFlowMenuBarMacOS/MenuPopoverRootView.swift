@@ -2,6 +2,7 @@ import SwiftUI
 import AppKit
 
 private enum SidebarSection: String, CaseIterable, Identifiable {
+    case setup
     case overview
     case activity
     case control
@@ -10,6 +11,8 @@ private enum SidebarSection: String, CaseIterable, Identifiable {
 
     var title: String {
         switch self {
+        case .setup:
+            return "Setup"
         case .overview:
             return "Overview"
         case .activity:
@@ -21,6 +24,8 @@ private enum SidebarSection: String, CaseIterable, Identifiable {
 
     var icon: String {
         switch self {
+        case .setup:
+            return "wand.and.stars"
         case .overview:
             return "sparkles.rectangle.stack"
         case .activity:
@@ -33,7 +38,8 @@ private enum SidebarSection: String, CaseIterable, Identifiable {
 
 struct MenuPopoverRootView: View {
     @ObservedObject var stateModel: PollingStateModel
-    @State private var selectedSection: SidebarSection? = .overview
+    @ObservedObject var setupModel: SetupAssistantStateModel
+    @State private var selectedSection: SidebarSection? = .setup
     @State private var glow = false
 
     var body: some View {
@@ -158,7 +164,9 @@ struct MenuPopoverRootView: View {
 
     @ViewBuilder
     private var detailContent: some View {
-        switch selectedSection ?? .overview {
+        switch selectedSection ?? .setup {
+        case .setup:
+            SetupAssistantView(stateModel: stateModel, setupModel: setupModel)
         case .overview:
             overviewView
         case .activity:
@@ -228,15 +236,19 @@ struct MenuPopoverRootView: View {
             LazyVGrid(columns: gridColumns, spacing: 10) {
                 actionButton(title: "Start", icon: "play.fill", tint: .green) {
                     stateModel.perform(action: .start)
+                    setupModel.refresh()
                 }
                 actionButton(title: "Stop", icon: "stop.fill", tint: .orange) {
                     stateModel.perform(action: .stop)
+                    setupModel.refresh()
                 }
                 actionButton(title: "Restart", icon: "arrow.clockwise", tint: .blue) {
                     stateModel.perform(action: .restart)
+                    setupModel.refresh()
                 }
                 actionButton(title: "Refresh", icon: "arrow.triangle.2.circlepath", tint: .purple) {
                     stateModel.refreshOnce()
+                    setupModel.refresh()
                 }
                 actionButton(title: "Quit", icon: "power", tint: .red) {
                     NSApplication.shared.terminate(nil)
