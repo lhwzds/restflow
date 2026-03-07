@@ -17,11 +17,17 @@ operation: SpawnSubagentBatchOperation,
  */
 agent?: string, 
 /**
- * Task description for single spawn, or fallback task for batch spawn.
+ * Task description for single spawn, or transient fallback task for batch spawn.
  *
  * Required for single spawn. Optional for team management operations.
  */
 task?: string, 
+/**
+ * Transient per-instance task list for batch or team spawn.
+ *
+ * Tasks are assigned in worker order and are never persisted in saved teams.
+ */
+tasks?: Array<string>, 
 /**
  * If true, wait for completion. If false (default), run concurrently.
  */
