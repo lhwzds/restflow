@@ -10,9 +10,9 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_tools::{SpawnSubagentBatchTool, SpawnSubagentTool, Tool};
-use restflow_traits::store::KvStore;
 use restflow_traits::SubagentManager;
-use serde_json::{json, Value};
+use restflow_traits::store::KvStore;
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 struct MockDefLookup {
@@ -294,10 +294,12 @@ async fn test_spawn_subagent_batch_rejects_team_and_specs_combined() {
         .await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("either 'team' or 'specs'"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("either 'team' or 'specs'")
+    );
 }
 
 #[tokio::test]
@@ -315,10 +317,12 @@ async fn test_spawn_subagent_batch_requires_task_when_unspecified() {
         .await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Missing task for spec index 0"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Missing task for spec index 0")
+    );
 }
 
 #[tokio::test]
@@ -359,10 +363,12 @@ async fn test_spawn_subagent_batch_save_as_team_requires_store() {
         .await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Team storage is unavailable"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Team storage is unavailable")
+    );
 }
 
 #[tokio::test]
@@ -457,10 +463,12 @@ async fn test_spawn_subagent_wrapper_rejects_mixed_single_and_batch_fields() {
         .await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Batch mode uses 'workers'/'team'"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Batch mode uses 'workers'/'team'")
+    );
 }
 
 #[tokio::test]
@@ -560,10 +568,12 @@ async fn test_spawn_subagent_batch_rejects_prompt_fields_during_save_team() {
         .await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("stores worker structure only"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("stores worker structure only")
+    );
 }
 
 #[tokio::test]
@@ -583,10 +593,12 @@ async fn test_spawn_subagent_batch_rejects_top_level_task_and_tasks_combined() {
         .await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("either top-level 'task' or top-level 'tasks'"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("either top-level 'task' or top-level 'tasks'")
+    );
 }
 
 #[tokio::test]
@@ -628,10 +640,12 @@ async fn test_spawn_subagent_batch_rejects_task_and_tasks_combined() {
         .await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("either 'task' or 'tasks'"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("either 'task' or 'tasks'")
+    );
 }
 
 #[tokio::test]
@@ -649,8 +663,10 @@ async fn test_spawn_subagent_batch_rejects_tasks_count_mismatch() {
         .await;
 
     assert!(result.is_err());
-    assert!(result
-        .unwrap_err()
-        .to_string()
-        .contains("Set count to 1 (default) or match tasks length"));
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("Set count to 1 (default) or match tasks length")
+    );
 }
