@@ -32,12 +32,14 @@ pub async fn update_config(
         .await
         .map_err(|e| e.to_string())?;
 
-    // Return the updated config
-    state
+    let updated = state
         .executor()
         .get_config()
         .await
-        .map_err(|e| e.to_string())
+        .map_err(|e| e.to_string())?;
+    state.refresh_subagent_config(&updated);
+
+    Ok(updated)
 }
 
 /// Get available AI models with metadata

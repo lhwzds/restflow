@@ -16,7 +16,7 @@ use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMe
 use restflow_core::process::ProcessRegistry;
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::SystemConfig;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use tokio::sync::{Mutex, mpsc};
 use tracing::{error, warn};
 
@@ -44,7 +44,7 @@ pub struct AppState {
     /// Registry of available sub-agent definitions
     pub subagent_definitions: Arc<dyn SubagentDefLookup>,
     /// Configuration for sub-agent execution
-    pub subagent_config: SubagentConfig,
+    pub subagent_config: SharedSubagentConfig,
     /// Steer registry for sending messages to running tasks
     pub steer_registry: Arc<SteerRegistry>,
 }
@@ -69,7 +69,8 @@ impl AppState {
         let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
         let daemon = Arc::new(Mutex::new(DaemonManager::new()));
         let executor = Arc::new(TauriExecutor::new(daemon.clone()));
-        let subagent_config = load_subagent_config_from_executor(&executor).await;
+        let subagent_config =
+            SharedSubagentConfig::new(load_subagent_config_from_executor(&executor).await);
         let steer_registry = Arc::new(SteerRegistry::new());
 
         Ok(Self {
@@ -102,9 +103,15 @@ impl AppState {
             definitions: self.subagent_definitions.clone(),
             llm_client,
             tool_registry: Arc::new(ToolRegistry::new()),
-            config: self.subagent_config.clone(),
+            config: self.subagent_config.snapshot(),
             llm_client_factory: None,
         }
+    }
+
+    /// Refresh the in-memory sub-agent runtime config after a config update.
+    pub fn refresh_subagent_config(&self, config: &SystemConfig) {
+        self.subagent_config
+            .update(subagent_config_from_system_config(config));
     }
 
     /// Build a secret resolver from process environment.
@@ -208,6 +215,33 @@ impl AppState {
                 },
             })
             .collect())
+    }
+}
+
+#[derive(Clone)]
+pub struct SharedSubagentConfig {
+    inner: Arc<RwLock<SubagentConfig>>,
+}
+
+impl SharedSubagentConfig {
+    fn new(config: SubagentConfig) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(config)),
+        }
+    }
+
+    fn snapshot(&self) -> SubagentConfig {
+        self.inner
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn update(&self, config: SubagentConfig) {
+        *self
+            .inner
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = config;
     }
 }
 
@@ -383,5 +417,21 @@ mod tests {
         assert_eq!(mapped.subagent_timeout_secs, 7200);
         assert_eq!(mapped.max_iterations, 144);
         assert_eq!(mapped.max_depth, SubagentConfig::default().max_depth);
+    }
+
+    #[test]
+    fn shared_subagent_config_snapshot_reflects_refresh() {
+        let shared = SharedSubagentConfig::new(SubagentConfig::default());
+        let mut config = SystemConfig::default();
+        config.agent.max_parallel_subagents = 22;
+        config.agent.subagent_timeout_secs = 4800;
+        config.agent.max_iterations = 199;
+
+        shared.update(subagent_config_from_system_config(&config));
+        let snapshot = shared.snapshot();
+
+        assert_eq!(snapshot.max_parallel_agents, 22);
+        assert_eq!(snapshot.subagent_timeout_secs, 4800);
+        assert_eq!(snapshot.max_iterations, 199);
     }
 }
