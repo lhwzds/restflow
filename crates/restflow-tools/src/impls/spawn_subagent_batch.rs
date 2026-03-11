@@ -6,10 +6,14 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::time::{Duration, timeout};
 
+use crate::impls::team_template::{
+    delete_team_document, list_team_entries, load_team_document, save_team_document,
+};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_traits::store::KvStore;
 use restflow_traits::{
-    InlineSubagentConfig, SpawnRequest, SubagentEffectiveLimits, SubagentManager,
+    InlineSubagentConfig, RuntimeTaskPayload, SpawnRequest, SubagentEffectiveLimits,
+    SubagentManager, TeamTemplateDocument,
 };
 
 #[cfg(feature = "ts")]
@@ -19,7 +23,6 @@ const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
 );
 
 const SUBAGENT_TEAM_NAMESPACE: &str = "subagent_team";
-const SUBAGENT_TEAM_CONTENT_TYPE: &str = "application/json";
 const SUBAGENT_TEAM_TYPE_HINT: &str = "subagent_team";
 const SUBAGENT_TEAM_VERSION: u32 = 1;
 
@@ -179,16 +182,7 @@ pub struct SpawnSubagentBatchParams {
     pub trace_scope_id: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct StoredSubagentTeam {
-    version: u32,
-    name: String,
-    specs: Vec<StoredBatchSubagentSpec>,
-    created_at: i64,
-    updated_at: i64,
-}
-
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct StoredBatchSubagentSpec {
     agent: Option<String>,
     count: u32,
@@ -201,15 +195,6 @@ struct StoredBatchSubagentSpec {
     inline_max_iterations: Option<u32>,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct StoredSubagentTeamEnvelope {
-    version: u32,
-    name: String,
-    specs: Vec<Value>,
-    created_at: i64,
-    updated_at: i64,
-}
-
 #[derive(Debug, Clone)]
 struct SpawnedTask {
     task_id: String,
@@ -217,6 +202,13 @@ struct SpawnedTask {
     spec_index: usize,
     instance_index: u32,
     effective_limits: SubagentEffectiveLimits,
+}
+
+#[derive(Debug, Clone)]
+struct PreparedSpawnRequest {
+    spec_index: usize,
+    instance_index: u32,
+    request: SpawnRequest,
 }
 
 /// spawn_subagent_batch tool for shared agent execution engine.
@@ -362,24 +354,6 @@ impl SpawnSubagentBatchTool {
         })
     }
 
-    fn validate_team_name(name: &str) -> Result<String> {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            return Err(ToolError::Tool("Team name must not be empty".to_string()));
-        }
-        if trimmed.contains(':') {
-            return Err(ToolError::Tool(
-                "Team name must not contain ':'".to_string(),
-            ));
-        }
-        Ok(trimmed.to_string())
-    }
-
-    fn team_key(name: &str) -> Result<String> {
-        let normalized = Self::validate_team_name(name)?;
-        Ok(format!("{SUBAGENT_TEAM_NAMESPACE}:{normalized}"))
-    }
-
     fn total_instances(specs: &[BatchSubagentSpec]) -> Result<usize> {
         let mut total: usize = 0;
         for (spec_index, spec) in specs.iter().enumerate() {
@@ -488,6 +462,12 @@ impl SpawnSubagentBatchTool {
         tasks: Option<&[String]>,
         specs: &[BatchSubagentSpec],
     ) -> Result<()> {
+        RuntimeTaskPayload {
+            task: task.map(str::to_string),
+            tasks: tasks.map(|items| items.to_vec()),
+        }
+        .validate("task", "tasks")
+        .map_err(ToolError::Tool)?;
         if task.is_some() || tasks.is_some() {
             return Err(ToolError::Tool(
                 "save_team stores worker structure only. Remove top-level 'task'/'tasks' and pass prompts during spawn.".to_string(),
@@ -499,6 +479,23 @@ impl SpawnSubagentBatchTool {
                     "save_team stores worker structure only. Remove 'task'/'tasks' from spec index {} and pass prompts during spawn.",
                     spec_index
                 )));
+            }
+        }
+        Ok(())
+    }
+
+    fn validate_structural_specs(&self, specs: &[BatchSubagentSpec]) -> Result<()> {
+        let _ = Self::total_instances(specs)?;
+        for spec in specs {
+            if spec.agent.is_some() && Self::build_inline_config(spec).is_some() {
+                return Err(ToolError::Tool(
+                    "Inline temporary-subagent fields cannot be combined with 'agent'."
+                        .to_string(),
+                ));
+            }
+            Self::validate_model_provider(&spec.model, &spec.provider)?;
+            if let Some(requested) = spec.agent.as_deref() {
+                let _ = self.resolve_agent_id(requested)?;
             }
         }
         Ok(())
@@ -633,36 +630,25 @@ impl SpawnSubagentBatchTool {
     }
 
     fn load_team_specs(&self, team_name: &str) -> Result<Vec<BatchSubagentSpec>> {
-        let key = Self::team_key(team_name)?;
         let store = self.team_store()?;
-        let payload = store.get_entry(&key)?;
-        if !payload
-            .get("found")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            return Err(ToolError::Tool(format!(
-                "Team '{}' was not found.",
-                team_name
-            )));
-        }
-        let raw = payload
-            .get("value")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::Tool("Stored team payload is invalid.".to_string()))?;
-        let team: StoredSubagentTeamEnvelope = serde_json::from_str(raw).map_err(|err| {
-            ToolError::Tool(format!(
-                "Stored team '{}' has invalid JSON payload: {}",
-                team_name, err
-            ))
-        })?;
-        if team.specs.is_empty() {
+        let team: TeamTemplateDocument<StoredBatchSubagentSpec> =
+            load_team_document(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?;
+        if team.members.is_empty() {
             return Err(ToolError::Tool(format!(
                 "Team '{}' has no member specs.",
                 team_name
             )));
         }
-        team.specs
+        team.members
+            .into_iter()
+            .map(serde_json::to_value)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|err| {
+                ToolError::Tool(format!(
+                    "Stored team '{}' has invalid structural members: {}",
+                    team_name, err
+                ))
+            })?
             .into_iter()
             .enumerate()
             .map(|(spec_index, value)| Self::batch_spec_from_stored_value(value, spec_index))
@@ -675,69 +661,35 @@ impl SpawnSubagentBatchTool {
                 "Cannot save team with empty specs.".to_string(),
             ));
         }
-        let key = Self::team_key(team_name)?;
         let store = self.team_store()?;
-        let now = chrono::Utc::now().timestamp_millis();
-
-        let existing = store.get_entry(&key)?;
-        let created_at = existing
-            .get("found")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-            .then(|| {
-                existing
-                    .get("value")
-                    .and_then(Value::as_str)
-                    .and_then(|raw| serde_json::from_str::<StoredSubagentTeamEnvelope>(raw).ok())
-                    .map(|team| team.created_at)
-            })
-            .flatten()
-            .unwrap_or(now);
-
-        let normalized_team_name = Self::validate_team_name(team_name)?;
         let stored_specs = specs
             .iter()
             .enumerate()
             .map(|(spec_index, spec)| Self::stored_spec_from_batch(spec, spec_index))
             .collect::<Result<Vec<_>>>()?;
-        let document = StoredSubagentTeam {
-            version: SUBAGENT_TEAM_VERSION,
-            name: normalized_team_name.clone(),
-            specs: stored_specs,
-            created_at,
-            updated_at: now,
-        };
-        let serialized = serde_json::to_string(&document)
-            .map_err(|err| ToolError::Tool(format!("Failed to serialize team: {}", err)))?;
-
-        let persist_result = store.set_entry(
-            &key,
-            &serialized,
-            Some("private"),
-            Some(SUBAGENT_TEAM_CONTENT_TYPE),
-            Some(SUBAGENT_TEAM_TYPE_HINT),
+        let persisted = save_team_document(
+            store.as_ref(),
+            SUBAGENT_TEAM_NAMESPACE,
+            SUBAGENT_TEAM_TYPE_HINT,
+            SUBAGENT_TEAM_VERSION,
+            team_name,
+            stored_specs,
             Some(vec!["subagent".to_string(), "team".to_string()]),
-            None,
         )?;
         let total = Self::total_instances(specs)?;
 
         Ok(json!({
             "saved": true,
-            "team": normalized_team_name,
+            "team": persisted.document.name,
             "member_groups": specs.len(),
             "total_instances": total,
-            "storage": persist_result
+            "storage": persisted.storage
         }))
     }
 
     fn list_teams(&self) -> Result<ToolOutput> {
         let store = self.team_store()?;
-        let payload = store.list_entries(Some(SUBAGENT_TEAM_NAMESPACE))?;
-        let entries = payload
-            .get("entries")
-            .and_then(Value::as_array)
-            .cloned()
-            .unwrap_or_default();
+        let entries = list_team_entries(store.as_ref(), SUBAGENT_TEAM_NAMESPACE)?;
 
         let prefix = format!("{SUBAGENT_TEAM_NAMESPACE}:");
         let teams = entries
@@ -761,27 +713,15 @@ impl SpawnSubagentBatchTool {
     }
 
     fn get_team(&self, team_name: &str) -> Result<ToolOutput> {
-        let key = Self::team_key(team_name)?;
         let store = self.team_store()?;
-        let payload = store.get_entry(&key)?;
-        if !payload
-            .get("found")
-            .and_then(Value::as_bool)
-            .unwrap_or(false)
-        {
-            return Ok(ToolOutput::error(format!(
-                "Team '{}' was not found.",
-                team_name
-            )));
-        }
-        let raw = payload
-            .get("value")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::Tool("Stored team payload is invalid.".to_string()))?;
-        let team: StoredSubagentTeamEnvelope = serde_json::from_str(raw)
-            .map_err(|err| ToolError::Tool(format!("Failed to parse stored team: {}", err)))?;
+        let team: TeamTemplateDocument<StoredBatchSubagentSpec> =
+            load_team_document(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?;
         let specs = team
-            .specs
+            .members
+            .into_iter()
+            .map(serde_json::to_value)
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|err| ToolError::Tool(format!("Failed to parse stored team: {}", err)))?
             .into_iter()
             .enumerate()
             .map(|(spec_index, value)| Self::batch_spec_from_stored_value(value, spec_index))
@@ -799,13 +739,12 @@ impl SpawnSubagentBatchTool {
     }
 
     fn delete_team(&self, team_name: &str) -> Result<ToolOutput> {
-        let key = Self::team_key(team_name)?;
         let store = self.team_store()?;
-        let deleted = store.delete_entry(&key, None)?;
+        let deleted = delete_team_document(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?;
         Ok(ToolOutput::success(json!({
             "operation": "delete_team",
-            "team": Self::validate_team_name(team_name)?,
-            "result": deleted
+            "team": team_name,
+            "result": deleted["result"].clone()
         })))
     }
 
@@ -828,18 +767,14 @@ impl SpawnSubagentBatchTool {
             return Err(ToolError::Tool("Specs must not be empty.".to_string()));
         }
 
+        self.validate_structural_specs(&specs)?;
+
         for spec in &specs {
-            if spec.agent.is_some() && Self::build_inline_config(spec).is_some() {
-                return Err(ToolError::Tool(
-                    "Inline temporary-subagent fields cannot be combined with 'agent'.".to_string(),
-                ));
-            }
             if spec.task.is_some() && spec.tasks.is_some() {
                 return Err(ToolError::Tool(
                     "Each spec can use either 'task' or 'tasks', not both.".to_string(),
                 ));
             }
-            Self::validate_model_provider(&spec.model, &spec.provider)?;
         }
 
         Ok(specs)
@@ -881,7 +816,7 @@ impl SpawnSubagentBatchTool {
         let resolved_tasks =
             Self::resolve_batch_tasks(&specs, params.task.as_deref(), params.tasks.as_deref())?;
 
-        let mut spawned = Vec::with_capacity(total_requested);
+        let mut prepared = Vec::with_capacity(total_requested);
         for (spec_index, (spec, instance_tasks)) in
             specs.iter().zip(resolved_tasks.into_iter()).enumerate()
         {
@@ -913,15 +848,24 @@ impl SpawnSubagentBatchTool {
                     trace_session_id: params.trace_session_id.clone(),
                     trace_scope_id: params.trace_scope_id.clone(),
                 };
-                let handle = self.manager.spawn(request)?;
-                spawned.push(SpawnedTask {
-                    task_id: handle.id,
-                    agent_name: handle.agent_name,
+                prepared.push(PreparedSpawnRequest {
                     spec_index,
                     instance_index,
-                    effective_limits: handle.effective_limits,
+                    request,
                 });
             }
+        }
+
+        let mut spawned = Vec::with_capacity(prepared.len());
+        for item in prepared {
+            let handle = self.manager.spawn(item.request)?;
+            spawned.push(SpawnedTask {
+                task_id: handle.id,
+                agent_name: handle.agent_name,
+                spec_index: item.spec_index,
+                instance_index: item.instance_index,
+                effective_limits: handle.effective_limits,
+            });
         }
 
         if !params.wait {
@@ -1140,15 +1084,7 @@ impl Tool for SpawnSubagentBatchTool {
                     params.tasks.as_deref(),
                     &specs,
                 )?;
-                let _ = Self::total_instances(&specs)?;
-                for spec in &specs {
-                    if spec.task.is_some() && spec.tasks.is_some() {
-                        return Err(ToolError::Tool(
-                            "Each spec can use either 'task' or 'tasks', not both.".to_string(),
-                        ));
-                    }
-                    Self::validate_model_provider(&spec.model, &spec.provider)?;
-                }
+                self.validate_structural_specs(&specs)?;
                 let payload = self.save_team_specs(team_name, &specs)?;
                 Ok(ToolOutput::success(json!({
                     "operation": "save_team",
@@ -1442,11 +1378,10 @@ mod tests {
             .await;
 
         assert!(result.is_err());
+        let message = result.unwrap_err().to_string();
         assert!(
-            result
-                .unwrap_err()
-                .to_string()
-                .contains("either 'task' or 'tasks'")
+            message.contains("either 'task' or 'tasks'")
+                || message.contains("both 'task' and 'tasks'")
         );
     }
 
@@ -1663,5 +1598,25 @@ mod tests {
             .unwrap();
         assert!(delete_output.success);
         assert_eq!(delete_output.result["operation"], "delete_team");
+    }
+
+    #[tokio::test]
+    async fn test_save_team_rejects_unknown_agent_reference() {
+        let manager = make_test_manager(vec![("coder", "Coder")], vec![]);
+        let kv_store: Arc<dyn KvStore> = Arc::new(MockKvStore::default());
+        let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+
+        let result = tool
+            .execute(json!({
+                "operation": "save_team",
+                "team": "BrokenTeam",
+                "specs": [
+                    { "agent": "missing-agent", "count": 1 }
+                ]
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("Unknown agent"));
     }
 }

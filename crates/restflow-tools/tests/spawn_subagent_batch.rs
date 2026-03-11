@@ -154,6 +154,7 @@ fn make_manager_with_parallel(
         tool_registry,
         config,
         llm_client_factory: None,
+        orchestrator: None,
     });
     Arc::new(SubagentManagerImpl::from_deps(&deps))
 }
@@ -640,11 +641,10 @@ async fn test_spawn_subagent_batch_rejects_task_and_tasks_combined() {
         .await;
 
     assert!(result.is_err());
+    let message = result.unwrap_err().to_string();
     assert!(
-        result
-            .unwrap_err()
-            .to_string()
-            .contains("either 'task' or 'tasks'")
+        message.contains("either 'task' or 'tasks'")
+            || message.contains("both 'task' and 'tasks'")
     );
 }
 
