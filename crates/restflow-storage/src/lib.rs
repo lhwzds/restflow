@@ -47,9 +47,9 @@ pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use config::{
-    AgentDefaults, ApiDefaults, ChannelDefaults, ConfigSourcePathInfo, ConfigStorage,
-    EffectiveConfigSources, RegistryDefaults, RuntimeDefaults, SystemConfig,
-    effective_config_sources,
+    AgentDefaults, ApiDefaults, ChannelDefaults, CliConfig, ConfigSourcePathInfo, ConfigStorage,
+    ConfigValueSourceInfo, ConfigValueSourceKind, EffectiveConfigSources, RegistryDefaults,
+    RuntimeDefaults, SystemConfig, effective_config_sources, load_cli_config, write_cli_config,
 };
 pub use daemon_state::DaemonStateStorage;
 pub use deliverable::DeliverableStorage;

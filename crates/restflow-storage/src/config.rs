@@ -20,7 +20,9 @@ use restflow_traits::{
     MAX_API_WEB_SEARCH_RESULTS,
 };
 use serde::{Deserialize, Deserializer, Serialize};
+use serde_json::Value as JsonValue;
 use specta::Type;
+use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::env;
 use std::fs;
@@ -33,6 +35,8 @@ const GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
 const WORKSPACE_CONFIG_ENV: &str = "RESTFLOW_WORKSPACE_CONFIG";
 const CONFIG_SUBDIR: &str = ".restflow";
 const CONFIG_FILE_NAME: &str = "config.toml";
+const LEGACY_CONFIG_JSON_FILE_NAME: &str = "config.json";
+const LEGACY_CONFIG_TOML_DIR_NAME: &str = "restflow";
 
 // Default configuration constants
 const DEFAULT_WORKER_COUNT: usize = 4;
@@ -49,6 +53,91 @@ const DEFAULT_SESSION_LIST_LIMIT: u32 = 20;
 const MIN_RETENTION_DAYS: u32 = 1;
 const MIN_WORKER_COUNT: usize = 1;
 const MIN_TIMEOUT_SECONDS: u64 = 10;
+
+fn default_cli_timeout() -> u64 {
+    120
+}
+
+fn default_cli_max_output() -> usize {
+    1_048_576
+}
+
+/// CLI-specific defaults stored in the unified config file.
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub struct CliConfig {
+    pub version: u32,
+    pub default: CliDefaultConfig,
+    pub sandbox: CliSandboxConfig,
+}
+
+impl Default for CliConfig {
+    fn default() -> Self {
+        Self {
+            version: 1,
+            default: CliDefaultConfig::default(),
+            sandbox: CliSandboxConfig::default(),
+        }
+    }
+}
+
+impl CliConfig {
+    pub fn load() -> Self {
+        load_cli_config().unwrap_or_default()
+    }
+
+    pub fn save(&self) -> Result<()> {
+        write_cli_config(self)
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
+#[serde(default)]
+pub struct CliDefaultConfig {
+    pub agent: Option<String>,
+    pub model: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
+#[serde(default)]
+pub struct CliSandboxConfig {
+    pub enabled: bool,
+    pub env: CliEnvSandboxConfig,
+    pub limits: CliLimitsConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
+#[serde(default)]
+pub struct CliEnvSandboxConfig {
+    pub isolate: bool,
+    pub allow: Vec<String>,
+    pub block: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(default)]
+pub struct CliLimitsConfig {
+    pub timeout_secs: u64,
+    pub max_output_bytes: usize,
+}
+
+impl Default for CliLimitsConfig {
+    fn default() -> Self {
+        Self {
+            timeout_secs: default_cli_timeout(),
+            max_output_bytes: default_cli_max_output(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(default)]
+struct UnifiedConfigFile {
+    #[serde(flatten)]
+    system: SystemConfig,
+    #[serde(default)]
+    cli: CliConfig,
+}
 
 /// Agent execution defaults (configurable at runtime via `manage_config`).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -616,6 +705,108 @@ impl SystemConfig {
     }
 }
 
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct CliDefaultConfigOverride {
+    pub agent: Option<String>,
+    pub model: Option<String>,
+}
+
+impl CliDefaultConfigOverride {
+    fn apply_to(&self, config: &mut CliDefaultConfig) {
+        if let Some(value) = self.agent.clone() {
+            config.agent = Some(value);
+        }
+        if let Some(value) = self.model.clone() {
+            config.model = Some(value);
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct CliEnvSandboxConfigOverride {
+    pub isolate: Option<bool>,
+    pub allow: Option<Vec<String>>,
+    pub block: Option<Vec<String>>,
+}
+
+impl CliEnvSandboxConfigOverride {
+    fn apply_to(&self, config: &mut CliEnvSandboxConfig) {
+        if let Some(value) = self.isolate {
+            config.isolate = value;
+        }
+        if let Some(value) = self.allow.clone() {
+            config.allow = value;
+        }
+        if let Some(value) = self.block.clone() {
+            config.block = value;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct CliLimitsConfigOverride {
+    pub timeout_secs: Option<u64>,
+    pub max_output_bytes: Option<usize>,
+}
+
+impl CliLimitsConfigOverride {
+    fn apply_to(&self, config: &mut CliLimitsConfig) {
+        if let Some(value) = self.timeout_secs {
+            config.timeout_secs = value;
+        }
+        if let Some(value) = self.max_output_bytes {
+            config.max_output_bytes = value;
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct CliSandboxConfigOverride {
+    pub enabled: Option<bool>,
+    pub env: Option<CliEnvSandboxConfigOverride>,
+    pub limits: Option<CliLimitsConfigOverride>,
+}
+
+impl CliSandboxConfigOverride {
+    fn apply_to(&self, config: &mut CliSandboxConfig) {
+        if let Some(value) = self.enabled {
+            config.enabled = value;
+        }
+        if let Some(value) = &self.env {
+            value.apply_to(&mut config.env);
+        }
+        if let Some(value) = &self.limits {
+            value.apply_to(&mut config.limits);
+        }
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct CliConfigOverride {
+    pub version: Option<u32>,
+    pub default: Option<CliDefaultConfigOverride>,
+    pub sandbox: Option<CliSandboxConfigOverride>,
+}
+
+impl CliConfigOverride {
+    fn apply_to(&self, config: &mut CliConfig) {
+        if let Some(value) = self.version {
+            config.version = value;
+        }
+        if let Some(value) = &self.default {
+            value.apply_to(&mut config.default);
+        }
+        if let Some(value) = &self.sandbox {
+            value.apply_to(&mut config.sandbox);
+        }
+    }
+}
+
 fn deserialize_optional_u64_override<'de, D>(
     deserializer: D,
 ) -> std::result::Result<Option<Option<u64>>, D::Error>
@@ -950,7 +1141,24 @@ impl SystemConfigOverride {
     }
 }
 
-fn load_config_override(path: &Path) -> Result<Option<SystemConfigOverride>> {
+#[derive(Debug, Default, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+struct UnifiedConfigOverride {
+    #[serde(flatten)]
+    pub system: SystemConfigOverride,
+    pub cli: Option<CliConfigOverride>,
+}
+
+impl UnifiedConfigOverride {
+    fn apply_to(&self, config: &mut UnifiedConfigFile) {
+        self.system.apply_to(&mut config.system);
+        if let Some(cli_override) = &self.cli {
+            cli_override.apply_to(&mut config.cli);
+        }
+    }
+}
+
+fn load_config_override(path: &Path) -> Result<Option<UnifiedConfigOverride>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -961,7 +1169,7 @@ fn load_config_override(path: &Path) -> Result<Option<SystemConfigOverride>> {
             path.display()
         )
     })?;
-    let parsed: SystemConfigOverride = toml::from_str(&contents).with_context(|| {
+    let parsed: UnifiedConfigOverride = toml::from_str(&contents).with_context(|| {
         format!(
             "Failed to parse system config override from {}",
             path.display()
@@ -991,11 +1199,30 @@ pub struct ConfigSourcePathInfo {
     pub from_env: bool,
 }
 
+/// Source of an effective configuration value.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigValueSourceKind {
+    Default,
+    Global,
+    Workspace,
+}
+
+/// Per-key source information for effective config values.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ConfigValueSourceInfo {
+    pub source: ConfigValueSourceKind,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+}
+
 /// Effective configuration source information.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct EffectiveConfigSources {
     pub global: Option<ConfigSourcePathInfo>,
     pub workspace: Option<ConfigSourcePathInfo>,
+    pub write_target: Option<ConfigSourcePathInfo>,
+    pub values: BTreeMap<String, ConfigValueSourceInfo>,
 }
 
 fn global_config_path() -> Option<ResolvedOverridePath> {
@@ -1026,26 +1253,6 @@ fn workspace_config_path() -> Option<ResolvedOverridePath> {
     })
 }
 
-fn collect_override_paths() -> Vec<ResolvedOverridePath> {
-    let mut paths: Vec<ResolvedOverridePath> = Vec::new();
-
-    if let Some(global) = global_config_path() {
-        paths.push(global);
-    }
-
-    if let Some(workspace) = workspace_config_path() {
-        let duplicate = paths
-            .last()
-            .map(|existing| existing.path == workspace.path)
-            .unwrap_or(false);
-        if !duplicate {
-            paths.push(workspace);
-        }
-    }
-
-    paths
-}
-
 fn path_info(resolved: Option<ResolvedOverridePath>) -> Option<ConfigSourcePathInfo> {
     resolved.map(|entry| ConfigSourcePathInfo {
         path: entry.path.display().to_string(),
@@ -1054,12 +1261,278 @@ fn path_info(resolved: Option<ResolvedOverridePath>) -> Option<ConfigSourcePathI
     })
 }
 
-/// Resolve the current effective config source paths and whether they exist.
-pub fn effective_config_sources() -> EffectiveConfigSources {
-    EffectiveConfigSources {
-        global: path_info(global_config_path()),
-        workspace: path_info(workspace_config_path()),
+fn global_write_target() -> Result<ResolvedOverridePath> {
+    global_config_path().ok_or_else(|| anyhow::anyhow!("Failed to resolve global config.toml path"))
+}
+
+fn legacy_cli_config_path() -> Option<PathBuf> {
+    crate::paths::resolve_restflow_dir()
+        .ok()
+        .map(|dir| dir.join(LEGACY_CONFIG_JSON_FILE_NAME))
+}
+
+fn legacy_cli_toml_path() -> Option<PathBuf> {
+    dirs::config_dir().map(|dir| dir.join(LEGACY_CONFIG_TOML_DIR_NAME).join(CONFIG_FILE_NAME))
+}
+
+fn read_legacy_db_config(db: &Arc<Database>) -> Result<Option<SystemConfig>> {
+    let read_txn = db.begin_read()?;
+    let table = read_txn.open_table(CONFIG_TABLE)?;
+
+    if let Some(data) = table.get("system")? {
+        let config: SystemConfig = serde_json::from_slice(data.value())?;
+        Ok(Some(config))
+    } else {
+        Ok(None)
     }
+}
+
+fn read_legacy_cli_config() -> Result<Option<CliConfig>> {
+    if let Some(cli) = read_legacy_cli_json_config()? {
+        return Ok(Some(cli));
+    }
+    read_legacy_cli_toml_config()
+}
+
+fn read_legacy_cli_json_config() -> Result<Option<CliConfig>> {
+    let Some(path) = legacy_cli_config_path() else {
+        return Ok(None);
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read legacy CLI config from {}", path.display()))?;
+    let cli = serde_json::from_str(&contents)
+        .with_context(|| format!("Failed to parse legacy CLI config from {}", path.display()))?;
+    Ok(Some(cli))
+}
+
+fn read_legacy_cli_toml_config() -> Result<Option<CliConfig>> {
+    #[derive(Debug, Deserialize)]
+    struct LegacyCliTomlConfig {
+        default: Option<LegacyCliTomlDefaultConfig>,
+    }
+
+    #[derive(Debug, Deserialize)]
+    struct LegacyCliTomlDefaultConfig {
+        agent: Option<String>,
+        model: Option<String>,
+        #[allow(dead_code)]
+        db_path: Option<String>,
+    }
+
+    let Some(path) = legacy_cli_toml_path() else {
+        return Ok(None);
+    };
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("Failed to read legacy CLI config from {}", path.display()))?;
+    let legacy: LegacyCliTomlConfig = toml::from_str(&contents)
+        .with_context(|| format!("Failed to parse legacy CLI config from {}", path.display()))?;
+
+    Ok(Some(CliConfig {
+        version: 1,
+        default: CliDefaultConfig {
+            agent: legacy
+                .default
+                .as_ref()
+                .and_then(|value| value.agent.clone()),
+            model: legacy.default.and_then(|value| value.model),
+        },
+        sandbox: CliSandboxConfig::default(),
+    }))
+}
+
+#[derive(Debug, Clone)]
+struct ConfigLayerState {
+    default: UnifiedConfigFile,
+    global: UnifiedConfigFile,
+    effective: UnifiedConfigFile,
+    global_path: Option<ResolvedOverridePath>,
+    workspace_path: Option<ResolvedOverridePath>,
+}
+
+fn load_config_layers() -> Result<ConfigLayerState> {
+    let default = UnifiedConfigFile::default();
+    let global_path = global_config_path();
+    let workspace_path = workspace_config_path();
+
+    let mut global = default.clone();
+    if let Some(path) = global_path.as_ref()
+        && let Some(override_config) = load_config_override(&path.path)?
+    {
+        override_config.apply_to(&mut global);
+    }
+
+    let mut effective = global.clone();
+    if let Some(path) = workspace_path.as_ref()
+        && let Some(override_config) = load_config_override(&path.path)?
+    {
+        override_config.apply_to(&mut effective);
+    }
+
+    global.system.validate()?;
+    effective.system.validate()?;
+
+    Ok(ConfigLayerState {
+        default,
+        global,
+        effective,
+        global_path,
+        workspace_path,
+    })
+}
+
+fn write_global_config_file(config: &UnifiedConfigFile) -> Result<()> {
+    config.system.validate()?;
+    let target = global_write_target()?;
+    if let Some(parent) = target.path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("Failed to create config directory {}", parent.display()))?;
+    }
+    let contents = toml::to_string_pretty(config).context("Failed to serialize config.toml")?;
+    fs::write(&target.path, contents)
+        .with_context(|| format!("Failed to write config.toml to {}", target.path.display()))?;
+    Ok(())
+}
+
+fn flatten_json(prefix: Option<&str>, value: &JsonValue, output: &mut BTreeMap<String, JsonValue>) {
+    match value {
+        JsonValue::Object(map) => {
+            for (key, entry) in map {
+                let next = match prefix {
+                    Some(prefix) => format!("{prefix}.{key}"),
+                    None => key.clone(),
+                };
+                flatten_json(Some(&next), entry, output);
+            }
+        }
+        _ => {
+            if let Some(prefix) = prefix {
+                output.insert(prefix.to_string(), value.clone());
+            }
+        }
+    }
+}
+
+fn flatten_system_config(config: &SystemConfig) -> Result<BTreeMap<String, JsonValue>> {
+    let json = serde_json::to_value(config).context("Failed to serialize system config")?;
+    let mut output = BTreeMap::new();
+    flatten_json(None, &json, &mut output);
+    Ok(output)
+}
+
+fn build_value_sources(
+    layers: &ConfigLayerState,
+) -> Result<BTreeMap<String, ConfigValueSourceInfo>> {
+    let default_values = flatten_system_config(&layers.default.system)?;
+    let global_values = flatten_system_config(&layers.global.system)?;
+    let effective_values = flatten_system_config(&layers.effective.system)?;
+
+    let global_path = layers
+        .global_path
+        .as_ref()
+        .map(|path| path.path.display().to_string());
+    let workspace_path = layers
+        .workspace_path
+        .as_ref()
+        .map(|path| path.path.display().to_string());
+
+    let mut values = BTreeMap::new();
+    for (key, final_value) in effective_values {
+        let default_value = default_values.get(&key);
+        let global_value = global_values.get(&key);
+
+        let info = if global_value != Some(&final_value) {
+            ConfigValueSourceInfo {
+                source: ConfigValueSourceKind::Workspace,
+                path: workspace_path.clone(),
+            }
+        } else if default_value != Some(&final_value) {
+            ConfigValueSourceInfo {
+                source: ConfigValueSourceKind::Global,
+                path: global_path.clone(),
+            }
+        } else {
+            ConfigValueSourceInfo {
+                source: ConfigValueSourceKind::Default,
+                path: None,
+            }
+        };
+        values.insert(key, info);
+    }
+
+    Ok(values)
+}
+
+fn migrate_db_config_to_global_file_if_needed(db: &Arc<Database>) -> Result<()> {
+    let Some(global) = global_config_path() else {
+        return Ok(());
+    };
+    if global.path.exists() {
+        return Ok(());
+    }
+
+    let Some(system) = read_legacy_db_config(db)? else {
+        return Ok(());
+    };
+
+    let cli = read_legacy_cli_config()?;
+    let mut unified = UnifiedConfigFile {
+        system,
+        ..UnifiedConfigFile::default()
+    };
+    if let Some(cli) = cli {
+        unified.cli = cli;
+    }
+    write_global_config_file(&unified)
+}
+
+fn migrate_legacy_cli_config_if_needed() -> Result<()> {
+    let Some(global) = global_config_path() else {
+        return Ok(());
+    };
+    if global.path.exists() {
+        return Ok(());
+    }
+
+    let Some(cli) = read_legacy_cli_config()? else {
+        return Ok(());
+    };
+
+    let unified = UnifiedConfigFile {
+        cli,
+        ..UnifiedConfigFile::default()
+    };
+    write_global_config_file(&unified)
+}
+
+pub fn load_cli_config() -> Result<CliConfig> {
+    migrate_legacy_cli_config_if_needed()?;
+    Ok(load_config_layers()?.effective.cli)
+}
+
+pub fn write_cli_config(config: &CliConfig) -> Result<()> {
+    let mut current = load_config_layers()
+        .map(|layers| layers.global)
+        .unwrap_or_default();
+    current.cli = config.clone();
+    write_global_config_file(&current)
+}
+
+/// Resolve the current effective config source paths and whether they exist.
+pub fn effective_config_sources() -> Result<EffectiveConfigSources> {
+    let layers = load_config_layers()?;
+    Ok(EffectiveConfigSources {
+        global: path_info(layers.global_path.clone()),
+        workspace: path_info(layers.workspace_path.clone()),
+        write_target: path_info(global_config_path()),
+        values: build_value_sources(&layers)?,
+    })
 }
 
 /// Configuration storage
@@ -1076,54 +1549,34 @@ impl ConfigStorage {
         write_txn.commit()?;
 
         let storage = Self { db };
-
-        // Set default config if not exists
-        if storage.get_config()?.is_none() {
-            storage.update_config(SystemConfig::default())?;
-        }
+        migrate_db_config_to_global_file_if_needed(&storage.db)?;
 
         Ok(storage)
     }
 
-    /// Get system configuration
+    /// Get the global config view (defaults + global config.toml).
     pub fn get_config(&self) -> Result<Option<SystemConfig>> {
-        let read_txn = self.db.begin_read()?;
-        let table = read_txn.open_table(CONFIG_TABLE)?;
-
-        if let Some(data) = table.get("system")? {
-            let config: SystemConfig = serde_json::from_slice(data.value())?;
-            Ok(Some(config))
-        } else {
-            Ok(None)
-        }
+        self.get_global_config().map(Some)
     }
 
-    /// Get the effective configuration by applying on-disk overrides to the stored values.
+    /// Get the global config view (defaults + global config.toml).
+    pub fn get_global_config(&self) -> Result<SystemConfig> {
+        Ok(load_config_layers()?.global.system)
+    }
+
+    /// Get the effective configuration by applying config.toml overrides.
     pub fn get_effective_config(&self) -> Result<SystemConfig> {
-        let mut config = self.get_config()?.unwrap_or_default();
-
-        for resolved in collect_override_paths() {
-            if let Some(override_config) = load_config_override(&resolved.path)? {
-                override_config.apply_to(&mut config);
-            }
-        }
-
-        config.validate()?;
-        Ok(config)
+        Ok(load_config_layers()?.effective.system)
     }
 
-    /// Update system configuration
+    /// Update the global config.toml system configuration while preserving the CLI section.
     pub fn update_config(&self, config: SystemConfig) -> Result<()> {
-        // Validate before saving
         config.validate()?;
-
-        let write_txn = self.db.begin_write()?;
-        {
-            let mut table = write_txn.open_table(CONFIG_TABLE)?;
-            let serialized = serde_json::to_vec(&config)?;
-            table.insert("system", serialized.as_slice())?;
-        }
-        write_txn.commit()?;
+        let mut current = load_config_layers()
+            .map(|layers| layers.global)
+            .unwrap_or_default();
+        current.system = config;
+        write_global_config_file(&current)?;
         Ok(())
     }
 
@@ -1134,7 +1587,7 @@ impl ConfigStorage {
 
     /// Update worker count
     pub fn set_worker_count(&self, count: usize) -> Result<()> {
-        let mut config = self.get_config()?.unwrap_or_default();
+        let mut config = self.get_global_config()?;
         config.worker_count = count.max(MIN_WORKER_COUNT);
         self.update_config(config)
     }
@@ -1186,12 +1639,27 @@ mod tests {
         file
     }
 
-    fn setup_test_storage() -> (ConfigStorage, tempfile::TempDir) {
+    struct TestContext {
+        storage: ConfigStorage,
+        _temp_dir: tempfile::TempDir,
+        _env_guard: std::sync::MutexGuard<'static, ()>,
+        _global_guard: EnvGuard,
+    }
+
+    fn setup_test_storage() -> TestContext {
+        let env_guard = env_lock();
         let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        let global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, &config_path);
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let storage = ConfigStorage::new(db).unwrap();
-        (storage, temp_dir)
+        TestContext {
+            storage,
+            _temp_dir: temp_dir,
+            _env_guard: env_guard,
+            _global_guard: global_guard,
+        }
     }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
@@ -1203,9 +1671,9 @@ mod tests {
 
     #[test]
     fn test_default_config() {
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
 
-        let config = storage.get_config().unwrap();
+        let config = ctx.storage.get_config().unwrap();
         assert!(config.is_some());
 
         let config = config.unwrap();
@@ -1288,7 +1756,7 @@ mod tests {
 
     #[test]
     fn test_update_config() {
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
 
         let new_config = SystemConfig {
             worker_count: 8,
@@ -1305,9 +1773,9 @@ mod tests {
             ..Default::default()
         };
 
-        storage.update_config(new_config).unwrap();
+        ctx.storage.update_config(new_config).unwrap();
 
-        let retrieved = storage.get_config().unwrap().unwrap();
+        let retrieved = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.worker_count, 8);
         assert_eq!(retrieved.task_timeout_seconds, 600);
     }
@@ -1359,14 +1827,14 @@ mod tests {
 
     #[test]
     fn test_invalid_worker_count() {
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
 
         let invalid_config = SystemConfig {
             worker_count: 0,
             ..Default::default()
         };
 
-        let result = storage.update_config(invalid_config);
+        let result = ctx.storage.update_config(invalid_config);
         assert!(result.is_err());
     }
 
@@ -1389,9 +1857,9 @@ mod tests {
 
     #[test]
     fn test_agent_defaults_round_trip() {
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
 
-        let mut config = storage.get_config().unwrap().unwrap();
+        let mut config = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(
             config.agent.tool_timeout_secs,
             DEFAULT_AGENT_TOOL_TIMEOUT_SECS
@@ -1430,9 +1898,9 @@ mod tests {
         config.agent.browser_timeout_secs = 180;
         config.agent.process_session_ttl_secs = 7_200;
         config.agent.approval_timeout_secs = 450;
-        storage.update_config(config).unwrap();
+        ctx.storage.update_config(config).unwrap();
 
-        let retrieved = storage.get_config().unwrap().unwrap();
+        let retrieved = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.agent.tool_timeout_secs, 180);
         assert_eq!(retrieved.agent.llm_timeout_secs, Some(900));
         assert_eq!(retrieved.agent.bash_timeout_secs, 600);
@@ -1531,42 +1999,39 @@ mod tests {
 
     #[test]
     fn test_effective_config_without_overrides() {
-        let (storage, _temp_dir) = setup_test_storage();
-        let effective = storage.get_effective_config().unwrap();
-        let stored = storage.get_config().unwrap().unwrap();
+        let ctx = setup_test_storage();
+        let effective = ctx.storage.get_effective_config().unwrap();
+        let stored = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(effective.worker_count, stored.worker_count);
     }
 
     #[test]
     fn test_effective_config_with_global_override() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let file = write_override_file("worker_count = 42\nbackground_task_retention_days = 10");
         let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
 
-        let effective = storage.get_effective_config().unwrap();
+        let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.worker_count, 42);
         assert_eq!(effective.background_task_retention_days, 10);
     }
 
     #[test]
     fn test_workspace_override_precedence() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let global_file = write_override_file("worker_count = 5\nmax_retries = 2");
         let workspace_file = write_override_file("worker_count = 9\nmax_retries = 4");
         let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, global_file.path());
         let _workspace_guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, workspace_file.path());
 
-        let effective = storage.get_effective_config().unwrap();
+        let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.worker_count, 9);
         assert_eq!(effective.max_retries, 4);
     }
 
     #[test]
     fn test_partial_agent_override() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let file = write_override_file(
             r#"task_timeout_seconds = 9999
 
@@ -1582,7 +2047,7 @@ fallback_models = ["alpha", "beta"]
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
-        let effective = storage.get_effective_config().unwrap();
+        let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.task_timeout_seconds, 9999);
         assert_eq!(effective.agent.python_timeout_secs, 45);
         assert_eq!(effective.agent.llm_timeout_secs, Some(660));
@@ -1598,8 +2063,7 @@ fallback_models = ["alpha", "beta"]
 
     #[test]
     fn test_partial_api_defaults_override() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[api_defaults]
 web_search_num_results = 7
@@ -1608,15 +2072,14 @@ diagnostics_timeout_ms = 9000
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
-        let effective = storage.get_effective_config().unwrap();
+        let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.api_defaults.web_search_num_results, 7);
         assert_eq!(effective.api_defaults.diagnostics_timeout_ms, 9000);
     }
 
     #[test]
     fn test_partial_runtime_channel_and_registry_override() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[runtime_defaults]
 background_runner_poll_interval_ms = 15000
@@ -1634,7 +2097,7 @@ marketplace_cache_ttl_secs = 450
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
-        let effective = storage.get_effective_config().unwrap();
+        let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(
             effective
                 .runtime_defaults
@@ -1656,8 +2119,7 @@ marketplace_cache_ttl_secs = 450
 
     #[test]
     fn test_partial_agent_override_can_clear_optional_timeout() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[agent]
 llm_timeout_secs = "none"
@@ -1665,8 +2127,108 @@ llm_timeout_secs = "none"
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
-        let effective = storage.get_effective_config().unwrap();
+        let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.agent.llm_timeout_secs, None);
+    }
+
+    #[test]
+    fn test_load_cli_config_migrates_legacy_cli_toml() {
+        let _env_guard = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let home_dir = temp_dir.path().join("home");
+        let global_config = temp_dir.path().join("config.toml");
+        fs::create_dir_all(&home_dir).unwrap();
+        let _home_guard = EnvGuard::set_path("HOME", &home_dir);
+        let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, &global_config);
+
+        let legacy_path = dirs::config_dir()
+            .unwrap()
+            .join(LEGACY_CONFIG_TOML_DIR_NAME)
+            .join(CONFIG_FILE_NAME);
+        fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
+        fs::write(
+            &legacy_path,
+            r#"[default]
+agent = "legacy-agent"
+model = "legacy-model"
+"#,
+        )
+        .unwrap();
+
+        let cli = load_cli_config().unwrap();
+        assert_eq!(cli.default.agent.as_deref(), Some("legacy-agent"));
+        assert_eq!(cli.default.model.as_deref(), Some("legacy-model"));
+
+        let written = fs::read_to_string(&global_config).unwrap();
+        assert!(written.contains("[cli.default]"));
+        assert!(written.contains("agent = \"legacy-agent\""));
+        assert!(written.contains("model = \"legacy-model\""));
+    }
+
+    #[test]
+    fn test_config_storage_migrates_legacy_db_and_cli_json_to_unified_toml() {
+        let _env_guard = env_lock();
+        let temp_dir = tempdir().unwrap();
+        let global_config = temp_dir.path().join("config.toml");
+        let restflow_dir = temp_dir.path().join("restflow");
+        let db_path = temp_dir.path().join("test.db");
+        let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, &global_config);
+        let _restflow_guard = EnvGuard::set_path("RESTFLOW_DIR", &restflow_dir);
+
+        fs::create_dir_all(&restflow_dir).unwrap();
+        fs::write(
+            restflow_dir.join(LEGACY_CONFIG_JSON_FILE_NAME),
+            r#"{
+  "version": 1,
+  "default": {
+    "agent": "json-agent",
+    "model": "json-model"
+  },
+  "sandbox": {
+    "enabled": true,
+    "env": {
+      "isolate": true,
+      "allow": ["PATH"],
+      "block": []
+    },
+    "limits": {
+      "timeout_secs": 77,
+      "max_output_bytes": 2048
+    }
+  }
+}"#,
+        )
+        .unwrap();
+
+        let db = Arc::new(Database::create(&db_path).unwrap());
+        let legacy = SystemConfig {
+            worker_count: 33,
+            agent: AgentDefaults {
+                max_iterations: 144,
+                ..AgentDefaults::default()
+            },
+            ..SystemConfig::default()
+        };
+        let payload = serde_json::to_vec(&legacy).unwrap();
+
+        let write_txn = db.begin_write().unwrap();
+        {
+            let mut table = write_txn.open_table(CONFIG_TABLE).unwrap();
+            table.insert("system", payload.as_slice()).unwrap();
+        }
+        write_txn.commit().unwrap();
+
+        let storage = ConfigStorage::new(db).unwrap();
+        let effective = storage.get_effective_config().unwrap();
+        assert_eq!(effective.worker_count, 33);
+        assert_eq!(effective.agent.max_iterations, 144);
+
+        let written = fs::read_to_string(&global_config).unwrap();
+        assert!(written.contains("worker_count = 33"));
+        assert!(written.contains("[cli.default]"));
+        assert!(written.contains("agent = \"json-agent\""));
+        assert!(written.contains("model = \"json-model\""));
+        assert!(written.contains("[cli.sandbox]"));
     }
 
     #[test]
@@ -1677,7 +2239,7 @@ llm_timeout_secs = "none"
         let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, global_file.path());
         let _workspace_guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, workspace_file.path());
 
-        let sources = effective_config_sources();
+        let sources = effective_config_sources().unwrap();
         let global = sources.global.expect("global source should exist");
         let workspace = sources.workspace.expect("workspace source should exist");
 
@@ -1695,19 +2257,17 @@ llm_timeout_secs = "none"
 
     #[test]
     fn test_invalid_override_rejected() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let file = write_override_file("worker_count = 0");
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
-        let result = storage.get_effective_config();
+        let result = ctx.storage.get_effective_config();
         assert!(result.is_err());
     }
 
     #[test]
     fn test_unknown_override_field_rejected() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[api_defaults]
 unknown_limit = 1
@@ -1715,23 +2275,23 @@ unknown_limit = 1
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
-        storage
+        ctx.storage
             .get_effective_config()
             .expect_err("unknown override field should fail");
     }
 
     #[test]
     fn test_api_defaults_round_trip() {
-        let (storage, _temp_dir) = setup_test_storage();
-        let mut config = storage.get_config().unwrap().unwrap();
+        let ctx = setup_test_storage();
+        let mut config = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(config.api_defaults.memory_search_limit, 10);
         assert_eq!(config.api_defaults.background_trace_line_limit, 200);
 
         config.api_defaults.memory_search_limit = 25;
         config.api_defaults.background_trace_line_limit = 300;
-        storage.update_config(config).unwrap();
+        ctx.storage.update_config(config).unwrap();
 
-        let retrieved = storage.get_config().unwrap().unwrap();
+        let retrieved = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.api_defaults.memory_search_limit, 25);
         assert_eq!(retrieved.api_defaults.background_trace_line_limit, 300);
     }
@@ -1786,8 +2346,7 @@ unknown_limit = 1
 
     #[test]
     fn test_api_defaults_override_from_file() {
-        let _env_guard = env_lock();
-        let (storage, _temp_dir) = setup_test_storage();
+        let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[api_defaults]
 memory_search_limit = 33
@@ -1796,7 +2355,7 @@ background_trace_line_limit = 444
         );
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
-        let effective = storage.get_effective_config().unwrap();
+        let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.api_defaults.memory_search_limit, 33);
         assert_eq!(effective.api_defaults.background_trace_line_limit, 444);
     }
