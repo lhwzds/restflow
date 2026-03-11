@@ -9,6 +9,7 @@
 //! - Sub-agent data types and lookup traits
 
 pub mod cache;
+pub mod batch_template;
 pub mod defaults;
 pub mod error;
 pub mod filtered;
@@ -17,6 +18,7 @@ pub mod http_client;
 pub mod llm;
 pub mod model;
 pub mod network;
+pub mod orchestrator;
 pub mod registry;
 pub mod security;
 pub mod skill;
@@ -70,6 +72,10 @@ pub use store::{
     TriggerStore, UnifiedMemorySearch, WorkItemPatch, WorkItemProvider, WorkItemQuery,
     WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };
+
+// Shared orchestration contracts
+pub use batch_template::{RuntimeTaskPayload, TeamTemplateDocument};
+pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan};
 
 // Sub-agent types
 pub use subagent::{
