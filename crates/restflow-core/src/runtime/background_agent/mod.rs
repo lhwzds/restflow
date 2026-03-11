@@ -183,6 +183,7 @@ pub use events::{
     TaskEventEmitter, TaskStreamEvent,
 };
 pub use executor::{AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode};
+pub use crate::runtime::orchestrator::OrchestratingAgentExecutor;
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
 #[cfg(feature = "tauri-runtime")]
 pub use heartbeat::TauriHeartbeatEmitter;

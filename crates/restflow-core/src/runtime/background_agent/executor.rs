@@ -36,7 +36,7 @@ use restflow_ai::{
     ResourceLimits as AgentResourceLimits, SwappableLlm,
 };
 use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool};
-use restflow_traits::ReplySender;
+use restflow_traits::{ExecutionOutcome, ExecutionPlan, ReplySender};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -52,11 +52,12 @@ use super::skill_snapshot::{
 };
 use crate::runtime::agent::{
     BashConfig, SubagentDeps, SubagentManager, SubagentManagerImpl, ToolRegistry,
-    build_agent_system_prompt, effective_main_agent_tool_names, registry_from_allowlist,
+    build_agent_system_prompt, effective_main_agent_tool_names, main_agent_default_tool_names,
+    registry_from_allowlist,
     secret_resolver_from_storage,
 };
 use restflow_ai::agent::SubagentDefLookup;
-use restflow_ai::agent::{SubagentConfig, SubagentTracker};
+use restflow_ai::agent::{SubagentConfig, SubagentExecutionBridge, SubagentTracker, spawn_subagent};
 use restflow_ai::llm::LlmSwitcherImpl;
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
@@ -161,6 +162,90 @@ impl AiModelSwitcher for RuntimeModelSwitcher {
 }
 
 impl AgentRuntimeExecutor {
+    pub(crate) fn load_chat_session(&self, session_id: &str) -> Result<ChatSession> {
+        self.storage
+            .chat_sessions
+            .get(session_id)?
+            .ok_or_else(|| anyhow!("Session not found: {}", session_id))
+    }
+
+    pub(crate) async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> Result<ExecutionOutcome> {
+        let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
+        let factory: Arc<dyn LlmClientFactory> = Arc::new(DefaultLlmClientFactory::new(
+            self.build_api_keys(None, Provider::OpenAI).await,
+            AIModel::build_model_specs(),
+        ));
+        let swappable = Arc::new(SwappableLlm::new(llm_client.clone()));
+        let agent_defaults = self
+            .storage
+            .config
+            .get_effective_config()
+            .ok()
+            .map(|config| config.agent)
+            .unwrap_or_default();
+        let bash_config = BashConfig {
+            timeout_secs: agent_defaults.bash_timeout_secs,
+            ..BashConfig::default()
+        };
+        let default_tools = main_agent_default_tool_names();
+        let tool_registry = self.build_tool_registry(
+            Some(&default_tools),
+            llm_client.clone(),
+            swappable,
+            factory.clone(),
+            None,
+            Some(bash_config),
+            None,
+        )?;
+        let handle = spawn_subagent(
+            self.subagent_tracker.clone(),
+            self.subagent_definitions.clone(),
+            llm_client,
+            tool_registry,
+            self.subagent_config.clone(),
+            restflow_traits::SpawnRequest {
+                agent_id: plan.agent_id.clone(),
+                inline: plan.inline_subagent.clone(),
+                task: plan
+                    .input
+                    .clone()
+                    .ok_or_else(|| anyhow!("Subagent execution requires 'input'"))?,
+                timeout_secs: plan.timeout_secs,
+                priority: None,
+                model: plan.model.clone(),
+                model_provider: plan.provider.clone(),
+                parent_execution_id: plan.parent_execution_id.clone(),
+                trace_session_id: plan.trace_session_id.clone(),
+                trace_scope_id: plan.trace_scope_id.clone(),
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: Some(factory),
+                orchestrator: None,
+            },
+        )?;
+
+        let result = self
+            .subagent_tracker
+            .wait(&handle.id)
+            .await
+            .ok_or_else(|| anyhow!("Subagent execution result was not available: {}", handle.id))?;
+
+        Ok(ExecutionOutcome {
+            success: result.success,
+            text: Some(result.output),
+            error: result.error,
+            duration_ms: Some(result.duration_ms),
+            metadata: Some(serde_json::json!({
+                "subagent_id": handle.id,
+                "agent_name": handle.agent_name,
+                "effective_limits": handle.effective_limits,
+                "tokens_used": result.tokens_used,
+                "cost_usd": result.cost_usd,
+            })),
+            ..ExecutionOutcome::default()
+        })
+    }
+
     fn save_task_deliverable(&self, task_id: &str, agent_id: &str, output: &str) -> Result<()> {
         let now = Utc::now().timestamp_millis();
         let key = format!("deliverable:{task_id}");
@@ -616,6 +701,7 @@ impl AgentRuntimeExecutor {
             tool_registry,
             config: self.subagent_config.clone(),
             llm_client_factory,
+            orchestrator: None,
         }
     }
 
