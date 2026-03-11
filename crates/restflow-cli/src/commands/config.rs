@@ -26,7 +26,7 @@ pub async fn run(
 
 async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
     let config = executor.get_config().await?;
-    let sources = effective_config_sources();
+    let sources = effective_config_sources()?;
 
     if format.is_json() {
         let mut payload = serde_json::to_value(&config)?;
@@ -237,6 +237,10 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new("sources.workspace"),
         Cell::new(format_source_info(&sources.workspace)),
     ]);
+    table.add_row(vec![
+        Cell::new("sources.write_target"),
+        Cell::new(format_source_info(&sources.write_target)),
+    ]);
     crate::output::table::print_table(table)
 }
 
@@ -325,7 +329,7 @@ async fn get_config_value(
         "registry_defaults.marketplace_cache_ttl_secs" => {
             json!(config.registry_defaults.marketplace_cache_ttl_secs)
         }
-        "effective_sources" => json!(effective_config_sources()),
+        "effective_sources" => json!(effective_config_sources()?),
         _ => bail!("Unsupported config key: {key}"),
     };
 
@@ -343,7 +347,7 @@ async fn set_config_value(
     value: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let mut config = executor.get_config().await?;
+    let mut config = executor.get_global_config().await?;
 
     match key {
         "worker_count" => {

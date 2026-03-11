@@ -2,10 +2,11 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 // Re-export shared path utilities from restflow-storage (single source of truth)
-pub use restflow_storage::paths::{ensure_restflow_dir, master_key_path, resolve_restflow_dir};
+pub use restflow_storage::paths::{
+    config_path, ensure_restflow_dir, master_key_path, resolve_restflow_dir,
+};
 
 const DB_FILE: &str = "restflow.db";
-const CONFIG_FILE: &str = "config.json";
 const LOGS_DIR: &str = "logs";
 const SKILLS_DIR: &str = "skills";
 const MEDIA_DIR: &str = "media";
@@ -23,11 +24,6 @@ pub fn ensure_database_path() -> Result<PathBuf> {
 /// Convenience helper returning the database path as a UTF-8 string.
 pub fn ensure_database_path_string() -> Result<String> {
     Ok(ensure_database_path()?.to_string_lossy().into_owned())
-}
-
-/// Get the config file path: ~/.restflow/config.json
-pub fn config_path() -> Result<PathBuf> {
-    Ok(resolve_restflow_dir()?.join(CONFIG_FILE))
 }
 
 /// Get the logs directory: ~/.restflow/logs/
