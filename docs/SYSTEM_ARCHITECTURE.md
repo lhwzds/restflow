@@ -144,9 +144,8 @@ Supported environment overrides:
 
 ## 8. Migration Baseline
 
-Automatic migrations are expected for legacy key/config/profile formats. Runtime
-configuration now converges into `~/.restflow/config.toml`; legacy `config.json`
-is imported only during migration/bootstrap.
+Automatic migrations are expected for legacy key/profile formats. Runtime
+configuration now converges into `~/.restflow/config.toml`.
 
 ## 9. Guardrails for Contributors
 
