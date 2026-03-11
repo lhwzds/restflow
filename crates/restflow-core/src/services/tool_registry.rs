@@ -18,8 +18,8 @@ use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
-    ConfigStorage, KvStoreStorage, MemoryStorage, SecretStorage, TerminalSessionStorage,
-    ToolTraceStorage, TriggerStorage, WorkItemStorage,
+    ConfigStorage, ExecutionTraceStorage, KvStoreStorage, MemoryStorage, SecretStorage,
+    TerminalSessionStorage, ToolTraceStorage, TriggerStorage, WorkItemStorage,
 };
 use restflow_ai::agent::{SubagentConfig, SubagentDeps, SubagentManagerImpl, SubagentTracker};
 use restflow_ai::llm::{
@@ -151,7 +151,17 @@ fn create_subagent_manager(
 ) -> Arc<dyn restflow_traits::SubagentManager> {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-    tracker.set_run_trace_sink(Arc::new(ToolTraceRunSink::new(tool_trace_storage, None)));
+    let execution_trace_storage = match ExecutionTraceStorage::new(tool_trace_storage.db()) {
+        Ok(storage) => Some(storage),
+        Err(error) => {
+            warn!(%error, "Failed to initialize execution trace storage for subagents");
+            None
+        }
+    };
+    tracker.set_run_trace_sink(Arc::new(ToolTraceRunSink::new(
+        tool_trace_storage,
+        execution_trace_storage,
+    )));
     let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let subagent_config = load_subagent_config(&config_storage);
@@ -378,12 +388,16 @@ pub fn create_tool_registry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::Skill;
+    use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill};
     use crate::services::adapters::{
         AgentStoreAdapter, BackgroundAgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter,
     };
     use async_trait::async_trait;
+    use futures::stream;
     use redb::Database;
+    use restflow_ai::llm::{
+        CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
+    };
     use restflow_traits::security::{SecurityDecision, ToolAction};
     use restflow_traits::skill::SkillProvider as _;
     use restflow_traits::store::{
@@ -393,6 +407,7 @@ mod tests {
         BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest,
         BackgroundAgentUpdateRequest, MemoryStore as _,
     };
+    use restflow_traits::subagent::{InlineSubagentConfig, SpawnRequest};
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -520,6 +535,101 @@ mod tests {
                 )));
             }
             Ok(SecurityDecision::allowed(None))
+        }
+    }
+
+    struct TestLlmFactory {
+        client: Arc<dyn LlmClient>,
+        model: String,
+        provider: LlmProvider,
+    }
+
+    struct TestLlmClient {
+        model: String,
+        response: String,
+    }
+
+    #[async_trait]
+    impl LlmClient for TestLlmClient {
+        fn provider(&self) -> &str {
+            "test"
+        }
+
+        fn model(&self) -> &str {
+            &self.model
+        }
+
+        async fn complete(
+            &self,
+            _request: CompletionRequest,
+        ) -> restflow_ai::error::Result<CompletionResponse> {
+            Ok(CompletionResponse {
+                content: Some(self.response.clone()),
+                tool_calls: Vec::new(),
+                finish_reason: FinishReason::Stop,
+                usage: None,
+            })
+        }
+
+        fn complete_stream(&self, _request: CompletionRequest) -> StreamResult {
+            Box::pin(stream::iter(vec![Ok(StreamChunk::final_chunk(
+                FinishReason::Stop,
+                None,
+            ))]))
+        }
+    }
+
+    impl TestLlmFactory {
+        fn new(client: Arc<dyn LlmClient>, model: &str, provider: LlmProvider) -> Self {
+            Self {
+                client,
+                model: model.to_string(),
+                provider,
+            }
+        }
+    }
+
+    impl LlmClientFactory for TestLlmFactory {
+        fn create_client(
+            &self,
+            model: &str,
+            _api_key: Option<&str>,
+        ) -> restflow_ai::error::Result<Arc<dyn LlmClient>> {
+            if model == self.model {
+                Ok(self.client.clone())
+            } else {
+                Err(restflow_ai::error::AiError::Llm(format!(
+                    "unexpected model request: {model}"
+                )))
+            }
+        }
+
+        fn available_models(&self) -> Vec<String> {
+            vec![self.model.clone()]
+        }
+
+        fn resolve_api_key(&self, _provider: LlmProvider) -> Option<String> {
+            None
+        }
+
+        fn provider_for_model(&self, model: &str) -> Option<LlmProvider> {
+            if model == self.model {
+                Some(self.provider)
+            } else {
+                None
+            }
+        }
+
+        fn is_codex_cli_model(&self, _model: &str) -> bool {
+            false
+        }
+
+        fn is_opencode_cli_model(&self, _model: &str) -> bool {
+            false
+        }
+
+        fn is_gemini_cli_model(&self, _model: &str) -> bool {
+            false
         }
     }
 
@@ -2039,6 +2149,119 @@ mod tests {
         assert_eq!(
             poll_output.error.as_deref(),
             Some("Action blocked: process blocked by registry gate")
+        );
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn test_create_subagent_manager_persists_execution_traces() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let execution_trace_storage =
+            ExecutionTraceStorage::new(tool_trace_storage.db()).expect("execution trace storage");
+
+        let service_registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage.clone(),
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage.clone(),
+            agent_storage.clone(),
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            None,
+            None,
+            None,
+        )
+        .expect("service registry");
+
+        let mock_llm: Arc<dyn LlmClient> = Arc::new(TestLlmClient {
+            model: "mock-model".to_string(),
+            response: "done".to_string(),
+        });
+        let llm_factory: Arc<dyn LlmClientFactory> = Arc::new(TestLlmFactory::new(
+            mock_llm,
+            "mock-model",
+            LlmProvider::OpenAI,
+        ));
+
+        let subagent_manager = create_subagent_manager(
+            agent_storage,
+            &service_registry,
+            llm_factory,
+            Arc::new(config_storage),
+            tool_trace_storage,
+        );
+
+        let handle = subagent_manager
+            .spawn(SpawnRequest {
+                agent_id: None,
+                inline: Some(InlineSubagentConfig {
+                    name: Some("trace-test".to_string()),
+                    system_prompt: Some("Return a short answer.".to_string()),
+                    allowed_tools: Some(vec!["__no_such_tool__".to_string()]),
+                    max_iterations: Some(3),
+                }),
+                task: "Say done".to_string(),
+                timeout_secs: Some(30),
+                priority: None,
+                model: Some("mock-model".to_string()),
+                model_provider: None,
+                parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
+            })
+            .expect("spawn subagent");
+
+        let result = subagent_manager
+            .wait(&handle.id)
+            .await
+            .expect("subagent result");
+        assert!(
+            result.success,
+            "unexpected subagent failure: {:?}",
+            result.error
+        );
+
+        let events = execution_trace_storage
+            .query(&ExecutionTraceQuery {
+                task_id: Some(handle.id.clone()),
+                limit: Some(20),
+                ..ExecutionTraceQuery::default()
+            })
+            .expect("query execution traces");
+        assert!(
+            !events.is_empty(),
+            "expected persisted execution traces for subagent {}",
+            handle.id
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.category == ExecutionTraceCategory::Lifecycle),
+            "expected lifecycle execution trace event for subagent {}",
+            handle.id
         );
     }
 }
