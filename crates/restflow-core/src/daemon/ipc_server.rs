@@ -1049,6 +1049,10 @@ impl IpcServer {
                 Ok(config) => IpcResponse::success(config),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
+            IpcRequest::GetGlobalConfig => match config_service::get_global_config(core).await {
+                Ok(config) => IpcResponse::success(config),
+                Err(err) => IpcResponse::error(500, err.to_string()),
+            },
             IpcRequest::SetConfig { config } => {
                 match config_service::update_config(core, config).await {
                     Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),

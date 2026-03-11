@@ -352,6 +352,11 @@ impl CommandExecutor for IpcExecutor {
         self.decode_response(response)
     }
 
+    async fn get_global_config(&self) -> Result<SystemConfig> {
+        let response = self.request(IpcRequest::GetGlobalConfig).await?;
+        self.decode_response(response)
+    }
+
     async fn set_config(&self, config: SystemConfig) -> Result<()> {
         let response = self.request(IpcRequest::SetConfig { config }).await?;
         self.decode_response::<serde_json::Value>(response)

@@ -32,7 +32,7 @@ impl ConfigTool {
 
     fn storage_error(error: impl Display) -> ToolError {
         ToolError::Tool(format!(
-            "Config storage error: {error}. The database may be locked or corrupted. Retry the operation."
+            "Config storage error: {error}. The config file may be missing, invalid, or inaccessible. Retry the operation."
         ))
     }
 
@@ -46,20 +46,20 @@ impl ConfigTool {
         }
     }
 
-    fn get_config(&self) -> Result<SystemConfig> {
+    fn get_effective_config(&self) -> Result<SystemConfig> {
         self.storage
-            .get_config()
-            .map_err(Self::storage_error)?
-            .ok_or_else(|| {
-                crate::ToolError::Tool(
-                    "Config not initialized. Use 'reset' operation to create default configuration."
-                        .to_string(),
-                )
-            })
+            .get_effective_config()
+            .map_err(Self::storage_error)
+    }
+
+    fn get_writable_config(&self) -> Result<SystemConfig> {
+        self.storage
+            .get_global_config()
+            .map_err(Self::storage_error)
     }
 
     fn apply_update(&self, key: &str, value: &Value) -> Result<SystemConfig> {
-        let mut config = self.get_config()?;
+        let mut config = self.get_writable_config()?;
 
         match key {
             "worker_count" => {
@@ -530,7 +530,7 @@ impl Tool for ConfigTool {
 
         let output = match action {
             ConfigAction::Get | ConfigAction::Show => {
-                let config = self.get_config()?;
+                let config = self.get_effective_config()?;
                 ToolOutput::success(serde_json::to_value(config)?)
             }
             ConfigAction::List => ToolOutput::success(json!({
@@ -617,19 +617,74 @@ impl Tool for ConfigTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
-    fn setup_storage() -> Arc<ConfigStorage> {
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set_path(key: &'static str, path: &Path) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::set_var(key, path);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                unsafe {
+                    env::set_var(self.key, value);
+                }
+            } else {
+                unsafe {
+                    env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    struct TestContext {
+        storage: Arc<ConfigStorage>,
+        _temp_dir: tempfile::TempDir,
+        _global_guard: EnvGuard,
+        _env_lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    fn setup_storage() -> TestContext {
+        let env_guard = env_lock();
         let temp_dir = tempdir().unwrap();
+        let config_path = temp_dir.path().join("config.toml");
+        let global_guard = EnvGuard::set_path("RESTFLOW_GLOBAL_CONFIG", &config_path);
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        Arc::new(ConfigStorage::new(db).unwrap())
+        let storage = Arc::new(ConfigStorage::new(db).unwrap());
+        TestContext {
+            storage,
+            _temp_dir: temp_dir,
+            _global_guard: global_guard,
+            _env_lock: env_guard,
+        }
     }
 
     #[tokio::test]
     async fn test_get_config() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage);
 
         let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
         assert!(output.success);
@@ -638,8 +693,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_requires_write() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage);
 
         let result = tool
             .execute(json!({
@@ -657,8 +712,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_rejects_unknown_field_with_valid_fields_hint() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let result = tool
             .execute(json!({
@@ -678,8 +733,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_experimental_features() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let output = tool
             .execute(json!({
@@ -700,8 +755,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_optional_timeout_with_null() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let output = tool
             .execute(json!({
@@ -722,8 +777,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_agent_max_wall_clock_with_null() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let output = tool
             .execute(json!({
@@ -747,8 +802,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_list_supported_fields() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage);
 
         let output = tool.execute(json!({ "operation": "list" })).await.unwrap();
         assert!(output.success);
@@ -763,8 +818,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_listed_retention_fields_are_settable() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let updates = [
             ("chat_session_retention_days", json!(0)),
@@ -791,8 +846,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_agent_defaults() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let updates = [
             ("agent.tool_timeout_secs", json!(180)),
@@ -894,8 +949,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_agent_unknown_field() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let result = tool
             .execute(json!({
@@ -910,8 +965,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_get_includes_agent_defaults() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage);
 
         let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
         assert!(output.success);
@@ -935,8 +990,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_runtime_channel_and_registry_defaults() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let updates = [
             (
@@ -1023,8 +1078,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_agent_fallback_models_allows_null_clear() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         tool.execute(json!({
             "operation": "set",
@@ -1057,8 +1112,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_set_api_defaults() {
-        let storage = setup_storage();
-        let tool = ConfigTool::new(storage).with_write(true);
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let updates = [
             ("api_defaults.memory_search_limit", json!(25)),

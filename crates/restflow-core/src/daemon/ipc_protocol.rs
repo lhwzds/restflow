@@ -153,6 +153,7 @@ pub enum IpcRequest {
     },
 
     GetConfig,
+    GetGlobalConfig,
     SetConfig {
         config: SystemConfig,
     },

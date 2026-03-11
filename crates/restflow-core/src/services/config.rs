@@ -11,6 +11,14 @@ pub async fn get_config(core: &Arc<AppCore>) -> Result<SystemConfig> {
         .context("Failed to get config")
 }
 
+// Get writable global system configuration
+pub async fn get_global_config(core: &Arc<AppCore>) -> Result<SystemConfig> {
+    core.storage
+        .config
+        .get_global_config()
+        .context("Failed to get global config")
+}
+
 // Update system configuration with validation
 pub async fn update_config(core: &Arc<AppCore>, config: SystemConfig) -> Result<()> {
     // Validate configuration before updating

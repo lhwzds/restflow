@@ -30,8 +30,8 @@ use crate::models::{ChannelSessionBinding, ChatSessionSource};
 
 // Re-export types that are self-contained in restflow-storage
 pub use restflow_storage::{
-    ChannelDefaults, ConfigStorage, DaemonStateStorage, PairingStorage, RegistryDefaults,
-    RuntimeDefaults, Secret, SecretStorage, SecretStorageConfig, SystemConfig,
+    ChannelDefaults, CliConfig, ConfigStorage, DaemonStateStorage, PairingStorage,
+    RegistryDefaults, RuntimeDefaults, Secret, SecretStorage, SecretStorageConfig, SystemConfig,
 };
 
 pub use agent::AgentStorage;

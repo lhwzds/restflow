@@ -300,6 +300,16 @@ impl CoreAccess {
         }
     }
 
+    pub async fn get_global_config(&mut self) -> Result<SystemConfig> {
+        match self {
+            CoreAccess::Local(core) => config_service::get_global_config(core).await,
+            CoreAccess::Remote(client) => {
+                let response = client.request(IpcRequest::GetGlobalConfig).await?;
+                decode_response(response)
+            }
+        }
+    }
+
     pub async fn set_config(&mut self, config: SystemConfig) -> Result<()> {
         match self {
             CoreAccess::Local(core) => config_service::update_config(core, config).await,

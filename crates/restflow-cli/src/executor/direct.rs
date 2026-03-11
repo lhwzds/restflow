@@ -254,6 +254,10 @@ impl CommandExecutor for DirectExecutor {
         config_service::get_config(&self.core).await
     }
 
+    async fn get_global_config(&self) -> Result<SystemConfig> {
+        config_service::get_global_config(&self.core).await
+    }
+
     async fn set_config(&self, config: SystemConfig) -> Result<()> {
         config_service::update_config(&self.core, config).await
     }

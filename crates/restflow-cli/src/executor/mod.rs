@@ -88,6 +88,7 @@ pub trait CommandExecutor: Send + Sync {
     async fn has_secret(&self, key: &str) -> Result<bool>;
 
     async fn get_config(&self) -> Result<SystemConfig>;
+    async fn get_global_config(&self) -> Result<SystemConfig>;
     async fn set_config(&self, config: SystemConfig) -> Result<()>;
 
     // Background Agent operations
