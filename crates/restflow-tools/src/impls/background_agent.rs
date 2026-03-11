@@ -6,8 +6,12 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::impls::team_template::{
+    delete_team_document, list_team_entries, read_team_raw, save_team_document,
+};
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::{RuntimeTaskPayload, TeamTemplateDocument};
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
     BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
@@ -19,9 +23,8 @@ use restflow_traits::store::{
 };
 
 const BACKGROUND_AGENT_TEAM_NAMESPACE: &str = "background_agent_team";
-const BACKGROUND_AGENT_TEAM_CONTENT_TYPE: &str = "application/json";
 const BACKGROUND_AGENT_TEAM_TYPE_HINT: &str = "background_agent_team";
-const BACKGROUND_AGENT_TEAM_VERSION: u32 = 1;
+const BACKGROUND_AGENT_TEAM_VERSION: u32 = 2;
 
 fn default_worker_count() -> u32 {
     1
@@ -56,7 +59,31 @@ struct BackgroundBatchWorkerSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-struct StoredBackgroundAgentTeam {
+struct StoredBackgroundBatchWorkerSpec {
+    #[serde(default)]
+    agent_id: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default = "default_worker_count")]
+    count: u32,
+    #[serde(default)]
+    chat_session_id: Option<String>,
+    #[serde(default)]
+    schedule: Option<Value>,
+    #[serde(default)]
+    timeout_secs: Option<u64>,
+    #[serde(default)]
+    durability_mode: Option<String>,
+    #[serde(default)]
+    memory: Option<Value>,
+    #[serde(default)]
+    memory_scope: Option<String>,
+    #[serde(default)]
+    resource_limits: Option<Value>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct LegacyStoredBackgroundAgentTeam {
     version: u32,
     name: String,
     workers: Vec<BackgroundBatchWorkerSpec>,
@@ -114,28 +141,114 @@ impl BackgroundAgentTool {
             .map_or(0, |duration| duration.as_secs() as i64)
     }
 
-    fn validate_team_name(name: &str) -> Result<String> {
-        let trimmed = name.trim();
-        if trimmed.is_empty() {
-            return Err(ToolError::Tool("Team name must not be empty".to_string()));
+    fn normalize_structural_worker(
+        worker: &BackgroundBatchWorkerSpec,
+        worker_index: usize,
+        strict_runtime_inputs: bool,
+    ) -> Result<StoredBackgroundBatchWorkerSpec> {
+        if strict_runtime_inputs && (worker.input.is_some() || worker.inputs.is_some()) {
+            return Err(ToolError::Tool(format!(
+                "save_team stores worker structure only. Remove 'input'/'inputs' from worker index {} and pass runtime input during run_batch.",
+                worker_index
+            )));
         }
-        if trimmed.contains(':') {
-            return Err(ToolError::Tool(
-                "Team name must not contain ':'".to_string(),
-            ));
+        if worker.count == 0 {
+            return Err(ToolError::Tool(format!(
+                "Worker index {} count must be >= 1.",
+                worker_index
+            )));
         }
-        Ok(trimmed.to_string())
+        Ok(StoredBackgroundBatchWorkerSpec {
+            agent_id: worker.agent_id.clone(),
+            name: worker.name.clone(),
+            count: worker.count,
+            chat_session_id: worker.chat_session_id.clone(),
+            schedule: worker.schedule.clone(),
+            timeout_secs: worker.timeout_secs,
+            durability_mode: worker.durability_mode.clone(),
+            memory: worker.memory.clone(),
+            memory_scope: worker.memory_scope.clone(),
+            resource_limits: worker.resource_limits.clone(),
+        })
     }
 
-    fn team_key(name: &str) -> Result<String> {
-        let normalized = Self::validate_team_name(name)?;
-        Ok(format!("{BACKGROUND_AGENT_TEAM_NAMESPACE}:{normalized}"))
+    fn runtime_worker_from_stored(
+        worker: StoredBackgroundBatchWorkerSpec,
+    ) -> BackgroundBatchWorkerSpec {
+        BackgroundBatchWorkerSpec {
+            agent_id: worker.agent_id,
+            name: worker.name,
+            input: None,
+            inputs: None,
+            count: worker.count,
+            chat_session_id: worker.chat_session_id,
+            schedule: worker.schedule,
+            timeout_secs: worker.timeout_secs,
+            durability_mode: worker.durability_mode,
+            memory: worker.memory,
+            memory_scope: worker.memory_scope,
+            resource_limits: worker.resource_limits,
+        }
+    }
+
+    fn decode_team_document(
+        raw: &str,
+        team_name: &str,
+    ) -> Result<TeamTemplateDocument<StoredBackgroundBatchWorkerSpec>> {
+        if let Ok(document) =
+            serde_json::from_str::<TeamTemplateDocument<StoredBackgroundBatchWorkerSpec>>(raw)
+        {
+            return Ok(document);
+        }
+
+        let legacy: LegacyStoredBackgroundAgentTeam = serde_json::from_str(raw).map_err(|error| {
+            ToolError::Tool(format!(
+                "Failed to decode team '{team_name}' payload: {error}"
+            ))
+        })?;
+        let members = legacy
+            .workers
+            .iter()
+            .enumerate()
+            .map(|(worker_index, worker)| {
+                if worker.count == 0 {
+                    return Err(ToolError::Tool(format!(
+                        "Stored team '{}' has invalid worker count at index {}.",
+                        team_name, worker_index
+                    )));
+                }
+                Ok(StoredBackgroundBatchWorkerSpec {
+                    agent_id: worker.agent_id.clone(),
+                    name: worker.name.clone(),
+                    count: worker
+                        .inputs
+                        .as_ref()
+                        .map(|items| items.len() as u32)
+                        .unwrap_or(worker.count),
+                    chat_session_id: worker.chat_session_id.clone(),
+                    schedule: worker.schedule.clone(),
+                    timeout_secs: worker.timeout_secs,
+                    durability_mode: worker.durability_mode.clone(),
+                    memory: worker.memory.clone(),
+                    memory_scope: worker.memory_scope.clone(),
+                    resource_limits: worker.resource_limits.clone(),
+                })
+            })
+            .collect::<Result<Vec<_>>>()?;
+        Ok(TeamTemplateDocument {
+            version: legacy.version.max(BACKGROUND_AGENT_TEAM_VERSION),
+            name: legacy.name,
+            members,
+            created_at: legacy.created_at,
+            updated_at: legacy.updated_at,
+        })
     }
 
     fn save_team_workers(
         &self,
         team_name: &str,
         workers: &[BackgroundBatchWorkerSpec],
+        strict_runtime_inputs: bool,
     ) -> Result<Value> {
         if workers.is_empty() {
             return Err(ToolError::Tool(
@@ -143,98 +256,68 @@ impl BackgroundAgentTool {
             ));
         }
         let store = self.team_store()?;
-        let key = Self::team_key(team_name)?;
-        let previous = store.get_entry(&key).ok();
-        let now = Self::now_unix_seconds();
-        let created_at = previous
-            .as_ref()
-            .and_then(|entry| entry.get("value"))
-            .and_then(Value::as_str)
-            .and_then(|content| serde_json::from_str::<StoredBackgroundAgentTeam>(content).ok())
-            .map_or(now, |saved| saved.created_at);
-
-        let payload = StoredBackgroundAgentTeam {
-            version: BACKGROUND_AGENT_TEAM_VERSION,
-            name: team_name.to_string(),
-            workers: workers.to_vec(),
-            created_at,
-            updated_at: now,
-        };
-        let content = serde_json::to_string(&payload).map_err(|error| {
-            ToolError::Tool(format!("Failed to serialize team payload: {error}"))
-        })?;
-        store.set_entry(
-            &key,
-            &content,
-            Some("private"),
-            Some(BACKGROUND_AGENT_TEAM_CONTENT_TYPE),
-            Some(BACKGROUND_AGENT_TEAM_TYPE_HINT),
-            None,
-            None,
+        let members = workers
+            .iter()
+            .enumerate()
+            .map(|(worker_index, worker)| {
+                Self::normalize_structural_worker(worker, worker_index, strict_runtime_inputs)
+            })
+            .collect::<Result<Vec<_>>>()?;
+        let persisted = save_team_document(
+            store.as_ref(),
+            BACKGROUND_AGENT_TEAM_NAMESPACE,
+            BACKGROUND_AGENT_TEAM_TYPE_HINT,
+            BACKGROUND_AGENT_TEAM_VERSION,
+            team_name,
+            members,
+            Some(vec!["background_agent".to_string(), "team".to_string()]),
         )?;
         Ok(json!({
-            "team": team_name,
+            "team": persisted.document.name,
             "workers": workers.len(),
-            "created_at": created_at,
-            "updated_at": now
+            "created_at": persisted.document.created_at,
+            "updated_at": persisted.document.updated_at,
+            "storage": persisted.storage
         }))
     }
 
     fn load_team_workers(&self, team_name: &str) -> Result<Vec<BackgroundBatchWorkerSpec>> {
         let store = self.team_store()?;
-        let key = Self::team_key(team_name)?;
-        let entry = store.get_entry(&key).map_err(|error| {
-            ToolError::Tool(format!("Failed to load team '{team_name}': {error}"))
-        })?;
-        let content = entry
-            .get("value")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ToolError::Tool(format!("Team '{team_name}' payload is invalid")))?;
-        let team = serde_json::from_str::<StoredBackgroundAgentTeam>(content).map_err(|error| {
-            ToolError::Tool(format!(
-                "Failed to decode team '{team_name}' payload: {error}"
-            ))
-        })?;
-        Ok(team.workers)
+        let raw = read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)?
+            .ok_or_else(|| ToolError::Tool(format!("Team '{team_name}' was not found.")))?;
+        let team = Self::decode_team_document(&raw, team_name)?;
+        Ok(team
+            .members
+            .into_iter()
+            .map(Self::runtime_worker_from_stored)
+            .collect())
     }
 
     fn delete_team(&self, team_name: &str) -> Result<Value> {
         let store = self.team_store()?;
-        let key = Self::team_key(team_name)?;
-        store.delete_entry(&key, None)?;
-        Ok(json!({
-            "team": team_name,
-            "deleted": true
-        }))
+        delete_team_document(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)
     }
 
     fn list_teams(&self) -> Result<Value> {
         let store = self.team_store()?;
-        let entries = store.list_entries(Some(BACKGROUND_AGENT_TEAM_NAMESPACE))?;
         let mut teams = Vec::new();
-        if let Some(items) = entries.get("entries").and_then(Value::as_array) {
-            for item in items {
-                let Some(key) = item.get("key").and_then(Value::as_str) else {
-                    continue;
-                };
-                let team_name = key
-                    .strip_prefix(&format!("{BACKGROUND_AGENT_TEAM_NAMESPACE}:"))
-                    .unwrap_or(key)
-                    .to_string();
-                let (workers, updated_at) = item
-                    .get("value")
-                    .and_then(Value::as_str)
-                    .and_then(|content| {
-                        serde_json::from_str::<StoredBackgroundAgentTeam>(content).ok()
-                    })
-                    .map(|team| (team.workers.len(), team.updated_at))
-                    .unwrap_or((0, 0));
-                teams.push(json!({
-                    "team": team_name,
-                    "workers": workers,
-                    "updated_at": updated_at
-                }));
-            }
+        for item in list_team_entries(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE)? {
+            let Some(key) = item.get("key").and_then(Value::as_str) else {
+                continue;
+            };
+            let team_name = key
+                .strip_prefix(&format!("{BACKGROUND_AGENT_TEAM_NAMESPACE}:"))
+                .unwrap_or(key)
+                .to_string();
+            let (workers, updated_at) = read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team_name)?
+                .and_then(|raw| Self::decode_team_document(&raw, &team_name).ok())
+                .map(|team| (team.members.len(), team.updated_at))
+                .unwrap_or((0, 0));
+            teams.push(json!({
+                "team": team_name,
+                "workers": workers,
+                "updated_at": updated_at
+            }));
         }
         teams.sort_by(|left, right| {
             right["updated_at"]
@@ -254,7 +337,64 @@ impl BackgroundAgentTool {
     fn expand_worker_specs(
         workers: &[BackgroundBatchWorkerSpec],
         fallback_input: Option<&str>,
+        fallback_inputs: Option<&[String]>,
     ) -> Result<Vec<(usize, String, BackgroundBatchWorkerSpec)>> {
+        RuntimeTaskPayload {
+            task: fallback_input.map(str::to_string),
+            tasks: fallback_inputs.map(|items| items.to_vec()),
+        }
+        .validate("input", "inputs")
+        .map_err(ToolError::Tool)?;
+
+        if let Some(inputs) = fallback_inputs {
+            if inputs.is_empty() {
+                return Err(ToolError::Tool(
+                    "Top-level 'inputs' must not be empty.".to_string(),
+                ));
+            }
+
+            for (spec_index, spec) in workers.iter().enumerate() {
+                if spec.input.is_some() || spec.inputs.is_some() {
+                    return Err(ToolError::Tool(format!(
+                        "Top-level 'inputs' cannot be combined with per-worker 'input' or 'inputs' (worker index {}).",
+                        spec_index
+                    )));
+                }
+                if spec.count == 0 {
+                    return Err(ToolError::Tool(format!(
+                        "Worker index {} count must be >= 1.",
+                        spec_index
+                    )));
+                }
+            }
+
+            let expected = workers.iter().map(|worker| worker.count as usize).sum::<usize>();
+            if inputs.len() != expected {
+                return Err(ToolError::Tool(format!(
+                    "Top-level 'inputs' length {} does not match total requested instances {}.",
+                    inputs.len(),
+                    expected
+                )));
+            }
+
+            let mut expanded = Vec::with_capacity(expected);
+            let mut offset = 0usize;
+            for (spec_index, spec) in workers.iter().enumerate() {
+                for instance_index in 0..spec.count as usize {
+                    let input = inputs[offset + instance_index].trim();
+                    if input.is_empty() {
+                        return Err(ToolError::Tool(format!(
+                            "Top-level 'inputs' has empty input at index {}.",
+                            offset + instance_index
+                        )));
+                    }
+                    expanded.push((spec_index, input.to_string(), spec.clone()));
+                }
+                offset += spec.count as usize;
+            }
+            return Ok(expanded);
+        }
+
         let mut expanded = Vec::new();
         for (spec_index, spec) in workers.iter().enumerate() {
             if spec.input.is_some() && spec.inputs.is_some() {
@@ -481,11 +621,15 @@ enum BackgroundAgentAction {
         #[serde(default)]
         input: Option<String>,
         #[serde(default)]
+        inputs: Option<Vec<String>>,
+        #[serde(default)]
         workers: Option<Vec<BackgroundBatchWorkerSpec>>,
         #[serde(default)]
         team: Option<String>,
         #[serde(default)]
         save_as_team: Option<String>,
+        #[serde(default)]
+        input_template: Option<String>,
         #[serde(default)]
         chat_session_id: Option<String>,
         #[serde(default)]
@@ -634,6 +778,11 @@ impl Tool for BackgroundAgentTool {
                     "type": "string",
                     "description": "Optional input for the background agent (for create/update)"
                 },
+                "inputs": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "Optional per-instance input list for run_batch. Inputs are assigned in worker order and are never persisted in saved teams."
+                },
                 "input_template": {
                     "type": "string",
                     "description": "Optional runtime template for background agent input (for create/update)"
@@ -721,9 +870,11 @@ impl Tool for BackgroundAgentTool {
                 agent_id,
                 name,
                 input,
+                inputs,
                 workers,
                 team,
                 save_as_team,
+                input_template,
                 chat_session_id,
                 schedule,
                 timeout_secs,
@@ -734,14 +885,20 @@ impl Tool for BackgroundAgentTool {
                 run_now,
             } => {
                 self.write_guard()?;
+                if input_template.is_some() {
+                    return Err(ToolError::Tool(
+                        "run_batch does not support 'input_template'. Pass runtime 'input' or 'inputs' instead.".to_string(),
+                    ));
+                }
 
                 let run_group_id = format!("bg-batch-{}", Self::now_unix_seconds());
                 let resolved_workers = match (workers, team.as_deref()) {
-                    (Some(specs), Some(team_name)) if specs.is_empty() => {
-                        self.load_team_workers(team_name)?
+                    (Some(_), Some(_)) => {
+                        return Err(ToolError::Tool(
+                            "run_batch accepts either 'workers' or 'team', not both.".to_string(),
+                        ));
                     }
                     (Some(specs), None) => specs,
-                    (Some(specs), Some(_)) => specs,
                     (None, Some(team_name)) => self.load_team_workers(team_name)?,
                     (None, None) => {
                         return Err(ToolError::Tool(
@@ -751,11 +908,14 @@ impl Tool for BackgroundAgentTool {
                 };
 
                 if let Some(team_name) = save_as_team.as_deref() {
-                    self.save_team_workers(team_name, &resolved_workers)?;
+                    self.save_team_workers(team_name, &resolved_workers, false)?;
                 }
 
-                let expanded_workers =
-                    Self::expand_worker_specs(&resolved_workers, input.as_deref())?;
+                let expanded_workers = Self::expand_worker_specs(
+                    &resolved_workers,
+                    input.as_deref(),
+                    inputs.as_deref(),
+                )?;
                 let should_run_now = run_now.unwrap_or(true);
                 let default_name_prefix =
                     name.unwrap_or_else(|| format!("Background Batch {}", run_group_id));
@@ -853,7 +1013,7 @@ impl Tool for BackgroundAgentTool {
             }
             BackgroundAgentAction::SaveTeam { team, workers } => {
                 self.write_guard()?;
-                let payload = self.save_team_workers(&team, &workers)?;
+                let payload = self.save_team_workers(&team, &workers, true)?;
                 ToolOutput::success(json!({
                     "operation": "save_team",
                     "result": payload
@@ -1708,7 +1868,7 @@ mod tests {
                 "operation": "save_team",
                 "team": "TeamA",
                 "workers": [
-                    { "agent_id": "agent-1", "input": "task-1", "count": 2 }
+                    { "agent_id": "agent-1", "count": 2 }
                 ]
             }))
             .await
@@ -1743,6 +1903,10 @@ mod tests {
             get.result["workers"].as_array().map(|items| items.len()),
             Some(1)
         );
+        assert!(
+            get.result["workers"][0].get("input").is_none()
+                || get.result["workers"][0]["input"].is_null()
+        );
 
         let delete = tool
             .execute(json!({
@@ -1766,7 +1930,7 @@ mod tests {
             "operation": "save_team",
             "team": "TeamB",
             "workers": [
-                { "agent_id": "agent-1", "inputs": ["alpha", "beta"] }
+                { "agent_id": "agent-1", "count": 2 }
             ]
         }))
         .await
@@ -1775,12 +1939,101 @@ mod tests {
         let output = tool
             .execute(json!({
                 "operation": "run_batch",
-                "team": "TeamB"
+                "team": "TeamB",
+                "inputs": ["alpha", "beta"]
             }))
             .await
             .unwrap();
         assert!(output.success);
         assert_eq!(output.result["operation"], "run_batch");
         assert_eq!(output.result["total"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_run_batch_save_as_team_strips_runtime_inputs() {
+        let kv_store = Arc::new(MockKvStore::default());
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore))
+            .with_kv_store(kv_store)
+            .with_write(true);
+
+        let saved = tool
+            .execute(json!({
+                "operation": "run_batch",
+                "save_as_team": "TeamC",
+                "agent_id": "agent-1",
+                "workers": [
+                    { "count": 2, "inputs": ["alpha", "beta"] }
+                ]
+            }))
+            .await
+            .unwrap();
+        assert!(saved.success);
+
+        let get = tool
+            .execute(json!({
+                "operation": "get_team",
+                "team": "TeamC"
+            }))
+            .await
+            .unwrap();
+        assert!(get.success);
+        assert!(
+            get.result["workers"][0].get("inputs").is_none()
+                || get.result["workers"][0]["inputs"].is_null()
+        );
+        assert_eq!(get.result["workers"][0]["count"], 2);
+    }
+
+    #[tokio::test]
+    async fn test_run_batch_rejects_workers_and_team_combined() {
+        let kv_store = Arc::new(MockKvStore::default());
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore))
+            .with_kv_store(kv_store)
+            .with_write(true);
+
+        let result = tool
+            .execute(json!({
+                "operation": "run_batch",
+                "team": "TeamD",
+                "workers": [
+                    { "agent_id": "agent-1", "count": 1 }
+                ],
+                "input": "task"
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("either 'workers' or 'team'")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_save_team_rejects_runtime_input_fields() {
+        let kv_store = Arc::new(MockKvStore::default());
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore))
+            .with_kv_store(kv_store)
+            .with_write(true);
+
+        let result = tool
+            .execute(json!({
+                "operation": "save_team",
+                "team": "PromptfulTeam",
+                "workers": [
+                    { "agent_id": "agent-1", "input": "do work" }
+                ]
+            }))
+            .await;
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("stores worker structure only")
+        );
     }
 }

@@ -518,21 +518,24 @@ impl Tool for SpawnSubagentTool {
                 .timeout_secs
                 .unwrap_or(self.manager.config().subagent_timeout_secs);
 
-            let result = match timeout(
-                Duration::from_secs(wait_timeout),
-                self.manager.wait(&handle.id),
-            )
-            .await
-            {
-                Ok(Some(result)) => result,
-                Ok(None) => return Ok(ToolOutput::error("Sub-agent not found")),
-                Err(_) => {
-                    return Ok(ToolOutput::success(json!({
-                        "agent": handle.agent_name,
-                        "status": "timeout",
-                        "message": "Timeout waiting for sub-agent",
-                        "effective_limits": handle.effective_limits,
-                    })));
+            let result = if wait_timeout == 0 {
+                match self.manager.wait(&handle.id).await {
+                    Some(result) => result,
+                    None => return Ok(ToolOutput::error("Sub-agent not found")),
+                }
+            } else {
+                match timeout(Duration::from_secs(wait_timeout), self.manager.wait(&handle.id)).await
+                {
+                    Ok(Some(result)) => result,
+                    Ok(None) => return Ok(ToolOutput::error("Sub-agent not found")),
+                    Err(_) => {
+                        return Ok(ToolOutput::success(json!({
+                            "agent": handle.agent_name,
+                            "status": "timeout",
+                            "message": "Timeout waiting for sub-agent",
+                            "effective_limits": handle.effective_limits,
+                        })));
+                    }
                 }
             };
 
