@@ -7,6 +7,7 @@ use anyhow::Result;
 use std::path::PathBuf;
 
 const RESTFLOW_DIR: &str = ".restflow";
+const CONFIG_FILE: &str = "config.toml";
 const MASTER_KEY_FILE: &str = "master.key";
 
 /// Environment variable to override the RestFlow directory.
@@ -35,4 +36,9 @@ pub fn ensure_restflow_dir() -> Result<PathBuf> {
 /// Get the master key path: ~/.restflow/master.key
 pub fn master_key_path() -> Result<PathBuf> {
     Ok(resolve_restflow_dir()?.join(MASTER_KEY_FILE))
+}
+
+/// Get the global config path: ~/.restflow/config.toml
+pub fn config_path() -> Result<PathBuf> {
+    Ok(resolve_restflow_dir()?.join(CONFIG_FILE))
 }
