@@ -146,7 +146,7 @@ Supported environment overrides:
 
 Automatic migrations are expected for legacy key/config/profile formats. Runtime
 configuration now converges into `~/.restflow/config.toml`; legacy `config.json`
-and DB-stored system config are imported only during migration/bootstrap.
+is imported only during migration/bootstrap.
 
 Manual migration command:
 

@@ -1,15 +1,12 @@
 use anyhow::{Context, Result};
-use redb::{Database, ReadableDatabase, TableDefinition};
 use restflow_core::paths;
 use restflow_storage::{CliConfig, SystemConfig};
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use crate::cli::MigrateArgs;
 
 type Converter = fn(&[u8]) -> Result<Vec<u8>>;
-
-const LEGACY_CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_config");
 
 pub async fn run(args: MigrateArgs) -> Result<()> {
     println!("RestFlow Configuration Migration");
@@ -124,9 +121,7 @@ pub async fn run(args: MigrateArgs) -> Result<()> {
         for source in &plan.imported_sources {
             println!(" - Imported: {source}");
         }
-        println!(
-            " - Legacy DB config and legacy CLI files no longer participate once config.toml exists."
-        );
+        println!(" - Legacy CLI files no longer participate once config.toml exists.");
     }
     println!("\nYou can now safely remove old configuration directories:");
     println!(" - ~/.config/restflow/");
@@ -183,7 +178,6 @@ impl LegacyPaths {
 #[derive(Debug, Clone)]
 struct ConfigMigrationPlan {
     target: PathBuf,
-    system: SystemConfig,
     cli: CliConfig,
     imported_sources: Vec<String>,
     notes: Vec<String>,
@@ -191,7 +185,7 @@ struct ConfigMigrationPlan {
 
 impl ConfigMigrationPlan {
     fn execute(&self) -> Result<()> {
-        write_unified_config(&self.target, &self.system, &self.cli)
+        write_unified_config(&self.target, &self.cli)
     }
 }
 
@@ -255,17 +249,10 @@ fn build_config_migration_plan(
         return Ok(None);
     }
 
-    let mut system = SystemConfig::default();
     let mut cli = CliConfig::default();
     let mut imported_sources = Vec::new();
     let mut notes = Vec::new();
     let mut has_source = false;
-
-    if let Some((source, imported)) = read_system_source(paths)? {
-        system = imported;
-        imported_sources.push(format!("system config from {}", source.display()));
-        has_source = true;
-    }
 
     if paths.legacy_cli_json.exists() {
         if let Some(imported) = read_legacy_cli_json_config(&paths.legacy_cli_json)? {
@@ -296,7 +283,6 @@ fn build_config_migration_plan(
 
     Ok(Some(ConfigMigrationPlan {
         target: paths.global_config.clone(),
-        system,
         cli,
         imported_sources,
         notes,
@@ -311,27 +297,7 @@ fn collect_retired_config_sources(paths: &LegacyPaths) -> Vec<String> {
     if let Some(path) = paths.legacy_cli_toml.as_ref().filter(|path| path.exists()) {
         sources.push(path.display().to_string());
     }
-    if paths.current_db.exists() {
-        sources.push(format!("{} (system config)", paths.current_db.display()));
-    }
-    if let Some(path) = paths.legacy_db.as_ref().filter(|path| path.exists()) {
-        sources.push(format!("{} (system config)", path.display()));
-    }
     sources
-}
-
-fn read_system_source(paths: &LegacyPaths) -> Result<Option<(PathBuf, SystemConfig)>> {
-    if let Some(config) = read_legacy_db_system_config(&paths.current_db)? {
-        return Ok(Some((paths.current_db.clone(), config)));
-    }
-
-    if let Some(path) = paths.legacy_db.as_ref().filter(|path| path.exists())
-        && let Some(config) = read_legacy_db_system_config(path)?
-    {
-        return Ok(Some((path.clone(), config)));
-    }
-
-    Ok(None)
 }
 
 fn collect_file_migrations(paths: &LegacyPaths, force: bool) -> Vec<Migration> {
@@ -361,59 +327,7 @@ fn collect_file_migrations(paths: &LegacyPaths, force: bool) -> Vec<Migration> {
     migrations
 }
 
-fn read_legacy_db_system_config(path: &Path) -> Result<Option<SystemConfig>> {
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let temp_path = std::env::temp_dir().join(format!(
-        "restflow-config-import-{}-{}.db",
-        std::process::id(),
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos()
-    ));
-    std::fs::copy(path, &temp_path).with_context(|| {
-        format!(
-            "Failed to copy legacy database {} into a temporary import file",
-            path.display()
-        )
-    })?;
-
-    let result = (|| -> Result<Option<SystemConfig>> {
-        let db = Database::create(&temp_path)
-            .with_context(|| format!("Failed to open legacy database {}", path.display()))?;
-        let read_txn = db.begin_read()?;
-        let table = match read_txn.open_table(LEGACY_CONFIG_TABLE) {
-            Ok(table) => table,
-            Err(err) => {
-                let message = err.to_string();
-                if message.contains("does not exist") {
-                    return Ok(None);
-                }
-                return Err(anyhow::Error::new(err).context(format!(
-                    "Failed to open legacy config table from database {}",
-                    path.display()
-                )));
-            }
-        };
-
-        if let Some(data) = table.get("system")? {
-            let config = serde_json::from_slice(data.value()).with_context(|| {
-                format!("Failed to parse system config from {}", path.display())
-            })?;
-            Ok(Some(config))
-        } else {
-            Ok(None)
-        }
-    })();
-
-    let _ = std::fs::remove_file(&temp_path);
-    result
-}
-
-fn read_legacy_cli_json_config(path: &Path) -> Result<Option<CliConfig>> {
+fn read_legacy_cli_json_config(path: &std::path::Path) -> Result<Option<CliConfig>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -425,7 +339,7 @@ fn read_legacy_cli_json_config(path: &Path) -> Result<Option<CliConfig>> {
     Ok(Some(config))
 }
 
-fn read_legacy_cli_toml_config(path: &Path) -> Result<Option<(CliConfig, bool)>> {
+fn read_legacy_cli_toml_config(path: &std::path::Path) -> Result<Option<(CliConfig, bool)>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -455,10 +369,9 @@ fn read_legacy_cli_toml_config(path: &Path) -> Result<Option<(CliConfig, bool)>>
     )))
 }
 
-fn write_unified_config(path: &Path, system: &SystemConfig, cli: &CliConfig) -> Result<()> {
-    system.validate()?;
+fn write_unified_config(path: &std::path::Path, cli: &CliConfig) -> Result<()> {
     let payload = UnifiedConfigFile {
-        system: system.clone(),
+        system: SystemConfig::default(),
         cli: cli.clone(),
     };
     let contents =
@@ -521,36 +434,6 @@ anthropic = "hidden"
     }
 
     #[test]
-    fn read_legacy_db_system_config_extracts_system_row() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("legacy.db");
-        let db = Database::create(&db_path).unwrap();
-
-        let config = SystemConfig {
-            worker_count: 19,
-            agent: restflow_storage::AgentDefaults {
-                max_iterations: 155,
-                ..restflow_storage::AgentDefaults::default()
-            },
-            ..SystemConfig::default()
-        };
-        let payload = serde_json::to_vec(&config).unwrap();
-
-        let write_txn = db.begin_write().unwrap();
-        {
-            let mut table = write_txn.open_table(LEGACY_CONFIG_TABLE).unwrap();
-            table.insert("system", payload.as_slice()).unwrap();
-        }
-        write_txn.commit().unwrap();
-
-        let loaded = read_legacy_db_system_config(&db_path)
-            .unwrap()
-            .expect("legacy system config should exist");
-        assert_eq!(loaded.worker_count, 19);
-        assert_eq!(loaded.agent.max_iterations, 155);
-    }
-
-    #[test]
     fn build_config_migration_plan_prefers_json_cli_source() {
         let temp_dir = tempdir().unwrap();
         let restflow_dir = temp_dir.path().join("restflow");
@@ -595,16 +478,14 @@ model = "toml-model"
             .expect("migration plan should exist");
         assert_eq!(plan.cli.default.agent.as_deref(), Some("json-agent"));
         assert_eq!(plan.cli.default.model.as_deref(), Some("json-model"));
+        assert_eq!(plan.imported_sources.len(), 1);
+        assert!(plan.imported_sources[0].contains("CLI settings"));
     }
 
     #[test]
     fn write_unified_config_serializes_system_and_cli_sections() {
         let temp_dir = tempdir().unwrap();
         let path = temp_dir.path().join("config.toml");
-        let system = SystemConfig {
-            worker_count: 27,
-            ..SystemConfig::default()
-        };
         let cli = CliConfig {
             version: 1,
             default: restflow_storage::config::CliDefaultConfig {
@@ -614,10 +495,10 @@ model = "toml-model"
             ..CliConfig::default()
         };
 
-        write_unified_config(&path, &system, &cli).unwrap();
+        write_unified_config(&path, &cli).unwrap();
         let written = fs::read_to_string(&path).unwrap();
 
-        assert!(written.contains("worker_count = 27"));
+        assert!(written.contains("worker_count = 4"));
         assert!(written.contains("[cli.default]"));
         assert!(written.contains("agent = \"unified-agent\""));
         assert!(written.contains("model = \"unified-model\""));
