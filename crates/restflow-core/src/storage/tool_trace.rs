@@ -22,6 +22,11 @@ impl ToolTraceStorage {
         })
     }
 
+    /// Clone the underlying database handle for related trace stores.
+    pub(crate) fn db(&self) -> Arc<Database> {
+        self.inner.db().clone()
+    }
+
     /// Append an execution event.
     pub fn append(&self, event: &ToolTrace) -> Result<()> {
         let key = format!("{}:{:020}:{}", event.session_id, event.created_at, event.id);
