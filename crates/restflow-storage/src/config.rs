@@ -33,8 +33,6 @@ const GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
 const WORKSPACE_CONFIG_ENV: &str = "RESTFLOW_WORKSPACE_CONFIG";
 const CONFIG_SUBDIR: &str = ".restflow";
 const CONFIG_FILE_NAME: &str = "config.toml";
-const LEGACY_CONFIG_JSON_FILE_NAME: &str = "config.json";
-const LEGACY_CONFIG_TOML_DIR_NAME: &str = "restflow";
 
 // Default configuration constants
 const DEFAULT_WORKER_COUNT: usize = 4;
@@ -1263,76 +1261,6 @@ fn global_write_target() -> Result<ResolvedOverridePath> {
     global_config_path().ok_or_else(|| anyhow::anyhow!("Failed to resolve global config.toml path"))
 }
 
-fn legacy_cli_config_path() -> Option<PathBuf> {
-    crate::paths::resolve_restflow_dir()
-        .ok()
-        .map(|dir| dir.join(LEGACY_CONFIG_JSON_FILE_NAME))
-}
-
-fn legacy_cli_toml_path() -> Option<PathBuf> {
-    dirs::config_dir().map(|dir| dir.join(LEGACY_CONFIG_TOML_DIR_NAME).join(CONFIG_FILE_NAME))
-}
-
-fn read_legacy_cli_config() -> Result<Option<CliConfig>> {
-    if let Some(cli) = read_legacy_cli_json_config()? {
-        return Ok(Some(cli));
-    }
-    read_legacy_cli_toml_config()
-}
-
-fn read_legacy_cli_json_config() -> Result<Option<CliConfig>> {
-    let Some(path) = legacy_cli_config_path() else {
-        return Ok(None);
-    };
-    if !path.exists() {
-        return Ok(None);
-    }
-    let contents = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read legacy CLI config from {}", path.display()))?;
-    let cli = serde_json::from_str(&contents)
-        .with_context(|| format!("Failed to parse legacy CLI config from {}", path.display()))?;
-    Ok(Some(cli))
-}
-
-fn read_legacy_cli_toml_config() -> Result<Option<CliConfig>> {
-    #[derive(Debug, Deserialize)]
-    struct LegacyCliTomlConfig {
-        default: Option<LegacyCliTomlDefaultConfig>,
-    }
-
-    #[derive(Debug, Deserialize)]
-    struct LegacyCliTomlDefaultConfig {
-        agent: Option<String>,
-        model: Option<String>,
-        #[allow(dead_code)]
-        db_path: Option<String>,
-    }
-
-    let Some(path) = legacy_cli_toml_path() else {
-        return Ok(None);
-    };
-    if !path.exists() {
-        return Ok(None);
-    }
-
-    let contents = fs::read_to_string(&path)
-        .with_context(|| format!("Failed to read legacy CLI config from {}", path.display()))?;
-    let legacy: LegacyCliTomlConfig = toml::from_str(&contents)
-        .with_context(|| format!("Failed to parse legacy CLI config from {}", path.display()))?;
-
-    Ok(Some(CliConfig {
-        version: 1,
-        default: CliDefaultConfig {
-            agent: legacy
-                .default
-                .as_ref()
-                .and_then(|value| value.agent.clone()),
-            model: legacy.default.and_then(|value| value.model),
-        },
-        sandbox: CliSandboxConfig::default(),
-    }))
-}
-
 #[derive(Debug, Clone)]
 struct ConfigLayerState {
     default: UnifiedConfigFile,
@@ -1455,27 +1383,7 @@ fn build_value_sources(
     Ok(values)
 }
 
-fn migrate_legacy_cli_config_if_needed() -> Result<()> {
-    let Some(global) = global_config_path() else {
-        return Ok(());
-    };
-    if global.path.exists() {
-        return Ok(());
-    }
-
-    let Some(cli) = read_legacy_cli_config()? else {
-        return Ok(());
-    };
-
-    let unified = UnifiedConfigFile {
-        cli,
-        ..UnifiedConfigFile::default()
-    };
-    write_global_config_file(&unified)
-}
-
 pub fn load_cli_config() -> Result<CliConfig> {
-    migrate_legacy_cli_config_if_needed()?;
     Ok(load_config_layers()?.effective.cli)
 }
 
@@ -2082,40 +1990,6 @@ llm_timeout_secs = "none"
 
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.agent.llm_timeout_secs, None);
-    }
-
-    #[test]
-    fn test_load_cli_config_migrates_legacy_cli_toml() {
-        let _env_guard = env_lock();
-        let temp_dir = tempdir().unwrap();
-        let home_dir = temp_dir.path().join("home");
-        let global_config = temp_dir.path().join("config.toml");
-        fs::create_dir_all(&home_dir).unwrap();
-        let _home_guard = EnvGuard::set_path("HOME", &home_dir);
-        let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, &global_config);
-
-        let legacy_path = dirs::config_dir()
-            .unwrap()
-            .join(LEGACY_CONFIG_TOML_DIR_NAME)
-            .join(CONFIG_FILE_NAME);
-        fs::create_dir_all(legacy_path.parent().unwrap()).unwrap();
-        fs::write(
-            &legacy_path,
-            r#"[default]
-agent = "legacy-agent"
-model = "legacy-model"
-"#,
-        )
-        .unwrap();
-
-        let cli = load_cli_config().unwrap();
-        assert_eq!(cli.default.agent.as_deref(), Some("legacy-agent"));
-        assert_eq!(cli.default.model.as_deref(), Some("legacy-model"));
-
-        let written = fs::read_to_string(&global_config).unwrap();
-        assert!(written.contains("[cli.default]"));
-        assert!(written.contains("agent = \"legacy-agent\""));
-        assert!(written.contains("model = \"legacy-model\""));
     }
 
     #[test]
