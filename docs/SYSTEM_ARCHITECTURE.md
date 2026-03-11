@@ -148,15 +148,6 @@ Automatic migrations are expected for legacy key/config/profile formats. Runtime
 configuration now converges into `~/.restflow/config.toml`; legacy `config.json`
 is imported only during migration/bootstrap.
 
-Manual migration command:
-
-```bash
-restflow migrate --dry-run
-restflow migrate
-```
-
-Legacy directories/files can be removed only after migration verification.
-
 ## 9. Guardrails for Contributors
 
 Do:
