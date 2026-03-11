@@ -131,9 +131,6 @@ pub enum Commands {
         command: MaintenanceCommands,
     },
 
-    /// Migrate configuration from old locations
-    Migrate(MigrateArgs),
-
     /// MCP server management
     Mcp {
         #[command(subcommand)]
@@ -196,17 +193,6 @@ pub enum Commands {
         #[command(subcommand)]
         command: UiCommands,
     },
-}
-
-#[derive(Args)]
-pub struct MigrateArgs {
-    /// Dry run - show what would be migrated without making changes
-    #[arg(long)]
-    pub dry_run: bool,
-
-    /// Force migration even if target exists
-    #[arg(long)]
-    pub force: bool,
 }
 
 #[derive(Args, Default, Clone, Copy)]

@@ -204,7 +204,6 @@ async fn run() -> Result<()> {
             Some(Commands::Trigger { command }) => {
                 commands::trigger::run(exec, command, cli.format).await
             }
-            Some(Commands::Migrate(args)) => commands::migrate::run(args).await,
             Some(Commands::Info) => commands::info::run(),
             Some(Commands::Completions { .. }) => Ok(()),
             Some(Commands::Stop) => Ok(()),
