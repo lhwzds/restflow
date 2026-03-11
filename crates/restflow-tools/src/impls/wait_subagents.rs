@@ -191,6 +191,7 @@ mod tests {
             tool_registry,
             config,
             llm_client_factory: None,
+            orchestrator: None,
         });
         let manager: Arc<dyn SubagentManager> = Arc::new(SubagentManagerImpl::from_deps(&deps));
         (deps, manager)
@@ -216,7 +217,7 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
             },
-            None,
+            restflow_ai::SubagentExecutionBridge::default(),
         )
         .unwrap();
         handle.id

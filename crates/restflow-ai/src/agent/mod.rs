@@ -44,6 +44,6 @@ pub use sub_agent::{
     RunTraceContext, RunTraceEmitterFactory, RunTraceLifecycleSink, RunTraceOutcome, RunTraceSink,
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
     SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps, SubagentManagerImpl,
-    SubagentResult, SubagentSpawner, SubagentState, SubagentStatus, SubagentTracker,
+    SubagentExecutionBridge, SubagentResult, SubagentSpawner, SubagentState, SubagentStatus, SubagentTracker,
     spawn_subagent,
 };

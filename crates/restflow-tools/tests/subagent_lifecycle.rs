@@ -81,6 +81,7 @@ fn make_shared_deps(
         tool_registry,
         config,
         llm_client_factory: None,
+        orchestrator: None,
     });
     Arc::new(SubagentManagerImpl::from_deps(&deps))
 }

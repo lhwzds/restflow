@@ -172,6 +172,7 @@ fn create_subagent_manager(
         tool_registry: Arc::new(clone_tool_registry(base_registry)),
         config: subagent_config,
         llm_client_factory: Some(llm_client_factory),
+        orchestrator: None,
     };
     Arc::new(SubagentManagerImpl::from_deps(&subagent_deps))
 }

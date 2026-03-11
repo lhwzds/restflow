@@ -187,6 +187,7 @@ mod tests {
             tool_registry,
             config,
             llm_client_factory: None,
+            orchestrator: None,
         })
     }
 
@@ -263,7 +264,7 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
             },
-            None,
+            restflow_ai::SubagentExecutionBridge::default(),
         )
         .unwrap();
 
