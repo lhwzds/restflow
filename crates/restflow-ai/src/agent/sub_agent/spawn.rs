@@ -7,10 +7,11 @@ use tokio::time::{Duration, timeout};
 use crate::agent::PromptFlags;
 use crate::agent::executor::{AgentConfig, AgentExecutor, AgentResult};
 use crate::agent::stream::StreamEmitter;
+use crate::agent::{AgentState, ResourceUsage};
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::{FilteredToolset, ToolRegistry};
-use restflow_traits::Toolset;
+use restflow_traits::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, ExecutionPlan, Toolset};
 
 use super::model_resolution::resolve_llm_client;
 use super::trace::{RunTraceContext, RunTraceOutcome};
@@ -30,6 +31,20 @@ struct ResolvedSubagentExecution {
     max_depth: usize,
     effective_limits: SubagentEffectiveLimits,
     trace_context: RunTraceContext,
+}
+
+#[derive(Clone, Default)]
+pub struct SubagentExecutionBridge {
+    pub llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
+    pub orchestrator: Option<Arc<dyn AgentOrchestrator>>,
+}
+
+#[derive(Clone)]
+struct SubagentExecutionInvocation {
+    llm_client: Arc<dyn LlmClient>,
+    tool_registry: Arc<ToolRegistry>,
+    bridge: SubagentExecutionBridge,
+    request: SpawnRequest,
 }
 
 fn normalize_trace_identity(value: Option<&str>) -> Option<String> {
@@ -87,7 +102,7 @@ pub fn spawn_subagent(
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
     request: SpawnRequest,
-    llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
+    bridge: SubagentExecutionBridge,
 ) -> Result<SpawnHandle> {
     let agent_def = resolve_subagent_definition(&definitions, &tool_registry, &request)?;
     let effective_limits = resolve_effective_limits(&agent_def, &config, &request);
@@ -97,7 +112,7 @@ pub fn spawn_subagent(
         request.model_provider.as_deref(),
         agent_def.default_model.as_deref(),
         &llm_client,
-        llm_client_factory.as_ref(),
+        bridge.llm_client_factory.as_ref(),
     )?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
@@ -140,8 +155,12 @@ pub fn spawn_subagent(
     let task = request.task.clone();
     let tracker_clone = tracker.clone();
     let task_id_for_spawn = task_id.clone();
-    let llm_client = llm_client.clone();
-    let tool_registry = tool_registry.clone();
+    let invocation = SubagentExecutionInvocation {
+        llm_client: llm_client.clone(),
+        tool_registry: tool_registry.clone(),
+        bridge: bridge.clone(),
+        request: request.clone(),
+    };
     let execution = ResolvedSubagentExecution {
         max_depth: config.max_depth,
         effective_limits: effective_limits.clone(),
@@ -172,31 +191,23 @@ pub fn spawn_subagent(
             .map(|factory| factory.build_run_emitter(&execution.trace_context));
 
         let result = if let Some(emitter) = trace_emitter.as_mut() {
-            timeout(
-                Duration::from_secs(timeout_secs),
-                execute_subagent(
-                    llm_client,
-                    tool_registry,
-                    agent_def,
-                    task.clone(),
-                    execution.clone(),
-                    Some(emitter.as_mut()),
-                ),
-            )
-            .await
+            let future = execute_subagent_entry(
+                invocation.clone(),
+                agent_def,
+                task.clone(),
+                execution.clone(),
+                Some(emitter.as_mut()),
+            );
+            timeout(Duration::from_secs(timeout_secs), future).await
         } else {
-            timeout(
-                Duration::from_secs(timeout_secs),
-                execute_subagent(
-                    llm_client,
-                    tool_registry,
-                    agent_def,
-                    task.clone(),
-                    execution.clone(),
-                    None,
-                ),
-            )
-            .await
+            let future = execute_subagent_entry(
+                invocation.clone(),
+                agent_def,
+                task.clone(),
+                execution.clone(),
+                None,
+            );
+            timeout(Duration::from_secs(timeout_secs), future).await
         };
 
         let duration_ms = start.elapsed().as_millis() as u64;
@@ -401,6 +412,101 @@ async fn execute_subagent(
     Ok(result)
 }
 
+async fn execute_subagent_entry(
+    invocation: SubagentExecutionInvocation,
+    agent_def: SubagentDefSnapshot,
+    task: String,
+    execution: ResolvedSubagentExecution,
+    emitter: Option<&mut dyn StreamEmitter>,
+) -> Result<AgentResult> {
+    if let Some(orchestrator) = invocation.bridge.orchestrator.clone() {
+        execute_subagent_with_orchestrator(
+            orchestrator,
+            agent_def,
+            task,
+            execution,
+            invocation.request,
+        )
+        .await
+    } else {
+        execute_subagent(
+            invocation.llm_client,
+            invocation.tool_registry,
+            agent_def,
+            task,
+            execution,
+            emitter,
+        )
+        .await
+    }
+}
+
+async fn execute_subagent_with_orchestrator(
+    orchestrator: Arc<dyn AgentOrchestrator>,
+    agent_def: SubagentDefSnapshot,
+    task: String,
+    execution: ResolvedSubagentExecution,
+    request: SpawnRequest,
+) -> Result<AgentResult> {
+    let plan = ExecutionPlan {
+        mode: Some(ExecutionMode::Subagent),
+        agent_id: request.agent_id.clone(),
+        inline_subagent: request.inline.clone(),
+        input: Some(task.clone()),
+        timeout_secs: Some(execution.effective_limits.timeout_secs),
+        model: request.model.clone(),
+        provider: request.model_provider.clone(),
+        max_iterations: Some(execution.effective_limits.max_iterations as u32),
+        parent_execution_id: request.parent_execution_id.clone(),
+        trace_session_id: Some(execution.trace_context.session_id.clone()),
+        trace_scope_id: Some(execution.trace_context.scope_id.clone()),
+        persist_result: false,
+        metadata: Some(json!({
+            "subagent_name": agent_def.name,
+            "effective_limits": execution.effective_limits,
+        })),
+        ..ExecutionPlan::default()
+    };
+    plan.validate()
+        .map_err(|error| AiError::Agent(error.to_string()))?;
+
+    let outcome = orchestrator
+        .run(plan)
+        .await
+        .map_err(|error| AiError::Agent(error.to_string()))?;
+    Ok(agent_result_from_outcome(outcome))
+}
+
+fn agent_result_from_outcome(outcome: ExecutionOutcome) -> AgentResult {
+    let text = outcome.text.unwrap_or_default();
+    let error = if outcome.success {
+        None
+    } else {
+        outcome.error.or_else(|| Some("Sub-agent execution failed".to_string()))
+    };
+    let mut state = AgentState::new(uuid::Uuid::new_v4().to_string(), 1);
+    if outcome.success {
+        state.complete(text.clone());
+    } else {
+        state.fail(error.clone().unwrap_or_else(|| "Sub-agent execution failed".to_string()));
+    }
+    AgentResult {
+        success: outcome.success,
+        answer: Some(text),
+        error,
+        iterations: outcome.iterations.unwrap_or_default() as usize,
+        total_tokens: 0,
+        total_cost_usd: 0.0,
+        state,
+        resource_usage: ResourceUsage {
+            tool_calls: 0,
+            wall_clock: Duration::from_millis(outcome.duration_ms.unwrap_or_default()),
+            depth: 0,
+            total_cost_usd: 0.0,
+        },
+    }
+}
+
 fn build_subagent_agent_config(
     task: String,
     system_prompt: String,
@@ -483,6 +589,7 @@ mod tests {
     use super::super::tracker::SubagentTracker;
     use super::*;
     use restflow_trace::{TraceEvent, TraceEventKind, TraceEventSink};
+    use restflow_traits::ToolError;
     use restflow_traits::subagent::{
         SpawnPriority, SubagentDefLookup, SubagentDefSummary, SubagentStatus,
     };
@@ -581,6 +688,25 @@ mod tests {
     }
 
     #[derive(Default)]
+    struct MockOrchestrator {
+        plans: Mutex<Vec<ExecutionPlan>>,
+    }
+
+    #[async_trait]
+    impl AgentOrchestrator for MockOrchestrator {
+        async fn run(&self, plan: ExecutionPlan) -> std::result::Result<ExecutionOutcome, ToolError> {
+            self.plans.lock().expect("plans lock").push(plan);
+            Ok(ExecutionOutcome {
+                success: true,
+                text: Some("orchestrated".to_string()),
+                iterations: Some(2),
+                duration_ms: Some(7),
+                ..ExecutionOutcome::default()
+            })
+        }
+    }
+
+    #[derive(Default)]
     struct RecordingTraceSink {
         events: Mutex<Vec<TraceEvent>>,
     }
@@ -662,7 +788,7 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
             },
-            None,
+            SubagentExecutionBridge::default(),
         )
         .expect("spawn should succeed without explicit agent");
 
@@ -672,6 +798,60 @@ mod tests {
             .expect("temporary subagent result should be available");
         assert!(result.success);
         assert_eq!(handle.agent_name, TEMPORARY_SUBAGENT_NAME);
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_can_delegate_to_shared_orchestrator() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps("mock", vec![]));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let orchestrator = Arc::new(MockOrchestrator::default());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: Some("tester".to_string()),
+                inline: None,
+                task: "delegate task".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: None,
+                model_provider: None,
+                parent_execution_id: Some("parent-1".to_string()),
+                trace_session_id: Some("session-1".to_string()),
+                trace_scope_id: Some("scope-1".to_string()),
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: None,
+                orchestrator: Some(orchestrator.clone()),
+            },
+        )
+        .expect("spawn should succeed");
+
+        let result = tracker
+            .wait(&handle.id)
+            .await
+            .expect("subagent result should be available");
+        assert!(result.success);
+        assert_eq!(result.output, "orchestrated");
+
+        let plans = orchestrator.plans.lock().expect("plans lock");
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].mode, Some(ExecutionMode::Subagent));
+        assert_eq!(plans[0].input.as_deref(), Some("delegate task"));
+        assert_eq!(plans[0].agent_id.as_deref(), Some("tester"));
     }
 
     #[derive(Clone)]
@@ -788,7 +968,7 @@ mod tests {
                 trace_session_id: Some("session-main-1".to_string()),
                 trace_scope_id: Some("scope-main-1".to_string()),
             },
-            None,
+            SubagentExecutionBridge::default(),
         )
         .expect("spawn should succeed");
 
@@ -851,7 +1031,7 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
             },
-            None,
+            SubagentExecutionBridge::default(),
         );
         assert!(result1.is_ok());
 
@@ -873,7 +1053,7 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
             },
-            None,
+            SubagentExecutionBridge::default(),
         );
         assert!(result2.is_err());
 
@@ -913,7 +1093,7 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
             },
-            None,
+            SubagentExecutionBridge::default(),
         )
         .expect("spawn should succeed");
 
@@ -968,7 +1148,7 @@ mod tests {
                 trace_session_id: None,
                 trace_scope_id: None,
             },
-            None,
+            SubagentExecutionBridge::default(),
         )
         .expect("spawn should succeed");
 

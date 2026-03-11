@@ -3,12 +3,13 @@ use std::sync::Arc;
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::ToolRegistry;
 use restflow_traits::ToolError;
+use restflow_traits::AgentOrchestrator;
 use restflow_traits::subagent::{
     SpawnHandle, SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSummary,
     SubagentManager, SubagentResult, SubagentState,
 };
 
-use super::spawn::spawn_subagent;
+use super::spawn::{SubagentExecutionBridge, spawn_subagent};
 use super::tracker::SubagentTracker;
 
 /// Dependencies needed for sub-agent tools.
@@ -21,6 +22,8 @@ pub struct SubagentDeps {
     pub config: SubagentConfig,
     /// Optional factory for creating LLM clients when a per-spawn model is requested.
     pub llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
+    /// Optional shared orchestrator bridge for unified execution.
+    pub orchestrator: Option<Arc<dyn AgentOrchestrator>>,
 }
 
 /// Concrete implementation of [`SubagentManager`].
@@ -33,6 +36,8 @@ pub struct SubagentManagerImpl {
     pub config: SubagentConfig,
     /// Optional factory for creating LLM clients when a per-spawn model is requested.
     pub llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
+    /// Optional shared orchestrator bridge for unified execution.
+    pub orchestrator: Option<Arc<dyn AgentOrchestrator>>,
 }
 
 impl SubagentManagerImpl {
@@ -50,7 +55,14 @@ impl SubagentManagerImpl {
             tool_registry,
             config,
             llm_client_factory: None,
+            orchestrator: None,
         }
+    }
+
+    /// Attach a shared orchestrator bridge for future spawns.
+    pub fn with_orchestrator(mut self, orchestrator: Arc<dyn AgentOrchestrator>) -> Self {
+        self.orchestrator = Some(orchestrator);
+        self
     }
 
     /// Create from existing [`SubagentDeps`].
@@ -62,6 +74,7 @@ impl SubagentManagerImpl {
             tool_registry: deps.tool_registry.clone(),
             config: deps.config.clone(),
             llm_client_factory: deps.llm_client_factory.clone(),
+            orchestrator: deps.orchestrator.clone(),
         }
     }
 }
@@ -76,7 +89,10 @@ impl SubagentManager for SubagentManagerImpl {
             self.tool_registry.clone(),
             self.config.clone(),
             request,
-            self.llm_client_factory.clone(),
+            SubagentExecutionBridge {
+                llm_client_factory: self.llm_client_factory.clone(),
+                orchestrator: self.orchestrator.clone(),
+            },
         )
         .map_err(|error| ToolError::Tool(error.to_string()))
     }
