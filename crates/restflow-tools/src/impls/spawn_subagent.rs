@@ -530,7 +530,8 @@ impl Tool for SpawnSubagentTool {
                     return Ok(ToolOutput::success(json!({
                         "agent": handle.agent_name,
                         "status": "timeout",
-                        "message": "Timeout waiting for sub-agent"
+                        "message": "Timeout waiting for sub-agent",
+                        "effective_limits": handle.effective_limits,
                     })));
                 }
             };
@@ -540,14 +541,16 @@ impl Tool for SpawnSubagentTool {
                     "agent": handle.agent_name,
                     "status": "completed",
                     "output": result.output,
-                    "duration_ms": result.duration_ms
+                    "duration_ms": result.duration_ms,
+                    "effective_limits": handle.effective_limits,
                 })
             } else {
                 json!({
                     "agent": handle.agent_name,
                     "status": "failed",
                     "error": result.error.unwrap_or_else(|| "Unknown error".to_string()),
-                    "duration_ms": result.duration_ms
+                    "duration_ms": result.duration_ms,
+                    "effective_limits": handle.effective_limits,
                 })
             };
             Ok(ToolOutput::success(output))
@@ -556,6 +559,7 @@ impl Tool for SpawnSubagentTool {
                 "task_id": handle.id,
                 "agent": handle.agent_name,
                 "status": "spawned",
+                "effective_limits": handle.effective_limits,
                 "message": format!(
                     "Agent '{}' is now working on the task concurrently. Use wait_subagents to check completion.",
                     handle.agent_name

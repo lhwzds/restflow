@@ -8,7 +8,9 @@ use tokio::time::{Duration, timeout};
 
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_traits::store::KvStore;
-use restflow_traits::{InlineSubagentConfig, SpawnRequest, SubagentManager};
+use restflow_traits::{
+    InlineSubagentConfig, SpawnRequest, SubagentEffectiveLimits, SubagentManager,
+};
 
 #[cfg(feature = "ts")]
 const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
@@ -214,6 +216,7 @@ struct SpawnedTask {
     agent_name: String,
     spec_index: usize,
     instance_index: u32,
+    effective_limits: SubagentEffectiveLimits,
 }
 
 /// spawn_subagent_batch tool for shared agent execution engine.
@@ -916,6 +919,7 @@ impl SpawnSubagentBatchTool {
                     agent_name: handle.agent_name,
                     spec_index,
                     instance_index,
+                    effective_limits: handle.effective_limits,
                 });
             }
         }
@@ -928,7 +932,8 @@ impl SpawnSubagentBatchTool {
                         "task_id": task.task_id,
                         "agent": task.agent_name,
                         "spec_index": task.spec_index,
-                        "instance_index": task.instance_index
+                        "instance_index": task.instance_index,
+                        "effective_limits": task.effective_limits,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -959,7 +964,8 @@ impl SpawnSubagentBatchTool {
                     "instance_index": task.instance_index,
                     "status": "completed",
                     "output": result.output,
-                    "duration_ms": result.duration_ms
+                    "duration_ms": result.duration_ms,
+                    "effective_limits": task.effective_limits,
                 })),
                 Some(result) => results.push(json!({
                     "task_id": task.task_id,
@@ -968,14 +974,16 @@ impl SpawnSubagentBatchTool {
                     "instance_index": task.instance_index,
                     "status": "failed",
                     "error": result.error.unwrap_or_else(|| "Unknown error".to_string()),
-                    "duration_ms": result.duration_ms
+                    "duration_ms": result.duration_ms,
+                    "effective_limits": task.effective_limits,
                 })),
                 None => results.push(json!({
                     "task_id": task.task_id,
                     "agent": task.agent_name,
                     "spec_index": task.spec_index,
                     "instance_index": task.instance_index,
-                    "status": "timeout"
+                    "status": "timeout",
+                    "effective_limits": task.effective_limits,
                 })),
             }
         }

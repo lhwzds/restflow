@@ -19,10 +19,18 @@ use super::tracker::SubagentTracker;
 pub use restflow_traits::SubagentConfig;
 pub use restflow_traits::subagent::{
     InlineSubagentConfig, SpawnHandle, SpawnRequest, SubagentDefLookup, SubagentDefSnapshot,
+    SubagentEffectiveLimits, SubagentLimitSource,
 };
 
 const TEMPORARY_SUBAGENT_NAME: &str = "Temporary Subagent";
 const TEMPORARY_SUBAGENT_PROMPT: &str = "You are a temporary sub-agent. Complete the task autonomously, use tools when needed, and return a concise final result.";
+
+#[derive(Clone)]
+struct ResolvedSubagentExecution {
+    max_depth: usize,
+    effective_limits: SubagentEffectiveLimits,
+    trace_context: RunTraceContext,
+}
 
 fn normalize_trace_identity(value: Option<&str>) -> Option<String> {
     value
@@ -39,6 +47,38 @@ fn map_subagent_error(success: bool, error: Option<String>) -> Option<String> {
     }
 }
 
+fn resolve_effective_limits(
+    agent_def: &SubagentDefSnapshot,
+    config: &SubagentConfig,
+    request: &SpawnRequest,
+) -> SubagentEffectiveLimits {
+    let (timeout_secs, timeout_source) = match request.timeout_secs {
+        Some(value) => (value, SubagentLimitSource::RequestOverride),
+        None => (
+            config.subagent_timeout_secs,
+            SubagentLimitSource::ConfigDefault,
+        ),
+    };
+    let (max_iterations, max_iterations_source) = match agent_def.max_iterations {
+        Some(value) => {
+            let source = if request.agent_id.is_some() {
+                SubagentLimitSource::AgentDefinition
+            } else {
+                SubagentLimitSource::InlineConfig
+            };
+            (value as usize, source)
+        }
+        None => (config.max_iterations, SubagentLimitSource::ConfigDefault),
+    };
+
+    SubagentEffectiveLimits {
+        timeout_secs,
+        timeout_source,
+        max_iterations,
+        max_iterations_source,
+    }
+}
+
 /// Spawn a sub-agent with the given request.
 pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
@@ -50,6 +90,7 @@ pub fn spawn_subagent(
     llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
 ) -> Result<SpawnHandle> {
     let agent_def = resolve_subagent_definition(&definitions, &tool_registry, &request)?;
+    let effective_limits = resolve_effective_limits(&agent_def, &config, &request);
 
     let llm_client = resolve_llm_client(
         request.model.as_deref(),
@@ -60,7 +101,7 @@ pub fn spawn_subagent(
     )?;
 
     let task_id = uuid::Uuid::new_v4().to_string();
-    let timeout_secs = request.timeout_secs.unwrap_or(config.subagent_timeout_secs);
+    let timeout_secs = effective_limits.timeout_secs;
 
     let agent_name_for_register = agent_def.name.clone();
     let agent_name_for_return = agent_def.name.clone();
@@ -101,8 +142,11 @@ pub fn spawn_subagent(
     let task_id_for_spawn = task_id.clone();
     let llm_client = llm_client.clone();
     let tool_registry = tool_registry.clone();
-    let config_clone = config.clone();
-    let trace_context_for_spawn = trace_context.clone();
+    let execution = ResolvedSubagentExecution {
+        max_depth: config.max_depth,
+        effective_limits: effective_limits.clone(),
+        trace_context: trace_context.clone(),
+    };
     let trace_lifecycle_sink_for_spawn = trace_lifecycle_sink.clone();
     let trace_emitter_factory_for_spawn = trace_emitter_factory.clone();
 
@@ -125,7 +169,7 @@ pub fn spawn_subagent(
         let start = std::time::Instant::now();
         let mut trace_emitter = trace_emitter_factory_for_spawn
             .as_ref()
-            .map(|factory| factory.build_run_emitter(&trace_context_for_spawn));
+            .map(|factory| factory.build_run_emitter(&execution.trace_context));
 
         let result = if let Some(emitter) = trace_emitter.as_mut() {
             timeout(
@@ -135,8 +179,7 @@ pub fn spawn_subagent(
                     tool_registry,
                     agent_def,
                     task.clone(),
-                    config_clone,
-                    trace_context_for_spawn.clone(),
+                    execution.clone(),
                     Some(emitter.as_mut()),
                 ),
             )
@@ -149,8 +192,7 @@ pub fn spawn_subagent(
                     tool_registry,
                     agent_def,
                     task.clone(),
-                    config_clone,
-                    trace_context_for_spawn.clone(),
+                    execution.clone(),
                     None,
                 ),
             )
@@ -221,7 +263,7 @@ pub fn spawn_subagent(
 
         if let Some(sink) = trace_lifecycle_sink_for_spawn.as_ref() {
             sink.on_run_finished(
-                &trace_context_for_spawn,
+                &execution.trace_context,
                 &RunTraceOutcome {
                     success: subagent_result.success,
                     error: subagent_result.error.clone(),
@@ -261,6 +303,7 @@ pub fn spawn_subagent(
     Ok(SpawnHandle {
         id: task_id,
         agent_name: agent_name_for_return,
+        effective_limits,
     })
 }
 
@@ -327,30 +370,25 @@ async fn execute_subagent(
     tool_registry: Arc<ToolRegistry>,
     agent_def: SubagentDefSnapshot,
     task: String,
-    config: SubagentConfig,
-    trace_context: RunTraceContext,
+    execution: ResolvedSubagentExecution,
     mut emitter: Option<&mut dyn StreamEmitter>,
 ) -> Result<AgentResult> {
     let registry = build_registry_for_agent(
         &tool_registry,
         &agent_def.allowed_tools,
         1,
-        config.max_depth,
+        execution.max_depth,
     );
     let registry = Arc::new(registry);
-
-    let max_iterations = agent_def
-        .max_iterations
-        .map(|value| value as usize)
-        .unwrap_or(config.max_iterations);
 
     let agent_config = build_subagent_agent_config(
         task.clone(),
         agent_def.system_prompt.clone(),
-        max_iterations,
-        trace_context.parent_run_id.as_deref(),
-        Some(trace_context.session_id.as_str()),
-        Some(trace_context.scope_id.as_str()),
+        execution.effective_limits.max_iterations,
+        &execution.effective_limits,
+        execution.trace_context.parent_run_id.as_deref(),
+        Some(execution.trace_context.session_id.as_str()),
+        Some(execution.trace_context.scope_id.as_str()),
     );
 
     let executor = AgentExecutor::new(llm_client, registry);
@@ -367,6 +405,7 @@ fn build_subagent_agent_config(
     task: String,
     system_prompt: String,
     max_iterations: usize,
+    effective_limits: &SubagentEffectiveLimits,
     parent_execution_id: Option<&str>,
     trace_session_id: Option<&str>,
     trace_scope_id: Option<&str>,
@@ -383,6 +422,7 @@ fn build_subagent_agent_config(
             "parent_execution_id": parent_execution_id,
             "trace_session_id": trace_session_id,
             "trace_scope_id": trace_scope_id,
+            "effective_limits": effective_limits,
         }),
     );
     agent_config = agent_config.with_context("execution_role", json!("subagent"));
@@ -447,12 +487,22 @@ mod tests {
         SpawnPriority, SubagentDefLookup, SubagentDefSummary, SubagentStatus,
     };
 
+    fn sample_effective_limits() -> SubagentEffectiveLimits {
+        SubagentEffectiveLimits {
+            timeout_secs: 300,
+            timeout_source: SubagentLimitSource::ConfigDefault,
+            max_iterations: 7,
+            max_iterations_source: SubagentLimitSource::ConfigDefault,
+        }
+    }
+
     #[test]
     fn build_subagent_agent_config_sets_execution_context() {
         let config = build_subagent_agent_config(
             "Sub-task".to_string(),
             "System prompt".to_string(),
             3,
+            &sample_effective_limits(),
             None,
             Some("session-1"),
             Some("scope-1"),
@@ -473,6 +523,7 @@ mod tests {
             "Sub-task".to_string(),
             "System prompt".to_string(),
             3,
+            &sample_effective_limits(),
             Some("exec-parent-1"),
             Some("session-2"),
             Some("scope-2"),
@@ -688,6 +739,12 @@ mod tests {
         let handle = SpawnHandle {
             id: "task-123".to_string(),
             agent_name: "Researcher".to_string(),
+            effective_limits: SubagentEffectiveLimits {
+                timeout_secs: 300,
+                timeout_source: SubagentLimitSource::ConfigDefault,
+                max_iterations: 100,
+                max_iterations_source: SubagentLimitSource::ConfigDefault,
+            },
         };
 
         let json = serde_json::to_string(&handle).unwrap();
@@ -1007,6 +1064,7 @@ mod tests {
             "task".to_string(),
             "You are subagent".to_string(),
             7,
+            &sample_effective_limits(),
             None,
             Some("session-3"),
             Some("scope-3"),

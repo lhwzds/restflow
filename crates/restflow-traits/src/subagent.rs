@@ -165,6 +165,29 @@ pub enum SpawnPriority {
     High,
 }
 
+/// Source used to determine one effective sub-agent limit.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SubagentLimitSource {
+    ConfigDefault,
+    RequestOverride,
+    InlineConfig,
+    AgentDefinition,
+}
+
+/// Effective sub-agent runtime limits resolved at spawn time.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SubagentEffectiveLimits {
+    /// Effective timeout in seconds.
+    pub timeout_secs: u64,
+    /// Where the timeout value came from.
+    pub timeout_source: SubagentLimitSource,
+    /// Effective maximum iterations.
+    pub max_iterations: usize,
+    /// Where the max_iterations value came from.
+    pub max_iterations_source: SubagentLimitSource,
+}
+
 /// Handle returned after spawning a sub-agent.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnHandle {
@@ -173,6 +196,9 @@ pub struct SpawnHandle {
 
     /// Agent name.
     pub agent_name: String,
+
+    /// Effective runtime limits resolved for this spawn.
+    pub effective_limits: SubagentEffectiveLimits,
 }
 
 /// Sub-agent running state
@@ -312,6 +338,12 @@ mod tests {
         let handle = SpawnHandle {
             id: "task-123".to_string(),
             agent_name: "Researcher".to_string(),
+            effective_limits: SubagentEffectiveLimits {
+                timeout_secs: 300,
+                timeout_source: SubagentLimitSource::ConfigDefault,
+                max_iterations: 100,
+                max_iterations_source: SubagentLimitSource::ConfigDefault,
+            },
         };
 
         let json = serde_json::to_string(&handle).unwrap();
