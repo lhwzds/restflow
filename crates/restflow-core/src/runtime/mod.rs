@@ -2,6 +2,7 @@ pub mod agent;
 pub mod background_agent;
 pub mod channel;
 pub mod execution_context;
+pub mod orchestrator;
 mod output;
 pub mod subagent;
 pub mod trace;
@@ -25,6 +26,7 @@ pub use channel::{
     SystemStatus, start_message_handler, start_message_handler_with_chat,
 };
 pub use execution_context::{ExecutionContext, ExecutionRole};
+pub use orchestrator::{AgentOrchestratorImpl, OrchestratingAgentExecutor};
 pub use restflow_ai::agent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig, SubagentResult,
     SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,

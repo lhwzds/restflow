@@ -13,7 +13,7 @@ use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::{
     AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger, ChatDispatcher,
     ChatDispatcherConfig, ChatSessionManager, MessageDebouncer, MessageHandlerConfig,
-    MessageHandlerHandle, NoopHeartbeatEmitter, RunnerConfig, RunnerHandle,
+    MessageHandlerHandle, NoopHeartbeatEmitter, OrchestratingAgentExecutor, RunnerConfig, RunnerHandle,
     StorageBackedSubagentLookup, SubagentConfig, SubagentTracker, SystemStatus, TelegramNotifier,
     ToolTraceRunSink,
 };
@@ -125,7 +125,7 @@ impl CliBackgroundAgentRunner {
         let runner = Arc::new(
             BackgroundAgentRunner::with_memory_persistence(
                 Arc::new(storage.background_agents.clone()),
-                Arc::new(executor),
+                Arc::new(OrchestratingAgentExecutor::from_runtime_executor(executor)),
                 Arc::new(notifier),
                 RunnerConfig {
                     poll_interval_ms: system_config

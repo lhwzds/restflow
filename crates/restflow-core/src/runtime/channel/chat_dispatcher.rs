@@ -22,6 +22,7 @@ use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{build_turn_persistence_payload, hydrate_voice_message_metadata};
 use crate::runtime::output::{ensure_success_output, format_error_output};
+use crate::runtime::orchestrator::AgentOrchestratorImpl;
 use crate::runtime::trace::{
     RestflowTrace, TraceEvent, append_message_trace, append_trace_event,
     build_restflow_trace_emitter,
@@ -806,15 +807,17 @@ impl ChatDispatcher {
             Some(self.storage.execution_traces.clone()),
             &trace,
         ));
+        let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
         let execution_result = if let Some(timeout_secs) = self.config.response_timeout_secs {
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(timeout_secs),
-                executor.execute_session_turn_with_emitter(
+                orchestrator.run_interactive_session_turn(
                     &mut session,
                     &input,
                     self.config.max_session_history,
                     SessionInputMode::EphemeralInput,
                     tool_event_emitter.take(),
+                    None,
                 ),
             )
             .await
@@ -837,19 +840,20 @@ impl ChatDispatcher {
                 }
             }
         } else {
-            executor
-                .execute_session_turn_with_emitter(
+            orchestrator
+                .run_interactive_session_turn(
                     &mut session,
                     &input,
                     self.config.max_session_history,
                     SessionInputMode::EphemeralInput,
                     tool_event_emitter.take(),
+                    None,
                 )
                 .await
         };
 
         let exec_result = match execution_result {
-            Ok(result) => result,
+            Ok(result) => result.execution,
             Err(error) => {
                 append_trace_event(
                     &self.storage.tool_traces,
