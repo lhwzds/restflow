@@ -109,7 +109,7 @@ impl FailoverConfig {
     /// 2. Manually configured cross-provider fallbacks (from config)
     ///
     /// Note: Automatic cross-provider failover has been removed.
-    /// Users must manually configure fallback models via config.json.
+    /// Users must manually configure fallback models via config.toml.
     pub fn build_smart(
         primary: AIModel,
         _available_providers: &HashSet<Provider>,
