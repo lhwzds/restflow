@@ -1,7 +1,7 @@
 //! System configuration storage.
 
 use anyhow::{Context, Result};
-use redb::{Database, ReadableDatabase, TableDefinition};
+use redb::Database;
 use restflow_traits::{
     DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS, DEFAULT_AGENT_BASH_TIMEOUT_SECS,
     DEFAULT_AGENT_BROWSER_TIMEOUT_SECS, DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS,
@@ -28,8 +28,6 @@ use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-const CONFIG_TABLE: TableDefinition<&str, &[u8]> = TableDefinition::new("system_config");
 
 const GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
 const WORKSPACE_CONFIG_ENV: &str = "RESTFLOW_WORKSPACE_CONFIG";
@@ -1275,18 +1273,6 @@ fn legacy_cli_toml_path() -> Option<PathBuf> {
     dirs::config_dir().map(|dir| dir.join(LEGACY_CONFIG_TOML_DIR_NAME).join(CONFIG_FILE_NAME))
 }
 
-fn read_legacy_db_config(db: &Arc<Database>) -> Result<Option<SystemConfig>> {
-    let read_txn = db.begin_read()?;
-    let table = read_txn.open_table(CONFIG_TABLE)?;
-
-    if let Some(data) = table.get("system")? {
-        let config: SystemConfig = serde_json::from_slice(data.value())?;
-        Ok(Some(config))
-    } else {
-        Ok(None)
-    }
-}
-
 fn read_legacy_cli_config() -> Result<Option<CliConfig>> {
     if let Some(cli) = read_legacy_cli_json_config()? {
         return Ok(Some(cli));
@@ -1469,29 +1455,6 @@ fn build_value_sources(
     Ok(values)
 }
 
-fn migrate_db_config_to_global_file_if_needed(db: &Arc<Database>) -> Result<()> {
-    let Some(global) = global_config_path() else {
-        return Ok(());
-    };
-    if global.path.exists() {
-        return Ok(());
-    }
-
-    let Some(system) = read_legacy_db_config(db)? else {
-        return Ok(());
-    };
-
-    let cli = read_legacy_cli_config()?;
-    let mut unified = UnifiedConfigFile {
-        system,
-        ..UnifiedConfigFile::default()
-    };
-    if let Some(cli) = cli {
-        unified.cli = cli;
-    }
-    write_global_config_file(&unified)
-}
-
 fn migrate_legacy_cli_config_if_needed() -> Result<()> {
     let Some(global) = global_config_path() else {
         return Ok(());
@@ -1536,22 +1499,12 @@ pub fn effective_config_sources() -> Result<EffectiveConfigSources> {
 }
 
 /// Configuration storage
-#[derive(Clone)]
-pub struct ConfigStorage {
-    db: Arc<Database>,
-}
+#[derive(Clone, Default)]
+pub struct ConfigStorage;
 
 impl ConfigStorage {
-    pub fn new(db: Arc<Database>) -> Result<Self> {
-        // Create table
-        let write_txn = db.begin_write()?;
-        write_txn.open_table(CONFIG_TABLE)?;
-        write_txn.commit()?;
-
-        let storage = Self { db };
-        migrate_db_config_to_global_file_if_needed(&storage.db)?;
-
-        Ok(storage)
+    pub fn new(_db: Arc<Database>) -> Result<Self> {
+        Ok(Self)
     }
 
     /// Get the global config view (defaults + global config.toml).
@@ -2166,69 +2119,19 @@ model = "legacy-model"
     }
 
     #[test]
-    fn test_config_storage_migrates_legacy_db_and_cli_json_to_unified_toml() {
+    fn test_config_storage_ignores_legacy_db_config() {
         let _env_guard = env_lock();
         let temp_dir = tempdir().unwrap();
         let global_config = temp_dir.path().join("config.toml");
-        let restflow_dir = temp_dir.path().join("restflow");
         let db_path = temp_dir.path().join("test.db");
         let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, &global_config);
-        let _restflow_guard = EnvGuard::set_path("RESTFLOW_DIR", &restflow_dir);
-
-        fs::create_dir_all(&restflow_dir).unwrap();
-        fs::write(
-            restflow_dir.join(LEGACY_CONFIG_JSON_FILE_NAME),
-            r#"{
-  "version": 1,
-  "default": {
-    "agent": "json-agent",
-    "model": "json-model"
-  },
-  "sandbox": {
-    "enabled": true,
-    "env": {
-      "isolate": true,
-      "allow": ["PATH"],
-      "block": []
-    },
-    "limits": {
-      "timeout_secs": 77,
-      "max_output_bytes": 2048
-    }
-  }
-}"#,
-        )
-        .unwrap();
 
         let db = Arc::new(Database::create(&db_path).unwrap());
-        let legacy = SystemConfig {
-            worker_count: 33,
-            agent: AgentDefaults {
-                max_iterations: 144,
-                ..AgentDefaults::default()
-            },
-            ..SystemConfig::default()
-        };
-        let payload = serde_json::to_vec(&legacy).unwrap();
-
-        let write_txn = db.begin_write().unwrap();
-        {
-            let mut table = write_txn.open_table(CONFIG_TABLE).unwrap();
-            table.insert("system", payload.as_slice()).unwrap();
-        }
-        write_txn.commit().unwrap();
-
         let storage = ConfigStorage::new(db).unwrap();
         let effective = storage.get_effective_config().unwrap();
-        assert_eq!(effective.worker_count, 33);
-        assert_eq!(effective.agent.max_iterations, 144);
-
-        let written = fs::read_to_string(&global_config).unwrap();
-        assert!(written.contains("worker_count = 33"));
-        assert!(written.contains("[cli.default]"));
-        assert!(written.contains("agent = \"json-agent\""));
-        assert!(written.contains("model = \"json-model\""));
-        assert!(written.contains("[cli.sandbox]"));
+        assert_eq!(effective.worker_count, DEFAULT_WORKER_COUNT);
+        assert_eq!(effective.agent.max_iterations, DEFAULT_AGENT_MAX_ITERATIONS);
+        assert!(!global_config.exists());
     }
 
     #[test]
