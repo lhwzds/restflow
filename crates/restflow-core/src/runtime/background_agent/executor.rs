@@ -57,7 +57,7 @@ use crate::runtime::agent::{
 };
 use restflow_ai::agent::SubagentDefLookup;
 use restflow_ai::agent::{
-    SubagentConfig, SubagentExecutionBridge, SubagentTracker, spawn_subagent,
+    SubagentConfig, SubagentExecutionBridge, SubagentTracker, execute_subagent_once,
 };
 use restflow_ai::llm::LlmSwitcherImpl;
 
@@ -202,8 +202,7 @@ impl AgentRuntimeExecutor {
             Some(bash_config),
             None,
         )?;
-        let handle = spawn_subagent(
-            self.subagent_tracker.clone(),
+        execute_subagent_once(
             self.subagent_definitions.clone(),
             llm_client,
             tool_registry,
@@ -227,28 +226,9 @@ impl AgentRuntimeExecutor {
                 llm_client_factory: Some(factory),
                 orchestrator: None,
             },
-        )?;
-
-        let result = self
-            .subagent_tracker
-            .wait(&handle.id)
-            .await
-            .ok_or_else(|| anyhow!("Subagent execution result was not available: {}", handle.id))?;
-
-        Ok(ExecutionOutcome {
-            success: result.success,
-            text: Some(result.output),
-            error: result.error,
-            duration_ms: Some(result.duration_ms),
-            metadata: Some(serde_json::json!({
-                "subagent_id": handle.id,
-                "agent_name": handle.agent_name,
-                "effective_limits": handle.effective_limits,
-                "tokens_used": result.tokens_used,
-                "cost_usd": result.cost_usd,
-            })),
-            ..ExecutionOutcome::default()
-        })
+        )
+        .await
+        .map_err(|error| anyhow!(error.to_string()))
     }
 
     fn save_task_deliverable(&self, task_id: &str, agent_id: &str, output: &str) -> Result<()> {
