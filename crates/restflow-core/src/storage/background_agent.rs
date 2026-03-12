@@ -884,8 +884,8 @@ impl BackgroundAgentStorage {
                     .with_message("Background agent resumed")
             }
             BackgroundAgentControlAction::Stop => {
-                task.pause();
-                BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Paused)
+                task.set_interrupted();
+                BackgroundAgentEvent::new(task.id.clone(), BackgroundAgentEventType::Interrupted)
                     .with_message("Background agent stopped")
             }
             BackgroundAgentControlAction::RunNow => {
@@ -2485,6 +2485,11 @@ mod tests {
             .unwrap();
         assert_eq!(run_now.status, BackgroundAgentStatus::Active);
         assert!(run_now.next_run_at.is_some());
+
+        let stopped = storage
+            .control_background_agent(&created.id, BackgroundAgentControlAction::Stop)
+            .unwrap();
+        assert_eq!(stopped.status, BackgroundAgentStatus::Interrupted);
     }
 
     #[test]
