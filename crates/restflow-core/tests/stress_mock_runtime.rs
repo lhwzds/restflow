@@ -41,7 +41,9 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
         RunnerConfig {
             poll_interval_ms: 25,
             max_concurrent_tasks: 8,
+            worker_count: 8,
             task_timeout_secs: Some(30),
+            stall_timeout_secs: None,
         },
         Arc::new(SteerRegistry::new()),
     ));
@@ -118,7 +120,9 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         RunnerConfig {
             poll_interval_ms: 20,
             max_concurrent_tasks: 3,
+            worker_count: 3,
             task_timeout_secs: Some(60),
+            stall_timeout_secs: None,
         },
         Arc::new(SteerRegistry::new()),
     ));
@@ -158,7 +162,9 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         RunnerConfig {
             poll_interval_ms: 20,
             max_concurrent_tasks: 6,
+            worker_count: 6,
             task_timeout_secs: Some(60),
+            stall_timeout_secs: None,
         },
         Arc::new(SteerRegistry::new()),
     ));
@@ -180,7 +186,9 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         RunnerConfig {
             poll_interval_ms: 20,
             max_concurrent_tasks: 8,
+            worker_count: 8,
             task_timeout_secs: Some(60),
+            stall_timeout_secs: None,
         },
         Arc::new(SteerRegistry::new()),
     ));

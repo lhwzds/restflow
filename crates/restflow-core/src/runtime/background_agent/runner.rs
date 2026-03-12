@@ -152,10 +152,16 @@ pub struct RunnerConfig {
     pub poll_interval_ms: u64,
     /// Maximum concurrent task executions
     pub max_concurrent_tasks: usize,
+    /// Number of worker-pool workers used to execute queued tasks.
+    pub worker_count: usize,
     /// Default timeout for individual task execution (in seconds).
     ///
     /// `None` disables timeout by default.
     pub task_timeout_secs: Option<u64>,
+    /// Threshold for recovering persisted tasks that appear stalled.
+    ///
+    /// `None` disables periodic stalled-task recovery.
+    pub stall_timeout_secs: Option<u64>,
 }
 
 impl Default for RunnerConfig {
@@ -163,7 +169,9 @@ impl Default for RunnerConfig {
         Self {
             poll_interval_ms: DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
             max_concurrent_tasks: DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
+            worker_count: DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS,
             task_timeout_secs: None,
+            stall_timeout_secs: None,
         }
     }
 }
@@ -678,7 +686,7 @@ impl BackgroundAgentRunner {
             self.task_queue.clone(),
             executor,
             WorkerPoolConfig {
-                worker_count: self.config.max_concurrent_tasks,
+                worker_count: self.config.worker_count,
                 idle_sleep: Duration::from_millis(10),
             },
         );
@@ -828,6 +836,7 @@ impl BackgroundAgentRunner {
     /// Check for runnable tasks and execute them
     async fn check_and_run_tasks(&self) {
         let current_time = chrono::Utc::now().timestamp_millis();
+        self.recover_stalled_running_tasks(current_time).await;
 
         let runnable_tasks = match self.storage.list_runnable_tasks(current_time) {
             Ok(tasks) => tasks,
@@ -881,6 +890,58 @@ impl BackgroundAgentRunner {
                 warn!("Failed to enqueue task {}: {:?}", task_id, err);
                 self.cleanup_task_tracking(task_id.as_str()).await;
             }
+        }
+    }
+
+    async fn recover_stalled_running_tasks(&self, current_time: i64) {
+        let Some(timeout_secs) = self.config.stall_timeout_secs else {
+            return;
+        };
+        let threshold_ms = timeout_secs.saturating_mul(1_000) as i64;
+        let recover_before = current_time.saturating_sub(threshold_ms);
+        let tracked_running = self.running_tasks.read().await.clone();
+
+        let tasks = match self.storage.list_tasks() {
+            Ok(tasks) => tasks,
+            Err(error) => {
+                warn!("Failed to list tasks for stalled-task recovery: {}", error);
+                return;
+            }
+        };
+
+        let mut recovered = 0;
+        for task in tasks {
+            if task.status != BackgroundAgentStatus::Running {
+                continue;
+            }
+            if tracked_running.contains(&task.id) {
+                continue;
+            }
+            if task.updated_at > recover_before {
+                continue;
+            }
+            match self.storage.resume_task(&task.id) {
+                Ok(_) => {
+                    info!(
+                        "Recovered stalled Running task '{}' ({}) → Active",
+                        task.name, task.id
+                    );
+                    recovered += 1;
+                }
+                Err(error) => {
+                    warn!(
+                        "Failed to recover stalled Running task '{}' ({}): {}",
+                        task.name, task.id, error
+                    );
+                }
+            }
+        }
+
+        if recovered > 0 {
+            info!(
+                "Stalled-task recovery: {} task(s) reset from Running to Active",
+                recovered
+            );
         }
     }
 
@@ -2557,7 +2618,48 @@ mod tests {
             config.max_concurrent_tasks,
             DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS
         );
+        assert_eq!(
+            config.worker_count,
+            DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS
+        );
         assert_eq!(config.task_timeout_secs, None);
+        assert_eq!(config.stall_timeout_secs, None);
+    }
+
+    #[tokio::test]
+    async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::new());
+        let notifier = Arc::new(NoopNotificationSender);
+        let current_time = chrono::Utc::now().timestamp_millis();
+        let past_time = current_time - 120_000;
+
+        let mut task = storage
+            .create_task(
+                "Stalled Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::default(),
+            )
+            .unwrap();
+        task.status = BackgroundAgentStatus::Running;
+        task.updated_at = past_time;
+        storage.update_task(&task).unwrap();
+
+        let runner = BackgroundAgentRunner::new(
+            storage.clone(),
+            executor,
+            notifier,
+            RunnerConfig {
+                stall_timeout_secs: Some(60),
+                ..Default::default()
+            },
+            Arc::new(SteerRegistry::new()),
+        );
+
+        runner.recover_stalled_running_tasks(current_time).await;
+
+        let recovered_task = storage.get_task(&task.id).unwrap().unwrap();
+        assert_eq!(recovered_task.status, BackgroundAgentStatus::Active);
     }
 
     #[tokio::test]
