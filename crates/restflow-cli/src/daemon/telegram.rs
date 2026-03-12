@@ -1,7 +1,7 @@
 use anyhow::Result;
 use restflow_core::channel::TelegramChannel;
 use restflow_core::storage::{DaemonStateStorage, SecretStorage};
-use restflow_storage::ChannelDefaults;
+use restflow_storage::ChannelSettings;
 use std::sync::Arc;
 use tracing::warn;
 
@@ -11,7 +11,7 @@ const TELEGRAM_LAST_UPDATE_KEY: &str = "telegram_last_update_id";
 pub fn setup_telegram_channel(
     secrets: &SecretStorage,
     daemon_state: &DaemonStateStorage,
-    channel_defaults: &ChannelDefaults,
+    channel_defaults: &ChannelSettings,
 ) -> Result<Option<(TelegramChannel, Option<String>)>> {
     let token = secrets.get_non_empty("TELEGRAM_BOT_TOKEN")?;
 
@@ -68,7 +68,7 @@ mod tests {
         let daemon_state = DaemonStateStorage::new(db).unwrap();
 
         let result =
-            setup_telegram_channel(&secrets, &daemon_state, &ChannelDefaults::default()).unwrap();
+            setup_telegram_channel(&secrets, &daemon_state, &ChannelSettings::default()).unwrap();
         assert!(result.is_none());
     }
 
@@ -88,7 +88,7 @@ mod tests {
             .unwrap();
 
         let (_, default_chat_id) =
-            setup_telegram_channel(&secrets, &daemon_state, &ChannelDefaults::default())
+            setup_telegram_channel(&secrets, &daemon_state, &ChannelSettings::default())
                 .unwrap()
                 .unwrap();
         assert_eq!(default_chat_id, Some("12345678".to_string()));
@@ -110,7 +110,7 @@ mod tests {
             .unwrap();
 
         let (_, default_chat_id) =
-            setup_telegram_channel(&secrets, &daemon_state, &ChannelDefaults::default())
+            setup_telegram_channel(&secrets, &daemon_state, &ChannelSettings::default())
                 .unwrap()
                 .unwrap();
         assert_eq!(default_chat_id, Some("87654321".to_string()));
@@ -131,7 +131,7 @@ mod tests {
             .put_raw("telegram_last_update_id", &[1, 2, 3])
             .unwrap();
 
-        let result = setup_telegram_channel(&secrets, &daemon_state, &ChannelDefaults::default());
+        let result = setup_telegram_channel(&secrets, &daemon_state, &ChannelSettings::default());
         assert!(result.is_ok());
         assert!(result.unwrap().is_some());
     }
@@ -148,7 +148,7 @@ mod tests {
             .set_secret("TELEGRAM_BOT_TOKEN", "bot-token", None)
             .unwrap();
 
-        let defaults = ChannelDefaults {
+        let defaults = ChannelSettings {
             telegram_api_timeout_secs: 45,
             telegram_polling_timeout_secs: 60,
         };

@@ -4,7 +4,7 @@ use crate::models::Skill;
 use crate::registry::{GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery};
 use crate::storage::skill::SkillStorage;
 use chrono::Utc;
-use restflow_storage::RegistryDefaults;
+use restflow_storage::{RegistryDefaults, RegistrySettings};
 use restflow_tools::ToolError;
 use restflow_traits::store::MarketplaceStore;
 use serde_json::{Value, json};
@@ -17,19 +17,23 @@ pub struct MarketplaceStoreAdapter {
 
 impl MarketplaceStoreAdapter {
     pub fn new(storage: SkillStorage) -> Self {
-        Self::new_with_defaults(storage, RegistryDefaults::default())
+        Self::new_with_settings(storage, RegistrySettings::default())
     }
 
-    pub fn new_with_defaults(storage: SkillStorage, registry_defaults: RegistryDefaults) -> Self {
+    pub fn new_with_settings(storage: SkillStorage, registry: RegistrySettings) -> Self {
         let github_provider =
-            GitHubProvider::new().with_cache_ttl_secs(registry_defaults.github_cache_ttl_secs);
-        let marketplace_provider = MarketplaceProvider::new()
-            .with_cache_ttl_secs(registry_defaults.marketplace_cache_ttl_secs);
+            GitHubProvider::new().with_cache_ttl_secs(registry.github_cache_ttl_secs);
+        let marketplace_provider =
+            MarketplaceProvider::new().with_cache_ttl_secs(registry.marketplace_cache_ttl_secs);
         Self {
             storage,
             github_provider,
             marketplace_provider,
         }
+    }
+
+    pub fn new_with_defaults(storage: SkillStorage, registry_defaults: RegistryDefaults) -> Self {
+        Self::new_with_settings(storage, registry_defaults)
     }
 
     fn provider_name(source: Option<&str>) -> &str {

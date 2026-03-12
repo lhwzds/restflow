@@ -14,7 +14,7 @@ use restflow_core::models::{Skill, StorageMode};
 use restflow_core::paths;
 use restflow_core::registry::{MarketplaceProvider, SkillRegistry, SkillSearchQuery};
 use restflow_core::services::skills as skill_service;
-use restflow_storage::RegistryDefaults;
+use restflow_storage::RegistrySettings;
 use serde_json::json;
 
 pub async fn run(
@@ -249,7 +249,7 @@ async fn search_skills(
         .get_config()
         .await
         .map(|config| config.registry_defaults)
-        .unwrap_or_else(|_| RegistryDefaults::default());
+        .unwrap_or_else(|_| RegistrySettings::default());
     registry.add_provider(Arc::new(
         MarketplaceProvider::new()
             .with_cache_ttl_secs(registry_defaults.marketplace_cache_ttl_secs),
@@ -320,7 +320,7 @@ async fn install_from_marketplace(
         .get_config()
         .await
         .map(|config| config.registry_defaults)
-        .unwrap_or_else(|_| RegistryDefaults::default());
+        .unwrap_or_else(|_| RegistrySettings::default());
     registry.add_provider(Arc::new(
         MarketplaceProvider::new()
             .with_cache_ttl_secs(registry_defaults.marketplace_cache_ttl_secs),
