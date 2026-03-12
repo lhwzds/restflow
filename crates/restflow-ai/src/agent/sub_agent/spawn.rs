@@ -54,6 +54,32 @@ fn normalize_trace_identity(value: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+fn resolve_plan_provider(
+    request: &SpawnRequest,
+    bridge: &SubagentExecutionBridge,
+) -> Option<String> {
+    match (
+        request
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        request
+            .model_provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    ) {
+        (_, Some(provider)) => Some(provider.to_string()),
+        (Some(model), None) => bridge
+            .llm_client_factory
+            .as_ref()
+            .and_then(|factory| factory.provider_for_model(model))
+            .map(|provider| provider.as_str().to_string()),
+        (None, None) => None,
+    }
+}
+
 fn map_subagent_error(success: bool, error: Option<String>) -> Option<String> {
     if success {
         None
@@ -426,6 +452,7 @@ async fn execute_subagent_entry(
             task,
             execution,
             invocation.request,
+            &invocation.bridge,
         )
         .await
     } else {
@@ -447,6 +474,7 @@ async fn execute_subagent_with_orchestrator(
     task: String,
     execution: ResolvedSubagentExecution,
     request: SpawnRequest,
+    bridge: &SubagentExecutionBridge,
 ) -> Result<AgentResult> {
     let plan = ExecutionPlan {
         mode: Some(ExecutionMode::Subagent),
@@ -455,7 +483,7 @@ async fn execute_subagent_with_orchestrator(
         input: Some(task.clone()),
         timeout_secs: Some(execution.effective_limits.timeout_secs),
         model: request.model.clone(),
-        provider: request.model_provider.clone(),
+        provider: resolve_plan_provider(&request, bridge),
         max_iterations: Some(execution.effective_limits.max_iterations as u32),
         parent_execution_id: request.parent_execution_id.clone(),
         trace_session_id: Some(execution.trace_context.session_id.clone()),
@@ -482,13 +510,19 @@ fn agent_result_from_outcome(outcome: ExecutionOutcome) -> AgentResult {
     let error = if outcome.success {
         None
     } else {
-        outcome.error.or_else(|| Some("Sub-agent execution failed".to_string()))
+        outcome
+            .error
+            .or_else(|| Some("Sub-agent execution failed".to_string()))
     };
     let mut state = AgentState::new(uuid::Uuid::new_v4().to_string(), 1);
     if outcome.success {
         state.complete(text.clone());
     } else {
-        state.fail(error.clone().unwrap_or_else(|| "Sub-agent execution failed".to_string()));
+        state.fail(
+            error
+                .clone()
+                .unwrap_or_else(|| "Sub-agent execution failed".to_string()),
+        );
     }
     AgentResult {
         success: outcome.success,
@@ -581,9 +615,10 @@ mod tests {
     use tokio::time::Duration;
 
     use crate::agent::{NullEmitter, StreamEmitter};
+    use crate::error::AiError;
     use crate::llm::{
-        CompletionRequest, CompletionResponse, FinishReason, LlmClient, MockLlmClient, MockStep,
-        StreamResult, TokenUsage,
+        CompletionRequest, CompletionResponse, FinishReason, LlmClient, LlmClientFactory,
+        LlmProvider, MockLlmClient, MockStep, StreamResult, TokenUsage,
     };
 
     use super::super::tracker::SubagentTracker;
@@ -687,6 +722,60 @@ mod tests {
         }
     }
 
+    struct TestLlmFactory {
+        client: Arc<dyn LlmClient>,
+        model: String,
+        provider: LlmProvider,
+    }
+
+    impl TestLlmFactory {
+        fn new(client: Arc<dyn LlmClient>, model: &str, provider: LlmProvider) -> Self {
+            Self {
+                client,
+                model: model.to_string(),
+                provider,
+            }
+        }
+    }
+
+    impl LlmClientFactory for TestLlmFactory {
+        fn create_client(&self, model: &str, _api_key: Option<&str>) -> Result<Arc<dyn LlmClient>> {
+            if model == self.model {
+                Ok(self.client.clone())
+            } else {
+                Err(AiError::Llm(format!("unexpected model request: {model}")))
+            }
+        }
+
+        fn available_models(&self) -> Vec<String> {
+            vec![self.model.clone()]
+        }
+
+        fn resolve_api_key(&self, _provider: LlmProvider) -> Option<String> {
+            None
+        }
+
+        fn provider_for_model(&self, model: &str) -> Option<LlmProvider> {
+            if model == self.model {
+                Some(self.provider)
+            } else {
+                None
+            }
+        }
+
+        fn is_codex_cli_model(&self, _model: &str) -> bool {
+            false
+        }
+
+        fn is_opencode_cli_model(&self, _model: &str) -> bool {
+            false
+        }
+
+        fn is_gemini_cli_model(&self, _model: &str) -> bool {
+            false
+        }
+    }
+
     #[derive(Default)]
     struct MockOrchestrator {
         plans: Mutex<Vec<ExecutionPlan>>,
@@ -694,7 +783,10 @@ mod tests {
 
     #[async_trait]
     impl AgentOrchestrator for MockOrchestrator {
-        async fn run(&self, plan: ExecutionPlan) -> std::result::Result<ExecutionOutcome, ToolError> {
+        async fn run(
+            &self,
+            plan: ExecutionPlan,
+        ) -> std::result::Result<ExecutionOutcome, ToolError> {
             self.plans.lock().expect("plans lock").push(plan);
             Ok(ExecutionOutcome {
                 success: true,
@@ -852,6 +944,63 @@ mod tests {
         assert_eq!(plans[0].mode, Some(ExecutionMode::Subagent));
         assert_eq!(plans[0].input.as_deref(), Some("delegate task"));
         assert_eq!(plans[0].agent_id.as_deref(), Some("tester"));
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_orchestrator_infers_provider_from_model_override() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps("mock", vec![]));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let orchestrator = Arc::new(MockOrchestrator::default());
+        let llm_factory: Arc<dyn LlmClientFactory> = Arc::new(TestLlmFactory::new(
+            llm_client.clone(),
+            "gpt-5.3-codex",
+            LlmProvider::OpenAI,
+        ));
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: Some("tester".to_string()),
+                inline: None,
+                task: "delegate task".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: Some("gpt-5.3-codex".to_string()),
+                model_provider: None,
+                parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: Some(llm_factory),
+                orchestrator: Some(orchestrator.clone()),
+            },
+        )
+        .expect("spawn should succeed");
+
+        let result = tracker
+            .wait(&handle.id)
+            .await
+            .expect("subagent result should be available");
+        assert!(result.success);
+
+        let plans = orchestrator.plans.lock().expect("plans lock");
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(plans[0].provider.as_deref(), Some("openai"));
     }
 
     #[derive(Clone)]
