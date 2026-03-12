@@ -118,6 +118,12 @@ impl ConfigTool {
                 })?;
                 config.memory_chunk_retention_days = days as u32;
             }
+            "log_file_retention_days" => {
+                let days = value.as_u64().ok_or_else(|| {
+                    ToolError::Tool("log_file_retention_days must be a number".to_string())
+                })?;
+                config.log_file_retention_days = days as u32;
+            }
             "experimental_features" => {
                 let values = value.as_array().ok_or_else(|| {
                     ToolError::Tool("experimental_features must be an array of strings".to_string())
@@ -434,7 +440,7 @@ impl ConfigTool {
             }
             _ => {
                 return Err(crate::ToolError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*, api_defaults.*, runtime_defaults.*, channel_defaults.*, registry_defaults.*."
+                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, log_file_retention_days, experimental_features, agent.*, api_defaults.*, runtime_defaults.*, channel_defaults.*, registry_defaults.*."
                 )));
             }
         }
@@ -545,6 +551,7 @@ impl Tool for ConfigTool {
                     "background_task_retention_days",
                     "checkpoint_retention_days",
                     "memory_chunk_retention_days",
+                    "log_file_retention_days",
                     "experimental_features",
                     "agent.tool_timeout_secs",
                     "agent.llm_timeout_secs",
@@ -727,7 +734,7 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, experimental_features, agent.*, api_defaults.*, runtime_defaults.*, channel_defaults.*, registry_defaults.*"
+            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, log_file_retention_days, experimental_features, agent.*, api_defaults.*, runtime_defaults.*, channel_defaults.*, registry_defaults.*"
         ));
     }
 
@@ -807,12 +814,16 @@ mod tests {
 
         let output = tool.execute(json!({ "operation": "list" })).await.unwrap();
         assert!(output.success);
+        let fields = output
+            .result
+            .get("fields")
+            .and_then(|v| v.as_array())
+            .expect("fields should be an array");
         assert!(
-            output
-                .result
-                .get("fields")
-                .and_then(|v| v.as_array())
-                .is_some()
+            fields
+                .iter()
+                .any(|field| field.as_str() == Some("log_file_retention_days")),
+            "list should expose log_file_retention_days"
         );
     }
 
@@ -826,6 +837,7 @@ mod tests {
             ("background_task_retention_days", json!(14)),
             ("checkpoint_retention_days", json!(5)),
             ("memory_chunk_retention_days", json!(120)),
+            ("log_file_retention_days", json!(30)),
         ];
 
         for (key, value) in updates {

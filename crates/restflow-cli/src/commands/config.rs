@@ -83,6 +83,10 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.memory_chunk_retention_days),
     ]);
     table.add_row(vec![
+        Cell::new("log_file_retention_days"),
+        Cell::new(config.log_file_retention_days),
+    ]);
+    table.add_row(vec![
         Cell::new("agent.max_iterations"),
         Cell::new(config.agent.max_iterations),
     ]);
@@ -262,6 +266,7 @@ async fn get_config_value(
         "background_task_retention_days" => json!(config.background_task_retention_days),
         "checkpoint_retention_days" => json!(config.checkpoint_retention_days),
         "memory_chunk_retention_days" => json!(config.memory_chunk_retention_days),
+        "log_file_retention_days" => json!(config.log_file_retention_days),
         "agent" => json!(config.agent),
         "agent.tool_timeout_secs" => json!(config.agent.tool_timeout_secs),
         "agent.llm_timeout_secs" => json!(config.agent.llm_timeout_secs),
@@ -379,6 +384,9 @@ async fn set_config_value(
         }
         "memory_chunk_retention_days" => {
             config.memory_chunk_retention_days = parse_value(value)?;
+        }
+        "log_file_retention_days" => {
+            config.log_file_retention_days = parse_value(value)?;
         }
         "agent.tool_timeout_secs" => {
             config.agent.tool_timeout_secs = parse_value(value)?;
@@ -550,8 +558,83 @@ fn format_optional_u64(value: Option<u64>) -> String {
 }
 
 #[cfg(test)]
+#[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
+    use crate::executor::{CommandExecutor, direct::DirectExecutor};
+    use std::env;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
+    use tempfile::tempdir;
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set_path(key: &'static str, path: &Path) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::set_var(key, path);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                unsafe {
+                    env::set_var(self.key, value);
+                }
+            } else {
+                unsafe {
+                    env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    struct TestContext {
+        executor: Arc<dyn CommandExecutor>,
+        _temp_dir: tempfile::TempDir,
+        _restflow_dir_guard: EnvGuard,
+        _global_config_guard: EnvGuard,
+        _env_lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    async fn setup_executor() -> TestContext {
+        let env_guard = env_lock();
+        let temp_dir = tempdir().expect("tempdir");
+        let restflow_dir_guard = EnvGuard::set_path("RESTFLOW_DIR", temp_dir.path());
+        let config_path = temp_dir.path().join("config.toml");
+        let global_config_guard = EnvGuard::set_path("RESTFLOW_GLOBAL_CONFIG", &config_path);
+        let db_path = temp_dir.path().join("restflow.db");
+        let direct_executor = DirectExecutor::connect(Some(path_to_string(&db_path)))
+            .await
+            .expect("connect direct executor");
+        let executor: Arc<dyn CommandExecutor> = Arc::new(direct_executor);
+
+        TestContext {
+            executor,
+            _temp_dir: temp_dir,
+            _restflow_dir_guard: restflow_dir_guard,
+            _global_config_guard: global_config_guard,
+            _env_lock: env_guard,
+        }
+    }
+
+    fn path_to_string(path: &Path) -> String {
+        path.to_string_lossy().into_owned()
+    }
 
     #[test]
     fn test_parse_optional_u64_none_aliases() {
@@ -569,5 +652,45 @@ mod tests {
     fn test_format_optional_u64() {
         assert_eq!(format_optional_u64(Some(42)), "42");
         assert_eq!(format_optional_u64(None), "none");
+    }
+
+    #[tokio::test]
+    async fn test_set_config_supports_log_file_retention_days() {
+        let ctx = setup_executor().await;
+
+        set_config_value(
+            ctx.executor.clone(),
+            "log_file_retention_days",
+            "45",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("set config should succeed");
+
+        let config = ctx.executor.get_config().await.expect("get config");
+        assert_eq!(config.log_file_retention_days, 45);
+    }
+
+    #[tokio::test]
+    async fn test_get_config_supports_log_file_retention_days() {
+        let ctx = setup_executor().await;
+        let mut config = ctx
+            .executor
+            .get_global_config()
+            .await
+            .expect("get global config");
+        config.log_file_retention_days = 21;
+        ctx.executor
+            .set_config(config)
+            .await
+            .expect("persist config");
+
+        get_config_value(
+            ctx.executor.clone(),
+            "log_file_retention_days",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("get config should support log_file_retention_days");
     }
 }
