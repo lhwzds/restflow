@@ -11,7 +11,7 @@
     "preview": "vite preview",
     "format": "prettier --write \"src/**/*.{js,ts,vue,css,scss,html,json}\"",
     "format:check": "prettier --check \"src/**/*.{js,ts,vue,css,scss,html,json}\"",
-    "generate:types": "cd ../crates/restflow-core && cargo test export_bindings && cd ../restflow-tools && cargo test --features ts export_bindings",
+    "generate:types": "../scripts/generate_web_types.sh",
     "test": "vitest",
     "test:ui": "vitest --ui",
     "test:coverage": "vitest --coverage"
