@@ -15,7 +15,7 @@ use restflow_traits::{
     DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT, DEFAULT_BG_TRACE_LIST_LIMIT,
     DEFAULT_CHAT_MAX_SESSION_HISTORY, DEFAULT_GITHUB_CACHE_TTL_SECS,
     DEFAULT_MARKETPLACE_CACHE_TTL_SECS, DEFAULT_MAX_PARALLEL_SUBAGENTS,
-    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_PROCESS_SESSION_TTL_SECS, DEFAULT_SUBAGENT_MAX_DEPTH, DEFAULT_SUBAGENT_TIMEOUT_SECS,
     DEFAULT_TELEGRAM_API_TIMEOUT_SECS, DEFAULT_TELEGRAM_POLLING_TIMEOUT_SECS,
     MAX_API_WEB_SEARCH_RESULTS,
 };
@@ -264,6 +264,8 @@ pub struct AgentDefaults {
     pub approval_timeout_secs: u64,
     /// Maximum ReAct loop iterations per agent run.
     pub max_iterations: usize,
+    /// Maximum nesting depth for sub-agents.
+    pub max_depth: usize,
     /// Default timeout for sub-agent execution in seconds.
     pub subagent_timeout_secs: u64,
     /// Maximum number of sub-agents that can run in parallel.
@@ -307,6 +309,7 @@ impl Default for AgentDefaults {
             process_session_ttl_secs: DEFAULT_PROCESS_SESSION_TTL_SECS,
             approval_timeout_secs: DEFAULT_AGENT_APPROVAL_TIMEOUT_SECS,
             max_iterations: DEFAULT_AGENT_MAX_ITERATIONS,
+            max_depth: DEFAULT_SUBAGENT_MAX_DEPTH,
             subagent_timeout_secs: DEFAULT_SUBAGENT_TIMEOUT_SECS,
             max_parallel_subagents: DEFAULT_MAX_PARALLEL_SUBAGENTS,
             max_tool_calls: DEFAULT_AGENT_MAX_TOOL_CALLS,
@@ -370,6 +373,9 @@ impl AgentDefaults {
         }
         if self.max_iterations == 0 {
             return Err(anyhow::anyhow!("agent.max_iterations must be at least 1"));
+        }
+        if self.max_depth == 0 {
+            return Err(anyhow::anyhow!("agent.max_depth must be at least 1"));
         }
         if self.subagent_timeout_secs < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
@@ -983,6 +989,7 @@ struct AgentDefaultsOverride {
     pub process_session_ttl_secs: Option<u64>,
     pub approval_timeout_secs: Option<u64>,
     pub max_iterations: Option<usize>,
+    pub max_depth: Option<usize>,
     pub subagent_timeout_secs: Option<u64>,
     pub max_parallel_subagents: Option<usize>,
     pub max_tool_calls: Option<usize>,
@@ -1026,6 +1033,9 @@ impl AgentDefaultsOverride {
         }
         if let Some(value) = self.max_iterations {
             agent.max_iterations = value;
+        }
+        if let Some(value) = self.max_depth {
+            agent.max_depth = value;
         }
         if let Some(value) = self.subagent_timeout_secs {
             agent.subagent_timeout_secs = value;
@@ -1658,6 +1668,7 @@ mod tests {
             config.agent.browser_timeout_secs,
             DEFAULT_AGENT_BROWSER_TIMEOUT_SECS
         );
+        assert_eq!(config.agent.max_depth, DEFAULT_SUBAGENT_MAX_DEPTH);
         assert_eq!(
             config.agent.process_session_ttl_secs,
             DEFAULT_PROCESS_SESSION_TTL_SECS
@@ -1694,6 +1705,14 @@ mod tests {
         assert_eq!(
             config.api_defaults.diagnostics_timeout_ms,
             DEFAULT_API_DIAGNOSTICS_TIMEOUT_MS
+        );
+        assert_eq!(
+            config.api_defaults.background_progress_event_limit,
+            DEFAULT_BG_PROGRESS_EVENT_LIMIT
+        );
+        assert_eq!(
+            config.api_defaults.background_message_list_limit,
+            DEFAULT_BG_MESSAGE_LIST_LIMIT
         );
         assert_eq!(
             config.runtime_defaults.background_runner_poll_interval_ms,
@@ -1846,6 +1865,7 @@ mod tests {
             DEFAULT_AGENT_BASH_TIMEOUT_SECS
         );
         assert_eq!(config.agent.max_iterations, DEFAULT_AGENT_MAX_ITERATIONS);
+        assert_eq!(config.agent.max_depth, DEFAULT_SUBAGENT_MAX_DEPTH);
         assert_eq!(
             config.agent.max_parallel_subagents,
             DEFAULT_MAX_PARALLEL_SUBAGENTS
@@ -1866,6 +1886,7 @@ mod tests {
         config.agent.tool_timeout_secs = 180;
         config.agent.llm_timeout_secs = Some(900);
         config.agent.bash_timeout_secs = 600;
+        config.agent.max_depth = 4;
         config.agent.max_wall_clock_secs = Some(3_600);
         config.agent.max_parallel_subagents = 25;
         config.agent.browser_timeout_secs = 180;
@@ -1877,6 +1898,7 @@ mod tests {
         assert_eq!(retrieved.agent.tool_timeout_secs, 180);
         assert_eq!(retrieved.agent.llm_timeout_secs, Some(900));
         assert_eq!(retrieved.agent.bash_timeout_secs, 600);
+        assert_eq!(retrieved.agent.max_depth, 4);
         assert_eq!(retrieved.agent.max_wall_clock_secs, Some(3_600));
         assert_eq!(retrieved.agent.max_parallel_subagents, 25);
         assert_eq!(retrieved.agent.browser_timeout_secs, 180);
@@ -1931,6 +1953,10 @@ mod tests {
 
         let mut config = SystemConfig::default();
         config.agent.max_iterations = 0;
+        assert!(config.validate().is_err());
+
+        let mut config = SystemConfig::default();
+        config.agent.max_depth = 0;
         assert!(config.validate().is_err());
 
         let mut config = SystemConfig::default();
@@ -2205,19 +2231,29 @@ memory_search_limit = 33
         let ctx = setup_test_storage();
         let mut config = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(config.api_defaults.memory_search_limit, 10);
+        assert_eq!(config.api_defaults.background_progress_event_limit, 10);
+        assert_eq!(config.api_defaults.background_message_list_limit, 50);
         assert_eq!(config.api_defaults.background_trace_line_limit, 200);
 
         config.api_defaults.memory_search_limit = 25;
+        config.api_defaults.background_progress_event_limit = 12;
+        config.api_defaults.background_message_list_limit = 60;
         config.api_defaults.background_trace_line_limit = 300;
         ctx.storage.update_config(config).unwrap();
 
         let retrieved = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(retrieved.api_defaults.memory_search_limit, 25);
+        assert_eq!(retrieved.api_defaults.background_progress_event_limit, 12);
+        assert_eq!(retrieved.api_defaults.background_message_list_limit, 60);
         assert_eq!(retrieved.api_defaults.background_trace_line_limit, 300);
     }
 
     #[test]
     fn test_invalid_api_settings_rejected() {
+        let mut config = SystemConfig::default();
+        config.api_defaults.background_progress_event_limit = 0;
+        assert!(config.validate().is_err());
+
         let mut config = SystemConfig::default();
         config.api_defaults.background_message_list_limit = 0;
         assert!(config.validate().is_err());

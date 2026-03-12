@@ -2085,6 +2085,9 @@ impl RestFlowMcpServer {
         params: ManageBackgroundAgentsParams,
     ) -> Result<String, String> {
         let operation = params.operation.trim().to_lowercase();
+        let params = self
+            .apply_background_agent_api_defaults(operation.as_str(), params)
+            .await?;
 
         let value = match operation.as_str() {
             "list"
@@ -2298,6 +2301,23 @@ impl RestFlowMcpServer {
         };
 
         serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+    }
+
+    async fn apply_background_agent_api_defaults(
+        &self,
+        operation: &str,
+        mut params: ManageBackgroundAgentsParams,
+    ) -> Result<ManageBackgroundAgentsParams, String> {
+        if matches!(operation, "progress" | "list_messages") {
+            let defaults = self.load_api_defaults().await?;
+            if operation == "progress" && params.event_limit.is_none() {
+                params.event_limit = Some(defaults.background_progress_event_limit);
+            }
+            if operation == "list_messages" && params.limit.is_none() {
+                params.limit = Some(defaults.background_message_list_limit);
+            }
+        }
+        Ok(params)
     }
 
     async fn execute_background_agent_runtime_tool(
@@ -4361,6 +4381,36 @@ mod tests {
             .unwrap();
         let deliverables: Vec<serde_json::Value> = serde_json::from_str(&json).unwrap();
         assert!(deliverables.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_progress_uses_api_default_event_limit() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let mut params = base_manage_background_params("progress");
+        params.id = Some("task-1".to_string());
+
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["event_limit"], serde_json::json!(10));
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_list_messages_uses_api_default_limit() {
+        let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+        let mut params = base_manage_background_params("list_messages");
+        params.id = Some("task-1".to_string());
+
+        let json = server
+            .handle_manage_background_agents(params)
+            .await
+            .unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(value["limit"], serde_json::json!(50));
     }
 
     #[tokio::test]
