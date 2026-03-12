@@ -6,7 +6,9 @@ use serde_json::{Value, json};
 use std::fmt::Display;
 use std::sync::Arc;
 
-use restflow_storage::{ConfigStorage, SystemConfig};
+use restflow_storage::{
+    CliConfig, ConfigDocument, ConfigStorage, SystemConfig, load_cli_config, write_cli_config,
+};
 
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
@@ -46,98 +48,120 @@ impl ConfigTool {
         }
     }
 
-    fn get_effective_config(&self) -> Result<SystemConfig> {
-        self.storage
+    fn get_effective_config(&self) -> Result<ConfigDocument> {
+        let system = self
+            .storage
             .get_effective_config()
-            .map_err(Self::storage_error)
+            .map_err(Self::storage_error)?;
+        let cli = load_cli_config().map_err(Self::storage_error)?;
+        Ok(ConfigDocument::from_system_config(system, cli))
     }
 
-    fn get_writable_config(&self) -> Result<SystemConfig> {
-        self.storage
+    fn get_writable_config(&self) -> Result<ConfigDocument> {
+        let system = self
+            .storage
             .get_global_config()
-            .map_err(Self::storage_error)
+            .map_err(Self::storage_error)?;
+        let cli = load_cli_config().map_err(Self::storage_error)?;
+        Ok(ConfigDocument::from_system_config(system, cli))
     }
 
-    fn apply_update(&self, key: &str, value: &Value) -> Result<SystemConfig> {
+    fn persist_config(&self, config: &ConfigDocument) -> Result<()> {
+        self.storage
+            .update_config(config.system_config())
+            .map_err(Self::storage_error)?;
+        write_cli_config(&config.cli).map_err(Self::storage_error)?;
+        Ok(())
+    }
+
+    fn apply_update(&self, key: &str, value: &Value) -> Result<ConfigDocument> {
         let mut config = self.get_writable_config()?;
 
         match key {
-            "worker_count" => {
-                let count = value
-                    .as_u64()
-                    .ok_or_else(|| ToolError::Tool("worker_count must be a number".to_string()))?;
-                config.worker_count = count as usize;
+            "system.worker_count" => {
+                let count = value.as_u64().ok_or_else(|| {
+                    ToolError::Tool("system.worker_count must be a number".to_string())
+                })?;
+                config.system.worker_count = count as usize;
             }
-            "task_timeout_seconds" => {
+            "system.task_timeout_seconds" => {
                 let timeout = value.as_u64().ok_or_else(|| {
-                    ToolError::Tool("task_timeout_seconds must be a number".to_string())
+                    ToolError::Tool("system.task_timeout_seconds must be a number".to_string())
                 })?;
-                config.task_timeout_seconds = timeout;
+                config.system.task_timeout_seconds = timeout;
             }
-            "stall_timeout_seconds" => {
+            "system.stall_timeout_seconds" => {
                 let timeout = value.as_u64().ok_or_else(|| {
-                    ToolError::Tool("stall_timeout_seconds must be a number".to_string())
+                    ToolError::Tool("system.stall_timeout_seconds must be a number".to_string())
                 })?;
-                config.stall_timeout_seconds = timeout;
+                config.system.stall_timeout_seconds = timeout;
             }
-            "background_api_timeout_seconds" => {
-                config.background_api_timeout_seconds =
-                    Self::parse_optional_timeout(value, "background_api_timeout_seconds")?;
+            "system.background_api_timeout_seconds" => {
+                config.system.background_api_timeout_seconds =
+                    Self::parse_optional_timeout(value, "system.background_api_timeout_seconds")?;
             }
-            "chat_response_timeout_seconds" => {
-                config.chat_response_timeout_seconds =
-                    Self::parse_optional_timeout(value, "chat_response_timeout_seconds")?;
+            "system.chat_response_timeout_seconds" => {
+                config.system.chat_response_timeout_seconds =
+                    Self::parse_optional_timeout(value, "system.chat_response_timeout_seconds")?;
             }
-            "max_retries" => {
-                let retries = value
-                    .as_u64()
-                    .ok_or_else(|| ToolError::Tool("max_retries must be a number".to_string()))?;
-                config.max_retries = retries as u32;
+            "system.max_retries" => {
+                let retries = value.as_u64().ok_or_else(|| {
+                    ToolError::Tool("system.max_retries must be a number".to_string())
+                })?;
+                config.system.max_retries = retries as u32;
             }
-            "chat_session_retention_days" => {
+            "system.chat_session_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    ToolError::Tool("chat_session_retention_days must be a number".to_string())
+                    ToolError::Tool(
+                        "system.chat_session_retention_days must be a number".to_string(),
+                    )
                 })?;
-                config.chat_session_retention_days = days as u32;
+                config.system.chat_session_retention_days = days as u32;
             }
-            "background_task_retention_days" => {
+            "system.background_task_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    ToolError::Tool("background_task_retention_days must be a number".to_string())
+                    ToolError::Tool(
+                        "system.background_task_retention_days must be a number".to_string(),
+                    )
                 })?;
-                config.background_task_retention_days = days as u32;
+                config.system.background_task_retention_days = days as u32;
             }
-            "checkpoint_retention_days" => {
+            "system.checkpoint_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    ToolError::Tool("checkpoint_retention_days must be a number".to_string())
+                    ToolError::Tool("system.checkpoint_retention_days must be a number".to_string())
                 })?;
-                config.checkpoint_retention_days = days as u32;
+                config.system.checkpoint_retention_days = days as u32;
             }
-            "memory_chunk_retention_days" => {
+            "system.memory_chunk_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    ToolError::Tool("memory_chunk_retention_days must be a number".to_string())
+                    ToolError::Tool(
+                        "system.memory_chunk_retention_days must be a number".to_string(),
+                    )
                 })?;
-                config.memory_chunk_retention_days = days as u32;
+                config.system.memory_chunk_retention_days = days as u32;
             }
-            "log_file_retention_days" => {
+            "system.log_file_retention_days" => {
                 let days = value.as_u64().ok_or_else(|| {
-                    ToolError::Tool("log_file_retention_days must be a number".to_string())
+                    ToolError::Tool("system.log_file_retention_days must be a number".to_string())
                 })?;
-                config.log_file_retention_days = days as u32;
+                config.system.log_file_retention_days = days as u32;
             }
-            "experimental_features" => {
+            "system.experimental_features" => {
                 let values = value.as_array().ok_or_else(|| {
-                    ToolError::Tool("experimental_features must be an array of strings".to_string())
+                    ToolError::Tool(
+                        "system.experimental_features must be an array of strings".to_string(),
+                    )
                 })?;
                 let mut features = Vec::with_capacity(values.len());
                 for entry in values {
                     let feature = entry.as_str().ok_or_else(|| {
                         ToolError::Tool(
-                            "experimental_features must be an array of strings".to_string(),
+                            "system.experimental_features must be an array of strings".to_string(),
                         )
                     })?;
                     features.push(feature.to_string());
                 }
-                config.experimental_features = features;
+                config.system.experimental_features = features;
             }
             key if key.starts_with("agent.") => {
                 let field = &key["agent.".len()..];
@@ -268,179 +292,223 @@ impl ConfigTool {
                     }
                 }
             }
-            key if key.starts_with("api_defaults.") => {
-                let field = &key["api_defaults.".len()..];
+            key if key.starts_with("api.") => {
+                let field = &key["api.".len()..];
                 match field {
                     "memory_search_limit" => {
-                        config.api_defaults.memory_search_limit =
-                            value.as_u64().ok_or_else(|| {
-                                ToolError::Tool(
-                                    "api_defaults.memory_search_limit must be a number".to_string(),
-                                )
-                            })? as u32;
+                        config.api.memory_search_limit = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool("api.memory_search_limit must be a number".to_string())
+                        })? as u32;
                     }
                     "session_list_limit" => {
-                        config.api_defaults.session_list_limit =
-                            value.as_u64().ok_or_else(|| {
-                                ToolError::Tool(
-                                    "api_defaults.session_list_limit must be a number".to_string(),
-                                )
-                            })? as u32;
+                        config.api.session_list_limit = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool("api.session_list_limit must be a number".to_string())
+                        })? as u32;
                     }
                     "background_progress_event_limit" => {
-                        config.api_defaults.background_progress_event_limit =
+                        config.api.background_progress_event_limit =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "api_defaults.background_progress_event_limit must be a number"
+                                    "api.background_progress_event_limit must be a number"
                                         .to_string(),
                                 )
                             })? as usize;
                     }
                     "background_message_list_limit" => {
-                        config.api_defaults.background_message_list_limit =
+                        config.api.background_message_list_limit =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "api_defaults.background_message_list_limit must be a number"
+                                    "api.background_message_list_limit must be a number"
                                         .to_string(),
                                 )
                             })? as usize;
                     }
                     "background_trace_list_limit" => {
-                        config.api_defaults.background_trace_list_limit =
+                        config.api.background_trace_list_limit =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "api_defaults.background_trace_list_limit must be a number"
-                                        .to_string(),
+                                    "api.background_trace_list_limit must be a number".to_string(),
                                 )
                             })? as usize;
                     }
                     "background_trace_line_limit" => {
-                        config.api_defaults.background_trace_line_limit =
+                        config.api.background_trace_line_limit =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "api_defaults.background_trace_line_limit must be a number"
-                                        .to_string(),
+                                    "api.background_trace_line_limit must be a number".to_string(),
                                 )
                             })? as usize;
                     }
                     "web_search_num_results" => {
-                        config.api_defaults.web_search_num_results =
-                            value.as_u64().ok_or_else(|| {
-                                ToolError::Tool(
-                                    "api_defaults.web_search_num_results must be a number"
-                                        .to_string(),
-                                )
-                            })? as usize;
+                        config.api.web_search_num_results = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "api.web_search_num_results must be a number".to_string(),
+                            )
+                        })? as usize;
                     }
                     "diagnostics_timeout_ms" => {
-                        config.api_defaults.diagnostics_timeout_ms =
-                            value.as_u64().ok_or_else(|| {
-                                ToolError::Tool(
-                                    "api_defaults.diagnostics_timeout_ms must be a number"
-                                        .to_string(),
-                                )
-                            })?;
+                        config.api.diagnostics_timeout_ms = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool(
+                                "api.diagnostics_timeout_ms must be a number".to_string(),
+                            )
+                        })?;
                     }
                     unknown => {
                         return Err(crate::ToolError::Tool(format!(
-                            "Unknown api_defaults config field: 'api_defaults.{unknown}'. Valid api_defaults fields: api_defaults.memory_search_limit, api_defaults.session_list_limit, api_defaults.background_progress_event_limit, api_defaults.background_message_list_limit, api_defaults.background_trace_list_limit, api_defaults.background_trace_line_limit, api_defaults.web_search_num_results, api_defaults.diagnostics_timeout_ms."
+                            "Unknown api config field: 'api.{unknown}'. Valid api fields: api.memory_search_limit, api.session_list_limit, api.background_progress_event_limit, api.background_message_list_limit, api.background_trace_list_limit, api.background_trace_line_limit, api.web_search_num_results, api.diagnostics_timeout_ms."
                         )));
                     }
                 }
             }
-            key if key.starts_with("runtime_defaults.") => {
-                let field = &key["runtime_defaults.".len()..];
+            key if key.starts_with("runtime.") => {
+                let field = &key["runtime.".len()..];
                 match field {
                     "background_runner_poll_interval_ms" => {
-                        config.runtime_defaults.background_runner_poll_interval_ms =
+                        config.runtime.background_runner_poll_interval_ms =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "runtime_defaults.background_runner_poll_interval_ms must be a number".to_string(),
+                                    "runtime.background_runner_poll_interval_ms must be a number"
+                                        .to_string(),
                                 )
                             })?;
                     }
                     "background_runner_max_concurrent_tasks" => {
-                        config.runtime_defaults.background_runner_max_concurrent_tasks =
+                        config.runtime.background_runner_max_concurrent_tasks =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "runtime_defaults.background_runner_max_concurrent_tasks must be a number".to_string(),
+                                    "runtime.background_runner_max_concurrent_tasks must be a number".to_string(),
                                 )
                             })? as usize;
                     }
                     "chat_max_session_history" => {
-                        config.runtime_defaults.chat_max_session_history =
+                        config.runtime.chat_max_session_history =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "runtime_defaults.chat_max_session_history must be a number"
-                                        .to_string(),
+                                    "runtime.chat_max_session_history must be a number".to_string(),
                                 )
                             })? as usize;
                     }
                     unknown => {
                         return Err(crate::ToolError::Tool(format!(
-                            "Unknown runtime_defaults config field: 'runtime_defaults.{unknown}'. Valid runtime_defaults fields: runtime_defaults.background_runner_poll_interval_ms, runtime_defaults.background_runner_max_concurrent_tasks, runtime_defaults.chat_max_session_history."
+                            "Unknown runtime config field: 'runtime.{unknown}'. Valid runtime fields: runtime.background_runner_poll_interval_ms, runtime.background_runner_max_concurrent_tasks, runtime.chat_max_session_history."
                         )));
                     }
                 }
             }
-            key if key.starts_with("channel_defaults.") => {
-                let field = &key["channel_defaults.".len()..];
+            key if key.starts_with("channel.") => {
+                let field = &key["channel.".len()..];
                 match field {
                     "telegram_api_timeout_secs" => {
-                        config.channel_defaults.telegram_api_timeout_secs =
+                        config.channel.telegram_api_timeout_secs =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "channel_defaults.telegram_api_timeout_secs must be a number"
+                                    "channel.telegram_api_timeout_secs must be a number"
                                         .to_string(),
                                 )
                             })?;
                     }
                     "telegram_polling_timeout_secs" => {
-                        config.channel_defaults.telegram_polling_timeout_secs =
+                        config.channel.telegram_polling_timeout_secs =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "channel_defaults.telegram_polling_timeout_secs must be a number".to_string(),
+                                    "channel.telegram_polling_timeout_secs must be a number"
+                                        .to_string(),
                                 )
                             })? as u32;
                     }
                     unknown => {
                         return Err(crate::ToolError::Tool(format!(
-                            "Unknown channel_defaults config field: 'channel_defaults.{unknown}'. Valid channel_defaults fields: channel_defaults.telegram_api_timeout_secs, channel_defaults.telegram_polling_timeout_secs."
+                            "Unknown channel config field: 'channel.{unknown}'. Valid channel fields: channel.telegram_api_timeout_secs, channel.telegram_polling_timeout_secs."
                         )));
                     }
                 }
             }
-            key if key.starts_with("registry_defaults.") => {
-                let field = &key["registry_defaults.".len()..];
+            key if key.starts_with("registry.") => {
+                let field = &key["registry.".len()..];
                 match field {
                     "github_cache_ttl_secs" => {
-                        config.registry_defaults.github_cache_ttl_secs =
+                        config.registry.github_cache_ttl_secs =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "registry_defaults.github_cache_ttl_secs must be a number"
-                                        .to_string(),
+                                    "registry.github_cache_ttl_secs must be a number".to_string(),
                                 )
                             })?;
                     }
                     "marketplace_cache_ttl_secs" => {
-                        config.registry_defaults.marketplace_cache_ttl_secs =
+                        config.registry.marketplace_cache_ttl_secs =
                             value.as_u64().ok_or_else(|| {
                                 ToolError::Tool(
-                                    "registry_defaults.marketplace_cache_ttl_secs must be a number"
+                                    "registry.marketplace_cache_ttl_secs must be a number"
                                         .to_string(),
                                 )
                             })?;
                     }
                     unknown => {
                         return Err(crate::ToolError::Tool(format!(
-                            "Unknown registry_defaults config field: 'registry_defaults.{unknown}'. Valid registry_defaults fields: registry_defaults.github_cache_ttl_secs, registry_defaults.marketplace_cache_ttl_secs."
+                            "Unknown registry config field: 'registry.{unknown}'. Valid registry fields: registry.github_cache_ttl_secs, registry.marketplace_cache_ttl_secs."
+                        )));
+                    }
+                }
+            }
+            key if key.starts_with("cli.") => {
+                let field = &key["cli.".len()..];
+                match field {
+                    "version" => {
+                        config.cli.version = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool("cli.version must be a number".to_string())
+                        })? as u32;
+                    }
+                    "agent" => {
+                        config.cli.agent = Self::parse_optional_string(value, "cli.agent")?;
+                    }
+                    "model" => {
+                        config.cli.model = Self::parse_optional_string(value, "cli.model")?;
+                    }
+                    "sandbox.enabled" => {
+                        config.cli.sandbox.enabled = value.as_bool().ok_or_else(|| {
+                            ToolError::Tool("cli.sandbox.enabled must be a boolean".to_string())
+                        })?;
+                    }
+                    "sandbox.env.isolate" => {
+                        config.cli.sandbox.env.isolate = value.as_bool().ok_or_else(|| {
+                            ToolError::Tool("cli.sandbox.env.isolate must be a boolean".to_string())
+                        })?;
+                    }
+                    "sandbox.env.allow" => {
+                        config.cli.sandbox.env.allow =
+                            Self::parse_string_list(value, "cli.sandbox.env.allow")?;
+                    }
+                    "sandbox.env.block" => {
+                        config.cli.sandbox.env.block =
+                            Self::parse_string_list(value, "cli.sandbox.env.block")?;
+                    }
+                    "sandbox.limits.timeout_secs" => {
+                        config.cli.sandbox.limits.timeout_secs =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "cli.sandbox.limits.timeout_secs must be a number".to_string(),
+                                )
+                            })?;
+                    }
+                    "sandbox.limits.max_output_bytes" => {
+                        config.cli.sandbox.limits.max_output_bytes =
+                            value.as_u64().ok_or_else(|| {
+                                ToolError::Tool(
+                                    "cli.sandbox.limits.max_output_bytes must be a number"
+                                        .to_string(),
+                                )
+                            })? as usize;
+                    }
+                    unknown => {
+                        return Err(crate::ToolError::Tool(format!(
+                            "Unknown cli config field: 'cli.{unknown}'. Valid cli fields: cli.version, cli.agent, cli.model, cli.sandbox.enabled, cli.sandbox.env.isolate, cli.sandbox.env.allow, cli.sandbox.env.block, cli.sandbox.limits.timeout_secs, cli.sandbox.limits.max_output_bytes."
                         )));
                     }
                 }
             }
             _ => {
                 return Err(crate::ToolError::Tool(format!(
-                    "Unknown config field: '{key}'. Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, log_file_retention_days, experimental_features, agent.*, api_defaults.*, runtime_defaults.*, channel_defaults.*, registry_defaults.*."
+                    "Unknown config field: '{key}'. Valid fields: system.*, agent.*, api.*, runtime.*, channel.*, registry.*, cli.*."
                 )));
             }
         }
@@ -477,6 +545,30 @@ impl ConfigTool {
 
         Ok(Some(result))
     }
+
+    fn parse_optional_string(value: &Value, key: &str) -> Result<Option<String>> {
+        if value.is_null() {
+            return Ok(None);
+        }
+        value
+            .as_str()
+            .map(|text| Some(text.to_string()))
+            .ok_or_else(|| ToolError::Tool(format!("{key} must be a string or null")))
+    }
+
+    fn parse_string_list(value: &Value, key: &str) -> Result<Vec<String>> {
+        let values = value
+            .as_array()
+            .ok_or_else(|| ToolError::Tool(format!("{key} must be an array of strings")))?;
+        let mut result = Vec::with_capacity(values.len());
+        for entry in values {
+            let text = entry
+                .as_str()
+                .ok_or_else(|| ToolError::Tool(format!("{key} must be an array of strings")))?;
+            result.push(text.to_string());
+        }
+        Ok(result)
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -488,7 +580,7 @@ enum ConfigAction {
     Reset,
     Set {
         #[serde(default)]
-        config: Option<Box<SystemConfig>>,
+        config: Option<Box<ConfigDocument>>,
         #[serde(default)]
         key: Option<String>,
         #[serde(default)]
@@ -541,18 +633,18 @@ impl Tool for ConfigTool {
             }
             ConfigAction::List => ToolOutput::success(json!({
                 "fields": [
-                    "worker_count",
-                    "task_timeout_seconds",
-                    "stall_timeout_seconds",
-                    "background_api_timeout_seconds",
-                    "chat_response_timeout_seconds",
-                    "max_retries",
-                    "chat_session_retention_days",
-                    "background_task_retention_days",
-                    "checkpoint_retention_days",
-                    "memory_chunk_retention_days",
-                    "log_file_retention_days",
-                    "experimental_features",
+                    "system.worker_count",
+                    "system.task_timeout_seconds",
+                    "system.stall_timeout_seconds",
+                    "system.background_api_timeout_seconds",
+                    "system.chat_response_timeout_seconds",
+                    "system.max_retries",
+                    "system.chat_session_retention_days",
+                    "system.background_task_retention_days",
+                    "system.checkpoint_retention_days",
+                    "system.memory_chunk_retention_days",
+                    "system.log_file_retention_days",
+                    "system.experimental_features",
                     "agent.tool_timeout_secs",
                     "agent.llm_timeout_secs",
                     "agent.bash_timeout_secs",
@@ -572,29 +664,39 @@ impl Tool for ConfigTool {
                     "agent.default_task_timeout_secs",
                     "agent.default_max_duration_secs",
                     "agent.fallback_models",
-                    "api_defaults.memory_search_limit",
-                    "api_defaults.session_list_limit",
-                    "api_defaults.background_progress_event_limit",
-                    "api_defaults.background_message_list_limit",
-                    "api_defaults.background_trace_list_limit",
-                    "api_defaults.background_trace_line_limit",
-                    "api_defaults.web_search_num_results",
-                    "api_defaults.diagnostics_timeout_ms",
-                    "runtime_defaults.background_runner_poll_interval_ms",
-                    "runtime_defaults.background_runner_max_concurrent_tasks",
-                    "runtime_defaults.chat_max_session_history",
-                    "channel_defaults.telegram_api_timeout_secs",
-                    "channel_defaults.telegram_polling_timeout_secs",
-                    "registry_defaults.github_cache_ttl_secs",
-                    "registry_defaults.marketplace_cache_ttl_secs"
+                    "api.memory_search_limit",
+                    "api.session_list_limit",
+                    "api.background_progress_event_limit",
+                    "api.background_message_list_limit",
+                    "api.background_trace_list_limit",
+                    "api.background_trace_line_limit",
+                    "api.web_search_num_results",
+                    "api.diagnostics_timeout_ms",
+                    "runtime.background_runner_poll_interval_ms",
+                    "runtime.background_runner_max_concurrent_tasks",
+                    "runtime.chat_max_session_history",
+                    "channel.telegram_api_timeout_secs",
+                    "channel.telegram_polling_timeout_secs",
+                    "registry.github_cache_ttl_secs",
+                    "registry.marketplace_cache_ttl_secs",
+                    "cli.version",
+                    "cli.agent",
+                    "cli.model",
+                    "cli.sandbox.enabled",
+                    "cli.sandbox.env.isolate",
+                    "cli.sandbox.env.allow",
+                    "cli.sandbox.env.block",
+                    "cli.sandbox.limits.timeout_secs",
+                    "cli.sandbox.limits.max_output_bytes"
                 ]
             })),
             ConfigAction::Reset => {
                 self.write_guard()?;
-                let config = SystemConfig::default();
-                self.storage
-                    .update_config(config.clone())
-                    .map_err(Self::storage_error)?;
+                let config = ConfigDocument::from_system_config(
+                    SystemConfig::default(),
+                    CliConfig::default(),
+                );
+                self.persist_config(&config)?;
                 ToolOutput::success(serde_json::to_value(config)?)
             }
             ConfigAction::Set { config, key, value } => {
@@ -610,9 +712,7 @@ impl Tool for ConfigTool {
                     ));
                 };
 
-                self.storage
-                    .update_config(updated.clone())
-                    .map_err(Self::storage_error)?;
+                self.persist_config(&updated)?;
                 ToolOutput::success(serde_json::to_value(updated)?)
             }
         };
@@ -695,7 +795,13 @@ mod tests {
 
         let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
         assert!(output.success);
-        assert!(output.result.get("worker_count").is_some());
+        assert!(
+            output
+                .result
+                .pointer("/system/worker_count")
+                .and_then(|value| value.as_u64())
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -706,7 +812,7 @@ mod tests {
         let result = tool
             .execute(json!({
                 "operation": "set",
-                "key": "worker_count",
+                "key": "system.worker_count",
                 "value": 8
             }))
             .await;
@@ -734,7 +840,7 @@ mod tests {
 
         assert!(message.contains("Unknown config field: 'invalid_field'"));
         assert!(message.contains(
-            "Valid fields: worker_count, task_timeout_seconds, stall_timeout_seconds, background_api_timeout_seconds, chat_response_timeout_seconds, max_retries, chat_session_retention_days, background_task_retention_days, checkpoint_retention_days, memory_chunk_retention_days, log_file_retention_days, experimental_features, agent.*, api_defaults.*, runtime_defaults.*, channel_defaults.*, registry_defaults.*"
+            "Valid fields: system.*, agent.*, api.*, runtime.*, channel.*, registry.*, cli.*."
         ));
     }
 
@@ -746,7 +852,7 @@ mod tests {
         let output = tool
             .execute(json!({
                 "operation": "set",
-                "key": "experimental_features",
+                "key": "system.experimental_features",
                 "value": ["plan_mode", "websocket_transport"]
             }))
             .await
@@ -754,7 +860,7 @@ mod tests {
         assert!(output.success);
         let values = output
             .result
-            .get("experimental_features")
+            .pointer("/system/experimental_features")
             .and_then(|value| value.as_array())
             .expect("experimental_features should be an array");
         assert_eq!(values.len(), 2);
@@ -768,7 +874,7 @@ mod tests {
         let output = tool
             .execute(json!({
                 "operation": "set",
-                "key": "background_api_timeout_seconds",
+                "key": "system.background_api_timeout_seconds",
                 "value": null
             }))
             .await
@@ -777,7 +883,7 @@ mod tests {
         assert!(
             output
                 .result
-                .get("background_api_timeout_seconds")
+                .pointer("/system/background_api_timeout_seconds")
                 .is_some_and(|v| v.is_null())
         );
     }
@@ -822,8 +928,8 @@ mod tests {
         assert!(
             fields
                 .iter()
-                .any(|field| field.as_str() == Some("log_file_retention_days")),
-            "list should expose log_file_retention_days"
+                .any(|field| field.as_str() == Some("system.log_file_retention_days")),
+            "list should expose system.log_file_retention_days"
         );
     }
 
@@ -833,11 +939,11 @@ mod tests {
         let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let updates = [
-            ("chat_session_retention_days", json!(0)),
-            ("background_task_retention_days", json!(14)),
-            ("checkpoint_retention_days", json!(5)),
-            ("memory_chunk_retention_days", json!(120)),
-            ("log_file_retention_days", json!(30)),
+            ("system.chat_session_retention_days", json!(0)),
+            ("system.background_task_retention_days", json!(14)),
+            ("system.checkpoint_retention_days", json!(5)),
+            ("system.memory_chunk_retention_days", json!(120)),
+            ("system.log_file_retention_days", json!(30)),
         ];
 
         for (key, value) in updates {
@@ -1006,19 +1112,13 @@ mod tests {
         let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let updates = [
-            (
-                "runtime_defaults.background_runner_poll_interval_ms",
-                json!(15000),
-            ),
-            (
-                "runtime_defaults.background_runner_max_concurrent_tasks",
-                json!(8),
-            ),
-            ("runtime_defaults.chat_max_session_history", json!(40)),
-            ("channel_defaults.telegram_api_timeout_secs", json!(45)),
-            ("channel_defaults.telegram_polling_timeout_secs", json!(55)),
-            ("registry_defaults.github_cache_ttl_secs", json!(900)),
-            ("registry_defaults.marketplace_cache_ttl_secs", json!(450)),
+            ("runtime.background_runner_poll_interval_ms", json!(15000)),
+            ("runtime.background_runner_max_concurrent_tasks", json!(8)),
+            ("runtime.chat_max_session_history", json!(40)),
+            ("channel.telegram_api_timeout_secs", json!(45)),
+            ("channel.telegram_polling_timeout_secs", json!(55)),
+            ("registry.github_cache_ttl_secs", json!(900)),
+            ("registry.marketplace_cache_ttl_secs", json!(450)),
         ];
 
         for (key, value) in updates {
@@ -1040,49 +1140,49 @@ mod tests {
         assert_eq!(
             output
                 .result
-                .pointer("/runtime_defaults/background_runner_poll_interval_ms")
+                .pointer("/runtime/background_runner_poll_interval_ms")
                 .and_then(|value| value.as_u64()),
             Some(15000)
         );
         assert_eq!(
             output
                 .result
-                .pointer("/runtime_defaults/background_runner_max_concurrent_tasks")
+                .pointer("/runtime/background_runner_max_concurrent_tasks")
                 .and_then(|value| value.as_u64()),
             Some(8)
         );
         assert_eq!(
             output
                 .result
-                .pointer("/runtime_defaults/chat_max_session_history")
+                .pointer("/runtime/chat_max_session_history")
                 .and_then(|value| value.as_u64()),
             Some(40)
         );
         assert_eq!(
             output
                 .result
-                .pointer("/channel_defaults/telegram_api_timeout_secs")
+                .pointer("/channel/telegram_api_timeout_secs")
                 .and_then(|value| value.as_u64()),
             Some(45)
         );
         assert_eq!(
             output
                 .result
-                .pointer("/channel_defaults/telegram_polling_timeout_secs")
+                .pointer("/channel/telegram_polling_timeout_secs")
                 .and_then(|value| value.as_u64()),
             Some(55)
         );
         assert_eq!(
             output
                 .result
-                .pointer("/registry_defaults/github_cache_ttl_secs")
+                .pointer("/registry/github_cache_ttl_secs")
                 .and_then(|value| value.as_u64()),
             Some(900)
         );
         assert_eq!(
             output
                 .result
-                .pointer("/registry_defaults/marketplace_cache_ttl_secs")
+                .pointer("/registry/marketplace_cache_ttl_secs")
                 .and_then(|value| value.as_u64()),
             Some(450)
         );
@@ -1128,14 +1228,14 @@ mod tests {
         let tool = ConfigTool::new(ctx.storage).with_write(true);
 
         let updates = [
-            ("api_defaults.memory_search_limit", json!(25)),
-            ("api_defaults.session_list_limit", json!(30)),
-            ("api_defaults.background_progress_event_limit", json!(12)),
-            ("api_defaults.background_message_list_limit", json!(60)),
-            ("api_defaults.background_trace_list_limit", json!(80)),
-            ("api_defaults.background_trace_line_limit", json!(300)),
-            ("api_defaults.web_search_num_results", json!(7)),
-            ("api_defaults.diagnostics_timeout_ms", json!(9000)),
+            ("api.memory_search_limit", json!(25)),
+            ("api.session_list_limit", json!(30)),
+            ("api.background_progress_event_limit", json!(12)),
+            ("api.background_message_list_limit", json!(60)),
+            ("api.background_trace_list_limit", json!(80)),
+            ("api.background_trace_line_limit", json!(300)),
+            ("api.web_search_num_results", json!(7)),
+            ("api.diagnostics_timeout_ms", json!(9000)),
         ];
 
         for (key, value) in updates {
@@ -1146,30 +1246,18 @@ mod tests {
                     "value": value
                 }))
                 .await
-                .unwrap_or_else(|err| {
-                    panic!("set should support api_defaults field '{key}': {err}")
-                });
-            assert!(
-                output.success,
-                "set should succeed for api_defaults field '{key}'"
-            );
+                .unwrap_or_else(|err| panic!("set should support api field '{key}': {err}"));
+            assert!(output.success, "set should succeed for api field '{key}'");
         }
 
         let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
-        let api_defaults = output
-            .result
-            .get("api_defaults")
-            .expect("api_defaults block should exist");
+        let api = output.result.get("api").expect("api block should exist");
         assert_eq!(
-            api_defaults
-                .get("web_search_num_results")
-                .and_then(|v| v.as_u64()),
+            api.get("web_search_num_results").and_then(|v| v.as_u64()),
             Some(7)
         );
         assert_eq!(
-            api_defaults
-                .get("diagnostics_timeout_ms")
-                .and_then(|v| v.as_u64()),
+            api.get("diagnostics_timeout_ms").and_then(|v| v.as_u64()),
             Some(9000)
         );
     }
