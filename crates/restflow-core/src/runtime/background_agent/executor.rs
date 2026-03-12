@@ -12,7 +12,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::runtime::ExecutionContext;
+use crate::runtime::{AgentOrchestratorImpl, ExecutionContext};
 use crate::{
     AIModel, Provider,
     auth::{AuthProfileManager, AuthProvider},
@@ -53,11 +53,12 @@ use super::skill_snapshot::{
 use crate::runtime::agent::{
     BashConfig, SubagentDeps, SubagentManager, SubagentManagerImpl, ToolRegistry,
     build_agent_system_prompt, effective_main_agent_tool_names, main_agent_default_tool_names,
-    registry_from_allowlist,
-    secret_resolver_from_storage,
+    registry_from_allowlist, secret_resolver_from_storage,
 };
 use restflow_ai::agent::SubagentDefLookup;
-use restflow_ai::agent::{SubagentConfig, SubagentExecutionBridge, SubagentTracker, spawn_subagent};
+use restflow_ai::agent::{
+    SubagentConfig, SubagentExecutionBridge, SubagentTracker, spawn_subagent,
+};
 use restflow_ai::llm::LlmSwitcherImpl;
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
@@ -68,6 +69,7 @@ use restflow_ai::llm::LlmSwitcherImpl;
 /// - Creates the appropriate LLM client for the model
 /// - Builds the system prompt from the agent's skill
 /// - Executes the agent via the ReAct loop
+#[derive(Clone)]
 pub struct AgentRuntimeExecutor {
     storage: Arc<Storage>,
     process_registry: Arc<ProcessRegistry>,
@@ -169,7 +171,10 @@ impl AgentRuntimeExecutor {
             .ok_or_else(|| anyhow!("Session not found: {}", session_id))
     }
 
-    pub(crate) async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> Result<ExecutionOutcome> {
+    pub(crate) async fn execute_subagent_plan(
+        &self,
+        plan: ExecutionPlan,
+    ) -> Result<ExecutionOutcome> {
         let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
         let factory: Arc<dyn LlmClientFactory> = Arc::new(DefaultLlmClientFactory::new(
             self.build_api_keys(None, Provider::OpenAI).await,
@@ -701,7 +706,9 @@ impl AgentRuntimeExecutor {
             tool_registry,
             config: self.subagent_config.clone(),
             llm_client_factory,
-            orchestrator: None,
+            orchestrator: Some(Arc::new(AgentOrchestratorImpl::from_runtime_executor(
+                self.clone(),
+            ))),
         }
     }
 
@@ -2536,6 +2543,19 @@ mod tests {
         let executor = create_test_executor(storage);
         // Executor should be created successfully
         assert!(Arc::strong_count(&executor.storage) >= 1);
+    }
+
+    #[test]
+    fn test_build_subagent_deps_attaches_shared_orchestrator() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = create_test_executor(storage);
+        let deps = executor.build_subagent_deps(
+            Arc::new(CodexClient::new()),
+            Arc::new(ToolRegistry::new()),
+            None,
+        );
+
+        assert!(deps.orchestrator.is_some());
     }
 
     #[test]
