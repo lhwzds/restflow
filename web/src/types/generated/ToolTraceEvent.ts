@@ -3,4 +3,4 @@
 /**
  * Event type for a persisted tool trace record.
  */
-export type ToolTraceEvent = "turn_started" | "tool_call_started" | "tool_call_completed" | "turn_completed" | "turn_failed" | "turn_cancelled";
+export type ToolTraceEvent = "turn_started" | "tool_call_started" | "tool_call_completed" | "turn_completed" | "turn_failed" | "turn_interrupted";

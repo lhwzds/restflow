@@ -22,8 +22,8 @@ pub enum ToolTraceEvent {
     TurnCompleted,
     /// A turn failed.
     TurnFailed,
-    /// A turn was cancelled.
-    TurnCancelled,
+    /// A turn was interrupted.
+    TurnInterrupted,
 }
 
 /// Append-only execution event for chat turns.
@@ -116,13 +116,13 @@ impl ToolTrace {
         event
     }
 
-    /// Create a turn cancelled event.
-    pub fn turn_cancelled(
+    /// Create a turn interrupted event.
+    pub fn turn_interrupted(
         session_id: impl Into<String>,
         turn_id: impl Into<String>,
         reason: impl Into<String>,
     ) -> Self {
-        let mut event = Self::base(session_id, turn_id, ToolTraceEvent::TurnCancelled);
+        let mut event = Self::base(session_id, turn_id, ToolTraceEvent::TurnInterrupted);
         event.error = Some(reason.into());
         event
     }

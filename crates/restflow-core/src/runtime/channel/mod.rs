@@ -71,7 +71,7 @@ mod turn_persistence;
 mod voice_transcript;
 
 pub use crate::runtime::trace::{
-    append_turn_cancelled, append_turn_completed, append_turn_completed_with_execution,
+    append_turn_interrupted, append_turn_completed, append_turn_completed_with_execution,
     append_turn_failed, append_turn_failed_with_execution, append_turn_started,
     append_turn_started_with_execution,
 };

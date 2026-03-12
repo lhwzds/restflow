@@ -16,7 +16,7 @@ pub enum HookEvent {
     TaskStarted,
     TaskCompleted,
     TaskFailed,
-    TaskCancelled,
+    TaskInterrupted,
     ToolExecuted,
     ApprovalRequired,
 }
@@ -27,7 +27,7 @@ impl HookEvent {
             Self::TaskStarted => "task_started",
             Self::TaskCompleted => "task_completed",
             Self::TaskFailed => "task_failed",
-            Self::TaskCancelled => "task_cancelled",
+            Self::TaskInterrupted => "task_interrupted",
             Self::ToolExecuted => "tool_executed",
             Self::ApprovalRequired => "approval_required",
         }
@@ -190,9 +190,9 @@ impl HookContext {
         }
     }
 
-    pub fn from_cancelled(task: &BackgroundAgent, error: &str, duration_ms: i64) -> Self {
+    pub fn from_interrupted(task: &BackgroundAgent, error: &str, duration_ms: i64) -> Self {
         Self {
-            event: HookEvent::TaskCancelled,
+            event: HookEvent::TaskInterrupted,
             task_id: task.id.clone(),
             task_name: task.name.clone(),
             agent_id: task.agent_id.clone(),

@@ -339,7 +339,7 @@ pub fn spawn_subagent(
                 duration_ms: 0,
                 tokens_used: None,
                 cost_usd: None,
-                error: Some("Sub-agent registration cancelled".to_string()),
+                error: Some("Sub-agent registration interrupted".to_string()),
             };
         }
         let start = std::time::Instant::now();

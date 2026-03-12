@@ -6,7 +6,7 @@ export type ToolTraceEventType =
   | 'tool_call_completed'
   | 'turn_completed'
   | 'turn_failed'
-  | 'turn_cancelled'
+  | 'turn_interrupted'
 
 export interface ToolTrace {
   id: string

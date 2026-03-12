@@ -92,8 +92,8 @@ error: string,
 /**
  * Partial content generated before failure
  */
-partial_content: string | null, } | { "type": "cancelled", 
+partial_content: string | null, } | { "type": "interrupted", 
 /**
- * Partial content generated before cancellation
+ * Partial content generated before interruption
  */
 partial_content: string | null, };

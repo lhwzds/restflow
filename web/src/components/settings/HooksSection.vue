@@ -72,7 +72,7 @@ const hookEvents: HookEvent[] = [
   'task_started',
   'task_completed',
   'task_failed',
-  'task_cancelled',
+  'task_interrupted',
   'tool_executed',
   'approval_required',
 ]

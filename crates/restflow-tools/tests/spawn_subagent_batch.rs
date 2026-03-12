@@ -406,7 +406,7 @@ async fn test_spawn_subagent_batch_save_as_team_persists_and_reloads() {
     assert!(get_output.success);
     assert_eq!(get_output.result["team"], "SavedTeam");
     assert_eq!(get_output.result["total_instances"], 2);
-    let spec = get_output.result["specs"][0].clone();
+    let spec = get_output.result["members"][0].clone();
     assert_eq!(spec["count"], 2);
     assert!(spec.get("task").is_none() || spec["task"].is_null());
     assert!(spec.get("tasks").is_none() || spec["tasks"].is_null());
@@ -643,8 +643,7 @@ async fn test_spawn_subagent_batch_rejects_task_and_tasks_combined() {
     assert!(result.is_err());
     let message = result.unwrap_err().to_string();
     assert!(
-        message.contains("either 'task' or 'tasks'")
-            || message.contains("both 'task' and 'tasks'")
+        message.contains("either 'task' or 'tasks'") || message.contains("both 'task' and 'tasks'")
     );
 }
 
@@ -668,5 +667,54 @@ async fn test_spawn_subagent_batch_rejects_tasks_count_mismatch() {
             .unwrap_err()
             .to_string()
             .contains("Set count to 1 (default) or match tasks length")
+    );
+}
+
+#[tokio::test]
+async fn test_spawn_subagent_batch_get_team_normalizes_legacy_specs_payload() {
+    let manager = make_manager(vec![("coder", "Coder")], vec![]);
+    let kv_store = Arc::new(MockKvStore::default());
+    kv_store
+        .set_entry(
+            "subagent_team:LegacyTeam",
+            &json!({
+                "version": 1,
+                "name": "LegacyTeam",
+                "specs": [
+                    {
+                        "agent": "coder",
+                        "tasks": ["task-1", "task-2"]
+                    }
+                ],
+                "created_at": 1,
+                "updated_at": 2
+            })
+            .to_string(),
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect("store legacy team");
+    let kv_store: Arc<dyn KvStore> = kv_store;
+    let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
+
+    let output = tool
+        .execute(json!({
+            "operation": "get_team",
+            "team": "LegacyTeam"
+        }))
+        .await
+        .unwrap();
+
+    assert!(output.success);
+    assert_eq!(output.result["team"], "LegacyTeam");
+    assert_eq!(output.result["member_groups"], 1);
+    assert_eq!(output.result["total_instances"], 2);
+    assert_eq!(output.result["members"][0]["count"], 2);
+    assert!(
+        output.result["members"][0].get("tasks").is_none()
+            || output.result["members"][0]["tasks"].is_null()
     );
 }

@@ -120,9 +120,9 @@ pub enum ChatStreamKind {
         partial_content: Option<String>,
     },
 
-    /// Stream cancelled by user
-    Cancelled {
-        /// Partial content generated before cancellation
+    /// Stream interrupted by user
+    Interrupted {
+        /// Partial content generated before interruption
         partial_content: Option<String>,
     },
 }
@@ -294,13 +294,17 @@ impl ChatStreamEvent {
         }
     }
 
-    /// Create a cancelled event
-    pub fn cancelled(session_id: &str, message_id: &str, partial_content: Option<String>) -> Self {
+    /// Create an interrupted event
+    pub fn interrupted(
+        session_id: &str,
+        message_id: &str,
+        partial_content: Option<String>,
+    ) -> Self {
         Self {
             session_id: session_id.to_string(),
             message_id: message_id.to_string(),
             timestamp: Self::now(),
-            kind: ChatStreamKind::Cancelled { partial_content },
+            kind: ChatStreamKind::Interrupted { partial_content },
         }
     }
 }

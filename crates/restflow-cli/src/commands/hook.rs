@@ -127,7 +127,7 @@ fn parse_event(value: &str) -> Result<HookEvent> {
         "task_started" | "started" => Ok(HookEvent::TaskStarted),
         "task_completed" | "completed" => Ok(HookEvent::TaskCompleted),
         "task_failed" | "failed" => Ok(HookEvent::TaskFailed),
-        "task_cancelled" | "cancelled" | "canceled" => Ok(HookEvent::TaskCancelled),
+        "task_interrupted" | "interrupted" => Ok(HookEvent::TaskInterrupted),
         "tool_executed" => Ok(HookEvent::ToolExecuted),
         "approval_required" => Ok(HookEvent::ApprovalRequired),
         _ => anyhow::bail!("Unsupported hook event: {}", value),
@@ -173,7 +173,7 @@ fn sample_context(event: &HookEvent) -> HookContext {
     let now = chrono::Utc::now().timestamp_millis();
 
     match event {
-        HookEvent::TaskFailed | HookEvent::TaskCancelled => HookContext {
+        HookEvent::TaskFailed | HookEvent::TaskInterrupted => HookContext {
             event: event.clone(),
             task_id: "hook-test-task".to_string(),
             task_name: "hook-test-task".to_string(),

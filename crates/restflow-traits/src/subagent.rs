@@ -235,7 +235,7 @@ pub enum SubagentStatus {
     Running,
     Completed,
     Failed,
-    Cancelled,
+    Interrupted,
     TimedOut,
 }
 

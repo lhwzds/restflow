@@ -588,7 +588,7 @@ impl IpcServer {
             append_trace_event(
                 &core.storage.tool_traces,
                 Some(&core.storage.execution_traces),
-                &TraceEvent::run_cancelled(
+                &TraceEvent::run_interrupted(
                     trace,
                     "replaced by a newer stream with the same stream_id",
                     None,
@@ -614,7 +614,7 @@ impl IpcServer {
                 append_trace_event(
                     &core.storage.tool_traces,
                     Some(&core.storage.execution_traces),
-                    &TraceEvent::run_cancelled(
+                    &TraceEvent::run_interrupted(
                         trace,
                         "replaced by a newer stream for the same session",
                         None,
@@ -711,18 +711,18 @@ impl IpcServer {
         }
 
         if !reached_terminal {
-            // Worker stopped unexpectedly (usually canceled).
+            // Worker stopped unexpectedly (usually interrupted).
             let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
             append_trace_event(
                 &core.storage.tool_traces,
                 Some(&core.storage.execution_traces),
-                &TraceEvent::run_cancelled(trace, "chat stream cancelled", None),
+                &TraceEvent::run_interrupted(trace, "chat stream interrupted", None),
             );
             let _ = Self::send_stream_frame(
                 stream,
                 &StreamFrame::Error {
                     code: 499,
-                    message: "Chat stream cancelled".to_string(),
+                    message: "Chat stream interrupted".to_string(),
                 },
             )
             .await;
@@ -2697,7 +2697,7 @@ fn parse_background_agent_status(status: &str) -> Result<BackgroundAgentStatus> 
 fn sample_hook_context(event: &HookEvent) -> HookContext {
     let now = chrono::Utc::now().timestamp_millis();
     match event {
-        HookEvent::TaskFailed | HookEvent::TaskCancelled => HookContext {
+        HookEvent::TaskFailed | HookEvent::TaskInterrupted => HookContext {
             event: event.clone(),
             task_id: "hook-test-task".to_string(),
             task_name: "hook test task".to_string(),

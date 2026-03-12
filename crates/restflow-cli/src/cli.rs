@@ -537,7 +537,7 @@ pub enum HookCommands {
         #[arg(long)]
         name: String,
 
-        /// One of: task_started, task_completed, task_failed, task_cancelled
+        /// One of: task_started, task_completed, task_failed, task_interrupted
         #[arg(long)]
         event: String,
 

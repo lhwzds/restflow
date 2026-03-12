@@ -208,7 +208,7 @@ export function useChatStream(sessionId: () => string | null) {
         continue
       }
 
-      if (event.event_type === 'turn_failed' || event.event_type === 'turn_cancelled') {
+      if (event.event_type === 'turn_failed' || event.event_type === 'turn_interrupted') {
         for (const step of steps) {
           if (step.status === 'running') {
             step.status = 'failed'
@@ -375,7 +375,7 @@ export function useChatStream(sessionId: () => string | null) {
           }
           break
 
-        case 'cancelled':
+        case 'interrupted':
           state.value.isStreaming = false
           if ('partial_content' in kind && kind.partial_content) {
             state.value.content = kind.partial_content

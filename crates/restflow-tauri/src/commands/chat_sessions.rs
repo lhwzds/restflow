@@ -472,7 +472,7 @@ pub async fn send_chat_message_stream(
                         StreamFrame::SessionEvent { .. } => {}
                         StreamFrame::Error { code, message } => {
                             if code == 499 {
-                                stream_state.emit_cancelled();
+                                stream_state.emit_interrupted();
                             } else {
                                 stream_state.emit_failed(&message);
                             }

@@ -1492,7 +1492,7 @@ impl BackgroundAgentRunner {
                 append_trace_event(
                     &tool_trace_storage,
                     Some(execution_trace_storage),
-                    &TraceEvent::run_cancelled(
+                    &TraceEvent::run_interrupted(
                         restflow_trace.clone(),
                         "Stopped by user",
                         Some(duration_ms.max(0) as u64),
@@ -1503,13 +1503,13 @@ impl BackgroundAgentRunner {
                     let _ = pump.await;
                 }
                 self.event_emitter
-                    .emit(TaskStreamEvent::cancelled(
+                    .emit(TaskStreamEvent::interrupted(
                         task_id,
                         "Stopped by user",
                         duration_ms,
                     ))
                     .await;
-                self.fire_hooks(&HookContext::from_cancelled(
+                self.fire_hooks(&HookContext::from_interrupted(
                     &task,
                     "Stopped by user",
                     duration_ms,
@@ -1564,20 +1564,20 @@ impl BackgroundAgentRunner {
                         append_trace_event(
                             &tool_trace_storage,
                             Some(execution_trace_storage),
-                            &TraceEvent::run_cancelled(
+                            &TraceEvent::run_interrupted(
                                 restflow_trace.clone(),
                                 "Paused by user",
                                 Some(duration_ms.max(0) as u64),
                             ),
                         );
                         self.event_emitter
-                            .emit(TaskStreamEvent::cancelled(
+                            .emit(TaskStreamEvent::interrupted(
                                 task_id,
                                 "Paused by user",
                                 duration_ms,
                             ))
                             .await;
-                        self.fire_hooks(&HookContext::from_cancelled(
+                        self.fire_hooks(&HookContext::from_interrupted(
                             &task,
                             "Paused by user",
                             duration_ms,
@@ -1595,20 +1595,20 @@ impl BackgroundAgentRunner {
                         append_trace_event(
                             &tool_trace_storage,
                             Some(execution_trace_storage),
-                            &TraceEvent::run_cancelled(
+                            &TraceEvent::run_interrupted(
                                 restflow_trace.clone(),
                                 "Stopped by user",
                                 Some(duration_ms.max(0) as u64),
                             ),
                         );
                         self.event_emitter
-                            .emit(TaskStreamEvent::cancelled(
+                            .emit(TaskStreamEvent::interrupted(
                                 task_id,
                                 "Stopped by user",
                                 duration_ms,
                             ))
                             .await;
-                        self.fire_hooks(&HookContext::from_cancelled(
+                        self.fire_hooks(&HookContext::from_interrupted(
                             &task,
                             "Stopped by user",
                             duration_ms,
@@ -1629,20 +1629,20 @@ impl BackgroundAgentRunner {
                         append_trace_event(
                             &tool_trace_storage,
                             Some(execution_trace_storage),
-                            &TraceEvent::run_cancelled(
+                            &TraceEvent::run_interrupted(
                                 restflow_trace.clone(),
                                 "Task deleted",
                                 Some(duration_ms.max(0) as u64),
                             ),
                         );
                         self.event_emitter
-                            .emit(TaskStreamEvent::cancelled(
+                            .emit(TaskStreamEvent::interrupted(
                                 task_id,
                                 "Task deleted",
                                 duration_ms,
                             ))
                             .await;
-                        self.fire_hooks(&HookContext::from_cancelled(
+                        self.fire_hooks(&HookContext::from_interrupted(
                             &task,
                             "Task deleted",
                             duration_ms,
