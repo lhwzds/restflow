@@ -102,6 +102,10 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         Cell::new(config.agent.max_iterations),
     ]);
     table.add_row(vec![
+        Cell::new("agent.max_depth"),
+        Cell::new(config.agent.max_depth),
+    ]);
+    table.add_row(vec![
         Cell::new("agent.tool_timeout_secs"),
         Cell::new(config.agent.tool_timeout_secs),
     ]);
@@ -327,6 +331,7 @@ async fn get_config_value(
         "agent.process_session_ttl_secs" => json!(config.agent.process_session_ttl_secs),
         "agent.approval_timeout_secs" => json!(config.agent.approval_timeout_secs),
         "agent.max_iterations" => json!(config.agent.max_iterations),
+        "agent.max_depth" => json!(config.agent.max_depth),
         "agent.subagent_timeout_secs" => json!(config.agent.subagent_timeout_secs),
         "agent.max_parallel_subagents" => json!(config.agent.max_parallel_subagents),
         "agent.max_tool_calls" => json!(config.agent.max_tool_calls),
@@ -507,6 +512,9 @@ async fn set_config_value(
             }
             "agent.max_iterations" => {
                 config.agent.max_iterations = parse_value(value)?;
+            }
+            "agent.max_depth" => {
+                config.agent.max_depth = parse_value(value)?;
             }
             "agent.subagent_timeout_secs" => {
                 config.agent.subagent_timeout_secs = parse_value(value)?;
@@ -808,6 +816,23 @@ mod tests {
 
         let config = ctx.executor.get_config().await.expect("get config");
         assert_eq!(config.log_file_retention_days, 45);
+    }
+
+    #[tokio::test]
+    async fn test_set_config_supports_agent_max_depth() {
+        let ctx = setup_executor().await;
+
+        set_config_value(
+            ctx.executor.clone(),
+            "agent.max_depth",
+            "4",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("set config should support agent.max_depth");
+
+        let config = ctx.executor.get_config().await.expect("get config");
+        assert_eq!(config.agent.max_depth, 4);
     }
 
     #[tokio::test]

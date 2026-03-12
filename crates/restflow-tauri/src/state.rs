@@ -251,7 +251,7 @@ fn subagent_config_from_system_config(config: &SystemConfig) -> SubagentConfig {
         max_parallel_agents: config.agent.max_parallel_subagents,
         subagent_timeout_secs: config.agent.subagent_timeout_secs,
         max_iterations: config.agent.max_iterations,
-        ..SubagentConfig::default()
+        max_depth: config.agent.max_depth,
     }
 }
 
@@ -411,13 +411,14 @@ mod tests {
         config.agent.max_parallel_subagents = 88;
         config.agent.subagent_timeout_secs = 7200;
         config.agent.max_iterations = 144;
+        config.agent.max_depth = 5;
 
         let mapped = subagent_config_from_system_config(&config);
 
         assert_eq!(mapped.max_parallel_agents, 88);
         assert_eq!(mapped.subagent_timeout_secs, 7200);
         assert_eq!(mapped.max_iterations, 144);
-        assert_eq!(mapped.max_depth, SubagentConfig::default().max_depth);
+        assert_eq!(mapped.max_depth, 5);
     }
 
     #[test]
@@ -427,6 +428,7 @@ mod tests {
         config.agent.max_parallel_subagents = 22;
         config.agent.subagent_timeout_secs = 4800;
         config.agent.max_iterations = 199;
+        config.agent.max_depth = 6;
 
         shared.update(subagent_config_from_system_config(&config));
         let snapshot = shared.snapshot();
@@ -434,5 +436,6 @@ mod tests {
         assert_eq!(snapshot.max_parallel_agents, 22);
         assert_eq!(snapshot.subagent_timeout_secs, 4800);
         assert_eq!(snapshot.max_iterations, 199);
+        assert_eq!(snapshot.max_depth, 6);
     }
 }

@@ -115,7 +115,7 @@ fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
         max_parallel_agents: defaults.max_parallel_subagents,
         subagent_timeout_secs: defaults.subagent_timeout_secs,
         max_iterations: defaults.max_iterations,
-        ..SubagentConfig::default()
+        max_depth: defaults.max_depth,
     }
 }
 
@@ -567,6 +567,7 @@ mod tests {
             max_parallel_subagents: 64,
             subagent_timeout_secs: 900,
             max_iterations: 123,
+            max_depth: 7,
             ..AgentDefaults::default()
         };
 
@@ -575,7 +576,7 @@ mod tests {
         assert_eq!(config.max_parallel_agents, 64);
         assert_eq!(config.subagent_timeout_secs, 900);
         assert_eq!(config.max_iterations, 123);
-        assert_eq!(config.max_depth, SubagentConfig::default().max_depth);
+        assert_eq!(config.max_depth, 7);
     }
 
     #[allow(clippy::type_complexity)]
@@ -2375,8 +2376,8 @@ mod tests {
                 }),
                 task: "Say done".to_string(),
                 timeout_secs: Some(30),
-                priority: None,
                 max_iterations: None,
+                priority: None,
                 model: Some("mock-model".to_string()),
                 model_provider: None,
                 parent_execution_id: None,
@@ -2481,6 +2482,7 @@ mod tests {
                 inline: None,
                 task: "Say done".to_string(),
                 timeout_secs: Some(30),
+                max_iterations: None,
                 priority: None,
                 model: Some("mock-model".to_string()),
                 model_provider: Some("openai".to_string()),

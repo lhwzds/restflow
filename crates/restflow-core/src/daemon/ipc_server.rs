@@ -2367,7 +2367,7 @@ fn subagent_config_from_defaults(defaults: &AgentDefaults) -> SubagentConfig {
         max_parallel_agents: defaults.max_parallel_subagents,
         subagent_timeout_secs: defaults.subagent_timeout_secs,
         max_iterations: defaults.max_iterations,
-        ..SubagentConfig::default()
+        max_depth: defaults.max_depth,
     }
 }
 
@@ -2796,6 +2796,7 @@ mod tests {
             max_parallel_subagents: 21,
             subagent_timeout_secs: 1200,
             max_iterations: 111,
+            max_depth: 4,
             ..AgentDefaults::default()
         };
 
@@ -2804,7 +2805,7 @@ mod tests {
         assert_eq!(config.max_parallel_agents, 21);
         assert_eq!(config.subagent_timeout_secs, 1200);
         assert_eq!(config.max_iterations, 111);
-        assert_eq!(config.max_depth, SubagentConfig::default().max_depth);
+        assert_eq!(config.max_depth, 4);
     }
 
     #[tokio::test]

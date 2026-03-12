@@ -215,6 +215,11 @@ impl ConfigTool {
                             ToolError::Tool("agent.max_iterations must be a number".to_string())
                         })? as usize;
                     }
+                    "max_depth" => {
+                        config.agent.max_depth = value.as_u64().ok_or_else(|| {
+                            ToolError::Tool("agent.max_depth must be a number".to_string())
+                        })? as usize;
+                    }
                     "subagent_timeout_secs" => {
                         config.agent.subagent_timeout_secs = value.as_u64().ok_or_else(|| {
                             ToolError::Tool(
@@ -288,7 +293,7 @@ impl ConfigTool {
                     }
                     unknown => {
                         return Err(crate::ToolError::Tool(format!(
-                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.llm_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.browser_timeout_secs, agent.process_session_ttl_secs, agent.approval_timeout_secs, agent.max_iterations, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_tool_concurrency, agent.max_tool_result_length, agent.prune_tool_max_chars, agent.compact_preserve_tokens, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs, agent.fallback_models."
+                            "Unknown agent config field: 'agent.{unknown}'. Valid agent fields: agent.tool_timeout_secs, agent.llm_timeout_secs, agent.bash_timeout_secs, agent.python_timeout_secs, agent.browser_timeout_secs, agent.process_session_ttl_secs, agent.approval_timeout_secs, agent.max_iterations, agent.max_depth, agent.subagent_timeout_secs, agent.max_parallel_subagents, agent.max_tool_calls, agent.max_tool_concurrency, agent.max_tool_result_length, agent.prune_tool_max_chars, agent.compact_preserve_tokens, agent.max_wall_clock_secs, agent.default_task_timeout_secs, agent.default_max_duration_secs, agent.fallback_models."
                         )));
                     }
                 }
@@ -654,6 +659,7 @@ impl Tool for ConfigTool {
                     "agent.process_session_ttl_secs",
                     "agent.approval_timeout_secs",
                     "agent.max_iterations",
+                    "agent.max_depth",
                     "agent.subagent_timeout_secs",
                     "agent.max_parallel_subagents",
                     "agent.max_tool_calls",
@@ -978,6 +984,7 @@ mod tests {
             ("agent.process_session_ttl_secs", json!(5400)),
             ("agent.approval_timeout_secs", json!(420)),
             ("agent.max_iterations", json!(50)),
+            ("agent.max_depth", json!(4)),
             ("agent.subagent_timeout_secs", json!(900)),
             ("agent.max_parallel_subagents", json!(12)),
             ("agent.max_tool_calls", json!(300)),
@@ -1025,6 +1032,7 @@ mod tests {
             agent.get("max_iterations").and_then(|v| v.as_u64()),
             Some(50)
         );
+        assert_eq!(agent.get("max_depth").and_then(|v| v.as_u64()), Some(4));
         assert_eq!(
             agent.get("browser_timeout_secs").and_then(|v| v.as_u64()),
             Some(240)
