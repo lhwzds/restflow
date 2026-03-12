@@ -8,7 +8,8 @@ use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::storage::SystemConfig;
 use restflow_storage::{
-    CliConfig, ConfigDocument, effective_config_sources, load_cli_config, write_cli_config,
+    CliConfig, ConfigDocument, effective_config_sources, load_cli_config, load_global_cli_config,
+    write_cli_config,
 };
 
 pub async fn run(
@@ -392,7 +393,7 @@ async fn get_config_value(
         "cli.sandbox.limits.max_output_bytes" => {
             json!(config.cli.sandbox.limits.max_output_bytes)
         }
-        "effective_sources" => json!(effective_config_sources()?),
+        "_effective_sources" | "effective_sources" => json!(effective_config_sources()?),
         _ => bail!("Unsupported config key: {key}"),
     };
 
@@ -411,7 +412,7 @@ async fn set_config_value(
     format: OutputFormat,
 ) -> Result<()> {
     if key.starts_with("cli.") {
-        let mut config = load_cli_config()?;
+        let mut config = load_global_cli_config()?;
         match key {
             "cli.version" => {
                 config.version = parse_value(value)?;
@@ -538,9 +539,7 @@ async fn set_config_value(
                 config.agent.default_max_duration_secs = parse_value(value)?;
             }
             "agent.fallback_models" => {
-                let models: Vec<String> = serde_json::from_str(value)
-                    .map_err(|e| anyhow::anyhow!("Invalid JSON array: {}", e))?;
-                config.agent.fallback_models = Some(models);
+                config.agent.fallback_models = parse_optional_string_list(value)?;
             }
             "api.memory_search_limit" => {
                 config.api_defaults.memory_search_limit = parse_value(value)?;
@@ -612,7 +611,7 @@ async fn reset_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) 
         return print_json(&json!({ "reset": true }));
     }
 
-    println!("Configuration reset to defaults.");
+    println!("Global configuration reset to defaults. Workspace overrides may still apply.");
     Ok(())
 }
 
@@ -650,6 +649,17 @@ fn parse_optional_string(value: &str) -> Option<String> {
 
 fn parse_string_list(value: &str) -> Result<Vec<String>> {
     serde_json::from_str(value).map_err(|e| anyhow::anyhow!("Invalid JSON array: {}", e))
+}
+
+fn parse_optional_string_list(value: &str) -> Result<Option<Vec<String>>> {
+    let normalized = value.trim();
+    if normalized.eq_ignore_ascii_case("none")
+        || normalized.eq_ignore_ascii_case("null")
+        || normalized.eq_ignore_ascii_case("unset")
+    {
+        return Ok(None);
+    }
+    parse_string_list(normalized).map(Some)
 }
 
 fn format_optional_string(value: Option<&str>) -> String {
@@ -690,7 +700,7 @@ fn format_optional_u64(value: Option<u64>) -> String {
 mod tests {
     use super::*;
     use crate::executor::{CommandExecutor, direct::DirectExecutor};
-    use restflow_storage::load_cli_config;
+    use restflow_storage::{load_cli_config, load_global_cli_config};
     use std::env;
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
@@ -838,5 +848,82 @@ mod tests {
 
         let cli = load_cli_config().expect("load cli config");
         assert_eq!(cli.agent.as_deref(), Some("planner"));
+    }
+
+    #[tokio::test]
+    async fn test_set_config_cli_write_preserves_workspace_overrides() {
+        let ctx = setup_executor().await;
+        let workspace_path = ctx._temp_dir.path().join("workspace-config.toml");
+        std::fs::write(&workspace_path, "[cli]\nagent = \"workspace-agent\"\n")
+            .expect("write workspace config");
+        let _workspace_guard = EnvGuard::set_path("RESTFLOW_WORKSPACE_CONFIG", &workspace_path);
+
+        set_config_value(
+            ctx.executor.clone(),
+            "cli.model",
+            "gpt-5",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("set config should support cli.model");
+
+        let global_cli = load_global_cli_config().expect("load global cli config");
+        assert_eq!(global_cli.agent, None);
+        assert_eq!(global_cli.model.as_deref(), Some("gpt-5"));
+
+        let effective_cli = load_cli_config().expect("load effective cli config");
+        assert_eq!(effective_cli.agent.as_deref(), Some("workspace-agent"));
+        assert_eq!(effective_cli.model.as_deref(), Some("gpt-5"));
+    }
+
+    #[tokio::test]
+    async fn test_set_config_supports_clearing_agent_fallback_models() {
+        let ctx = setup_executor().await;
+
+        set_config_value(
+            ctx.executor.clone(),
+            "agent.fallback_models",
+            "[\"glm-5\", \"gpt-5\"]",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("set fallback models should succeed");
+
+        set_config_value(
+            ctx.executor.clone(),
+            "agent.fallback_models",
+            "null",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("clearing fallback models should succeed");
+
+        let config = ctx
+            .executor
+            .get_global_config()
+            .await
+            .expect("get global config");
+        assert_eq!(config.agent.fallback_models, None);
+    }
+
+    #[tokio::test]
+    async fn test_get_config_supports_effective_sources_aliases() {
+        let ctx = setup_executor().await;
+
+        get_config_value(
+            ctx.executor.clone(),
+            "effective_sources",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("get config should support effective_sources");
+
+        get_config_value(
+            ctx.executor.clone(),
+            "_effective_sources",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("get config should support _effective_sources");
     }
 }
