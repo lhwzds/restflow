@@ -10,12 +10,9 @@ use crate::models::{
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
     BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSource,
     ChatSessionSummary, Deliverable, DurabilityMode, Hook, HookAction, HookEvent, HookFilter,
-    MemoryChunk, MemoryConfig, MemoryScope, MemorySearchQuery, MemorySearchResult, MemorySource,
-    MemoryStats, Provider, ResourceLimits, SearchMode, Skill, SkillStatus, ToolTrace,
-    ToolTraceEvent, ValidationError,
-};
-use crate::services::background_agent_conversion::{
-    ConvertSessionSpecOptions, build_convert_session_spec, default_conversion_schedule,
+    MemoryChunk, MemoryConfig, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
+    Provider, ResourceLimits, SearchMode, Skill, SkillStatus, ToolTrace, ToolTraceEvent,
+    ValidationError,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::agent::StoredAgent;
@@ -1238,6 +1235,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional task input
     #[serde(default)]
     pub input: Option<String>,
+    /// Optional per-instance inputs for run_batch
+    #[serde(default)]
+    pub inputs: Option<Vec<String>>,
     /// Optional batch/team name for run_batch/save_team/get_team/delete_team
     #[serde(default)]
     pub team: Option<String>,
@@ -1620,88 +1620,11 @@ impl RestFlowMcpServer {
         }
     }
 
-    fn parse_control_action(value: Option<String>) -> Result<BackgroundAgentControlAction, String> {
-        match value.map(|s| s.trim().to_lowercase()) {
-            Some(s) if s == "start" => Ok(BackgroundAgentControlAction::Start),
-            Some(s) if s == "pause" => Ok(BackgroundAgentControlAction::Pause),
-            Some(s) if s == "resume" => Ok(BackgroundAgentControlAction::Resume),
-            Some(s) if s == "stop" => Ok(BackgroundAgentControlAction::Stop),
-            Some(s) if s == "run_now" || s == "run-now" || s == "runnow" => {
-                Ok(BackgroundAgentControlAction::RunNow)
-            }
-            Some(s) => Err(format!("Unknown control action: {}", s)),
-            None => Err("Missing required field: action".to_string()),
-        }
-    }
-
-    fn parse_message_source(value: Option<String>) -> Result<BackgroundMessageSource, String> {
-        match value.map(|s| s.trim().to_lowercase()) {
-            None => Ok(BackgroundMessageSource::User),
-            Some(s) if s.is_empty() => Ok(BackgroundMessageSource::User),
-            Some(s) if s == "user" => Ok(BackgroundMessageSource::User),
-            Some(s) if s == "agent" => Ok(BackgroundMessageSource::Agent),
-            Some(s) if s == "system" => Ok(BackgroundMessageSource::System),
-            Some(s) => Err(format!("Unknown message source: {}", s)),
-        }
-    }
-
-    fn parse_memory_scope(value: Option<String>) -> Result<Option<MemoryScope>, String> {
-        match value.map(|s| s.trim().to_lowercase()) {
-            None => Ok(None),
-            Some(s) if s.is_empty() => Ok(None),
-            Some(s) if s == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
-            Some(s) if s == "per_background_agent" => Ok(Some(MemoryScope::PerBackgroundAgent)),
-            Some(s) => Err(format!("Unknown memory_scope: {}", s)),
-        }
-    }
-
-    fn parse_durability_mode(value: Option<String>) -> Result<Option<DurabilityMode>, String> {
-        match value.map(|s| s.trim().to_lowercase()) {
-            None => Ok(None),
-            Some(s) if s.is_empty() => Ok(None),
-            Some(s) if s == "sync" => Ok(Some(DurabilityMode::Sync)),
-            Some(s) if s == "async" => Ok(Some(DurabilityMode::Async)),
-            Some(s) if s == "exit" => Ok(Some(DurabilityMode::Exit)),
-            Some(s) => Err(format!("Unknown durability_mode: {}", s)),
-        }
-    }
-
-    fn parse_optional_value<T: DeserializeOwned>(
-        field: &str,
-        value: Option<Value>,
-    ) -> Result<Option<T>, String> {
-        match value {
-            Some(v) => serde_json::from_value(v)
-                .map(Some)
-                .map_err(|e| format!("Invalid {}: {}", field, e)),
-            None => Ok(None),
-        }
-    }
-
     async fn load_api_defaults(&self) -> Result<ApiDefaults, String> {
         self.backend
             .get_api_defaults()
             .await
             .map_err(|e| format!("Failed to load API defaults: {}", e))
-    }
-
-    fn merge_memory_scope(
-        memory: Option<MemoryConfig>,
-        memory_scope: Option<String>,
-    ) -> Result<Option<MemoryConfig>, String> {
-        let parsed_scope = Self::parse_memory_scope(memory_scope)?;
-        match (memory, parsed_scope) {
-            (Some(mut memory), Some(scope)) => {
-                memory.memory_scope = scope;
-                Ok(Some(memory))
-            }
-            (Some(memory), None) => Ok(Some(memory)),
-            (None, Some(scope)) => Ok(Some(MemoryConfig {
-                memory_scope: scope,
-                ..MemoryConfig::default()
-            })),
-            (None, None) => Ok(None),
-        }
     }
 
     fn runtime_alias_target(name: &str) -> Option<&'static str> {
@@ -2164,245 +2087,26 @@ impl RestFlowMcpServer {
         let operation = params.operation.trim().to_lowercase();
 
         let value = match operation.as_str() {
-            "list" => {
-                let status = Self::parse_task_status(params.status)?;
-                serde_json::to_value(self.backend.list_tasks(status).await?)
-                    .map_err(|e| e.to_string())?
-            }
-            "run_batch" | "save_team" | "list_teams" | "get_team" | "delete_team" => {
-                let tool_input = serde_json::to_value(&params)
-                    .map_err(|e| format!("Failed to serialize params: {}", e))?;
-                let tool_result = self
-                    .backend
-                    .execute_runtime_tool("manage_background_agents", tool_input)
-                    .await
-                    .map_err(|e| Self::wrap_backend_error("Failed to execute runtime tool", e))?;
-                if !tool_result.success {
-                    return Err(tool_result
-                        .error
-                        .unwrap_or_else(|| "manage_background_agents tool failed".to_string()));
-                }
-                tool_result.result
-            }
-            "create" => {
-                let name = Self::required_string(params.name, "name")?;
-                let agent_id = Self::required_string(params.agent_id, "agent_id")?;
-                let schedule = Self::parse_optional_value::<BackgroundAgentSchedule>(
-                    "schedule",
-                    params.schedule,
-                )?
-                .unwrap_or_default();
-                let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
-                let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
-                let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
-                let resource_limits = Self::parse_optional_value::<ResourceLimits>(
-                    "resource_limits",
-                    params.resource_limits,
-                )?;
-                let spec = BackgroundAgentSpec {
-                    name,
-                    agent_id,
-                    chat_session_id: params.chat_session_id,
-                    description: params.description,
-                    input: params.input,
-                    input_template: params.input_template,
-                    schedule,
-                    notification: Self::parse_optional_value("notification", params.notification)?,
-                    execution_mode: Self::parse_optional_value(
-                        "execution_mode",
-                        params.execution_mode,
-                    )?,
-                    timeout_secs: params.timeout_secs,
-                    memory,
-                    durability_mode,
-                    resource_limits,
-                    prerequisites: params.prerequisites.unwrap_or_default(),
-                    continuation: None,
-                };
-                serde_json::to_value(self.backend.create_background_agent(spec).await?)
-                    .map_err(|e| e.to_string())?
-            }
-            "convert_session" | "promote_to_background" => {
-                let session_id = Self::required_string(params.session_id, "session_id")?;
-                let session = self
-                    .backend
-                    .get_session(&session_id)
-                    .await
-                    .map_err(|e| Self::wrap_backend_error("Failed to get session", e))?;
-                let schedule = Self::parse_optional_value::<BackgroundAgentSchedule>(
-                    "schedule",
-                    params.schedule,
-                )?
-                .unwrap_or_else(default_conversion_schedule);
-                let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
-                let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
-                let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
-                let resource_limits = Self::parse_optional_value::<ResourceLimits>(
-                    "resource_limits",
-                    params.resource_limits,
-                )?;
-                let spec = build_convert_session_spec(
-                    &session,
-                    ConvertSessionSpecOptions {
-                        name: params.name,
-                        description: params.description,
-                        schedule: Some(schedule),
-                        input: params.input,
-                        notification: Self::parse_optional_value(
-                            "notification",
-                            params.notification,
-                        )?,
-                        execution_mode: Self::parse_optional_value(
-                            "execution_mode",
-                            params.execution_mode,
-                        )?,
-                        timeout_secs: params.timeout_secs,
-                        memory,
-                        durability_mode,
-                        resource_limits,
-                        prerequisites: params.prerequisites.unwrap_or_default(),
-                        continuation: None,
-                    },
-                )
-                .map_err(|e| e.to_string())?;
-
-                let run_now = params.run_now.unwrap_or(true);
-                let mut task = self.backend.create_background_agent(spec).await?;
-                if run_now {
-                    task = self
-                        .backend
-                        .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)
-                        .await?;
-                }
-
-                serde_json::json!({
-                    "task": serde_json::to_value(task).map_err(|e| e.to_string())?,
-                    "source_session": {
-                        "id": session.id,
-                        "agent_id": session.agent_id,
-                    },
-                    "run_now": run_now,
-                })
-            }
-            "update" => {
-                let id = Self::required_string(params.id, "id")?;
-                let memory = Self::parse_optional_value::<MemoryConfig>("memory", params.memory)?;
-                let memory = Self::merge_memory_scope(memory, params.memory_scope)?;
-                let durability_mode = Self::parse_durability_mode(params.durability_mode)?;
-                let resource_limits = Self::parse_optional_value::<ResourceLimits>(
-                    "resource_limits",
-                    params.resource_limits,
-                )?;
-                let patch = BackgroundAgentPatch {
-                    name: params.name,
-                    description: params.description,
-                    agent_id: params.agent_id,
-                    chat_session_id: params.chat_session_id,
-                    input: params.input,
-                    input_template: params.input_template,
-                    schedule: Self::parse_optional_value("schedule", params.schedule)?,
-                    notification: Self::parse_optional_value("notification", params.notification)?,
-                    execution_mode: Self::parse_optional_value(
-                        "execution_mode",
-                        params.execution_mode,
-                    )?,
-                    timeout_secs: params.timeout_secs,
-                    memory,
-                    durability_mode,
-                    resource_limits,
-                    prerequisites: params.prerequisites,
-                    continuation: None,
-                };
-                serde_json::to_value(self.backend.update_background_agent(&id, patch).await?)
-                    .map_err(|e| e.to_string())?
-            }
-            "delete" => {
-                let id = Self::required_string(params.id, "id")?;
-                let deleted = self.backend.delete_background_agent(&id).await?;
-                serde_json::json!({ "id": id, "deleted": deleted })
-            }
-            "pause" => {
-                let id = Self::required_string(params.id, "id")?;
-                serde_json::to_value(
-                    self.backend
-                        .control_background_agent(&id, BackgroundAgentControlAction::Pause)
-                        .await?,
-                )
-                .map_err(|e| e.to_string())?
-            }
-            "resume" => {
-                let id = Self::required_string(params.id, "id")?;
-                serde_json::to_value(
-                    self.backend
-                        .control_background_agent(&id, BackgroundAgentControlAction::Resume)
-                        .await?,
-                )
-                .map_err(|e| e.to_string())?
-            }
-            "run" => {
-                let id = Self::required_string(params.id, "id")?;
-                serde_json::to_value(
-                    self.backend
-                        .control_background_agent(&id, BackgroundAgentControlAction::RunNow)
-                        .await?,
-                )
-                .map_err(|e| e.to_string())?
-            }
-            "cancel" => {
-                let id = Self::required_string(params.id, "id")?;
-                let deleted = self.backend.delete_background_agent(&id).await?;
-                serde_json::json!({ "id": id, "deleted": deleted })
-            }
-            "control" => {
-                let id = Self::required_string(params.id, "id")?;
-                let action = Self::parse_control_action(params.action)?;
-                serde_json::to_value(self.backend.control_background_agent(&id, action).await?)
-                    .map_err(|e| e.to_string())?
-            }
-            "progress" => {
-                let id = Self::required_string(params.id, "id")?;
-                let defaults = self.load_api_defaults().await?;
-                let event_limit = params
-                    .event_limit
-                    .unwrap_or(defaults.background_progress_event_limit)
-                    .max(1);
-                serde_json::to_value(
-                    self.backend
-                        .get_background_agent_progress(&id, event_limit)
-                        .await?,
-                )
-                .map_err(|e| e.to_string())?
-            }
-            "send_message" => {
-                let id = Self::required_string(params.id, "id")?;
-                let message = Self::required_string(params.message, "message")?;
-                let source = Self::parse_message_source(params.source)?;
-                serde_json::to_value(
-                    self.backend
-                        .send_background_agent_message(&id, message, source)
-                        .await?,
-                )
-                .map_err(|e| e.to_string())?
-            }
-            "list_messages" => {
-                let id = Self::required_string(params.id, "id")?;
-                let defaults = self.load_api_defaults().await?;
-                let limit = params
-                    .limit
-                    .unwrap_or(defaults.background_message_list_limit)
-                    .max(1);
-                serde_json::to_value(
-                    self.backend
-                        .list_background_agent_messages(&id, limit)
-                        .await?,
-                )
-                .map_err(|e| e.to_string())?
-            }
-            "list_deliverables" => {
-                let id = Self::required_string(params.id, "id")?;
-                serde_json::to_value(self.backend.list_deliverables(&id).await?)
-                    .map_err(|e| e.to_string())?
-            }
+            "list"
+            | "create"
+            | "convert_session"
+            | "promote_to_background"
+            | "update"
+            | "delete"
+            | "pause"
+            | "resume"
+            | "run"
+            | "cancel"
+            | "control"
+            | "progress"
+            | "send_message"
+            | "list_messages"
+            | "list_deliverables"
+            | "run_batch"
+            | "save_team"
+            | "list_teams"
+            | "get_team"
+            | "delete_team" => self.execute_background_agent_runtime_tool(&params).await?,
             "list_traces" => {
                 let defaults = self.load_api_defaults().await?;
                 let limit = params
@@ -2594,6 +2298,25 @@ impl RestFlowMcpServer {
         };
 
         serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
+    }
+
+    async fn execute_background_agent_runtime_tool(
+        &self,
+        params: &ManageBackgroundAgentsParams,
+    ) -> Result<Value, String> {
+        let tool_input = serde_json::to_value(params)
+            .map_err(|e| format!("Failed to serialize params: {}", e))?;
+        let tool_result = self
+            .backend
+            .execute_runtime_tool("manage_background_agents", tool_input)
+            .await
+            .map_err(|e| Self::wrap_backend_error("Failed to execute runtime tool", e))?;
+        if !tool_result.success {
+            return Err(tool_result
+                .error
+                .unwrap_or_else(|| "manage_background_agents tool failed".to_string()));
+        }
+        Ok(tool_result.result)
     }
 
     async fn handle_manage_hooks(&self, params: ManageHooksParams) -> Result<String, String> {
@@ -3158,6 +2881,7 @@ mod tests {
     use crate::storage::agent::StoredAgent;
     use rmcp::ClientHandler;
     use rmcp::model::ClientInfo;
+    use serde_json::json;
     use std::time::Instant;
     use tempfile::TempDir;
     use tokio::time::{Duration, sleep};
@@ -4167,6 +3891,14 @@ mod tests {
         result
     }
 
+    fn call_tool_text(result: &CallToolResult) -> &str {
+        result
+            .content
+            .iter()
+            .find_map(|content| content.raw.as_text().map(|text| text.text.as_str()))
+            .expect("tool result should contain text content")
+    }
+
     #[async_trait::async_trait]
     impl McpBackend for MockBackend {
         async fn list_skills(&self) -> Result<Vec<Skill>, String> {
@@ -4454,7 +4186,50 @@ mod tests {
             name: &str,
             input: Value,
         ) -> Result<RuntimeToolResult, String> {
-            if name == "echo_runtime" {
+            if name == "manage_background_agents" {
+                let operation = input
+                    .get("operation")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default();
+                let result = match operation {
+                    "list" => json!([]),
+                    "list_deliverables" => json!([]),
+                    "convert_session" | "promote_to_background" => {
+                        let session_id = input
+                            .get("session_id")
+                            .and_then(Value::as_str)
+                            .unwrap_or("session-1");
+                        let run_now = input
+                            .get("run_now")
+                            .and_then(Value::as_bool)
+                            .unwrap_or(true);
+                        json!({
+                            "task": {
+                                "id": "task-1",
+                                "chat_session_id": session_id,
+                            },
+                            "source_session": {
+                                "id": session_id,
+                                "agent_id": self.session.agent_id,
+                            },
+                            "run_now": run_now
+                        })
+                    }
+                    "cancel" => json!({
+                        "id": input.get("id").and_then(Value::as_str).unwrap_or("task-1"),
+                        "action": "stop"
+                    }),
+                    _ => input,
+                };
+                Ok(RuntimeToolResult {
+                    success: true,
+                    result,
+                    error: None,
+                    error_category: None,
+                    retryable: None,
+                    retry_after_ms: None,
+                })
+            } else if name == "echo_runtime" {
                 Ok(RuntimeToolResult {
                     success: true,
                     result: input,
@@ -4536,6 +4311,7 @@ mod tests {
             chat_session_id: None,
             description: None,
             input: None,
+            inputs: None,
             team: None,
             workers: None,
             save_as_team: None,
@@ -4625,6 +4401,141 @@ mod tests {
         assert_eq!(value["source_session"]["id"], session_id);
         assert_eq!(value["task"]["chat_session_id"], session_id);
         assert_eq!(value["run_now"], true);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_manage_background_agents_save_team_and_get_team_round_trip() {
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let save = call_tool_through_mcp(
+            server.clone(),
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "save_team",
+                "team": "bg-review-team",
+                "workers": [
+                    {
+                        "count": 2,
+                        "agent_id": "default"
+                    }
+                ]
+            }),
+        )
+        .await;
+        assert!(!save.is_error.unwrap_or(false));
+        let save_value: serde_json::Value =
+            serde_json::from_str(call_tool_text(&save)).expect("save_team response json");
+        assert_eq!(save_value["operation"], "save_team");
+
+        let get = call_tool_through_mcp(
+            server,
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "get_team",
+                "team": "bg-review-team"
+            }),
+        )
+        .await;
+        assert!(!get.is_error.unwrap_or(false));
+        let get_value: serde_json::Value =
+            serde_json::from_str(call_tool_text(&get)).expect("get_team response json");
+        assert_eq!(get_value["operation"], "get_team");
+        assert_eq!(get_value["team"], "bg-review-team");
+        assert!(
+            get_value["workers"][0].get("input").is_none()
+                || get_value["workers"][0]["input"].is_null()
+        );
+        assert!(
+            get_value["workers"][0].get("inputs").is_none()
+                || get_value["workers"][0]["inputs"].is_null()
+        );
+    }
+
+    #[tokio::test]
+    async fn test_mcp_manage_background_agents_run_batch_accepts_runtime_inputs() {
+        let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let save = call_tool_through_mcp(
+            server.clone(),
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "save_team",
+                "team": "bg-runtime-inputs-team",
+                "workers": [
+                    {
+                        "count": 2,
+                        "agent_id": "default"
+                    }
+                ]
+            }),
+        )
+        .await;
+        assert!(!save.is_error.unwrap_or(false));
+
+        let run = call_tool_through_mcp(
+            server,
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "run_batch",
+                "team": "bg-runtime-inputs-team",
+                "inputs": ["scan backend", "scan frontend"],
+                "run_now": false
+            }),
+        )
+        .await;
+        assert!(!run.is_error.unwrap_or(false));
+        let value: serde_json::Value =
+            serde_json::from_str(call_tool_text(&run)).expect("run_batch response json");
+        assert_eq!(value["operation"], "run_batch");
+        assert_eq!(value["total"], 2);
+        assert_eq!(value["run_now"], false);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_manage_background_agents_cancel_uses_stop_semantics() {
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let create = call_tool_through_mcp(
+            server.clone(),
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "create",
+                "name": "cancel-contract",
+                "agent_id": "default",
+                "input": "do not run"
+            }),
+        )
+        .await;
+        assert!(!create.is_error.unwrap_or(false));
+        let created: serde_json::Value =
+            serde_json::from_str(call_tool_text(&create)).expect("create response json");
+        let task_id = created["id"]
+            .as_str()
+            .expect("created task should have id")
+            .to_string();
+
+        let cancel = call_tool_through_mcp(
+            server,
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "cancel",
+                "id": task_id
+            }),
+        )
+        .await;
+        assert!(!cancel.is_error.unwrap_or(false));
+        let cancelled: serde_json::Value =
+            serde_json::from_str(call_tool_text(&cancel)).expect("cancel response json");
+        assert!(cancelled.get("deleted").is_none());
+        assert_eq!(cancelled["status"], "interrupted");
+
+        let stored = core
+            .storage
+            .background_agents
+            .get_task(cancelled["id"].as_str().expect("cancelled task id"))
+            .expect("background storage query should succeed")
+            .expect("cancel should not delete the task");
+        assert_eq!(stored.status, BackgroundAgentStatus::Interrupted);
     }
 
     #[test]
@@ -5253,6 +5164,7 @@ mod tests {
             chat_session_id: None,
             description: None,
             input: None,
+            inputs: None,
             team: None,
             workers: None,
             save_as_team: None,
