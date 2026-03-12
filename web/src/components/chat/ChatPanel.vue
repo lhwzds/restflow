@@ -101,7 +101,7 @@ const bgCanResume = computed(() => linkedBgAgent.value?.status === 'paused')
 const bgCanRun = computed(
   () => linkedBgAgent.value?.status === 'active' || linkedBgAgent.value?.status === 'paused',
 )
-const bgCanCancel = computed(() => linkedBgAgent.value?.status === 'running')
+const bgCanStop = computed(() => linkedBgAgent.value?.status === 'running')
 
 async function handleBgPause() {
   if (!linkedBgAgent.value) return
@@ -118,9 +118,9 @@ async function handleBgRun() {
   await backgroundAgentStore.runAgentNow(linkedBgAgent.value.id)
 }
 
-async function handleBgCancel() {
+async function handleBgStop() {
   if (!linkedBgAgent.value) return
-  await backgroundAgentStore.cancelAgent(linkedBgAgent.value.id)
+  await backgroundAgentStore.stopAgent(linkedBgAgent.value.id)
 }
 
 // Track processed tool call IDs to avoid duplicate emits
@@ -503,12 +503,12 @@ defineExpose({
         <Play :size="12" />
       </Button>
       <Button
-        v-if="bgCanCancel"
+        v-if="bgCanStop"
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        :title="t('backgroundAgent.cancel')"
-        @click="handleBgCancel"
+        :title="t('backgroundAgent.stop')"
+        @click="handleBgStop"
       >
         <XCircle :size="12" />
       </Button>

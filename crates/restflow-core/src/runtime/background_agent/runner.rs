@@ -136,8 +136,8 @@ pub enum RunnerCommand {
     CheckNow,
     /// Run a specific task immediately (bypassing schedule)
     RunTaskNow(String),
-    /// Cancel a running task
-    CancelTask(String),
+    /// Stop a running task
+    StopTask(String),
     /// Resume a task from a checkpoint
     ResumeTask {
         task_id: String,
@@ -198,12 +198,12 @@ impl RunnerHandle {
             .map_err(|e| anyhow!("Failed to send run task command: {}", e))
     }
 
-    /// Cancel a running task
-    pub async fn cancel_task(&self, task_id: String) -> Result<()> {
+    /// Stop a running task
+    pub async fn stop_task(&self, task_id: String) -> Result<()> {
         self.command_tx
-            .send(RunnerCommand::CancelTask(task_id))
+            .send(RunnerCommand::StopTask(task_id))
             .await
-            .map_err(|e| anyhow!("Failed to send cancel task command: {}", e))
+            .map_err(|e| anyhow!("Failed to send stop task command: {}", e))
     }
 
     /// Resume a task from a checkpoint
@@ -436,8 +436,8 @@ pub struct BackgroundAgentRunner {
     notifier: Arc<dyn NotificationSender>,
     config: RunnerConfig,
     running_tasks: Arc<RwLock<HashSet<String>>>,
-    cancel_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
-    pending_cancel_receivers: Arc<RwLock<HashMap<String, oneshot::Receiver<()>>>>,
+    stop_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
+    pending_stop_receivers: Arc<RwLock<HashMap<String, oneshot::Receiver<()>>>>,
     resume_states: Arc<RwLock<HashMap<String, restflow_ai::AgentState>>>,
     task_queue: Arc<TaskQueue>,
     heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
@@ -474,8 +474,8 @@ impl BackgroundAgentRunner {
             notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
-            cancel_senders: Arc::new(RwLock::new(HashMap::new())),
-            pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            stop_senders: Arc::new(RwLock::new(HashMap::new())),
+            pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
             resume_states: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
@@ -510,8 +510,8 @@ impl BackgroundAgentRunner {
             notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
-            cancel_senders: Arc::new(RwLock::new(HashMap::new())),
-            pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            stop_senders: Arc::new(RwLock::new(HashMap::new())),
+            pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
             resume_states: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter,
@@ -550,8 +550,8 @@ impl BackgroundAgentRunner {
             notifier,
             config,
             running_tasks: Arc::new(RwLock::new(HashSet::new())),
-            cancel_senders: Arc::new(RwLock::new(HashMap::new())),
-            pending_cancel_receivers: Arc::new(RwLock::new(HashMap::new())),
+            stop_senders: Arc::new(RwLock::new(HashMap::new())),
+            pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
             resume_states: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter,
@@ -707,9 +707,9 @@ impl BackgroundAgentRunner {
                             debug!("Manual run triggered for task: {}", task_id);
                             self.run_task_immediate(&task_id).await;
                         }
-                        Some(RunnerCommand::CancelTask(task_id)) => {
-                            debug!("Cancel requested for task: {}", task_id);
-                            self.cancel_task(&task_id).await;
+                        Some(RunnerCommand::StopTask(task_id)) => {
+                            debug!("Stop requested for task: {}", task_id);
+                            self.stop_task_execution(&task_id).await;
                         }
                         Some(RunnerCommand::ResumeTask { task_id, payload }) => {
                             info!(task_id = %task_id, "Resume from checkpoint requested");
@@ -867,15 +867,15 @@ impl BackgroundAgentRunner {
             if !inserted {
                 continue;
             }
-            let (cancel_tx, cancel_rx) = oneshot::channel();
-            self.cancel_senders
+            let (stop_tx, stop_rx) = oneshot::channel();
+            self.stop_senders
                 .write()
                 .await
-                .insert(task.id.clone(), cancel_tx);
-            self.pending_cancel_receivers
+                .insert(task.id.clone(), stop_tx);
+            self.pending_stop_receivers
                 .write()
                 .await
-                .insert(task.id.clone(), cancel_rx);
+                .insert(task.id.clone(), stop_rx);
 
             if let Err(err) = self.task_queue.submit(task, TaskPriority::Normal).await {
                 warn!("Failed to enqueue task {}: {:?}", task_id, err);
@@ -929,15 +929,15 @@ impl BackgroundAgentRunner {
             }
         }
 
-        let (cancel_tx, cancel_rx) = oneshot::channel();
-        self.cancel_senders
+        let (stop_tx, stop_rx) = oneshot::channel();
+        self.stop_senders
             .write()
             .await
-            .insert(task_id_owned.clone(), cancel_tx);
-        self.pending_cancel_receivers
+            .insert(task_id_owned.clone(), stop_tx);
+        self.pending_stop_receivers
             .write()
             .await
-            .insert(task_id_owned.clone(), cancel_rx);
+            .insert(task_id_owned.clone(), stop_rx);
 
         let task = match self.storage.get_task(&task_id_owned) {
             Ok(Some(task)) => task,
@@ -959,32 +959,32 @@ impl BackgroundAgentRunner {
         }
     }
 
-    /// Cancel a running task
-    async fn cancel_task(&self, task_id: &str) {
+    /// Stop a running task.
+    async fn stop_task_execution(&self, task_id: &str) {
         if !self.running_tasks.read().await.contains(task_id) {
-            debug!(
-                "Cancel requested for task {}, but it is not running",
-                task_id
-            );
+            debug!("Stop requested for task {}, but it is not running", task_id);
         }
 
-        let cancel_sender = self.cancel_senders.write().await.remove(task_id);
-        if let Some(sender) = cancel_sender {
+        let stop_sender = self.stop_senders.write().await.remove(task_id);
+        if let Some(sender) = stop_sender {
             if sender.send(()).is_err() {
                 debug!(
-                    "Cancel signal for task {} dropped (task already finished)",
+                    "Stop signal for task {} dropped (task already finished)",
                     task_id
                 );
             }
             return;
         }
 
-        // No cancel channel found; if the task is marked running in storage, pause it.
+        // No stop channel found; if the task is still marked running, persist the stop state.
         if let Ok(Some(task)) = self.storage.get_task(task_id)
             && task.status == BackgroundAgentStatus::Running
-            && let Err(e) = self.storage.pause_task(task_id)
+            && let Err(e) = self.storage.control_background_agent(
+                task_id,
+                crate::models::BackgroundAgentControlAction::Stop,
+            )
         {
-            error!("Failed to mark task {} as paused: {}", task_id, e);
+            error!("Failed to mark task {} as interrupted: {}", task_id, e);
         }
     }
 
@@ -1132,7 +1132,7 @@ impl BackgroundAgentRunner {
     async fn execute_task(
         &self,
         task_id: &str,
-        cancel_rx: Option<oneshot::Receiver<()>>,
+        stop_rx: Option<oneshot::Receiver<()>>,
     ) -> Result<bool> {
         let start_time = chrono::Utc::now().timestamp_millis();
 
@@ -1466,27 +1466,27 @@ impl BackgroundAgentRunner {
         };
 
         // Fail fast: refuse to run uncancellable tasks
-        let cancel_rx = cancel_rx.ok_or_else(|| {
+        let stop_rx = stop_rx.ok_or_else(|| {
             error!(
-                "No cancel receiver found for task '{}'. Refusing to run uncancellable task.",
+                "No stop receiver found for task '{}'. Refusing to run unstoppably tracked task.",
                 task_id
             );
-            anyhow!("Task {} has no cancellation channel", task_id)
+            anyhow!("Task {} has no stop channel", task_id)
         })?;
 
         enum PauseSignal {
             Paused,
+            Interrupted,
             Deleted,
         }
 
         let result = tokio::select! {
-            // Cancel branch: resolves when user sends cancel signal.
+            // Stop branch: resolves when user sends a stop signal.
             // If no receiver exists, pending() never resolves — task runs to completion.
-            // Cancel branch: resolves when user sends cancel signal.
-            _ = cancel_rx => {
+            _ = stop_rx => {
                 let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
                 info!(
-                    "Task '{}' cancelled by user (duration={}ms)",
+                    "Task '{}' stopped by user (duration={}ms)",
                     task.name, duration_ms
                 );
                 append_trace_event(
@@ -1494,7 +1494,7 @@ impl BackgroundAgentRunner {
                     Some(execution_trace_storage),
                     &TraceEvent::run_cancelled(
                         restflow_trace.clone(),
-                        "Cancelled by user",
+                        "Stopped by user",
                         Some(duration_ms.max(0) as u64),
                     ),
                 );
@@ -1505,24 +1505,27 @@ impl BackgroundAgentRunner {
                 self.event_emitter
                     .emit(TaskStreamEvent::cancelled(
                         task_id,
-                        "Cancelled by user",
+                        "Stopped by user",
                         duration_ms,
                     ))
                     .await;
                 self.fire_hooks(&HookContext::from_cancelled(
                     &task,
-                    "Cancelled by user",
+                    "Stopped by user",
                     duration_ms,
                 ))
                 .await;
-                if let Err(e) = self.storage.pause_task(task_id) {
-                    error!("Failed to mark task {} as paused: {}", task_id, e);
+                if let Err(e) = self
+                    .storage
+                    .control_background_agent(task_id, crate::models::BackgroundAgentControlAction::Stop)
+                {
+                    error!("Failed to mark task {} as interrupted: {}", task_id, e);
                 }
                 self.cleanup_task_tracking(task_id).await;
                 return Ok(false);
             }
-            // Pause branch: if control API sets task status to Paused while this
-            // execution is running, stop current run immediately.
+            // Control branch: if control API sets task status to Paused or
+            // Interrupted while this execution is running, stop current run immediately.
             pause_signal = async {
                 let mut poll_interval = Duration::from_millis(250);
                 loop {
@@ -1530,6 +1533,9 @@ impl BackgroundAgentRunner {
                     match self.storage.get_task(task_id) {
                         Ok(Some(stored_task)) if stored_task.status == BackgroundAgentStatus::Paused => {
                             return PauseSignal::Paused;
+                        }
+                        Ok(Some(stored_task)) if stored_task.status == BackgroundAgentStatus::Interrupted => {
+                            return PauseSignal::Interrupted;
                         }
                         Ok(Some(_)) => {
                             poll_interval = Duration::from_millis(250);
@@ -1579,6 +1585,40 @@ impl BackgroundAgentRunner {
                         .await;
                         if let Err(e) = self.storage.pause_task(task_id) {
                             error!("Failed to keep task {} paused: {}", task_id, e);
+                        }
+                    }
+                    PauseSignal::Interrupted => {
+                        info!(
+                            "Task '{}' stopped by user request (duration={}ms)",
+                            task.name, duration_ms
+                        );
+                        append_trace_event(
+                            &tool_trace_storage,
+                            Some(execution_trace_storage),
+                            &TraceEvent::run_cancelled(
+                                restflow_trace.clone(),
+                                "Stopped by user",
+                                Some(duration_ms.max(0) as u64),
+                            ),
+                        );
+                        self.event_emitter
+                            .emit(TaskStreamEvent::cancelled(
+                                task_id,
+                                "Stopped by user",
+                                duration_ms,
+                            ))
+                            .await;
+                        self.fire_hooks(&HookContext::from_cancelled(
+                            &task,
+                            "Stopped by user",
+                            duration_ms,
+                        ))
+                        .await;
+                        if let Err(e) = self
+                            .storage
+                            .control_background_agent(task_id, crate::models::BackgroundAgentControlAction::Stop)
+                        {
+                            error!("Failed to keep task {} interrupted: {}", task_id, e);
                         }
                     }
                     PauseSignal::Deleted => {
@@ -1847,8 +1887,8 @@ impl BackgroundAgentRunner {
         // Acquire all locks concurrently to minimize inconsistency window
         let (mut running, mut senders, mut receivers, mut states) = tokio::join!(
             self.running_tasks.write(),
-            self.cancel_senders.write(),
-            self.pending_cancel_receivers.write(),
+            self.stop_senders.write(),
+            self.pending_stop_receivers.write(),
             self.resume_states.write(),
         );
 
@@ -1865,10 +1905,10 @@ impl BackgroundAgentRunner {
         self.steer_registry.unregister(task_id).await;
     }
 
-    /// Take the cancel receiver for a task, returning None if not found.
-    /// When None, the task runs without cancellation support (uses `pending()` in select).
-    async fn take_cancel_receiver(&self, task_id: &str) -> Option<oneshot::Receiver<()>> {
-        self.pending_cancel_receivers.write().await.remove(task_id)
+    /// Take the stop receiver for a task, returning None if not found.
+    /// When None, the task runs without stop support.
+    async fn take_stop_receiver(&self, task_id: &str) -> Option<oneshot::Receiver<()>> {
+        self.pending_stop_receivers.write().await.remove(task_id)
     }
 
     /// Persist input and output as messages in the task's bound chat session.
@@ -2225,8 +2265,8 @@ struct RunnerTaskExecutor {
 #[async_trait::async_trait]
 impl TaskExecutor for RunnerTaskExecutor {
     async fn execute(&self, task: &BackgroundAgent) -> Result<bool> {
-        let cancel_rx = self.runner.take_cancel_receiver(&task.id).await;
-        self.runner.execute_task(&task.id, cancel_rx).await
+        let stop_rx = self.runner.take_stop_receiver(&task.id).await;
+        self.runner.execute_task(&task.id, stop_rx).await
     }
 }
 
@@ -2236,8 +2276,8 @@ mod tests {
     use crate::channel::{Channel, ChannelType, InboundMessage, OutboundMessage};
     use crate::hooks::{HookExecutor, HookTaskScheduler};
     use crate::models::{
-        AgentCheckpoint, Hook, HookAction, HookEvent, MemoryScope, ResumePayload, TaskEventType,
-        TaskSchedule,
+        AgentCheckpoint, BackgroundAgentControlAction, Hook, HookAction, HookEvent, MemoryScope,
+        ResumePayload, TaskEventType, TaskSchedule,
     };
     use crate::runtime::background_agent::{ChannelEventEmitter, StreamEventKind};
     use async_trait::async_trait;
@@ -2492,7 +2532,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_take_cancel_receiver_returns_none_when_missing() {
+    async fn test_take_stop_receiver_returns_none_when_missing() {
         let (storage, _temp_dir) = create_test_storage();
         let runner = BackgroundAgentRunner::new(
             storage,
@@ -2502,7 +2542,7 @@ mod tests {
             Arc::new(SteerRegistry::new()),
         );
 
-        let result = runner.take_cancel_receiver("nonexistent-task").await;
+        let result = runner.take_stop_receiver("nonexistent-task").await;
         assert!(result.is_none());
     }
 
@@ -2521,7 +2561,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_take_cancel_receiver_returns_receiver_when_present() {
+    async fn test_take_stop_receiver_returns_receiver_when_present() {
         let (storage, _temp_dir) = create_test_storage();
         let runner = BackgroundAgentRunner::new(
             storage,
@@ -2533,16 +2573,16 @@ mod tests {
 
         let (tx, rx) = oneshot::channel();
         runner
-            .pending_cancel_receivers
+            .pending_stop_receivers
             .write()
             .await
             .insert("task-1".to_string(), rx);
 
-        let mut result = runner.take_cancel_receiver("task-1").await;
+        let mut result = runner.take_stop_receiver("task-1").await;
         assert!(result.is_some());
         assert!(
             !runner
-                .pending_cancel_receivers
+                .pending_stop_receivers
                 .read()
                 .await
                 .contains_key("task-1")
@@ -4094,6 +4134,56 @@ mod tests {
 
         let updated_task = storage.get_task(&task.id).unwrap().unwrap();
         assert_eq!(updated_task.status, BackgroundAgentStatus::Paused);
+
+        handle.stop().await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_runner_interrupts_running_task_when_stopped() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(MockExecutor::with_delay(3_000));
+        let notifier = Arc::new(NoopNotificationSender);
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1000;
+        let mut task = storage
+            .create_task(
+                "Stop Interrupt Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Once { run_at: past_time },
+            )
+            .unwrap();
+        task.input = Some("Stop interrupt input".to_string());
+        task.next_run_at = Some(past_time);
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 100,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor,
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        tokio::time::sleep(Duration::from_millis(400)).await;
+        assert_eq!(runner.running_task_count().await, 1);
+
+        storage
+            .control_background_agent(&task.id, BackgroundAgentControlAction::Stop)
+            .unwrap();
+
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        assert_eq!(runner.running_task_count().await, 0);
+
+        let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+        assert_eq!(updated_task.status, BackgroundAgentStatus::Interrupted);
 
         handle.stop().await.unwrap();
     }

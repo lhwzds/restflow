@@ -5,7 +5,9 @@ use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::{ChannelRouter, PairingManager};
 use restflow_core::daemon::publish_background_event;
 use restflow_core::hooks::HookExecutor;
-use restflow_core::models::{BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource};
+use restflow_core::models::{
+    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentStatus, BackgroundMessageSource,
+};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::background_agent::BackgroundReplySenderFactory;
@@ -13,9 +15,9 @@ use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::{
     AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger, ChatDispatcher,
     ChatDispatcherConfig, ChatSessionManager, MessageDebouncer, MessageHandlerConfig,
-    MessageHandlerHandle, NoopHeartbeatEmitter, OrchestratingAgentExecutor, RunnerConfig, RunnerHandle,
-    StorageBackedSubagentLookup, SubagentConfig, SubagentTracker, SystemStatus, TelegramNotifier,
-    ToolTraceRunSink,
+    MessageHandlerHandle, NoopHeartbeatEmitter, OrchestratingAgentExecutor, RunnerConfig,
+    RunnerHandle, StorageBackedSubagentLookup, SubagentConfig, SubagentTracker, SystemStatus,
+    TelegramNotifier, ToolTraceRunSink,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
@@ -390,11 +392,11 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
     }
 
     async fn stop_background_agent(&self, task_id: &str) -> Result<()> {
-        let cancel_requested = match self.handle.read().await.as_ref() {
-            Some(handle) => match handle.cancel_task(task_id.to_string()).await {
+        let stop_requested = match self.handle.read().await.as_ref() {
+            Some(handle) => match handle.stop_task(task_id.to_string()).await {
                 Ok(()) => true,
                 Err(e) => {
-                    error!("Failed to request cancel for task {}: {}", task_id, e);
+                    error!("Failed to request stop for task {}: {}", task_id, e);
                     false
                 }
             },
@@ -402,9 +404,12 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         };
 
         if let Ok(Some(task)) = self.core.storage.background_agents.get_task(task_id)
-            && (task.status != BackgroundAgentStatus::Running || !cancel_requested)
+            && (task.status != BackgroundAgentStatus::Running || !stop_requested)
         {
-            self.core.storage.background_agents.pause_task(task_id)?;
+            self.core
+                .storage
+                .background_agents
+                .control_background_agent(task_id, BackgroundAgentControlAction::Stop)?;
         }
 
         Ok(())

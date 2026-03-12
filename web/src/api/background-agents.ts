@@ -34,9 +34,9 @@ export async function resumeBackgroundAgent(id: string): Promise<BackgroundAgent
   return invokeCommand('resumeBackgroundAgent', id)
 }
 
-/** Cancel a running background agent */
-export async function cancelBackgroundAgent(taskId: string): Promise<boolean> {
-  return invokeCommand('cancelBackgroundAgent', taskId)
+/** Stop a running background agent */
+export async function stopBackgroundAgent(taskId: string): Promise<boolean> {
+  return invokeCommand('stopBackgroundAgent', taskId)
 }
 
 /** Run a background agent immediately with streaming */

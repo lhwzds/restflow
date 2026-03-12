@@ -93,14 +93,14 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
       }
     },
 
-    async cancelAgent(taskId: string): Promise<void> {
+    async stopAgent(taskId: string): Promise<void> {
       this.error = null
       try {
-        await api.cancelBackgroundAgent(taskId)
+        await api.stopBackgroundAgent(taskId)
         await this.fetchAgents()
       } catch (err) {
-        this.error = err instanceof Error ? err.message : 'Failed to cancel agent'
-        console.error('Failed to cancel background agent:', err)
+        this.error = err instanceof Error ? err.message : 'Failed to stop agent'
+        console.error('Failed to stop background agent:', err)
       }
     },
 

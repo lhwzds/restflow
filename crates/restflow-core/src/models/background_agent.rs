@@ -89,7 +89,7 @@ pub enum BackgroundAgentStatus {
     Completed,
     /// Task failed on last execution
     Failed,
-    /// Task execution interrupted, waiting for external input to resume.
+    /// Task execution interrupted by an explicit stop or checkpoint flow.
     Interrupted,
 }
 
@@ -997,7 +997,7 @@ impl BackgroundAgent {
         self.update_next_run(); // Still schedule next run
     }
 
-    /// Mark the task as interrupted (awaiting external input).
+    /// Mark the task as interrupted.
     pub fn set_interrupted(&mut self) {
         self.status = BackgroundAgentStatus::Interrupted;
         self.updated_at = chrono::Utc::now().timestamp_millis();

@@ -105,6 +105,7 @@ impl AppState {
             tool_registry: Arc::new(ToolRegistry::new()),
             config: self.subagent_config.snapshot(),
             llm_client_factory: None,
+            orchestrator: None,
         }
     }
 
@@ -169,8 +170,8 @@ impl AppState {
         Ok(())
     }
 
-    /// Cancel a running task.
-    pub async fn cancel_task(&self, task_id: String) -> Result<()> {
+    /// Stop a running task.
+    pub async fn stop_task(&self, task_id: String) -> Result<()> {
         self.executor()
             .control_background_agent(
                 task_id,
@@ -313,28 +314,28 @@ impl BackgroundAgentTrigger for AppBackgroundAgentTrigger {
     }
 
     async fn stop_background_agent(&self, task_id: &str) -> Result<()> {
-        let cancel_requested = match self.state.cancel_task(task_id.to_string()).await {
+        let stop_requested = match self.state.stop_task(task_id.to_string()).await {
             Ok(()) => true,
             Err(e) => {
-                error!("Failed to request cancel for task {}: {}", task_id, e);
+                error!("Failed to request stop for task {}: {}", task_id, e);
                 false
             }
         };
 
-        // If the task isn't running (or cancel couldn't be requested), pause it directly.
+        // If the task isn't running (or stop couldn't be requested), persist stop state directly.
         if let Ok(Some(task)) = self
             .state
             .executor()
             .get_background_agent(task_id.to_string())
             .await
-            && (task.status != BackgroundAgentStatus::Running || !cancel_requested)
+            && (task.status != BackgroundAgentStatus::Running || !stop_requested)
         {
             let _ = self
                 .state
                 .executor()
                 .control_background_agent(
                     task_id.to_string(),
-                    restflow_core::models::BackgroundAgentControlAction::Pause,
+                    restflow_core::models::BackgroundAgentControlAction::Stop,
                 )
                 .await?;
         }
