@@ -163,6 +163,25 @@ impl AiModelSwitcher for RuntimeModelSwitcher {
     }
 }
 
+fn spawn_request_from_plan(plan: &ExecutionPlan) -> Result<restflow_traits::SpawnRequest> {
+    Ok(restflow_traits::SpawnRequest {
+        agent_id: plan.agent_id.clone(),
+        inline: plan.inline_subagent.clone(),
+        task: plan
+            .input
+            .clone()
+            .ok_or_else(|| anyhow!("Subagent execution requires 'input'"))?,
+        timeout_secs: plan.timeout_secs,
+        max_iterations: plan.max_iterations,
+        priority: None,
+        model: plan.model.clone(),
+        model_provider: plan.provider.clone(),
+        parent_execution_id: plan.parent_execution_id.clone(),
+        trace_session_id: plan.trace_session_id.clone(),
+        trace_scope_id: plan.trace_scope_id.clone(),
+    })
+}
+
 impl AgentRuntimeExecutor {
     pub(crate) fn load_chat_session(&self, session_id: &str) -> Result<ChatSession> {
         self.storage
@@ -207,21 +226,7 @@ impl AgentRuntimeExecutor {
             llm_client,
             tool_registry,
             self.subagent_config.clone(),
-            restflow_traits::SpawnRequest {
-                agent_id: plan.agent_id.clone(),
-                inline: plan.inline_subagent.clone(),
-                task: plan
-                    .input
-                    .clone()
-                    .ok_or_else(|| anyhow!("Subagent execution requires 'input'"))?,
-                timeout_secs: plan.timeout_secs,
-                priority: None,
-                model: plan.model.clone(),
-                model_provider: plan.provider.clone(),
-                parent_execution_id: plan.parent_execution_id.clone(),
-                trace_session_id: plan.trace_session_id.clone(),
-                trace_scope_id: plan.trace_scope_id.clone(),
-            },
+            spawn_request_from_plan(&plan)?,
             SubagentExecutionBridge {
                 llm_client_factory: Some(factory),
                 orchestrator: None,
@@ -2556,6 +2561,24 @@ mod tests {
             AgentRuntimeExecutor::context_window_for_model(AIModel::Gemini25Pro),
             1_000_000
         );
+    }
+
+    #[test]
+    fn test_spawn_request_from_plan_preserves_iteration_override() {
+        let plan = ExecutionPlan {
+            agent_id: Some("child".to_string()),
+            input: Some("do work".to_string()),
+            timeout_secs: Some(120),
+            max_iterations: Some(77),
+            ..ExecutionPlan::default()
+        };
+
+        let request = spawn_request_from_plan(&plan).expect("spawn request should build");
+
+        assert_eq!(request.agent_id.as_deref(), Some("child"));
+        assert_eq!(request.task, "do work");
+        assert_eq!(request.timeout_secs, Some(120));
+        assert_eq!(request.max_iterations, Some(77));
     }
 
     #[test]

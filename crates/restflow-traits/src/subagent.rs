@@ -101,6 +101,10 @@ pub struct SpawnRequest {
     /// Optional timeout in seconds.
     pub timeout_secs: Option<u64>,
 
+    /// Optional max iterations override for this spawn.
+    #[serde(default)]
+    pub max_iterations: Option<u32>,
+
     /// Optional priority level.
     pub priority: Option<SpawnPriority>,
 
@@ -316,6 +320,7 @@ mod tests {
             inline: None,
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
+            max_iterations: None,
             priority: Some(SpawnPriority::High),
             model: None,
             model_provider: None,

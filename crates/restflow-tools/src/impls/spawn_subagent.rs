@@ -503,6 +503,7 @@ impl Tool for SpawnSubagentTool {
             inline: inline_config,
             task,
             timeout_secs: params.timeout_secs,
+            max_iterations: None,
             priority: None,
             model: params.model.clone(),
             model_provider: params.provider.clone(),

@@ -100,17 +100,21 @@ fn resolve_effective_limits(
             SubagentLimitSource::ConfigDefault,
         ),
     };
-    let (max_iterations, max_iterations_source) = match agent_def.max_iterations {
-        Some(value) => {
-            let source = if request.agent_id.is_some() {
-                SubagentLimitSource::AgentDefinition
-            } else {
-                SubagentLimitSource::InlineConfig
-            };
-            (value as usize, source)
-        }
-        None => (config.max_iterations, SubagentLimitSource::ConfigDefault),
-    };
+    let (max_iterations, max_iterations_source) =
+        match request.max_iterations.filter(|value| *value > 0) {
+            Some(value) => (value as usize, SubagentLimitSource::RequestOverride),
+            None => match agent_def.max_iterations {
+                Some(value) => {
+                    let source = if request.agent_id.is_some() {
+                        SubagentLimitSource::AgentDefinition
+                    } else {
+                        SubagentLimitSource::InlineConfig
+                    };
+                    (value as usize, source)
+                }
+                None => (config.max_iterations, SubagentLimitSource::ConfigDefault),
+            },
+        };
 
     SubagentEffectiveLimits {
         timeout_secs,
@@ -816,6 +820,48 @@ mod tests {
         );
     }
 
+    #[test]
+    fn resolve_effective_limits_prefers_request_override_for_max_iterations() {
+        let agent_def = SubagentDefSnapshot {
+            name: "tester".to_string(),
+            system_prompt: "You are a test agent.".to_string(),
+            allowed_tools: Vec::new(),
+            max_iterations: Some(9),
+            default_model: None,
+        };
+        let config = SubagentConfig {
+            max_parallel_agents: 1,
+            subagent_timeout_secs: 30,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+        let request = SpawnRequest {
+            agent_id: Some("tester".to_string()),
+            inline: Some(InlineSubagentConfig {
+                name: None,
+                system_prompt: None,
+                allowed_tools: None,
+                max_iterations: Some(7),
+            }),
+            task: "test".to_string(),
+            timeout_secs: None,
+            max_iterations: Some(11),
+            priority: None,
+            model: None,
+            model_provider: None,
+            parent_execution_id: None,
+            trace_session_id: None,
+            trace_scope_id: None,
+        };
+
+        let limits = resolve_effective_limits(&agent_def, &config, &request);
+        assert_eq!(limits.max_iterations, 11);
+        assert_eq!(
+            limits.max_iterations_source,
+            SubagentLimitSource::RequestOverride
+        );
+    }
+
     struct MockDefLookup {
         defs: HashMap<String, SubagentDefSnapshot>,
     }
@@ -960,6 +1006,7 @@ mod tests {
             }),
             task: "test".to_string(),
             timeout_secs: None,
+            max_iterations: None,
             priority: None,
             model: None,
             model_provider: None,
@@ -1004,6 +1051,7 @@ mod tests {
                 inline: None,
                 task: "temporary task".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
@@ -1049,6 +1097,7 @@ mod tests {
                 inline: None,
                 task: "delegate task".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
@@ -1108,6 +1157,7 @@ mod tests {
                 inline: None,
                 task: "delegate task".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: Some("gpt-5.3-codex".to_string()),
                 model_provider: None,
@@ -1160,6 +1210,7 @@ mod tests {
                 inline: None,
                 task: "temporary task".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: Some("gpt-5.3-codex".to_string()),
                 model_provider: Some("openai".to_string()),
@@ -1214,6 +1265,7 @@ mod tests {
                 inline: None,
                 task: "direct task".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
@@ -1287,6 +1339,7 @@ mod tests {
             inline: None,
             task: "Research topic X".to_string(),
             timeout_secs: Some(300),
+            max_iterations: None,
             priority: Some(SpawnPriority::High),
             model: None,
             model_provider: None,
@@ -1351,6 +1404,7 @@ mod tests {
                 inline: None,
                 task: "trace me".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
@@ -1414,6 +1468,7 @@ mod tests {
                 inline: None,
                 task: "first task".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
@@ -1436,6 +1491,7 @@ mod tests {
                 inline: None,
                 task: "second task (should not execute)".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
@@ -1476,6 +1532,7 @@ mod tests {
                 inline: None,
                 task: "force failure status".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
@@ -1531,6 +1588,7 @@ mod tests {
                 inline: None,
                 task: "hit max iterations".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
