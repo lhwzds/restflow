@@ -7,7 +7,8 @@ use std::fmt::Display;
 use std::sync::Arc;
 
 use restflow_storage::{
-    CliConfig, ConfigDocument, ConfigStorage, SystemConfig, load_cli_config, write_cli_config,
+    CliConfig, ConfigDocument, ConfigStorage, SystemConfig, load_cli_config,
+    load_global_cli_config, write_cli_config,
 };
 
 use crate::Result;
@@ -62,7 +63,7 @@ impl ConfigTool {
             .storage
             .get_global_config()
             .map_err(Self::storage_error)?;
-        let cli = load_cli_config().map_err(Self::storage_error)?;
+        let cli = load_global_cli_config().map_err(Self::storage_error)?;
         Ok(ConfigDocument::from_system_config(system, cli))
     }
 
@@ -725,6 +726,7 @@ impl Tool for ConfigTool {
 mod tests {
     use super::*;
     use std::env;
+    use std::fs;
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
@@ -1220,6 +1222,34 @@ mod tests {
                 .get("fallback_models")
                 .is_some_and(|value| value.is_null())
         );
+    }
+
+    #[tokio::test]
+    async fn test_set_cli_field_preserves_workspace_override() {
+        let ctx = setup_storage();
+        let tool = ConfigTool::new(ctx.storage).with_write(true);
+        let workspace_path = ctx._temp_dir.path().join("workspace-config.toml");
+        fs::write(&workspace_path, "[cli]\nagent = \"workspace-agent\"\n")
+            .expect("write workspace config");
+        let _workspace_guard = EnvGuard::set_path("RESTFLOW_WORKSPACE_CONFIG", &workspace_path);
+
+        let output = tool
+            .execute(json!({
+                "operation": "set",
+                "key": "cli.model",
+                "value": "gpt-5"
+            }))
+            .await
+            .expect("setting cli.model should succeed");
+
+        assert!(output.success);
+        let global_cli = load_global_cli_config().expect("load global cli config");
+        assert_eq!(global_cli.agent, None);
+        assert_eq!(global_cli.model.as_deref(), Some("gpt-5"));
+
+        let effective_cli = load_cli_config().expect("load effective cli config");
+        assert_eq!(effective_cli.agent.as_deref(), Some("workspace-agent"));
+        assert_eq!(effective_cli.model.as_deref(), Some("gpt-5"));
     }
 
     #[tokio::test]
