@@ -19,7 +19,7 @@ use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
-use restflow_storage::{AgentDefaults, ApiDefaults};
+use restflow_storage::{AgentSettings, ApiSettings};
 use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::DiagnosticsProvider;
@@ -247,7 +247,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 let timeout_secs = effective_config
                     .as_ref()
                     .map(|config| config.agent.browser_timeout_secs)
-                    .unwrap_or_else(|| AgentDefaults::default().browser_timeout_secs);
+                    .unwrap_or_else(|| AgentSettings::default().browser_timeout_secs);
                 builder = builder.with_browser_timeout(timeout_secs)?;
             }
             "transcribe" => {
@@ -271,7 +271,7 @@ pub fn registry_from_allowlist_with_security_gate(
                 let default_num_results = effective_config
                     .as_ref()
                     .map(|config| config.api_defaults.web_search_num_results)
-                    .unwrap_or_else(|| ApiDefaults::default().web_search_num_results);
+                    .unwrap_or_else(|| ApiSettings::default().web_search_num_results);
                 if let Some(resolver) = secret_resolver.clone() {
                     builder = builder.with_web_search_with_resolver_and_defaults(
                         resolver,
@@ -292,7 +292,7 @@ pub fn registry_from_allowlist_with_security_gate(
                     let timeout_ms = effective_config
                         .as_ref()
                         .map(|config| config.api_defaults.diagnostics_timeout_ms)
-                        .unwrap_or_else(|| ApiDefaults::default().diagnostics_timeout_ms);
+                        .unwrap_or_else(|| ApiSettings::default().diagnostics_timeout_ms);
                     builder = builder.with_diagnostics_with_timeout(diag.clone(), timeout_ms);
                 }
             }
