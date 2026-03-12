@@ -1135,6 +1135,60 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn spawn_subagent_orchestrator_supports_temporary_model_provider_only() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps("mock", vec![]));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let orchestrator = Arc::new(MockOrchestrator::default());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: None,
+                inline: None,
+                task: "temporary task".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: Some("gpt-5.3-codex".to_string()),
+                model_provider: Some("openai".to_string()),
+                parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: None,
+                orchestrator: Some(orchestrator.clone()),
+            },
+        )
+        .expect("spawn should succeed");
+
+        let result = tracker
+            .wait(&handle.id)
+            .await
+            .expect("subagent result should be available");
+        assert!(result.success);
+
+        let plans = orchestrator.plans.lock().expect("plans lock");
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].agent_id, None);
+        assert!(plans[0].inline_subagent.is_none());
+        assert_eq!(plans[0].model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(plans[0].provider.as_deref(), Some("openai"));
+    }
+
+    #[tokio::test]
     async fn execute_subagent_once_bypasses_orchestrator_and_runs_directly() {
         let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
         let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(

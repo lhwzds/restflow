@@ -109,10 +109,12 @@ impl ExecutionPlan {
                 }
             }
             ExecutionMode::Subagent => {
-                if self.agent_id.is_none() && self.inline_subagent.is_none() {
+                let has_selector = self.agent_id.is_some()
+                    || self.inline_subagent.is_some()
+                    || (has_model && has_provider);
+                if !has_selector {
                     return Err(ToolError::Tool(
-                        "Subagent execution requires 'agent_id' or 'inline_subagent'."
-                            .to_string(),
+                        "Subagent execution requires 'agent_id', 'inline_subagent', or paired 'model' and 'provider'.".to_string(),
                     ));
                 }
                 if self.input.is_none() {
@@ -201,6 +203,19 @@ mod tests {
             inline_subagent: Some(InlineSubagentConfig::default()),
             ..ExecutionPlan::default()
         };
+        assert!(valid.validate().is_ok());
+    }
+
+    #[test]
+    fn test_execution_plan_accepts_model_provider_only_subagent_mode() {
+        let valid = ExecutionPlan {
+            mode: Some(ExecutionMode::Subagent),
+            input: Some("task".to_string()),
+            model: Some("gpt-5.3-codex".to_string()),
+            provider: Some("openai".to_string()),
+            ..ExecutionPlan::default()
+        };
+
         assert!(valid.validate().is_ok());
     }
 }

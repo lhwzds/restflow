@@ -2389,6 +2389,91 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn test_service_subagent_manager_supports_temporary_model_provider_only() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let service_registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage.clone(),
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage.clone(),
+            agent_storage.clone(),
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            None,
+            None,
+            None,
+        )
+        .expect("service registry");
+
+        let mock_llm: Arc<dyn LlmClient> = Arc::new(TestLlmClient {
+            model: "mock-model".to_string(),
+            response: "done".to_string(),
+        });
+        let llm_factory: Arc<dyn LlmClientFactory> = Arc::new(TestLlmFactory::new(
+            mock_llm,
+            "mock-model",
+            LlmProvider::OpenAI,
+        ));
+
+        let subagent_manager = create_subagent_manager(
+            agent_storage,
+            &service_registry,
+            llm_factory,
+            Arc::new(config_storage),
+            tool_trace_storage,
+        );
+
+        let handle = subagent_manager
+            .spawn(SpawnRequest {
+                agent_id: None,
+                inline: None,
+                task: "Say done".to_string(),
+                timeout_secs: Some(30),
+                priority: None,
+                model: Some("mock-model".to_string()),
+                model_provider: Some("openai".to_string()),
+                parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
+            })
+            .expect("spawn temporary subagent");
+
+        let result = subagent_manager
+            .wait(&handle.id)
+            .await
+            .expect("subagent result");
+        assert!(
+            result.success,
+            "unexpected subagent failure: {:?}",
+            result.error
+        );
+    }
+
     #[test]
     fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         let (
