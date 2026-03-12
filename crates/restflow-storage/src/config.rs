@@ -58,12 +58,13 @@ fn default_cli_max_output() -> usize {
     1_048_576
 }
 
-/// CLI-specific defaults stored in the unified config file.
+/// CLI-specific settings stored in the unified config file.
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
 pub struct CliConfig {
     pub version: u32,
-    pub default: CliDefaultConfig,
+    pub agent: Option<String>,
+    pub model: Option<String>,
     pub sandbox: CliSandboxConfig,
 }
 
@@ -71,7 +72,8 @@ impl Default for CliConfig {
     fn default() -> Self {
         Self {
             version: 1,
-            default: CliDefaultConfig::default(),
+            agent: None,
+            model: None,
             sandbox: CliSandboxConfig::default(),
         }
     }
@@ -85,13 +87,6 @@ impl CliConfig {
     pub fn save(&self) -> Result<()> {
         write_cli_config(self)
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
-#[serde(default)]
-pub struct CliDefaultConfig {
-    pub agent: Option<String>,
-    pub model: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, Type)]
@@ -126,14 +121,126 @@ impl Default for CliLimitsConfig {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(default)]
-struct UnifiedConfigFile {
-    #[serde(flatten)]
-    system: SystemConfig,
+pub struct SystemSection {
+    pub worker_count: usize,
+    pub task_timeout_seconds: u64,
+    pub stall_timeout_seconds: u64,
     #[serde(default)]
-    cli: CliConfig,
+    pub background_api_timeout_seconds: Option<u64>,
+    #[serde(default)]
+    pub chat_response_timeout_seconds: Option<u64>,
+    pub max_retries: u32,
+    pub chat_session_retention_days: u32,
+    pub background_task_retention_days: u32,
+    pub checkpoint_retention_days: u32,
+    pub memory_chunk_retention_days: u32,
+    pub log_file_retention_days: u32,
+    pub experimental_features: Vec<String>,
 }
+
+impl Default for SystemSection {
+    fn default() -> Self {
+        Self {
+            worker_count: DEFAULT_WORKER_COUNT,
+            task_timeout_seconds: DEFAULT_TASK_TIMEOUT_SECONDS,
+            stall_timeout_seconds: DEFAULT_STALL_TIMEOUT_SECONDS,
+            background_api_timeout_seconds: None,
+            chat_response_timeout_seconds: None,
+            max_retries: DEFAULT_MAX_RETRIES,
+            chat_session_retention_days: DEFAULT_CHAT_SESSION_RETENTION_DAYS,
+            background_task_retention_days: DEFAULT_BACKGROUND_TASK_RETENTION_DAYS,
+            checkpoint_retention_days: DEFAULT_CHECKPOINT_RETENTION_DAYS,
+            memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
+            log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
+            experimental_features: Vec::new(),
+        }
+    }
+}
+
+impl From<&SystemConfig> for SystemSection {
+    fn from(config: &SystemConfig) -> Self {
+        Self {
+            worker_count: config.worker_count,
+            task_timeout_seconds: config.task_timeout_seconds,
+            stall_timeout_seconds: config.stall_timeout_seconds,
+            background_api_timeout_seconds: config.background_api_timeout_seconds,
+            chat_response_timeout_seconds: config.chat_response_timeout_seconds,
+            max_retries: config.max_retries,
+            chat_session_retention_days: config.chat_session_retention_days,
+            background_task_retention_days: config.background_task_retention_days,
+            checkpoint_retention_days: config.checkpoint_retention_days,
+            memory_chunk_retention_days: config.memory_chunk_retention_days,
+            log_file_retention_days: config.log_file_retention_days,
+            experimental_features: config.experimental_features.clone(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Type, Default)]
+#[serde(default, deny_unknown_fields)]
+pub struct ConfigDocument {
+    pub system: SystemSection,
+    pub agent: AgentDefaults,
+    pub api: ApiDefaults,
+    pub runtime: RuntimeDefaults,
+    pub channel: ChannelDefaults,
+    pub registry: RegistryDefaults,
+    #[serde(default)]
+    pub cli: CliConfig,
+}
+
+impl ConfigDocument {
+    pub fn from_system_config(system: SystemConfig, cli: CliConfig) -> Self {
+        Self {
+            system: SystemSection::from(&system),
+            agent: system.agent,
+            api: system.api_defaults,
+            runtime: system.runtime_defaults,
+            channel: system.channel_defaults,
+            registry: system.registry_defaults,
+            cli,
+        }
+    }
+
+    pub fn system_config(&self) -> SystemConfig {
+        SystemConfig {
+            worker_count: self.system.worker_count,
+            task_timeout_seconds: self.system.task_timeout_seconds,
+            stall_timeout_seconds: self.system.stall_timeout_seconds,
+            background_api_timeout_seconds: self.system.background_api_timeout_seconds,
+            chat_response_timeout_seconds: self.system.chat_response_timeout_seconds,
+            max_retries: self.system.max_retries,
+            chat_session_retention_days: self.system.chat_session_retention_days,
+            background_task_retention_days: self.system.background_task_retention_days,
+            checkpoint_retention_days: self.system.checkpoint_retention_days,
+            memory_chunk_retention_days: self.system.memory_chunk_retention_days,
+            log_file_retention_days: self.system.log_file_retention_days,
+            experimental_features: self.system.experimental_features.clone(),
+            agent: self.agent.clone(),
+            api_defaults: self.api.clone(),
+            runtime_defaults: self.runtime.clone(),
+            channel_defaults: self.channel.clone(),
+            registry_defaults: self.registry.clone(),
+        }
+    }
+
+    fn validate(&self) -> Result<()> {
+        self.system_config().validate()
+    }
+
+    fn replace_system_config(&mut self, system: SystemConfig) {
+        self.system = SystemSection::from(&system);
+        self.agent = system.agent;
+        self.api = system.api_defaults;
+        self.runtime = system.runtime_defaults;
+        self.channel = system.channel_defaults;
+        self.registry = system.registry_defaults;
+    }
+}
+
+type UnifiedConfigFile = ConfigDocument;
 
 /// Agent execution defaults (configurable at runtime via `manage_config`).
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
@@ -360,48 +467,46 @@ impl ApiDefaults {
     fn validate(&self) -> Result<()> {
         if self.memory_search_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api_defaults.memory_search_limit must be at least 1"
+                "api.memory_search_limit must be at least 1"
             ));
         }
         if self.session_list_limit == 0 {
-            return Err(anyhow::anyhow!(
-                "api_defaults.session_list_limit must be at least 1"
-            ));
+            return Err(anyhow::anyhow!("api.session_list_limit must be at least 1"));
         }
         if self.background_progress_event_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api_defaults.background_progress_event_limit must be at least 1"
+                "api.background_progress_event_limit must be at least 1"
             ));
         }
         if self.background_message_list_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api_defaults.background_message_list_limit must be at least 1"
+                "api.background_message_list_limit must be at least 1"
             ));
         }
         if self.background_trace_list_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api_defaults.background_trace_list_limit must be at least 1"
+                "api.background_trace_list_limit must be at least 1"
             ));
         }
         if self.background_trace_line_limit == 0 {
             return Err(anyhow::anyhow!(
-                "api_defaults.background_trace_line_limit must be at least 1"
+                "api.background_trace_line_limit must be at least 1"
             ));
         }
         if self.web_search_num_results == 0 {
             return Err(anyhow::anyhow!(
-                "api_defaults.web_search_num_results must be at least 1"
+                "api.web_search_num_results must be at least 1"
             ));
         }
         if self.web_search_num_results > MAX_API_WEB_SEARCH_RESULTS {
             return Err(anyhow::anyhow!(
-                "api_defaults.web_search_num_results must be at most {}",
+                "api.web_search_num_results must be at most {}",
                 MAX_API_WEB_SEARCH_RESULTS
             ));
         }
         if self.diagnostics_timeout_ms == 0 {
             return Err(anyhow::anyhow!(
-                "api_defaults.diagnostics_timeout_ms must be at least 1"
+                "api.diagnostics_timeout_ms must be at least 1"
             ));
         }
         Ok(())
@@ -434,17 +539,17 @@ impl RuntimeDefaults {
     fn validate(&self) -> Result<()> {
         if self.background_runner_poll_interval_ms == 0 {
             return Err(anyhow::anyhow!(
-                "runtime_defaults.background_runner_poll_interval_ms must be at least 1"
+                "runtime.background_runner_poll_interval_ms must be at least 1"
             ));
         }
         if self.background_runner_max_concurrent_tasks == 0 {
             return Err(anyhow::anyhow!(
-                "runtime_defaults.background_runner_max_concurrent_tasks must be at least 1"
+                "runtime.background_runner_max_concurrent_tasks must be at least 1"
             ));
         }
         if self.chat_max_session_history == 0 {
             return Err(anyhow::anyhow!(
-                "runtime_defaults.chat_max_session_history must be at least 1"
+                "runtime.chat_max_session_history must be at least 1"
             ));
         }
         Ok(())
@@ -474,13 +579,13 @@ impl ChannelDefaults {
     fn validate(&self) -> Result<()> {
         if self.telegram_api_timeout_secs < MIN_TIMEOUT_SECONDS {
             return Err(anyhow::anyhow!(
-                "channel_defaults.telegram_api_timeout_secs must be at least {} seconds",
+                "channel.telegram_api_timeout_secs must be at least {} seconds",
                 MIN_TIMEOUT_SECONDS
             ));
         }
         if self.telegram_polling_timeout_secs == 0 {
             return Err(anyhow::anyhow!(
-                "channel_defaults.telegram_polling_timeout_secs must be at least 1"
+                "channel.telegram_polling_timeout_secs must be at least 1"
             ));
         }
         Ok(())
@@ -510,12 +615,12 @@ impl RegistryDefaults {
     fn validate(&self) -> Result<()> {
         if self.github_cache_ttl_secs == 0 {
             return Err(anyhow::anyhow!(
-                "registry_defaults.github_cache_ttl_secs must be at least 1"
+                "registry.github_cache_ttl_secs must be at least 1"
             ));
         }
         if self.marketplace_cache_ttl_secs == 0 {
             return Err(anyhow::anyhow!(
-                "registry_defaults.marketplace_cache_ttl_secs must be at least 1"
+                "registry.marketplace_cache_ttl_secs must be at least 1"
             ));
         }
         Ok(())
@@ -701,25 +806,7 @@ impl SystemConfig {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-struct CliDefaultConfigOverride {
-    pub agent: Option<String>,
-    pub model: Option<String>,
-}
-
-impl CliDefaultConfigOverride {
-    fn apply_to(&self, config: &mut CliDefaultConfig) {
-        if let Some(value) = self.agent.clone() {
-            config.agent = Some(value);
-        }
-        if let Some(value) = self.model.clone() {
-            config.model = Some(value);
-        }
-    }
-}
-
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct CliEnvSandboxConfigOverride {
     pub isolate: Option<bool>,
@@ -741,7 +828,7 @@ impl CliEnvSandboxConfigOverride {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct CliLimitsConfigOverride {
     pub timeout_secs: Option<u64>,
@@ -759,7 +846,7 @@ impl CliLimitsConfigOverride {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct CliSandboxConfigOverride {
     pub enabled: Option<bool>,
@@ -781,11 +868,12 @@ impl CliSandboxConfigOverride {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct CliConfigOverride {
     pub version: Option<u32>,
-    pub default: Option<CliDefaultConfigOverride>,
+    pub agent: Option<String>,
+    pub model: Option<String>,
     pub sandbox: Option<CliSandboxConfigOverride>,
 }
 
@@ -794,8 +882,11 @@ impl CliConfigOverride {
         if let Some(value) = self.version {
             config.version = value;
         }
-        if let Some(value) = &self.default {
-            value.apply_to(&mut config.default);
+        if let Some(value) = self.agent.clone() {
+            config.agent = Some(value);
+        }
+        if let Some(value) = self.model.clone() {
+            config.model = Some(value);
         }
         if let Some(value) = &self.sandbox {
             value.apply_to(&mut config.sandbox);
@@ -865,7 +956,7 @@ where
     })
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct AgentDefaultsOverride {
     pub tool_timeout_secs: Option<u64>,
@@ -957,7 +1048,7 @@ impl AgentDefaultsOverride {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ApiDefaultsOverride {
     pub memory_search_limit: Option<u32>,
@@ -999,7 +1090,7 @@ impl ApiDefaultsOverride {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RuntimeDefaultsOverride {
     pub background_runner_poll_interval_ms: Option<u64>,
@@ -1021,7 +1112,7 @@ impl RuntimeDefaultsOverride {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct ChannelDefaultsOverride {
     pub telegram_api_timeout_secs: Option<u64>,
@@ -1039,7 +1130,7 @@ impl ChannelDefaultsOverride {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct RegistryDefaultsOverride {
     pub github_cache_ttl_secs: Option<u64>,
@@ -1057,9 +1148,9 @@ impl RegistryDefaultsOverride {
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-struct SystemConfigOverride {
+struct SystemSectionOverride {
     pub worker_count: Option<usize>,
     pub task_timeout_seconds: Option<u64>,
     pub stall_timeout_seconds: Option<u64>,
@@ -1074,15 +1165,10 @@ struct SystemConfigOverride {
     pub memory_chunk_retention_days: Option<u32>,
     pub log_file_retention_days: Option<u32>,
     pub experimental_features: Option<Vec<String>>,
-    pub agent: Option<AgentDefaultsOverride>,
-    pub api_defaults: Option<ApiDefaultsOverride>,
-    pub runtime_defaults: Option<RuntimeDefaultsOverride>,
-    pub channel_defaults: Option<ChannelDefaultsOverride>,
-    pub registry_defaults: Option<RegistryDefaultsOverride>,
 }
 
-impl SystemConfigOverride {
-    fn apply_to(&self, config: &mut SystemConfig) {
+impl SystemSectionOverride {
+    fn apply_to(&self, config: &mut SystemSection) {
         if let Some(value) = self.worker_count {
             config.worker_count = value;
         }
@@ -1119,35 +1205,41 @@ impl SystemConfigOverride {
         if let Some(values) = self.experimental_features.clone() {
             config.experimental_features = values;
         }
-        if let Some(agent_override) = &self.agent {
-            agent_override.apply_to(&mut config.agent);
-        }
-        if let Some(api_defaults_override) = &self.api_defaults {
-            api_defaults_override.apply_to(&mut config.api_defaults);
-        }
-        if let Some(runtime_defaults_override) = &self.runtime_defaults {
-            runtime_defaults_override.apply_to(&mut config.runtime_defaults);
-        }
-        if let Some(channel_defaults_override) = &self.channel_defaults {
-            channel_defaults_override.apply_to(&mut config.channel_defaults);
-        }
-        if let Some(registry_defaults_override) = &self.registry_defaults {
-            registry_defaults_override.apply_to(&mut config.registry_defaults);
-        }
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 struct UnifiedConfigOverride {
-    #[serde(flatten)]
-    pub system: SystemConfigOverride,
+    pub system: Option<SystemSectionOverride>,
+    pub agent: Option<AgentDefaultsOverride>,
+    pub api: Option<ApiDefaultsOverride>,
+    pub runtime: Option<RuntimeDefaultsOverride>,
+    pub channel: Option<ChannelDefaultsOverride>,
+    pub registry: Option<RegistryDefaultsOverride>,
     pub cli: Option<CliConfigOverride>,
 }
 
 impl UnifiedConfigOverride {
     fn apply_to(&self, config: &mut UnifiedConfigFile) {
-        self.system.apply_to(&mut config.system);
+        if let Some(system_override) = &self.system {
+            system_override.apply_to(&mut config.system);
+        }
+        if let Some(agent_override) = &self.agent {
+            agent_override.apply_to(&mut config.agent);
+        }
+        if let Some(api_override) = &self.api {
+            api_override.apply_to(&mut config.api);
+        }
+        if let Some(runtime_override) = &self.runtime {
+            runtime_override.apply_to(&mut config.runtime);
+        }
+        if let Some(channel_override) = &self.channel {
+            channel_override.apply_to(&mut config.channel);
+        }
+        if let Some(registry_override) = &self.registry {
+            registry_override.apply_to(&mut config.registry);
+        }
         if let Some(cli_override) = &self.cli {
             cli_override.apply_to(&mut config.cli);
         }
@@ -1165,13 +1257,14 @@ fn load_config_override(path: &Path) -> Result<Option<UnifiedConfigOverride>> {
             path.display()
         )
     })?;
-    let parsed: UnifiedConfigOverride = toml::from_str(&contents).with_context(|| {
-        format!(
-            "Failed to parse system config override from {}",
-            path.display()
-        )
-    })?;
-    Ok(Some(parsed))
+    toml::from_str::<UnifiedConfigOverride>(&contents)
+        .map(Some)
+        .with_context(|| {
+            format!(
+                "Failed to parse system config override from {}",
+                path.display()
+            )
+        })
 }
 
 fn env_override_path(var: &str) -> Option<PathBuf> {
@@ -1289,8 +1382,8 @@ fn load_config_layers() -> Result<ConfigLayerState> {
         override_config.apply_to(&mut effective);
     }
 
-    global.system.validate()?;
-    effective.system.validate()?;
+    global.validate()?;
+    effective.validate()?;
 
     Ok(ConfigLayerState {
         default,
@@ -1302,7 +1395,7 @@ fn load_config_layers() -> Result<ConfigLayerState> {
 }
 
 fn write_global_config_file(config: &UnifiedConfigFile) -> Result<()> {
-    config.system.validate()?;
+    config.validate()?;
     let target = global_write_target()?;
     if let Some(parent) = target.path.parent() {
         fs::create_dir_all(parent)
@@ -1333,8 +1426,8 @@ fn flatten_json(prefix: Option<&str>, value: &JsonValue, output: &mut BTreeMap<S
     }
 }
 
-fn flatten_system_config(config: &SystemConfig) -> Result<BTreeMap<String, JsonValue>> {
-    let json = serde_json::to_value(config).context("Failed to serialize system config")?;
+fn flatten_config_document(config: &ConfigDocument) -> Result<BTreeMap<String, JsonValue>> {
+    let json = serde_json::to_value(config).context("Failed to serialize config document")?;
     let mut output = BTreeMap::new();
     flatten_json(None, &json, &mut output);
     Ok(output)
@@ -1343,9 +1436,9 @@ fn flatten_system_config(config: &SystemConfig) -> Result<BTreeMap<String, JsonV
 fn build_value_sources(
     layers: &ConfigLayerState,
 ) -> Result<BTreeMap<String, ConfigValueSourceInfo>> {
-    let default_values = flatten_system_config(&layers.default.system)?;
-    let global_values = flatten_system_config(&layers.global.system)?;
-    let effective_values = flatten_system_config(&layers.effective.system)?;
+    let default_values = flatten_config_document(&layers.default)?;
+    let global_values = flatten_config_document(&layers.global)?;
+    let effective_values = flatten_config_document(&layers.effective)?;
 
     let global_path = layers
         .global_path
@@ -1384,7 +1477,7 @@ fn build_value_sources(
 }
 
 pub fn load_cli_config() -> Result<CliConfig> {
-    Ok(load_config_layers()?.effective.cli)
+    Ok(load_config_layers()?.effective.cli.clone())
 }
 
 pub fn write_cli_config(config: &CliConfig) -> Result<()> {
@@ -1422,12 +1515,12 @@ impl ConfigStorage {
 
     /// Get the global config view (defaults + global config.toml).
     pub fn get_global_config(&self) -> Result<SystemConfig> {
-        Ok(load_config_layers()?.global.system)
+        Ok(load_config_layers()?.global.system_config())
     }
 
     /// Get the effective configuration by applying config.toml overrides.
     pub fn get_effective_config(&self) -> Result<SystemConfig> {
-        Ok(load_config_layers()?.effective.system)
+        Ok(load_config_layers()?.effective.system_config())
     }
 
     /// Update the global config.toml system configuration while preserving the CLI section.
@@ -1436,7 +1529,7 @@ impl ConfigStorage {
         let mut current = load_config_layers()
             .map(|layers| layers.global)
             .unwrap_or_default();
-        current.system = config;
+        current.replace_system_config(config);
         write_global_config_file(&current)?;
         Ok(())
     }
@@ -1869,7 +1962,12 @@ mod tests {
     #[test]
     fn test_effective_config_with_global_override() {
         let ctx = setup_test_storage();
-        let file = write_override_file("worker_count = 42\nbackground_task_retention_days = 10");
+        let file = write_override_file(
+            r#"[system]
+worker_count = 42
+background_task_retention_days = 10
+"#,
+        );
         let _guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, file.path());
 
         let effective = ctx.storage.get_effective_config().unwrap();
@@ -1880,8 +1978,18 @@ mod tests {
     #[test]
     fn test_workspace_override_precedence() {
         let ctx = setup_test_storage();
-        let global_file = write_override_file("worker_count = 5\nmax_retries = 2");
-        let workspace_file = write_override_file("worker_count = 9\nmax_retries = 4");
+        let global_file = write_override_file(
+            r#"[system]
+worker_count = 5
+max_retries = 2
+"#,
+        );
+        let workspace_file = write_override_file(
+            r#"[system]
+worker_count = 9
+max_retries = 4
+"#,
+        );
         let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, global_file.path());
         let _workspace_guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, workspace_file.path());
 
@@ -1894,7 +2002,8 @@ mod tests {
     fn test_partial_agent_override() {
         let ctx = setup_test_storage();
         let file = write_override_file(
-            r#"task_timeout_seconds = 9999
+            r#"[system]
+task_timeout_seconds = 9999
 
 [agent]
 python_timeout_secs = 45
@@ -1926,7 +2035,7 @@ fallback_models = ["alpha", "beta"]
     fn test_partial_api_defaults_override() {
         let ctx = setup_test_storage();
         let file = write_override_file(
-            r#"[api_defaults]
+            r#"[api]
 web_search_num_results = 7
 diagnostics_timeout_ms = 9000
 "#,
@@ -1942,16 +2051,16 @@ diagnostics_timeout_ms = 9000
     fn test_partial_runtime_channel_and_registry_override() {
         let ctx = setup_test_storage();
         let file = write_override_file(
-            r#"[runtime_defaults]
+            r#"[runtime]
 background_runner_poll_interval_ms = 15000
 background_runner_max_concurrent_tasks = 8
 chat_max_session_history = 42
 
-[channel_defaults]
+[channel]
 telegram_api_timeout_secs = 45
 telegram_polling_timeout_secs = 55
 
-[registry_defaults]
+[registry]
 github_cache_ttl_secs = 900
 marketplace_cache_ttl_secs = 450
 "#,
@@ -2011,8 +2120,8 @@ llm_timeout_secs = "none"
     #[test]
     fn test_effective_config_sources_reports_paths_and_existence() {
         let _env_guard = env_lock();
-        let global_file = write_override_file("worker_count = 7");
-        let workspace_file = write_override_file("worker_count = 9");
+        let global_file = write_override_file("[system]\nworker_count = 7\n");
+        let workspace_file = write_override_file("[system]\nworker_count = 9\n");
         let _global_guard = EnvGuard::set_path(GLOBAL_CONFIG_ENV, global_file.path());
         let _workspace_guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, workspace_file.path());
 
@@ -2035,7 +2144,7 @@ llm_timeout_secs = "none"
     #[test]
     fn test_invalid_override_rejected() {
         let ctx = setup_test_storage();
-        let file = write_override_file("worker_count = 0");
+        let file = write_override_file("[system]\nworker_count = 0\n");
         let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
 
         let result = ctx.storage.get_effective_config();
@@ -2046,7 +2155,7 @@ llm_timeout_secs = "none"
     fn test_unknown_override_field_rejected() {
         let ctx = setup_test_storage();
         let file = write_override_file(
-            r#"[api_defaults]
+            r#"[api]
 unknown_limit = 1
 "#,
         );
@@ -2055,6 +2164,21 @@ unknown_limit = 1
         ctx.storage
             .get_effective_config()
             .expect_err("unknown override field should fail");
+    }
+
+    #[test]
+    fn test_legacy_override_sections_are_rejected() {
+        let ctx = setup_test_storage();
+        let file = write_override_file(
+            r#"[api_defaults]
+memory_search_limit = 33
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        ctx.storage
+            .get_effective_config()
+            .expect_err("legacy override sections should fail");
     }
 
     #[test]
@@ -2125,7 +2249,7 @@ unknown_limit = 1
     fn test_api_defaults_override_from_file() {
         let ctx = setup_test_storage();
         let file = write_override_file(
-            r#"[api_defaults]
+            r#"[api]
 memory_search_limit = 33
 background_trace_line_limit = 444
 "#,
