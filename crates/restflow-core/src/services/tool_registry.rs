@@ -12,6 +12,7 @@ use crate::runtime::agent::tools::assembly::{
     register_file_execution_tool, register_http_execution_tool, register_python_execution_tools,
     register_send_email_execution_tool,
 };
+use crate::runtime::orchestrator::{AgentOrchestratorImpl, ExecutionBackend};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::runtime::trace::ToolTraceRunSink;
 use crate::services::adapters::*;
@@ -21,7 +22,11 @@ use crate::storage::{
     ConfigStorage, ExecutionTraceStorage, KvStoreStorage, MemoryStorage, SecretStorage,
     TerminalSessionStorage, ToolTraceStorage, TriggerStorage, WorkItemStorage,
 };
-use restflow_ai::agent::{SubagentConfig, SubagentDeps, SubagentManagerImpl, SubagentTracker};
+use restflow_ai::AgentState;
+use restflow_ai::agent::{
+    StreamEmitter, SubagentConfig, SubagentDefLookup, SubagentDeps, SubagentExecutionBridge,
+    SubagentManagerImpl, SubagentTracker, spawn_subagent,
+};
 use restflow_ai::llm::{
     CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
     LlmSwitcherImpl, SwappableLlm,
@@ -35,6 +40,7 @@ use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::store::{ProcessManager, ReplySender};
 use restflow_traits::tool::SecretResolver;
+use restflow_traits::{ExecutionOutcome, ExecutionPlan};
 use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
@@ -142,13 +148,123 @@ fn load_subagent_config(config_storage: &ConfigStorage) -> SubagentConfig {
     build_subagent_config(&defaults)
 }
 
-fn create_subagent_manager(
+#[derive(Clone)]
+struct ToolRegistrySubagentBackend {
+    tracker: Arc<SubagentTracker>,
+    definitions: Arc<dyn SubagentDefLookup>,
+    llm_client: Arc<dyn LlmClient>,
+    tool_registry: Arc<ToolRegistry>,
+    config: SubagentConfig,
+    llm_client_factory: Arc<dyn LlmClientFactory>,
+}
+
+#[async_trait::async_trait]
+impl ExecutionBackend for ToolRegistrySubagentBackend {
+    fn load_chat_session(&self, session_id: &str) -> anyhow::Result<crate::models::ChatSession> {
+        anyhow::bail!(
+            "Chat session loading is not supported in service subagent backend: {session_id}"
+        )
+    }
+
+    async fn execute_interactive_session_turn(
+        &self,
+        _session: &mut crate::models::ChatSession,
+        _user_input: &str,
+        _max_history: usize,
+        _input_mode: crate::runtime::SessionInputMode,
+        _emitter: Option<Box<dyn StreamEmitter>>,
+        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
+    ) -> anyhow::Result<crate::runtime::SessionExecutionResult> {
+        anyhow::bail!("Interactive execution is not supported in service subagent backend")
+    }
+
+    async fn execute_background(
+        &self,
+        _agent_id: &str,
+        _background_task_id: Option<&str>,
+        _input: Option<&str>,
+        _memory_config: &crate::models::MemoryConfig,
+        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
+        _emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> anyhow::Result<crate::runtime::ExecutionResult> {
+        anyhow::bail!("Background execution is not supported in service subagent backend")
+    }
+
+    async fn execute_background_from_state(
+        &self,
+        _agent_id: &str,
+        _background_task_id: Option<&str>,
+        _state: AgentState,
+        _memory_config: &crate::models::MemoryConfig,
+        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
+        _emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> anyhow::Result<crate::runtime::ExecutionResult> {
+        anyhow::bail!("Background resume is not supported in service subagent backend")
+    }
+
+    async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> anyhow::Result<ExecutionOutcome> {
+        let provider = match (plan.model.as_deref(), plan.provider.clone()) {
+            (Some(model), None) => self
+                .llm_client_factory
+                .provider_for_model(model)
+                .map(|provider| provider.as_str().to_string()),
+            _ => plan.provider.clone(),
+        };
+        let handle = spawn_subagent(
+            self.tracker.clone(),
+            self.definitions.clone(),
+            self.llm_client.clone(),
+            self.tool_registry.clone(),
+            self.config.clone(),
+            restflow_traits::SpawnRequest {
+                agent_id: plan.agent_id.clone(),
+                inline: plan.inline_subagent.clone(),
+                task: plan
+                    .input
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("Subagent execution requires 'input'"))?,
+                timeout_secs: plan.timeout_secs,
+                priority: None,
+                model: plan.model.clone(),
+                model_provider: provider,
+                parent_execution_id: plan.parent_execution_id.clone(),
+                trace_session_id: plan.trace_session_id.clone(),
+                trace_scope_id: plan.trace_scope_id.clone(),
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: Some(self.llm_client_factory.clone()),
+                orchestrator: None,
+            },
+        )?;
+
+        let result = self.tracker.wait(&handle.id).await.ok_or_else(|| {
+            anyhow::anyhow!("Subagent execution result was not available: {}", handle.id)
+        })?;
+
+        Ok(ExecutionOutcome {
+            success: result.success,
+            text: Some(result.output),
+            error: result.error,
+            duration_ms: Some(result.duration_ms),
+            metadata: Some(serde_json::json!({
+                "subagent_id": handle.id,
+                "agent_name": handle.agent_name,
+                "effective_limits": handle.effective_limits,
+                "tokens_used": result.tokens_used,
+                "cost_usd": result.cost_usd,
+            })),
+            ..ExecutionOutcome::default()
+        })
+    }
+}
+
+fn build_service_subagent_manager(
     agent_storage: AgentStorage,
     base_registry: &ToolRegistry,
     llm_client_factory: Arc<dyn LlmClientFactory>,
     config_storage: Arc<ConfigStorage>,
     tool_trace_storage: ToolTraceStorage,
-) -> Arc<dyn restflow_traits::SubagentManager> {
+) -> SubagentManagerImpl {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
     let execution_trace_storage = match ExecutionTraceStorage::new(tool_trace_storage.db()) {
@@ -165,16 +281,43 @@ fn create_subagent_manager(
     let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let subagent_config = load_subagent_config(&config_storage);
+    let tool_registry = Arc::new(clone_tool_registry(base_registry));
+    let orchestrator = Arc::new(AgentOrchestratorImpl::new(Arc::new(
+        ToolRegistrySubagentBackend {
+            tracker: tracker.clone(),
+            definitions: definitions.clone(),
+            llm_client: llm_client.clone(),
+            tool_registry: tool_registry.clone(),
+            config: subagent_config.clone(),
+            llm_client_factory: llm_client_factory.clone(),
+        },
+    )));
     let subagent_deps = SubagentDeps {
         tracker,
         definitions,
         llm_client,
-        tool_registry: Arc::new(clone_tool_registry(base_registry)),
+        tool_registry,
         config: subagent_config,
         llm_client_factory: Some(llm_client_factory),
-        orchestrator: None,
+        orchestrator: Some(orchestrator),
     };
-    Arc::new(SubagentManagerImpl::from_deps(&subagent_deps))
+    SubagentManagerImpl::from_deps(&subagent_deps)
+}
+
+fn create_subagent_manager(
+    agent_storage: AgentStorage,
+    base_registry: &ToolRegistry,
+    llm_client_factory: Arc<dyn LlmClientFactory>,
+    config_storage: Arc<ConfigStorage>,
+    tool_trace_storage: ToolTraceStorage,
+) -> Arc<dyn restflow_traits::SubagentManager> {
+    Arc::new(build_service_subagent_manager(
+        agent_storage,
+        base_registry,
+        llm_client_factory,
+        config_storage,
+        tool_trace_storage,
+    ))
 }
 
 /// Create a tool registry with all available tools including storage-backed tools.
@@ -2264,5 +2407,57 @@ mod tests {
             "expected lifecycle execution trace event for subagent {}",
             handle.id
         );
+    }
+
+    #[test]
+    fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
+        let (
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage,
+            kv_store_storage,
+            work_item_storage,
+            secret_storage,
+            config_storage,
+            agent_storage,
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            _temp_dir,
+        ) = setup_storage();
+
+        let service_registry = create_tool_registry(
+            skill_storage,
+            memory_storage,
+            chat_storage,
+            channel_session_binding_storage,
+            tool_trace_storage.clone(),
+            kv_store_storage,
+            work_item_storage,
+            secret_storage.clone(),
+            config_storage.clone(),
+            agent_storage.clone(),
+            background_agent_storage,
+            trigger_storage,
+            terminal_storage,
+            deliverable_storage,
+            None,
+            None,
+            None,
+        )
+        .expect("service registry");
+
+        let manager = build_service_subagent_manager(
+            agent_storage,
+            &service_registry,
+            build_llm_factory(Some(&secret_storage)),
+            Arc::new(config_storage),
+            tool_trace_storage,
+        );
+
+        assert!(manager.orchestrator.is_some());
     }
 }
