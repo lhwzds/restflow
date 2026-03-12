@@ -49,6 +49,14 @@ provider?: string,
  */
 parent_execution_id?: string, 
 /**
+ * Optional trace session ID (runtime-injected, internal use).
+ */
+trace_session_id?: string, 
+/**
+ * Optional trace scope ID (runtime-injected, internal use).
+ */
+trace_scope_id?: string, 
+/**
  * Optional name for temporary sub-agent creation.
  */
 inline_name?: string, 
