@@ -47,4 +47,12 @@ save_as_team?: string,
 /**
  * Optional parent execution ID for context propagation (runtime-injected).
  */
-parent_execution_id?: string, };
+parent_execution_id?: string, 
+/**
+ * Optional trace session ID for context propagation (runtime-injected).
+ */
+trace_session_id?: string, 
+/**
+ * Optional trace scope ID for context propagation (runtime-injected).
+ */
+trace_scope_id?: string, };
