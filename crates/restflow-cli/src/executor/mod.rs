@@ -13,6 +13,8 @@ use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
 use std::sync::Arc;
 
+#[cfg(test)]
+pub mod direct;
 pub mod ipc;
 
 #[async_trait]
