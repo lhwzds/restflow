@@ -120,6 +120,152 @@ fn resolve_effective_limits(
     }
 }
 
+fn build_trace_context(task_id: &str, agent_name: &str, request: &SpawnRequest) -> RunTraceContext {
+    let parent_execution_id = request.parent_execution_id.clone();
+    let trace_session_id = normalize_trace_identity(request.trace_session_id.as_deref())
+        .or_else(|| normalize_trace_identity(request.trace_scope_id.as_deref()))
+        .or_else(|| normalize_trace_identity(parent_execution_id.as_deref()))
+        .unwrap_or_else(|| task_id.to_string());
+    let trace_scope_id = normalize_trace_identity(request.trace_scope_id.as_deref())
+        .or_else(|| normalize_trace_identity(request.trace_session_id.as_deref()))
+        .or_else(|| normalize_trace_identity(parent_execution_id.as_deref()))
+        .unwrap_or_else(|| task_id.to_string());
+
+    RunTraceContext {
+        run_id: task_id.to_string(),
+        actor_id: agent_name.to_string(),
+        parent_run_id: parent_execution_id,
+        session_id: trace_session_id,
+        scope_id: trace_scope_id,
+    }
+}
+
+fn execution_outcome_from_agent_result(
+    result: AgentResult,
+    duration_ms: u64,
+    agent_name: &str,
+    effective_limits: &SubagentEffectiveLimits,
+    active_model: &str,
+) -> ExecutionOutcome {
+    let AgentResult {
+        success,
+        answer,
+        error,
+        iterations,
+        total_tokens,
+        total_cost_usd,
+        ..
+    } = result;
+    let cost_usd = if total_cost_usd > 0.0 {
+        Some(total_cost_usd)
+    } else {
+        None
+    };
+
+    ExecutionOutcome {
+        success,
+        text: Some(answer.unwrap_or_default()),
+        error: map_subagent_error(success, error),
+        iterations: Some(iterations as u32),
+        model: Some(active_model.to_string()),
+        duration_ms: Some(duration_ms),
+        metadata: Some(json!({
+            "agent_name": agent_name,
+            "effective_limits": effective_limits,
+            "tokens_used": total_tokens,
+            "cost_usd": cost_usd,
+        })),
+        ..ExecutionOutcome::default()
+    }
+}
+
+/// Execute one subagent request directly without tracker registration or nested spawn.
+pub async fn execute_subagent_once(
+    definitions: Arc<dyn SubagentDefLookup>,
+    llm_client: Arc<dyn LlmClient>,
+    tool_registry: Arc<ToolRegistry>,
+    config: SubagentConfig,
+    request: SpawnRequest,
+    bridge: SubagentExecutionBridge,
+) -> Result<ExecutionOutcome> {
+    let agent_def = resolve_subagent_definition(&definitions, &tool_registry, &request)?;
+    let effective_limits = resolve_effective_limits(&agent_def, &config, &request);
+    let llm_client = resolve_llm_client(
+        request.model.as_deref(),
+        request.model_provider.as_deref(),
+        agent_def.default_model.as_deref(),
+        &llm_client,
+        bridge.llm_client_factory.as_ref(),
+    )?;
+    let active_model = llm_client.model().to_string();
+    let execution = ResolvedSubagentExecution {
+        max_depth: config.max_depth,
+        effective_limits: effective_limits.clone(),
+        trace_context: build_trace_context(
+            &uuid::Uuid::new_v4().to_string(),
+            &agent_def.name,
+            &request,
+        ),
+    };
+    let invocation = SubagentExecutionInvocation {
+        llm_client,
+        tool_registry,
+        bridge: SubagentExecutionBridge {
+            llm_client_factory: bridge.llm_client_factory,
+            orchestrator: None,
+        },
+        request: request.clone(),
+    };
+
+    let start = std::time::Instant::now();
+    let result = timeout(
+        Duration::from_secs(effective_limits.timeout_secs),
+        execute_subagent_entry(
+            invocation,
+            agent_def.clone(),
+            request.task,
+            execution.clone(),
+            None,
+        ),
+    )
+    .await;
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    Ok(match result {
+        Ok(Ok(result)) => execution_outcome_from_agent_result(
+            result,
+            duration_ms,
+            &agent_def.name,
+            &execution.effective_limits,
+            &active_model,
+        ),
+        Ok(Err(error)) => ExecutionOutcome {
+            success: false,
+            text: Some(String::new()),
+            error: Some(error.to_string()),
+            model: Some(active_model),
+            duration_ms: Some(duration_ms),
+            metadata: Some(json!({
+                "agent_name": agent_def.name,
+                "effective_limits": execution.effective_limits,
+            })),
+            ..ExecutionOutcome::default()
+        },
+        Err(_) => ExecutionOutcome {
+            success: false,
+            text: Some(String::new()),
+            error: Some("Sub-agent timed out".to_string()),
+            model: Some(active_model),
+            duration_ms: Some(duration_ms),
+            metadata: Some(json!({
+                "agent_name": agent_def.name,
+                "effective_limits": execution.effective_limits,
+            })),
+            ..ExecutionOutcome::default()
+        },
+    })
+}
+
 /// Spawn a sub-agent with the given request.
 pub fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
@@ -147,22 +293,7 @@ pub fn spawn_subagent(
     let agent_name_for_register = agent_def.name.clone();
     let agent_name_for_return = agent_def.name.clone();
     let task_for_register = request.task.clone();
-    let parent_execution_id = request.parent_execution_id.clone();
-    let trace_session_id = normalize_trace_identity(request.trace_session_id.as_deref())
-        .or_else(|| normalize_trace_identity(request.trace_scope_id.as_deref()))
-        .or_else(|| normalize_trace_identity(parent_execution_id.as_deref()))
-        .unwrap_or_else(|| task_id.clone());
-    let trace_scope_id = normalize_trace_identity(request.trace_scope_id.as_deref())
-        .or_else(|| normalize_trace_identity(request.trace_session_id.as_deref()))
-        .or_else(|| normalize_trace_identity(parent_execution_id.as_deref()))
-        .unwrap_or_else(|| task_id.clone());
-    let trace_context = RunTraceContext {
-        run_id: task_id.clone(),
-        actor_id: agent_name_for_return.clone(),
-        parent_run_id: parent_execution_id.clone(),
-        session_id: trace_session_id.clone(),
-        scope_id: trace_scope_id.clone(),
-    };
+    let trace_context = build_trace_context(&task_id, &agent_name_for_return, &request);
     let trace_lifecycle_sink = tracker.trace_lifecycle_sink();
     let trace_emitter_factory = tracker.trace_emitter_factory();
     let max_parallel = config.max_parallel_agents;
@@ -1001,6 +1132,62 @@ mod tests {
         assert_eq!(plans.len(), 1);
         assert_eq!(plans[0].model.as_deref(), Some("gpt-5.3-codex"));
         assert_eq!(plans[0].provider.as_deref(), Some("openai"));
+    }
+
+    #[tokio::test]
+    async fn execute_subagent_once_bypasses_orchestrator_and_runs_directly() {
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
+            "mock-direct",
+            vec![MockStep::text("direct execution")],
+        ));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let orchestrator = Arc::new(MockOrchestrator::default());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+
+        let outcome = execute_subagent_once(
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: Some("tester".to_string()),
+                inline: None,
+                task: "direct task".to_string(),
+                timeout_secs: Some(10),
+                priority: None,
+                model: None,
+                model_provider: None,
+                parent_execution_id: None,
+                trace_session_id: None,
+                trace_scope_id: None,
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: None,
+                orchestrator: Some(orchestrator.clone()),
+            },
+        )
+        .await
+        .expect("direct execution should succeed");
+
+        assert!(outcome.success);
+        assert_eq!(outcome.text.as_deref(), Some("direct execution"));
+        assert_eq!(
+            outcome
+                .metadata
+                .as_ref()
+                .and_then(|value| value.get("agent_name"))
+                .and_then(|value| value.as_str()),
+            Some("tester")
+        );
+
+        let plans = orchestrator.plans.lock().expect("plans lock");
+        assert!(plans.is_empty());
     }
 
     #[derive(Clone)]

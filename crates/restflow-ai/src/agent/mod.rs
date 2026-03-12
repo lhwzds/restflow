@@ -43,7 +43,7 @@ pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
 pub use sub_agent::{
     RunTraceContext, RunTraceEmitterFactory, RunTraceLifecycleSink, RunTraceOutcome, RunTraceSink,
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig,
-    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps, SubagentManagerImpl,
-    SubagentExecutionBridge, SubagentResult, SubagentSpawner, SubagentState, SubagentStatus, SubagentTracker,
-    spawn_subagent,
+    SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps,
+    SubagentExecutionBridge, SubagentManagerImpl, SubagentResult, SubagentSpawner, SubagentState,
+    SubagentStatus, SubagentTracker, execute_subagent_once, spawn_subagent,
 };

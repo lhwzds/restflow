@@ -25,7 +25,7 @@ use crate::storage::{
 use restflow_ai::AgentState;
 use restflow_ai::agent::{
     StreamEmitter, SubagentConfig, SubagentDefLookup, SubagentDeps, SubagentExecutionBridge,
-    SubagentManagerImpl, SubagentTracker, spawn_subagent,
+    SubagentManagerImpl, SubagentTracker, execute_subagent_once,
 };
 use restflow_ai::llm::{
     CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
@@ -150,7 +150,6 @@ fn load_subagent_config(config_storage: &ConfigStorage) -> SubagentConfig {
 
 #[derive(Clone)]
 struct ToolRegistrySubagentBackend {
-    tracker: Arc<SubagentTracker>,
     definitions: Arc<dyn SubagentDefLookup>,
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<ToolRegistry>,
@@ -210,8 +209,7 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
                 .map(|provider| provider.as_str().to_string()),
             _ => plan.provider.clone(),
         };
-        let handle = spawn_subagent(
-            self.tracker.clone(),
+        execute_subagent_once(
             self.definitions.clone(),
             self.llm_client.clone(),
             self.tool_registry.clone(),
@@ -235,26 +233,9 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
                 llm_client_factory: Some(self.llm_client_factory.clone()),
                 orchestrator: None,
             },
-        )?;
-
-        let result = self.tracker.wait(&handle.id).await.ok_or_else(|| {
-            anyhow::anyhow!("Subagent execution result was not available: {}", handle.id)
-        })?;
-
-        Ok(ExecutionOutcome {
-            success: result.success,
-            text: Some(result.output),
-            error: result.error,
-            duration_ms: Some(result.duration_ms),
-            metadata: Some(serde_json::json!({
-                "subagent_id": handle.id,
-                "agent_name": handle.agent_name,
-                "effective_limits": handle.effective_limits,
-                "tokens_used": result.tokens_used,
-                "cost_usd": result.cost_usd,
-            })),
-            ..ExecutionOutcome::default()
-        })
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
     }
 }
 
@@ -284,7 +265,6 @@ fn build_service_subagent_manager(
     let tool_registry = Arc::new(clone_tool_registry(base_registry));
     let orchestrator = Arc::new(AgentOrchestratorImpl::new(Arc::new(
         ToolRegistrySubagentBackend {
-            tracker: tracker.clone(),
             definitions: definitions.clone(),
             llm_client: llm_client.clone(),
             tool_registry: tool_registry.clone(),
