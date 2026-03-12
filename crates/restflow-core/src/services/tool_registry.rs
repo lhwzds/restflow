@@ -7,6 +7,7 @@ use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::models::{AIModel, Provider};
 use crate::process::ProcessRegistry;
+use crate::runtime::agent::main_agent_default_tool_names;
 use crate::runtime::agent::tools::assembly::{
     KNOWN_TOOL_ALIASES, populate_known_tools_from_registry, register_bash_execution_tool,
     register_file_execution_tool, register_http_execution_tool, register_python_execution_tools,
@@ -99,10 +100,10 @@ fn build_switch_model_tool(factory: Arc<dyn LlmClientFactory>) -> SwitchModelToo
     SwitchModelTool::new(switcher)
 }
 
-fn clone_tool_registry(source: &ToolRegistry) -> ToolRegistry {
+fn build_service_subagent_tool_registry(source: &ToolRegistry) -> ToolRegistry {
     let mut cloned = ToolRegistry::new();
-    for name in source.list() {
-        if let Some(tool) = source.get(name) {
+    for name in main_agent_default_tool_names() {
+        if let Some(tool) = source.get(&name) {
             cloned.register_arc(tool);
         }
     }
@@ -262,7 +263,7 @@ fn build_service_subagent_manager(
     let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let subagent_config = load_subagent_config(&config_storage);
-    let tool_registry = Arc::new(clone_tool_registry(base_registry));
+    let tool_registry = Arc::new(build_service_subagent_tool_registry(base_registry));
     let orchestrator = Arc::new(AgentOrchestratorImpl::new(Arc::new(
         ToolRegistrySubagentBackend {
             definitions: definitions.clone(),
@@ -534,6 +535,30 @@ mod tests {
     use restflow_traits::subagent::{InlineSubagentConfig, SpawnRequest};
     use serde_json::json;
     use tempfile::tempdir;
+
+    struct DummyTool(&'static str);
+
+    #[async_trait]
+    impl restflow_traits::Tool for DummyTool {
+        fn name(&self) -> &str {
+            self.0
+        }
+
+        fn description(&self) -> &str {
+            ""
+        }
+
+        fn parameters_schema(&self) -> serde_json::Value {
+            serde_json::json!({})
+        }
+
+        async fn execute(
+            &self,
+            _input: serde_json::Value,
+        ) -> std::result::Result<restflow_traits::ToolOutput, restflow_traits::ToolError> {
+            unimplemented!()
+        }
+    }
 
     #[test]
     fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
@@ -2524,5 +2549,20 @@ mod tests {
         );
 
         assert!(manager.orchestrator.is_some());
+    }
+
+    #[test]
+    fn test_build_service_subagent_tool_registry_filters_non_default_tools() {
+        let mut registry = ToolRegistry::new();
+        registry.register(DummyTool("bash"));
+        registry.register(DummyTool("reply"));
+        registry.register(DummyTool("custom_extra"));
+
+        let filtered = build_service_subagent_tool_registry(&registry);
+        let names = filtered.list();
+
+        assert!(names.contains(&"bash"));
+        assert!(names.contains(&"reply"));
+        assert!(!names.contains(&"custom_extra"));
     }
 }
