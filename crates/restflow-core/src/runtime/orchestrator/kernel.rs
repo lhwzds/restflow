@@ -149,9 +149,11 @@ pub fn parse_optional_metadata<T: serde::de::DeserializeOwned>(
         return Ok(None);
     };
 
-    serde_json::from_value(value.clone()).map(Some).map_err(|error| {
-        restflow_traits::ToolError::Tool(format!("Invalid '{field}' metadata: {error}"))
-    })
+    serde_json::from_value(value.clone())
+        .map(Some)
+        .map_err(|error| {
+            restflow_traits::ToolError::Tool(format!("Invalid '{field}' metadata: {error}"))
+        })
 }
 
 pub fn require_mode_input<'a>(

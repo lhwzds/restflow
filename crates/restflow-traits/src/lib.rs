@@ -8,8 +8,8 @@
 //! - 18+ store traits (MemoryStore, AgentStore, SessionStore, etc.)
 //! - Sub-agent data types and lookup traits
 
-pub mod cache;
 pub mod batch_template;
+pub mod cache;
 pub mod defaults;
 pub mod error;
 pub mod filtered;

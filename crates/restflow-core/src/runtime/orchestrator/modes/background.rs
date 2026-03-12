@@ -57,9 +57,7 @@ pub async fn run_plan(
     plan: ExecutionPlan,
 ) -> std::result::Result<ExecutionOutcome, restflow_traits::ToolError> {
     let agent_id = plan.agent_id.clone().ok_or_else(|| {
-        restflow_traits::ToolError::Tool(
-            "Background execution requires 'agent_id'.".to_string(),
-        )
+        restflow_traits::ToolError::Tool("Background execution requires 'agent_id'.".to_string())
     })?;
     let memory_config =
         parse_optional_metadata::<MemoryConfig>(&plan, "memory_config")?.unwrap_or_default();

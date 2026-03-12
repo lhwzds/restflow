@@ -72,9 +72,8 @@ pub(crate) fn load_team_document<TMember>(
 where
     TMember: DeserializeOwned,
 {
-    let raw = read_team_raw(store, namespace, team_name)?.ok_or_else(|| {
-        ToolError::Tool(format!("Team '{}' was not found.", team_name))
-    })?;
+    let raw = read_team_raw(store, namespace, team_name)?
+        .ok_or_else(|| ToolError::Tool(format!("Team '{}' was not found.", team_name)))?;
     serde_json::from_str(&raw)
         .map_err(|error| ToolError::Tool(format!("Failed to decode team '{team_name}': {error}")))
 }
@@ -112,8 +111,9 @@ where
         created_at,
         updated_at: now,
     };
-    let serialized = serde_json::to_string(&document)
-        .map_err(|error| ToolError::Tool(format!("Failed to serialize team '{normalized}': {error}")))?;
+    let serialized = serde_json::to_string(&document).map_err(|error| {
+        ToolError::Tool(format!("Failed to serialize team '{normalized}': {error}"))
+    })?;
     let storage = store.set_entry(
         &key,
         &serialized,
