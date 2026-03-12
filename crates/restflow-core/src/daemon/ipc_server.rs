@@ -19,6 +19,7 @@ use crate::runtime::channel::{
     build_turn_persistence_payload, hydrate_voice_message_metadata,
     replace_latest_user_message_content,
 };
+use crate::runtime::orchestrator::AgentOrchestratorImpl;
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::runtime::trace::{
     RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
@@ -35,6 +36,7 @@ use chrono::Utc;
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::agent::{NullEmitter, SubagentConfig, SubagentTracker};
 use restflow_storage::{AgentDefaults, AuthProfileStorage};
+use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 use restflow_traits::store::ReplySender;
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
@@ -2382,6 +2384,19 @@ fn load_agent_defaults_from_core(core: &Arc<AppCore>) -> AgentDefaults {
     }
 }
 
+fn load_chat_max_session_history_from_core(core: &Arc<AppCore>) -> usize {
+    match core.storage.config.get_effective_config() {
+        Ok(config) => config.runtime_defaults.chat_max_session_history,
+        Err(error) => {
+            warn!(
+                error = %error,
+                "Failed to load runtime config for chat history; falling back to default history size"
+            );
+            DEFAULT_CHAT_MAX_SESSION_HISTORY
+        }
+    }
+}
+
 fn create_chat_executor(
     core: &Arc<AppCore>,
     auth_manager: Arc<AuthProfileManager>,
@@ -2503,6 +2518,7 @@ async fn execute_chat_session(
         ack_frame_tx.clone(),
     ));
     let executor = create_chat_executor(core, auth_manager).with_reply_sender(reply_sender);
+    let chat_max_session_history = load_chat_max_session_history_from_core(core);
 
     match executor
         .generate_session_acknowledgement(
@@ -2565,16 +2581,18 @@ async fn execute_chat_session(
         &trace,
     );
     let started_at = Instant::now();
-    let exec_result = executor
-        .execute_session_turn_with_emitter_and_steer(
+    let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
+    let exec_result = orchestrator
+        .run_interactive_session_turn(
             &mut session,
             &input,
-            20,
+            chat_max_session_history,
             SessionInputMode::PersistedInSession,
             Some(persisting_emitter),
             steer_rx,
         )
-        .await;
+        .await
+        .map(|result| result.execution);
     let exec_result = match exec_result {
         Ok(result) => result,
         Err(error) => {
@@ -2787,6 +2805,16 @@ mod tests {
         assert_eq!(config.subagent_timeout_secs, 1200);
         assert_eq!(config.max_iterations, 111);
         assert_eq!(config.max_depth, SubagentConfig::default().max_depth);
+    }
+
+    #[tokio::test]
+    async fn load_chat_max_session_history_from_core_uses_runtime_config() {
+        let (core, _temp) = create_test_core().await;
+        let mut config = core.storage.config.get_effective_config().unwrap();
+        config.runtime_defaults.chat_max_session_history = 42;
+        core.storage.config.update_config(config).unwrap();
+
+        assert_eq!(load_chat_max_session_history_from_core(&core), 42);
     }
 
     #[test]
