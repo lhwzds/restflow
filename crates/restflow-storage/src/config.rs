@@ -182,11 +182,11 @@ impl From<&SystemConfig> for SystemSection {
 #[serde(default, deny_unknown_fields)]
 pub struct ConfigDocument {
     pub system: SystemSection,
-    pub agent: AgentDefaults,
-    pub api: ApiDefaults,
-    pub runtime: RuntimeDefaults,
-    pub channel: ChannelDefaults,
-    pub registry: RegistryDefaults,
+    pub agent: AgentSettings,
+    pub api: ApiSettings,
+    pub runtime: RuntimeSettings,
+    pub channel: ChannelSettings,
+    pub registry: RegistrySettings,
     #[serde(default)]
     pub cli: CliConfig,
 }
@@ -292,6 +292,9 @@ pub struct AgentDefaults {
     #[serde(default)]
     pub fallback_models: Option<Vec<String>>,
 }
+
+/// Aligned alias that matches the on-disk `[agent]` section naming.
+pub type AgentSettings = AgentDefaults;
 
 impl Default for AgentDefaults {
     fn default() -> Self {
@@ -448,6 +451,9 @@ pub struct ApiDefaults {
     pub diagnostics_timeout_ms: u64,
 }
 
+/// Aligned alias that matches the on-disk `[api]` section naming.
+pub type ApiSettings = ApiDefaults;
+
 impl Default for ApiDefaults {
     fn default() -> Self {
         Self {
@@ -525,6 +531,9 @@ pub struct RuntimeDefaults {
     pub chat_max_session_history: usize,
 }
 
+/// Aligned alias that matches the on-disk `[runtime]` section naming.
+pub type RuntimeSettings = RuntimeDefaults;
+
 impl Default for RuntimeDefaults {
     fn default() -> Self {
         Self {
@@ -566,6 +575,9 @@ pub struct ChannelDefaults {
     pub telegram_polling_timeout_secs: u32,
 }
 
+/// Aligned alias that matches the on-disk `[channel]` section naming.
+pub type ChannelSettings = ChannelDefaults;
+
 impl Default for ChannelDefaults {
     fn default() -> Self {
         Self {
@@ -601,6 +613,9 @@ pub struct RegistryDefaults {
     /// Marketplace provider cache TTL in seconds.
     pub marketplace_cache_ttl_secs: u64,
 }
+
+/// Aligned alias that matches the on-disk `[registry]` section naming.
+pub type RegistrySettings = RegistryDefaults;
 
 impl Default for RegistryDefaults {
     fn default() -> Self {
@@ -656,19 +671,19 @@ pub struct SystemConfig {
     pub experimental_features: Vec<String>,
     /// Agent execution defaults.
     #[serde(default)]
-    pub agent: AgentDefaults,
-    /// API operation default limits.
+    pub agent: AgentSettings,
+    /// API operation settings and limits.
     #[serde(default)]
-    pub api_defaults: ApiDefaults,
-    /// Runtime execution defaults for daemon/background/chat services.
+    pub api_defaults: ApiSettings,
+    /// Runtime execution settings for daemon/background/chat services.
     #[serde(default)]
-    pub runtime_defaults: RuntimeDefaults,
-    /// Channel integration defaults.
+    pub runtime_defaults: RuntimeSettings,
+    /// Channel integration settings.
     #[serde(default)]
-    pub channel_defaults: ChannelDefaults,
-    /// Registry provider defaults.
+    pub channel_defaults: ChannelSettings,
+    /// Registry provider settings.
     #[serde(default)]
-    pub registry_defaults: RegistryDefaults,
+    pub registry_defaults: RegistrySettings,
 }
 
 impl Default for SystemConfig {
@@ -686,11 +701,11 @@ impl Default for SystemConfig {
             memory_chunk_retention_days: DEFAULT_MEMORY_CHUNK_RETENTION_DAYS,
             log_file_retention_days: DEFAULT_LOG_FILE_RETENTION_DAYS,
             experimental_features: Vec::new(),
-            agent: AgentDefaults::default(),
-            api_defaults: ApiDefaults::default(),
-            runtime_defaults: RuntimeDefaults::default(),
-            channel_defaults: ChannelDefaults::default(),
-            registry_defaults: RegistryDefaults::default(),
+            agent: AgentSettings::default(),
+            api_defaults: ApiSettings::default(),
+            runtime_defaults: RuntimeSettings::default(),
+            channel_defaults: ChannelSettings::default(),
+            registry_defaults: RegistrySettings::default(),
         }
     }
 }
@@ -1253,7 +1268,7 @@ fn load_config_override(path: &Path) -> Result<Option<UnifiedConfigOverride>> {
 
     let contents = fs::read_to_string(path).with_context(|| {
         format!(
-            "Failed to read system config override from {}",
+            "Failed to read config.toml override from {}",
             path.display()
         )
     })?;
@@ -1261,7 +1276,7 @@ fn load_config_override(path: &Path) -> Result<Option<UnifiedConfigOverride>> {
         .map(Some)
         .with_context(|| {
             format!(
-                "Failed to parse system config override from {}",
+                "Failed to parse config.toml override from {}",
                 path.display()
             )
         })
@@ -1478,6 +1493,10 @@ fn build_value_sources(
 
 pub fn load_cli_config() -> Result<CliConfig> {
     Ok(load_config_layers()?.effective.cli.clone())
+}
+
+pub fn load_global_cli_config() -> Result<CliConfig> {
+    Ok(load_config_layers()?.global.cli.clone())
 }
 
 pub fn write_cli_config(config: &CliConfig) -> Result<()> {
@@ -2032,7 +2051,7 @@ fallback_models = ["alpha", "beta"]
     }
 
     #[test]
-    fn test_partial_api_defaults_override() {
+    fn test_partial_api_override() {
         let ctx = setup_test_storage();
         let file = write_override_file(
             r#"[api]
@@ -2182,7 +2201,7 @@ memory_search_limit = 33
     }
 
     #[test]
-    fn test_api_defaults_round_trip() {
+    fn test_api_round_trip() {
         let ctx = setup_test_storage();
         let mut config = ctx.storage.get_config().unwrap().unwrap();
         assert_eq!(config.api_defaults.memory_search_limit, 10);
@@ -2198,7 +2217,7 @@ memory_search_limit = 33
     }
 
     #[test]
-    fn test_invalid_api_defaults_rejected() {
+    fn test_invalid_api_settings_rejected() {
         let mut config = SystemConfig::default();
         config.api_defaults.background_message_list_limit = 0;
         assert!(config.validate().is_err());
