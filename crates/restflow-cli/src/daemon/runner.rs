@@ -21,8 +21,8 @@ use restflow_core::runtime::{
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
-use restflow_core::storage::SecretStorage;
-use restflow_storage::{AgentDefaults, AuthProfileStorage};
+use restflow_core::storage::{SecretStorage, SystemConfig};
+use restflow_storage::{AgentDefaults, AuthProfileStorage, RuntimeDefaults};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -129,15 +129,7 @@ impl CliBackgroundAgentRunner {
                 Arc::new(storage.background_agents.clone()),
                 Arc::new(OrchestratingAgentExecutor::from_runtime_executor(executor)),
                 Arc::new(notifier),
-                RunnerConfig {
-                    poll_interval_ms: system_config
-                        .runtime_defaults
-                        .background_runner_poll_interval_ms,
-                    max_concurrent_tasks: system_config
-                        .runtime_defaults
-                        .background_runner_max_concurrent_tasks,
-                    task_timeout_secs: system_config.background_api_timeout_seconds,
-                },
+                build_runner_config(&system_config),
                 Arc::new(NoopHeartbeatEmitter),
                 storage.memory.clone(),
                 steer_registry,
@@ -297,7 +289,21 @@ fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
         max_parallel_agents: defaults.max_parallel_subagents,
         subagent_timeout_secs: defaults.subagent_timeout_secs,
         max_iterations: defaults.max_iterations,
-        ..SubagentConfig::default()
+        max_depth: defaults.max_depth,
+    }
+}
+
+fn build_runner_config(system_config: &SystemConfig) -> RunnerConfig {
+    RunnerConfig {
+        poll_interval_ms: system_config
+            .runtime_defaults
+            .background_runner_poll_interval_ms,
+        max_concurrent_tasks: system_config
+            .runtime_defaults
+            .background_runner_max_concurrent_tasks,
+        worker_count: system_config.worker_count,
+        task_timeout_secs: system_config.background_api_timeout_seconds,
+        stall_timeout_secs: Some(system_config.stall_timeout_seconds),
     }
 }
 
@@ -494,6 +500,7 @@ mod tests {
             max_parallel_subagents: 20,
             subagent_timeout_secs: 1800,
             max_iterations: 99,
+            max_depth: 3,
             ..AgentDefaults::default()
         };
 
@@ -502,7 +509,30 @@ mod tests {
         assert_eq!(config.max_parallel_agents, 20);
         assert_eq!(config.subagent_timeout_secs, 1800);
         assert_eq!(config.max_iterations, 99);
-        assert_eq!(config.max_depth, SubagentConfig::default().max_depth);
+        assert_eq!(config.max_depth, 3);
+    }
+
+    #[test]
+    fn build_runner_config_maps_worker_and_stall_limits() {
+        let system_config = SystemConfig {
+            worker_count: 6,
+            stall_timeout_seconds: 900,
+            background_api_timeout_seconds: Some(1800),
+            runtime_defaults: RuntimeDefaults {
+                background_runner_poll_interval_ms: 12_000,
+                background_runner_max_concurrent_tasks: 4,
+                ..RuntimeDefaults::default()
+            },
+            ..SystemConfig::default()
+        };
+
+        let config = build_runner_config(&system_config);
+
+        assert_eq!(config.poll_interval_ms, 12_000);
+        assert_eq!(config.max_concurrent_tasks, 4);
+        assert_eq!(config.worker_count, 6);
+        assert_eq!(config.task_timeout_secs, Some(1800));
+        assert_eq!(config.stall_timeout_secs, Some(900));
     }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
