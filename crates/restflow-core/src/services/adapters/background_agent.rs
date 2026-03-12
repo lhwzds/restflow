@@ -144,7 +144,11 @@ impl BackgroundAgentStoreAdapter {
     }
 
     fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
-        Ok(self.agent_storage.resolve_existing_agent_id(id_or_prefix)?)
+        let trimmed = id_or_prefix.trim();
+        if trimmed.eq_ignore_ascii_case("default") {
+            return Ok(self.agent_storage.resolve_default_agent_id()?);
+        }
+        Ok(self.agent_storage.resolve_existing_agent_id(trimmed)?)
     }
 
     fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
@@ -587,6 +591,27 @@ mod tests {
         let list = adapter.list_background_agents(None).unwrap();
         let tasks = list.as_array().unwrap();
         assert_eq!(tasks.len(), 1);
+    }
+
+    #[test]
+    fn test_create_background_agent_accepts_default_agent_alias() {
+        let (adapter, _dir, _guard) = setup();
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Default Alias".to_string(),
+                agent_id: "default".to_string(),
+                chat_session_id: None,
+                input: Some("use default alias".to_string()),
+                input_template: None,
+                schedule: None,
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+            })
+            .expect("default alias should resolve to the only/default agent");
+        assert!(created["id"].as_str().is_some());
     }
 
     #[test]
