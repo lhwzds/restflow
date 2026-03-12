@@ -671,7 +671,7 @@ async fn test_spawn_subagent_batch_rejects_tasks_count_mismatch() {
 }
 
 #[tokio::test]
-async fn test_spawn_subagent_batch_get_team_normalizes_legacy_specs_payload() {
+async fn test_spawn_subagent_batch_get_team_rejects_legacy_specs_payload() {
     let manager = make_manager(vec![("coder", "Coder")], vec![]);
     let kv_store = Arc::new(MockKvStore::default());
     kv_store
@@ -700,21 +700,17 @@ async fn test_spawn_subagent_batch_get_team_normalizes_legacy_specs_payload() {
     let kv_store: Arc<dyn KvStore> = kv_store;
     let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
 
-    let output = tool
+    let error = tool
         .execute(json!({
             "operation": "get_team",
             "team": "LegacyTeam"
         }))
         .await
-        .unwrap();
+        .expect_err("legacy payload should fail to decode");
 
-    assert!(output.success);
-    assert_eq!(output.result["team"], "LegacyTeam");
-    assert_eq!(output.result["member_groups"], 1);
-    assert_eq!(output.result["total_instances"], 2);
-    assert_eq!(output.result["members"][0]["count"], 2);
     assert!(
-        output.result["members"][0].get("tasks").is_none()
-            || output.result["members"][0]["tasks"].is_null()
+        error
+            .to_string()
+            .contains("Failed to decode team 'LegacyTeam'")
     );
 }

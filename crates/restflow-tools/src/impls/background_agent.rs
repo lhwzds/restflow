@@ -8,7 +8,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Result;
 use crate::impls::team_template::{
-    delete_team_document, list_team_entries, read_team_raw, save_team_document,
+    delete_team_document, list_team_entries, load_team_document, save_team_document,
 };
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
@@ -80,15 +80,6 @@ struct StoredBackgroundBatchWorkerSpec {
     memory_scope: Option<String>,
     #[serde(default)]
     resource_limits: Option<Value>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct LegacyStoredBackgroundAgentTeam {
-    version: u32,
-    name: String,
-    workers: Vec<BackgroundBatchWorkerSpec>,
-    created_at: i64,
-    updated_at: i64,
 }
 
 #[derive(Clone)]
@@ -195,60 +186,6 @@ impl BackgroundAgentTool {
         }
     }
 
-    fn decode_team_document(
-        raw: &str,
-        team_name: &str,
-    ) -> Result<TeamTemplateDocument<StoredBackgroundBatchWorkerSpec>> {
-        if let Ok(document) =
-            serde_json::from_str::<TeamTemplateDocument<StoredBackgroundBatchWorkerSpec>>(raw)
-        {
-            return Ok(document);
-        }
-
-        let legacy: LegacyStoredBackgroundAgentTeam =
-            serde_json::from_str(raw).map_err(|error| {
-                ToolError::Tool(format!(
-                    "Failed to decode team '{team_name}' payload: {error}"
-                ))
-            })?;
-        let members = legacy
-            .workers
-            .iter()
-            .enumerate()
-            .map(|(worker_index, worker)| {
-                if worker.count == 0 {
-                    return Err(ToolError::Tool(format!(
-                        "Stored team '{}' has invalid worker count at index {}.",
-                        team_name, worker_index
-                    )));
-                }
-                Ok(StoredBackgroundBatchWorkerSpec {
-                    agent_id: worker.agent_id.clone(),
-                    name: worker.name.clone(),
-                    count: worker
-                        .inputs
-                        .as_ref()
-                        .map(|items| items.len() as u32)
-                        .unwrap_or(worker.count),
-                    chat_session_id: worker.chat_session_id.clone(),
-                    schedule: worker.schedule.clone(),
-                    timeout_secs: worker.timeout_secs,
-                    durability_mode: worker.durability_mode.clone(),
-                    memory: worker.memory.clone(),
-                    memory_scope: worker.memory_scope.clone(),
-                    resource_limits: worker.resource_limits.clone(),
-                })
-            })
-            .collect::<Result<Vec<_>>>()?;
-        Ok(TeamTemplateDocument {
-            version: legacy.version.max(BACKGROUND_AGENT_TEAM_VERSION),
-            name: legacy.name,
-            members,
-            created_at: legacy.created_at,
-            updated_at: legacy.updated_at,
-        })
-    }
-
     fn save_team_workers(
         &self,
         team_name: &str,
@@ -288,9 +225,8 @@ impl BackgroundAgentTool {
 
     fn load_team_workers(&self, team_name: &str) -> Result<Vec<BackgroundBatchWorkerSpec>> {
         let store = self.team_store()?;
-        let raw = read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)?
-            .ok_or_else(|| ToolError::Tool(format!("Team '{team_name}' was not found.")))?;
-        let team = Self::decode_team_document(&raw, team_name)?;
+        let team: TeamTemplateDocument<StoredBackgroundBatchWorkerSpec> =
+            load_team_document(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)?;
         Ok(team
             .members
             .into_iter()
@@ -315,14 +251,21 @@ impl BackgroundAgentTool {
                 .unwrap_or(key)
                 .to_string();
             let (member_groups, total_instances, updated_at) =
-                read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team_name)?
-                    .and_then(|raw| Self::decode_team_document(&raw, &team_name).ok())
-                    .map(|team| {
-                        let total_instances =
-                            team.members.iter().map(|worker| worker.count as usize).sum::<usize>();
-                        (team.members.len(), total_instances, team.updated_at)
-                    })
-                    .unwrap_or((0, 0, 0));
+                load_team_document::<StoredBackgroundBatchWorkerSpec>(
+                    store.as_ref(),
+                    BACKGROUND_AGENT_TEAM_NAMESPACE,
+                    &team_name,
+                )
+                .ok()
+                .map(|team| {
+                    let total_instances = team
+                        .members
+                        .iter()
+                        .map(|worker| worker.count as usize)
+                        .sum::<usize>();
+                    (team.members.len(), total_instances, team.updated_at)
+                })
+                .unwrap_or((0, 0, 0));
             teams.push(json!({
                 "team": team_name,
                 "member_groups": member_groups,
@@ -1042,10 +985,8 @@ impl Tool for BackgroundAgentTool {
             }
             BackgroundAgentAction::GetTeam { team } => {
                 let store = self.team_store()?;
-                let raw =
-                    read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team)?
-                        .ok_or_else(|| ToolError::Tool(format!("Team '{team}' was not found.")))?;
-                let document = Self::decode_team_document(&raw, &team)?;
+                let document: TeamTemplateDocument<StoredBackgroundBatchWorkerSpec> =
+                    load_team_document(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team)?;
                 let members = document
                     .members
                     .clone()
@@ -2005,8 +1946,8 @@ mod tests {
                 "operation": "get_team",
                 "team": "TeamC"
             }))
-        .await
-        .unwrap();
+            .await
+            .unwrap();
         assert!(get.success);
         assert!(
             get.result["members"][0].get("inputs").is_none()
@@ -2069,7 +2010,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_team_normalizes_legacy_worker_payload() {
+    async fn test_get_team_rejects_legacy_worker_payload() {
         let kv_store = Arc::new(MockKvStore::default());
         kv_store
             .set_entry(
@@ -2098,22 +2039,18 @@ mod tests {
             .with_kv_store(kv_store)
             .with_write(true);
 
-        let get = tool
+        let error = tool
             .execute(json!({
                 "operation": "get_team",
                 "team": "LegacyTeam"
             }))
             .await
-            .unwrap();
+            .expect_err("legacy payload should fail to decode");
 
-        assert!(get.success);
-        assert_eq!(get.result["team"], "LegacyTeam");
-        assert_eq!(get.result["member_groups"], 1);
-        assert_eq!(get.result["total_instances"], 2);
-        assert_eq!(get.result["members"][0]["count"], 2);
         assert!(
-            get.result["members"][0].get("inputs").is_none()
-                || get.result["members"][0]["inputs"].is_null()
+            error
+                .to_string()
+                .contains("Failed to decode team 'LegacyTeam'")
         );
     }
 }
