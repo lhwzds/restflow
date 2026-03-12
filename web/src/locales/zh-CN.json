@@ -406,7 +406,7 @@
     "pause": "暂停",
     "resume": "恢复",
     "runNow": "立即运行",
-    "cancel": "取消",
+    "stop": "停止",
     "toggleOverview": "切换概览",
     "persistedMemory": "持久化记忆 · {count} 条",
     "agent": "Agent",

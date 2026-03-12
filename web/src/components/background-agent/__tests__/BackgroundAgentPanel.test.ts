@@ -8,7 +8,7 @@ vi.mock('@/api/background-agents', () => ({
   listBackgroundAgents: vi.fn(),
   pauseBackgroundAgent: vi.fn(),
   resumeBackgroundAgent: vi.fn(),
-  cancelBackgroundAgent: vi.fn(),
+  stopBackgroundAgent: vi.fn(),
   runBackgroundAgentStreaming: vi.fn(),
   deleteBackgroundAgent: vi.fn(),
   getBackgroundAgentEvents: vi.fn(),
@@ -55,13 +55,13 @@ describe('BackgroundAgentPanel — store error handling', () => {
     expect(result).toBeNull()
   })
 
-  it('store sets error when cancelAgent fails', async () => {
-    vi.mocked(api.cancelBackgroundAgent).mockRejectedValueOnce(new Error('cancel failed'))
+  it('store sets error when stopAgent fails', async () => {
+    vi.mocked(api.stopBackgroundAgent).mockRejectedValueOnce(new Error('stop failed'))
 
     const store = useBackgroundAgentStore()
-    await store.cancelAgent('agent-1')
+    await store.stopAgent('agent-1')
 
-    expect(store.error).toBe('cancel failed')
+    expect(store.error).toBe('stop failed')
   })
 
   it('store clears error on successful operation', async () => {
@@ -102,7 +102,10 @@ describe('BackgroundAgentPanel — staleness guard', () => {
     // First call: agent-1 returns slowly
     let resolveAgent1: ((val: any) => void) | null = null
     vi.mocked(api.getBackgroundAgentEvents).mockImplementationOnce(
-      () => new Promise((resolve) => { resolveAgent1 = resolve }),
+      () =>
+        new Promise((resolve) => {
+          resolveAgent1 = resolve
+        }),
     )
 
     const p1 = loadEvents('agent-1')
@@ -137,7 +140,10 @@ describe('BackgroundAgentPanel — staleness guard', () => {
 
     let resolveAgent1: ((val: any) => void) | null = null
     vi.mocked(api.listMemoryChunksByTag).mockImplementationOnce(
-      () => new Promise((resolve) => { resolveAgent1 = resolve }),
+      () =>
+        new Promise((resolve) => {
+          resolveAgent1 = resolve
+        }),
     )
 
     const p1 = loadMemory('agent-1')
@@ -150,7 +156,9 @@ describe('BackgroundAgentPanel — staleness guard', () => {
     const p2 = loadMemory('agent-2')
 
     // Stale agent-1 resolves
-    resolveAgent1!([{ id: 'chunk-1', content: 'agent-1 memory', created_at: 1000, tags: [], source: {} }])
+    resolveAgent1!([
+      { id: 'chunk-1', content: 'agent-1 memory', created_at: 1000, tags: [], source: {} },
+    ])
     await p1
     await p2
 

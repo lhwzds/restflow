@@ -406,7 +406,7 @@
     "pause": "Pause",
     "resume": "Resume",
     "runNow": "Run now",
-    "cancel": "Cancel",
+    "stop": "Stop",
     "toggleOverview": "Toggle overview",
     "persistedMemory": "Persisted Memory · {count} chunks",
     "agent": "Agent",

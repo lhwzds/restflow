@@ -339,17 +339,14 @@ pub async fn resume_background_agent(
         .map_err(|e| e.to_string())
 }
 
-/// Cancel a running agent task
+/// Stop a running agent task
 #[specta::specta]
 #[tauri::command]
-pub async fn cancel_background_agent(
+pub async fn stop_background_agent(
     state: State<'_, AppState>,
     task_id: String,
 ) -> Result<bool, String> {
-    state
-        .cancel_task(task_id)
-        .await
-        .map_err(|e| e.to_string())?;
+    state.stop_task(task_id).await.map_err(|e| e.to_string())?;
 
     Ok(true)
 }

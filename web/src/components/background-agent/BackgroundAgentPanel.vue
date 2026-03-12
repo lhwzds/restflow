@@ -8,16 +8,7 @@
  */
 import { ref, computed, watch, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
-import {
-  Play,
-  Pause,
-  RotateCcw,
-  XCircle,
-  PanelRight,
-  Send,
-  Loader2,
-  Cog,
-} from 'lucide-vue-next'
+import { Play, Pause, RotateCcw, XCircle, PanelRight, Send, Loader2, Cog } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import MessageList from '@/components/chat/MessageList.vue'
 import AgentStatusBadge from './AgentStatusBadge.vue'
@@ -81,7 +72,7 @@ const { streamState, isStreaming, outputText, setupListeners, reset } = useBackg
 const canPause = computed(() => props.agent.status === 'active')
 const canResume = computed(() => props.agent.status === 'paused')
 const canRun = computed(() => props.agent.status === 'active' || props.agent.status === 'paused')
-const canCancel = computed(() => props.agent.status === 'running')
+const canStop = computed(() => props.agent.status === 'running')
 const canSteer = computed(() => isStreaming.value || props.agent.status === 'running')
 const hasMemoryPersistence = computed(() => props.agent.memory.persist_on_complete)
 const showLiveStreamBubble = computed(() =>
@@ -147,8 +138,8 @@ async function handleRun() {
   }
 }
 
-async function handleCancel() {
-  await store.cancelAgent(props.agent.id)
+async function handleStop() {
+  await store.stopAgent(props.agent.id)
   if (store.error) {
     toast.error(store.error)
   } else {
@@ -374,12 +365,12 @@ onMounted(() => {
         <Play :size="12" />
       </Button>
       <Button
-        v-if="canCancel"
+        v-if="canStop"
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        :title="t('backgroundAgent.cancel')"
-        @click="handleCancel"
+        :title="t('backgroundAgent.stop')"
+        @click="handleStop"
       >
         <XCircle :size="12" />
       </Button>
@@ -418,7 +409,10 @@ onMounted(() => {
         <p class="text-xs mt-1">{{ t('backgroundAgent.clickRunToStart') }}</p>
       </div>
 
-      <div v-else-if="showStatsSummary" class="absolute inset-x-0 bottom-6 flex justify-center pointer-events-none">
+      <div
+        v-else-if="showStatsSummary"
+        class="absolute inset-x-0 bottom-6 flex justify-center pointer-events-none"
+      >
         <div
           class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs bg-muted text-muted-foreground"
         >
@@ -426,9 +420,13 @@ onMounted(() => {
             {{ t('backgroundAgent.lastRun', { time: formatRelativeTime(agent.last_run_at!) }) }}
           </span>
           <span class="opacity-40">·</span>
-          <span class="text-green-500">{{ t('backgroundAgent.passed', { count: agent.success_count }) }}</span>
+          <span class="text-green-500">{{
+            t('backgroundAgent.passed', { count: agent.success_count })
+          }}</span>
           <span class="opacity-40">·</span>
-          <span class="text-destructive">{{ t('backgroundAgent.failed', { count: agent.failure_count }) }}</span>
+          <span class="text-destructive">{{
+            t('backgroundAgent.failed', { count: agent.failure_count })
+          }}</span>
         </div>
       </div>
 

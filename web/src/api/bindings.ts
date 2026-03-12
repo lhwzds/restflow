@@ -208,11 +208,11 @@ async authUpdateProfile(profileId: string, update: ProfileUpdate) : Promise<Resu
 }
 },
 /**
- * Cancel a running agent task
+ * Stop a running agent task
  */
-async cancelBackgroundAgent(taskId: string) : Promise<Result<boolean, string>> {
+async stopBackgroundAgent(taskId: string) : Promise<Result<boolean, string>> {
     try {
-    return { status: "ok", data: await TAURI_INVOKE("cancel_background_agent", { taskId }) };
+    return { status: "ok", data: await TAURI_INVOKE("stop_background_agent", { taskId }) };
 } catch (e) {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };

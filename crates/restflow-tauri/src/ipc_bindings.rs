@@ -29,7 +29,7 @@ macro_rules! collect_ipc_commands {
             commands::auth_mark_success,
             commands::auth_remove_profile,
             commands::auth_update_profile,
-            commands::cancel_background_agent,
+            commands::stop_background_agent,
             commands::cancel_chat_stream,
             commands::convert_session_to_background_agent,
             commands::create_agent,

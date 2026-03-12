@@ -6,12 +6,11 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::Result;
 use crate::impls::team_template::{
     delete_team_document, list_team_entries, read_team_raw, save_team_document,
 };
-use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
-use restflow_traits::{RuntimeTaskPayload, TeamTemplateDocument};
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
     BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
@@ -21,6 +20,7 @@ use restflow_traits::store::{
     MANAGE_BACKGROUND_AGENT_OPERATIONS, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
     MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
 };
+use restflow_traits::{RuntimeTaskPayload, TeamTemplateDocument};
 
 const BACKGROUND_AGENT_TEAM_NAMESPACE: &str = "background_agent_team";
 const BACKGROUND_AGENT_TEAM_TYPE_HINT: &str = "background_agent_team";
@@ -201,11 +201,12 @@ impl BackgroundAgentTool {
             return Ok(document);
         }
 
-        let legacy: LegacyStoredBackgroundAgentTeam = serde_json::from_str(raw).map_err(|error| {
-            ToolError::Tool(format!(
-                "Failed to decode team '{team_name}' payload: {error}"
-            ))
-        })?;
+        let legacy: LegacyStoredBackgroundAgentTeam =
+            serde_json::from_str(raw).map_err(|error| {
+                ToolError::Tool(format!(
+                    "Failed to decode team '{team_name}' payload: {error}"
+                ))
+            })?;
         let members = legacy
             .workers
             .iter()
@@ -309,10 +310,11 @@ impl BackgroundAgentTool {
                 .strip_prefix(&format!("{BACKGROUND_AGENT_TEAM_NAMESPACE}:"))
                 .unwrap_or(key)
                 .to_string();
-            let (workers, updated_at) = read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team_name)?
-                .and_then(|raw| Self::decode_team_document(&raw, &team_name).ok())
-                .map(|team| (team.members.len(), team.updated_at))
-                .unwrap_or((0, 0));
+            let (workers, updated_at) =
+                read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team_name)?
+                    .and_then(|raw| Self::decode_team_document(&raw, &team_name).ok())
+                    .map(|team| (team.members.len(), team.updated_at))
+                    .unwrap_or((0, 0));
             teams.push(json!({
                 "team": team_name,
                 "workers": workers,
@@ -368,7 +370,10 @@ impl BackgroundAgentTool {
                 }
             }
 
-            let expected = workers.iter().map(|worker| worker.count as usize).sum::<usize>();
+            let expected = workers
+                .iter()
+                .map(|worker| worker.count as usize)
+                .sum::<usize>();
             if inputs.len() != expected {
                 return Err(ToolError::Tool(format!(
                     "Top-level 'inputs' length {} does not match total requested instances {}.",
@@ -698,7 +703,7 @@ enum BackgroundAgentAction {
     Resume {
         id: String,
     },
-    Cancel {
+    Stop {
         id: String,
     },
     Run {
@@ -1224,7 +1229,7 @@ impl Tool for BackgroundAgentTool {
                         })?,
                 )
             }
-            BackgroundAgentAction::Cancel { id } => {
+            BackgroundAgentAction::Stop { id } => {
                 self.write_guard()?;
                 ToolOutput::success(
                     self.store
@@ -1233,7 +1238,7 @@ impl Tool for BackgroundAgentTool {
                             action: "stop".to_string(),
                         })
                         .map_err(|e| {
-                            ToolError::Tool(format!("Failed to cancel background agent: {e}."))
+                            ToolError::Tool(format!("Failed to stop background agent: {e}."))
                         })?,
                 )
             }
@@ -1813,17 +1818,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_cancel_uses_control_not_delete() {
+    async fn test_stop_uses_control_not_delete() {
         let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
         let output = tool
             .execute(json!({
-                "operation": "cancel",
+                "operation": "stop",
                 "id": "task-1"
             }))
             .await
             .unwrap();
         assert!(output.success);
-        // Cancel should call control_background_agent with action "stop", not delete
+        // Stop should call control_background_agent with action "stop", not delete
         // MockStore returns { id, action } for control operations
         assert_eq!(
             output.result.get("action").and_then(|v| v.as_str()),

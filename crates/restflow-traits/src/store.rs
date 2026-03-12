@@ -36,13 +36,13 @@ pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = &[
     "read_trace",
     "pause",
     "resume",
-    "cancel",
+    "stop",
     "run",
 ];
 
-pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, cancel, run";
+pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, stop, run";
 
-pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), convert_session (convert an existing chat session into a background agent), promote_to_background (promote current interactive session into a background agent), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), cancel (stop permanently), delete (remove definition; auto-created bound chat session is archived when safe), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
+pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), convert_session (convert an existing chat session into a background agent), promote_to_background (promote current interactive session into a background agent), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
 
 // ── MemoryStore ──────────────────────────────────────────────────────
 

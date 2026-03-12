@@ -2096,7 +2096,7 @@ impl RestFlowMcpServer {
             | "pause"
             | "resume"
             | "run"
-            | "cancel"
+            | "stop"
             | "control"
             | "progress"
             | "send_message"
@@ -4079,7 +4079,7 @@ mod tests {
                 | BackgroundAgentControlAction::Resume
                 | BackgroundAgentControlAction::RunNow => BackgroundAgentStatus::Running,
                 BackgroundAgentControlAction::Pause => BackgroundAgentStatus::Paused,
-                BackgroundAgentControlAction::Stop => BackgroundAgentStatus::Completed,
+                BackgroundAgentControlAction::Stop => BackgroundAgentStatus::Interrupted,
             };
             task.chat_session_id = self.session.id.clone();
             Ok(task)
@@ -4215,7 +4215,7 @@ mod tests {
                             "run_now": run_now
                         })
                     }
-                    "cancel" => json!({
+                    "stop" => json!({
                         "id": input.get("id").and_then(Value::as_str).unwrap_or("task-1"),
                         "action": "stop"
                     }),
@@ -4492,7 +4492,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_mcp_manage_background_agents_cancel_uses_stop_semantics() {
+    async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
         let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
         let create = call_tool_through_mcp(
@@ -4500,7 +4500,7 @@ mod tests {
             "manage_background_agents",
             serde_json::json!({
                 "operation": "create",
-                "name": "cancel-contract",
+                "name": "stop-contract",
                 "agent_id": "default",
                 "input": "do not run"
             }),
@@ -4514,27 +4514,27 @@ mod tests {
             .expect("created task should have id")
             .to_string();
 
-        let cancel = call_tool_through_mcp(
+        let stop = call_tool_through_mcp(
             server,
             "manage_background_agents",
             serde_json::json!({
-                "operation": "cancel",
+                "operation": "stop",
                 "id": task_id
             }),
         )
         .await;
-        assert!(!cancel.is_error.unwrap_or(false));
-        let cancelled: serde_json::Value =
-            serde_json::from_str(call_tool_text(&cancel)).expect("cancel response json");
-        assert!(cancelled.get("deleted").is_none());
-        assert_eq!(cancelled["status"], "interrupted");
+        assert!(!stop.is_error.unwrap_or(false));
+        let stopped: serde_json::Value =
+            serde_json::from_str(call_tool_text(&stop)).expect("stop response json");
+        assert!(stopped.get("deleted").is_none());
+        assert_eq!(stopped["status"], "interrupted");
 
         let stored = core
             .storage
             .background_agents
-            .get_task(cancelled["id"].as_str().expect("cancelled task id"))
+            .get_task(stopped["id"].as_str().expect("stopped task id"))
             .expect("background storage query should succeed")
-            .expect("cancel should not delete the task");
+            .expect("stop should not delete the task");
         assert_eq!(stored.status, BackgroundAgentStatus::Interrupted);
     }
 

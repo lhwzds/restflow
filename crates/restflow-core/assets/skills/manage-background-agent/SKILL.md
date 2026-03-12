@@ -36,7 +36,7 @@ Use this skill for long-running or scheduled work executed by background agents.
 - Use `operation: list_messages` to inspect runtime conversation if needed.
 
 4. Operate safely.
-- Pause, resume, or cancel only for explicit operational reasons.
+- Pause, resume, or stop only for explicit operational reasons.
 - Send user messages through `operation: send_message` when interaction is required.
 
 ## Rules

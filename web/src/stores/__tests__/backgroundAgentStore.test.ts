@@ -8,7 +8,7 @@ vi.mock('@/api/background-agents', () => ({
   listBackgroundAgents: vi.fn(),
   pauseBackgroundAgent: vi.fn(),
   resumeBackgroundAgent: vi.fn(),
-  cancelBackgroundAgent: vi.fn(),
+  stopBackgroundAgent: vi.fn(),
   runBackgroundAgentStreaming: vi.fn(),
   updateBackgroundAgent: vi.fn(),
   deleteBackgroundAgent: vi.fn(),
@@ -466,25 +466,25 @@ describe('backgroundAgentStore', () => {
       })
     })
 
-    describe('cancelAgent', () => {
-      it('calls cancel API and re-fetches agents', async () => {
-        vi.mocked(api.cancelBackgroundAgent).mockResolvedValue(true)
+    describe('stopAgent', () => {
+      it('calls stop API and re-fetches agents', async () => {
+        vi.mocked(api.stopBackgroundAgent).mockResolvedValue(true)
         vi.mocked(api.listBackgroundAgents).mockResolvedValue([])
 
         const store = useBackgroundAgentStore()
-        await store.cancelAgent('task-1')
+        await store.stopAgent('task-1')
 
-        expect(api.cancelBackgroundAgent).toHaveBeenCalledWith('task-1')
+        expect(api.stopBackgroundAgent).toHaveBeenCalledWith('task-1')
         expect(api.listBackgroundAgents).toHaveBeenCalledOnce()
       })
 
       it('sets error on failure', async () => {
-        vi.mocked(api.cancelBackgroundAgent).mockRejectedValue(new Error('Cancel failed'))
+        vi.mocked(api.stopBackgroundAgent).mockRejectedValue(new Error('Stop failed'))
 
         const store = useBackgroundAgentStore()
-        await store.cancelAgent('task-1')
+        await store.stopAgent('task-1')
 
-        expect(store.error).toBe('Cancel failed')
+        expect(store.error).toBe('Stop failed')
       })
     })
 
