@@ -7,7 +7,9 @@ use crate::cli::ConfigCommands;
 use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::storage::SystemConfig;
-use restflow_storage::effective_config_sources;
+use restflow_storage::{
+    CliConfig, ConfigDocument, effective_config_sources, load_cli_config, write_cli_config,
+};
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -25,7 +27,7 @@ pub async fn run(
 }
 
 async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
-    let config = executor.get_config().await?;
+    let config = load_effective_config_document(executor).await?;
     let sources = effective_config_sources()?;
 
     if format.is_json() {
@@ -43,48 +45,56 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
     table.set_header(vec!["Key", "Value"]);
 
     table.add_row(vec![
-        Cell::new("worker_count"),
-        Cell::new(config.worker_count),
+        Cell::new("system.worker_count"),
+        Cell::new(config.system.worker_count),
     ]);
     table.add_row(vec![
-        Cell::new("task_timeout_seconds"),
-        Cell::new(config.task_timeout_seconds),
+        Cell::new("system.task_timeout_seconds"),
+        Cell::new(config.system.task_timeout_seconds),
     ]);
     table.add_row(vec![
-        Cell::new("stall_timeout_seconds"),
-        Cell::new(config.stall_timeout_seconds),
+        Cell::new("system.stall_timeout_seconds"),
+        Cell::new(config.system.stall_timeout_seconds),
     ]);
     table.add_row(vec![
-        Cell::new("background_api_timeout_seconds"),
-        Cell::new(format_optional_u64(config.background_api_timeout_seconds)),
+        Cell::new("system.background_api_timeout_seconds"),
+        Cell::new(format_optional_u64(
+            config.system.background_api_timeout_seconds,
+        )),
     ]);
     table.add_row(vec![
-        Cell::new("chat_response_timeout_seconds"),
-        Cell::new(format_optional_u64(config.chat_response_timeout_seconds)),
+        Cell::new("system.chat_response_timeout_seconds"),
+        Cell::new(format_optional_u64(
+            config.system.chat_response_timeout_seconds,
+        )),
     ]);
     table.add_row(vec![
-        Cell::new("max_retries"),
-        Cell::new(config.max_retries),
+        Cell::new("system.max_retries"),
+        Cell::new(config.system.max_retries),
     ]);
     table.add_row(vec![
-        Cell::new("chat_session_retention_days"),
-        Cell::new(config.chat_session_retention_days),
+        Cell::new("system.chat_session_retention_days"),
+        Cell::new(config.system.chat_session_retention_days),
     ]);
     table.add_row(vec![
-        Cell::new("background_task_retention_days"),
-        Cell::new(config.background_task_retention_days),
+        Cell::new("system.background_task_retention_days"),
+        Cell::new(config.system.background_task_retention_days),
     ]);
     table.add_row(vec![
-        Cell::new("checkpoint_retention_days"),
-        Cell::new(config.checkpoint_retention_days),
+        Cell::new("system.checkpoint_retention_days"),
+        Cell::new(config.system.checkpoint_retention_days),
     ]);
     table.add_row(vec![
-        Cell::new("memory_chunk_retention_days"),
-        Cell::new(config.memory_chunk_retention_days),
+        Cell::new("system.memory_chunk_retention_days"),
+        Cell::new(config.system.memory_chunk_retention_days),
     ]);
     table.add_row(vec![
-        Cell::new("log_file_retention_days"),
-        Cell::new(config.log_file_retention_days),
+        Cell::new("system.log_file_retention_days"),
+        Cell::new(config.system.log_file_retention_days),
+    ]);
+    table.add_row(vec![
+        Cell::new("system.experimental_features"),
+        Cell::new(format_string_list(&config.system.experimental_features)),
     ]);
     table.add_row(vec![
         Cell::new("agent.max_iterations"),
@@ -170,68 +180,100 @@ async fn show_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -
         ),
     ]);
     table.add_row(vec![
-        Cell::new("api_defaults.memory_search_limit"),
-        Cell::new(config.api_defaults.memory_search_limit),
+        Cell::new("api.memory_search_limit"),
+        Cell::new(config.api.memory_search_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api_defaults.session_list_limit"),
-        Cell::new(config.api_defaults.session_list_limit),
+        Cell::new("api.session_list_limit"),
+        Cell::new(config.api.session_list_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api_defaults.background_progress_event_limit"),
-        Cell::new(config.api_defaults.background_progress_event_limit),
+        Cell::new("api.background_progress_event_limit"),
+        Cell::new(config.api.background_progress_event_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api_defaults.background_message_list_limit"),
-        Cell::new(config.api_defaults.background_message_list_limit),
+        Cell::new("api.background_message_list_limit"),
+        Cell::new(config.api.background_message_list_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api_defaults.background_trace_list_limit"),
-        Cell::new(config.api_defaults.background_trace_list_limit),
+        Cell::new("api.background_trace_list_limit"),
+        Cell::new(config.api.background_trace_list_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api_defaults.background_trace_line_limit"),
-        Cell::new(config.api_defaults.background_trace_line_limit),
+        Cell::new("api.background_trace_line_limit"),
+        Cell::new(config.api.background_trace_line_limit),
     ]);
     table.add_row(vec![
-        Cell::new("api_defaults.web_search_num_results"),
-        Cell::new(config.api_defaults.web_search_num_results),
+        Cell::new("api.web_search_num_results"),
+        Cell::new(config.api.web_search_num_results),
     ]);
     table.add_row(vec![
-        Cell::new("api_defaults.diagnostics_timeout_ms"),
-        Cell::new(config.api_defaults.diagnostics_timeout_ms),
+        Cell::new("api.diagnostics_timeout_ms"),
+        Cell::new(config.api.diagnostics_timeout_ms),
     ]);
     table.add_row(vec![
-        Cell::new("runtime_defaults.background_runner_poll_interval_ms"),
-        Cell::new(config.runtime_defaults.background_runner_poll_interval_ms),
+        Cell::new("runtime.background_runner_poll_interval_ms"),
+        Cell::new(config.runtime.background_runner_poll_interval_ms),
     ]);
     table.add_row(vec![
-        Cell::new("runtime_defaults.background_runner_max_concurrent_tasks"),
-        Cell::new(
-            config
-                .runtime_defaults
-                .background_runner_max_concurrent_tasks,
-        ),
+        Cell::new("runtime.background_runner_max_concurrent_tasks"),
+        Cell::new(config.runtime.background_runner_max_concurrent_tasks),
     ]);
     table.add_row(vec![
-        Cell::new("runtime_defaults.chat_max_session_history"),
-        Cell::new(config.runtime_defaults.chat_max_session_history),
+        Cell::new("runtime.chat_max_session_history"),
+        Cell::new(config.runtime.chat_max_session_history),
     ]);
     table.add_row(vec![
-        Cell::new("channel_defaults.telegram_api_timeout_secs"),
-        Cell::new(config.channel_defaults.telegram_api_timeout_secs),
+        Cell::new("channel.telegram_api_timeout_secs"),
+        Cell::new(config.channel.telegram_api_timeout_secs),
     ]);
     table.add_row(vec![
-        Cell::new("channel_defaults.telegram_polling_timeout_secs"),
-        Cell::new(config.channel_defaults.telegram_polling_timeout_secs),
+        Cell::new("channel.telegram_polling_timeout_secs"),
+        Cell::new(config.channel.telegram_polling_timeout_secs),
     ]);
     table.add_row(vec![
-        Cell::new("registry_defaults.github_cache_ttl_secs"),
-        Cell::new(config.registry_defaults.github_cache_ttl_secs),
+        Cell::new("registry.github_cache_ttl_secs"),
+        Cell::new(config.registry.github_cache_ttl_secs),
     ]);
     table.add_row(vec![
-        Cell::new("registry_defaults.marketplace_cache_ttl_secs"),
-        Cell::new(config.registry_defaults.marketplace_cache_ttl_secs),
+        Cell::new("registry.marketplace_cache_ttl_secs"),
+        Cell::new(config.registry.marketplace_cache_ttl_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.version"),
+        Cell::new(config.cli.version),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.agent"),
+        Cell::new(format_optional_string(config.cli.agent.as_deref())),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.model"),
+        Cell::new(format_optional_string(config.cli.model.as_deref())),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.sandbox.enabled"),
+        Cell::new(config.cli.sandbox.enabled),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.sandbox.env.isolate"),
+        Cell::new(config.cli.sandbox.env.isolate),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.sandbox.env.allow"),
+        Cell::new(format_string_list(&config.cli.sandbox.env.allow)),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.sandbox.env.block"),
+        Cell::new(format_string_list(&config.cli.sandbox.env.block)),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.sandbox.limits.timeout_secs"),
+        Cell::new(config.cli.sandbox.limits.timeout_secs),
+    ]);
+    table.add_row(vec![
+        Cell::new("cli.sandbox.limits.max_output_bytes"),
+        Cell::new(config.cli.sandbox.limits.max_output_bytes),
     ]);
     table.add_row(vec![
         Cell::new("sources.global"),
@@ -253,20 +295,28 @@ async fn get_config_value(
     key: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let config = executor.get_config().await?;
+    let config = load_effective_config_document(executor).await?;
 
     let value = match key {
-        "worker_count" => json!(config.worker_count),
-        "task_timeout_seconds" => json!(config.task_timeout_seconds),
-        "stall_timeout_seconds" => json!(config.stall_timeout_seconds),
-        "background_api_timeout_seconds" => json!(config.background_api_timeout_seconds),
-        "chat_response_timeout_seconds" => json!(config.chat_response_timeout_seconds),
-        "max_retries" => json!(config.max_retries),
-        "chat_session_retention_days" => json!(config.chat_session_retention_days),
-        "background_task_retention_days" => json!(config.background_task_retention_days),
-        "checkpoint_retention_days" => json!(config.checkpoint_retention_days),
-        "memory_chunk_retention_days" => json!(config.memory_chunk_retention_days),
-        "log_file_retention_days" => json!(config.log_file_retention_days),
+        "system" => json!(config.system),
+        "system.worker_count" => json!(config.system.worker_count),
+        "system.task_timeout_seconds" => json!(config.system.task_timeout_seconds),
+        "system.stall_timeout_seconds" => json!(config.system.stall_timeout_seconds),
+        "system.background_api_timeout_seconds" => {
+            json!(config.system.background_api_timeout_seconds)
+        }
+        "system.chat_response_timeout_seconds" => {
+            json!(config.system.chat_response_timeout_seconds)
+        }
+        "system.max_retries" => json!(config.system.max_retries),
+        "system.chat_session_retention_days" => json!(config.system.chat_session_retention_days),
+        "system.background_task_retention_days" => {
+            json!(config.system.background_task_retention_days)
+        }
+        "system.checkpoint_retention_days" => json!(config.system.checkpoint_retention_days),
+        "system.memory_chunk_retention_days" => json!(config.system.memory_chunk_retention_days),
+        "system.log_file_retention_days" => json!(config.system.log_file_retention_days),
+        "system.experimental_features" => json!(config.system.experimental_features),
         "agent" => json!(config.agent),
         "agent.tool_timeout_secs" => json!(config.agent.tool_timeout_secs),
         "agent.llm_timeout_secs" => json!(config.agent.llm_timeout_secs),
@@ -287,52 +337,60 @@ async fn get_config_value(
         "agent.default_task_timeout_secs" => json!(config.agent.default_task_timeout_secs),
         "agent.default_max_duration_secs" => json!(config.agent.default_max_duration_secs),
         "agent.fallback_models" => json!(config.agent.fallback_models),
-        "api_defaults" => json!(config.api_defaults),
-        "api_defaults.memory_search_limit" => json!(config.api_defaults.memory_search_limit),
-        "api_defaults.session_list_limit" => json!(config.api_defaults.session_list_limit),
-        "api_defaults.background_progress_event_limit" => {
-            json!(config.api_defaults.background_progress_event_limit)
+        "api" => json!(config.api),
+        "api.memory_search_limit" => json!(config.api.memory_search_limit),
+        "api.session_list_limit" => json!(config.api.session_list_limit),
+        "api.background_progress_event_limit" => {
+            json!(config.api.background_progress_event_limit)
         }
-        "api_defaults.background_message_list_limit" => {
-            json!(config.api_defaults.background_message_list_limit)
+        "api.background_message_list_limit" => {
+            json!(config.api.background_message_list_limit)
         }
-        "api_defaults.background_trace_list_limit" => {
-            json!(config.api_defaults.background_trace_list_limit)
+        "api.background_trace_list_limit" => {
+            json!(config.api.background_trace_list_limit)
         }
-        "api_defaults.background_trace_line_limit" => {
-            json!(config.api_defaults.background_trace_line_limit)
+        "api.background_trace_line_limit" => {
+            json!(config.api.background_trace_line_limit)
         }
-        "api_defaults.web_search_num_results" => json!(config.api_defaults.web_search_num_results),
-        "api_defaults.diagnostics_timeout_ms" => {
-            json!(config.api_defaults.diagnostics_timeout_ms)
+        "api.web_search_num_results" => json!(config.api.web_search_num_results),
+        "api.diagnostics_timeout_ms" => {
+            json!(config.api.diagnostics_timeout_ms)
         }
-        "runtime_defaults" => json!(config.runtime_defaults),
-        "runtime_defaults.background_runner_poll_interval_ms" => {
-            json!(config.runtime_defaults.background_runner_poll_interval_ms)
+        "runtime" => json!(config.runtime),
+        "runtime.background_runner_poll_interval_ms" => {
+            json!(config.runtime.background_runner_poll_interval_ms)
         }
-        "runtime_defaults.background_runner_max_concurrent_tasks" => {
-            json!(
-                config
-                    .runtime_defaults
-                    .background_runner_max_concurrent_tasks
-            )
+        "runtime.background_runner_max_concurrent_tasks" => {
+            json!(config.runtime.background_runner_max_concurrent_tasks)
         }
-        "runtime_defaults.chat_max_session_history" => {
-            json!(config.runtime_defaults.chat_max_session_history)
+        "runtime.chat_max_session_history" => {
+            json!(config.runtime.chat_max_session_history)
         }
-        "channel_defaults" => json!(config.channel_defaults),
-        "channel_defaults.telegram_api_timeout_secs" => {
-            json!(config.channel_defaults.telegram_api_timeout_secs)
+        "channel" => json!(config.channel),
+        "channel.telegram_api_timeout_secs" => {
+            json!(config.channel.telegram_api_timeout_secs)
         }
-        "channel_defaults.telegram_polling_timeout_secs" => {
-            json!(config.channel_defaults.telegram_polling_timeout_secs)
+        "channel.telegram_polling_timeout_secs" => {
+            json!(config.channel.telegram_polling_timeout_secs)
         }
-        "registry_defaults" => json!(config.registry_defaults),
-        "registry_defaults.github_cache_ttl_secs" => {
-            json!(config.registry_defaults.github_cache_ttl_secs)
+        "registry" => json!(config.registry),
+        "registry.github_cache_ttl_secs" => {
+            json!(config.registry.github_cache_ttl_secs)
         }
-        "registry_defaults.marketplace_cache_ttl_secs" => {
-            json!(config.registry_defaults.marketplace_cache_ttl_secs)
+        "registry.marketplace_cache_ttl_secs" => {
+            json!(config.registry.marketplace_cache_ttl_secs)
+        }
+        "cli" => json!(config.cli),
+        "cli.version" => json!(config.cli.version),
+        "cli.agent" => json!(config.cli.agent),
+        "cli.model" => json!(config.cli.model),
+        "cli.sandbox.enabled" => json!(config.cli.sandbox.enabled),
+        "cli.sandbox.env.isolate" => json!(config.cli.sandbox.env.isolate),
+        "cli.sandbox.env.allow" => json!(config.cli.sandbox.env.allow),
+        "cli.sandbox.env.block" => json!(config.cli.sandbox.env.block),
+        "cli.sandbox.limits.timeout_secs" => json!(config.cli.sandbox.limits.timeout_secs),
+        "cli.sandbox.limits.max_output_bytes" => {
+            json!(config.cli.sandbox.limits.max_output_bytes)
         }
         "effective_sources" => json!(effective_config_sources()?),
         _ => bail!("Unsupported config key: {key}"),
@@ -352,152 +410,190 @@ async fn set_config_value(
     value: &str,
     format: OutputFormat,
 ) -> Result<()> {
-    let mut config = executor.get_global_config().await?;
+    if key.starts_with("cli.") {
+        let mut config = load_cli_config()?;
+        match key {
+            "cli.version" => {
+                config.version = parse_value(value)?;
+            }
+            "cli.agent" => {
+                config.agent = parse_optional_string(value);
+            }
+            "cli.model" => {
+                config.model = parse_optional_string(value);
+            }
+            "cli.sandbox.enabled" => {
+                config.sandbox.enabled = parse_value(value)?;
+            }
+            "cli.sandbox.env.isolate" => {
+                config.sandbox.env.isolate = parse_value(value)?;
+            }
+            "cli.sandbox.env.allow" => {
+                config.sandbox.env.allow = parse_string_list(value)?;
+            }
+            "cli.sandbox.env.block" => {
+                config.sandbox.env.block = parse_string_list(value)?;
+            }
+            "cli.sandbox.limits.timeout_secs" => {
+                config.sandbox.limits.timeout_secs = parse_value(value)?;
+            }
+            "cli.sandbox.limits.max_output_bytes" => {
+                config.sandbox.limits.max_output_bytes = parse_value(value)?;
+            }
+            _ => bail!("Unsupported config key: {key}"),
+        }
+        write_cli_config(&config)?;
+    } else {
+        let mut config = executor.get_global_config().await?;
 
-    match key {
-        "worker_count" => {
-            config.worker_count = parse_value(value)?;
+        match key {
+            "system.worker_count" => {
+                config.worker_count = parse_value(value)?;
+            }
+            "system.task_timeout_seconds" => {
+                config.task_timeout_seconds = parse_value(value)?;
+            }
+            "system.stall_timeout_seconds" => {
+                config.stall_timeout_seconds = parse_value(value)?;
+            }
+            "system.background_api_timeout_seconds" => {
+                config.background_api_timeout_seconds = parse_optional_u64(value)?;
+            }
+            "system.chat_response_timeout_seconds" => {
+                config.chat_response_timeout_seconds = parse_optional_u64(value)?;
+            }
+            "system.max_retries" => {
+                config.max_retries = parse_value(value)?;
+            }
+            "system.chat_session_retention_days" => {
+                config.chat_session_retention_days = parse_value(value)?;
+            }
+            "system.background_task_retention_days" => {
+                config.background_task_retention_days = parse_value(value)?;
+            }
+            "system.checkpoint_retention_days" => {
+                config.checkpoint_retention_days = parse_value(value)?;
+            }
+            "system.memory_chunk_retention_days" => {
+                config.memory_chunk_retention_days = parse_value(value)?;
+            }
+            "system.log_file_retention_days" => {
+                config.log_file_retention_days = parse_value(value)?;
+            }
+            "system.experimental_features" => {
+                config.experimental_features = parse_string_list(value)?;
+            }
+            "agent.tool_timeout_secs" => {
+                config.agent.tool_timeout_secs = parse_value(value)?;
+            }
+            "agent.llm_timeout_secs" => {
+                config.agent.llm_timeout_secs = parse_optional_u64(value)?;
+            }
+            "agent.bash_timeout_secs" => {
+                config.agent.bash_timeout_secs = parse_value(value)?;
+            }
+            "agent.python_timeout_secs" => {
+                config.agent.python_timeout_secs = parse_value(value)?;
+            }
+            "agent.browser_timeout_secs" => {
+                config.agent.browser_timeout_secs = parse_value(value)?;
+            }
+            "agent.process_session_ttl_secs" => {
+                config.agent.process_session_ttl_secs = parse_value(value)?;
+            }
+            "agent.approval_timeout_secs" => {
+                config.agent.approval_timeout_secs = parse_value(value)?;
+            }
+            "agent.max_iterations" => {
+                config.agent.max_iterations = parse_value(value)?;
+            }
+            "agent.subagent_timeout_secs" => {
+                config.agent.subagent_timeout_secs = parse_value(value)?;
+            }
+            "agent.max_parallel_subagents" => {
+                config.agent.max_parallel_subagents = parse_value(value)?;
+            }
+            "agent.max_tool_calls" => {
+                config.agent.max_tool_calls = parse_value(value)?;
+            }
+            "agent.max_tool_concurrency" => {
+                config.agent.max_tool_concurrency = parse_value(value)?;
+            }
+            "agent.max_tool_result_length" => {
+                config.agent.max_tool_result_length = parse_value(value)?;
+            }
+            "agent.prune_tool_max_chars" => {
+                config.agent.prune_tool_max_chars = parse_value(value)?;
+            }
+            "agent.compact_preserve_tokens" => {
+                config.agent.compact_preserve_tokens = parse_value(value)?;
+            }
+            "agent.max_wall_clock_secs" => {
+                config.agent.max_wall_clock_secs = parse_optional_u64(value)?;
+            }
+            "agent.default_task_timeout_secs" => {
+                config.agent.default_task_timeout_secs = parse_value(value)?;
+            }
+            "agent.default_max_duration_secs" => {
+                config.agent.default_max_duration_secs = parse_value(value)?;
+            }
+            "agent.fallback_models" => {
+                let models: Vec<String> = serde_json::from_str(value)
+                    .map_err(|e| anyhow::anyhow!("Invalid JSON array: {}", e))?;
+                config.agent.fallback_models = Some(models);
+            }
+            "api.memory_search_limit" => {
+                config.api_defaults.memory_search_limit = parse_value(value)?;
+            }
+            "api.session_list_limit" => {
+                config.api_defaults.session_list_limit = parse_value(value)?;
+            }
+            "api.background_progress_event_limit" => {
+                config.api_defaults.background_progress_event_limit = parse_value(value)?;
+            }
+            "api.background_message_list_limit" => {
+                config.api_defaults.background_message_list_limit = parse_value(value)?;
+            }
+            "api.background_trace_list_limit" => {
+                config.api_defaults.background_trace_list_limit = parse_value(value)?;
+            }
+            "api.background_trace_line_limit" => {
+                config.api_defaults.background_trace_line_limit = parse_value(value)?;
+            }
+            "api.web_search_num_results" => {
+                config.api_defaults.web_search_num_results = parse_value(value)?;
+            }
+            "api.diagnostics_timeout_ms" => {
+                config.api_defaults.diagnostics_timeout_ms = parse_value(value)?;
+            }
+            "runtime.background_runner_poll_interval_ms" => {
+                config.runtime_defaults.background_runner_poll_interval_ms = parse_value(value)?;
+            }
+            "runtime.background_runner_max_concurrent_tasks" => {
+                config
+                    .runtime_defaults
+                    .background_runner_max_concurrent_tasks = parse_value(value)?;
+            }
+            "runtime.chat_max_session_history" => {
+                config.runtime_defaults.chat_max_session_history = parse_value(value)?;
+            }
+            "channel.telegram_api_timeout_secs" => {
+                config.channel_defaults.telegram_api_timeout_secs = parse_value(value)?;
+            }
+            "channel.telegram_polling_timeout_secs" => {
+                config.channel_defaults.telegram_polling_timeout_secs = parse_value(value)?;
+            }
+            "registry.github_cache_ttl_secs" => {
+                config.registry_defaults.github_cache_ttl_secs = parse_value(value)?;
+            }
+            "registry.marketplace_cache_ttl_secs" => {
+                config.registry_defaults.marketplace_cache_ttl_secs = parse_value(value)?;
+            }
+            _ => bail!("Unsupported config key: {key}"),
         }
-        "task_timeout_seconds" => {
-            config.task_timeout_seconds = parse_value(value)?;
-        }
-        "stall_timeout_seconds" => {
-            config.stall_timeout_seconds = parse_value(value)?;
-        }
-        "background_api_timeout_seconds" => {
-            config.background_api_timeout_seconds = parse_optional_u64(value)?;
-        }
-        "chat_response_timeout_seconds" => {
-            config.chat_response_timeout_seconds = parse_optional_u64(value)?;
-        }
-        "max_retries" => {
-            config.max_retries = parse_value(value)?;
-        }
-        "chat_session_retention_days" => {
-            config.chat_session_retention_days = parse_value(value)?;
-        }
-        "background_task_retention_days" => {
-            config.background_task_retention_days = parse_value(value)?;
-        }
-        "checkpoint_retention_days" => {
-            config.checkpoint_retention_days = parse_value(value)?;
-        }
-        "memory_chunk_retention_days" => {
-            config.memory_chunk_retention_days = parse_value(value)?;
-        }
-        "log_file_retention_days" => {
-            config.log_file_retention_days = parse_value(value)?;
-        }
-        "agent.tool_timeout_secs" => {
-            config.agent.tool_timeout_secs = parse_value(value)?;
-        }
-        "agent.llm_timeout_secs" => {
-            config.agent.llm_timeout_secs = parse_optional_u64(value)?;
-        }
-        "agent.bash_timeout_secs" => {
-            config.agent.bash_timeout_secs = parse_value(value)?;
-        }
-        "agent.python_timeout_secs" => {
-            config.agent.python_timeout_secs = parse_value(value)?;
-        }
-        "agent.browser_timeout_secs" => {
-            config.agent.browser_timeout_secs = parse_value(value)?;
-        }
-        "agent.process_session_ttl_secs" => {
-            config.agent.process_session_ttl_secs = parse_value(value)?;
-        }
-        "agent.approval_timeout_secs" => {
-            config.agent.approval_timeout_secs = parse_value(value)?;
-        }
-        "agent.max_iterations" => {
-            config.agent.max_iterations = parse_value(value)?;
-        }
-        "agent.subagent_timeout_secs" => {
-            config.agent.subagent_timeout_secs = parse_value(value)?;
-        }
-        "agent.max_parallel_subagents" => {
-            config.agent.max_parallel_subagents = parse_value(value)?;
-        }
-        "agent.max_tool_calls" => {
-            config.agent.max_tool_calls = parse_value(value)?;
-        }
-        "agent.max_tool_concurrency" => {
-            config.agent.max_tool_concurrency = parse_value(value)?;
-        }
-        "agent.max_tool_result_length" => {
-            config.agent.max_tool_result_length = parse_value(value)?;
-        }
-        "agent.prune_tool_max_chars" => {
-            config.agent.prune_tool_max_chars = parse_value(value)?;
-        }
-        "agent.compact_preserve_tokens" => {
-            config.agent.compact_preserve_tokens = parse_value(value)?;
-        }
-        "agent.max_wall_clock_secs" => {
-            config.agent.max_wall_clock_secs = parse_optional_u64(value)?;
-        }
-        "agent.default_task_timeout_secs" => {
-            config.agent.default_task_timeout_secs = parse_value(value)?;
-        }
-        "agent.default_max_duration_secs" => {
-            config.agent.default_max_duration_secs = parse_value(value)?;
-        }
-        "agent.fallback_models" => {
-            let models: Vec<String> = serde_json::from_str(value)
-                .map_err(|e| anyhow::anyhow!("Invalid JSON array: {}", e))?;
-            config.agent.fallback_models = Some(models);
-        }
-        "api_defaults.memory_search_limit" => {
-            config.api_defaults.memory_search_limit = parse_value(value)?;
-        }
-        "api_defaults.session_list_limit" => {
-            config.api_defaults.session_list_limit = parse_value(value)?;
-        }
-        "api_defaults.background_progress_event_limit" => {
-            config.api_defaults.background_progress_event_limit = parse_value(value)?;
-        }
-        "api_defaults.background_message_list_limit" => {
-            config.api_defaults.background_message_list_limit = parse_value(value)?;
-        }
-        "api_defaults.background_trace_list_limit" => {
-            config.api_defaults.background_trace_list_limit = parse_value(value)?;
-        }
-        "api_defaults.background_trace_line_limit" => {
-            config.api_defaults.background_trace_line_limit = parse_value(value)?;
-        }
-        "api_defaults.web_search_num_results" => {
-            config.api_defaults.web_search_num_results = parse_value(value)?;
-        }
-        "api_defaults.diagnostics_timeout_ms" => {
-            config.api_defaults.diagnostics_timeout_ms = parse_value(value)?;
-        }
-        "runtime_defaults.background_runner_poll_interval_ms" => {
-            config.runtime_defaults.background_runner_poll_interval_ms = parse_value(value)?;
-        }
-        "runtime_defaults.background_runner_max_concurrent_tasks" => {
-            config
-                .runtime_defaults
-                .background_runner_max_concurrent_tasks = parse_value(value)?;
-        }
-        "runtime_defaults.chat_max_session_history" => {
-            config.runtime_defaults.chat_max_session_history = parse_value(value)?;
-        }
-        "channel_defaults.telegram_api_timeout_secs" => {
-            config.channel_defaults.telegram_api_timeout_secs = parse_value(value)?;
-        }
-        "channel_defaults.telegram_polling_timeout_secs" => {
-            config.channel_defaults.telegram_polling_timeout_secs = parse_value(value)?;
-        }
-        "registry_defaults.github_cache_ttl_secs" => {
-            config.registry_defaults.github_cache_ttl_secs = parse_value(value)?;
-        }
-        "registry_defaults.marketplace_cache_ttl_secs" => {
-            config.registry_defaults.marketplace_cache_ttl_secs = parse_value(value)?;
-        }
-        _ => bail!("Unsupported config key: {key}"),
+
+        executor.set_config(config).await?;
     }
-
-    executor.set_config(config).await?;
 
     if format.is_json() {
         return print_json(&json!({ "updated": true, "key": key }));
@@ -510,6 +606,7 @@ async fn set_config_value(
 async fn reset_config(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
     let config = SystemConfig::default();
     executor.set_config(config).await?;
+    write_cli_config(&CliConfig::default())?;
 
     if format.is_json() {
         return print_json(&json!({ "reset": true }));
@@ -540,6 +637,37 @@ fn parse_optional_u64(value: &str) -> Result<Option<u64>> {
     parse_value::<u64>(normalized).map(Some)
 }
 
+fn parse_optional_string(value: &str) -> Option<String> {
+    let normalized = value.trim();
+    if normalized.eq_ignore_ascii_case("none")
+        || normalized.eq_ignore_ascii_case("null")
+        || normalized.eq_ignore_ascii_case("unset")
+    {
+        return None;
+    }
+    Some(normalized.to_string())
+}
+
+fn parse_string_list(value: &str) -> Result<Vec<String>> {
+    serde_json::from_str(value).map_err(|e| anyhow::anyhow!("Invalid JSON array: {}", e))
+}
+
+fn format_optional_string(value: Option<&str>) -> String {
+    value.unwrap_or("none").to_string()
+}
+
+fn format_string_list(values: &[String]) -> String {
+    serde_json::to_string(values).unwrap_or_else(|_| "[]".to_string())
+}
+
+async fn load_effective_config_document(
+    executor: Arc<dyn CommandExecutor>,
+) -> Result<ConfigDocument> {
+    let system = executor.get_config().await?;
+    let cli = load_cli_config()?;
+    Ok(ConfigDocument::from_system_config(system, cli))
+}
+
 fn format_source_info(source: &Option<restflow_storage::ConfigSourcePathInfo>) -> String {
     match source {
         Some(info) => {
@@ -562,6 +690,7 @@ fn format_optional_u64(value: Option<u64>) -> String {
 mod tests {
     use super::*;
     use crate::executor::{CommandExecutor, direct::DirectExecutor};
+    use restflow_storage::load_cli_config;
     use std::env;
     use std::path::Path;
     use std::sync::{Mutex, OnceLock};
@@ -660,7 +789,7 @@ mod tests {
 
         set_config_value(
             ctx.executor.clone(),
-            "log_file_retention_days",
+            "system.log_file_retention_days",
             "45",
             OutputFormat::Json,
         )
@@ -687,10 +816,27 @@ mod tests {
 
         get_config_value(
             ctx.executor.clone(),
-            "log_file_retention_days",
+            "system.log_file_retention_days",
             OutputFormat::Json,
         )
         .await
-        .expect("get config should support log_file_retention_days");
+        .expect("get config should support system.log_file_retention_days");
+    }
+
+    #[tokio::test]
+    async fn test_set_config_supports_cli_agent() {
+        let ctx = setup_executor().await;
+
+        set_config_value(
+            ctx.executor.clone(),
+            "cli.agent",
+            "planner",
+            OutputFormat::Json,
+        )
+        .await
+        .expect("set config should support cli.agent");
+
+        let cli = load_cli_config().expect("load cli config");
+        assert_eq!(cli.agent.as_deref(), Some("planner"));
     }
 }
