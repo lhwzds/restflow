@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::time::{Duration, timeout};
 
 use crate::impls::team_template::{
-    delete_team_document, list_team_entries, read_team_raw, save_team_document,
+    delete_team_document, list_team_entries, load_team_document, save_team_document,
 };
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_traits::store::KvStore;
@@ -193,15 +193,6 @@ struct StoredBatchSubagentSpec {
     inline_system_prompt: Option<String>,
     inline_allowed_tools: Option<Vec<String>>,
     inline_max_iterations: Option<u32>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct LegacyStoredSubagentTeam {
-    version: u32,
-    name: String,
-    specs: Vec<BatchSubagentSpec>,
-    created_at: i64,
-    updated_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -466,36 +457,6 @@ impl SpawnSubagentBatchTool {
         })
     }
 
-    fn decode_team_document(
-        raw: &str,
-        team_name: &str,
-    ) -> Result<TeamTemplateDocument<StoredBatchSubagentSpec>> {
-        if let Ok(document) =
-            serde_json::from_str::<TeamTemplateDocument<StoredBatchSubagentSpec>>(raw)
-        {
-            return Ok(document);
-        }
-
-        let legacy: LegacyStoredSubagentTeam = serde_json::from_str(raw).map_err(|error| {
-            ToolError::Tool(format!(
-                "Failed to decode team '{team_name}' payload: {error}"
-            ))
-        })?;
-        let members = legacy
-            .specs
-            .iter()
-            .enumerate()
-            .map(|(spec_index, spec)| Self::stored_spec_from_batch(spec, spec_index))
-            .collect::<Result<Vec<_>>>()?;
-        Ok(TeamTemplateDocument {
-            version: legacy.version.max(SUBAGENT_TEAM_VERSION),
-            name: legacy.name,
-            members,
-            created_at: legacy.created_at,
-            updated_at: legacy.updated_at,
-        })
-    }
-
     fn validate_save_team_request(
         task: Option<&str>,
         tasks: Option<&[String]>,
@@ -669,9 +630,8 @@ impl SpawnSubagentBatchTool {
 
     fn load_team_specs(&self, team_name: &str) -> Result<Vec<BatchSubagentSpec>> {
         let store = self.team_store()?;
-        let raw = read_team_raw(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?
-            .ok_or_else(|| ToolError::Tool(format!("Team '{team_name}' was not found.")))?;
-        let team = Self::decode_team_document(&raw, team_name)?;
+        let team: TeamTemplateDocument<StoredBatchSubagentSpec> =
+            load_team_document(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?;
         if team.members.is_empty() {
             return Err(ToolError::Tool(format!(
                 "Team '{}' has no member specs.",
@@ -753,9 +713,8 @@ impl SpawnSubagentBatchTool {
 
     fn get_team(&self, team_name: &str) -> Result<ToolOutput> {
         let store = self.team_store()?;
-        let raw = read_team_raw(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?
-            .ok_or_else(|| ToolError::Tool(format!("Team '{team_name}' was not found.")))?;
-        let team = Self::decode_team_document(&raw, team_name)?;
+        let team: TeamTemplateDocument<StoredBatchSubagentSpec> =
+            load_team_document(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?;
         let specs = team
             .members
             .into_iter()
@@ -1662,7 +1621,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_get_team_normalizes_legacy_specs_payload() {
+    async fn test_get_team_rejects_legacy_specs_payload() {
         let manager = make_test_manager(vec![("coder", "Coder")], vec![]);
         let kv_store = Arc::new(MockKvStore::default());
         kv_store
@@ -1691,19 +1650,15 @@ mod tests {
         let kv_store: Arc<dyn KvStore> = kv_store;
         let tool = SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store);
 
-        let output = tool
+        let error = tool
             .execute(json!({"operation": "get_team", "team": "LegacyTeam"}))
             .await
-            .unwrap();
+            .expect_err("legacy payload should fail to decode");
 
-        assert!(output.success);
-        assert_eq!(output.result["team"], "LegacyTeam");
-        assert_eq!(output.result["member_groups"], 1);
-        assert_eq!(output.result["total_instances"], 2);
-        assert_eq!(output.result["members"][0]["count"], 2);
         assert!(
-            output.result["members"][0].get("tasks").is_none()
-                || output.result["members"][0]["tasks"].is_null()
+            error
+                .to_string()
+                .contains("Failed to decode team 'LegacyTeam'")
         );
     }
 }
