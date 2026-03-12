@@ -840,6 +840,7 @@ impl SpawnSubagentBatchTool {
                     inline: inline.clone(),
                     task,
                     timeout_secs: spec.timeout_secs.or(params.timeout_secs),
+                    max_iterations: None,
                     priority: None,
                     model: spec.model.clone(),
                     model_provider: spec.provider.clone(),

@@ -257,6 +257,7 @@ mod tests {
                 inline: None,
                 task: "write code".to_string(),
                 timeout_secs: Some(30),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,

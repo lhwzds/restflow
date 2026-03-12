@@ -223,6 +223,7 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
                     .clone()
                     .ok_or_else(|| anyhow::anyhow!("Subagent execution requires 'input'"))?,
                 timeout_secs: plan.timeout_secs,
+                max_iterations: plan.max_iterations,
                 priority: None,
                 model: plan.model.clone(),
                 model_provider: provider,
@@ -2375,6 +2376,7 @@ mod tests {
                 task: "Say done".to_string(),
                 timeout_secs: Some(30),
                 priority: None,
+                max_iterations: None,
                 model: Some("mock-model".to_string()),
                 model_provider: None,
                 parent_execution_id: None,

@@ -210,6 +210,7 @@ mod tests {
                 inline: None,
                 task: "test task".to_string(),
                 timeout_secs: Some(10),
+                max_iterations: None,
                 priority: None,
                 model: None,
                 model_provider: None,
