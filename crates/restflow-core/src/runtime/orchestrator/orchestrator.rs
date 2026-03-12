@@ -129,7 +129,9 @@ impl OrchestratingAgentExecutor {
     }
 
     pub fn from_runtime_executor(executor: AgentRuntimeExecutor) -> Self {
-        Self::new(Arc::new(AgentOrchestratorImpl::from_runtime_executor(executor)))
+        Self::new(Arc::new(AgentOrchestratorImpl::from_runtime_executor(
+            executor,
+        )))
     }
 
     pub fn orchestrator(&self) -> Arc<AgentOrchestratorImpl> {
@@ -267,7 +269,11 @@ mod tests {
             self.last_background
                 .lock()
                 .expect("background lock")
-                .push(format!("{}:{}", agent_id, background_task_id.unwrap_or_default()));
+                .push(format!(
+                    "{}:{}",
+                    agent_id,
+                    background_task_id.unwrap_or_default()
+                ));
             Ok(ExecutionResult::success(
                 "background-output".to_string(),
                 vec![Message::assistant("done".to_string())],
@@ -286,7 +292,11 @@ mod tests {
             self.last_background
                 .lock()
                 .expect("background lock")
-                .push(format!("resume:{}:{}", agent_id, background_task_id.unwrap_or_default()));
+                .push(format!(
+                    "resume:{}:{}",
+                    agent_id,
+                    background_task_id.unwrap_or_default()
+                ));
             Ok(ExecutionResult::success(
                 "resumed-output".to_string(),
                 vec![Message::assistant("resumed".to_string())],
@@ -306,7 +316,11 @@ mod tests {
     async fn run_interactive_session_turn_updates_session_and_result() {
         let backend = Arc::new(MockBackend::default());
         let mut session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
-        backend.session.lock().expect("session lock").replace(session.clone());
+        backend
+            .session
+            .lock()
+            .expect("session lock")
+            .replace(session.clone());
         let orchestrator = AgentOrchestratorImpl::new(backend);
 
         let result = orchestrator
@@ -330,9 +344,8 @@ mod tests {
     #[tokio::test]
     async fn run_background_executor_delegates_through_orchestrator() {
         let backend = Arc::new(MockBackend::default());
-        let executor = OrchestratingAgentExecutor::new(Arc::new(AgentOrchestratorImpl::new(
-            backend.clone(),
-        )));
+        let executor =
+            OrchestratingAgentExecutor::new(Arc::new(AgentOrchestratorImpl::new(backend.clone())));
 
         let result = executor
             .execute(
@@ -362,7 +375,11 @@ mod tests {
         let backend = Arc::new(MockBackend::default());
         let session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
         let session_id = session.id.clone();
-        backend.session.lock().expect("session lock").replace(session);
+        backend
+            .session
+            .lock()
+            .expect("session lock")
+            .replace(session);
         let orchestrator = AgentOrchestratorImpl::new(backend);
 
         let outcome = orchestrator

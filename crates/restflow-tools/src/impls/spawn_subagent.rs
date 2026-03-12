@@ -525,7 +525,11 @@ impl Tool for SpawnSubagentTool {
                     None => return Ok(ToolOutput::error("Sub-agent not found")),
                 }
             } else {
-                match timeout(Duration::from_secs(wait_timeout), self.manager.wait(&handle.id)).await
+                match timeout(
+                    Duration::from_secs(wait_timeout),
+                    self.manager.wait(&handle.id),
+                )
+                .await
                 {
                     Ok(Some(result)) => result,
                     Ok(None) => return Ok(ToolOutput::error("Sub-agent not found")),

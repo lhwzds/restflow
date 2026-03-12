@@ -175,6 +175,7 @@ pub mod skill_snapshot;
 pub mod testkit;
 pub mod transactional_checkpoint;
 
+pub use crate::runtime::orchestrator::OrchestratingAgentExecutor;
 pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
 #[cfg(feature = "tauri-runtime")]
 pub use events::TauriEventEmitter;
@@ -183,7 +184,6 @@ pub use events::{
     TaskEventEmitter, TaskStreamEvent,
 };
 pub use executor::{AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode};
-pub use crate::runtime::orchestrator::OrchestratingAgentExecutor;
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
 #[cfg(feature = "tauri-runtime")]
 pub use heartbeat::TauriHeartbeatEmitter;
