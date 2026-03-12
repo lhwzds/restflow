@@ -40,17 +40,17 @@ mod simple_storage;
 pub mod time_utils;
 
 pub use agent::AgentStorage;
-// Deprecated: Use ExecutionTraceStorageBackend instead
 pub use auth_profiles::AuthProfileStorage;
 pub use background_agent::BackgroundAgentStorage;
 pub use channel_session_binding::ChannelSessionBindingStorage;
 pub use chat_session::ChatSessionStorage;
 pub use checkpoint::CheckpointStorage;
 pub use config::{
-    AgentDefaults, ApiDefaults, ChannelDefaults, CliConfig, ConfigDocument, ConfigSourcePathInfo,
-    ConfigStorage, ConfigValueSourceInfo, ConfigValueSourceKind, EffectiveConfigSources,
-    RegistryDefaults, RuntimeDefaults, SystemConfig, SystemSection, effective_config_sources,
-    load_cli_config, write_cli_config,
+    AgentDefaults, AgentSettings, ApiDefaults, ApiSettings, ChannelDefaults, ChannelSettings,
+    CliConfig, ConfigDocument, ConfigSourcePathInfo, ConfigStorage, ConfigValueSourceInfo,
+    ConfigValueSourceKind, EffectiveConfigSources, RegistryDefaults, RegistrySettings,
+    RuntimeDefaults, RuntimeSettings, SystemConfig, SystemSection, effective_config_sources,
+    load_cli_config, load_global_cli_config, write_cli_config,
 };
 pub use daemon_state::DaemonStateStorage;
 pub use deliverable::DeliverableStorage;
