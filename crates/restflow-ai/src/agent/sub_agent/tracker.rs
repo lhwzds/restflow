@@ -300,7 +300,7 @@ impl SubagentTracker {
             handle.abort();
             self.completion_waiters.remove(id);
             if let Some(mut state) = self.states.get_mut(id) {
-                state.status = SubagentStatus::Cancelled;
+                state.status = SubagentStatus::Interrupted;
                 state.completed_at = Some(chrono::Utc::now().timestamp_millis());
             }
             true
@@ -327,12 +327,12 @@ impl SubagentTracker {
 
     /// Mark a sub-agent as completed.
     ///
-    /// This will not overwrite status if the sub-agent was already cancelled or timed out.
+    /// This will not overwrite status if the sub-agent was already interrupted or timed out.
     pub fn mark_completed(&self, id: &str, result: SubagentResult) {
         if let Some(state) = self.states.get(id)
             && matches!(
                 state.status,
-                SubagentStatus::Cancelled | SubagentStatus::TimedOut
+                SubagentStatus::Interrupted | SubagentStatus::TimedOut
             )
         {
             self.abort_handles.remove(id);
@@ -474,7 +474,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mark_completed_does_not_overwrite_cancelled() {
+    async fn mark_completed_does_not_overwrite_interrupted() {
         let (tx, _rx) = mpsc::channel(1);
         let (_completion_tx, completion_rx) = mpsc::channel(1);
         let tracker = Arc::new(SubagentTracker::new(tx, completion_rx));
@@ -483,7 +483,7 @@ mod tests {
             id: "test-id".to_string(),
             agent_name: "test-agent".to_string(),
             task: "test task".to_string(),
-            status: SubagentStatus::Cancelled,
+            status: SubagentStatus::Interrupted,
             started_at: chrono::Utc::now().timestamp_millis(),
             completed_at: Some(chrono::Utc::now().timestamp_millis()),
             result: None,
@@ -502,7 +502,7 @@ mod tests {
         tracker.mark_completed("test-id", result);
 
         let final_state = tracker.states.get("test-id").unwrap();
-        assert_eq!(final_state.status, SubagentStatus::Cancelled);
+        assert_eq!(final_state.status, SubagentStatus::Interrupted);
     }
 
     #[tokio::test]
@@ -538,7 +538,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cancel_then_complete_race_keeps_cancelled_status() {
+    async fn cancel_then_complete_race_keeps_interrupted_status() {
         let (tx, _rx) = mpsc::channel(1);
         let (_completion_tx, completion_rx) = mpsc::channel(1);
         let tracker = Arc::new(SubagentTracker::new(tx, completion_rx));
@@ -566,7 +566,7 @@ mod tests {
         tracker.cancel("race-test");
 
         let state_after_cancel = tracker.states.get("race-test").unwrap();
-        assert_eq!(state_after_cancel.status, SubagentStatus::Cancelled);
+        assert_eq!(state_after_cancel.status, SubagentStatus::Interrupted);
 
         let result = SubagentResult {
             success: false,
@@ -581,7 +581,7 @@ mod tests {
         tracker.mark_completed("race-test", result);
 
         let final_state = tracker.states.get("race-test").unwrap();
-        assert_eq!(final_state.status, SubagentStatus::Cancelled);
+        assert_eq!(final_state.status, SubagentStatus::Interrupted);
 
         let _ = abort_tx.send(());
     }

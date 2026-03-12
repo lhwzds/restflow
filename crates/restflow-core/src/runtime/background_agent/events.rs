@@ -111,11 +111,11 @@ pub enum StreamEventKind {
         recoverable: bool,
     },
 
-    /// Task was cancelled (e.g., timeout or user cancellation)
-    Cancelled {
-        /// Reason for cancellation
+    /// Task was interrupted (e.g., timeout or explicit stop request)
+    Interrupted {
+        /// Reason for interruption
         reason: String,
-        /// Execution duration in milliseconds before cancellation
+        /// Execution duration in milliseconds before interruption
         #[ts(type = "number")]
         duration_ms: i64,
     },
@@ -294,24 +294,24 @@ impl TaskStreamEvent {
         )
     }
 
-    /// Create a cancelled event
-    pub fn cancelled(
+    /// Create an interrupted event
+    pub fn interrupted(
         task_id: impl Into<String>,
         reason: impl Into<String>,
         duration_ms: i64,
     ) -> Self {
         Self::new(
             task_id,
-            StreamEventKind::Cancelled {
+            StreamEventKind::Interrupted {
                 reason: reason.into(),
                 duration_ms,
             },
         )
     }
 
-    /// Create a timeout event (convenience for cancelled with timeout reason)
+    /// Create a timeout event (convenience for interrupted with timeout reason)
     pub fn timeout(task_id: impl Into<String>, timeout_secs: u64, duration_ms: i64) -> Self {
-        Self::cancelled(
+        Self::interrupted(
             task_id,
             format!("Task timed out after {} seconds", timeout_secs),
             duration_ms,
@@ -553,18 +553,18 @@ mod tests {
     }
 
     #[test]
-    fn test_cancelled_event() {
-        let event = TaskStreamEvent::cancelled("task-1", "User requested", 3000);
+    fn test_interrupted_event() {
+        let event = TaskStreamEvent::interrupted("task-1", "Stopped by user", 3000);
 
         match &event.kind {
-            StreamEventKind::Cancelled {
+            StreamEventKind::Interrupted {
                 reason,
                 duration_ms,
             } => {
-                assert_eq!(reason, "User requested");
+                assert_eq!(reason, "Stopped by user");
                 assert_eq!(*duration_ms, 3000);
             }
-            _ => panic!("Expected Cancelled event"),
+            _ => panic!("Expected Interrupted event"),
         }
     }
 
@@ -573,10 +573,10 @@ mod tests {
         let event = TaskStreamEvent::timeout("task-1", 300, 300000);
 
         match &event.kind {
-            StreamEventKind::Cancelled { reason, .. } => {
+            StreamEventKind::Interrupted { reason, .. } => {
                 assert!(reason.contains("300 seconds"));
             }
-            _ => panic!("Expected Cancelled event"),
+            _ => panic!("Expected Interrupted event"),
         }
     }
 

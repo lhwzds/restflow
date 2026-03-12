@@ -161,7 +161,11 @@ impl BackgroundAgentTool {
         Ok(StoredBackgroundBatchWorkerSpec {
             agent_id: worker.agent_id.clone(),
             name: worker.name.clone(),
-            count: worker.count,
+            count: worker
+                .inputs
+                .as_ref()
+                .map(|items| items.len() as u32)
+                .unwrap_or(worker.count),
             chat_session_id: worker.chat_session_id.clone(),
             schedule: worker.schedule.clone(),
             timeout_secs: worker.timeout_secs,
@@ -310,14 +314,19 @@ impl BackgroundAgentTool {
                 .strip_prefix(&format!("{BACKGROUND_AGENT_TEAM_NAMESPACE}:"))
                 .unwrap_or(key)
                 .to_string();
-            let (workers, updated_at) =
+            let (member_groups, total_instances, updated_at) =
                 read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team_name)?
                     .and_then(|raw| Self::decode_team_document(&raw, &team_name).ok())
-                    .map(|team| (team.members.len(), team.updated_at))
-                    .unwrap_or((0, 0));
+                    .map(|team| {
+                        let total_instances =
+                            team.members.iter().map(|worker| worker.count as usize).sum::<usize>();
+                        (team.members.len(), total_instances, team.updated_at)
+                    })
+                    .unwrap_or((0, 0, 0));
             teams.push(json!({
                 "team": team_name,
-                "workers": workers,
+                "member_groups": member_groups,
+                "total_instances": total_instances,
                 "updated_at": updated_at
             }));
         }
@@ -1032,11 +1041,26 @@ impl Tool for BackgroundAgentTool {
                 }))
             }
             BackgroundAgentAction::GetTeam { team } => {
-                let workers = self.load_team_workers(&team)?;
+                let store = self.team_store()?;
+                let raw =
+                    read_team_raw(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team)?
+                        .ok_or_else(|| ToolError::Tool(format!("Team '{team}' was not found.")))?;
+                let document = Self::decode_team_document(&raw, &team)?;
+                let members = document
+                    .members
+                    .clone()
+                    .into_iter()
+                    .map(Self::runtime_worker_from_stored)
+                    .collect::<Vec<_>>();
                 ToolOutput::success(json!({
                     "operation": "get_team",
-                    "team": team,
-                    "workers": workers
+                    "team": document.name,
+                    "version": document.version,
+                    "created_at": document.created_at,
+                    "updated_at": document.updated_at,
+                    "member_groups": members.len(),
+                    "total_instances": document.members.iter().map(|worker| worker.count as usize).sum::<usize>(),
+                    "members": members
                 }))
             }
             BackgroundAgentAction::DeleteTeam { team } => {
@@ -1904,13 +1928,15 @@ mod tests {
         assert!(get.success);
         assert_eq!(get.result["operation"], "get_team");
         assert_eq!(get.result["team"], "TeamA");
+        assert_eq!(get.result["member_groups"], 1);
+        assert_eq!(get.result["total_instances"], 2);
         assert_eq!(
-            get.result["workers"].as_array().map(|items| items.len()),
+            get.result["members"].as_array().map(|items| items.len()),
             Some(1)
         );
         assert!(
-            get.result["workers"][0].get("input").is_none()
-                || get.result["workers"][0]["input"].is_null()
+            get.result["members"][0].get("input").is_none()
+                || get.result["members"][0]["input"].is_null()
         );
 
         let delete = tool
@@ -1979,14 +2005,14 @@ mod tests {
                 "operation": "get_team",
                 "team": "TeamC"
             }))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         assert!(get.success);
         assert!(
-            get.result["workers"][0].get("inputs").is_none()
-                || get.result["workers"][0]["inputs"].is_null()
+            get.result["members"][0].get("inputs").is_none()
+                || get.result["members"][0]["inputs"].is_null()
         );
-        assert_eq!(get.result["workers"][0]["count"], 2);
+        assert_eq!(get.result["members"][0]["count"], 2);
     }
 
     #[tokio::test]
@@ -2039,6 +2065,55 @@ mod tests {
                 .unwrap_err()
                 .to_string()
                 .contains("stores worker structure only")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_get_team_normalizes_legacy_worker_payload() {
+        let kv_store = Arc::new(MockKvStore::default());
+        kv_store
+            .set_entry(
+                "background_agent_team:LegacyTeam",
+                &json!({
+                    "version": 1,
+                    "name": "LegacyTeam",
+                    "workers": [
+                        {
+                            "agent_id": "agent-1",
+                            "inputs": ["alpha", "beta"]
+                        }
+                    ],
+                    "created_at": 1,
+                    "updated_at": 2
+                })
+                .to_string(),
+                None,
+                None,
+                None,
+                None,
+                None,
+            )
+            .expect("store legacy team");
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore))
+            .with_kv_store(kv_store)
+            .with_write(true);
+
+        let get = tool
+            .execute(json!({
+                "operation": "get_team",
+                "team": "LegacyTeam"
+            }))
+            .await
+            .unwrap();
+
+        assert!(get.success);
+        assert_eq!(get.result["team"], "LegacyTeam");
+        assert_eq!(get.result["member_groups"], 1);
+        assert_eq!(get.result["total_instances"], 2);
+        assert_eq!(get.result["members"][0]["count"], 2);
+        assert!(
+            get.result["members"][0].get("inputs").is_none()
+                || get.result["members"][0]["inputs"].is_null()
         );
     }
 }

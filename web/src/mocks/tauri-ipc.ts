@@ -171,7 +171,7 @@ async function runMockChatStream(
     await emit(
       'chat:stream',
       buildChatStreamEvent(session.id, messageId, {
-        type: 'cancelled',
+        type: 'interrupted',
         partial_content: null,
       }),
     )

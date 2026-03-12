@@ -1824,7 +1824,7 @@ export type BackgroundAgentStatus =
  */
 "failed" | 
 /**
- * Task execution interrupted, waiting for external input to resume.
+ * Task execution interrupted by an explicit stop or checkpoint flow.
  */
 "interrupted"
 /**
@@ -2525,7 +2525,7 @@ export type HookAction =
 /**
  * Hook trigger event.
  */
-export type HookEvent = "task_started" | "task_completed" | "task_failed" | "task_cancelled" | "tool_executed" | "approval_required"
+export type HookEvent = "task_started" | "task_completed" | "task_failed" | "task_interrupted" | "tool_executed" | "approval_required"
 /**
  * Optional filter to limit when a hook is executed.
  */
@@ -3541,19 +3541,19 @@ log_file_retention_days: number; experimental_features: string[];
  */
 agent?: AgentDefaults; 
 /**
- * API operation default limits.
+ * API operation settings and limits.
  */
 api_defaults?: ApiDefaults; 
 /**
- * Runtime execution defaults for daemon/background/chat services.
+ * Runtime execution settings for daemon/background/chat services.
  */
 runtime_defaults?: RuntimeDefaults; 
 /**
- * Channel integration defaults.
+ * Channel integration settings.
  */
 channel_defaults?: ChannelDefaults; 
 /**
- * Registry provider defaults.
+ * Registry provider settings.
  */
 registry_defaults?: RegistryDefaults }
 /**
@@ -3750,9 +3750,9 @@ export type ToolTraceEvent =
  */
 "turn_failed" | 
 /**
- * A turn was cancelled.
+ * A turn was interrupted.
  */
-"turn_cancelled"
+"turn_interrupted"
 /**
  * Result returned by the transcribe_audio command
  */

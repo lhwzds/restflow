@@ -1335,7 +1335,7 @@ pub struct ManageHooksParams {
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
-    /// Hook event trigger (required for create): task_started, task_completed, task_failed, task_cancelled, tool_executed, approval_required
+    /// Hook event trigger (required for create): task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required
     #[serde(default)]
     pub event: Option<String>,
     /// Hook action payload (required for create)
@@ -1392,7 +1392,7 @@ impl RestFlowMcpServer {
             ToolTraceEvent::ToolCallCompleted => "tool_call_completed",
             ToolTraceEvent::TurnCompleted => "turn_completed",
             ToolTraceEvent::TurnFailed => "turn_failed",
-            ToolTraceEvent::TurnCancelled => "turn_cancelled",
+            ToolTraceEvent::TurnInterrupted => "turn_interrupted",
         }
     }
 
@@ -1402,7 +1402,7 @@ impl RestFlowMcpServer {
             ToolTraceEvent::TurnStarted
             | ToolTraceEvent::TurnCompleted
             | ToolTraceEvent::TurnFailed
-            | ToolTraceEvent::TurnCancelled => "turn",
+            | ToolTraceEvent::TurnInterrupted => "turn",
         }
     }
 
@@ -1420,13 +1420,13 @@ impl RestFlowMcpServer {
                         | "tool_call_completed"
                         | "turn_completed"
                         | "turn_failed"
-                        | "turn_cancelled"
+                        | "turn_interrupted"
                 ) =>
             {
                 Ok(Some(s))
             }
             Some(s) => Err(format!(
-                "Unknown trace category: {}. Supported: turn, tool, turn_started, tool_call_started, tool_call_completed, turn_completed, turn_failed, turn_cancelled",
+                "Unknown trace category: {}. Supported: turn, tool, turn_started, tool_call_started, tool_call_completed, turn_completed, turn_failed, turn_interrupted",
                 s
             )),
         }
@@ -2334,7 +2334,7 @@ impl RestFlowMcpServer {
                 )
                 .map_err(|_| {
                     format!(
-                        "Invalid event: {}. Supported: task_started, task_completed, task_failed, task_cancelled, tool_executed, approval_required",
+                        "Invalid event: {}. Supported: task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required",
                         event_str
                     )
                 })?;
@@ -2622,7 +2622,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_hooks",
-                "Create, list, update, and delete lifecycle hooks. Hooks trigger actions (webhook, script, send_message, run_task) when events occur (task_started, task_completed, task_failed, task_cancelled, tool_executed, approval_required).",
+                "Create, list, update, and delete lifecycle hooks. Hooks trigger actions (webhook, script, send_message, run_task) when events occur (task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required).",
                 schema_for_type::<ManageHooksParams>(),
             ),
         ];
@@ -4441,13 +4441,15 @@ mod tests {
             serde_json::from_str(call_tool_text(&get)).expect("get_team response json");
         assert_eq!(get_value["operation"], "get_team");
         assert_eq!(get_value["team"], "bg-review-team");
+        assert_eq!(get_value["member_groups"], 1);
+        assert_eq!(get_value["total_instances"], 2);
         assert!(
-            get_value["workers"][0].get("input").is_none()
-                || get_value["workers"][0]["input"].is_null()
+            get_value["members"][0].get("input").is_none()
+                || get_value["members"][0]["input"].is_null()
         );
         assert!(
-            get_value["workers"][0].get("inputs").is_none()
-                || get_value["workers"][0]["inputs"].is_null()
+            get_value["members"][0].get("inputs").is_none()
+                || get_value["members"][0]["inputs"].is_null()
         );
     }
 

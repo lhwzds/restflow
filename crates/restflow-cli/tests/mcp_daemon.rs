@@ -229,13 +229,15 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     let get_value: Value =
         serde_json::from_str(tool_call_text(&get_team)).context("parse get_team tool text")?;
     assert_eq!(get_value["operation"], "get_team");
+    assert_eq!(get_value["member_groups"], 1);
+    assert_eq!(get_value["total_instances"], 2);
     assert!(
-        get_value["workers"][0].get("input").is_none()
-            || get_value["workers"][0]["input"].is_null()
+        get_value["members"][0].get("input").is_none()
+            || get_value["members"][0]["input"].is_null()
     );
     assert!(
-        get_value["workers"][0].get("inputs").is_none()
-            || get_value["workers"][0]["inputs"].is_null()
+        get_value["members"][0].get("inputs").is_none()
+            || get_value["members"][0]["inputs"].is_null()
     );
 
     let run_batch = post_json_rpc(

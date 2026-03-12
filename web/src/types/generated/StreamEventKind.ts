@@ -68,13 +68,13 @@ duration_ms: number,
 /**
  * Whether the error is recoverable (can retry)
  */
-recoverable: boolean, } | { "type": "cancelled", 
+recoverable: boolean, } | { "type": "interrupted", 
 /**
- * Reason for cancellation
+ * Reason for interruption
  */
 reason: string, 
 /**
- * Execution duration in milliseconds before cancellation
+ * Execution duration in milliseconds before interruption
  */
 duration_ms: number, } | { "type": "heartbeat", 
 /**

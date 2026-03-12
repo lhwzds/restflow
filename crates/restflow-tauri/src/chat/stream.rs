@@ -219,14 +219,14 @@ impl ChatStreamState {
         ));
     }
 
-    /// Emit stream cancelled event
-    pub fn emit_cancelled(&self) {
+    /// Emit stream interrupted event
+    pub fn emit_interrupted(&self) {
         let partial = if self.content.is_empty() {
             None
         } else {
             Some(self.content.clone())
         };
-        self.emit_event(ChatStreamEvent::cancelled(
+        self.emit_event(ChatStreamEvent::interrupted(
             &self.session_id,
             &self.message_id,
             partial,

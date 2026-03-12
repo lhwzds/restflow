@@ -146,11 +146,11 @@ pub fn append_trace_event(
                 *ai_duration_ms,
             );
         }
-        TraceEventKind::RunCancelled {
+        TraceEventKind::RunInterrupted {
             reason,
             ai_duration_ms,
         } => {
-            append_restflow_trace_cancelled(
+            append_restflow_trace_interrupted(
                 tool_trace_storage,
                 execution_trace_storage,
                 &event.trace,
@@ -274,25 +274,25 @@ pub fn append_turn_failed_with_ai_duration(
     append_tool_trace_event(storage, event);
 }
 
-/// Append turn-cancelled event to tool trace storage.
-pub fn append_turn_cancelled(
+/// Append turn-interrupted event to tool trace storage.
+pub fn append_turn_interrupted(
     storage: &ToolTraceStorage,
     session_id: &str,
     turn_id: &str,
     reason: &str,
 ) {
-    append_turn_cancelled_with_ai_duration(storage, session_id, turn_id, reason, None);
+    append_turn_interrupted_with_ai_duration(storage, session_id, turn_id, reason, None);
 }
 
-/// Append turn-cancelled event to tool trace storage with optional AI duration.
-pub fn append_turn_cancelled_with_ai_duration(
+/// Append turn-interrupted event to tool trace storage with optional AI duration.
+pub fn append_turn_interrupted_with_ai_duration(
     storage: &ToolTraceStorage,
     session_id: &str,
     turn_id: &str,
     reason: &str,
     ai_duration_ms: Option<u64>,
 ) {
-    let mut event = ToolTrace::turn_cancelled(
+    let mut event = ToolTrace::turn_interrupted(
         session_id,
         turn_id,
         truncate_trace_text(&sanitize_trace_secrets(reason), MAX_TRACE_EVENT_TEXT_CHARS),
@@ -418,8 +418,8 @@ pub fn append_turn_failed_with_execution_and_ai_duration(
     );
 }
 
-/// Append turn-cancelled events to both tool trace and execution trace storages.
-pub fn append_turn_cancelled_with_execution(
+/// Append turn-interrupted events to both tool trace and execution trace storages.
+pub fn append_turn_interrupted_with_execution(
     tool_trace_storage: &ToolTraceStorage,
     execution_trace_storage: Option<&ExecutionTraceStorage>,
     session_id: &str,
@@ -428,7 +428,7 @@ pub fn append_turn_cancelled_with_execution(
     agent_id: &str,
     reason: &str,
 ) {
-    append_turn_cancelled_with_execution_and_ai_duration(
+    append_turn_interrupted_with_execution_and_ai_duration(
         tool_trace_storage,
         execution_trace_storage,
         session_id,
@@ -440,9 +440,9 @@ pub fn append_turn_cancelled_with_execution(
     );
 }
 
-/// Append turn-cancelled events to both tool trace and execution trace storages with optional AI duration.
+/// Append turn-interrupted events to both tool trace and execution trace storages with optional AI duration.
 #[allow(clippy::too_many_arguments)]
-pub fn append_turn_cancelled_with_execution_and_ai_duration(
+pub fn append_turn_interrupted_with_execution_and_ai_duration(
     tool_trace_storage: &ToolTraceStorage,
     execution_trace_storage: Option<&ExecutionTraceStorage>,
     session_id: &str,
@@ -452,7 +452,7 @@ pub fn append_turn_cancelled_with_execution_and_ai_duration(
     reason: &str,
     ai_duration_ms: Option<u64>,
 ) {
-    append_turn_cancelled_with_ai_duration(
+    append_turn_interrupted_with_ai_duration(
         tool_trace_storage,
         session_id,
         turn_id,
@@ -465,8 +465,8 @@ pub fn append_turn_cancelled_with_execution_and_ai_duration(
     append_lifecycle_trace(
         execution_trace_storage,
         &trace,
-        "turn_cancelled",
-        Some(format!("Turn cancelled: {}", turn_id)),
+        "turn_interrupted",
+        Some(format!("Turn interrupted: {}", turn_id)),
         Some(sanitized_reason),
     );
 }
@@ -525,15 +525,15 @@ pub fn append_restflow_trace_failed(
     );
 }
 
-/// Append run-cancelled events for a canonical RestFlow trace.
-pub fn append_restflow_trace_cancelled(
+/// Append run-interrupted events for a canonical RestFlow trace.
+pub fn append_restflow_trace_interrupted(
     tool_trace_storage: &ToolTraceStorage,
     execution_trace_storage: Option<&ExecutionTraceStorage>,
     trace: &RestflowTrace,
     reason: &str,
     ai_duration_ms: Option<u64>,
 ) {
-    append_turn_cancelled_with_execution_and_ai_duration(
+    append_turn_interrupted_with_execution_and_ai_duration(
         tool_trace_storage,
         execution_trace_storage,
         &trace.session_id,
@@ -786,12 +786,12 @@ fn tool_event_to_timeline_record(
                 .unwrap_or_else(|| "run failed".to_string()),
             tool_event.duration_ms,
         ),
-        crate::models::ToolTraceEvent::TurnCancelled => TraceEvent::run_cancelled(
+        crate::models::ToolTraceEvent::TurnInterrupted => TraceEvent::run_interrupted(
             trace.clone(),
             tool_event
                 .error
                 .clone()
-                .unwrap_or_else(|| "run cancelled".to_string()),
+                .unwrap_or_else(|| "run interrupted".to_string()),
             tool_event.duration_ms,
         ),
         crate::models::ToolTraceEvent::ToolCallStarted => TraceEvent::tool_call_started(
@@ -895,8 +895,8 @@ fn build_run_trace_summary(
                 status = "failed".to_string();
                 ended_at_ms = Some(event.timestamp_ms);
             }
-            TraceEventKind::RunCancelled { .. } => {
-                status = "cancelled".to_string();
+            TraceEventKind::RunInterrupted { .. } => {
+                status = "interrupted".to_string();
                 ended_at_ms = Some(event.timestamp_ms);
             }
             TraceEventKind::ToolCallCompleted(_) => {
@@ -1198,11 +1198,11 @@ mod tests {
     }
 
     #[test]
-    fn test_append_trace_event_persists_cancelled_lifecycle() {
+    fn test_append_trace_event_persists_interrupted_lifecycle() {
         let storage = setup_storage();
-        let event = TraceEvent::run_cancelled(
+        let event = TraceEvent::run_interrupted(
             RestflowTrace::new("run-c", "session-c", "task-c", "agent-c"),
-            "cancelled",
+            "interrupted",
             Some(77),
         );
 
@@ -1212,9 +1212,9 @@ mod tests {
             .list_by_session_turn("session-c", "run-run-c", None)
             .expect("list");
         assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, ToolTraceEvent::TurnCancelled);
+        assert_eq!(events[0].event_type, ToolTraceEvent::TurnInterrupted);
         assert_eq!(events[0].duration_ms, Some(77));
-        assert_eq!(events[0].error.as_deref(), Some("cancelled"));
+        assert_eq!(events[0].error.as_deref(), Some("interrupted"));
     }
 
     #[test]

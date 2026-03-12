@@ -112,7 +112,7 @@ pub enum TraceEventKind {
         error: String,
         ai_duration_ms: Option<u64>,
     },
-    RunCancelled {
+    RunInterrupted {
         reason: String,
         ai_duration_ms: Option<u64>,
     },
@@ -290,14 +290,14 @@ impl TraceEvent {
         }
     }
 
-    pub fn run_cancelled(
+    pub fn run_interrupted(
         trace: RestflowTrace,
         reason: impl Into<String>,
         ai_duration_ms: Option<u64>,
     ) -> Self {
         Self {
             trace,
-            kind: TraceEventKind::RunCancelled {
+            kind: TraceEventKind::RunInterrupted {
                 reason: reason.into(),
                 ai_duration_ms,
             },

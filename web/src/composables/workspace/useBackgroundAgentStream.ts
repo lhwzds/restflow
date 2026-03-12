@@ -118,9 +118,9 @@ export function useBackgroundAgentStream(trackTaskId: () => string | null) {
         store.fetchAgents()
         break
 
-      case 'cancelled':
+      case 'interrupted':
         streamState.value.isStreaming = false
-        streamState.value.phase = 'Cancelled'
+        streamState.value.phase = 'Interrupted'
         streamState.value.durationMs = kind.duration_ms
         store.fetchAgents()
         break
