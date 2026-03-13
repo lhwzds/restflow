@@ -11,7 +11,7 @@ use restflow_core::models::{
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
-    session_lifecycle::SessionLifecycleService, skills as skills_service,
+    session::SessionService, skills as skills_service,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -169,8 +169,8 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn delete_session(&self, id: &str) -> Result<bool> {
-        let lifecycle = SessionLifecycleService::from_storage(&self.core.storage);
-        lifecycle.delete_workspace_session(id)
+        let sessions = SessionService::from_storage(&self.core.storage);
+        sessions.delete_workspace_session(id)
     }
 
     async fn search_sessions(&self, query: String) -> Result<Vec<ChatSessionSummary>> {

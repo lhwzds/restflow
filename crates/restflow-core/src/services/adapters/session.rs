@@ -1,7 +1,7 @@
 //! SessionStore adapter backed by ChatSessionStorage.
 
 use crate::models::ChatSessionSource;
-use crate::services::session_lifecycle::SessionLifecycleService;
+use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, SessionStorage};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
@@ -29,8 +29,12 @@ impl SessionStorageAdapter {
         }
     }
 
-    fn lifecycle(&self) -> SessionLifecycleService {
-        SessionLifecycleService::new(self.sessions.clone(), self.background_agent_storage.clone())
+    fn session_service(&self) -> SessionService {
+        SessionService::new(
+            self.sessions.clone(),
+            self.background_agent_storage.clone(),
+            None,
+        )
     }
 }
 
@@ -88,7 +92,7 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn archive_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let archived = self.lifecycle().archive_workspace_session(id)?;
+        let archived = self.session_service().archive_workspace_session(id)?;
         Ok(json!({ "id": id, "archived": archived }))
     }
 
@@ -98,7 +102,7 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn purge_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let purged = self.lifecycle().delete_workspace_session(id)?;
+        let purged = self.session_service().delete_workspace_session(id)?;
         Ok(json!({ "id": id, "purged": purged }))
     }
 
@@ -140,7 +144,7 @@ impl SessionStore for SessionStorageAdapter {
     fn cleanup_sessions(&self) -> restflow_tools::Result<Value> {
         let now_ms = chrono::Utc::now().timestamp_millis();
         let stats = self
-            .lifecycle()
+            .session_service()
             .cleanup_workspace_sessions_by_retention(now_ms)?;
         Ok(serde_json::to_value(stats)?)
     }
