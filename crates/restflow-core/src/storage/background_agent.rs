@@ -414,11 +414,10 @@ impl BackgroundAgentStorage {
             .filter(|task| {
                 matches!(
                     task.status,
-                    BackgroundAgentStatus::Active
-                        | BackgroundAgentStatus::Paused
+                    BackgroundAgentStatus::Paused
                         | BackgroundAgentStatus::Running
                         | BackgroundAgentStatus::Interrupted
-                )
+                ) || task.is_active()
             })
             .collect())
     }
@@ -625,17 +624,22 @@ impl BackgroundAgentStorage {
             .get_task(id)?
             .ok_or_else(|| anyhow::anyhow!("Task {} not found", id))?;
 
-        if task.status != BackgroundAgentStatus::Active {
+        let expected_status = if task.status == BackgroundAgentStatus::Active {
+            BackgroundAgentStatus::Active
+        } else if task.status == BackgroundAgentStatus::Failed && task.next_run_at.is_some() {
+            BackgroundAgentStatus::Failed
+        } else {
             return Err(anyhow::anyhow!(
                 "Task {} cannot start from status {}",
                 id,
                 task.status.as_str()
             ));
-        }
+        };
 
         task.set_running();
-        // Use CAS semantics so only one concurrent caller can transition Active -> Running.
-        let started = self.update_task_if_status_matches(&task, BackgroundAgentStatus::Active)?;
+        // Use CAS semantics so only one concurrent caller can transition the runnable task into
+        // Running, including retryable Failed interval/cron tasks.
+        let started = self.update_task_if_status_matches(&task, expected_status)?;
         if !started {
             let latest_status = self
                 .get_task(id)?
@@ -1187,10 +1191,12 @@ impl BackgroundAgentStorage {
             // Between the initial list_tasks() snapshot and delete_task(),
             // another thread could have changed task status or timestamp.
             if let Some(current) = self.get_task(&task.id)? {
-                // Verify status is still terminal (Completed or Failed)
+                // Verify status is still terminal for cleanup.
                 if !matches!(
                     current.status,
-                    BackgroundAgentStatus::Completed | BackgroundAgentStatus::Failed
+                    BackgroundAgentStatus::Completed
+                        | BackgroundAgentStatus::Failed
+                            if current.next_run_at.is_none()
                 ) {
                     continue;
                 }
@@ -1754,19 +1760,47 @@ mod tests {
                 },
             )
             .unwrap();
+        let recurring_failed = storage
+            .create_task(
+                "Recurring Failed".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::Interval {
+                    interval_ms: 60_000,
+                    start_at: None,
+                },
+            )
+            .unwrap();
+        let once_failed = storage
+            .create_task(
+                "Once Failed".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::Once {
+                    run_at: chrono::Utc::now().timestamp_millis() - 1_000,
+                },
+            )
+            .unwrap();
 
         storage.pause_task(&paused.id).unwrap();
         storage.start_task_execution(&completed.id).unwrap();
         storage
             .complete_task_execution(&completed.id, Some("done".to_string()), 100)
             .unwrap();
+        storage.start_task_execution(&recurring_failed.id).unwrap();
+        storage
+            .fail_task_execution(&recurring_failed.id, "retry me".to_string(), 100)
+            .unwrap();
+        storage.start_task_execution(&once_failed.id).unwrap();
+        storage
+            .fail_task_execution(&once_failed.id, "terminal".to_string(), 100)
+            .unwrap();
 
         let mut tasks = storage.list_active_tasks_by_agent_id("agent-001").unwrap();
         tasks.sort_by(|a, b| a.name.cmp(&b.name));
 
-        assert_eq!(tasks.len(), 2);
+        assert_eq!(tasks.len(), 3);
         assert_eq!(tasks[0].id, active.id);
         assert_eq!(tasks[1].id, paused.id);
+        assert_eq!(tasks[2].id, recurring_failed.id);
     }
 
     #[test]
@@ -1778,7 +1812,9 @@ mod tests {
             .create_task(
                 "Terminal Task".to_string(),
                 "agent-001".to_string(),
-                BackgroundAgentSchedule::default(),
+                BackgroundAgentSchedule::Once {
+                    run_at: now - 10_000,
+                },
             )
             .unwrap();
         storage
@@ -1798,11 +1834,29 @@ mod tests {
         active.updated_at = now - (30 * 24 * 60 * 60 * 1000);
         storage.update_task(&active).unwrap();
 
+        let recurring_failed = storage
+            .create_task(
+                "Recurring Failed".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::Interval {
+                    interval_ms: 60_000,
+                    start_at: None,
+                },
+            )
+            .unwrap();
+        storage
+            .fail_task_execution(&recurring_failed.id, "retryable".to_string(), 1)
+            .unwrap();
+        let mut recurring_failed_updated = storage.get_task(&recurring_failed.id).unwrap().unwrap();
+        recurring_failed_updated.updated_at = now - (10 * 24 * 60 * 60 * 1000);
+        storage.update_task(&recurring_failed_updated).unwrap();
+
         let cutoff = now - (7 * 24 * 60 * 60 * 1000);
         let deleted = storage.cleanup_old_tasks(cutoff).unwrap();
         assert_eq!(deleted, 1);
         assert!(storage.get_task(&terminal.id).unwrap().is_none());
         assert!(storage.get_task(&active.id).unwrap().is_some());
+        assert!(storage.get_task(&recurring_failed.id).unwrap().is_some());
     }
 
     #[test]
@@ -2090,6 +2144,32 @@ mod tests {
             .collect();
         assert_eq!(failed_events.len(), 1);
         assert_eq!(failed_events[0].message, Some("Test error".to_string()));
+    }
+
+    #[test]
+    fn test_start_task_execution_allows_retryable_failed_task() {
+        let storage = create_test_storage();
+
+        let task = storage
+            .create_task(
+                "Retryable Task".to_string(),
+                "agent-001".to_string(),
+                BackgroundAgentSchedule::Interval {
+                    interval_ms: 60_000,
+                    start_at: None,
+                },
+            )
+            .unwrap();
+
+        storage.start_task_execution(&task.id).unwrap();
+        let failed = storage
+            .fail_task_execution(&task.id, "retry me".to_string(), 500)
+            .unwrap();
+        assert_eq!(failed.status, BackgroundAgentStatus::Failed);
+        assert!(failed.next_run_at.is_some());
+
+        let restarted = storage.start_task_execution(&task.id).unwrap();
+        assert_eq!(restarted.status, BackgroundAgentStatus::Running);
     }
 
     #[test]

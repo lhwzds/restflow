@@ -106,6 +106,10 @@ impl BackgroundAgentStatus {
     }
 }
 
+fn failed_status_is_schedulable(next_run_at: Option<i64>) -> bool {
+    next_run_at.is_some()
+}
+
 /// Schedule configuration for agent tasks
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
@@ -1023,7 +1027,10 @@ impl BackgroundAgent {
 
     /// Check if the task should run now
     pub fn should_run(&self, current_time: i64) -> bool {
-        if self.status != BackgroundAgentStatus::Active {
+        let is_schedulable = matches!(self.status, BackgroundAgentStatus::Active)
+            || (self.status == BackgroundAgentStatus::Failed
+                && failed_status_is_schedulable(self.next_run_at));
+        if !is_schedulable {
             return false;
         }
 
@@ -1037,6 +1044,8 @@ impl BackgroundAgent {
     /// Check if the task is active (can be scheduled)
     pub fn is_active(&self) -> bool {
         self.status == BackgroundAgentStatus::Active
+            || (self.status == BackgroundAgentStatus::Failed
+                && failed_status_is_schedulable(self.next_run_at))
     }
 
     /// Check if the task is running
@@ -1295,6 +1304,49 @@ mod tests {
         // When paused
         task.pause();
         assert!(!task.should_run(future_time + 1000));
+    }
+
+    #[test]
+    fn test_failed_interval_task_remains_schedulable() {
+        let mut task = BackgroundAgent::new(
+            "task-interval-failed".to_string(),
+            "Retrying Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 60_000,
+                start_at: None,
+            },
+        );
+
+        task.set_running();
+        task.set_failed("Test error".to_string());
+        let next_run = task
+            .next_run_at
+            .expect("interval task should compute next run");
+
+        assert_eq!(task.status, BackgroundAgentStatus::Failed);
+        assert!(task.is_active());
+        assert!(!task.should_run(next_run - 1));
+        assert!(task.should_run(next_run));
+    }
+
+    #[test]
+    fn test_failed_once_task_is_not_schedulable() {
+        let run_at = chrono::Utc::now().timestamp_millis() - 1_000;
+        let mut task = BackgroundAgent::new(
+            "task-once-failed".to_string(),
+            "One Shot Task".to_string(),
+            "agent-456".to_string(),
+            TaskSchedule::Once { run_at },
+        );
+
+        task.set_running();
+        task.set_failed("Test error".to_string());
+
+        assert_eq!(task.status, BackgroundAgentStatus::Failed);
+        assert!(task.next_run_at.is_none());
+        assert!(!task.is_active());
+        assert!(!task.should_run(chrono::Utc::now().timestamp_millis()));
     }
 
     #[test]
