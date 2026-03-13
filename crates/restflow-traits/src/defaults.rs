@@ -13,7 +13,7 @@ pub const DEFAULT_BACKGROUND_MAX_TOOL_CALLS: usize = 100;
 pub const DEFAULT_AGENT_TOOL_TIMEOUT_SECS: u64 = 300;
 
 /// Default timeout (seconds) for a single LLM request.
-pub const DEFAULT_AGENT_LLM_TIMEOUT_SECS: u64 = 600;
+pub const DEFAULT_AGENT_LLM_TIMEOUT_SECS: u64 = 1800;
 
 /// Default timeout (seconds) for bash tool execution.
 pub const DEFAULT_AGENT_BASH_TIMEOUT_SECS: u64 = 300;
