@@ -26,6 +26,19 @@ pub struct TracedInteractiveExecutionResult {
     pub execution: crate::runtime::background_agent::SessionExecutionResult,
 }
 
+pub struct InteractiveSessionRequest<'a> {
+    pub session: &'a mut ChatSession,
+    pub user_input: &'a str,
+    pub max_history: usize,
+    pub input_mode: SessionInputMode,
+    pub run_id: String,
+    pub tool_trace_storage: ToolTraceStorage,
+    pub execution_trace_storage: ExecutionTraceStorage,
+    pub timeout_secs: Option<u64>,
+    pub emitter: Option<Box<dyn StreamEmitter>>,
+    pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+}
+
 #[derive(Debug)]
 pub enum InteractiveExecutionError {
     Timeout { timeout_secs: u64 },
@@ -82,20 +95,22 @@ impl AgentOrchestratorImpl {
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn run_traced_interactive_session_turn(
         &self,
-        session: &mut ChatSession,
-        user_input: &str,
-        max_history: usize,
-        input_mode: SessionInputMode,
-        run_id: String,
-        tool_trace_storage: ToolTraceStorage,
-        execution_trace_storage: ExecutionTraceStorage,
-        timeout_secs: Option<u64>,
-        emitter: Option<Box<dyn StreamEmitter>>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        request: InteractiveSessionRequest<'_>,
     ) -> std::result::Result<TracedInteractiveExecutionResult, InteractiveExecutionError> {
+        let InteractiveSessionRequest {
+            session,
+            user_input,
+            max_history,
+            input_mode,
+            run_id,
+            tool_trace_storage,
+            execution_trace_storage,
+            timeout_secs,
+            emitter,
+            steer_rx,
+        } = request;
         let trace = RestflowTrace::new(
             run_id,
             session.id.clone(),
@@ -508,18 +523,18 @@ mod tests {
         let (_temp_dir, tool_trace_storage, execution_trace_storage) = setup_trace_storages();
 
         let result = orchestrator
-            .run_traced_interactive_session_turn(
-                &mut session,
-                "hello",
-                20,
-                SessionInputMode::EphemeralInput,
-                "run-traced".to_string(),
-                tool_trace_storage.clone(),
+            .run_traced_interactive_session_turn(InteractiveSessionRequest {
+                session: &mut session,
+                user_input: "hello",
+                max_history: 20,
+                input_mode: SessionInputMode::EphemeralInput,
+                run_id: "run-traced".to_string(),
+                tool_trace_storage: tool_trace_storage.clone(),
                 execution_trace_storage,
-                None,
-                None,
-                None,
-            )
+                timeout_secs: None,
+                emitter: None,
+                steer_rx: None,
+            })
             .await
             .expect("traced interactive run should succeed");
 
@@ -596,18 +611,18 @@ mod tests {
         let mut session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
 
         let error = orchestrator
-            .run_traced_interactive_session_turn(
-                &mut session,
-                "hello",
-                20,
-                SessionInputMode::EphemeralInput,
-                "run-timeout".to_string(),
+            .run_traced_interactive_session_turn(InteractiveSessionRequest {
+                session: &mut session,
+                user_input: "hello",
+                max_history: 20,
+                input_mode: SessionInputMode::EphemeralInput,
+                run_id: "run-timeout".to_string(),
                 tool_trace_storage,
                 execution_trace_storage,
-                Some(0),
-                None,
-                None,
-            )
+                timeout_secs: Some(0),
+                emitter: None,
+                steer_rx: None,
+            })
             .await
             .expect_err("interactive run should time out");
 
