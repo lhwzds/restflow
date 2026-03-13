@@ -25,8 +25,7 @@ use crate::runtime::trace::{RestflowTrace, TraceEvent, append_trace_event};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
-    session_lifecycle::{SessionLifecycleError, SessionLifecycleService},
-    skills as skills_service,
+    session::SessionService, session_lifecycle::SessionLifecycleError, skills as skills_service,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -278,22 +277,14 @@ fn session_management_owner(
     storage: &crate::storage::Storage,
     session: &ChatSession,
 ) -> Result<Option<ChatSessionSource>> {
-    let bindings = storage
-        .channel_session_bindings
-        .list_by_session(&session.id)?;
-    if let Some(binding) = bindings.first() {
-        let source = parse_binding_channel_source(&binding.channel)
-            .unwrap_or(ChatSessionSource::ExternalLegacy);
-        return Ok(Some(source));
-    }
-    Ok(ensure_binding_from_legacy_source(storage, session)?.map(|(source, _)| source))
+    SessionService::from_storage(storage).management_owner(session)
 }
 
 fn is_workspace_managed_session(
     storage: &crate::storage::Storage,
     session: &ChatSession,
 ) -> Result<bool> {
-    Ok(session_management_owner(storage, session)?.is_none())
+    SessionService::from_storage(storage).is_workspace_managed(session)
 }
 
 fn resolve_external_session_route(
@@ -1338,7 +1329,7 @@ impl IpcServer {
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
             IpcRequest::DeleteSessionsOlderThan { older_than_ms } => {
-                let lifecycle = SessionLifecycleService::from_storage(&core.storage);
+                let session_service = SessionService::from_storage(&core.storage);
                 match core.storage.chat_sessions.list_all() {
                     Ok(sessions) => {
                         let mut deleted = 0usize;
@@ -1357,7 +1348,7 @@ impl IpcServer {
                                 continue;
                             }
 
-                            match lifecycle.delete_workspace_session(&session.id) {
+                            match session_service.delete_workspace_session(&session.id) {
                                 Ok(true) => {
                                     deleted += 1;
                                 }
@@ -1547,7 +1538,7 @@ impl IpcServer {
                 }
             }
             IpcRequest::ArchiveSession { id } => {
-                let lifecycle = SessionLifecycleService::from_storage(&core.storage);
+                let session_service = SessionService::from_storage(&core.storage);
                 let session = match core.storage.chat_sessions.get(&id) {
                     Ok(Some(session)) => session,
                     Ok(None) => {
@@ -1578,7 +1569,7 @@ impl IpcServer {
                     );
                 }
 
-                match lifecycle.archive_workspace_session(&id) {
+                match session_service.archive_workspace_session(&id) {
                     Ok(archived) => {
                         if archived {
                             publish_session_event(ChatSessionEvent::Updated {
@@ -1591,7 +1582,7 @@ impl IpcServer {
                 }
             }
             IpcRequest::DeleteSession { id } => {
-                let lifecycle = SessionLifecycleService::from_storage(&core.storage);
+                let session_service = SessionService::from_storage(&core.storage);
                 let session = match core.storage.chat_sessions.get(&id) {
                     Ok(Some(session)) => session,
                     Ok(None) => {
@@ -1622,7 +1613,7 @@ impl IpcServer {
                     );
                 }
 
-                match lifecycle.delete_workspace_session(&id) {
+                match session_service.delete_workspace_session(&id) {
                     Ok(deleted) => {
                         if deleted {
                             publish_session_event(ChatSessionEvent::Deleted {
@@ -2607,10 +2598,7 @@ async fn execute_chat_session(
         // so that switch_model calls during execution don't permanently override it.
         session.metadata.last_model = Some(normalized_model);
     }
-    // Auto-persist chat session conversation to long-term memory
-    persist_chat_session_memory(core, &session);
-
-    core.storage.chat_sessions.update(&session)?;
+    SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")?;
     Ok(session)
 }
 
@@ -2646,29 +2634,6 @@ fn persist_ipc_user_message_if_needed(
         source: "ipc".to_string(),
     });
     Ok(())
-}
-
-/// Persist chat session messages to long-term memory for cross-session recall.
-///
-/// Uses content-hash deduplication so repeated calls on the same session
-/// won't create duplicate chunks.
-fn persist_chat_session_memory(core: &Arc<AppCore>, session: &ChatSession) {
-    match crate::runtime::background_agent::persist::persist_chat_session_memory(
-        &core.storage.memory,
-        session,
-    ) {
-        Ok(Some(result)) if result.chunk_count > 0 => {
-            info!(
-                "Persisted {} memory chunks for chat session '{}' ({} deduplicated)",
-                result.chunk_count, session.id, result.deduplicated_count
-            );
-        }
-        Ok(Some(_)) => {}
-        Err(e) => {
-            warn!("Failed to persist chat session memory: {}", e);
-        }
-        _ => {} // no new chunks (all deduplicated or too short)
-    }
 }
 
 fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Result<String> {

@@ -4,8 +4,7 @@
 //! ChatDispatcher processes it through an AI agent and returns the response.
 
 use anyhow::{Result, anyhow};
-use parking_lot::Mutex;
-use std::sync::{Arc, Weak};
+use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
@@ -13,7 +12,6 @@ use crate::auth::AuthProfileManager;
 use crate::channel::{
     ChannelReplySender, ChannelRouter, ChannelType, InboundMessage, OutboundMessage,
 };
-use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::models::{
     AIModel, ChannelSessionBinding, ChatMessage, ChatSession, ChatSessionSource, MessageExecution,
 };
@@ -25,6 +23,7 @@ use crate::runtime::orchestrator::{
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::runtime::trace::append_message_trace;
+use crate::services::session::SessionService;
 use crate::storage::Storage;
 use restflow_storage::AgentDefaults;
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
@@ -149,26 +148,23 @@ impl std::error::Error for ChatError {}
 /// Chat session manager for conversation persistence.
 pub struct ChatSessionManager {
     storage: Arc<Storage>,
+    session_service: SessionService,
     /// Mutex to serialize session creation and prevent duplicate sessions
     /// from being created under concurrent requests for the same conversation.
     session_creation_mutex: TokioMutex<()>,
     default_agent_id: Option<String>,
     max_history: usize,
-    /// Mutex to serialize append_exchange operations per session.
-    /// This prevents lost update races when concurrent messages are appended
-    /// to the same session (e.g., from multiple Telegram updates or parallel handlers).
-    append_locks: Arc<Mutex<std::collections::HashMap<String, Weak<Mutex<()>>>>>,
 }
 
 impl ChatSessionManager {
     /// Create a new ChatSessionManager.
     pub fn new(storage: Arc<Storage>, max_history: usize) -> Self {
         Self {
+            session_service: SessionService::from_storage(&storage),
             storage,
             session_creation_mutex: TokioMutex::new(()),
             default_agent_id: None,
             max_history,
-            append_locks: Arc::new(Mutex::new(std::collections::HashMap::new())),
         }
     }
 
@@ -406,70 +402,28 @@ impl ChatSessionManager {
         active_model: Option<&str>,
         execution: Option<MessageExecution>,
     ) -> Result<()> {
-        // Get or create a per-session lock to serialize append operations.
-        // This ensures atomic read-modify-write for each session.
-        let session_lock = {
-            let mut locks = self.append_locks.lock();
-            if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
-                lock
-            } else {
-                let lock = Arc::new(Mutex::new(()));
-                locks.insert(session_id.to_string(), Arc::downgrade(&lock));
-                lock
-            }
+        let mut user_msg = ChatMessage::user(user_message);
+        hydrate_voice_message_metadata(&mut user_msg);
+        let assistant_msg = if let Some(exec) = execution {
+            ChatMessage::assistant(assistant_message).with_execution(exec)
+        } else {
+            ChatMessage::assistant(assistant_message)
         };
 
-        {
-            // Lock this specific session for the duration of read-modify-write
-            let _guard = session_lock.lock();
+        let session = self.session_service.append_exchange(
+            session_id,
+            user_msg,
+            assistant_msg,
+            active_model,
+            "channel",
+        )?;
 
-            // Re-fetch the session inside the lock to get the latest state
-            let mut session = self
-                .storage
-                .chat_sessions
-                .get(session_id)?
-                .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
-
-            // Add user message
-            let mut user_msg = ChatMessage::user(user_message);
-            hydrate_voice_message_metadata(&mut user_msg);
-            session.add_message(user_msg);
-
-            // Add assistant message (with execution info if provided)
-            let msg = if let Some(exec) = execution {
-                ChatMessage::assistant(assistant_message).with_execution(exec)
-            } else {
-                ChatMessage::assistant(assistant_message)
-            };
-            session.add_message(msg);
-
-            if let Some(model) = active_model
-                && let Some(normalized) = AIModel::normalize_model_id(model)
-            {
-                // Only update last_model metadata; preserve the user's chosen session model
-                // so that switch_model calls during execution don't permanently override it.
-                session.metadata.last_model = Some(normalized);
-            }
-
-            debug!(
-                "Persisted full history for session {} (stored messages: {}, runtime window: {})",
-                session_id,
-                session.messages.len(),
-                self.max_history
-            );
-
-            self.storage.chat_sessions.save(&session)?;
-        }
-
-        drop(session_lock);
-        self.append_locks
-            .lock()
-            .retain(|_, weak| weak.strong_count() > 0);
-
-        publish_session_event(ChatSessionEvent::MessageAdded {
-            session_id: session_id.to_string(),
-            source: "channel".to_string(),
-        });
+        debug!(
+            "Persisted full history for session {} (stored messages: {}, runtime window: {})",
+            session_id,
+            session.messages.len(),
+            self.max_history
+        );
 
         Ok(())
     }
@@ -886,40 +840,6 @@ impl ChatDispatcher {
                 "assistant",
                 &structured_output,
             );
-            match self.storage.chat_sessions.get(&session.id) {
-                Ok(Some(persisted_session)) => {
-                    match crate::runtime::background_agent::persist::persist_chat_session_memory(
-                        &self.storage.memory,
-                        &persisted_session,
-                    ) {
-                        Ok(Some(result)) if result.chunk_count > 0 => {
-                            debug!(
-                                "Persisted {} memory chunks for channel session {}",
-                                result.chunk_count, session.id
-                            );
-                        }
-                        Ok(Some(_)) | Ok(None) => {}
-                        Err(error) => {
-                            warn!(
-                                "Failed to persist memory for channel session {}: {}",
-                                session.id, error
-                            );
-                        }
-                    }
-                }
-                Ok(None) => {
-                    warn!(
-                        "Session {} disappeared before memory persistence",
-                        session.id
-                    );
-                }
-                Err(error) => {
-                    warn!(
-                        "Failed to reload session {} for memory persistence: {}",
-                        session.id, error
-                    );
-                }
-            }
         }
 
         // 6. Send response (plain message without emoji prefix for AI chat)
@@ -1328,7 +1248,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_session_manager_prunes_append_locks_after_append() {
+    async fn test_session_manager_appends_multiple_exchanges_sequentially() {
         let (storage, _temp_dir) = create_test_storage();
 
         use crate::models::AgentNode;
@@ -1349,11 +1269,16 @@ mod tests {
         manager
             .append_exchange(&session.id, "Hello!", "Hi there!", None, None)
             .unwrap();
+        manager
+            .append_exchange(&session.id, "How are you?", "Doing well.", None, None)
+            .unwrap();
 
-        assert!(
-            manager.append_locks.lock().is_empty(),
-            "append lock cache should not retain stale entries after append completes"
-        );
+        let history = manager.get_history(&session.id).unwrap();
+        assert_eq!(history.len(), 4);
+        assert_eq!(history[0].content, "Hello!");
+        assert_eq!(history[1].content, "Hi there!");
+        assert_eq!(history[2].content, "How are you?");
+        assert_eq!(history[3].content, "Doing well.");
     }
 
     #[tokio::test]
