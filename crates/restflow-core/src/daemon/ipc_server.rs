@@ -21,9 +21,7 @@ use crate::runtime::channel::{
 };
 use crate::runtime::orchestrator::AgentOrchestratorImpl;
 use crate::runtime::subagent::StorageBackedSubagentLookup;
-use crate::runtime::trace::{
-    RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
-};
+use crate::runtime::trace::{RestflowTrace, TraceEvent, append_trace_event};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -34,7 +32,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
 use restflow_ai::agent::StreamEmitter;
-use restflow_ai::agent::{NullEmitter, SubagentConfig, SubagentTracker};
+use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_storage::{AgentDefaults, AuthProfileStorage};
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 use restflow_traits::store::ReplySender;
@@ -45,7 +43,6 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::Instant;
 use tokio::sync::{Mutex, broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tracing::{debug, error, info, warn};
@@ -2564,54 +2561,25 @@ async fn execute_chat_session(
         }
     }
 
-    let trace = RestflowTrace::new(
-        turn_id.clone(),
-        session.id.clone(),
-        session.id.clone(),
-        session.agent_id.clone(),
-    );
-    append_trace_event(
-        &core.storage.tool_traces,
-        Some(&core.storage.execution_traces),
-        &TraceEvent::run_started(trace.clone()),
-    );
-
-    let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
-    let persisting_emitter: Box<dyn StreamEmitter> = build_restflow_trace_emitter(
-        inner_emitter,
-        core.storage.tool_traces.clone(),
-        Some(core.storage.execution_traces.clone()),
-        &trace,
-    );
-    let started_at = Instant::now();
     let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
-    let exec_result = orchestrator
-        .run_interactive_session_turn(
+    let traced_execution = orchestrator
+        .run_traced_interactive_session_turn(
             &mut session,
             &input,
             chat_max_session_history,
             SessionInputMode::PersistedInSession,
-            Some(persisting_emitter),
+            turn_id,
+            core.storage.tool_traces.clone(),
+            core.storage.execution_traces.clone(),
+            None,
+            emitter,
             steer_rx,
         )
         .await
-        .map(|result| result.execution);
-    let exec_result = match exec_result {
-        Ok(result) => result,
-        Err(error) => {
-            append_trace_event(
-                &core.storage.tool_traces,
-                Some(&core.storage.execution_traces),
-                &TraceEvent::run_failed(
-                    trace.clone(),
-                    error.to_string(),
-                    Some(started_at.elapsed().as_millis() as u64),
-                ),
-            );
-            return Err(error);
-        }
-    };
-    let duration_ms = started_at.elapsed().as_millis() as u64;
+        .map_err(anyhow::Error::new)?;
+    let trace = traced_execution.trace;
+    let duration_ms = traced_execution.duration_ms;
+    let exec_result = traced_execution.execution;
 
     let (execution, persisted_input) = build_turn_persistence_payload(
         &core.storage.tool_traces,
@@ -2639,12 +2607,6 @@ async fn execute_chat_session(
         // so that switch_model calls during execution don't permanently override it.
         session.metadata.last_model = Some(normalized_model);
     }
-    append_trace_event(
-        &core.storage.tool_traces,
-        Some(&core.storage.execution_traces),
-        &TraceEvent::run_completed(trace.clone(), Some(duration_ms)),
-    );
-
     // Auto-persist chat session conversation to long-term memory
     persist_chat_session_memory(core, &session);
 

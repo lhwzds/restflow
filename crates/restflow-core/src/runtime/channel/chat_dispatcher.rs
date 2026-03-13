@@ -6,7 +6,6 @@
 use anyhow::{Result, anyhow};
 use parking_lot::Mutex;
 use std::sync::{Arc, Weak};
-use std::time::Instant;
 use tokio::sync::Mutex as TokioMutex;
 use tracing::{debug, error, info, warn};
 
@@ -21,18 +20,15 @@ use crate::models::{
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{build_turn_persistence_payload, hydrate_voice_message_metadata};
-use crate::runtime::orchestrator::AgentOrchestratorImpl;
+use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveExecutionError};
 use crate::runtime::output::{ensure_success_output, format_error_output};
-use crate::runtime::trace::{
-    RestflowTrace, TraceEvent, append_message_trace, append_trace_event,
-    build_restflow_trace_emitter,
-};
+use crate::runtime::trace::append_message_trace;
 use crate::storage::Storage;
 use restflow_storage::AgentDefaults;
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 
 use super::debounce::MessageDebouncer;
-use restflow_ai::agent::{NullEmitter, SubagentConfig, SubagentDefLookup, SubagentTracker};
+use restflow_ai::agent::{SubagentConfig, SubagentDefLookup, SubagentTracker};
 
 /// Configuration for the ChatDispatcher.
 #[derive(Debug, Clone)]
@@ -797,95 +793,39 @@ impl ChatDispatcher {
         self.maybe_send_acknowledgement(&executor, &mut session, &input, message)
             .await;
         let run_id = uuid::Uuid::new_v4().to_string();
-        let trace = RestflowTrace::new(
-            run_id.clone(),
-            session.id.clone(),
-            session.id.clone(),
-            session.agent_id.clone(),
-        );
-        append_trace_event(
-            &self.storage.tool_traces,
-            Some(&self.storage.execution_traces),
-            &TraceEvent::run_started(trace.clone()),
-        );
-        let started_at = Instant::now();
-        let mut tool_event_emitter = Some(build_restflow_trace_emitter(
-            Box::new(NullEmitter),
-            self.storage.tool_traces.clone(),
-            Some(self.storage.execution_traces.clone()),
-            &trace,
-        ));
         let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
-        let execution_result = if let Some(timeout_secs) = self.config.response_timeout_secs {
-            match tokio::time::timeout(
-                tokio::time::Duration::from_secs(timeout_secs),
-                orchestrator.run_interactive_session_turn(
-                    &mut session,
-                    &input,
-                    self.config.max_session_history,
-                    SessionInputMode::EphemeralInput,
-                    tool_event_emitter.take(),
-                    None,
-                ),
+        let traced_execution = match orchestrator
+            .run_traced_interactive_session_turn(
+                &mut session,
+                &input,
+                self.config.max_session_history,
+                SessionInputMode::EphemeralInput,
+                run_id,
+                self.storage.tool_traces.clone(),
+                self.storage.execution_traces.clone(),
+                self.config.response_timeout_secs,
+                None,
+                None,
             )
             .await
-            {
-                Ok(result) => result,
-                Err(_) => {
-                    append_trace_event(
-                        &self.storage.tool_traces,
-                        Some(&self.storage.execution_traces),
-                        &TraceEvent::run_failed(
-                            trace.clone(),
-                            format!("execution timed out after {} seconds", timeout_secs),
-                            Some(started_at.elapsed().as_millis() as u64),
-                        ),
-                    );
-                    error!("Agent execution timed out after {} seconds", timeout_secs);
-                    self.send_error_response(message, ChatError::Timeout)
-                        .await?;
-                    return Ok(());
-                }
+        {
+            Ok(result) => result,
+            Err(InteractiveExecutionError::Timeout { timeout_secs }) => {
+                error!("Agent execution timed out after {} seconds", timeout_secs);
+                self.send_error_response(message, ChatError::Timeout)
+                    .await?;
+                return Ok(());
             }
-        } else {
-            orchestrator
-                .run_interactive_session_turn(
-                    &mut session,
-                    &input,
-                    self.config.max_session_history,
-                    SessionInputMode::EphemeralInput,
-                    tool_event_emitter.take(),
-                    None,
-                )
-                .await
-        };
-
-        let exec_result = match execution_result {
-            Ok(result) => result.execution,
-            Err(error) => {
-                append_trace_event(
-                    &self.storage.tool_traces,
-                    Some(&self.storage.execution_traces),
-                    &TraceEvent::run_failed(
-                        trace.clone(),
-                        error.to_string(),
-                        Some(started_at.elapsed().as_millis() as u64),
-                    ),
-                );
+            Err(InteractiveExecutionError::Execution(error)) => {
                 error!("Agent execution failed: {}", error);
                 self.send_error_response(message, Self::map_execution_error(&error))
                     .await?;
                 return Ok(());
             }
         };
-        append_trace_event(
-            &self.storage.tool_traces,
-            Some(&self.storage.execution_traces),
-            &TraceEvent::run_completed(
-                trace.clone(),
-                Some(started_at.elapsed().as_millis() as u64),
-            ),
-        );
+        let trace = traced_execution.trace;
+        let duration_ms = traced_execution.duration_ms;
+        let exec_result = traced_execution.execution;
 
         if session.agent_id != original_agent_id {
             match self
@@ -913,7 +853,6 @@ impl ChatDispatcher {
         );
 
         // 5. Save exchange to session (use `input` which includes [Media Context] for voice messages)
-        let duration_ms = started_at.elapsed().as_millis() as u64;
         let (execution, persisted_input) = build_turn_persistence_payload(
             &self.storage.tool_traces,
             &session.id,

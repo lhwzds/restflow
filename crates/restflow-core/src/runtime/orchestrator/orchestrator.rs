@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use anyhow::Result;
 use async_trait::async_trait;
@@ -10,9 +11,39 @@ use crate::runtime::background_agent::{
 };
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
 use crate::runtime::orchestrator::modes::{background, interactive, subagent};
+use crate::runtime::trace::{
+    RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
+};
+use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use restflow_ai::AgentState;
-use restflow_ai::agent::StreamEmitter;
+use restflow_ai::agent::{NullEmitter, StreamEmitter};
 use restflow_traits::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
+
+#[derive(Debug)]
+pub struct TracedInteractiveExecutionResult {
+    pub trace: RestflowTrace,
+    pub duration_ms: u64,
+    pub execution: crate::runtime::background_agent::SessionExecutionResult,
+}
+
+#[derive(Debug)]
+pub enum InteractiveExecutionError {
+    Timeout { timeout_secs: u64 },
+    Execution(anyhow::Error),
+}
+
+impl std::fmt::Display for InteractiveExecutionError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Timeout { timeout_secs } => {
+                write!(f, "execution timed out after {} seconds", timeout_secs)
+            }
+            Self::Execution(error) => write!(f, "{error}"),
+        }
+    }
+}
+
+impl std::error::Error for InteractiveExecutionError {}
 
 #[derive(Clone)]
 pub struct AgentOrchestratorImpl {
@@ -49,6 +80,114 @@ impl AgentOrchestratorImpl {
             steer_rx,
         )
         .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn run_traced_interactive_session_turn(
+        &self,
+        session: &mut ChatSession,
+        user_input: &str,
+        max_history: usize,
+        input_mode: SessionInputMode,
+        run_id: String,
+        tool_trace_storage: ToolTraceStorage,
+        execution_trace_storage: ExecutionTraceStorage,
+        timeout_secs: Option<u64>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    ) -> std::result::Result<TracedInteractiveExecutionResult, InteractiveExecutionError> {
+        let trace = RestflowTrace::new(
+            run_id,
+            session.id.clone(),
+            session.id.clone(),
+            session.agent_id.clone(),
+        );
+        append_trace_event(
+            &tool_trace_storage,
+            Some(&execution_trace_storage),
+            &TraceEvent::run_started(trace.clone()),
+        );
+
+        let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
+        let traced_emitter: Box<dyn StreamEmitter> = build_restflow_trace_emitter(
+            inner_emitter,
+            tool_trace_storage.clone(),
+            Some(execution_trace_storage.clone()),
+            &trace,
+        );
+
+        let started_at = Instant::now();
+        let execution_result = if let Some(timeout_secs) = timeout_secs {
+            match tokio::time::timeout(
+                tokio::time::Duration::from_secs(timeout_secs),
+                self.run_interactive_session_turn(
+                    session,
+                    user_input,
+                    max_history,
+                    input_mode,
+                    Some(traced_emitter),
+                    steer_rx,
+                ),
+            )
+            .await
+            {
+                Ok(result) => result.map_err(InteractiveExecutionError::Execution),
+                Err(_) => {
+                    let duration_ms = started_at.elapsed().as_millis() as u64;
+                    let error = InteractiveExecutionError::Timeout { timeout_secs };
+                    append_trace_event(
+                        &tool_trace_storage,
+                        Some(&execution_trace_storage),
+                        &TraceEvent::run_failed(
+                            trace.clone(),
+                            error.to_string(),
+                            Some(duration_ms),
+                        ),
+                    );
+                    return Err(error);
+                }
+            }
+        } else {
+            self.run_interactive_session_turn(
+                session,
+                user_input,
+                max_history,
+                input_mode,
+                Some(traced_emitter),
+                steer_rx,
+            )
+            .await
+            .map_err(InteractiveExecutionError::Execution)
+        };
+
+        let execution = match execution_result {
+            Ok(result) => result.execution,
+            Err(error) => {
+                append_trace_event(
+                    &tool_trace_storage,
+                    Some(&execution_trace_storage),
+                    &TraceEvent::run_failed(
+                        trace.clone(),
+                        error.to_string(),
+                        Some(started_at.elapsed().as_millis() as u64),
+                    ),
+                );
+                return Err(error);
+            }
+        };
+
+        let duration_ms = started_at.elapsed().as_millis() as u64;
+        append_trace_event(
+            &tool_trace_storage,
+            Some(&execution_trace_storage),
+            &TraceEvent::run_completed(trace.clone(), Some(duration_ms)),
+        );
+
+        Ok(TracedInteractiveExecutionResult {
+            trace,
+            duration_ms,
+            execution,
+        })
     }
 
     pub async fn run_background_execution(
@@ -210,6 +349,8 @@ mod tests {
 
     use anyhow::Result;
     use async_trait::async_trait;
+    use redb::Database;
+    use tempfile::TempDir;
     use tokio::sync::mpsc;
 
     use crate::models::{ChatSession, MemoryConfig, SteerMessage};
@@ -217,6 +358,7 @@ mod tests {
         ExecutionResult, SessionExecutionResult, SessionInputMode,
     };
     use crate::runtime::orchestrator::kernel::ExecutionBackend;
+    use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
     use restflow_ai::AgentState;
     use restflow_ai::agent::StreamEmitter;
     use restflow_ai::llm::Message;
@@ -312,6 +454,17 @@ mod tests {
         }
     }
 
+    fn setup_trace_storages() -> (TempDir, ToolTraceStorage, ExecutionTraceStorage) {
+        let temp_dir = tempfile::tempdir().expect("tempdir");
+        let db_path = temp_dir.path().join("orchestrator-trace.db");
+        let db = Arc::new(Database::create(db_path).expect("db"));
+        (
+            temp_dir,
+            ToolTraceStorage::new(db.clone()).expect("tool trace storage"),
+            ExecutionTraceStorage::new(db).expect("execution trace storage"),
+        )
+    }
+
     #[tokio::test]
     async fn run_interactive_session_turn_updates_session_and_result() {
         let backend = Arc::new(MockBackend::default());
@@ -339,6 +492,129 @@ mod tests {
         assert_eq!(result.execution.output, "interactive-output");
         assert_eq!(result.outcome.iterations, Some(3));
         assert_eq!(result.outcome.model.as_deref(), Some("gpt-5.3-codex"));
+    }
+
+    #[tokio::test]
+    async fn run_traced_interactive_session_turn_records_trace_events() {
+        let backend = Arc::new(MockBackend::default());
+        let mut session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
+        let session_id = session.id.clone();
+        backend
+            .session
+            .lock()
+            .expect("session lock")
+            .replace(session.clone());
+        let orchestrator = AgentOrchestratorImpl::new(backend);
+        let (_temp_dir, tool_trace_storage, execution_trace_storage) = setup_trace_storages();
+
+        let result = orchestrator
+            .run_traced_interactive_session_turn(
+                &mut session,
+                "hello",
+                20,
+                SessionInputMode::EphemeralInput,
+                "run-traced".to_string(),
+                tool_trace_storage.clone(),
+                execution_trace_storage,
+                None,
+                None,
+                None,
+            )
+            .await
+            .expect("traced interactive run should succeed");
+
+        let events = tool_trace_storage
+            .list_by_session_turn(&session_id, "run-run-traced", None)
+            .expect("trace list");
+        assert_eq!(events.len(), 2);
+        assert_eq!(result.execution.output, "interactive-output");
+        assert!(result.duration_ms <= 1_000);
+    }
+
+    #[tokio::test]
+    async fn run_traced_interactive_session_turn_returns_timeout_error() {
+        #[derive(Default)]
+        struct SlowBackend;
+
+        #[async_trait]
+        impl ExecutionBackend for SlowBackend {
+            fn load_chat_session(&self, _session_id: &str) -> Result<ChatSession> {
+                Ok(ChatSession::new("agent-a".to_string(), "gpt-5".to_string()))
+            }
+
+            async fn execute_interactive_session_turn(
+                &self,
+                _session: &mut ChatSession,
+                _user_input: &str,
+                _max_history: usize,
+                _input_mode: SessionInputMode,
+                _emitter: Option<Box<dyn StreamEmitter>>,
+                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            ) -> Result<SessionExecutionResult> {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                Ok(SessionExecutionResult {
+                    output: "too-late".to_string(),
+                    iterations: 1,
+                    active_model: "gpt-5".to_string(),
+                })
+            }
+
+            async fn execute_background(
+                &self,
+                _agent_id: &str,
+                _background_task_id: Option<&str>,
+                _input: Option<&str>,
+                _memory_config: &MemoryConfig,
+                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+                _emitter: Option<Box<dyn StreamEmitter>>,
+            ) -> Result<ExecutionResult> {
+                unreachable!("background path not used")
+            }
+
+            async fn execute_background_from_state(
+                &self,
+                _agent_id: &str,
+                _background_task_id: Option<&str>,
+                _state: AgentState,
+                _memory_config: &MemoryConfig,
+                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+                _emitter: Option<Box<dyn StreamEmitter>>,
+            ) -> Result<ExecutionResult> {
+                unreachable!("background resume path not used")
+            }
+
+            async fn execute_subagent_plan(
+                &self,
+                _plan: ExecutionPlan,
+            ) -> Result<ExecutionOutcome> {
+                unreachable!("subagent path not used")
+            }
+        }
+
+        let orchestrator = AgentOrchestratorImpl::new(Arc::new(SlowBackend));
+        let (_temp_dir, tool_trace_storage, execution_trace_storage) = setup_trace_storages();
+        let mut session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
+
+        let error = orchestrator
+            .run_traced_interactive_session_turn(
+                &mut session,
+                "hello",
+                20,
+                SessionInputMode::EphemeralInput,
+                "run-timeout".to_string(),
+                tool_trace_storage,
+                execution_trace_storage,
+                Some(0),
+                None,
+                None,
+            )
+            .await
+            .expect_err("interactive run should time out");
+
+        assert!(matches!(
+            error,
+            InteractiveExecutionError::Timeout { timeout_secs: 0 }
+        ));
     }
 
     #[tokio::test]

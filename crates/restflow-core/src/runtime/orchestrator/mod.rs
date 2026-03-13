@@ -4,4 +4,7 @@ pub mod modes;
 pub mod orchestrator;
 
 pub use kernel::{ExecutionBackend, ExecutionKernel};
-pub use orchestrator::{AgentOrchestratorImpl, OrchestratingAgentExecutor};
+pub use orchestrator::{
+    AgentOrchestratorImpl, InteractiveExecutionError, OrchestratingAgentExecutor,
+    TracedInteractiveExecutionResult,
+};
