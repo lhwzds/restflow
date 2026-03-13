@@ -2566,6 +2566,12 @@ mod tests {
         assert_eq!(run_now.status, BackgroundAgentStatus::Active);
         assert!(run_now.next_run_at.is_some());
 
+        let started = storage
+            .control_background_agent(&created.id, BackgroundAgentControlAction::Start)
+            .unwrap();
+        assert_eq!(started.status, BackgroundAgentStatus::Active);
+        assert!(started.next_run_at.is_some());
+
         let stopped = storage
             .control_background_agent(&created.id, BackgroundAgentControlAction::Stop)
             .unwrap();

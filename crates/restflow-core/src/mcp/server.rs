@@ -2096,6 +2096,7 @@ impl RestFlowMcpServer {
             | "promote_to_background"
             | "update"
             | "delete"
+            | "start"
             | "pause"
             | "resume"
             | "run"
@@ -4097,7 +4098,7 @@ mod tests {
             task.status = match action {
                 BackgroundAgentControlAction::Start
                 | BackgroundAgentControlAction::Resume
-                | BackgroundAgentControlAction::RunNow => BackgroundAgentStatus::Running,
+                | BackgroundAgentControlAction::RunNow => BackgroundAgentStatus::Active,
                 BackgroundAgentControlAction::Pause => BackgroundAgentStatus::Paused,
                 BackgroundAgentControlAction::Stop => BackgroundAgentStatus::Interrupted,
             };
@@ -4588,6 +4589,65 @@ mod tests {
             .expect("background storage query should succeed")
             .expect("stop should not delete the task");
         assert_eq!(stored.status, BackgroundAgentStatus::Interrupted);
+    }
+
+    #[tokio::test]
+    async fn test_mcp_manage_background_agents_start_returns_active_status() {
+        let (server, core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+        let create = call_tool_through_mcp(
+            server.clone(),
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "create",
+                "name": "start-contract",
+                "agent_id": "default",
+                "input": "start later"
+            }),
+        )
+        .await;
+        assert!(!create.is_error.unwrap_or(false));
+        let created: serde_json::Value =
+            serde_json::from_str(call_tool_text(&create)).expect("create response json");
+        let task_id = created["id"]
+            .as_str()
+            .expect("created task should have id")
+            .to_string();
+
+        let stop = call_tool_through_mcp(
+            server.clone(),
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "stop",
+                "id": task_id
+            }),
+        )
+        .await;
+        assert!(!stop.is_error.unwrap_or(false));
+
+        let start = call_tool_through_mcp(
+            server,
+            "manage_background_agents",
+            serde_json::json!({
+                "operation": "start",
+                "id": task_id
+            }),
+        )
+        .await;
+        assert!(!start.is_error.unwrap_or(false));
+        let started: serde_json::Value =
+            serde_json::from_str(call_tool_text(&start)).expect("start response json");
+        assert_eq!(started["status"], "active");
+        assert!(started["next_run_at"].as_i64().is_some());
+
+        let stored = core
+            .storage
+            .background_agents
+            .get_task(started["id"].as_str().expect("started task id"))
+            .expect("background storage query should succeed")
+            .expect("start should not delete the task");
+        assert_eq!(stored.status, BackgroundAgentStatus::Active);
+        assert!(stored.next_run_at.is_some());
     }
 
     #[test]

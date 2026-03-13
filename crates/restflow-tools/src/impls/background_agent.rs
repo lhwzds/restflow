@@ -652,6 +652,9 @@ enum BackgroundAgentAction {
     Pause {
         id: String,
     },
+    Start {
+        id: String,
+    },
     Resume {
         id: String,
     },
@@ -1178,6 +1181,19 @@ impl Tool for BackgroundAgentTool {
                         })
                         .map_err(|e| {
                             ToolError::Tool(format!("Failed to pause background agent: {e}."))
+                        })?,
+                )
+            }
+            BackgroundAgentAction::Start { id } => {
+                self.write_guard()?;
+                ToolOutput::success(
+                    self.store
+                        .control_background_agent(BackgroundAgentControlRequest {
+                            id,
+                            action: "start".to_string(),
+                        })
+                        .map_err(|e| {
+                            ToolError::Tool(format!("Failed to start background agent: {e}."))
                         })?,
                 )
             }
@@ -1798,6 +1814,23 @@ mod tests {
         assert_eq!(
             output.result.get("action").and_then(|v| v.as_str()),
             Some("stop")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_start_uses_control_with_start_action() {
+        let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+        let output = tool
+            .execute(json!({
+                "operation": "start",
+                "id": "task-1"
+            }))
+            .await
+            .unwrap();
+        assert!(output.success);
+        assert_eq!(
+            output.result.get("action").and_then(|v| v.as_str()),
+            Some("start")
         );
     }
 
