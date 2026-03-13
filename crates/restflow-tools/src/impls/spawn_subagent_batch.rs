@@ -211,6 +211,13 @@ struct PreparedSpawnRequest {
     request: SpawnRequest,
 }
 
+#[derive(Debug)]
+struct SpawnFailure {
+    spec_index: usize,
+    instance_index: u32,
+    error: ToolError,
+}
+
 /// spawn_subagent_batch tool for shared agent execution engine.
 pub struct SpawnSubagentBatchTool {
     manager: Arc<dyn SubagentManager>,
@@ -795,6 +802,89 @@ impl SpawnSubagentBatchTool {
         .unwrap_or_default()
     }
 
+    fn task_entries(spawned: &[SpawnedTask]) -> Vec<Value> {
+        spawned
+            .iter()
+            .map(|task| {
+                json!({
+                    "task_id": task.task_id,
+                    "agent": task.agent_name,
+                    "spec_index": task.spec_index,
+                    "instance_index": task.instance_index,
+                    "effective_limits": task.effective_limits,
+                })
+            })
+            .collect()
+    }
+
+    async fn wait_for_spawned_tasks(
+        &self,
+        spawned: &[SpawnedTask],
+        wait_timeout: u64,
+    ) -> Vec<Value> {
+        let mut results = Vec::with_capacity(spawned.len());
+        for task in spawned {
+            let wait_result = self.wait_result(&task.task_id, wait_timeout).await;
+            match wait_result {
+                Some(completion)
+                    if completion.status == restflow_traits::SubagentStatus::Completed =>
+                {
+                    let result = completion
+                        .result
+                        .unwrap_or(restflow_traits::SubagentResult {
+                            success: true,
+                            output: String::new(),
+                            summary: None,
+                            duration_ms: 0,
+                            tokens_used: None,
+                            cost_usd: None,
+                            error: None,
+                        });
+                    results.push(json!({
+                        "task_id": task.task_id,
+                        "agent": task.agent_name,
+                        "spec_index": task.spec_index,
+                        "instance_index": task.instance_index,
+                        "status": "completed",
+                        "output": result.output,
+                        "duration_ms": result.duration_ms,
+                        "effective_limits": task.effective_limits,
+                    }))
+                }
+                Some(completion) => {
+                    let status = match completion.status {
+                        restflow_traits::SubagentStatus::Interrupted => "interrupted",
+                        restflow_traits::SubagentStatus::TimedOut => "timed_out",
+                        restflow_traits::SubagentStatus::Failed => "failed",
+                        restflow_traits::SubagentStatus::Pending => "pending",
+                        restflow_traits::SubagentStatus::Running => "running",
+                        restflow_traits::SubagentStatus::Completed => "completed",
+                    };
+                    let result = completion.result;
+                    results.push(json!({
+                        "task_id": task.task_id,
+                        "agent": task.agent_name,
+                        "spec_index": task.spec_index,
+                        "instance_index": task.instance_index,
+                        "status": status,
+                        "error": result.as_ref().and_then(|value| value.error.clone()).unwrap_or_else(|| "Unknown error".to_string()),
+                        "duration_ms": result.as_ref().map(|value| value.duration_ms).unwrap_or_default(),
+                        "effective_limits": task.effective_limits,
+                    }));
+                }
+                None => results.push(json!({
+                    "task_id": task.task_id,
+                    "agent": task.agent_name,
+                    "spec_index": task.spec_index,
+                    "instance_index": task.instance_index,
+                    "status": "timeout",
+                    "effective_limits": task.effective_limits,
+                })),
+            }
+        }
+        results
+    }
+
     async fn spawn_batch(&self, params: SpawnSubagentBatchParams) -> Result<ToolOutput> {
         let specs = self.specs_for_spawn(&params)?;
         let total_requested = Self::total_instances(&specs)?;
@@ -857,30 +947,65 @@ impl SpawnSubagentBatchTool {
         }
 
         let mut spawned = Vec::with_capacity(prepared.len());
+        let mut spawn_failure = None;
         for item in prepared {
-            let handle = self.manager.spawn(item.request)?;
-            spawned.push(SpawnedTask {
-                task_id: handle.id,
-                agent_name: handle.agent_name,
-                spec_index: item.spec_index,
-                instance_index: item.instance_index,
-                effective_limits: handle.effective_limits,
+            match self.manager.spawn(item.request) {
+                Ok(handle) => spawned.push(SpawnedTask {
+                    task_id: handle.id,
+                    agent_name: handle.agent_name,
+                    spec_index: item.spec_index,
+                    instance_index: item.instance_index,
+                    effective_limits: handle.effective_limits,
+                }),
+                Err(error) => {
+                    spawn_failure = Some(SpawnFailure {
+                        spec_index: item.spec_index,
+                        instance_index: item.instance_index,
+                        error,
+                    });
+                    break;
+                }
+            }
+        }
+
+        if let Some(failure) = spawn_failure {
+            if spawned.is_empty() {
+                return Err(failure.error);
+            }
+
+            let wait_timeout = params
+                .timeout_secs
+                .unwrap_or(self.manager.config().subagent_timeout_secs);
+            let tasks = Self::task_entries(&spawned);
+            let task_ids = spawned
+                .iter()
+                .map(|task| task.task_id.clone())
+                .collect::<Vec<_>>();
+            let mut payload = json!({
+                "operation": "spawn",
+                "status": "partial_failure",
+                "spawned_count": spawned.len(),
+                "running_before": running_now,
+                "max_parallel": max_parallel,
+                "team": params.team,
+                "saved_team": params.save_as_team,
+                "task_ids": task_ids,
+                "tasks": tasks,
+                "failed_spec_index": failure.spec_index,
+                "failed_instance_index": failure.instance_index,
+                "error": failure.error.to_string(),
             });
+
+            if params.wait {
+                payload["results"] =
+                    Value::Array(self.wait_for_spawned_tasks(&spawned, wait_timeout).await);
+            }
+
+            return Ok(ToolOutput::success(payload));
         }
 
         if !params.wait {
-            let tasks = spawned
-                .iter()
-                .map(|task| {
-                    json!({
-                        "task_id": task.task_id,
-                        "agent": task.agent_name,
-                        "spec_index": task.spec_index,
-                        "instance_index": task.instance_index,
-                        "effective_limits": task.effective_limits,
-                    })
-                })
-                .collect::<Vec<_>>();
+            let tasks = Self::task_entries(&spawned);
             return Ok(ToolOutput::success(json!({
                 "operation": "spawn",
                 "status": "spawned",
@@ -897,62 +1022,7 @@ impl SpawnSubagentBatchTool {
         let wait_timeout = params
             .timeout_secs
             .unwrap_or(self.manager.config().subagent_timeout_secs);
-        let mut results = Vec::with_capacity(spawned.len());
-        for task in &spawned {
-            let wait_result = self.wait_result(&task.task_id, wait_timeout).await;
-            match wait_result {
-                Some(completion) if completion.status == restflow_traits::SubagentStatus::Completed => {
-                    let result = completion.result.unwrap_or(restflow_traits::SubagentResult {
-                        success: true,
-                        output: String::new(),
-                        summary: None,
-                        duration_ms: 0,
-                        tokens_used: None,
-                        cost_usd: None,
-                        error: None,
-                    });
-                    results.push(json!({
-                    "task_id": task.task_id,
-                    "agent": task.agent_name,
-                    "spec_index": task.spec_index,
-                    "instance_index": task.instance_index,
-                    "status": "completed",
-                    "output": result.output,
-                    "duration_ms": result.duration_ms,
-                    "effective_limits": task.effective_limits,
-                }))
-                }
-                Some(completion) => {
-                    let status = match completion.status {
-                        restflow_traits::SubagentStatus::Interrupted => "interrupted",
-                        restflow_traits::SubagentStatus::TimedOut => "timed_out",
-                        restflow_traits::SubagentStatus::Failed => "failed",
-                        restflow_traits::SubagentStatus::Pending => "pending",
-                        restflow_traits::SubagentStatus::Running => "running",
-                        restflow_traits::SubagentStatus::Completed => "completed",
-                    };
-                    let result = completion.result;
-                    results.push(json!({
-                    "task_id": task.task_id,
-                    "agent": task.agent_name,
-                    "spec_index": task.spec_index,
-                    "instance_index": task.instance_index,
-                    "status": status,
-                    "error": result.as_ref().and_then(|value| value.error.clone()).unwrap_or_else(|| "Unknown error".to_string()),
-                    "duration_ms": result.as_ref().map(|value| value.duration_ms).unwrap_or_default(),
-                    "effective_limits": task.effective_limits,
-                }));
-                }
-                None => results.push(json!({
-                    "task_id": task.task_id,
-                    "agent": task.agent_name,
-                    "spec_index": task.spec_index,
-                    "instance_index": task.instance_index,
-                    "status": "timeout",
-                    "effective_limits": task.effective_limits,
-                })),
-            }
-        }
+        let results = self.wait_for_spawned_tasks(&spawned, wait_timeout).await;
 
         Ok(ToolOutput::success(json!({
             "operation": "spawn",
@@ -1158,7 +1228,7 @@ mod tests {
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
-    use restflow_traits::SubagentManager;
+    use restflow_traits::{SpawnHandle, SubagentCompletion, SubagentManager, SubagentState};
     use std::collections::HashMap;
     use std::sync::Mutex;
     use tokio::sync::mpsc;
@@ -1300,6 +1370,57 @@ mod tests {
             tool_registry,
             config,
         ))
+    }
+
+    struct FailingSpawnManager {
+        inner: Arc<dyn SubagentManager>,
+        fail_on_attempt: usize,
+        attempts: Mutex<usize>,
+    }
+
+    impl FailingSpawnManager {
+        fn new(inner: Arc<dyn SubagentManager>, fail_on_attempt: usize) -> Self {
+            Self {
+                inner,
+                fail_on_attempt,
+                attempts: Mutex::new(0),
+            }
+        }
+    }
+
+    #[async_trait]
+    impl SubagentManager for FailingSpawnManager {
+        fn spawn(&self, request: SpawnRequest) -> std::result::Result<SpawnHandle, ToolError> {
+            let mut attempts = self
+                .attempts
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            *attempts += 1;
+            if *attempts == self.fail_on_attempt {
+                return Err(ToolError::Tool("Injected spawn failure".to_string()));
+            }
+            self.inner.spawn(request)
+        }
+
+        fn list_callable(&self) -> Vec<SubagentDefSummary> {
+            self.inner.list_callable()
+        }
+
+        fn list_running(&self) -> Vec<SubagentState> {
+            self.inner.list_running()
+        }
+
+        fn running_count(&self) -> usize {
+            self.inner.running_count()
+        }
+
+        async fn wait(&self, task_id: &str) -> Option<SubagentCompletion> {
+            self.inner.wait(task_id).await
+        }
+
+        fn config(&self) -> &SubagentConfig {
+            self.inner.config()
+        }
     }
 
     #[tokio::test]
@@ -1562,6 +1683,48 @@ mod tests {
         assert_eq!(spec["count"], 2);
         assert!(spec.get("task").is_none() || spec["task"].is_null());
         assert!(spec.get("tasks").is_none() || spec["tasks"].is_null());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_batch_returns_spawned_tasks_on_partial_failure() {
+        let inner = make_test_manager(
+            vec![("coder", "Coder")],
+            vec![MockStep::text("done-1"), MockStep::text("done-2")],
+        );
+        let manager: Arc<dyn SubagentManager> = Arc::new(FailingSpawnManager::new(inner, 2));
+        let tool = SpawnSubagentBatchTool::new(manager);
+
+        let output = tool
+            .execute(json!({
+                "operation": "spawn",
+                "task": "Implement fixes",
+                "specs": [
+                    { "agent": "coder", "count": 2 }
+                ]
+            }))
+            .await
+            .expect("partial failure should still produce output");
+
+        assert!(output.success);
+        assert_eq!(output.result["status"], "partial_failure");
+        assert_eq!(output.result["spawned_count"], 1);
+        assert_eq!(output.result["failed_spec_index"], 0);
+        assert_eq!(output.result["failed_instance_index"], 1);
+        assert!(
+            output.result["error"]
+                .as_str()
+                .expect("error message")
+                .contains("Injected spawn failure")
+        );
+        let task_ids = output.result["task_ids"]
+            .as_array()
+            .expect("task_ids should be array");
+        assert_eq!(task_ids.len(), 1);
+        let tasks = output.result["tasks"]
+            .as_array()
+            .expect("tasks should be array");
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(tasks[0]["instance_index"], 0);
     }
 
     #[tokio::test]
