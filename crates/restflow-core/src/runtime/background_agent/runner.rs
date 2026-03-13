@@ -2402,6 +2402,24 @@ mod tests {
         }
     }
 
+    struct FailsOnceExecutor {
+        call_count: AtomicU32,
+        saw_emitter: AtomicBool,
+    }
+
+    impl FailsOnceExecutor {
+        fn new() -> Self {
+            Self {
+                call_count: AtomicU32::new(0),
+                saw_emitter: AtomicBool::new(false),
+            }
+        }
+
+        fn call_count(&self) -> u32 {
+            self.call_count.load(Ordering::SeqCst)
+        }
+    }
+
     #[async_trait::async_trait]
     impl AgentExecutor for MockExecutor {
         async fn execute(
@@ -2453,6 +2471,59 @@ mod tests {
             _emitter: Option<Box<dyn StreamEmitter>>,
         ) -> Result<ExecutionResult> {
             self.resume_call_count.fetch_add(1, Ordering::SeqCst);
+            Ok(ExecutionResult::success(
+                format!("Resumed execution {}", state.execution_id),
+                state.messages,
+            ))
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl AgentExecutor for FailsOnceExecutor {
+        async fn execute(
+            &self,
+            agent_id: &str,
+            _background_task_id: Option<&str>,
+            input: Option<&str>,
+            _memory_config: &MemoryConfig,
+            _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        ) -> Result<ExecutionResult> {
+            let call = self.call_count.fetch_add(1, Ordering::SeqCst);
+            if call == 0 {
+                Err(anyhow!("Mock execution failure"))
+            } else {
+                Ok(ExecutionResult::success(
+                    format!("Executed agent {} with input: {:?}", agent_id, input),
+                    Vec::new(),
+                ))
+            }
+        }
+
+        async fn execute_with_emitter(
+            &self,
+            agent_id: &str,
+            background_task_id: Option<&str>,
+            input: Option<&str>,
+            memory_config: &MemoryConfig,
+            steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            emitter: Option<Box<dyn StreamEmitter>>,
+        ) -> Result<ExecutionResult> {
+            if emitter.is_some() {
+                self.saw_emitter.store(true, Ordering::SeqCst);
+            }
+            self.execute(agent_id, background_task_id, input, memory_config, steer_rx)
+                .await
+        }
+
+        async fn execute_from_state(
+            &self,
+            _agent_id: &str,
+            _background_task_id: Option<&str>,
+            state: restflow_ai::AgentState,
+            _memory_config: &MemoryConfig,
+            _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            _emitter: Option<Box<dyn StreamEmitter>>,
+        ) -> Result<ExecutionResult> {
             Ok(ExecutionResult::success(
                 format!("Resumed execution {}", state.execution_id),
                 state.messages,
@@ -2919,6 +2990,68 @@ mod tests {
         assert_eq!(updated_task.status, BackgroundAgentStatus::Failed);
         assert_eq!(updated_task.failure_count, 1);
         assert!(updated_task.last_error.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_runner_reschedules_interval_task_after_failure() {
+        let (storage, _temp_dir) = create_test_storage();
+        let executor = Arc::new(FailsOnceExecutor::new());
+        let notifier = Arc::new(MockNotifier::new());
+
+        let past_time = chrono::Utc::now().timestamp_millis() - 1_000;
+        let mut task = storage
+            .create_task(
+                "Retrying Task".to_string(),
+                "agent-001".to_string(),
+                TaskSchedule::Interval {
+                    interval_ms: 100,
+                    start_at: Some(past_time),
+                },
+            )
+            .unwrap();
+
+        task.input = Some("Retry this task".to_string());
+        task.next_run_at = Some(past_time);
+        storage.update_task(&task).unwrap();
+
+        let config = RunnerConfig {
+            poll_interval_ms: 50,
+            ..Default::default()
+        };
+
+        let steer_registry = Arc::new(SteerRegistry::new());
+        let runner = Arc::new(BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            notifier,
+            config,
+            steer_registry,
+        ));
+
+        let handle = runner.clone().start();
+
+        let deadline = Instant::now() + Duration::from_secs(3);
+        loop {
+            let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+            if executor.call_count() >= 2 && updated_task.success_count >= 1 {
+                assert_eq!(updated_task.failure_count, 1);
+                assert_eq!(updated_task.status, BackgroundAgentStatus::Active);
+                assert!(updated_task.next_run_at.is_some());
+                break;
+            }
+
+            if Instant::now() >= deadline {
+                panic!(
+                    "interval task was not retried after failure; call_count={}, task={:?}",
+                    executor.call_count(),
+                    storage.get_task(&task.id).unwrap()
+                );
+            }
+
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+
+        handle.stop().await.unwrap();
     }
 
     #[tokio::test]
