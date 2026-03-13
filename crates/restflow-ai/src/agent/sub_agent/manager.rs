@@ -5,8 +5,8 @@ use crate::tools::ToolRegistry;
 use restflow_traits::AgentOrchestrator;
 use restflow_traits::ToolError;
 use restflow_traits::subagent::{
-    SpawnHandle, SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSummary,
-    SubagentManager, SubagentResult, SubagentState,
+    SpawnHandle, SpawnRequest, SubagentCompletion, SubagentConfig, SubagentDefLookup,
+    SubagentDefSummary, SubagentManager, SubagentState,
 };
 
 use super::spawn::{SubagentExecutionBridge, spawn_subagent};
@@ -109,7 +109,7 @@ impl SubagentManager for SubagentManagerImpl {
         self.tracker.running_count()
     }
 
-    async fn wait(&self, task_id: &str) -> Option<SubagentResult> {
+    async fn wait(&self, task_id: &str) -> Option<SubagentCompletion> {
         self.tracker.wait(task_id).await
     }
 

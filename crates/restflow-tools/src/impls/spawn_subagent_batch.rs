@@ -783,7 +783,7 @@ impl SpawnSubagentBatchTool {
         &self,
         task_id: &str,
         timeout_secs: u64,
-    ) -> Option<restflow_traits::SubagentResult> {
+    ) -> Option<restflow_traits::SubagentCompletion> {
         if timeout_secs == 0 {
             return self.manager.wait(task_id).await;
         }
@@ -901,7 +901,17 @@ impl SpawnSubagentBatchTool {
         for task in &spawned {
             let wait_result = self.wait_result(&task.task_id, wait_timeout).await;
             match wait_result {
-                Some(result) if result.success => results.push(json!({
+                Some(completion) if completion.status == restflow_traits::SubagentStatus::Completed => {
+                    let result = completion.result.unwrap_or(restflow_traits::SubagentResult {
+                        success: true,
+                        output: String::new(),
+                        summary: None,
+                        duration_ms: 0,
+                        tokens_used: None,
+                        cost_usd: None,
+                        error: None,
+                    });
+                    results.push(json!({
                     "task_id": task.task_id,
                     "agent": task.agent_name,
                     "spec_index": task.spec_index,
@@ -910,17 +920,29 @@ impl SpawnSubagentBatchTool {
                     "output": result.output,
                     "duration_ms": result.duration_ms,
                     "effective_limits": task.effective_limits,
-                })),
-                Some(result) => results.push(json!({
+                }))
+                }
+                Some(completion) => {
+                    let status = match completion.status {
+                        restflow_traits::SubagentStatus::Interrupted => "interrupted",
+                        restflow_traits::SubagentStatus::TimedOut => "timed_out",
+                        restflow_traits::SubagentStatus::Failed => "failed",
+                        restflow_traits::SubagentStatus::Pending => "pending",
+                        restflow_traits::SubagentStatus::Running => "running",
+                        restflow_traits::SubagentStatus::Completed => "completed",
+                    };
+                    let result = completion.result;
+                    results.push(json!({
                     "task_id": task.task_id,
                     "agent": task.agent_name,
                     "spec_index": task.spec_index,
                     "instance_index": task.instance_index,
-                    "status": "failed",
-                    "error": result.error.unwrap_or_else(|| "Unknown error".to_string()),
-                    "duration_ms": result.duration_ms,
+                    "status": status,
+                    "error": result.as_ref().and_then(|value| value.error.clone()).unwrap_or_else(|| "Unknown error".to_string()),
+                    "duration_ms": result.as_ref().map(|value| value.duration_ms).unwrap_or_default(),
                     "effective_limits": task.effective_limits,
-                })),
+                }));
+                }
                 None => results.push(json!({
                     "task_id": task.task_id,
                     "agent": task.agent_name,

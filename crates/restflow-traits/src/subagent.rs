@@ -275,8 +275,11 @@ pub struct SubagentCompletion {
     /// Task ID
     pub id: String,
 
-    /// Execution result
-    pub result: SubagentResult,
+    /// Final terminal status.
+    pub status: SubagentStatus,
+
+    /// Execution result payload when available.
+    pub result: Option<SubagentResult>,
 }
 
 /// High-level subagent lifecycle management.
@@ -297,8 +300,8 @@ pub trait SubagentManager: Send + Sync {
     /// Number of currently running sub-agents.
     fn running_count(&self) -> usize;
 
-    /// Wait for a sub-agent to complete, returning its result.
-    async fn wait(&self, task_id: &str) -> Option<SubagentResult>;
+    /// Wait for a sub-agent to complete, returning its terminal outcome.
+    async fn wait(&self, task_id: &str) -> Option<SubagentCompletion>;
 
     /// Access the sub-agent configuration.
     fn config(&self) -> &SubagentConfig;

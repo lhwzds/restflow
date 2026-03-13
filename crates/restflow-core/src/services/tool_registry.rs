@@ -2390,6 +2390,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("subagent result");
+        let result = result.result.expect("subagent result payload");
         assert!(
             result.success,
             "unexpected subagent failure: {:?}",
@@ -2496,6 +2497,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("subagent result");
+        let result = result.result.expect("subagent result payload");
         assert!(
             result.success,
             "unexpected subagent failure: {:?}",

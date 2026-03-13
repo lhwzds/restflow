@@ -8,7 +8,7 @@ use tokio::time::{Duration, timeout};
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
+use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager, SubagentStatus};
 
 #[cfg(feature = "ts")]
 const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
@@ -38,6 +38,37 @@ pub struct WaitSubagentsTool {
 impl WaitSubagentsTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
         Self { manager }
+    }
+
+    fn completion_entry(task_id: &str, completion: restflow_traits::SubagentCompletion) -> Value {
+        let status = match completion.status {
+            SubagentStatus::Completed => "completed",
+            SubagentStatus::Failed => "failed",
+            SubagentStatus::Interrupted => "interrupted",
+            SubagentStatus::TimedOut => "timed_out",
+            SubagentStatus::Pending => "pending",
+            SubagentStatus::Running => "running",
+        };
+
+        let mut entry = json!({
+            "task_id": task_id,
+            "status": status,
+        });
+
+        if let Some(result) = completion.result {
+            entry["duration_ms"] = json!(result.duration_ms);
+            if result.success {
+                entry["output"] = json!(result.output);
+            } else {
+                entry["error"] =
+                    json!(result.error.unwrap_or_else(|| "Unknown error".to_string()));
+                if !result.output.is_empty() {
+                    entry["output"] = json!(result.output);
+                }
+            }
+        }
+
+        entry
     }
 }
 
@@ -98,30 +129,14 @@ impl Tool for WaitSubagentsTool {
                 }
             };
 
-            let result = match wait_result {
+            let completion = match wait_result {
                 Some(result) => result,
                 None => {
                     results.push(json!({"task_id": task_id, "status": "not_found"}));
                     continue;
                 }
             };
-
-            let entry = if result.success {
-                json!({
-                    "task_id": task_id,
-                    "status": "completed",
-                    "output": result.output,
-                    "duration_ms": result.duration_ms
-                })
-            } else {
-                json!({
-                    "task_id": task_id,
-                    "status": "failed",
-                    "error": result.error.unwrap_or_else(|| "Unknown error".to_string()),
-                    "duration_ms": result.duration_ms
-                })
-            };
-            results.push(entry);
+            results.push(Self::completion_entry(&task_id, completion));
         }
 
         Ok(ToolOutput::success(json!({ "results": results })))
@@ -286,6 +301,25 @@ mod tests {
         assert!(result.success);
         let results = result.result["results"].as_array().unwrap();
         assert_eq!(results[0]["status"], "timeout");
+    }
+
+    #[tokio::test]
+    async fn test_wait_interrupted_task() {
+        let (deps, manager) = make_deps(vec![MockStep::text("slow").with_delay(2_000)]);
+        let task_id = spawn_test_agent(&deps);
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        assert!(deps.tracker.cancel(&task_id));
+
+        let tool = WaitSubagentsTool::new(manager);
+        let result = tool
+            .execute(json!({"task_ids": [task_id], "timeout_secs": 1}))
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        let results = result.result["results"].as_array().unwrap();
+        assert_eq!(results[0]["status"], "interrupted");
+        assert_eq!(results[0]["error"], json!("Sub-agent interrupted"));
     }
 
     #[tokio::test]
