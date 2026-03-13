@@ -2500,8 +2500,9 @@ async fn execute_chat_session(
         .get(&session_id)?
         .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
 
-    let input = match user_input {
-        Some(input) if !input.trim().is_empty() => input,
+    let explicit_user_input = user_input.as_deref();
+    let input = match explicit_user_input {
+        Some(input) if !input.trim().is_empty() => input.to_string(),
         _ => session
             .messages
             .iter()
@@ -2510,6 +2511,8 @@ async fn execute_chat_session(
             .map(|msg| msg.content.clone())
             .ok_or_else(|| anyhow::anyhow!("No user message found in session"))?,
     };
+
+    persist_ipc_user_message_if_needed(core, &mut session, explicit_user_input, &input)?;
 
     let reply_buffer = Arc::new(Mutex::new(VecDeque::<String>::new()));
     let auth_manager = Arc::new(build_auth_manager(core).await?);
@@ -2649,6 +2652,40 @@ async fn execute_chat_session(
     Ok(session)
 }
 
+fn persist_ipc_user_message_if_needed(
+    core: &Arc<AppCore>,
+    session: &mut ChatSession,
+    explicit_user_input: Option<&str>,
+    effective_input: &str,
+) -> Result<()> {
+    let Some(raw_input) = explicit_user_input.map(str::trim) else {
+        return Ok(());
+    };
+    if raw_input.is_empty() {
+        return Ok(());
+    }
+
+    let already_persisted = session
+        .messages
+        .last()
+        .map(|message| message.role == ChatRole::User && message.content == effective_input)
+        .unwrap_or(false);
+    if already_persisted {
+        return Ok(());
+    }
+
+    session.add_message(ChatMessage::user(effective_input));
+    if session.name == "New Chat" && session.messages.len() == 1 {
+        session.auto_name_from_first_message();
+    }
+    core.storage.chat_sessions.update(session)?;
+    publish_session_event(ChatSessionEvent::MessageAdded {
+        session_id: session.id.clone(),
+        source: "ipc".to_string(),
+    });
+    Ok(())
+}
+
 /// Persist chat session messages to long-term memory for cross-session recall.
 ///
 /// Uses content-hash deduplication so repeated calls on the same session
@@ -2752,6 +2789,7 @@ mod tests {
     use restflow_traits::store::ReplySender;
     use restflow_traits::tool::ToolErrorCategory;
     use tempfile::tempdir;
+    use uuid::Uuid;
 
     async fn create_test_core() -> (Arc<AppCore>, tempfile::TempDir) {
         let temp = tempdir().expect("tempdir");
@@ -2816,6 +2854,66 @@ mod tests {
         core.storage.config.update_config(config).unwrap();
 
         assert_eq!(load_chat_max_session_history_from_core(&core), 42);
+    }
+
+    #[tokio::test]
+    async fn persist_ipc_user_message_if_needed_adds_missing_user_turn() {
+        let (core, _temp) = create_test_core().await;
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        persist_ipc_user_message_if_needed(&core, &mut session, Some("hello"), "hello").unwrap();
+
+        let stored = core
+            .storage
+            .chat_sessions
+            .get(&session.id)
+            .unwrap()
+            .expect("session");
+        assert_eq!(stored.messages.len(), 1);
+        assert_eq!(stored.messages[0].role, ChatRole::User);
+        assert_eq!(stored.messages[0].content, "hello");
+    }
+
+    #[tokio::test]
+    async fn persist_ipc_user_message_if_needed_deduplicates_latest_user_turn() {
+        let (core, _temp) = create_test_core().await;
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        session.add_message(ChatMessage::user("hello"));
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        persist_ipc_user_message_if_needed(&core, &mut session, Some("hello"), "hello").unwrap();
+
+        let stored = core
+            .storage
+            .chat_sessions
+            .get(&session.id)
+            .unwrap()
+            .expect("session");
+        assert_eq!(stored.messages.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn persist_ipc_user_message_if_needed_auto_names_new_chat() {
+        let (core, _temp) = create_test_core().await;
+        let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        core.storage.chat_sessions.create(&session).unwrap();
+
+        persist_ipc_user_message_if_needed(
+            &core,
+            &mut session,
+            Some("hello from ipc"),
+            "hello from ipc",
+        )
+        .unwrap();
+
+        let stored = core
+            .storage
+            .chat_sessions
+            .get(&session.id)
+            .unwrap()
+            .expect("session");
+        assert_eq!(stored.name, "hello from ipc");
     }
 
     #[test]

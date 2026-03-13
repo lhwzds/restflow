@@ -652,8 +652,16 @@ impl ChatDispatcher {
     /// For voice messages, we attach a media context block so the main agent
     /// can call the `transcribe` tool with a concrete local file path.
     fn build_agent_input(message: &InboundMessage, file_path_override: Option<&str>) -> String {
+        Self::build_agent_input_from_content(message, &message.content, file_path_override)
+    }
+
+    fn build_agent_input_from_content(
+        message: &InboundMessage,
+        content: &str,
+        file_path_override: Option<&str>,
+    ) -> String {
         let Some(metadata) = message.metadata.as_ref() else {
-            return message.content.clone();
+            return content.to_string();
         };
 
         let media_type = metadata.get("media_type").and_then(|value| value.as_str());
@@ -663,10 +671,10 @@ impl ChatDispatcher {
         match (media_type, file_path) {
             (Some("voice"), Some(path)) => format!(
                 "{content}\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {path}\ninstruction: Use the transcribe tool with this file_path before answering.",
-                content = message.content,
+                content = content,
                 path = path
             ),
-            _ => message.content.clone(),
+            _ => content.to_string(),
         }
     }
 
@@ -758,8 +766,8 @@ impl ChatDispatcher {
         let relocated_path =
             Self::relocate_media_to_session(message.metadata.as_ref(), &session.id);
         let input = if relocated_path.is_some() {
-            // Rebuild the agent input with the relocated file path
-            Self::build_agent_input(message, relocated_path.as_deref())
+            // Preserve the debounced text while swapping in the relocated media path.
+            Self::build_agent_input_from_content(message, &debounced, relocated_path.as_deref())
         } else {
             debounced
         };
@@ -1112,6 +1120,28 @@ mod tests {
 
         let input = ChatDispatcher::build_agent_input(&message, None);
         assert_eq!(input, "[Voice message, 6s]");
+    }
+
+    #[test]
+    fn test_build_agent_input_from_content_preserves_debounced_text_with_voice_media() {
+        let media_dir = crate::paths::media_dir().unwrap();
+        let voice_path = media_dir.join("session-voice.ogg");
+        let voice_path_str = voice_path.to_string_lossy().to_string();
+
+        let message = create_message("[Voice message, 6s]").with_metadata(json!({
+            "media_type": "voice",
+            "file_path": voice_path_str
+        }));
+
+        let input = ChatDispatcher::build_agent_input_from_content(
+            &message,
+            "first line\nsecond line",
+            None,
+        );
+
+        assert!(input.contains("first line\nsecond line"));
+        assert!(input.contains(&voice_path_str));
+        assert!(!input.contains("[Voice message, 6s]\n\n[Media Context]"));
     }
 
     #[test]
