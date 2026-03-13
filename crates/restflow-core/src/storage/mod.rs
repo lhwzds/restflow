@@ -14,6 +14,7 @@ pub mod execution_trace;
 pub mod hook;
 pub mod kv_store;
 pub mod memory;
+pub mod session;
 pub mod skill;
 pub mod terminal_session;
 pub mod tool_trace;
@@ -47,6 +48,7 @@ pub use execution_trace::ExecutionTraceStorage;
 pub use hook::HookStorage;
 pub use kv_store::KvStoreStorage;
 pub use memory::MemoryStorage;
+pub use session::SessionStorage;
 pub use skill::SkillStorage;
 pub use terminal_session::TerminalSessionStorage;
 pub use tool_trace::ToolTraceStorage;
@@ -72,6 +74,7 @@ pub struct Storage {
     pub chat_sessions: ChatSessionStorage,
     pub channel_session_bindings: ChannelSessionBindingStorage,
     pub tool_traces: ToolTraceStorage,
+    pub sessions: SessionStorage,
     pub deliverables: DeliverableStorage,
     pub hooks: HookStorage,
     pub work_items: WorkItemStorage,
@@ -125,6 +128,11 @@ impl Storage {
             &channel_session_bindings,
         )?;
         let tool_traces = ToolTraceStorage::new(db.clone())?;
+        let sessions = SessionStorage::new(
+            chat_sessions.clone(),
+            channel_session_bindings.clone(),
+            tool_traces.clone(),
+        );
         let deliverables = DeliverableStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
         let work_items = WorkItemStorage::new(db.clone())?;
@@ -148,6 +156,7 @@ impl Storage {
             chat_sessions,
             channel_session_bindings,
             tool_traces,
+            sessions,
             deliverables,
             hooks,
             work_items,

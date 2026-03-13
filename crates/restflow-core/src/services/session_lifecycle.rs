@@ -1,8 +1,5 @@
 use crate::models::{BackgroundAgent, ChatSession, ChatSessionSource};
-use crate::storage::{
-    BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage, Storage,
-    ToolTraceStorage,
-};
+use crate::storage::{BackgroundAgentStorage, SessionStorage, Storage};
 use anyhow::Result;
 use std::collections::HashMap;
 
@@ -72,38 +69,27 @@ pub struct SessionLifecycleCleanupStats {
 
 #[derive(Clone)]
 pub struct SessionLifecycleService {
-    chat_sessions: ChatSessionStorage,
-    channel_session_bindings: ChannelSessionBindingStorage,
-    tool_traces: ToolTraceStorage,
+    sessions: SessionStorage,
     background_agents: BackgroundAgentStorage,
 }
 
 impl SessionLifecycleService {
-    pub fn new(
-        chat_sessions: ChatSessionStorage,
-        channel_session_bindings: ChannelSessionBindingStorage,
-        tool_traces: ToolTraceStorage,
-        background_agents: BackgroundAgentStorage,
-    ) -> Self {
+    pub fn new(sessions: SessionStorage, background_agents: BackgroundAgentStorage) -> Self {
         Self {
-            chat_sessions,
-            channel_session_bindings,
-            tool_traces,
+            sessions,
             background_agents,
         }
     }
 
     pub fn from_storage(storage: &Storage) -> Self {
-        Self::new(
-            storage.chat_sessions.clone(),
-            storage.channel_session_bindings.clone(),
-            storage.tool_traces.clone(),
-            storage.background_agents.clone(),
-        )
+        Self::new(storage.sessions.clone(), storage.background_agents.clone())
     }
 
     pub fn management_owner(&self, session: &ChatSession) -> Result<Option<ChatSessionSource>> {
-        let bindings = self.channel_session_bindings.list_by_session(&session.id)?;
+        let bindings = self
+            .sessions
+            .channel_session_bindings
+            .list_by_session(&session.id)?;
         if let Some(binding) = bindings.first() {
             let owner = match binding.channel.trim().to_ascii_lowercase().as_str() {
                 "telegram" => ChatSessionSource::Telegram,
@@ -181,34 +167,25 @@ impl SessionLifecycleService {
     }
 
     pub fn cleanup_session_artifacts(&self, session_id: &str) -> Result<()> {
-        let bindings = self.channel_session_bindings.list_by_session(session_id)?;
-        for binding in bindings {
-            self.channel_session_bindings.remove_by_route(
-                &binding.channel,
-                binding.account_id.as_deref(),
-                &binding.conversation_id,
-            )?;
-        }
-        self.tool_traces.delete_by_session(session_id)?;
-        Ok(())
+        self.sessions.cleanup_artifacts(session_id)
     }
 
     pub fn archive_workspace_session(&self, session_id: &str) -> Result<bool> {
-        let Some(session) = self.chat_sessions.get(session_id)? else {
+        let Some(session) = self.sessions.chat_sessions.get(session_id)? else {
             return Ok(false);
         };
 
         self.ensure_workspace_operation_allowed(&session, "archived")?;
-        self.chat_sessions.archive(session_id)
+        self.sessions.chat_sessions.archive(session_id)
     }
 
     pub fn delete_workspace_session(&self, session_id: &str) -> Result<bool> {
-        let Some(session) = self.chat_sessions.get(session_id)? else {
+        let Some(session) = self.sessions.chat_sessions.get(session_id)? else {
             return Ok(false);
         };
 
         self.ensure_workspace_operation_allowed(&session, "deleted")?;
-        let deleted = self.chat_sessions.delete(session_id)?;
+        let deleted = self.sessions.chat_sessions.delete(session_id)?;
         if deleted {
             self.cleanup_session_artifacts(session_id)?;
         }
@@ -219,7 +196,7 @@ impl SessionLifecycleService {
         &self,
         older_than_ms: i64,
     ) -> Result<SessionLifecycleCleanupStats> {
-        let sessions = self.chat_sessions.list_all()?;
+        let sessions = self.sessions.chat_sessions.list_all()?;
         let task_map = self.background_task_by_session_map()?;
         let mut stats = SessionLifecycleCleanupStats {
             scanned: sessions.len(),
@@ -245,7 +222,7 @@ impl SessionLifecycleService {
             let serialized_len = serde_json::to_vec(&session)
                 .map(|bytes| bytes.len() as u64)
                 .unwrap_or(0);
-            if self.chat_sessions.delete(&session.id)? {
+            if self.sessions.chat_sessions.delete(&session.id)? {
                 self.cleanup_session_artifacts(&session.id)?;
                 stats.deleted += 1;
                 stats.bytes_freed += serialized_len;
@@ -259,7 +236,7 @@ impl SessionLifecycleService {
         &self,
         now_ms: i64,
     ) -> Result<SessionLifecycleCleanupStats> {
-        let sessions = self.chat_sessions.list_all()?;
+        let sessions = self.sessions.chat_sessions.list_all()?;
         let task_map = self.background_task_by_session_map()?;
         let mut stats = SessionLifecycleCleanupStats {
             scanned: sessions.len(),
@@ -296,7 +273,7 @@ impl SessionLifecycleService {
             let serialized_len = serde_json::to_vec(&session)
                 .map(|bytes| bytes.len() as u64)
                 .unwrap_or(0);
-            if self.chat_sessions.delete(&session.id)? {
+            if self.sessions.chat_sessions.delete(&session.id)? {
                 self.cleanup_session_artifacts(&session.id)?;
                 stats.deleted += 1;
                 stats.bytes_freed += serialized_len;
