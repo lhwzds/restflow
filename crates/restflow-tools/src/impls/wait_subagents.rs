@@ -60,8 +60,7 @@ impl WaitSubagentsTool {
             if result.success {
                 entry["output"] = json!(result.output);
             } else {
-                entry["error"] =
-                    json!(result.error.unwrap_or_else(|| "Unknown error".to_string()));
+                entry["error"] = json!(result.error.unwrap_or_else(|| "Unknown error".to_string()));
                 if !result.output.is_empty() {
                     entry["output"] = json!(result.output);
                 }
