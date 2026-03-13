@@ -49,7 +49,11 @@ impl AgentExecutor {
                 output = context_manager::middle_truncate(&output, max_result_length);
             }
 
-            let error_tag = match completion.result.as_ref().and_then(|result| result.error.as_ref()) {
+            let error_tag = match completion
+                .result
+                .as_ref()
+                .and_then(|result| result.error.as_ref())
+            {
                 Some(err) => format!("\n  <error>{}</error>", err),
                 None => String::new(),
             };
@@ -68,12 +72,7 @@ impl AgentExecutor {
                  <duration_ms>{}</duration_ms>\n  \
                  <output>{}</output>{}\n\
                  </subagent_notification>",
-                completion.id,
-                agent_name,
-                status_str,
-                duration_ms,
-                output,
-                error_tag,
+                completion.id, agent_name, status_str, duration_ms, output, error_tag,
             );
 
             tracing::info!(
