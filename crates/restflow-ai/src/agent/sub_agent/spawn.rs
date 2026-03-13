@@ -623,7 +623,6 @@ async fn execute_subagent_with_orchestrator(
         parent_execution_id: request.parent_execution_id.clone(),
         trace_session_id: Some(execution.trace_context.session_id.clone()),
         trace_scope_id: Some(execution.trace_context.scope_id.clone()),
-        persist_result: false,
         metadata: Some(json!({
             "subagent_name": agent_def.name,
             "effective_limits": execution.effective_limits,
@@ -1067,6 +1066,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("temporary subagent result should be available");
+        let result = result.result.expect("temporary subagent payload");
         assert!(result.success);
         assert_eq!(handle.agent_name, TEMPORARY_SUBAGENT_NAME);
     }
@@ -1116,6 +1116,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("subagent result should be available");
+        let result = result.result.expect("subagent result payload");
         assert!(result.success);
         assert_eq!(result.output, "orchestrated");
 
@@ -1176,6 +1177,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("subagent result should be available");
+        let result = result.result.expect("subagent result payload");
         assert!(result.success);
 
         let plans = orchestrator.plans.lock().expect("plans lock");
@@ -1229,6 +1231,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("subagent result should be available");
+        let result = result.result.expect("subagent result payload");
         assert!(result.success);
 
         let plans = orchestrator.plans.lock().expect("plans lock");
@@ -1420,6 +1423,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("subagent result should be available");
+        let result = result.result.expect("subagent result payload");
         assert!(result.success);
 
         let events = sink.events.lock().expect("events lock").clone();
@@ -1548,6 +1552,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("subagent result should be available");
+        let result = result.result.expect("subagent result payload");
 
         assert!(!result.success);
         assert_eq!(result.error.as_deref(), Some("LLM returned an error"));
@@ -1604,6 +1609,7 @@ mod tests {
             .wait(&handle.id)
             .await
             .expect("subagent result should be available");
+        let result = result.result.expect("subagent result payload");
 
         assert!(!result.success);
         assert_eq!(result.error.as_deref(), Some("Max iterations reached"));

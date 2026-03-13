@@ -12,7 +12,8 @@ use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::store::KvStore;
 use restflow_traits::{
-    DEFAULT_SUBAGENT_TIMEOUT_SECS, InlineSubagentConfig, SpawnRequest, SubagentManager,
+    DEFAULT_SUBAGENT_TIMEOUT_SECS, InlineSubagentConfig, SpawnRequest, SubagentCompletion,
+    SubagentManager, SubagentStatus,
 };
 
 #[cfg(feature = "ts")]
@@ -128,6 +129,44 @@ pub struct SpawnSubagentTool {
 }
 
 impl SpawnSubagentTool {
+    fn completion_output(
+        task_id: &str,
+        agent_name: &str,
+        completion: SubagentCompletion,
+        effective_limits: &restflow_traits::SubagentEffectiveLimits,
+    ) -> Value {
+        let status = match completion.status {
+            SubagentStatus::Completed => "completed",
+            SubagentStatus::Failed => "failed",
+            SubagentStatus::Interrupted => "interrupted",
+            SubagentStatus::TimedOut => "timed_out",
+            SubagentStatus::Pending => "pending",
+            SubagentStatus::Running => "running",
+        };
+
+        let mut output = json!({
+            "task_id": task_id,
+            "agent": agent_name,
+            "status": status,
+            "effective_limits": effective_limits,
+        });
+
+        if let Some(result) = completion.result {
+            output["duration_ms"] = json!(result.duration_ms);
+            if result.success {
+                output["output"] = json!(result.output);
+            } else {
+                output["error"] =
+                    json!(result.error.unwrap_or_else(|| "Unknown error".to_string()));
+                if !result.output.is_empty() {
+                    output["output"] = json!(result.output);
+                }
+            }
+        }
+
+        output
+    }
+
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
         Self {
             manager,
@@ -535,6 +574,7 @@ impl Tool for SpawnSubagentTool {
                     Ok(None) => return Ok(ToolOutput::error("Sub-agent not found")),
                     Err(_) => {
                         return Ok(ToolOutput::success(json!({
+                            "task_id": handle.id,
                             "agent": handle.agent_name,
                             "status": "timeout",
                             "message": "Timeout waiting for sub-agent",
@@ -544,24 +584,12 @@ impl Tool for SpawnSubagentTool {
                 }
             };
 
-            let output = if result.success {
-                json!({
-                    "agent": handle.agent_name,
-                    "status": "completed",
-                    "output": result.output,
-                    "duration_ms": result.duration_ms,
-                    "effective_limits": handle.effective_limits,
-                })
-            } else {
-                json!({
-                    "agent": handle.agent_name,
-                    "status": "failed",
-                    "error": result.error.unwrap_or_else(|| "Unknown error".to_string()),
-                    "duration_ms": result.duration_ms,
-                    "effective_limits": handle.effective_limits,
-                })
-            };
-            Ok(ToolOutput::success(output))
+            Ok(ToolOutput::success(Self::completion_output(
+                &handle.id,
+                &handle.agent_name,
+                result,
+                &handle.effective_limits,
+            )))
         } else {
             Ok(ToolOutput::success(json!({
                 "task_id": handle.id,
@@ -844,6 +872,25 @@ mod tests {
         assert!(result.success); // ToolOutput is success, but status indicates failure
         assert_eq!(result.result["status"], "failed");
         assert!(result.result["error"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_spawn_subagent_wait_timeout_returns_task_id() {
+        let deps = make_test_deps(
+            vec![("coder", "Coder")],
+            vec![MockStep::text("slow").with_delay(2_000)],
+        );
+        let tool = SpawnSubagentTool::new(deps);
+        let result = tool
+            .execute(
+                json!({"agent": "coder", "task": "Write code", "wait": true, "timeout_secs": 1}),
+            )
+            .await
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.result["status"], "timeout");
+        assert!(result.result["task_id"].as_str().is_some());
     }
 
     #[tokio::test]

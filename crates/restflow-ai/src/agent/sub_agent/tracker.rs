@@ -43,6 +43,26 @@ pub struct SubagentTracker {
 }
 
 impl SubagentTracker {
+    fn completion_for_state(id: &str, state: &SubagentState) -> SubagentCompletion {
+        SubagentCompletion {
+            id: id.to_string(),
+            status: state.status.clone(),
+            result: state.result.clone(),
+        }
+    }
+
+    fn interrupted_result() -> SubagentResult {
+        SubagentResult {
+            success: false,
+            output: String::new(),
+            summary: None,
+            duration_ms: 0,
+            tokens_used: None,
+            cost_usd: None,
+            error: Some("Sub-agent interrupted".to_string()),
+        }
+    }
+
     /// Create a new tracker.
     pub fn new(
         completion_tx: mpsc::Sender<SubagentCompletion>,
@@ -250,18 +270,18 @@ impl SubagentTracker {
     }
 
     /// Wait for a specific sub-agent to complete.
-    pub async fn wait(&self, id: &str) -> Option<SubagentResult> {
+    pub async fn wait(&self, id: &str) -> Option<SubagentCompletion> {
         loop {
             let state = self.states.get(id)?;
-            if let Some(result) = state.result.clone() {
-                return Some(result);
+            if state.result.is_some() {
+                return Some(Self::completion_for_state(id, &state));
             }
 
             if !matches!(
                 state.status,
                 SubagentStatus::Pending | SubagentStatus::Running
             ) {
-                return None;
+                return Some(Self::completion_for_state(id, &state));
             }
 
             drop(state);
@@ -270,7 +290,7 @@ impl SubagentTracker {
     }
 
     /// Wait for all running sub-agents to complete.
-    pub async fn wait_all(&self) -> Vec<SubagentResult> {
+    pub async fn wait_all(&self) -> Vec<SubagentCompletion> {
         let ids: Vec<String> = self
             .abort_handles
             .iter()
@@ -287,11 +307,9 @@ impl SubagentTracker {
     }
 
     /// Wait for any sub-agent to complete.
-    pub async fn wait_any(&self) -> Option<(String, SubagentResult)> {
+    pub async fn wait_any(&self) -> Option<SubagentCompletion> {
         let mut rx = self.completion_rx.lock().await;
-        rx.recv()
-            .await
-            .map(|completion| (completion.id, completion.result))
+        rx.recv().await
     }
 
     /// Cancel a running sub-agent.
@@ -302,6 +320,9 @@ impl SubagentTracker {
             if let Some(mut state) = self.states.get_mut(id) {
                 state.status = SubagentStatus::Interrupted;
                 state.completed_at = Some(chrono::Utc::now().timestamp_millis());
+                state.result = Some(Self::interrupted_result());
+                let completion = Self::completion_for_state(id, &state);
+                let _ = self.completion_tx.try_send(completion);
             }
             true
         } else {
@@ -355,7 +376,12 @@ impl SubagentTracker {
 
         let _ = self.completion_tx.try_send(SubagentCompletion {
             id: id.to_string(),
-            result,
+            status: if result.success {
+                SubagentStatus::Completed
+            } else {
+                SubagentStatus::Failed
+            },
+            result: Some(result),
         });
     }
 
@@ -388,7 +414,8 @@ impl SubagentTracker {
 
         let _ = self.completion_tx.try_send(SubagentCompletion {
             id: id.to_string(),
-            result,
+            status: SubagentStatus::TimedOut,
+            result: Some(result),
         });
     }
 
@@ -587,6 +614,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn wait_returns_interrupted_completion_after_cancel() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+
+        let handle = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            SubagentResult {
+                success: true,
+                output: "late".to_string(),
+                summary: None,
+                duration_ms: 10_000,
+                tokens_used: None,
+                cost_usd: None,
+                error: None,
+            }
+        });
+        let (_completion_tx, completion_rx) = oneshot::channel();
+
+        tracker.register(
+            "cancelled".to_string(),
+            "tester".to_string(),
+            "cancel me".to_string(),
+            handle,
+            completion_rx,
+        );
+
+        assert!(tracker.cancel("cancelled"));
+        let completion = tracker
+            .wait("cancelled")
+            .await
+            .expect("cancelled task should yield a terminal completion");
+        assert_eq!(completion.status, SubagentStatus::Interrupted);
+        assert_eq!(
+            completion
+                .result
+                .and_then(|result| result.error)
+                .as_deref(),
+            Some("Sub-agent interrupted")
+        );
+    }
+
+    #[tokio::test]
     async fn wait_timeout_is_retryable() {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
@@ -628,6 +697,7 @@ mod tests {
         let result = second_wait
             .expect("second wait future should finish")
             .expect("completed task should return result");
+        let result = result.result.expect("completed task payload");
         assert!(result.success);
         assert_eq!(result.output, "done");
     }

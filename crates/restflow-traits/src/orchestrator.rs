@@ -57,9 +57,6 @@ pub struct ExecutionPlan {
     /// Optional trace scope ID.
     #[serde(default)]
     pub trace_scope_id: Option<String>,
-    /// Whether execution results should be persisted by the mode implementation.
-    #[serde(default)]
-    pub persist_result: bool,
     /// Mode-specific metadata payload.
     #[serde(default)]
     pub metadata: Option<Value>,
@@ -92,24 +89,33 @@ impl ExecutionPlan {
 
         match mode {
             ExecutionMode::Interactive => {
-                if self.agent_id.is_none() {
-                    return Err(ToolError::Tool(
-                        "Interactive execution requires 'agent_id'.".to_string(),
-                    ));
-                }
-                if self.chat_session_id.is_none() {
+                if self
+                    .chat_session_id
+                    .as_ref()
+                    .map(|value| value.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     return Err(ToolError::Tool(
                         "Interactive execution requires 'chat_session_id'.".to_string(),
                     ));
                 }
-                if self.input.is_none() {
+                if self
+                    .input
+                    .as_ref()
+                    .map(|value| value.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     return Err(ToolError::Tool(
                         "Interactive execution requires non-empty 'input'.".to_string(),
                     ));
                 }
             }
             ExecutionMode::Subagent => {
-                let has_selector = self.agent_id.is_some()
+                let has_selector = self
+                    .agent_id
+                    .as_ref()
+                    .map(|value| !value.trim().is_empty())
+                    .unwrap_or(false)
                     || self.inline_subagent.is_some()
                     || (has_model && has_provider);
                 if !has_selector {
@@ -117,14 +123,24 @@ impl ExecutionPlan {
                         "Subagent execution requires 'agent_id', 'inline_subagent', or paired 'model' and 'provider'.".to_string(),
                     ));
                 }
-                if self.input.is_none() {
+                if self
+                    .input
+                    .as_ref()
+                    .map(|value| value.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     return Err(ToolError::Tool(
                         "Subagent execution requires non-empty 'input'.".to_string(),
                     ));
                 }
             }
             ExecutionMode::Background => {
-                if self.agent_id.is_none() {
+                if self
+                    .agent_id
+                    .as_ref()
+                    .map(|value| value.trim().is_empty())
+                    .unwrap_or(true)
+                {
                     return Err(ToolError::Tool(
                         "Background execution requires 'agent_id'.".to_string(),
                     ));
@@ -217,5 +233,29 @@ mod tests {
         };
 
         assert!(valid.validate().is_ok());
+    }
+
+    #[test]
+    fn test_execution_plan_interactive_only_requires_session_and_input() {
+        let valid = ExecutionPlan {
+            mode: Some(ExecutionMode::Interactive),
+            chat_session_id: Some("session-1".to_string()),
+            input: Some("hello".to_string()),
+            ..ExecutionPlan::default()
+        };
+
+        assert!(valid.validate().is_ok());
+    }
+
+    #[test]
+    fn test_execution_plan_rejects_whitespace_only_fields() {
+        let invalid = ExecutionPlan {
+            mode: Some(ExecutionMode::Subagent),
+            agent_id: Some("   ".to_string()),
+            input: Some("   ".to_string()),
+            ..ExecutionPlan::default()
+        };
+
+        assert!(invalid.validate().is_err());
     }
 }

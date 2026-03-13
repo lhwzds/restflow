@@ -31,21 +31,34 @@ impl AgentExecutor {
                 .map(|s| s.agent_name.clone())
                 .unwrap_or_else(|| "unknown".to_string());
 
-            let status_str = if completion.result.success {
-                "completed"
-            } else {
-                "failed"
+            let status_str = match completion.status {
+                crate::agent::SubagentStatus::Completed => "completed",
+                crate::agent::SubagentStatus::Failed => "failed",
+                crate::agent::SubagentStatus::Interrupted => "interrupted",
+                crate::agent::SubagentStatus::TimedOut => "timed_out",
+                crate::agent::SubagentStatus::Pending => "pending",
+                crate::agent::SubagentStatus::Running => "running",
             };
 
-            let mut output = completion.result.output.clone();
+            let mut output = completion
+                .result
+                .as_ref()
+                .map(|result| result.output.clone())
+                .unwrap_or_default();
             if output.len() > max_result_length {
                 output = context_manager::middle_truncate(&output, max_result_length);
             }
 
-            let error_tag = match &completion.result.error {
+            let error_tag = match completion.result.as_ref().and_then(|result| result.error.as_ref()) {
                 Some(err) => format!("\n  <error>{}</error>", err),
                 None => String::new(),
             };
+
+            let duration_ms = completion
+                .result
+                .as_ref()
+                .map(|result| result.duration_ms)
+                .unwrap_or_default();
 
             let notification = format!(
                 "<subagent_notification>\n  \
@@ -58,7 +71,7 @@ impl AgentExecutor {
                 completion.id,
                 agent_name,
                 status_str,
-                completion.result.duration_ms,
+                duration_ms,
                 output,
                 error_tag,
             );
