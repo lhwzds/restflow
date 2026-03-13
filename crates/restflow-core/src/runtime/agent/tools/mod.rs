@@ -476,11 +476,9 @@ pub fn registry_from_allowlist_with_security_gate(
             "manage_sessions" | "sessions" => {
                 with_storage!(storage, "manage_sessions", builder, |s| {
                     builder.with_session(Arc::new(SessionStorageAdapter::new(
-                        s.chat_sessions.clone(),
+                        s.sessions.clone(),
                         s.agents.clone(),
                         s.background_agents.clone(),
-                        s.channel_session_bindings.clone(),
-                        s.tool_traces.clone(),
                     )))
                 });
             }

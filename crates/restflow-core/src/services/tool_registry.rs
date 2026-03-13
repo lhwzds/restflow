@@ -346,11 +346,13 @@ pub fn create_tool_registry(
     // Create adapters
     let skill_provider = Arc::new(SkillStorageProvider::new(skill_storage.clone()));
     let session_store = Arc::new(SessionStorageAdapter::new(
-        chat_storage.clone(),
+        crate::storage::SessionStorage::new(
+            chat_storage.clone(),
+            channel_session_binding_storage,
+            tool_trace_storage.clone(),
+        ),
         agent_storage.clone(),
         background_agent_storage.clone(),
-        channel_session_binding_storage,
-        tool_trace_storage.clone(),
     ));
     let memory_manager = Arc::new(MemoryManagerAdapter::new(memory_storage.clone()));
     let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));

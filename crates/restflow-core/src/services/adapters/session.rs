@@ -2,10 +2,7 @@
 
 use crate::models::ChatSessionSource;
 use crate::services::session_lifecycle::SessionLifecycleService;
-use crate::storage::{
-    AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
-    ToolTraceStorage,
-};
+use crate::storage::{AgentStorage, BackgroundAgentStorage, SessionStorage};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
     SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore,
@@ -14,37 +11,26 @@ use serde_json::{Value, json};
 
 #[derive(Clone)]
 pub struct SessionStorageAdapter {
-    storage: ChatSessionStorage,
+    sessions: SessionStorage,
     agent_storage: AgentStorage,
     background_agent_storage: BackgroundAgentStorage,
-    channel_session_bindings: ChannelSessionBindingStorage,
-    tool_traces: ToolTraceStorage,
 }
 
 impl SessionStorageAdapter {
     pub fn new(
-        storage: ChatSessionStorage,
+        sessions: SessionStorage,
         agent_storage: AgentStorage,
         background_agent_storage: BackgroundAgentStorage,
-        channel_session_bindings: ChannelSessionBindingStorage,
-        tool_traces: ToolTraceStorage,
     ) -> Self {
         Self {
-            storage,
+            sessions,
             agent_storage,
             background_agent_storage,
-            channel_session_bindings,
-            tool_traces,
         }
     }
 
     fn lifecycle(&self) -> SessionLifecycleService {
-        SessionLifecycleService::new(
-            self.storage.clone(),
-            self.channel_session_bindings.clone(),
-            self.tool_traces.clone(),
-            self.background_agent_storage.clone(),
-        )
+        SessionLifecycleService::new(self.sessions.clone(), self.background_agent_storage.clone())
     }
 }
 
@@ -52,12 +38,14 @@ impl SessionStore for SessionStorageAdapter {
     fn list_sessions(&self, filter: SessionListFilter) -> restflow_tools::Result<Value> {
         let include_archived = filter.include_archived.unwrap_or(false);
         let sessions = match (&filter.agent_id, &filter.skill_id, include_archived) {
-            (Some(agent_id), _, true) => self.storage.list_by_agent_all(agent_id)?,
-            (Some(agent_id), _, false) => self.storage.list_by_agent(agent_id)?,
-            (None, Some(skill_id), true) => self.storage.list_by_skill_all(skill_id)?,
-            (None, Some(skill_id), false) => self.storage.list_by_skill(skill_id)?,
-            (None, None, true) => self.storage.list_all()?,
-            (None, None, false) => self.storage.list()?,
+            (Some(agent_id), _, true) => self.sessions.chat_sessions.list_by_agent_all(agent_id)?,
+            (Some(agent_id), _, false) => self.sessions.chat_sessions.list_by_agent(agent_id)?,
+            (None, Some(skill_id), true) => {
+                self.sessions.chat_sessions.list_by_skill_all(skill_id)?
+            }
+            (None, Some(skill_id), false) => self.sessions.chat_sessions.list_by_skill(skill_id)?,
+            (None, None, true) => self.sessions.chat_sessions.list_all()?,
+            (None, None, false) => self.sessions.chat_sessions.list()?,
         };
 
         if filter.include_messages.unwrap_or(false) {
@@ -73,7 +61,8 @@ impl SessionStore for SessionStorageAdapter {
 
     fn get_session(&self, id: &str) -> restflow_tools::Result<Value> {
         let session = self
-            .storage
+            .sessions
+            .chat_sessions
             .get(id)?
             .ok_or_else(|| ToolError::Tool(format!("Session {} not found", id)))?;
         Ok(serde_json::to_value(session)?)
@@ -94,7 +83,7 @@ impl SessionStore for SessionStorageAdapter {
         if let Some(retention) = request.retention {
             session = session.with_retention(retention);
         }
-        self.storage.create(&session)?;
+        self.sessions.chat_sessions.create(&session)?;
         Ok(serde_json::to_value(session)?)
     }
 
@@ -104,7 +93,7 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn unarchive_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let unarchived = self.storage.unarchive(id)?;
+        let unarchived = self.sessions.chat_sessions.unarchive(id)?;
         Ok(json!({ "id": id, "unarchived": unarchived }))
     }
 
@@ -120,10 +109,10 @@ impl SessionStore for SessionStorageAdapter {
     fn search_sessions(&self, query: SessionSearchQuery) -> restflow_tools::Result<Value> {
         let include_archived = query.include_archived.unwrap_or(false);
         let mut sessions = match (&query.agent_id, include_archived) {
-            (Some(agent_id), true) => self.storage.list_by_agent_all(agent_id)?,
-            (Some(agent_id), false) => self.storage.list_by_agent(agent_id)?,
-            (None, true) => self.storage.list_all()?,
-            (None, false) => self.storage.list()?,
+            (Some(agent_id), true) => self.sessions.chat_sessions.list_by_agent_all(agent_id)?,
+            (Some(agent_id), false) => self.sessions.chat_sessions.list_by_agent(agent_id)?,
+            (None, true) => self.sessions.chat_sessions.list_all()?,
+            (None, false) => self.sessions.chat_sessions.list()?,
         };
         if let Some(skill_id) = &query.skill_id {
             sessions.retain(|session| session.skill_id.as_deref() == Some(skill_id.as_str()));
@@ -168,19 +157,15 @@ mod tests {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(redb::Database::create(db_path).unwrap());
-        let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
+        let session_storage = SessionStorage::new(
+            crate::storage::ChatSessionStorage::new(db.clone()).unwrap(),
+            crate::storage::ChannelSessionBindingStorage::new(db.clone()).unwrap(),
+            crate::storage::ToolTraceStorage::new(db.clone()).unwrap(),
+        );
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
-        let channel_session_bindings = ChannelSessionBindingStorage::new(db.clone()).unwrap();
-        let tool_traces = ToolTraceStorage::new(db).unwrap();
         (
-            SessionStorageAdapter::new(
-                chat_storage,
-                agent_storage,
-                background_agent_storage,
-                channel_session_bindings,
-                tool_traces,
-            ),
+            SessionStorageAdapter::new(session_storage, agent_storage, background_agent_storage),
             temp_dir,
         )
     }
