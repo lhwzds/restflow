@@ -19,7 +19,7 @@ use crate::runtime::channel::{
     build_turn_persistence_payload, hydrate_voice_message_metadata,
     replace_latest_user_message_content,
 };
-use crate::runtime::orchestrator::AgentOrchestratorImpl;
+use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::runtime::trace::{RestflowTrace, TraceEvent, append_trace_event};
 use crate::services::tool_registry::create_tool_registry;
@@ -2563,18 +2563,18 @@ async fn execute_chat_session(
 
     let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
     let traced_execution = orchestrator
-        .run_traced_interactive_session_turn(
-            &mut session,
-            &input,
-            chat_max_session_history,
-            SessionInputMode::PersistedInSession,
-            turn_id,
-            core.storage.tool_traces.clone(),
-            core.storage.execution_traces.clone(),
-            None,
+        .run_traced_interactive_session_turn(InteractiveSessionRequest {
+            session: &mut session,
+            user_input: &input,
+            max_history: chat_max_session_history,
+            input_mode: SessionInputMode::PersistedInSession,
+            run_id: turn_id,
+            tool_trace_storage: core.storage.tool_traces.clone(),
+            execution_trace_storage: core.storage.execution_traces.clone(),
+            timeout_secs: None,
             emitter,
             steer_rx,
-        )
+        })
         .await
         .map_err(anyhow::Error::new)?;
     let trace = traced_execution.trace;

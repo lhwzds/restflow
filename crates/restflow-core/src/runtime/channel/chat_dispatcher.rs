@@ -20,7 +20,9 @@ use crate::models::{
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{build_turn_persistence_payload, hydrate_voice_message_metadata};
-use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveExecutionError};
+use crate::runtime::orchestrator::{
+    AgentOrchestratorImpl, InteractiveExecutionError, InteractiveSessionRequest,
+};
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::runtime::trace::append_message_trace;
 use crate::storage::Storage;
@@ -795,18 +797,18 @@ impl ChatDispatcher {
         let run_id = uuid::Uuid::new_v4().to_string();
         let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
         let traced_execution = match orchestrator
-            .run_traced_interactive_session_turn(
-                &mut session,
-                &input,
-                self.config.max_session_history,
-                SessionInputMode::EphemeralInput,
+            .run_traced_interactive_session_turn(InteractiveSessionRequest {
+                session: &mut session,
+                user_input: &input,
+                max_history: self.config.max_session_history,
+                input_mode: SessionInputMode::EphemeralInput,
                 run_id,
-                self.storage.tool_traces.clone(),
-                self.storage.execution_traces.clone(),
-                self.config.response_timeout_secs,
-                None,
-                None,
-            )
+                tool_trace_storage: self.storage.tool_traces.clone(),
+                execution_trace_storage: self.storage.execution_traces.clone(),
+                timeout_secs: self.config.response_timeout_secs,
+                emitter: None,
+                steer_rx: None,
+            })
             .await
         {
             Ok(result) => result,
