@@ -43,6 +43,16 @@ pub struct SubagentTracker {
 }
 
 impl SubagentTracker {
+    fn is_terminal_status(status: &SubagentStatus) -> bool {
+        matches!(
+            status,
+            SubagentStatus::Completed
+                | SubagentStatus::Failed
+                | SubagentStatus::Interrupted
+                | SubagentStatus::TimedOut
+        )
+    }
+
     fn completion_for_state(id: &str, state: &SubagentState) -> SubagentCompletion {
         SubagentCompletion {
             id: id.to_string(),
@@ -61,6 +71,37 @@ impl SubagentTracker {
             cost_usd: None,
             error: Some("Sub-agent interrupted".to_string()),
         }
+    }
+
+    fn try_mark_terminal(
+        &self,
+        id: &str,
+        status: SubagentStatus,
+        result: Option<SubagentResult>,
+    ) -> bool {
+        if let Some(mut state) = self.states.get_mut(id) {
+            if Self::is_terminal_status(&state.status) {
+                self.abort_handles.remove(id);
+                self.completion_waiters.remove(id);
+                return false;
+            }
+
+            state.status = status.clone();
+            state.completed_at = Some(chrono::Utc::now().timestamp_millis());
+            state.result = result.clone();
+
+            self.abort_handles.remove(id);
+            self.completion_waiters.remove(id);
+
+            let _ = self.completion_tx.try_send(SubagentCompletion {
+                id: id.to_string(),
+                status,
+                result,
+            });
+            return true;
+        }
+
+        false
     }
 
     /// Create a new tracker.
@@ -317,13 +358,11 @@ impl SubagentTracker {
         if let Some((_, handle)) = self.abort_handles.remove(id) {
             handle.abort();
             self.completion_waiters.remove(id);
-            if let Some(mut state) = self.states.get_mut(id) {
-                state.status = SubagentStatus::Interrupted;
-                state.completed_at = Some(chrono::Utc::now().timestamp_millis());
-                state.result = Some(Self::interrupted_result());
-                let completion = Self::completion_for_state(id, &state);
-                let _ = self.completion_tx.try_send(completion);
-            }
+            let _ = self.try_mark_terminal(
+                id,
+                SubagentStatus::Interrupted,
+                Some(Self::interrupted_result()),
+            );
             true
         } else {
             false
@@ -350,39 +389,12 @@ impl SubagentTracker {
     ///
     /// This will not overwrite status if the sub-agent was already interrupted or timed out.
     pub fn mark_completed(&self, id: &str, result: SubagentResult) {
-        if let Some(state) = self.states.get(id)
-            && matches!(
-                state.status,
-                SubagentStatus::Interrupted | SubagentStatus::TimedOut
-            )
-        {
-            self.abort_handles.remove(id);
-            self.completion_waiters.remove(id);
-            return;
-        }
-
-        if let Some(mut state) = self.states.get_mut(id) {
-            state.status = if result.success {
-                SubagentStatus::Completed
-            } else {
-                SubagentStatus::Failed
-            };
-            state.completed_at = Some(chrono::Utc::now().timestamp_millis());
-            state.result = Some(result.clone());
-        }
-
-        self.abort_handles.remove(id);
-        self.completion_waiters.remove(id);
-
-        let _ = self.completion_tx.try_send(SubagentCompletion {
-            id: id.to_string(),
-            status: if result.success {
-                SubagentStatus::Completed
-            } else {
-                SubagentStatus::Failed
-            },
-            result: Some(result),
-        });
+        let status = if result.success {
+            SubagentStatus::Completed
+        } else {
+            SubagentStatus::Failed
+        };
+        let _ = self.try_mark_terminal(id, status, Some(result));
     }
 
     /// Mark a sub-agent as timed out.
@@ -403,20 +415,7 @@ impl SubagentTracker {
 
     /// Mark a sub-agent as timed out with a specific result.
     pub fn mark_timed_out_with_result(&self, id: &str, result: SubagentResult) {
-        if let Some(mut state) = self.states.get_mut(id) {
-            state.status = SubagentStatus::TimedOut;
-            state.completed_at = Some(chrono::Utc::now().timestamp_millis());
-            state.result = Some(result.clone());
-        }
-
-        self.abort_handles.remove(id);
-        self.completion_waiters.remove(id);
-
-        let _ = self.completion_tx.try_send(SubagentCompletion {
-            id: id.to_string(),
-            status: SubagentStatus::TimedOut,
-            result: Some(result),
-        });
+        let _ = self.try_mark_terminal(id, SubagentStatus::TimedOut, Some(result));
     }
 
     /// Clean up completed sub-agents older than the given age.
@@ -565,6 +564,45 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mark_timed_out_does_not_overwrite_interrupted() {
+        let (tx, _rx) = mpsc::channel(1);
+        let (_completion_tx, completion_rx) = mpsc::channel(1);
+        let tracker = Arc::new(SubagentTracker::new(tx, completion_rx));
+
+        let state = SubagentState {
+            id: "test-id-3".to_string(),
+            agent_name: "test-agent".to_string(),
+            task: "test task".to_string(),
+            status: SubagentStatus::Interrupted,
+            started_at: chrono::Utc::now().timestamp_millis(),
+            completed_at: Some(chrono::Utc::now().timestamp_millis()),
+            result: Some(SubagentTracker::interrupted_result()),
+        };
+        tracker.states.insert("test-id-3".to_string(), state);
+
+        let result = SubagentResult {
+            success: false,
+            output: String::new(),
+            summary: None,
+            duration_ms: 100,
+            tokens_used: None,
+            cost_usd: None,
+            error: Some("Sub-agent timed out".to_string()),
+        };
+        tracker.mark_timed_out_with_result("test-id-3", result);
+
+        let final_state = tracker.states.get("test-id-3").unwrap();
+        assert_eq!(final_state.status, SubagentStatus::Interrupted);
+        assert_eq!(
+            final_state
+                .result
+                .as_ref()
+                .and_then(|value| value.error.as_deref()),
+            Some("Sub-agent interrupted")
+        );
+    }
+
+    #[tokio::test]
     async fn cancel_then_complete_race_keeps_interrupted_status() {
         let (tx, _rx) = mpsc::channel(1);
         let (_completion_tx, completion_rx) = mpsc::channel(1);
@@ -614,6 +652,59 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn cancel_then_timeout_race_keeps_interrupted_status() {
+        let (tx, _rx) = mpsc::channel(1);
+        let (_completion_tx, completion_rx) = mpsc::channel(1);
+        let tracker = Arc::new(SubagentTracker::new(tx, completion_rx));
+
+        let (abort_tx, abort_rx) = tokio::sync::oneshot::channel();
+        let handle = tokio::spawn(async {
+            let _ = abort_rx.await;
+        });
+        let abort_handle = handle.abort_handle();
+
+        let state = SubagentState {
+            id: "timeout-race".to_string(),
+            agent_name: "test-agent".to_string(),
+            task: "test task".to_string(),
+            status: SubagentStatus::Running,
+            started_at: chrono::Utc::now().timestamp_millis(),
+            completed_at: None,
+            result: None,
+        };
+        tracker.states.insert("timeout-race".to_string(), state);
+        tracker
+            .abort_handles
+            .insert("timeout-race".to_string(), abort_handle);
+
+        tracker.cancel("timeout-race");
+        tracker.mark_timed_out_with_result(
+            "timeout-race",
+            SubagentResult {
+                success: false,
+                output: String::new(),
+                summary: None,
+                duration_ms: 50,
+                tokens_used: None,
+                cost_usd: None,
+                error: Some("Sub-agent timed out".to_string()),
+            },
+        );
+
+        let final_state = tracker.states.get("timeout-race").unwrap();
+        assert_eq!(final_state.status, SubagentStatus::Interrupted);
+        assert_eq!(
+            final_state
+                .result
+                .as_ref()
+                .and_then(|value| value.error.as_deref()),
+            Some("Sub-agent interrupted")
+        );
+
+        let _ = abort_tx.send(());
+    }
+
+    #[tokio::test]
     async fn wait_returns_interrupted_completion_after_cancel() {
         let (tx, rx) = mpsc::channel(16);
         let tracker = Arc::new(SubagentTracker::new(tx, rx));
@@ -647,10 +738,7 @@ mod tests {
             .expect("cancelled task should yield a terminal completion");
         assert_eq!(completion.status, SubagentStatus::Interrupted);
         assert_eq!(
-            completion
-                .result
-                .and_then(|result| result.error)
-                .as_deref(),
+            completion.result.and_then(|result| result.error).as_deref(),
             Some("Sub-agent interrupted")
         );
     }
