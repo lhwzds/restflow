@@ -10,18 +10,21 @@ mod config;
 mod hooks;
 #[path = "dispatch/memory.rs"]
 mod memory;
+#[path = "dispatch/runtime_tools.rs"]
+mod runtime_tools;
 #[path = "dispatch/secrets.rs"]
 mod secrets;
 #[path = "dispatch/sessions.rs"]
 mod sessions;
 #[path = "dispatch/skills.rs"]
 mod skills;
+#[path = "dispatch/system.rs"]
+mod system;
 #[path = "dispatch/terminals.rs"]
 mod terminals;
 #[path = "dispatch/work_items.rs"]
 mod work_items;
 
-use super::runtime::{build_agent_system_prompt, get_runtime_tool_registry};
 use super::*;
 
 impl IpcServer {
@@ -31,8 +34,8 @@ impl IpcServer {
         request: IpcRequest,
     ) -> IpcResponse {
         match request {
-            IpcRequest::Ping => IpcResponse::Pong,
-            IpcRequest::GetStatus => IpcResponse::success(build_daemon_status()),
+            IpcRequest::Ping => Self::handle_ping().await,
+            IpcRequest::GetStatus => Self::handle_get_status().await,
             IpcRequest::ListAgents => Self::handle_list_agents(core).await,
             IpcRequest::GetAgent { id } => Self::handle_get_agent(core, id).await,
             IpcRequest::CreateAgent { name, agent } => {
@@ -210,7 +213,7 @@ impl IpcServer {
                 user_input,
             } => Self::handle_execute_chat_session(core, session_id, user_input).await,
             IpcRequest::ExecuteChatSessionStream { .. } => {
-                IpcResponse::error(-3, "Chat session streaming requires direct stream handler")
+                Self::handle_execute_chat_session_stream_unsupported().await
             }
             IpcRequest::SteerChatSessionStream {
                 session_id,
@@ -328,75 +331,26 @@ impl IpcServer {
             }
             IpcRequest::SubscribeBackgroundAgentEvents {
                 background_agent_id: _,
-            } => {
-                // Stream requests are handled in `handle_client` before dispatching
-                // into `process`, so this branch should only be reached if the
-                // request is routed through the non-stream path by mistake.
-                IpcResponse::error(-3, "Background agent event streaming requires stream mode")
-            }
+            } => Self::handle_subscribe_background_agent_events_unsupported().await,
             IpcRequest::SubscribeSessionEvents => {
-                IpcResponse::error(-3, "Session event streaming requires stream mode")
+                Self::handle_subscribe_session_events_unsupported().await
             }
-            IpcRequest::GetSystemInfo => IpcResponse::success(serde_json::json!({
-                "pid": std::process::id(),
-            })),
-            IpcRequest::GetAvailableModels => IpcResponse::success(Vec::<String>::new()),
+            IpcRequest::GetSystemInfo => Self::handle_get_system_info().await,
+            IpcRequest::GetAvailableModels => Self::handle_get_available_models().await,
             IpcRequest::GetAvailableTools => {
-                match get_runtime_tool_registry(core, runtime_tool_registry) {
-                    Ok(registry) => {
-                        let tools: Vec<String> = registry
-                            .list()
-                            .iter()
-                            .map(|name| name.to_string())
-                            .collect();
-                        IpcResponse::success(tools)
-                    }
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_get_available_tools(core, runtime_tool_registry).await
             }
             IpcRequest::GetAvailableToolDefinitions => {
-                match get_runtime_tool_registry(core, runtime_tool_registry) {
-                    Ok(registry) => {
-                        let tools: Vec<ToolDefinition> = registry
-                            .schemas()
-                            .into_iter()
-                            .map(|schema| ToolDefinition {
-                                name: schema.name,
-                                description: schema.description,
-                                parameters: schema.parameters,
-                            })
-                            .collect();
-                        IpcResponse::success(tools)
-                    }
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_get_available_tool_definitions(core, runtime_tool_registry).await
             }
             IpcRequest::ExecuteTool { name, input } => {
-                match get_runtime_tool_registry(core, runtime_tool_registry) {
-                    Ok(registry) => match registry.execute_safe(&name, input).await {
-                        Ok(output) => IpcResponse::success(ToolExecutionResult {
-                            success: output.success,
-                            result: output.result,
-                            error: output.error,
-                            error_category: output.error_category,
-                            retryable: output.retryable,
-                            retry_after_ms: output.retry_after_ms,
-                        }),
-                        Err(err) => ipc_error_with_optional_json_details(500, err.to_string()),
-                    },
-                    Err(err) => ipc_error_with_optional_json_details(500, err.to_string()),
-                }
+                Self::handle_execute_tool(core, runtime_tool_registry, name, input).await
             }
-            IpcRequest::ListMcpServers => IpcResponse::success(Vec::<String>::new()),
+            IpcRequest::ListMcpServers => Self::handle_list_mcp_servers().await,
             IpcRequest::BuildAgentSystemPrompt { agent_node } => {
-                match build_agent_system_prompt(core, agent_node) {
-                    Ok(prompt) => IpcResponse::success(serde_json::json!({ "prompt": prompt })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_build_agent_system_prompt(core, agent_node).await
             }
-            IpcRequest::Shutdown => {
-                IpcResponse::success(serde_json::json!({ "shutting_down": true }))
-            }
+            IpcRequest::Shutdown => Self::handle_shutdown().await,
         }
     }
 }
