@@ -284,14 +284,23 @@ fn session_management_owner(
     storage: &crate::storage::Storage,
     session: &ChatSession,
 ) -> Result<Option<ChatSessionSource>> {
-    SessionService::from_storage(storage).management_owner(session)
+    let bindings = storage
+        .channel_session_bindings
+        .list_by_session(&session.id)?;
+    if let Some(binding) = bindings.first() {
+        let source = parse_binding_channel_source(&binding.channel)
+            .unwrap_or(ChatSessionSource::ExternalLegacy);
+        return Ok(Some(source));
+    }
+
+    Ok(ensure_binding_from_legacy_source(storage, session)?.map(|(source, _)| source))
 }
 
 fn is_workspace_managed_session(
     storage: &crate::storage::Storage,
     session: &ChatSession,
 ) -> Result<bool> {
-    SessionService::from_storage(storage).is_workspace_managed(session)
+    Ok(session_management_owner(storage, session)?.is_none())
 }
 
 fn resolve_external_session_route(
@@ -844,5 +853,5 @@ impl IpcServer {
 }
 
 #[cfg(test)]
-#[path = "ipc_server/tests.rs"]
+#[path = "ipc_server/tests/mod.rs"]
 mod tests;
