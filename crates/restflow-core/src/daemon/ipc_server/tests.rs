@@ -436,6 +436,90 @@ async fn process_create_terminal_session_returns_session() {
 }
 
 #[tokio::test]
+async fn process_list_hooks_returns_empty_by_default() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(&core, &runtime_tool_registry, IpcRequest::ListHooks).await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let hooks: Vec<crate::models::Hook> = serde_json::from_value(value).expect("hooks");
+            assert!(hooks.is_empty());
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_set_and_get_secret_round_trip() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let set_response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::SetSecret {
+            key: "TEST_SECRET".to_string(),
+            value: "secret-value".to_string(),
+            description: Some("test secret".to_string()),
+        },
+    )
+    .await;
+    match set_response {
+        IpcResponse::Success(_) => {}
+        other => panic!("expected success response, got {other:?}"),
+    }
+
+    let get_response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetSecret {
+            key: "TEST_SECRET".to_string(),
+        },
+    )
+    .await;
+
+    match get_response {
+        IpcResponse::Success(value) => {
+            assert_eq!(value["value"], "secret-value");
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_work_item_returns_item() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateWorkItem {
+            spec: crate::models::WorkItemSpec {
+                folder: "inbox".to_string(),
+                title: "Follow up".to_string(),
+                content: "Review ipc dispatch split".to_string(),
+                priority: Some("p1".to_string()),
+                tags: vec!["ipc".to_string()],
+            },
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let item: crate::models::WorkItem = serde_json::from_value(value).expect("work item");
+            assert_eq!(item.folder, "inbox");
+            assert_eq!(item.title, "Follow up");
+            assert_eq!(item.content, "Review ipc dispatch split");
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn execute_tool_browser_session_persists_between_process_calls() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
