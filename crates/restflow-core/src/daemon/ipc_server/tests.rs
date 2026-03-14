@@ -395,6 +395,47 @@ async fn process_search_memory_returns_matching_chunk() {
 }
 
 #[tokio::test]
+async fn process_list_auth_profiles_returns_empty_by_default() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response =
+        IpcServer::process(&core, &runtime_tool_registry, IpcRequest::ListAuthProfiles).await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let profiles: Vec<crate::auth::AuthProfile> =
+                serde_json::from_value(value).expect("auth profiles");
+            assert!(profiles.is_empty());
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_terminal_session_returns_session() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateTerminalSession,
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let session: crate::models::TerminalSession =
+                serde_json::from_value(value).expect("terminal session");
+            assert!(session.id.starts_with("terminal-"));
+            assert!(!session.name.is_empty());
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn execute_tool_browser_session_persists_between_process_calls() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();

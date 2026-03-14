@@ -1,13 +1,15 @@
+#[path = "dispatch/auth.rs"]
+mod auth;
 #[path = "dispatch/background_agents.rs"]
 mod background_agents;
 #[path = "dispatch/memory.rs"]
 mod memory;
 #[path = "dispatch/sessions.rs"]
 mod sessions;
+#[path = "dispatch/terminals.rs"]
+mod terminals;
 
-use super::runtime::{
-    build_agent_system_prompt, build_auth_manager, get_runtime_tool_registry, sample_hook_context,
-};
+use super::runtime::{build_agent_system_prompt, get_runtime_tool_registry, sample_hook_context};
 use super::*;
 
 impl IpcServer {
@@ -342,40 +344,13 @@ impl IpcServer {
             IpcRequest::GetExecutionTraceById { id } => {
                 Self::handle_get_execution_trace_by_id(core, id).await
             }
-            IpcRequest::ListTerminalSessions => match core.storage.terminal_sessions.list() {
-                Ok(sessions) => IpcResponse::success(sessions),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            IpcRequest::ListTerminalSessions => Self::handle_list_terminal_sessions(core).await,
             IpcRequest::GetTerminalSession { id } => {
-                match core.storage.terminal_sessions.get(&id) {
-                    Ok(Some(session)) => IpcResponse::success(session),
-                    Ok(None) => IpcResponse::not_found("Terminal session"),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_get_terminal_session(core, id).await
             }
-            IpcRequest::CreateTerminalSession => {
-                let name = match core.storage.terminal_sessions.get_next_name() {
-                    Ok(name) => name,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                let id = format!("terminal-{}", Uuid::new_v4());
-                let session = TerminalSession::new(id, name);
-                match core.storage.terminal_sessions.create(&session) {
-                    Ok(()) => IpcResponse::success(session),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            IpcRequest::CreateTerminalSession => Self::handle_create_terminal_session(core).await,
             IpcRequest::RenameTerminalSession { id, name } => {
-                let mut session = match core.storage.terminal_sessions.get(&id) {
-                    Ok(Some(session)) => session,
-                    Ok(None) => return IpcResponse::not_found("Terminal session"),
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                session.rename(name);
-                match core.storage.terminal_sessions.update(&id, &session) {
-                    Ok(()) => IpcResponse::success(session),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_rename_terminal_session(core, id, name).await
             }
             IpcRequest::UpdateTerminalSession {
                 id,
@@ -383,199 +358,53 @@ impl IpcServer {
                 working_directory,
                 startup_command,
             } => {
-                let mut session = match core.storage.terminal_sessions.get(&id) {
-                    Ok(Some(session)) => session,
-                    Ok(None) => return IpcResponse::not_found("Terminal session"),
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                if let Some(name) = name {
-                    session.rename(name);
-                }
-                session.set_config(working_directory, startup_command);
-                match core.storage.terminal_sessions.update(&id, &session) {
-                    Ok(()) => IpcResponse::success(session),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_update_terminal_session(
+                    core,
+                    id,
+                    name,
+                    working_directory,
+                    startup_command,
+                )
+                .await
             }
             IpcRequest::SaveTerminalSession { session } => {
-                match core.storage.terminal_sessions.update(&session.id, &session) {
-                    Ok(()) => IpcResponse::success(session),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_save_terminal_session(core, session).await
             }
             IpcRequest::DeleteTerminalSession { id } => {
-                match core.storage.terminal_sessions.delete(&id) {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_delete_terminal_session(core, id).await
             }
             IpcRequest::MarkAllTerminalSessionsStopped => {
-                match core.storage.terminal_sessions.mark_all_stopped() {
-                    Ok(count) => IpcResponse::success(count),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_mark_all_terminal_sessions_stopped(core).await
             }
-            IpcRequest::ListAuthProfiles => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                IpcResponse::success(manager.list_profiles().await)
-            }
-            IpcRequest::GetAuthProfile { id } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.get_profile(&id).await {
-                    Some(profile) => IpcResponse::success(profile),
-                    None => IpcResponse::not_found("Auth profile"),
-                }
-            }
+            IpcRequest::ListAuthProfiles => Self::handle_list_auth_profiles(core).await,
+            IpcRequest::GetAuthProfile { id } => Self::handle_get_auth_profile(core, id).await,
             IpcRequest::AddAuthProfile {
                 name,
                 credential,
                 source,
                 provider,
-            } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager
-                    .add_profile_from_credential(name, credential, source, provider)
-                    .await
-                {
-                    Ok(id) => match manager.get_profile(&id).await {
-                        Some(profile) => IpcResponse::success(profile),
-                        None => IpcResponse::error(500, "Profile created but not found"),
-                    },
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            } => Self::handle_add_auth_profile(core, name, credential, source, provider).await,
             IpcRequest::RemoveAuthProfile { id } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.remove_profile(&id).await {
-                    Ok(profile) => IpcResponse::success(profile),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_remove_auth_profile(core, id).await
             }
             IpcRequest::UpdateAuthProfile { id, updates } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.update_profile(&id, updates).await {
-                    Ok(profile) => IpcResponse::success(profile),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_update_auth_profile(core, id, updates).await
             }
-            IpcRequest::DiscoverAuth => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.discover().await {
-                    Ok(summary) => IpcResponse::success(summary),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            IpcRequest::DiscoverAuth => Self::handle_discover_auth(core).await,
             IpcRequest::EnableAuthProfile { id } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.enable_profile(&id).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_enable_auth_profile(core, id).await
             }
             IpcRequest::DisableAuthProfile { id, reason } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.disable_profile(&id, &reason).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_disable_auth_profile(core, id, reason).await
             }
-            IpcRequest::GetApiKey { provider } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.get_available_profile(provider).await {
-                    Some(profile) => match profile.get_api_key(manager.resolver()) {
-                        Ok(key) => IpcResponse::success(serde_json::json!({
-                            "profile_id": profile.id,
-                            "api_key": key,
-                        })),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
-                    },
-                    None => IpcResponse::not_found("Auth profile"),
-                }
-            }
+            IpcRequest::GetApiKey { provider } => Self::handle_get_api_key(core, provider).await,
             IpcRequest::GetApiKeyForProfile { id } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.get_profile(&id).await {
-                    Some(profile) => match profile.get_api_key(manager.resolver()) {
-                        Ok(key) => IpcResponse::success(serde_json::json!({
-                            "profile_id": profile.id,
-                            "api_key": key,
-                        })),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
-                    },
-                    None => IpcResponse::not_found("Auth profile"),
-                }
+                Self::handle_get_api_key_for_profile(core, id).await
             }
-            IpcRequest::TestAuthProfile { id } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.get_profile(&id).await {
-                    Some(profile) => match profile.get_api_key(manager.resolver()) {
-                        Ok(_) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                        Err(err) => IpcResponse::error(500, err.to_string()),
-                    },
-                    None => IpcResponse::not_found("Auth profile"),
-                }
-            }
-            IpcRequest::MarkAuthSuccess { id } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.mark_success(&id).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
-            IpcRequest::MarkAuthFailure { id } => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                match manager.mark_failure(&id).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
-            IpcRequest::ClearAuthProfiles => {
-                let manager = match build_auth_manager(core).await {
-                    Ok(manager) => manager,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                manager.clear().await;
-                IpcResponse::success(serde_json::json!({ "ok": true }))
-            }
+            IpcRequest::TestAuthProfile { id } => Self::handle_test_auth_profile(core, id).await,
+            IpcRequest::MarkAuthSuccess { id } => Self::handle_mark_auth_success(core, id).await,
+            IpcRequest::MarkAuthFailure { id } => Self::handle_mark_auth_failure(core, id).await,
+            IpcRequest::ClearAuthProfiles => Self::handle_clear_auth_profiles(core).await,
             IpcRequest::GetBackgroundAgentHistory { id } => {
                 Self::handle_get_background_agent_history(core, id).await
             }
