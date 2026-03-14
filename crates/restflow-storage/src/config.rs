@@ -27,7 +27,8 @@ use std::collections::HashSet;
 use std::env;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const GLOBAL_CONFIG_ENV: &str = "RESTFLOW_GLOBAL_CONFIG";
 const WORKSPACE_CONFIG_ENV: &str = "RESTFLOW_WORKSPACE_CONFIG";
@@ -1305,6 +1306,34 @@ struct ResolvedOverridePath {
     from_env: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConfigPathFingerprint {
+    path: PathBuf,
+    from_env: bool,
+    exists: bool,
+    len: Option<u64>,
+    modified_nanos: Option<u128>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ConfigLayerCacheKey {
+    global: Option<ConfigPathFingerprint>,
+    workspace: Option<ConfigPathFingerprint>,
+}
+
+#[derive(Debug, Clone)]
+struct ConfigLayerSnapshot {
+    global_path: Option<ResolvedOverridePath>,
+    workspace_path: Option<ResolvedOverridePath>,
+    cache_key: ConfigLayerCacheKey,
+}
+
+#[derive(Debug, Clone)]
+struct CachedConfigLayers {
+    key: ConfigLayerCacheKey,
+    layers: ConfigLayerState,
+}
+
 /// Metadata for a resolved configuration override path.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ConfigSourcePathInfo {
@@ -1388,10 +1417,89 @@ struct ConfigLayerState {
     workspace_path: Option<ResolvedOverridePath>,
 }
 
-fn load_config_layers() -> Result<ConfigLayerState> {
-    let default = UnifiedConfigFile::default();
+fn config_layer_cache() -> &'static RwLock<Option<CachedConfigLayers>> {
+    static CACHE: OnceLock<RwLock<Option<CachedConfigLayers>>> = OnceLock::new();
+    CACHE.get_or_init(|| RwLock::new(None))
+}
+
+fn clear_config_layer_cache() {
+    let mut cache = config_layer_cache()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    cache.take();
+}
+
+fn fingerprint_system_time(time: SystemTime) -> u128 {
+    time.duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos()
+}
+
+fn fingerprint_override_path(
+    resolved: Option<&ResolvedOverridePath>,
+) -> Result<Option<ConfigPathFingerprint>> {
+    resolved
+        .map(|entry| {
+            let metadata = match fs::metadata(&entry.path) {
+                Ok(metadata) => Some(metadata),
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+                Err(err) => {
+                    return Err(err).with_context(|| {
+                        format!(
+                            "Failed to read metadata for config override {}",
+                            entry.path.display()
+                        )
+                    });
+                }
+            };
+
+            let (exists, len, modified_nanos) = if let Some(metadata) = metadata {
+                let modified = metadata.modified().with_context(|| {
+                    format!(
+                        "Failed to read modified timestamp for config override {}",
+                        entry.path.display()
+                    )
+                })?;
+                (
+                    true,
+                    Some(metadata.len()),
+                    Some(fingerprint_system_time(modified)),
+                )
+            } else {
+                (false, None, None)
+            };
+
+            Ok(ConfigPathFingerprint {
+                path: entry.path.clone(),
+                from_env: entry.from_env,
+                exists,
+                len,
+                modified_nanos,
+            })
+        })
+        .transpose()
+}
+
+fn resolve_config_layer_snapshot() -> Result<ConfigLayerSnapshot> {
     let global_path = global_config_path();
     let workspace_path = workspace_config_path();
+
+    let cache_key = ConfigLayerCacheKey {
+        global: fingerprint_override_path(global_path.as_ref())?,
+        workspace: fingerprint_override_path(workspace_path.as_ref())?,
+    };
+
+    Ok(ConfigLayerSnapshot {
+        global_path,
+        workspace_path,
+        cache_key,
+    })
+}
+
+fn load_config_layers_uncached(snapshot: &ConfigLayerSnapshot) -> Result<ConfigLayerState> {
+    let default = UnifiedConfigFile::default();
+    let global_path = snapshot.global_path.clone();
+    let workspace_path = snapshot.workspace_path.clone();
 
     let mut global = default.clone();
     if let Some(path) = global_path.as_ref()
@@ -1419,6 +1527,31 @@ fn load_config_layers() -> Result<ConfigLayerState> {
     })
 }
 
+fn load_config_layers() -> Result<ConfigLayerState> {
+    let snapshot = resolve_config_layer_snapshot()?;
+
+    {
+        let cache = config_layer_cache()
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        if let Some(entry) = cache.as_ref()
+            && entry.key == snapshot.cache_key
+        {
+            return Ok(entry.layers.clone());
+        }
+    }
+
+    let layers = load_config_layers_uncached(&snapshot)?;
+    let mut cache = config_layer_cache()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    *cache = Some(CachedConfigLayers {
+        key: snapshot.cache_key,
+        layers: layers.clone(),
+    });
+    Ok(layers)
+}
+
 fn write_global_config_file(config: &UnifiedConfigFile) -> Result<()> {
     config.validate()?;
     let target = global_write_target()?;
@@ -1429,6 +1562,7 @@ fn write_global_config_file(config: &UnifiedConfigFile) -> Result<()> {
     let contents = toml::to_string_pretty(config).context("Failed to serialize config.toml")?;
     fs::write(&target.path, contents)
         .with_context(|| format!("Failed to write config.toml to {}", target.path.display()))?;
+    clear_config_layer_cache();
     Ok(())
 }
 
@@ -2041,6 +2175,52 @@ max_retries = 4
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.worker_count, 9);
         assert_eq!(effective.max_retries, 4);
+    }
+
+    #[test]
+    fn test_effective_config_cache_reloads_when_override_changes() {
+        let ctx = setup_test_storage();
+        let file = write_override_file(
+            r#"[system]
+worker_count = 5
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        let first = ctx.storage.get_effective_config().unwrap();
+        assert_eq!(first.worker_count, 5);
+
+        fs::write(
+            file.path(),
+            r#"[system]
+worker_count = 17
+max_retries = 6
+"#,
+        )
+        .unwrap();
+
+        let second = ctx.storage.get_effective_config().unwrap();
+        assert_eq!(second.worker_count, 17);
+        assert_eq!(second.max_retries, 6);
+    }
+
+    #[test]
+    fn test_effective_config_cache_reloads_when_override_is_deleted() {
+        let ctx = setup_test_storage();
+        let file = write_override_file(
+            r#"[system]
+worker_count = 11
+"#,
+        );
+        let _guard = EnvGuard::set_path(WORKSPACE_CONFIG_ENV, file.path());
+
+        let first = ctx.storage.get_effective_config().unwrap();
+        assert_eq!(first.worker_count, 11);
+
+        fs::remove_file(file.path()).unwrap();
+
+        let second = ctx.storage.get_effective_config().unwrap();
+        assert_eq!(second.worker_count, DEFAULT_WORKER_COUNT);
     }
 
     #[test]
