@@ -1,19 +1,19 @@
 //! Background agent management tool.
 
+mod team;
+mod types;
+
 #[cfg(test)]
 mod tests;
 
 use async_trait::async_trait;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::Result;
-use crate::impls::team_template::{
-    delete_team_document, list_team_entries, load_team_document, save_team_document,
-};
 use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::RuntimeTaskPayload;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
     BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
@@ -23,67 +23,8 @@ use restflow_traits::store::{
     MANAGE_BACKGROUND_AGENT_OPERATIONS, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
     MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
 };
-use restflow_traits::{RuntimeTaskPayload, TeamTemplateDocument};
-
-const BACKGROUND_AGENT_TEAM_NAMESPACE: &str = "background_agent_team";
-const BACKGROUND_AGENT_TEAM_TYPE_HINT: &str = "background_agent_team";
-const BACKGROUND_AGENT_TEAM_VERSION: u32 = 2;
-
-fn default_worker_count() -> u32 {
-    1
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct BackgroundBatchWorkerSpec {
-    #[serde(default)]
-    agent_id: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    input: Option<String>,
-    #[serde(default)]
-    inputs: Option<Vec<String>>,
-    #[serde(default = "default_worker_count")]
-    count: u32,
-    #[serde(default)]
-    chat_session_id: Option<String>,
-    #[serde(default)]
-    schedule: Option<Value>,
-    #[serde(default)]
-    timeout_secs: Option<u64>,
-    #[serde(default)]
-    durability_mode: Option<String>,
-    #[serde(default)]
-    memory: Option<Value>,
-    #[serde(default)]
-    memory_scope: Option<String>,
-    #[serde(default)]
-    resource_limits: Option<Value>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct StoredBackgroundBatchWorkerSpec {
-    #[serde(default)]
-    agent_id: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default = "default_worker_count")]
-    count: u32,
-    #[serde(default)]
-    chat_session_id: Option<String>,
-    #[serde(default)]
-    schedule: Option<Value>,
-    #[serde(default)]
-    timeout_secs: Option<u64>,
-    #[serde(default)]
-    durability_mode: Option<String>,
-    #[serde(default)]
-    memory: Option<Value>,
-    #[serde(default)]
-    memory_scope: Option<String>,
-    #[serde(default)]
-    resource_limits: Option<Value>,
-}
+use team::{delete_team, get_team, list_teams, load_team_workers, save_team_workers};
+use types::{BackgroundAgentAction, BackgroundBatchWorkerSpec, workers_schema};
 
 #[derive(Clone)]
 pub struct BackgroundAgentTool {
@@ -135,160 +76,29 @@ impl BackgroundAgentTool {
             .map_or(0, |duration| duration.as_secs() as i64)
     }
 
-    fn normalize_structural_worker(
-        worker: &BackgroundBatchWorkerSpec,
-        worker_index: usize,
-        strict_runtime_inputs: bool,
-    ) -> Result<StoredBackgroundBatchWorkerSpec> {
-        if strict_runtime_inputs && (worker.input.is_some() || worker.inputs.is_some()) {
-            return Err(ToolError::Tool(format!(
-                "save_team stores worker structure only. Remove 'input'/'inputs' from worker index {} and pass runtime input during run_batch.",
-                worker_index
-            )));
-        }
-        if worker.count == 0 {
-            return Err(ToolError::Tool(format!(
-                "Worker index {} count must be >= 1.",
-                worker_index
-            )));
-        }
-        Ok(StoredBackgroundBatchWorkerSpec {
-            agent_id: worker.agent_id.clone(),
-            name: worker.name.clone(),
-            count: worker
-                .inputs
-                .as_ref()
-                .map(|items| items.len() as u32)
-                .unwrap_or(worker.count),
-            chat_session_id: worker.chat_session_id.clone(),
-            schedule: worker.schedule.clone(),
-            timeout_secs: worker.timeout_secs,
-            durability_mode: worker.durability_mode.clone(),
-            memory: worker.memory.clone(),
-            memory_scope: worker.memory_scope.clone(),
-            resource_limits: worker.resource_limits.clone(),
-        })
-    }
-
-    fn runtime_worker_from_stored(
-        worker: StoredBackgroundBatchWorkerSpec,
-    ) -> BackgroundBatchWorkerSpec {
-        BackgroundBatchWorkerSpec {
-            agent_id: worker.agent_id,
-            name: worker.name,
-            input: None,
-            inputs: None,
-            count: worker.count,
-            chat_session_id: worker.chat_session_id,
-            schedule: worker.schedule,
-            timeout_secs: worker.timeout_secs,
-            durability_mode: worker.durability_mode,
-            memory: worker.memory,
-            memory_scope: worker.memory_scope,
-            resource_limits: worker.resource_limits,
-        }
-    }
-
     fn save_team_workers(
         &self,
         team_name: &str,
         workers: &[BackgroundBatchWorkerSpec],
         strict_runtime_inputs: bool,
     ) -> Result<Value> {
-        if workers.is_empty() {
-            return Err(ToolError::Tool(
-                "save_team requires non-empty 'workers'.".to_string(),
-            ));
-        }
         let store = self.team_store()?;
-        let members = workers
-            .iter()
-            .enumerate()
-            .map(|(worker_index, worker)| {
-                Self::normalize_structural_worker(worker, worker_index, strict_runtime_inputs)
-            })
-            .collect::<Result<Vec<_>>>()?;
-        let persisted = save_team_document(
-            store.as_ref(),
-            BACKGROUND_AGENT_TEAM_NAMESPACE,
-            BACKGROUND_AGENT_TEAM_TYPE_HINT,
-            BACKGROUND_AGENT_TEAM_VERSION,
-            team_name,
-            members,
-            Some(vec!["background_agent".to_string(), "team".to_string()]),
-        )?;
-        Ok(json!({
-            "team": persisted.document.name,
-            "workers": workers.len(),
-            "created_at": persisted.document.created_at,
-            "updated_at": persisted.document.updated_at,
-            "storage": persisted.storage
-        }))
+        save_team_workers(store.as_ref(), team_name, workers, strict_runtime_inputs)
     }
 
     fn load_team_workers(&self, team_name: &str) -> Result<Vec<BackgroundBatchWorkerSpec>> {
         let store = self.team_store()?;
-        let team: TeamTemplateDocument<StoredBackgroundBatchWorkerSpec> =
-            load_team_document(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)?;
-        Ok(team
-            .members
-            .into_iter()
-            .map(Self::runtime_worker_from_stored)
-            .collect())
+        load_team_workers(store.as_ref(), team_name)
     }
 
     fn delete_team(&self, team_name: &str) -> Result<Value> {
         let store = self.team_store()?;
-        delete_team_document(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)
+        delete_team(store.as_ref(), team_name)
     }
 
     fn list_teams(&self) -> Result<Value> {
         let store = self.team_store()?;
-        let mut teams = Vec::new();
-        for item in list_team_entries(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE)? {
-            let Some(key) = item.get("key").and_then(Value::as_str) else {
-                continue;
-            };
-            let team_name = key
-                .strip_prefix(&format!("{BACKGROUND_AGENT_TEAM_NAMESPACE}:"))
-                .unwrap_or(key)
-                .to_string();
-            let (member_groups, total_instances, updated_at) =
-                load_team_document::<StoredBackgroundBatchWorkerSpec>(
-                    store.as_ref(),
-                    BACKGROUND_AGENT_TEAM_NAMESPACE,
-                    &team_name,
-                )
-                .ok()
-                .map(|team| {
-                    let total_instances = team
-                        .members
-                        .iter()
-                        .map(|worker| worker.count as usize)
-                        .sum::<usize>();
-                    (team.members.len(), total_instances, team.updated_at)
-                })
-                .unwrap_or((0, 0, 0));
-            teams.push(json!({
-                "team": team_name,
-                "member_groups": member_groups,
-                "total_instances": total_instances,
-                "updated_at": updated_at
-            }));
-        }
-        teams.sort_by(|left, right| {
-            right["updated_at"]
-                .as_i64()
-                .unwrap_or_default()
-                .cmp(&left["updated_at"].as_i64().unwrap_or_default())
-                .then_with(|| {
-                    left["team"]
-                        .as_str()
-                        .unwrap_or_default()
-                        .cmp(right["team"].as_str().unwrap_or_default())
-                })
-        });
-        Ok(Value::Array(teams))
+        list_teams(store.as_ref())
     }
 
     fn expand_worker_specs(
@@ -437,236 +247,6 @@ impl BackgroundAgentTool {
                     .map(str::to_string)
             })
     }
-
-    fn workers_schema() -> Value {
-        json!({
-            "type": "array",
-            "description": "Worker specs for run_batch and save_team.",
-            "items": {
-                "type": "object",
-                "properties": {
-                    "agent_id": { "type": "string", "description": "Optional per-worker agent ID override." },
-                    "name": { "type": "string", "description": "Optional per-worker background task name." },
-                    "input": { "type": "string", "description": "Optional per-worker input text." },
-                    "inputs": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Optional per-instance input list for distinct prompts."
-                    },
-                    "count": { "type": "integer", "minimum": 1, "default": 1, "description": "Number of instances for this worker when inputs is not set." },
-                    "chat_session_id": { "type": "string", "description": "Optional bound chat session ID for worker-created tasks." },
-                    "schedule": { "type": "object", "description": "Optional per-worker schedule payload." },
-                    "timeout_secs": { "type": "integer", "minimum": 1, "description": "Optional per-worker timeout override." },
-                    "durability_mode": { "type": "string", "enum": ["sync", "async", "exit"], "description": "Optional per-worker durability mode." },
-                    "memory": { "type": "object", "description": "Optional per-worker memory payload." },
-                    "memory_scope": { "type": "string", "enum": ["shared_agent", "per_background_agent"], "description": "Optional per-worker memory scope override." },
-                    "resource_limits": { "type": "object", "description": "Optional per-worker resource limits payload." }
-                }
-            }
-        })
-    }
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(tag = "operation", rename_all = "snake_case")]
-enum BackgroundAgentAction {
-    Create {
-        name: String,
-        agent_id: String,
-        #[serde(default)]
-        chat_session_id: Option<String>,
-        #[serde(default)]
-        schedule: Option<Value>,
-        #[serde(default)]
-        input: Option<String>,
-        #[serde(default)]
-        input_template: Option<String>,
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<String>,
-        #[serde(default)]
-        memory: Option<Value>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
-        resource_limits: Option<Value>,
-    },
-    ConvertSession {
-        session_id: String,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        schedule: Option<Value>,
-        #[serde(default)]
-        input: Option<String>,
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<String>,
-        #[serde(default)]
-        memory: Option<Value>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
-        resource_limits: Option<Value>,
-        #[serde(default)]
-        run_now: Option<bool>,
-    },
-    PromoteToBackground {
-        #[serde(default)]
-        session_id: Option<String>,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        schedule: Option<Value>,
-        #[serde(default)]
-        input: Option<String>,
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<String>,
-        #[serde(default)]
-        memory: Option<Value>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
-        resource_limits: Option<Value>,
-        #[serde(default)]
-        run_now: Option<bool>,
-    },
-    Update {
-        id: String,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        description: Option<String>,
-        #[serde(default)]
-        agent_id: Option<String>,
-        #[serde(default)]
-        chat_session_id: Option<String>,
-        #[serde(default)]
-        input: Option<String>,
-        #[serde(default)]
-        input_template: Option<String>,
-        #[serde(default)]
-        schedule: Option<Value>,
-        #[serde(default)]
-        notification: Option<Value>,
-        #[serde(default)]
-        execution_mode: Option<Value>,
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<String>,
-        #[serde(default)]
-        memory: Option<Value>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
-        resource_limits: Option<Value>,
-    },
-    Delete {
-        id: String,
-    },
-    List {
-        #[serde(default)]
-        status: Option<String>,
-    },
-    RunBatch {
-        #[serde(default)]
-        agent_id: Option<String>,
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        input: Option<String>,
-        #[serde(default)]
-        inputs: Option<Vec<String>>,
-        #[serde(default)]
-        workers: Option<Vec<BackgroundBatchWorkerSpec>>,
-        #[serde(default)]
-        team: Option<String>,
-        #[serde(default)]
-        save_as_team: Option<String>,
-        #[serde(default)]
-        input_template: Option<String>,
-        #[serde(default)]
-        chat_session_id: Option<String>,
-        #[serde(default)]
-        schedule: Option<Value>,
-        #[serde(default)]
-        timeout_secs: Option<u64>,
-        #[serde(default)]
-        durability_mode: Option<String>,
-        #[serde(default)]
-        memory: Option<Value>,
-        #[serde(default)]
-        memory_scope: Option<String>,
-        #[serde(default)]
-        resource_limits: Option<Value>,
-        #[serde(default)]
-        run_now: Option<bool>,
-    },
-    SaveTeam {
-        team: String,
-        workers: Vec<BackgroundBatchWorkerSpec>,
-    },
-    ListTeams,
-    GetTeam {
-        team: String,
-    },
-    DeleteTeam {
-        team: String,
-    },
-    Control {
-        id: String,
-        action: String,
-    },
-    Progress {
-        id: String,
-        #[serde(default)]
-        event_limit: Option<usize>,
-    },
-    SendMessage {
-        id: String,
-        message: String,
-        #[serde(default)]
-        source: Option<String>,
-    },
-    ListMessages {
-        id: String,
-        #[serde(default)]
-        limit: Option<usize>,
-    },
-    ListDeliverables {
-        id: String,
-    },
-    ListTraces {
-        #[serde(default)]
-        id: Option<String>,
-        #[serde(default)]
-        limit: Option<usize>,
-    },
-    ReadTrace {
-        trace_id: String,
-        #[serde(default)]
-        line_limit: Option<usize>,
-    },
-    Pause {
-        id: String,
-    },
-    Start {
-        id: String,
-    },
-    Resume {
-        id: String,
-    },
-    Stop {
-        id: String,
-    },
-    Run {
-        id: String,
-    },
 }
 
 #[async_trait]
@@ -771,7 +351,7 @@ impl Tool for BackgroundAgentTool {
                     "type": "string",
                     "description": "Optionally save provided workers as a team during run_batch."
                 },
-                "workers": Self::workers_schema(),
+                "workers": workers_schema(),
                 "status": {
                     "type": "string",
                     "description": "Filter list by status (for list)"
@@ -991,23 +571,16 @@ impl Tool for BackgroundAgentTool {
             }
             BackgroundAgentAction::GetTeam { team } => {
                 let store = self.team_store()?;
-                let document: TeamTemplateDocument<StoredBackgroundBatchWorkerSpec> =
-                    load_team_document(store.as_ref(), BACKGROUND_AGENT_TEAM_NAMESPACE, &team)?;
-                let members = document
-                    .members
-                    .clone()
-                    .into_iter()
-                    .map(Self::runtime_worker_from_stored)
-                    .collect::<Vec<_>>();
+                let payload = get_team(store.as_ref(), &team)?;
                 ToolOutput::success(json!({
                     "operation": "get_team",
-                    "team": document.name,
-                    "version": document.version,
-                    "created_at": document.created_at,
-                    "updated_at": document.updated_at,
-                    "member_groups": members.len(),
-                    "total_instances": document.members.iter().map(|worker| worker.count as usize).sum::<usize>(),
-                    "members": members
+                    "team": payload["team"].clone(),
+                    "version": payload["version"].clone(),
+                    "created_at": payload["created_at"].clone(),
+                    "updated_at": payload["updated_at"].clone(),
+                    "member_groups": payload["member_groups"].clone(),
+                    "total_instances": payload["total_instances"].clone(),
+                    "members": payload["members"].clone()
                 }))
             }
             BackgroundAgentAction::DeleteTeam { team } => {
