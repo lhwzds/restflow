@@ -2,14 +2,20 @@
 mod auth;
 #[path = "dispatch/background_agents.rs"]
 mod background_agents;
+#[path = "dispatch/hooks.rs"]
+mod hooks;
 #[path = "dispatch/memory.rs"]
 mod memory;
+#[path = "dispatch/secrets.rs"]
+mod secrets;
 #[path = "dispatch/sessions.rs"]
 mod sessions;
 #[path = "dispatch/terminals.rs"]
 mod terminals;
+#[path = "dispatch/work_items.rs"]
+mod work_items;
 
-use super::runtime::{build_agent_system_prompt, get_runtime_tool_registry, sample_hook_context};
+use super::runtime::{build_agent_system_prompt, get_runtime_tool_registry};
 use super::*;
 
 impl IpcServer {
@@ -77,37 +83,14 @@ impl IpcServer {
                 Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
-            IpcRequest::ListWorkItems { query } => {
-                match core.storage.work_items.list_notes(query) {
-                    Ok(items) => IpcResponse::success(items),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
-            IpcRequest::ListWorkItemFolders => match core.storage.work_items.list_folders() {
-                Ok(folders) => IpcResponse::success(folders),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::GetWorkItem { id } => match core.storage.work_items.get_note(&id) {
-                Ok(Some(item)) => IpcResponse::success(item),
-                Ok(None) => IpcResponse::not_found("Work item"),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::CreateWorkItem { spec } => {
-                match core.storage.work_items.create_note(spec) {
-                    Ok(item) => IpcResponse::success(item),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            IpcRequest::ListWorkItems { query } => Self::handle_list_work_items(core, query).await,
+            IpcRequest::ListWorkItemFolders => Self::handle_list_work_item_folders(core).await,
+            IpcRequest::GetWorkItem { id } => Self::handle_get_work_item(core, id).await,
+            IpcRequest::CreateWorkItem { spec } => Self::handle_create_work_item(core, spec).await,
             IpcRequest::UpdateWorkItem { id, patch } => {
-                match core.storage.work_items.update_note(&id, patch) {
-                    Ok(item) => IpcResponse::success(item),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_update_work_item(core, id, patch).await
             }
-            IpcRequest::DeleteWorkItem { id } => match core.storage.work_items.delete_note(&id) {
-                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            IpcRequest::DeleteWorkItem { id } => Self::handle_delete_work_item(core, id).await,
             IpcRequest::ListBackgroundAgents { status } => {
                 Self::handle_list_background_agents(core, status).await
             }
@@ -117,78 +100,29 @@ impl IpcServer {
             IpcRequest::GetBackgroundAgent { id } => {
                 Self::handle_get_background_agent(core, id).await
             }
-            IpcRequest::ListHooks => match core.storage.hooks.list() {
-                Ok(hooks) => IpcResponse::success(hooks),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::CreateHook { hook } => match core.storage.hooks.create(&hook) {
-                Ok(()) => IpcResponse::success(hook),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::UpdateHook { id, hook } => match core.storage.hooks.update(&id, &hook) {
-                Ok(()) => IpcResponse::success(hook),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::DeleteHook { id } => match core.storage.hooks.delete(&id) {
-                Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::TestHook { id } => {
-                let hook = match core.storage.hooks.get(&id) {
-                    Ok(Some(hook)) => hook,
-                    Ok(None) => return IpcResponse::not_found("Hook"),
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                };
-                let scheduler = Arc::new(crate::hooks::BackgroundAgentHookScheduler::new(
-                    core.storage.background_agents.clone(),
-                ));
-                let executor = crate::hooks::HookExecutor::with_storage(core.storage.hooks.clone())
-                    .with_task_scheduler(scheduler);
-                let context = sample_hook_context(&hook.event);
-                match executor.execute_hook(&hook, &context).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
-            IpcRequest::ListSecrets => match secrets_service::list_secrets(core).await {
-                Ok(secrets) => IpcResponse::success(secrets),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::GetSecret { key } => match secrets_service::get_secret(core, &key).await {
-                Ok(Some(value)) => IpcResponse::success(serde_json::json!({ "value": value })),
-                Ok(None) => IpcResponse::not_found("Secret"),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            IpcRequest::ListHooks => Self::handle_list_hooks(core).await,
+            IpcRequest::CreateHook { hook } => Self::handle_create_hook(core, hook).await,
+            IpcRequest::UpdateHook { id, hook } => Self::handle_update_hook(core, id, hook).await,
+            IpcRequest::DeleteHook { id } => Self::handle_delete_hook(core, id).await,
+            IpcRequest::TestHook { id } => Self::handle_test_hook(core, id).await,
+            IpcRequest::ListSecrets => Self::handle_list_secrets(core).await,
+            IpcRequest::GetSecret { key } => Self::handle_get_secret(core, key).await,
             IpcRequest::SetSecret {
                 key,
                 value,
                 description,
-            } => match secrets_service::set_secret(core, &key, &value, description).await {
-                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            } => Self::handle_set_secret(core, key, value, description).await,
             IpcRequest::CreateSecret {
                 key,
                 value,
                 description,
-            } => match secrets_service::create_secret(core, &key, &value, description).await {
-                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            } => Self::handle_create_secret(core, key, value, description).await,
             IpcRequest::UpdateSecret {
                 key,
                 value,
                 description,
-            } => match secrets_service::update_secret(core, &key, &value, description).await {
-                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::DeleteSecret { key } => {
-                match secrets_service::delete_secret(core, &key).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            } => Self::handle_update_secret(core, key, value, description).await,
+            IpcRequest::DeleteSecret { key } => Self::handle_delete_secret(core, key).await,
             IpcRequest::GetConfig => match config_service::get_config(core).await {
                 Ok(config) => IpcResponse::success(config),
                 Err(err) => IpcResponse::error(500, err.to_string()),
