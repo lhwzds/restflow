@@ -1,7 +1,11 @@
+#[path = "dispatch/agents.rs"]
+mod agents;
 #[path = "dispatch/auth.rs"]
 mod auth;
 #[path = "dispatch/background_agents.rs"]
 mod background_agents;
+#[path = "dispatch/config.rs"]
+mod config;
 #[path = "dispatch/hooks.rs"]
 mod hooks;
 #[path = "dispatch/memory.rs"]
@@ -10,6 +14,8 @@ mod memory;
 mod secrets;
 #[path = "dispatch/sessions.rs"]
 mod sessions;
+#[path = "dispatch/skills.rs"]
+mod skills;
 #[path = "dispatch/terminals.rs"]
 mod terminals;
 #[path = "dispatch/work_items.rs"]
@@ -27,62 +33,25 @@ impl IpcServer {
         match request {
             IpcRequest::Ping => IpcResponse::Pong,
             IpcRequest::GetStatus => IpcResponse::success(build_daemon_status()),
-            IpcRequest::ListAgents => match agent_service::list_agents(core).await {
-                Ok(agents) => IpcResponse::success(agents),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::GetAgent { id } => match agent_service::get_agent(core, &id).await {
-                Ok(agent) => IpcResponse::success(agent),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            IpcRequest::ListAgents => Self::handle_list_agents(core).await,
+            IpcRequest::GetAgent { id } => Self::handle_get_agent(core, id).await,
             IpcRequest::CreateAgent { name, agent } => {
-                match agent_service::create_agent(core, name, agent).await {
-                    Ok(agent) => IpcResponse::success(agent),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_create_agent(core, name, agent).await
             }
             IpcRequest::UpdateAgent { id, name, agent } => {
-                match agent_service::update_agent(core, &id, name, agent).await {
-                    Ok(agent) => IpcResponse::success(agent),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_update_agent(core, id, name, agent).await
             }
-            IpcRequest::DeleteAgent { id } => match agent_service::delete_agent(core, &id).await {
-                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::ListSkills => match skills_service::list_skills(core).await {
-                Ok(skills) => IpcResponse::success(skills),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::GetSkill { id } => match skills_service::get_skill(core, &id).await {
-                Ok(Some(skill)) => IpcResponse::success(skill),
-                Ok(None) => IpcResponse::not_found("Skill"),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::CreateSkill { skill } => {
-                match skills_service::create_skill(core, skill).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            IpcRequest::DeleteAgent { id } => Self::handle_delete_agent(core, id).await,
+            IpcRequest::ListSkills => Self::handle_list_skills(core).await,
+            IpcRequest::GetSkill { id } => Self::handle_get_skill(core, id).await,
+            IpcRequest::CreateSkill { skill } => Self::handle_create_skill(core, skill).await,
             IpcRequest::UpdateSkill { id, skill } => {
-                match skills_service::update_skill(core, &id, &skill).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_update_skill(core, id, skill).await
             }
             IpcRequest::GetSkillReference { skill_id, ref_id } => {
-                match skills_service::get_skill_reference(core, &skill_id, &ref_id).await {
-                    Ok(Some(content)) => IpcResponse::success(content),
-                    Ok(None) => IpcResponse::not_found("Skill reference"),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
+                Self::handle_get_skill_reference(core, skill_id, ref_id).await
             }
-            IpcRequest::DeleteSkill { id } => match skills_service::delete_skill(core, &id).await {
-                Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
+            IpcRequest::DeleteSkill { id } => Self::handle_delete_skill(core, id).await,
             IpcRequest::ListWorkItems { query } => Self::handle_list_work_items(core, query).await,
             IpcRequest::ListWorkItemFolders => Self::handle_list_work_item_folders(core).await,
             IpcRequest::GetWorkItem { id } => Self::handle_get_work_item(core, id).await,
@@ -123,20 +92,9 @@ impl IpcServer {
                 description,
             } => Self::handle_update_secret(core, key, value, description).await,
             IpcRequest::DeleteSecret { key } => Self::handle_delete_secret(core, key).await,
-            IpcRequest::GetConfig => match config_service::get_config(core).await {
-                Ok(config) => IpcResponse::success(config),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::GetGlobalConfig => match config_service::get_global_config(core).await {
-                Ok(config) => IpcResponse::success(config),
-                Err(err) => IpcResponse::error(500, err.to_string()),
-            },
-            IpcRequest::SetConfig { config } => {
-                match config_service::update_config(core, config).await {
-                    Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
-                    Err(err) => IpcResponse::error(500, err.to_string()),
-                }
-            }
+            IpcRequest::GetConfig => Self::handle_get_config(core).await,
+            IpcRequest::GetGlobalConfig => Self::handle_get_global_config(core).await,
+            IpcRequest::SetConfig { config } => Self::handle_set_config(core, config).await,
             IpcRequest::SearchMemory {
                 query,
                 agent_id,

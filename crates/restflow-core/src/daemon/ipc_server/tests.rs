@@ -359,7 +359,7 @@ async fn process_search_memory_returns_matching_chunk() {
                 codex_cli_reasoning_effort: None,
                 codex_cli_execution_mode: None,
                 api_key_config: Some(crate::models::ApiKeyConfig::Direct("test_key".to_string())),
-                tools: Some(vec!["add".to_string()]),
+                tools: None,
                 skills: None,
                 skill_variables: None,
                 skill_preflight_policy_mode: None,
@@ -514,6 +514,105 @@ async fn process_create_work_item_returns_item() {
             assert_eq!(item.folder, "inbox");
             assert_eq!(item.title, "Follow up");
             assert_eq!(item.content, "Review ipc dispatch split");
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_agent_returns_stored_agent() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateAgent {
+            name: "IPC Agent".to_string(),
+            agent: AgentNode {
+                model: Some(crate::models::AIModel::ClaudeSonnet4_5),
+                model_ref: Some(crate::models::ModelRef::from_model(
+                    crate::models::AIModel::ClaudeSonnet4_5,
+                )),
+                prompt: Some("You are a helpful assistant".to_string()),
+                temperature: Some(0.7),
+                codex_cli_reasoning_effort: None,
+                codex_cli_execution_mode: None,
+                api_key_config: Some(crate::models::ApiKeyConfig::Direct("test_key".to_string())),
+                tools: None,
+                skills: None,
+                skill_variables: None,
+                skill_preflight_policy_mode: None,
+                model_routing: None,
+            },
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            assert_eq!(value["name"], "IPC Agent");
+            assert!(value["id"].as_str().is_some());
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_skill_and_get_skill_round_trip() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let skill = Skill::new(
+        "skill-ipc-test".to_string(),
+        "IPC Skill".to_string(),
+        Some("Created through ipc".to_string()),
+        Some(vec!["ipc".to_string()]),
+        "Use this skill for testing".to_string(),
+    );
+
+    let create_response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateSkill {
+            skill: skill.clone(),
+        },
+    )
+    .await;
+    match create_response {
+        IpcResponse::Success(_) => {}
+        other => panic!("expected success response, got {other:?}"),
+    }
+
+    let get_response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetSkill {
+            id: skill.id.clone(),
+        },
+    )
+    .await;
+
+    match get_response {
+        IpcResponse::Success(value) => {
+            let returned: Skill = serde_json::from_value(value).expect("skill");
+            assert_eq!(returned.id, skill.id);
+            assert_eq!(returned.name, "IPC Skill");
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_get_config_returns_system_config() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(&core, &runtime_tool_registry, IpcRequest::GetConfig).await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let _config: crate::storage::SystemConfig =
+                serde_json::from_value(value).expect("system config");
         }
         other => panic!("expected success response, got {other:?}"),
     }
