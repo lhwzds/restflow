@@ -1,0 +1,163 @@
+use super::*;
+
+pub(super) fn build_service_subagent_tool_registry(source: &ToolRegistry) -> ToolRegistry {
+    let mut cloned = ToolRegistry::new();
+    for name in main_agent_default_tool_names() {
+        if let Some(tool) = source.get(&name) {
+            cloned.register_arc(tool);
+        }
+    }
+    cloned
+}
+
+struct ToolRegistrySubagentBackend {
+    definitions: Arc<dyn SubagentDefLookup>,
+    llm_client: Arc<dyn LlmClient>,
+    tool_registry: Arc<ToolRegistry>,
+    config: SubagentConfig,
+    llm_client_factory: Arc<dyn LlmClientFactory>,
+}
+
+#[async_trait::async_trait]
+impl ExecutionBackend for ToolRegistrySubagentBackend {
+    fn load_chat_session(&self, session_id: &str) -> anyhow::Result<crate::models::ChatSession> {
+        anyhow::bail!(
+            "Chat session loading is not supported in service subagent backend: {session_id}"
+        )
+    }
+
+    async fn execute_interactive_session_turn(
+        &self,
+        _session: &mut crate::models::ChatSession,
+        _user_input: &str,
+        _max_history: usize,
+        _input_mode: crate::runtime::SessionInputMode,
+        _emitter: Option<Box<dyn StreamEmitter>>,
+        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
+    ) -> anyhow::Result<crate::runtime::SessionExecutionResult> {
+        anyhow::bail!("Interactive execution is not supported in service subagent backend")
+    }
+
+    async fn execute_background(
+        &self,
+        _agent_id: &str,
+        _background_task_id: Option<&str>,
+        _input: Option<&str>,
+        _memory_config: &crate::models::MemoryConfig,
+        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
+        _emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> anyhow::Result<crate::runtime::ExecutionResult> {
+        anyhow::bail!("Background execution is not supported in service subagent backend")
+    }
+
+    async fn execute_background_from_state(
+        &self,
+        _agent_id: &str,
+        _background_task_id: Option<&str>,
+        _state: AgentState,
+        _memory_config: &crate::models::MemoryConfig,
+        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
+        _emitter: Option<Box<dyn StreamEmitter>>,
+    ) -> anyhow::Result<crate::runtime::ExecutionResult> {
+        anyhow::bail!("Background resume is not supported in service subagent backend")
+    }
+
+    async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> anyhow::Result<ExecutionOutcome> {
+        let provider = match (plan.model.as_deref(), plan.provider.clone()) {
+            (Some(model), None) => self
+                .llm_client_factory
+                .provider_for_model(model)
+                .map(|provider| provider.as_str().to_string()),
+            _ => plan.provider.clone(),
+        };
+        execute_subagent_once(
+            self.definitions.clone(),
+            self.llm_client.clone(),
+            self.tool_registry.clone(),
+            self.config.clone(),
+            restflow_traits::SpawnRequest {
+                agent_id: plan.agent_id.clone(),
+                inline: plan.inline_subagent.clone(),
+                task: plan
+                    .input
+                    .clone()
+                    .ok_or_else(|| anyhow::anyhow!("Subagent execution requires 'input'"))?,
+                timeout_secs: plan.timeout_secs,
+                max_iterations: plan.max_iterations,
+                priority: None,
+                model: plan.model.clone(),
+                model_provider: provider,
+                parent_execution_id: plan.parent_execution_id.clone(),
+                trace_session_id: plan.trace_session_id.clone(),
+                trace_scope_id: plan.trace_scope_id.clone(),
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: Some(self.llm_client_factory.clone()),
+                orchestrator: None,
+            },
+        )
+        .await
+        .map_err(|error| anyhow::anyhow!(error.to_string()))
+    }
+}
+
+pub(super) fn build_service_subagent_manager(
+    agent_storage: AgentStorage,
+    base_registry: &ToolRegistry,
+    llm_client_factory: Arc<dyn LlmClientFactory>,
+    config_storage: Arc<ConfigStorage>,
+    tool_trace_storage: ToolTraceStorage,
+) -> SubagentManagerImpl {
+    let (completion_tx, completion_rx) = mpsc::channel(128);
+    let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+    let execution_trace_storage = match ExecutionTraceStorage::new(tool_trace_storage.db()) {
+        Ok(storage) => Some(storage),
+        Err(error) => {
+            warn!(%error, "Failed to initialize execution trace storage for subagents");
+            None
+        }
+    };
+    tracker.set_run_trace_sink(Arc::new(ToolTraceRunSink::new(
+        tool_trace_storage,
+        execution_trace_storage,
+    )));
+    let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
+    let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
+    let subagent_config = load_subagent_config(&config_storage);
+    let tool_registry = Arc::new(build_service_subagent_tool_registry(base_registry));
+    let orchestrator = Arc::new(AgentOrchestratorImpl::new(Arc::new(
+        ToolRegistrySubagentBackend {
+            definitions: definitions.clone(),
+            llm_client: llm_client.clone(),
+            tool_registry: tool_registry.clone(),
+            config: subagent_config.clone(),
+            llm_client_factory: llm_client_factory.clone(),
+        },
+    )));
+    let subagent_deps = SubagentDeps {
+        tracker,
+        definitions,
+        llm_client,
+        tool_registry,
+        config: subagent_config,
+        llm_client_factory: Some(llm_client_factory),
+        orchestrator: Some(orchestrator),
+    };
+    SubagentManagerImpl::from_deps(&subagent_deps)
+}
+
+pub(super) fn create_subagent_manager(
+    agent_storage: AgentStorage,
+    base_registry: &ToolRegistry,
+    llm_client_factory: Arc<dyn LlmClientFactory>,
+    config_storage: Arc<ConfigStorage>,
+    tool_trace_storage: ToolTraceStorage,
+) -> Arc<dyn restflow_traits::SubagentManager> {
+    Arc::new(build_service_subagent_manager(
+        agent_storage,
+        base_registry,
+        llm_client_factory,
+        config_storage,
+        tool_trace_storage,
+    ))
+}
