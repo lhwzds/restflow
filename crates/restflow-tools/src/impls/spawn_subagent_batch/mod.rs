@@ -1,0 +1,105 @@
+//! spawn_subagent_batch tool - Batch spawn sub-agents and manage reusable team presets.
+
+mod resolve;
+mod schema;
+mod spawn_exec;
+mod team;
+mod types;
+mod validate;
+
+#[cfg(test)]
+mod tests;
+
+use async_trait::async_trait;
+use serde_json::Value;
+use std::sync::Arc;
+
+use crate::{Result, Tool, ToolError, ToolOutput};
+use restflow_traits::store::KvStore;
+use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
+
+use types::SpawnSubagentBatchParams as ParsedSpawnSubagentBatchParams;
+pub use types::{BatchSubagentSpec, SpawnSubagentBatchOperation, SpawnSubagentBatchParams};
+
+/// spawn_subagent_batch tool for shared agent execution engine.
+pub struct SpawnSubagentBatchTool {
+    manager: Arc<dyn SubagentManager>,
+    kv_store: Option<Arc<dyn KvStore>>,
+}
+
+impl SpawnSubagentBatchTool {
+    pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
+        Self {
+            manager,
+            kv_store: None,
+        }
+    }
+
+    pub fn with_kv_store(mut self, kv_store: Arc<dyn KvStore>) -> Self {
+        self.kv_store = Some(kv_store);
+        self
+    }
+
+    fn available_agents(&self) -> Vec<SubagentDefSummary> {
+        self.manager.list_callable()
+    }
+}
+
+#[async_trait]
+impl Tool for SpawnSubagentBatchTool {
+    fn name(&self) -> &str {
+        "spawn_subagent_batch"
+    }
+
+    fn description(&self) -> &str {
+        "Batch spawn sub-agents with model/count specs, and optionally save/reuse named team presets."
+    }
+
+    fn parameters_schema(&self) -> Value {
+        schema::parameters_schema()
+    }
+
+    async fn execute(&self, input: Value) -> Result<ToolOutput> {
+        let params: ParsedSpawnSubagentBatchParams = serde_json::from_value(input)
+            .map_err(|err| ToolError::Tool(format!("Invalid parameters: {}", err)))?;
+
+        match params.operation {
+            SpawnSubagentBatchOperation::Spawn => spawn_exec::spawn_batch(self, params).await,
+            SpawnSubagentBatchOperation::SaveTeam => {
+                let team_name = params
+                    .team
+                    .as_deref()
+                    .ok_or_else(|| ToolError::Tool("save_team requires 'team'.".to_string()))?;
+                let specs = params.specs.ok_or_else(|| {
+                    ToolError::Tool("save_team requires non-empty 'specs'.".to_string())
+                })?;
+                validate::validate_save_team_request(
+                    params.task.as_deref(),
+                    params.tasks.as_deref(),
+                    &specs,
+                )?;
+                validate::validate_structural_specs(self, &specs)?;
+                let payload = team::save_team_specs(self, team_name, &specs)?;
+                Ok(ToolOutput::success(serde_json::json!({
+                    "operation": "save_team",
+                    "result": payload
+                })))
+            }
+            SpawnSubagentBatchOperation::ListTeams => team::list_teams(self),
+            SpawnSubagentBatchOperation::GetTeam => {
+                let team_name = params
+                    .team
+                    .as_deref()
+                    .ok_or_else(|| ToolError::Tool("get_team requires 'team'.".to_string()))?;
+                team::get_team(self, team_name)
+            }
+            SpawnSubagentBatchOperation::DeleteTeam => {
+                let team_name = params
+                    .team
+                    .as_deref()
+                    .ok_or_else(|| ToolError::Tool("delete_team requires 'team'.".to_string()))?;
+                team::delete_team(self, team_name)
+            }
+        }
+    }
+}
