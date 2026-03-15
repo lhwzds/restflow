@@ -1972,8 +1972,7 @@ fn resolve_default_root_dir() -> Result<PathBuf> {
         return Ok(PathBuf::from(path));
     }
 
-    let base = std::env::current_dir().unwrap_or_else(|_| std::env::temp_dir());
-    Ok(base.join(".restflow-browser"))
+    Ok(std::env::temp_dir().join("restflow-browser"))
 }
 
 fn default_timeout_secs() -> u64 {
@@ -1992,7 +1991,15 @@ fn default_headless() -> bool {
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[derive(Default)]
     struct MockExecutor {
@@ -2152,6 +2159,48 @@ mod tests {
                 .to_string()
                 .contains("Session not found")
         );
+    }
+
+    #[test]
+    fn resolve_default_root_dir_uses_temp_dir() {
+        let _guard = env_lock();
+        let previous = std::env::var_os("RESTFLOW_BROWSER_DIR");
+        unsafe {
+            std::env::remove_var("RESTFLOW_BROWSER_DIR");
+        }
+
+        let root = resolve_default_root_dir().unwrap();
+        assert_eq!(root, std::env::temp_dir().join("restflow-browser"));
+
+        if let Some(previous) = previous {
+            unsafe {
+                std::env::set_var("RESTFLOW_BROWSER_DIR", previous);
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_default_root_dir_respects_env_override() {
+        let _guard = env_lock();
+        let previous = std::env::var_os("RESTFLOW_BROWSER_DIR");
+        let temp = tempdir().unwrap();
+        let override_dir = temp.path().join("custom-browser-root");
+        unsafe {
+            std::env::set_var("RESTFLOW_BROWSER_DIR", &override_dir);
+        }
+
+        let root = resolve_default_root_dir().unwrap();
+        assert_eq!(root, override_dir);
+
+        if let Some(previous) = previous {
+            unsafe {
+                std::env::set_var("RESTFLOW_BROWSER_DIR", previous);
+            }
+        } else {
+            unsafe {
+                std::env::remove_var("RESTFLOW_BROWSER_DIR");
+            }
+        }
     }
 
     #[test]
