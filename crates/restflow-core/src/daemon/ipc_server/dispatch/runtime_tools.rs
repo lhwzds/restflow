@@ -1,5 +1,6 @@
 use super::super::runtime::{build_agent_system_prompt, get_runtime_tool_registry};
 use super::super::*;
+use restflow_contracts::PromptResponse;
 
 impl IpcServer {
     pub(super) async fn handle_get_available_tools(
@@ -67,7 +68,7 @@ impl IpcServer {
         agent_node: crate::models::AgentNode,
     ) -> IpcResponse {
         match build_agent_system_prompt(core, agent_node) {
-            Ok(prompt) => IpcResponse::success(serde_json::json!({ "prompt": prompt })),
+            Ok(prompt) => IpcResponse::success(PromptResponse { prompt }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }

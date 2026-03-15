@@ -1,4 +1,5 @@
 use super::*;
+use restflow_contracts::{DeleteResponse, DeleteWithIdResponse};
 
 pub(super) struct CoreBackend {
     pub(super) core: Arc<AppCore>,
@@ -381,29 +382,9 @@ pub(super) struct IpcBackend {
 }
 
 impl IpcBackend {
-    fn format_ipc_error(code: i32, message: &str, details: Option<Value>) -> String {
-        match details {
-            Some(details) => serde_json::json!({
-                "code": code,
-                "message": message,
-                "details": details
-            })
-            .to_string(),
-            None => format!("IPC error {}: {}", code, message),
-        }
-    }
-
     async fn request_typed<T: DeserializeOwned>(&self, req: IpcRequest) -> Result<T, String> {
         let mut client = self.client.lock().await;
-        match client.request(req).await.map_err(|e| e.to_string())? {
-            IpcResponse::Success(value) => serde_json::from_value(value).map_err(|e| e.to_string()),
-            IpcResponse::Error {
-                code,
-                message,
-                details,
-            } => Err(Self::format_ipc_error(code, &message, details)),
-            IpcResponse::Pong => Err("Unexpected IPC pong response".to_string()),
-        }
+        client.request_typed(req).await.map_err(|e| e.to_string())
     }
 }
 
@@ -551,12 +532,7 @@ impl McpBackend for IpcBackend {
     }
 
     async fn delete_background_agent(&self, id: &str) -> Result<bool, String> {
-        #[derive(Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
-
-        let response: DeleteResponse = self
+        let response: DeleteWithIdResponse = self
             .request_typed(IpcRequest::DeleteBackgroundAgent { id: id.to_string() })
             .await?;
         Ok(response.deleted)
@@ -684,10 +660,6 @@ impl McpBackend for IpcBackend {
     }
 
     async fn delete_hook(&self, id: &str) -> Result<bool, String> {
-        #[derive(Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
         let response: DeleteResponse = self
             .request_typed(IpcRequest::DeleteHook { id: id.to_string() })
             .await?;
@@ -696,18 +668,11 @@ impl McpBackend for IpcBackend {
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
         let mut client = self.client.lock().await;
-        let tools = client
+        let tools: Vec<RuntimeToolDefinition> = client
             .get_available_tool_definitions()
             .await
-            .map_err(|e| e.to_string())?;
-        Ok(tools
-            .into_iter()
-            .map(|tool| RuntimeToolDefinition {
-                name: tool.name,
-                description: tool.description,
-                parameters: tool.parameters,
-            })
-            .collect())
+            .map_err(|e: anyhow::Error| e.to_string())?;
+        Ok(tools)
     }
 
     async fn execute_runtime_tool(
@@ -716,18 +681,11 @@ impl McpBackend for IpcBackend {
         input: Value,
     ) -> Result<RuntimeToolResult, String> {
         let mut client = self.client.lock().await;
-        let output = client
+        let output: RuntimeToolResult = client
             .execute_tool(name.to_string(), input)
             .await
-            .map_err(|e| e.to_string())?;
-        Ok(RuntimeToolResult {
-            success: output.success,
-            result: output.result,
-            error: output.error,
-            error_category: output.error_category,
-            retryable: output.retryable,
-            retry_after_ms: output.retry_after_ms,
-        })
+            .map_err(|e: anyhow::Error| e.to_string())?;
+        Ok(output)
     }
 
     async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {

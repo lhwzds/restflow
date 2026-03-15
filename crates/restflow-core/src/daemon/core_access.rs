@@ -1,5 +1,5 @@
 use super::ipc_client::IpcClient;
-use super::ipc_protocol::{IpcRequest, IpcResponse};
+use super::ipc_protocol::IpcRequest;
 use super::launcher::ensure_daemon_running;
 use crate::AppCore;
 use crate::models::{
@@ -12,7 +12,7 @@ use crate::services::{
 };
 use crate::storage::SystemConfig;
 use anyhow::Result;
-use serde::de::DeserializeOwned;
+use restflow_contracts::OkResponse;
 use std::sync::Arc;
 
 pub enum CoreAccess {
@@ -37,10 +37,7 @@ impl CoreAccess {
     pub async fn list_agents(&mut self) -> Result<Vec<crate::storage::agent::StoredAgent>> {
         match self {
             CoreAccess::Local(core) => agent_service::list_agents(core).await,
-            CoreAccess::Remote(client) => {
-                let response = client.request(IpcRequest::ListAgents).await?;
-                decode_response(response)
-            }
+            CoreAccess::Remote(client) => client.request_typed(IpcRequest::ListAgents).await,
         }
     }
 
@@ -48,10 +45,9 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::get_agent(core, id).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::GetAgent { id: id.to_string() })
-                    .await?;
-                decode_response(response)
+                client
+                    .request_typed(IpcRequest::GetAgent { id: id.to_string() })
+                    .await
             }
         }
     }
@@ -64,10 +60,9 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::create_agent(core, name, agent).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::CreateAgent { name, agent })
-                    .await?;
-                decode_response(response)
+                client
+                    .request_typed(IpcRequest::CreateAgent { name, agent })
+                    .await
             }
         }
     }
@@ -81,14 +76,13 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::update_agent(core, id, name, agent).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::UpdateAgent {
+                client
+                    .request_typed(IpcRequest::UpdateAgent {
                         id: id.to_string(),
                         name,
                         agent,
                     })
-                    .await?;
-                decode_response(response)
+                    .await
             }
         }
     }
@@ -97,10 +91,10 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::delete_agent(core, id).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::DeleteAgent { id: id.to_string() })
+                let _: OkResponse = client
+                    .request_typed(IpcRequest::DeleteAgent { id: id.to_string() })
                     .await?;
-                decode_response::<serde_json::Value>(response).map(|_| ())
+                Ok(())
             }
         }
     }
@@ -108,10 +102,7 @@ impl CoreAccess {
     pub async fn list_skills(&mut self) -> Result<Vec<Skill>> {
         match self {
             CoreAccess::Local(core) => skills_service::list_skills(core).await,
-            CoreAccess::Remote(client) => {
-                let response = client.request(IpcRequest::ListSkills).await?;
-                decode_response(response)
-            }
+            CoreAccess::Remote(client) => client.request_typed(IpcRequest::ListSkills).await,
         }
     }
 
@@ -119,15 +110,9 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => skills_service::get_skill(core, id).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::GetSkill { id: id.to_string() })
-                    .await?;
-                match response {
-                    IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
-                    IpcResponse::Error { code: 404, .. } => Ok(None),
-                    IpcResponse::Error { message, .. } => anyhow::bail!(message),
-                    IpcResponse::Pong => anyhow::bail!("Unexpected response"),
-                }
+                client
+                    .request_optional(IpcRequest::GetSkill { id: id.to_string() })
+                    .await
             }
         }
     }
@@ -136,8 +121,10 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => skills_service::create_skill(core, skill).await,
             CoreAccess::Remote(client) => {
-                let response = client.request(IpcRequest::CreateSkill { skill }).await?;
-                decode_response::<serde_json::Value>(response).map(|_| ())
+                let _: OkResponse = client
+                    .request_typed(IpcRequest::CreateSkill { skill })
+                    .await?;
+                Ok(())
             }
         }
     }
@@ -146,13 +133,13 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => skills_service::update_skill(core, id, &skill).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::UpdateSkill {
+                let _: OkResponse = client
+                    .request_typed(IpcRequest::UpdateSkill {
                         id: id.to_string(),
                         skill,
                     })
                     .await?;
-                decode_response::<serde_json::Value>(response).map(|_| ())
+                Ok(())
             }
         }
     }
@@ -161,10 +148,10 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => skills_service::delete_skill(core, id).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::DeleteSkill { id: id.to_string() })
+                let _: OkResponse = client
+                    .request_typed(IpcRequest::DeleteSkill { id: id.to_string() })
                     .await?;
-                decode_response::<serde_json::Value>(response).map(|_| ())
+                Ok(())
             }
         }
     }
@@ -179,12 +166,11 @@ impl CoreAccess {
                 None => core.storage.background_agents.list_tasks(),
             },
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::ListBackgroundAgents {
+                client
+                    .request_typed(IpcRequest::ListBackgroundAgents {
                         status: status.map(|value| value.as_str().to_string()),
                     })
-                    .await?;
-                decode_response(response)
+                    .await
             }
         }
     }
@@ -193,15 +179,9 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => core.storage.background_agents.get_task(id),
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::GetBackgroundAgent { id: id.to_string() })
-                    .await?;
-                match response {
-                    IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
-                    IpcResponse::Error { code: 404, .. } => Ok(None),
-                    IpcResponse::Error { message, .. } => anyhow::bail!(message),
-                    IpcResponse::Pong => anyhow::bail!("Unexpected response"),
-                }
+                client
+                    .request_optional(IpcRequest::GetBackgroundAgent { id: id.to_string() })
+                    .await
             }
         }
     }
@@ -213,10 +193,9 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => core.storage.background_agents.create_background_agent(spec),
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::CreateBackgroundAgent { spec })
-                    .await?;
-                decode_response(response)
+                client
+                    .request_typed(IpcRequest::CreateBackgroundAgent { spec })
+                    .await
             }
         }
     }
@@ -224,10 +203,7 @@ impl CoreAccess {
     pub async fn list_secrets(&mut self) -> Result<Vec<crate::models::Secret>> {
         match self {
             CoreAccess::Local(core) => secrets_service::list_secrets(core).await,
-            CoreAccess::Remote(client) => {
-                let response = client.request(IpcRequest::ListSecrets).await?;
-                decode_response(response)
-            }
+            CoreAccess::Remote(client) => client.request_typed(IpcRequest::ListSecrets).await,
         }
     }
 
@@ -235,20 +211,12 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => secrets_service::get_secret(core, key).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::GetSecret {
+                let response: restflow_contracts::SecretResponse = client
+                    .request_typed(IpcRequest::GetSecret {
                         key: key.to_string(),
                     })
                     .await?;
-                match response {
-                    IpcResponse::Success(value) => Ok(value
-                        .get("value")
-                        .and_then(|value| value.as_str())
-                        .map(|value| value.to_string())),
-                    IpcResponse::Error { code: 404, .. } => Ok(None),
-                    IpcResponse::Error { message, .. } => anyhow::bail!(message),
-                    IpcResponse::Pong => anyhow::bail!("Unexpected response"),
-                }
+                Ok(response.value)
             }
         }
     }
@@ -264,14 +232,14 @@ impl CoreAccess {
                 secrets_service::set_secret(core, key, value, description).await
             }
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::SetSecret {
+                let _: OkResponse = client
+                    .request_typed(IpcRequest::SetSecret {
                         key: key.to_string(),
                         value: value.to_string(),
                         description,
                     })
                     .await?;
-                decode_response::<serde_json::Value>(response).map(|_| ())
+                Ok(())
             }
         }
     }
@@ -280,12 +248,12 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => secrets_service::delete_secret(core, key).await,
             CoreAccess::Remote(client) => {
-                let response = client
-                    .request(IpcRequest::DeleteSecret {
+                let _: OkResponse = client
+                    .request_typed(IpcRequest::DeleteSecret {
                         key: key.to_string(),
                     })
                     .await?;
-                decode_response::<serde_json::Value>(response).map(|_| ())
+                Ok(())
             }
         }
     }
@@ -293,20 +261,14 @@ impl CoreAccess {
     pub async fn get_config(&mut self) -> Result<SystemConfig> {
         match self {
             CoreAccess::Local(core) => config_service::get_config(core).await,
-            CoreAccess::Remote(client) => {
-                let response = client.request(IpcRequest::GetConfig).await?;
-                decode_response(response)
-            }
+            CoreAccess::Remote(client) => client.request_typed(IpcRequest::GetConfig).await,
         }
     }
 
     pub async fn get_global_config(&mut self) -> Result<SystemConfig> {
         match self {
             CoreAccess::Local(core) => config_service::get_global_config(core).await,
-            CoreAccess::Remote(client) => {
-                let response = client.request(IpcRequest::GetGlobalConfig).await?;
-                decode_response(response)
-            }
+            CoreAccess::Remote(client) => client.request_typed(IpcRequest::GetGlobalConfig).await,
         }
     }
 
@@ -314,17 +276,11 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => config_service::update_config(core, config).await,
             CoreAccess::Remote(client) => {
-                let response = client.request(IpcRequest::SetConfig { config }).await?;
-                decode_response::<serde_json::Value>(response).map(|_| ())
+                let _: OkResponse = client
+                    .request_typed(IpcRequest::SetConfig { config })
+                    .await?;
+                Ok(())
             }
         }
-    }
-}
-
-fn decode_response<T: DeserializeOwned>(response: IpcResponse) -> Result<T> {
-    match response {
-        IpcResponse::Success(value) => Ok(serde_json::from_value(value)?),
-        IpcResponse::Error { message, .. } => anyhow::bail!(message),
-        IpcResponse::Pong => anyhow::bail!("Unexpected response"),
     }
 }

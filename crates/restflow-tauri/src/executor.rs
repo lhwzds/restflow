@@ -1,16 +1,20 @@
 use crate::daemon_manager::DaemonManager;
 use anyhow::Result;
+use restflow_contracts::{
+    ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse, ClearResponse,
+    DeleteResponse, DeleteWithIdResponse, IdResponse, OkResponse, PromptResponse, SecretResponse,
+    SteerResponse,
+};
 use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use restflow_core::daemon::{
-    ChatSessionEvent, IpcClient, IpcDaemonStatus, IpcRequest, IpcResponse, StreamFrame,
-    ToolExecutionResult,
+    ChatSessionEvent, IpcClient, IpcDaemonStatus, IpcRequest, StreamFrame, ToolExecutionResult,
 };
 use restflow_core::memory::{ExportResult, RankedSearchResult};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
-    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessageSource, ChatMessage, ChatRole,
-    ChatSession, ChatSessionSummary, ChatSessionUpdate, Hook, MemoryChunk, MemorySearchResult,
-    MemorySession, MemoryStats, Skill, TerminalSession, ToolTrace,
+    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessage, BackgroundMessageSource,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, Hook, MemoryChunk,
+    MemorySearchResult, MemorySession, MemoryStats, Skill, TerminalSession, ToolTrace,
 };
 use restflow_core::paths;
 use restflow_core::runtime::TaskStreamEvent;
@@ -32,8 +36,7 @@ impl TauriExecutor {
     async fn request<T: DeserializeOwned>(&self, request: IpcRequest) -> Result<T> {
         let mut daemon = self.daemon.lock().await;
         let client = daemon.ensure_connected().await?;
-        let response = client.request(request).await?;
-        decode_response(response)
+        client.request_typed(request).await
     }
 
     async fn request_optional<T: DeserializeOwned>(
@@ -42,18 +45,7 @@ impl TauriExecutor {
     ) -> Result<Option<T>> {
         let mut daemon = self.daemon.lock().await;
         let client = daemon.ensure_connected().await?;
-        match client.request(request).await? {
-            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
-            IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error {
-                code,
-                message,
-                details,
-            } => {
-                anyhow::bail!("{}", format_ipc_error(code, &message, details))
-            }
-            IpcResponse::Pong => anyhow::bail!("Unexpected Pong response"),
-        }
+        client.request_optional(request).await
     }
 
     pub async fn ensure_daemon_handshake(&self) -> Result<IpcDaemonStatus> {
@@ -91,7 +83,7 @@ impl TauriExecutor {
     }
 
     pub async fn delete_agent(&self, id: String) -> Result<()> {
-        let _: Value = self.request(IpcRequest::DeleteAgent { id }).await?;
+        let _: OkResponse = self.request(IpcRequest::DeleteAgent { id }).await?;
         Ok(())
     }
 
@@ -104,17 +96,17 @@ impl TauriExecutor {
     }
 
     pub async fn create_skill(&self, skill: Skill) -> Result<()> {
-        let _: Value = self.request(IpcRequest::CreateSkill { skill }).await?;
+        let _: OkResponse = self.request(IpcRequest::CreateSkill { skill }).await?;
         Ok(())
     }
 
     pub async fn update_skill(&self, id: String, skill: Skill) -> Result<()> {
-        let _: Value = self.request(IpcRequest::UpdateSkill { id, skill }).await?;
+        let _: OkResponse = self.request(IpcRequest::UpdateSkill { id, skill }).await?;
         Ok(())
     }
 
     pub async fn delete_skill(&self, id: String) -> Result<()> {
-        let _: Value = self.request(IpcRequest::DeleteSkill { id }).await?;
+        let _: OkResponse = self.request(IpcRequest::DeleteSkill { id }).await?;
         Ok(())
     }
 
@@ -152,16 +144,12 @@ impl TauriExecutor {
     }
 
     pub async fn delete_hook(&self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
         let response: DeleteResponse = self.request(IpcRequest::DeleteHook { id }).await?;
         Ok(response.deleted)
     }
 
     pub async fn test_hook(&self, id: String) -> Result<()> {
-        let _: Value = self.request(IpcRequest::TestHook { id }).await?;
+        let _: OkResponse = self.request(IpcRequest::TestHook { id }).await?;
         Ok(())
     }
 
@@ -183,11 +171,7 @@ impl TauriExecutor {
     }
 
     pub async fn delete_background_agent(&self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
-        let response: DeleteResponse = self
+        let response: DeleteWithIdResponse = self
             .request(IpcRequest::DeleteBackgroundAgent { id })
             .await?;
         Ok(response.deleted)
@@ -251,7 +235,7 @@ impl TauriExecutor {
         message: String,
         source: Option<BackgroundMessageSource>,
     ) -> Result<()> {
-        let _: Value = self
+        let _: BackgroundMessage = self
             .request(IpcRequest::SendBackgroundAgentMessage {
                 id,
                 message,
@@ -266,11 +250,7 @@ impl TauriExecutor {
         id: String,
         approved: bool,
     ) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct ApprovalResponse {
-            handled: bool,
-        }
-        let response: ApprovalResponse = self
+        let response: ApprovalHandledResponse = self
             .request(IpcRequest::HandleBackgroundAgentApproval { id, approved })
             .await?;
         Ok(response.handled)
@@ -323,11 +303,7 @@ impl TauriExecutor {
         agent_id: Option<String>,
         tags: Vec<String>,
     ) -> Result<String> {
-        #[derive(serde::Deserialize)]
-        struct AddResponse {
-            id: String,
-        }
-        let response: AddResponse = self
+        let response: IdResponse = self
             .request(IpcRequest::AddMemory {
                 content,
                 agent_id,
@@ -347,19 +323,11 @@ impl TauriExecutor {
     }
 
     pub async fn delete_memory(&self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
         let response: DeleteResponse = self.request(IpcRequest::DeleteMemory { id }).await?;
         Ok(response.deleted)
     }
 
     pub async fn clear_memory(&self, agent_id: Option<String>) -> Result<u32> {
-        #[derive(serde::Deserialize)]
-        struct ClearResponse {
-            deleted: u32,
-        }
         let response: ClearResponse = self.request(IpcRequest::ClearMemory { agent_id }).await?;
         Ok(response.deleted)
     }
@@ -420,10 +388,6 @@ impl TauriExecutor {
         session_id: String,
         delete_chunks: bool,
     ) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
         let response: DeleteResponse = self
             .request(IpcRequest::DeleteMemorySession {
                 session_id,
@@ -494,19 +458,11 @@ impl TauriExecutor {
     }
 
     pub async fn archive_session(&self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct ArchiveResponse {
-            archived: bool,
-        }
         let response: ArchiveResponse = self.request(IpcRequest::ArchiveSession { id }).await?;
         Ok(response.archived)
     }
 
     pub async fn delete_session(&self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
         let response: DeleteResponse = self.request(IpcRequest::DeleteSession { id }).await?;
         Ok(response.deleted)
     }
@@ -582,11 +538,6 @@ impl TauriExecutor {
     }
 
     pub async fn cancel_chat_session_stream(&self, stream_id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct CancelResponse {
-            canceled: bool,
-        }
-
         let response: CancelResponse = self
             .request(IpcRequest::CancelChatSessionStream { stream_id })
             .await?;
@@ -598,10 +549,6 @@ impl TauriExecutor {
         session_id: String,
         instruction: String,
     ) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct SteerResponse {
-            steered: bool,
-        }
         let response: SteerResponse = self
             .request(IpcRequest::SteerChatSessionStream {
                 session_id,
@@ -677,7 +624,7 @@ impl TauriExecutor {
     }
 
     pub async fn delete_terminal_session(&self, id: String) -> Result<()> {
-        let _: Value = self
+        let _: OkResponse = self
             .request(IpcRequest::DeleteTerminalSession { id })
             .await?;
         Ok(())
@@ -730,47 +677,39 @@ impl TauriExecutor {
     }
 
     pub async fn enable_auth_profile(&self, id: String) -> Result<()> {
-        let _: Value = self.request(IpcRequest::EnableAuthProfile { id }).await?;
+        let _: OkResponse = self.request(IpcRequest::EnableAuthProfile { id }).await?;
         Ok(())
     }
 
     pub async fn disable_auth_profile(&self, id: String, reason: String) -> Result<()> {
-        let _: Value = self
+        let _: OkResponse = self
             .request(IpcRequest::DisableAuthProfile { id, reason })
             .await?;
         Ok(())
     }
 
     pub async fn get_api_key(&self, provider: AuthProvider) -> Result<String> {
-        #[derive(serde::Deserialize)]
-        struct ApiKeyResponse {
-            api_key: String,
-        }
         let response: ApiKeyResponse = self.request(IpcRequest::GetApiKey { provider }).await?;
         Ok(response.api_key)
     }
 
     pub async fn test_auth_profile(&self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct TestResponse {
-            ok: bool,
-        }
-        let response: TestResponse = self.request(IpcRequest::TestAuthProfile { id }).await?;
+        let response: OkResponse = self.request(IpcRequest::TestAuthProfile { id }).await?;
         Ok(response.ok)
     }
 
     pub async fn mark_auth_success(&self, id: String) -> Result<()> {
-        let _: Value = self.request(IpcRequest::MarkAuthSuccess { id }).await?;
+        let _: OkResponse = self.request(IpcRequest::MarkAuthSuccess { id }).await?;
         Ok(())
     }
 
     pub async fn mark_auth_failure(&self, id: String) -> Result<()> {
-        let _: Value = self.request(IpcRequest::MarkAuthFailure { id }).await?;
+        let _: OkResponse = self.request(IpcRequest::MarkAuthFailure { id }).await?;
         Ok(())
     }
 
     pub async fn clear_auth_profiles(&self) -> Result<()> {
-        let _: Value = self.request(IpcRequest::ClearAuthProfiles).await?;
+        let _: OkResponse = self.request(IpcRequest::ClearAuthProfiles).await?;
         Ok(())
     }
 
@@ -779,10 +718,6 @@ impl TauriExecutor {
     }
 
     pub async fn get_secret(&self, key: String) -> Result<Option<String>> {
-        #[derive(serde::Deserialize)]
-        struct SecretResponse {
-            value: Option<String>,
-        }
         let response: SecretResponse = self.request(IpcRequest::GetSecret { key }).await?;
         Ok(response.value)
     }
@@ -793,7 +728,7 @@ impl TauriExecutor {
         value: String,
         description: Option<String>,
     ) -> Result<()> {
-        let _: Value = self
+        let _: OkResponse = self
             .request(IpcRequest::SetSecret {
                 key,
                 value,
@@ -810,7 +745,7 @@ impl TauriExecutor {
         value: String,
         description: Option<String>,
     ) -> Result<()> {
-        let _: Value = self
+        let _: OkResponse = self
             .request(IpcRequest::CreateSecret {
                 key,
                 value,
@@ -827,7 +762,7 @@ impl TauriExecutor {
         value: String,
         description: Option<String>,
     ) -> Result<()> {
-        let _: Value = self
+        let _: OkResponse = self
             .request(IpcRequest::UpdateSecret {
                 key,
                 value,
@@ -838,7 +773,7 @@ impl TauriExecutor {
     }
 
     pub async fn delete_secret(&self, key: String) -> Result<()> {
-        let _: Value = self.request(IpcRequest::DeleteSecret { key }).await?;
+        let _: OkResponse = self.request(IpcRequest::DeleteSecret { key }).await?;
         Ok(())
     }
 
@@ -847,7 +782,7 @@ impl TauriExecutor {
     }
 
     pub async fn set_config(&self, config: SystemConfig) -> Result<()> {
-        let _: Value = self.request(IpcRequest::SetConfig { config }).await?;
+        let _: OkResponse = self.request(IpcRequest::SetConfig { config }).await?;
         Ok(())
     }
 
@@ -868,39 +803,9 @@ impl TauriExecutor {
     }
 
     pub async fn build_agent_system_prompt(&self, agent_node: AgentNode) -> Result<String> {
-        #[derive(serde::Deserialize)]
-        struct PromptResponse {
-            prompt: String,
-        }
         let response: PromptResponse = self
             .request(IpcRequest::BuildAgentSystemPrompt { agent_node })
             .await?;
         Ok(response.prompt)
-    }
-}
-
-fn decode_response<T: DeserializeOwned>(response: IpcResponse) -> Result<T> {
-    match response {
-        IpcResponse::Success(value) => Ok(serde_json::from_value(value)?),
-        IpcResponse::Error {
-            code,
-            message,
-            details,
-        } => {
-            anyhow::bail!("{}", format_ipc_error(code, &message, details))
-        }
-        IpcResponse::Pong => anyhow::bail!("Unexpected Pong response"),
-    }
-}
-
-fn format_ipc_error(code: i32, message: &str, details: Option<Value>) -> String {
-    match details {
-        Some(Value::String(detail)) if !detail.is_empty() => {
-            format!("IPC error {}: {} ({})", code, message, detail)
-        }
-        Some(Value::Object(map)) if !map.is_empty() => {
-            format!("IPC error {}: {} ({})", code, message, Value::Object(map))
-        }
-        _ => format!("IPC error {}: {}", code, message),
     }
 }

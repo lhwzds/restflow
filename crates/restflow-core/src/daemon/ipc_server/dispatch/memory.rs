@@ -1,5 +1,6 @@
 use super::super::runtime::resolve_agent_id;
 use super::super::*;
+use restflow_contracts::{ClearResponse, DeleteResponse, IdResponse};
 
 impl IpcServer {
     pub(super) async fn handle_search_memory(
@@ -106,7 +107,7 @@ impl IpcServer {
             chunk = chunk.with_tags(tags);
         }
         match core.storage.memory.store_chunk(&chunk) {
-            Ok(id) => IpcResponse::success(serde_json::json!({ "id": id })),
+            Ok(id) => IpcResponse::success(IdResponse { id }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -133,7 +134,7 @@ impl IpcServer {
 
     pub(super) async fn handle_delete_memory(core: &Arc<AppCore>, id: String) -> IpcResponse {
         match core.storage.memory.delete_chunk(&id) {
-            Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
+            Ok(deleted) => IpcResponse::success(DeleteResponse { deleted }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -147,7 +148,7 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(400, err.to_string()),
         };
         match core.storage.memory.delete_chunks_for_agent(&agent_id) {
-            Ok(count) => IpcResponse::success(serde_json::json!({ "deleted": count })),
+            Ok(count) => IpcResponse::success(ClearResponse { deleted: count }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -278,7 +279,7 @@ impl IpcServer {
             .memory
             .delete_session(&session_id, delete_chunks)
         {
-            Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
+            Ok(deleted) => IpcResponse::success(DeleteResponse { deleted }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }

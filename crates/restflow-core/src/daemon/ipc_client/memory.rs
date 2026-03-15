@@ -1,5 +1,7 @@
 #[cfg(unix)]
 use super::*;
+#[cfg(unix)]
+use restflow_contracts::{ClearResponse, DeleteResponse, IdResponse};
 
 #[cfg(unix)]
 impl IpcClient {
@@ -31,18 +33,8 @@ impl IpcClient {
     }
 
     pub async fn get_memory_chunk(&mut self, id: String) -> Result<Option<MemoryChunk>> {
-        match self.request(IpcRequest::GetMemoryChunk { id }).await? {
-            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
-            IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error {
-                code,
-                message,
-                details,
-            } => {
-                bail!(Self::format_ipc_error(code, &message, details))
-            }
-            IpcResponse::Pong => bail!("Unexpected Pong response"),
-        }
+        self.request_optional(IpcRequest::GetMemoryChunk { id })
+            .await
     }
 
     pub async fn list_memory(
@@ -60,11 +52,7 @@ impl IpcClient {
         agent_id: Option<String>,
         tags: Vec<String>,
     ) -> Result<String> {
-        #[derive(serde::Deserialize)]
-        struct AddMemoryResponse {
-            id: String,
-        }
-        let resp: AddMemoryResponse = self
+        let resp: IdResponse = self
             .request_typed(IpcRequest::AddMemory {
                 content,
                 agent_id,
@@ -85,19 +73,11 @@ impl IpcClient {
     }
 
     pub async fn delete_memory(&mut self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
         let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteMemory { id }).await?;
         Ok(resp.deleted)
     }
 
     pub async fn clear_memory(&mut self, agent_id: Option<String>) -> Result<u32> {
-        #[derive(serde::Deserialize)]
-        struct ClearResponse {
-            deleted: u32,
-        }
         let resp: ClearResponse = self
             .request_typed(IpcRequest::ClearMemory { agent_id })
             .await?;
@@ -146,21 +126,8 @@ impl IpcClient {
         &mut self,
         session_id: String,
     ) -> Result<Option<MemorySession>> {
-        match self
-            .request(IpcRequest::GetMemorySession { session_id })
-            .await?
-        {
-            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
-            IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error {
-                code,
-                message,
-                details,
-            } => {
-                bail!(Self::format_ipc_error(code, &message, details))
-            }
-            IpcResponse::Pong => bail!("Unexpected Pong response"),
-        }
+        self.request_optional(IpcRequest::GetMemorySession { session_id })
+            .await
     }
 
     pub async fn list_memory_sessions(&mut self, agent_id: String) -> Result<Vec<MemorySession>> {
@@ -178,10 +145,6 @@ impl IpcClient {
         session_id: String,
         delete_chunks: bool,
     ) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
         let resp: DeleteResponse = self
             .request_typed(IpcRequest::DeleteMemorySession {
                 session_id,

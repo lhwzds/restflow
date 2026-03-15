@@ -1,4 +1,5 @@
 use super::super::*;
+use restflow_contracts::OkResponse;
 
 impl IpcServer {
     pub(super) async fn handle_list_skills(core: &Arc<AppCore>) -> IpcResponse {
@@ -21,7 +22,7 @@ impl IpcServer {
         skill: crate::models::Skill,
     ) -> IpcResponse {
         match skills_service::create_skill(core, skill).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -32,7 +33,7 @@ impl IpcServer {
         skill: crate::models::Skill,
     ) -> IpcResponse {
         match skills_service::update_skill(core, &id, &skill).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -51,7 +52,7 @@ impl IpcServer {
 
     pub(super) async fn handle_delete_skill(core: &Arc<AppCore>, id: String) -> IpcResponse {
         match skills_service::delete_skill(core, &id).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }

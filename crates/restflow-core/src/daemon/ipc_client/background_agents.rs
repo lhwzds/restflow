@@ -1,5 +1,7 @@
 #[cfg(unix)]
 use super::*;
+#[cfg(unix)]
+use restflow_contracts::DeleteWithIdResponse;
 
 #[cfg(unix)]
 impl IpcClient {
@@ -12,18 +14,8 @@ impl IpcClient {
     }
 
     pub async fn get_background_agent(&mut self, id: String) -> Result<Option<BackgroundAgent>> {
-        match self.request(IpcRequest::GetBackgroundAgent { id }).await? {
-            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
-            IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error {
-                code,
-                message,
-                details,
-            } => {
-                bail!(Self::format_ipc_error(code, &message, details))
-            }
-            IpcResponse::Pong => bail!("Unexpected Pong response"),
-        }
+        self.request_optional(IpcRequest::GetBackgroundAgent { id })
+            .await
     }
 
     pub async fn create_background_agent(
@@ -44,11 +36,7 @@ impl IpcClient {
     }
 
     pub async fn delete_background_agent(&mut self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
-        let resp: DeleteResponse = self
+        let resp: DeleteWithIdResponse = self
             .request_typed(IpcRequest::DeleteBackgroundAgent { id })
             .await?;
         Ok(resp.deleted)

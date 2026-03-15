@@ -1,4 +1,5 @@
 use super::super::*;
+use restflow_contracts::OkResponse;
 
 impl IpcServer {
     pub(super) async fn handle_get_config(core: &Arc<AppCore>) -> IpcResponse {
@@ -20,7 +21,7 @@ impl IpcServer {
         config: crate::storage::SystemConfig,
     ) -> IpcResponse {
         match config_service::update_config(core, config).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
