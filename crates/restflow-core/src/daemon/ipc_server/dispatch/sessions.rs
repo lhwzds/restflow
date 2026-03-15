@@ -6,10 +6,11 @@ use uuid::Uuid;
 
 impl IpcServer {
     pub(super) async fn handle_list_sessions(core: &Arc<AppCore>) -> IpcResponse {
+        let session_service = SessionService::from_storage(&core.storage);
         match core.storage.chat_sessions.list() {
             Ok(mut sessions) => {
                 for session in &mut sessions {
-                    if let Err(err) = apply_effective_session_source(&core.storage, session) {
+                    if let Err(err) = session_service.apply_effective_source(session) {
                         return IpcResponse::error(500, err.to_string());
                     }
                 }
@@ -24,10 +25,11 @@ impl IpcServer {
     }
 
     pub(super) async fn handle_list_full_sessions(core: &Arc<AppCore>) -> IpcResponse {
+        let session_service = SessionService::from_storage(&core.storage);
         match core.storage.chat_sessions.list() {
             Ok(mut sessions) => {
                 for session in &mut sessions {
-                    if let Err(err) = apply_effective_session_source(&core.storage, session) {
+                    if let Err(err) = session_service.apply_effective_source(session) {
                         return IpcResponse::error(500, err.to_string());
                     }
                 }
@@ -41,10 +43,11 @@ impl IpcServer {
         core: &Arc<AppCore>,
         agent_id: String,
     ) -> IpcResponse {
+        let session_service = SessionService::from_storage(&core.storage);
         match core.storage.chat_sessions.list_by_agent(&agent_id) {
             Ok(mut sessions) => {
                 for session in &mut sessions {
-                    if let Err(err) = apply_effective_session_source(&core.storage, session) {
+                    if let Err(err) = session_service.apply_effective_source(session) {
                         return IpcResponse::error(500, err.to_string());
                     }
                 }
@@ -58,10 +61,11 @@ impl IpcServer {
         core: &Arc<AppCore>,
         skill_id: String,
     ) -> IpcResponse {
+        let session_service = SessionService::from_storage(&core.storage);
         match core.storage.chat_sessions.list_by_skill(&skill_id) {
             Ok(mut sessions) => {
                 for session in &mut sessions {
-                    if let Err(err) = apply_effective_session_source(&core.storage, session) {
+                    if let Err(err) = session_service.apply_effective_source(session) {
                         return IpcResponse::error(500, err.to_string());
                     }
                 }
@@ -83,51 +87,17 @@ impl IpcServer {
         older_than_ms: i64,
     ) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match core.storage.chat_sessions.list_all() {
-            Ok(sessions) => {
-                let mut deleted = 0usize;
-                for session in sessions
-                    .into_iter()
-                    .filter(|session| session.updated_at < older_than_ms)
-                {
-                    let workspace_managed =
-                        match is_workspace_managed_session(&core.storage, &session) {
-                            Ok(value) => value,
-                            Err(error) => return IpcResponse::error(500, error.to_string()),
-                        };
-                    if !workspace_managed {
-                        continue;
-                    }
-
-                    match session_service.delete_workspace_session(&session.id) {
-                        Ok(true) => {
-                            deleted += 1;
-                        }
-                        Ok(false) => {}
-                        Err(error) => {
-                            if let Some(lifecycle_error) =
-                                error.downcast_ref::<SessionLifecycleError>()
-                                && matches!(
-                                    lifecycle_error,
-                                    SessionLifecycleError::BoundToBackgroundTask { .. }
-                                )
-                            {
-                                continue;
-                            }
-                            return IpcResponse::error(500, error.to_string());
-                        }
-                    }
-                }
-                IpcResponse::success(deleted)
-            }
-            Err(err) => IpcResponse::error(500, err.to_string()),
+        match session_service.cleanup_workspace_sessions_older_than(older_than_ms) {
+            Ok(stats) => IpcResponse::success(stats.deleted),
+            Err(err) => ipc_session_lifecycle_error(err),
         }
     }
 
     pub(super) async fn handle_get_session(core: &Arc<AppCore>, id: String) -> IpcResponse {
+        let session_service = SessionService::from_storage(&core.storage);
         match core.storage.chat_sessions.get(&id) {
             Ok(Some(mut session)) => {
-                if let Err(err) = apply_effective_session_source(&core.storage, &mut session) {
+                if let Err(err) = session_service.apply_effective_source(&mut session) {
                     return IpcResponse::error(500, err.to_string());
                 }
                 IpcResponse::success(session)
@@ -187,68 +157,29 @@ impl IpcServer {
         id: String,
         updates: crate::models::ChatSessionUpdate,
     ) -> IpcResponse {
-        let mut session = match core.storage.chat_sessions.get(&id) {
-            Ok(Some(session)) => session,
-            Ok(None) => return IpcResponse::not_found("Session"),
-            Err(err) => return IpcResponse::error(500, err.to_string()),
+        let session_service = SessionService::from_storage(&core.storage);
+        let validated_updates = crate::models::ChatSessionUpdate {
+            agent_id: match updates.agent_id {
+                Some(agent_id) => match core.storage.agents.resolve_existing_agent_id(&agent_id) {
+                    Ok(resolved) => Some(resolved),
+                    Err(err) => return IpcResponse::error(400, err.to_string()),
+                },
+                None => None,
+            },
+            model: match updates.model {
+                Some(model) => match normalize_model_input(&model) {
+                    Ok(normalized) => Some(normalized),
+                    Err(err) => return IpcResponse::error(400, err.to_string()),
+                },
+                None => None,
+            },
+            name: updates.name,
         };
-
-        let workspace_managed = match is_workspace_managed_session(&core.storage, &session) {
-            Ok(value) => value,
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        if !workspace_managed {
-            return IpcResponse::error(
-                403,
-                format!(
-                    "Session {} is managed by {:?} and cannot be updated from workspace",
-                    session.id,
-                    session_owner_for_error(&core.storage, &session),
-                ),
-            );
+        match session_service.update_session(&id, validated_updates) {
+            Ok(Some(session)) => IpcResponse::success(session),
+            Ok(None) => IpcResponse::not_found("Session"),
+            Err(err) => ipc_session_lifecycle_error(err),
         }
-
-        let mut updated = false;
-        let mut name_updated = false;
-
-        if let Some(agent_id) = updates.agent_id {
-            let resolved_agent_id = match core.storage.agents.resolve_existing_agent_id(&agent_id) {
-                Ok(resolved) => resolved,
-                Err(err) => return IpcResponse::error(400, err.to_string()),
-            };
-            session.agent_id = resolved_agent_id;
-            updated = true;
-        }
-
-        if let Some(model) = updates.model {
-            let normalized = match normalize_model_input(&model) {
-                Ok(normalized) => normalized,
-                Err(err) => return IpcResponse::error(400, err.to_string()),
-            };
-            session.model = normalized;
-            updated = true;
-        }
-
-        if let Some(name) = updates.name {
-            session.rename(name);
-            updated = true;
-            name_updated = true;
-        }
-
-        if updated {
-            if !name_updated {
-                session.updated_at = Utc::now().timestamp_millis();
-            }
-
-            if let Err(err) = core.storage.chat_sessions.update(&session) {
-                return IpcResponse::error(500, err.to_string());
-            }
-            publish_session_event(ChatSessionEvent::Updated {
-                session_id: session.id.clone(),
-            });
-        }
-
-        IpcResponse::success(session)
     }
 
     pub(super) async fn handle_rename_session(
@@ -256,103 +187,26 @@ impl IpcServer {
         id: String,
         name: String,
     ) -> IpcResponse {
-        let mut session = match core.storage.chat_sessions.get(&id) {
-            Ok(Some(session)) => session,
-            Ok(None) => return IpcResponse::not_found("Session"),
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        let workspace_managed = match is_workspace_managed_session(&core.storage, &session) {
-            Ok(value) => value,
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        if !workspace_managed {
-            return IpcResponse::error(
-                403,
-                format!(
-                    "Session {} is managed by {:?} and cannot be renamed from workspace",
-                    session.id,
-                    session_owner_for_error(&core.storage, &session),
-                ),
-            );
-        }
-        session.rename(name);
-        match core.storage.chat_sessions.update(&session) {
-            Ok(()) => {
-                publish_session_event(ChatSessionEvent::Updated {
-                    session_id: session.id.clone(),
-                });
-                IpcResponse::success(session)
-            }
-            Err(err) => IpcResponse::error(500, err.to_string()),
+        let session_service = SessionService::from_storage(&core.storage);
+        match session_service.rename_session(&id, name) {
+            Ok(Some(session)) => IpcResponse::success(session),
+            Ok(None) => IpcResponse::not_found("Session"),
+            Err(err) => ipc_session_lifecycle_error(err),
         }
     }
 
     pub(super) async fn handle_archive_session(core: &Arc<AppCore>, id: String) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        let session = match core.storage.chat_sessions.get(&id) {
-            Ok(Some(session)) => session,
-            Ok(None) => return IpcResponse::success(serde_json::json!({ "archived": false })),
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        let workspace_managed = match is_workspace_managed_session(&core.storage, &session) {
-            Ok(value) => value,
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        if !workspace_managed {
-            return IpcResponse::error(
-                403,
-                format!(
-                    "Session {} is managed by {:?} and cannot be archived from workspace",
-                    session.id,
-                    session_owner_for_error(&core.storage, &session),
-                ),
-            );
-        }
-
-        match session_service.archive_workspace_session(&id) {
-            Ok(archived) => {
-                if archived {
-                    publish_session_event(ChatSessionEvent::Updated {
-                        session_id: id.clone(),
-                    });
-                }
-                IpcResponse::success(serde_json::json!({ "archived": archived }))
-            }
+        match session_service.archive_session(&id) {
+            Ok(archived) => IpcResponse::success(serde_json::json!({ "archived": archived })),
             Err(err) => ipc_session_lifecycle_error(err),
         }
     }
 
     pub(super) async fn handle_delete_session(core: &Arc<AppCore>, id: String) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        let session = match core.storage.chat_sessions.get(&id) {
-            Ok(Some(session)) => session,
-            Ok(None) => return IpcResponse::success(serde_json::json!({ "deleted": false })),
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        let workspace_managed = match is_workspace_managed_session(&core.storage, &session) {
-            Ok(value) => value,
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        if !workspace_managed {
-            return IpcResponse::error(
-                403,
-                format!(
-                    "Session {} is managed by {:?} and cannot be deleted from workspace",
-                    session.id,
-                    session_owner_for_error(&core.storage, &session),
-                ),
-            );
-        }
-
-        match session_service.delete_workspace_session(&id) {
-            Ok(deleted) => {
-                if deleted {
-                    publish_session_event(ChatSessionEvent::Deleted {
-                        session_id: id.clone(),
-                    });
-                }
-                IpcResponse::success(serde_json::json!({ "deleted": deleted }))
-            }
+        match session_service.delete_session(&id) {
+            Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
             Err(err) => ipc_session_lifecycle_error(err),
         }
     }
@@ -361,67 +215,21 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
     ) -> IpcResponse {
-        let session = match core.storage.chat_sessions.get(&id) {
-            Ok(Some(session)) => session,
-            Ok(None) => return IpcResponse::not_found("Session"),
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        let (source_channel, conversation_id) =
-            match resolve_external_session_route(&core.storage, &session) {
-                Ok(route) => route,
-                Err(err) => return IpcResponse::error(400, err.to_string()),
-            };
-        let rebuilt =
-            match build_rebuilt_external_session(&session, source_channel, &conversation_id) {
-                Ok(rebuilt) => rebuilt,
-                Err(err) => return IpcResponse::error(400, err.to_string()),
-            };
-
-        if let Err(err) = core.storage.chat_sessions.create(&rebuilt) {
-            return IpcResponse::error(500, err.to_string());
+        let session_service = SessionService::from_storage(&core.storage);
+        match session_service.rebuild_external_session(&id) {
+            Ok(Some(rebuilt)) => IpcResponse::success(rebuilt),
+            Ok(None) => IpcResponse::not_found("Session"),
+            Err(err) => ipc_session_lifecycle_error(err),
         }
-
-        let deleted_old = match core.storage.chat_sessions.delete(&id) {
-            Ok(deleted) => deleted,
-            Err(err) => {
-                let _ = core.storage.chat_sessions.delete(&rebuilt.id);
-                return IpcResponse::error(500, err.to_string());
-            }
-        };
-        if !deleted_old {
-            let _ = core.storage.chat_sessions.delete(&rebuilt.id);
-            return IpcResponse::not_found("Session");
-        }
-
-        if let Err(err) = rebind_external_session_routes(&core.storage, &id, &rebuilt.id) {
-            let _ = core.storage.chat_sessions.delete(&rebuilt.id);
-            return IpcResponse::error(500, err.to_string());
-        }
-
-        if let Err(error) = core.storage.tool_traces.delete_by_session(&id) {
-            warn!(
-                session_id = %id,
-                error = %error,
-                "Failed to clean up chat execution events after external session rebuild"
-            );
-        }
-
-        publish_session_event(ChatSessionEvent::Deleted {
-            session_id: id.clone(),
-        });
-        publish_session_event(ChatSessionEvent::Created {
-            session_id: rebuilt.id.clone(),
-        });
-
-        IpcResponse::success(rebuilt)
     }
 
     pub(super) async fn handle_search_sessions(core: &Arc<AppCore>, query: String) -> IpcResponse {
+        let session_service = SessionService::from_storage(&core.storage);
         match core.storage.chat_sessions.list() {
             Ok(mut sessions) => {
                 let query = query.to_lowercase();
                 for session in &mut sessions {
-                    if let Err(err) = apply_effective_session_source(&core.storage, session) {
+                    if let Err(err) = session_service.apply_effective_source(session) {
                         return IpcResponse::error(500, err.to_string());
                     }
                 }
@@ -589,20 +397,6 @@ impl IpcServer {
     }
 }
 
-fn session_owner_for_error(
-    storage: &crate::storage::Storage,
-    session: &ChatSession,
-) -> ChatSessionSource {
-    session_management_owner(storage, session)
-        .ok()
-        .flatten()
-        .or(match session.source_channel {
-            Some(ChatSessionSource::Workspace) | None => None,
-            Some(source) => Some(source),
-        })
-        .unwrap_or(ChatSessionSource::ExternalLegacy)
-}
-
 fn message_for_role(role: ChatRole, content: String) -> ChatMessage {
     let mut message = match role {
         ChatRole::User => ChatMessage::user(content),
@@ -645,14 +439,8 @@ fn append_message_to_session(
     if session.name == "New Chat" && session.messages.len() == 1 {
         session.auto_name_from_first_message();
     }
-    match storage.chat_sessions.update(session) {
-        Ok(()) => {
-            publish_session_event(ChatSessionEvent::MessageAdded {
-                session_id: session.id.clone(),
-                source: "ipc".to_string(),
-            });
-            IpcResponse::success(session.clone())
-        }
+    match SessionService::from_storage(storage).save_existing_session(session, "ipc") {
+        Ok(()) => IpcResponse::success(session.clone()),
         Err(err) => IpcResponse::error(500, err.to_string()),
     }
 }

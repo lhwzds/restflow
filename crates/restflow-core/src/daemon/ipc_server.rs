@@ -8,10 +8,9 @@ use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    AIModel, AgentNode, BackgroundAgentStatus, ChannelSessionBinding, ChatExecutionStatus,
-    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionSummary, HookContext,
-    HookEvent, MemoryChunk, MemorySearchQuery, MessageExecution, SteerMessage, SteerSource,
-    TerminalSession,
+    AIModel, AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
+    ChatSession, ChatSessionSource, ChatSessionSummary, HookContext, HookEvent, MemoryChunk,
+    MemorySearchQuery, MessageExecution, SteerMessage, SteerSource, TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
@@ -25,7 +24,9 @@ use crate::runtime::trace::{RestflowTrace, TraceEvent, append_trace_event};
 use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
-    session::SessionService, session_lifecycle::SessionLifecycleError, skills as skills_service,
+    session::{PersistInteractiveTurnRequest, SessionService},
+    session_policy::SessionPolicyError,
+    skills as skills_service,
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -205,169 +206,8 @@ fn normalize_model_input(model: &str) -> Result<String> {
         .ok_or_else(|| anyhow::anyhow!("Unsupported model identifier: {}", model))
 }
 
-fn parse_binding_channel_source(channel: &str) -> Option<ChatSessionSource> {
-    match channel.trim().to_ascii_lowercase().as_str() {
-        "telegram" => Some(ChatSessionSource::Telegram),
-        "discord" => Some(ChatSessionSource::Discord),
-        "slack" => Some(ChatSessionSource::Slack),
-        _ => None,
-    }
-}
-
-fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
-    match source {
-        ChatSessionSource::Telegram => Some("telegram"),
-        ChatSessionSource::Discord => Some("discord"),
-        ChatSessionSource::Slack => Some("slack"),
-        ChatSessionSource::Workspace | ChatSessionSource::ExternalLegacy => None,
-    }
-}
-
-fn resolve_legacy_external_route(session: &ChatSession) -> Option<(ChatSessionSource, String)> {
-    let source = match session.source_channel {
-        Some(ChatSessionSource::Workspace) | None => return None,
-        Some(source) => source,
-    };
-    let conversation_id = session
-        .source_conversation_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())?
-        .to_string();
-    Some((source, conversation_id))
-}
-
-fn ensure_binding_from_legacy_source(
-    storage: &crate::storage::Storage,
-    session: &ChatSession,
-) -> Result<Option<(ChatSessionSource, String)>> {
-    let Some((source, conversation_id)) = resolve_legacy_external_route(session) else {
-        return Ok(None);
-    };
-
-    if let Some(channel_key) = channel_key_from_source(source) {
-        let binding =
-            ChannelSessionBinding::new(channel_key, None, conversation_id.clone(), &session.id);
-        storage.channel_session_bindings.upsert(&binding)?;
-    }
-
-    Ok(Some((source, conversation_id)))
-}
-
-fn apply_effective_session_source(
-    storage: &crate::storage::Storage,
-    session: &mut ChatSession,
-) -> Result<()> {
-    let bindings = storage
-        .channel_session_bindings
-        .list_by_session(&session.id)?;
-    if let Some(binding) = bindings.first() {
-        let effective_source = parse_binding_channel_source(&binding.channel)
-            .unwrap_or(ChatSessionSource::ExternalLegacy);
-        session.source_channel = Some(effective_source);
-        session.source_conversation_id = Some(binding.conversation_id.clone());
-        return Ok(());
-    }
-
-    if let Some((source, conversation_id)) = ensure_binding_from_legacy_source(storage, session)? {
-        session.source_channel = Some(source);
-        session.source_conversation_id = Some(conversation_id);
-        return Ok(());
-    }
-
-    session.source_channel = Some(ChatSessionSource::Workspace);
-    session.source_conversation_id = None;
-    Ok(())
-}
-
-fn session_management_owner(
-    storage: &crate::storage::Storage,
-    session: &ChatSession,
-) -> Result<Option<ChatSessionSource>> {
-    let bindings = storage
-        .channel_session_bindings
-        .list_by_session(&session.id)?;
-    if let Some(binding) = bindings.first() {
-        let source = parse_binding_channel_source(&binding.channel)
-            .unwrap_or(ChatSessionSource::ExternalLegacy);
-        return Ok(Some(source));
-    }
-
-    Ok(ensure_binding_from_legacy_source(storage, session)?.map(|(source, _)| source))
-}
-
-fn is_workspace_managed_session(
-    storage: &crate::storage::Storage,
-    session: &ChatSession,
-) -> Result<bool> {
-    Ok(session_management_owner(storage, session)?.is_none())
-}
-
-fn resolve_external_session_route(
-    storage: &crate::storage::Storage,
-    source: &ChatSession,
-) -> Result<(ChatSessionSource, String)> {
-    let bindings = storage
-        .channel_session_bindings
-        .list_by_session(&source.id)?;
-    if let Some(binding) = bindings.first() {
-        let source_channel = parse_binding_channel_source(&binding.channel)
-            .unwrap_or(ChatSessionSource::ExternalLegacy);
-        return Ok((source_channel, binding.conversation_id.trim().to_string()));
-    }
-    ensure_binding_from_legacy_source(storage, source)?
-        .ok_or_else(|| anyhow::anyhow!("Session is not externally managed"))
-}
-
-fn build_rebuilt_external_session(
-    source: &ChatSession,
-    source_channel: ChatSessionSource,
-    conversation_id: &str,
-) -> Result<ChatSession> {
-    let conversation_id = conversation_id.trim();
-    if conversation_id.is_empty() {
-        anyhow::bail!("External session is missing conversation_id");
-    }
-    if source_channel == ChatSessionSource::Workspace {
-        anyhow::bail!("Session is not externally managed");
-    }
-
-    let mut rebuilt = ChatSession::new(source.agent_id.clone(), source.model.clone())
-        .with_name(format!("channel:{}", conversation_id))
-        .with_source(source_channel, conversation_id.to_string());
-
-    if let Some(skill_id) = source.skill_id.clone() {
-        rebuilt = rebuilt.with_skill(skill_id);
-    }
-    if let Some(retention) = source.retention.clone() {
-        rebuilt = rebuilt.with_retention(retention);
-    }
-
-    Ok(rebuilt)
-}
-
-fn rebind_external_session_routes(
-    storage: &crate::storage::Storage,
-    from_session_id: &str,
-    to_session_id: &str,
-) -> Result<()> {
-    let bindings = storage
-        .channel_session_bindings
-        .list_by_session(from_session_id)?;
-    for binding in bindings {
-        let rebound = ChannelSessionBinding::new(
-            binding.channel,
-            binding.account_id,
-            binding.conversation_id,
-            to_session_id,
-        );
-        storage.channel_session_bindings.upsert(&rebound)?;
-    }
-    Ok(())
-}
-
 fn ipc_session_lifecycle_error(error: anyhow::Error) -> IpcResponse {
-    if let Some(lifecycle_error) = error.downcast_ref::<SessionLifecycleError>() {
+    if let Some(lifecycle_error) = error.downcast_ref::<SessionPolicyError>() {
         let status_code = i32::from(lifecycle_error.status_code());
         return IpcResponse::error_with_details(
             status_code,

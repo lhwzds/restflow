@@ -4,6 +4,7 @@
 //! a single typed entrypoint so higher-level services do not have to wire each
 //! store independently.
 
+use crate::models::{ChannelSessionBinding, ChatSession, ChatSessionSource};
 use crate::storage::{ChannelSessionBindingStorage, ChatSessionStorage, ToolTraceStorage};
 use anyhow::Result;
 
@@ -28,16 +29,144 @@ impl SessionStorage {
     }
 
     pub fn cleanup_artifacts(&self, session_id: &str) -> Result<()> {
-        let bindings = self.channel_session_bindings.list_by_session(session_id)?;
+        self.remove_bindings_by_session(session_id)?;
+        self.delete_traces_by_session(session_id)?;
+        Ok(())
+    }
+
+    pub fn get_session(&self, session_id: &str) -> Result<Option<ChatSession>> {
+        self.chat_sessions.get(session_id)
+    }
+
+    pub fn create_session(&self, session: &ChatSession) -> Result<()> {
+        self.chat_sessions.create(session)
+    }
+
+    pub fn update_session(&self, session: &ChatSession) -> Result<()> {
+        self.chat_sessions.update(session)
+    }
+
+    pub fn save_session(&self, session: &ChatSession) -> Result<()> {
+        self.chat_sessions.save(session)
+    }
+
+    pub fn list_sessions(&self) -> Result<Vec<ChatSession>> {
+        self.chat_sessions.list()
+    }
+
+    pub fn list_sessions_all(&self) -> Result<Vec<ChatSession>> {
+        self.chat_sessions.list_all()
+    }
+
+    pub fn delete_session(&self, session_id: &str) -> Result<bool> {
+        self.chat_sessions.delete(session_id)
+    }
+
+    pub fn archive_session(&self, session_id: &str) -> Result<bool> {
+        self.chat_sessions.archive(session_id)
+    }
+
+    pub fn unarchive_session(&self, session_id: &str) -> Result<bool> {
+        self.chat_sessions.unarchive(session_id)
+    }
+
+    pub fn list_bindings_by_session(&self, session_id: &str) -> Result<Vec<ChannelSessionBinding>> {
+        self.channel_session_bindings.list_by_session(session_id)
+    }
+
+    pub fn upsert_binding(&self, binding: &ChannelSessionBinding) -> Result<()> {
+        self.channel_session_bindings.upsert(binding)
+    }
+
+    pub fn get_binding_by_route(
+        &self,
+        channel: &str,
+        account_id: Option<&str>,
+        conversation_id: &str,
+    ) -> Result<Option<ChannelSessionBinding>> {
+        self.channel_session_bindings
+            .get_by_route(channel, account_id, conversation_id)
+    }
+
+    pub fn remove_binding_by_route(
+        &self,
+        channel: &str,
+        account_id: Option<&str>,
+        conversation_id: &str,
+    ) -> Result<bool> {
+        self.channel_session_bindings
+            .remove_by_route(channel, account_id, conversation_id)
+    }
+
+    pub fn remove_bindings_by_session(&self, session_id: &str) -> Result<usize> {
+        let bindings = self.list_bindings_by_session(session_id)?;
+        let count = bindings.len();
         for binding in bindings {
-            self.channel_session_bindings.remove_by_route(
+            self.remove_binding_by_route(
                 &binding.channel,
                 binding.account_id.as_deref(),
                 &binding.conversation_id,
             )?;
         }
-        self.tool_traces.delete_by_session(session_id)?;
-        Ok(())
+        Ok(count)
+    }
+
+    pub fn delete_traces_by_session(&self, session_id: &str) -> Result<usize> {
+        self.tool_traces.delete_by_session(session_id)
+    }
+
+    pub fn ensure_binding_from_legacy_source(
+        &self,
+        session: &ChatSession,
+    ) -> Result<Option<(ChatSessionSource, String)>> {
+        let source = match session.source_channel {
+            Some(ChatSessionSource::Workspace) | None => return Ok(None),
+            Some(source) => source,
+        };
+        let Some(conversation_id) = session
+            .source_conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+        else {
+            return Ok(None);
+        };
+
+        let Some(channel_key) = channel_key_from_source(source) else {
+            return Ok(Some((source, conversation_id)));
+        };
+
+        let binding = ChannelSessionBinding::new(channel_key, None, &conversation_id, &session.id);
+        self.upsert_binding(&binding)?;
+        Ok(Some((source, conversation_id)))
+    }
+
+    pub fn switch_bindings(
+        &self,
+        from_session_id: &str,
+        to_session_id: &str,
+    ) -> Result<Vec<ChannelSessionBinding>> {
+        let bindings = self.list_bindings_by_session(from_session_id)?;
+        for binding in &bindings {
+            let rebound = ChannelSessionBinding::new(
+                binding.channel.clone(),
+                binding.account_id.clone(),
+                binding.conversation_id.clone(),
+                to_session_id,
+            );
+            self.upsert_binding(&rebound)?;
+        }
+        Ok(bindings)
+    }
+}
+
+fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
+    match source {
+        ChatSessionSource::Telegram => Some("telegram"),
+        ChatSessionSource::Discord => Some("discord"),
+        ChatSessionSource::Slack => Some("slack"),
+        ChatSessionSource::Workspace | ChatSessionSource::ExternalLegacy => None,
     }
 }
 

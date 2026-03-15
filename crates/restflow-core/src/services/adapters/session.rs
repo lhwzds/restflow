@@ -32,6 +32,7 @@ impl SessionStorageAdapter {
     fn session_service(&self) -> SessionService {
         SessionService::new(
             self.sessions.clone(),
+            Some(self.agent_storage.clone()),
             self.background_agent_storage.clone(),
             None,
         )

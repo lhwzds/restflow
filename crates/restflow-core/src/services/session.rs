@@ -1,8 +1,16 @@
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
-use crate::models::{AIModel, ChatMessage, ChatSession, ChatSessionSource};
+use crate::models::{
+    AIModel, ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionUpdate,
+    MessageExecution,
+};
 use crate::runtime::background_agent::persist::persist_chat_session_memory;
-use crate::services::session_lifecycle::{SessionLifecycleCleanupStats, SessionLifecycleService};
-use crate::storage::{BackgroundAgentStorage, MemoryStorage, SessionStorage, Storage};
+use crate::runtime::channel::hydrate_voice_message_metadata;
+use crate::services::session_policy::{
+    SessionPolicy, SessionPolicyCleanupStats, SessionPolicyError,
+};
+use crate::storage::{
+    AgentStorage, BackgroundAgentStorage, MemoryStorage, SessionStorage, Storage,
+};
 use anyhow::{Result, anyhow};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, Weak};
@@ -11,20 +19,33 @@ use tracing::{debug, warn};
 #[derive(Clone)]
 pub struct SessionService {
     sessions: SessionStorage,
-    background_agents: BackgroundAgentStorage,
+    agents: Option<AgentStorage>,
+    policy: SessionPolicy,
     memory: Option<MemoryStorage>,
     append_locks: Arc<Mutex<HashMap<String, Weak<Mutex<()>>>>>,
+}
+
+pub struct PersistInteractiveTurnRequest<'a> {
+    pub original_input: &'a str,
+    pub persisted_input: &'a str,
+    pub assistant_output: &'a str,
+    pub active_model: Option<&'a str>,
+    pub execution: MessageExecution,
+    pub source: &'a str,
 }
 
 impl SessionService {
     pub fn new(
         sessions: SessionStorage,
+        agents: Option<AgentStorage>,
         background_agents: BackgroundAgentStorage,
         memory: Option<MemoryStorage>,
     ) -> Self {
+        let policy = SessionPolicy::new(sessions.clone(), background_agents);
         Self {
             sessions,
-            background_agents,
+            agents,
+            policy,
             memory,
             append_locks: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -33,9 +54,40 @@ impl SessionService {
     pub fn from_storage(storage: &Storage) -> Self {
         Self::new(
             storage.sessions.clone(),
+            Some(storage.agents.clone()),
             storage.background_agents.clone(),
             Some(storage.memory.clone()),
         )
+    }
+
+    pub fn management_owner(&self, session: &ChatSession) -> Result<Option<ChatSessionSource>> {
+        self.policy.management_owner(session)
+    }
+
+    pub fn effective_source(
+        &self,
+        session: &ChatSession,
+    ) -> Result<(ChatSessionSource, Option<String>)> {
+        let effective = self.policy.effective_source(session)?;
+        Ok((effective.source, effective.conversation_id))
+    }
+
+    pub fn apply_effective_source(&self, session: &mut ChatSession) -> Result<()> {
+        if self
+            .sessions
+            .list_bindings_by_session(&session.id)?
+            .is_empty()
+        {
+            let _ = self.sessions.ensure_binding_from_legacy_source(session)?;
+        }
+        let (source, conversation_id) = self.effective_source(session)?;
+        session.source_channel = Some(source);
+        session.source_conversation_id = conversation_id;
+        Ok(())
+    }
+
+    pub fn is_workspace_managed(&self, session: &ChatSession) -> Result<bool> {
+        self.policy.is_workspace_managed(session)
     }
 
     pub fn append_exchange(
@@ -61,8 +113,7 @@ impl SessionService {
             let _guard = session_lock.lock().expect("session append lock");
             let mut session = self
                 .sessions
-                .chat_sessions
-                .get(session_id)?
+                .get_session(session_id)?
                 .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
 
             session.add_message(user_message);
@@ -74,7 +125,7 @@ impl SessionService {
                 session.metadata.last_model = Some(normalized);
             }
 
-            self.sessions.chat_sessions.save(&session)?;
+            self.sessions.save_session(&session)?;
             session
         };
 
@@ -93,7 +144,7 @@ impl SessionService {
     }
 
     pub fn save_existing_session(&self, session: &ChatSession, source: &str) -> Result<()> {
-        self.sessions.chat_sessions.update(session)?;
+        self.sessions.update_session(session)?;
         self.persist_memory(session);
         publish_session_event(ChatSessionEvent::MessageAdded {
             session_id: session.id.clone(),
@@ -102,44 +153,248 @@ impl SessionService {
         Ok(())
     }
 
-    pub fn management_owner(&self, session: &ChatSession) -> Result<Option<ChatSessionSource>> {
-        self.lifecycle().management_owner(session)
+    pub fn update_session(
+        &self,
+        session_id: &str,
+        updates: ChatSessionUpdate,
+    ) -> Result<Option<ChatSession>> {
+        let Some(mut session) = self.sessions.get_session(session_id)? else {
+            return Ok(None);
+        };
+        self.policy
+            .ensure_workspace_operation_allowed(&session, "updated")?;
+
+        let mut updated = false;
+        let mut name_updated = false;
+
+        if let Some(agent_id) = updates.agent_id {
+            let agents = self
+                .agents
+                .as_ref()
+                .ok_or_else(|| anyhow!("Agent storage is unavailable"))?;
+            session.agent_id = agents.resolve_existing_agent_id(&agent_id)?;
+            updated = true;
+        }
+
+        if let Some(model) = updates.model {
+            let normalized = AIModel::normalize_model_id(&model)
+                .ok_or_else(|| anyhow!("Unknown model: {}", model.trim()))?;
+            session.model = normalized;
+            updated = true;
+        }
+
+        if let Some(name) = updates.name {
+            session.rename(name);
+            updated = true;
+            name_updated = true;
+        }
+
+        if updated {
+            if !name_updated {
+                session.updated_at = chrono::Utc::now().timestamp_millis();
+            }
+            self.sessions.update_session(&session)?;
+            publish_session_event(ChatSessionEvent::Updated {
+                session_id: session.id.clone(),
+            });
+        }
+
+        self.apply_effective_source(&mut session)?;
+        Ok(Some(session))
     }
 
-    pub fn is_workspace_managed(&self, session: &ChatSession) -> Result<bool> {
-        self.lifecycle().is_workspace_managed(session)
+    pub fn rename_session(&self, session_id: &str, name: String) -> Result<Option<ChatSession>> {
+        let Some(mut session) = self.sessions.get_session(session_id)? else {
+            return Ok(None);
+        };
+        self.policy
+            .ensure_workspace_operation_allowed(&session, "renamed")?;
+        session.rename(name);
+        self.sessions.update_session(&session)?;
+        publish_session_event(ChatSessionEvent::Updated {
+            session_id: session.id.clone(),
+        });
+        self.apply_effective_source(&mut session)?;
+        Ok(Some(session))
     }
 
-    pub fn archive_workspace_session(&self, session_id: &str) -> Result<bool> {
-        self.lifecycle().archive_workspace_session(session_id)
+    pub fn archive_session(&self, session_id: &str) -> Result<bool> {
+        let archived = self.policy.archive_workspace_session(session_id)?;
+        if archived {
+            publish_session_event(ChatSessionEvent::Updated {
+                session_id: session_id.to_string(),
+            });
+        }
+        Ok(archived)
     }
 
-    pub fn delete_workspace_session(&self, session_id: &str) -> Result<bool> {
-        self.lifecycle().delete_workspace_session(session_id)
+    pub fn delete_session(&self, session_id: &str) -> Result<bool> {
+        let deleted = self.policy.delete_workspace_session(session_id)?;
+        if deleted {
+            publish_session_event(ChatSessionEvent::Deleted {
+                session_id: session_id.to_string(),
+            });
+        }
+        Ok(deleted)
+    }
+
+    pub fn rebuild_external_session(&self, session_id: &str) -> Result<Option<ChatSession>> {
+        let Some(source_session) = self.sessions.get_session(session_id)? else {
+            return Ok(None);
+        };
+        self.policy
+            .ensure_external_rebuild_allowed(&source_session)?;
+
+        let _ = self
+            .sessions
+            .ensure_binding_from_legacy_source(&source_session)?;
+        let (source_channel, conversation_id) = self.effective_source(&source_session)?;
+        let conversation_id = conversation_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                anyhow!(SessionPolicyError::MissingExternalRoute {
+                    session_id: source_session.id.clone(),
+                    operation: "rebuilt",
+                })
+            })?;
+
+        let mut rebuilt =
+            self.build_rebuilt_external_session(&source_session, source_channel, conversation_id)?;
+        self.sessions.create_session(&rebuilt)?;
+
+        let switched_bindings = match self
+            .sessions
+            .switch_bindings(&source_session.id, &rebuilt.id)
+        {
+            Ok(bindings) => bindings,
+            Err(error) => {
+                let _ = self.sessions.delete_session(&rebuilt.id);
+                return Err(error);
+            }
+        };
+
+        match self.sessions.delete_session(&source_session.id) {
+            Ok(true) => {}
+            Ok(false) => {
+                let _ = self.restore_bindings(&switched_bindings);
+                let _ = self.sessions.delete_session(&rebuilt.id);
+                return Err(anyhow!(
+                    "Failed to delete original session {} during rebuild",
+                    source_session.id
+                ));
+            }
+            Err(error) => {
+                let _ = self.restore_bindings(&switched_bindings);
+                let _ = self.sessions.delete_session(&rebuilt.id);
+                return Err(error);
+            }
+        }
+
+        if let Err(error) = self.sessions.cleanup_artifacts(&source_session.id) {
+            publish_session_event(ChatSessionEvent::Deleted {
+                session_id: source_session.id.clone(),
+            });
+            publish_session_event(ChatSessionEvent::Created {
+                session_id: rebuilt.id.clone(),
+            });
+            return Err(error);
+        }
+
+        self.apply_effective_source(&mut rebuilt)?;
+        publish_session_event(ChatSessionEvent::Deleted {
+            session_id: source_session.id.clone(),
+        });
+        publish_session_event(ChatSessionEvent::Created {
+            session_id: rebuilt.id.clone(),
+        });
+        Ok(Some(rebuilt))
+    }
+
+    pub fn cleanup_session_artifacts(&self, session_id: &str) -> Result<()> {
+        self.policy.cleanup_session_artifacts(session_id)
     }
 
     pub fn cleanup_workspace_sessions_older_than(
         &self,
         older_than_ms: i64,
-    ) -> Result<SessionLifecycleCleanupStats> {
-        self.lifecycle()
+    ) -> Result<SessionPolicyCleanupStats> {
+        self.policy
             .cleanup_workspace_sessions_older_than(older_than_ms)
     }
 
     pub fn cleanup_workspace_sessions_by_retention(
         &self,
         now_ms: i64,
-    ) -> Result<SessionLifecycleCleanupStats> {
-        self.lifecycle()
-            .cleanup_workspace_sessions_by_retention(now_ms)
+    ) -> Result<SessionPolicyCleanupStats> {
+        self.policy.cleanup_workspace_sessions_by_retention(now_ms)
     }
 
-    pub fn cleanup_session_artifacts(&self, session_id: &str) -> Result<()> {
-        self.lifecycle().cleanup_session_artifacts(session_id)
+    pub fn persist_interactive_turn(
+        &self,
+        session: &mut ChatSession,
+        request: PersistInteractiveTurnRequest<'_>,
+    ) -> Result<()> {
+        let _ = replace_latest_user_message_content(
+            session,
+            request.original_input,
+            request.persisted_input,
+        );
+        session.add_message(
+            ChatMessage::assistant(request.assistant_output).with_execution(request.execution),
+        );
+        if let Some(model) = request.active_model
+            && let Some(normalized) = AIModel::normalize_model_id(model)
+        {
+            session.metadata.last_model = Some(normalized);
+        }
+        self.save_existing_session(session, request.source)
     }
 
-    fn lifecycle(&self) -> SessionLifecycleService {
-        SessionLifecycleService::new(self.sessions.clone(), self.background_agents.clone())
+    pub fn archive_workspace_session(&self, session_id: &str) -> Result<bool> {
+        self.archive_session(session_id)
+    }
+
+    pub fn delete_workspace_session(&self, session_id: &str) -> Result<bool> {
+        self.delete_session(session_id)
+    }
+
+    fn build_rebuilt_external_session(
+        &self,
+        source: &ChatSession,
+        source_channel: ChatSessionSource,
+        conversation_id: &str,
+    ) -> Result<ChatSession> {
+        let conversation_id = conversation_id.trim();
+        if conversation_id.is_empty() {
+            anyhow::bail!("External session is missing conversation_id");
+        }
+        if source_channel == ChatSessionSource::Workspace {
+            anyhow::bail!("Session is not externally managed");
+        }
+
+        let mut rebuilt = ChatSession::new(source.agent_id.clone(), source.model.clone())
+            .with_name(format!("channel:{}", conversation_id))
+            .with_source(source_channel, conversation_id.to_string());
+
+        if let Some(skill_id) = source.skill_id.clone() {
+            rebuilt = rebuilt.with_skill(skill_id);
+        }
+        if let Some(retention) = source.retention.clone() {
+            rebuilt = rebuilt.with_retention(retention);
+        }
+
+        rebuilt.source_channel = Some(source_channel);
+        rebuilt.source_conversation_id = Some(conversation_id.to_string());
+        Ok(rebuilt)
+    }
+
+    fn restore_bindings(&self, bindings: &[crate::models::ChannelSessionBinding]) -> Result<()> {
+        for binding in bindings {
+            self.sessions.upsert_binding(binding)?;
+        }
+        Ok(())
     }
 
     fn persist_memory(&self, session: &ChatSession) {
@@ -165,10 +420,32 @@ impl SessionService {
     }
 }
 
+fn replace_latest_user_message_content(
+    session: &mut ChatSession,
+    original_content: &str,
+    updated_content: &str,
+) -> bool {
+    if original_content == updated_content {
+        return false;
+    }
+
+    let Some(index) = session
+        .messages
+        .iter()
+        .rposition(|message| message.role == ChatRole::User && message.content == original_content)
+    else {
+        return false;
+    };
+
+    session.messages[index].content = updated_content.to_string();
+    hydrate_voice_message_metadata(&mut session.messages[index]);
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ChatMessage, ChatSessionSource, MessageExecution};
+    use crate::models::{ChannelSessionBinding, MessageExecution};
     use crate::storage::Storage;
     use tempfile::tempdir;
 
@@ -220,7 +497,7 @@ mod tests {
     }
 
     #[test]
-    fn management_owner_delegates_lifecycle_rules() {
+    fn management_owner_delegates_policy_rules() {
         let (storage, service, mut session) = setup();
         session.source_channel = Some(ChatSessionSource::Telegram);
         session.source_conversation_id = Some("conv-1".to_string());
@@ -234,12 +511,91 @@ mod tests {
     }
 
     #[test]
-    fn delete_workspace_session_delegates_lifecycle_rules() {
+    fn update_session_enforces_workspace_policy_and_persists_changes() {
         let (storage, service, session) = setup();
+        let updated = service
+            .update_session(
+                &session.id,
+                ChatSessionUpdate {
+                    agent_id: None,
+                    model: Some("gpt-5".to_string()),
+                    name: Some("Updated".to_string()),
+                },
+            )
+            .unwrap()
+            .unwrap();
+        assert_eq!(updated.name, "Updated");
+        let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
+        assert_eq!(reloaded.name, "Updated");
+    }
 
-        let deleted = service.delete_workspace_session(&session.id).unwrap();
+    #[test]
+    fn apply_effective_source_backfills_legacy_binding() {
+        let (_storage, service, mut session) = setup();
+        session.source_channel = Some(ChatSessionSource::Telegram);
+        session.source_conversation_id = Some("chat-1".to_string());
 
-        assert!(deleted);
+        service.apply_effective_source(&mut session).unwrap();
+
+        assert_eq!(session.source_channel, Some(ChatSessionSource::Telegram));
+        assert_eq!(session.source_conversation_id.as_deref(), Some("chat-1"));
+    }
+
+    #[test]
+    fn rebuild_external_session_switches_binding_and_deletes_old_session() {
+        let (storage, service, mut session) = setup();
+        session.source_channel = Some(ChatSessionSource::Telegram);
+        session.source_conversation_id = Some("chat-1".to_string());
+        storage.chat_sessions.update(&session).unwrap();
+        storage
+            .channel_session_bindings
+            .upsert(&ChannelSessionBinding::new(
+                "telegram",
+                None,
+                "chat-1",
+                &session.id,
+            ))
+            .unwrap();
+
+        let rebuilt = service
+            .rebuild_external_session(&session.id)
+            .unwrap()
+            .expect("rebuilt session");
+
+        assert_ne!(rebuilt.id, session.id);
         assert!(storage.chat_sessions.get(&session.id).unwrap().is_none());
+        let binding = storage
+            .channel_session_bindings
+            .get_by_route("telegram", None, "chat-1")
+            .unwrap()
+            .unwrap();
+        assert_eq!(binding.session_id, rebuilt.id);
+    }
+
+    #[test]
+    fn persist_interactive_turn_rewrites_latest_input_and_appends_output() {
+        let (storage, service, mut session) = setup();
+        session.add_message(ChatMessage::user("voice input"));
+        storage.chat_sessions.update(&session).unwrap();
+
+        service
+            .persist_interactive_turn(
+                &mut session,
+                PersistInteractiveTurnRequest {
+                    original_input: "voice input",
+                    persisted_input: "voice transcript",
+                    assistant_output: "assistant output",
+                    active_model: Some("gpt-5"),
+                    execution: MessageExecution::new().complete(20, 1),
+                    source: "ipc",
+                },
+            )
+            .unwrap();
+
+        let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
+        assert_eq!(reloaded.messages.len(), 2);
+        assert_eq!(reloaded.messages[0].content, "voice transcript");
+        assert_eq!(reloaded.messages[1].content, "assistant output");
+        assert_eq!(reloaded.metadata.last_model.as_deref(), Some("gpt-5"));
     }
 }
