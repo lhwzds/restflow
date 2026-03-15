@@ -71,7 +71,15 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
     ) -> IpcResponse {
-        match core.storage.background_agents.list_events_for_task(&id) {
+        let resolved_id = match resolve_background_agent_id(core, &id) {
+            Ok(id) => id,
+            Err(response) => return response,
+        };
+        match core
+            .storage
+            .background_agents
+            .list_events_for_task(&resolved_id)
+        {
             Ok(events) => IpcResponse::success(events),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -92,10 +100,14 @@ impl IpcServer {
         id: String,
         patch: crate::models::BackgroundAgentPatch,
     ) -> IpcResponse {
+        let resolved_id = match resolve_background_agent_id(core, &id) {
+            Ok(id) => id,
+            Err(response) => return response,
+        };
         match core
             .storage
             .background_agents
-            .update_background_agent(&id, patch)
+            .update_background_agent(&resolved_id, patch)
         {
             Ok(task) => IpcResponse::success(task),
             Err(err) => IpcResponse::error(500, err.to_string()),
@@ -106,8 +118,15 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
     ) -> IpcResponse {
-        match core.storage.background_agents.delete_task(&id) {
-            Ok(deleted) => IpcResponse::success(DeleteWithIdResponse { id, deleted }),
+        let resolved_id = match resolve_background_agent_id(core, &id) {
+            Ok(id) => id,
+            Err(response) => return response,
+        };
+        match core.storage.background_agents.delete_task(&resolved_id) {
+            Ok(deleted) => IpcResponse::success(DeleteWithIdResponse {
+                id: resolved_id,
+                deleted,
+            }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -205,10 +224,14 @@ impl IpcServer {
         id: String,
         limit: Option<usize>,
     ) -> IpcResponse {
+        let resolved_id = match resolve_background_agent_id(core, &id) {
+            Ok(id) => id,
+            Err(response) => return response,
+        };
         match core
             .storage
             .background_agents
-            .list_background_agent_messages(&id, limit.unwrap_or(50).max(1))
+            .list_background_agent_messages(&resolved_id, limit.unwrap_or(50).max(1))
         {
             Ok(messages) => IpcResponse::success(messages),
             Err(err) => IpcResponse::error(500, err.to_string()),
