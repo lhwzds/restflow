@@ -9,6 +9,7 @@ mod logging;
 mod mcp;
 mod process;
 pub mod recovery;
+pub mod request_mapper;
 pub(crate) mod session_events;
 mod supervisor;
 
