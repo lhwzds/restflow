@@ -25,6 +25,7 @@ __pycache__/
 
 .playwright-mcp
 .restflow/
+.restflow-browser/
 
 # redb database files
 :memory:
