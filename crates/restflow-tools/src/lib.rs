@@ -9,6 +9,7 @@
 //! Core abstractions (Tool trait, ToolError, ToolRegistry, SecurityGate, etc.)
 //! are defined in `restflow-traits` and re-exported here for convenience.
 
+pub mod audio;
 pub mod http_client;
 
 // Implementation modules (owned by this crate)

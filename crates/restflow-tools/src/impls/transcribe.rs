@@ -1,16 +1,15 @@
-//! Audio transcription tool using OpenAI Whisper API.
+//! Audio transcription tool using OpenAI transcription models.
 
 use async_trait::async_trait;
-use reqwest::Client;
-use reqwest::StatusCode;
-use reqwest::multipart::{Form, Part};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
-use tokio::fs;
 
 use crate::Result;
-use crate::http_client::build_http_client;
+use crate::audio::transcription::{
+    SegmentedTranscriptionConfig, SegmentedTranscriptionOptions, TimestampGranularity,
+    transcribe_audio_file,
+};
 use crate::{SecretResolver, Tool, ToolError, ToolOutput};
 
 /// Configuration for transcribe tool security.
@@ -18,7 +17,7 @@ use crate::{SecretResolver, Tool, ToolError, ToolOutput};
 pub struct TranscribeConfig {
     /// Allowed paths (security). Only files within these paths can be transcribed.
     pub allowed_paths: Vec<PathBuf>,
-    /// Maximum file size in bytes (default 25MB for Whisper API).
+    /// Maximum direct upload size in bytes before chunking is required.
     pub max_file_size: usize,
     /// Allowed audio file extensions (lowercase).
     pub allowed_extensions: Vec<String>,
@@ -27,13 +26,12 @@ pub struct TranscribeConfig {
 impl Default for TranscribeConfig {
     fn default() -> Self {
         let mut allowed = vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))];
-        // Allow the persistent media directory (~/.restflow/media/)
         if let Ok(restflow_dir) = restflow_storage::paths::ensure_restflow_dir() {
             allowed.push(restflow_dir.join("media"));
         }
         Self {
             allowed_paths: allowed,
-            max_file_size: 25 * 1024 * 1024, // 25MB
+            max_file_size: 25 * 1024 * 1024,
             allowed_extensions: vec![
                 "mp3".to_string(),
                 "mp4".to_string(),
@@ -49,7 +47,6 @@ impl Default for TranscribeConfig {
     }
 }
 
-/// Check if a path is within any of the allowed directories.
 fn is_path_allowed(path: &Path, allowed_paths: &[PathBuf]) -> bool {
     allowed_paths
         .iter()
@@ -61,11 +58,12 @@ struct TranscribeInput {
     file_path: String,
     language: Option<String>,
     model: Option<String>,
+    include_segments: Option<bool>,
+    chunk_long_audio: Option<bool>,
 }
 
-/// Tool for transcribing audio files with OpenAI Whisper API.
+/// Tool for transcribing audio files with OpenAI transcription models.
 pub struct TranscribeTool {
-    client: Client,
     secret_resolver: SecretResolver,
     config: TranscribeConfig,
 }
@@ -80,7 +78,6 @@ impl TranscribeTool {
         config: TranscribeConfig,
     ) -> std::result::Result<Self, reqwest::Error> {
         Ok(Self {
-            client: build_http_client()?,
             secret_resolver,
             config,
         })
@@ -93,7 +90,6 @@ impl TranscribeTool {
     fn validate_path(&self, file_path: &str) -> Result<()> {
         let path = Path::new(file_path);
 
-        // Check if path is within allowed directories
         if !is_path_allowed(path, &self.config.allowed_paths) {
             return Err(crate::ToolError::Tool(format!(
                 "Path '{}' is not within allowed directories. Only files in specified directories can be transcribed.",
@@ -101,7 +97,6 @@ impl TranscribeTool {
             )));
         }
 
-        // Check file extension
         let extension = path
             .extension()
             .and_then(|e| e.to_str())
@@ -119,19 +114,10 @@ impl TranscribeTool {
         Ok(())
     }
 
-    fn format_api_error(status: StatusCode, error_text: &str) -> String {
-        match status {
-            StatusCode::UNAUTHORIZED => {
-                "Invalid API key. Check OPENAI_API_KEY in manage_secrets.".to_string()
-            }
-            StatusCode::TOO_MANY_REQUESTS => "Rate limited, retry later.".to_string(),
-            _ => {
-                if error_text.trim().is_empty() {
-                    format!("Transcription API returned HTTP {}.", status)
-                } else {
-                    error_text.to_string()
-                }
-            }
+    fn build_transcription_config(&self) -> SegmentedTranscriptionConfig {
+        SegmentedTranscriptionConfig {
+            max_direct_upload_bytes: self.config.max_file_size as u64,
+            ..SegmentedTranscriptionConfig::default()
         }
     }
 }
@@ -161,6 +147,14 @@ impl Tool for TranscribeTool {
                 "model": {
                     "type": "string",
                     "description": "Optional model name. Defaults to whisper-1."
+                },
+                "include_segments": {
+                    "type": "boolean",
+                    "description": "When true, return segment timestamps using whisper-1. Defaults to false."
+                },
+                "chunk_long_audio": {
+                    "type": "boolean",
+                    "description": "When true, automatically chunk oversized audio files before transcription. Defaults to false."
                 }
             },
             "required": ["file_path"]
@@ -170,102 +164,42 @@ impl Tool for TranscribeTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: TranscribeInput = serde_json::from_value(input)?;
 
-        let api_key = self
-            .resolve_api_key()
-            .ok_or_else(|| {
-                ToolError::Tool(
-                    "Missing OPENAI_API_KEY. Set it via manage_secrets tool with {operation: 'set', key: 'OPENAI_API_KEY', value: '...'}.".to_string(),
-                )
-            })?;
+        let api_key = self.resolve_api_key().ok_or_else(|| {
+            ToolError::Tool(
+                "Missing OPENAI_API_KEY. Set it via manage_secrets tool with {operation: 'set', key: 'OPENAI_API_KEY', value: '...'}.".to_string(),
+            )
+        })?;
 
-        // Validate path and extension before reading
         self.validate_path(&params.file_path)?;
 
-        let audio_bytes = fs::read(&params.file_path)
-            .await
-            .map_err(|e| {
-                ToolError::Tool(format!(
-                    "Cannot read audio file '{}': {}. Verify the file exists. Supported formats: mp3, mp4, mpeg, mpga, m4a, wav, webm.",
-                    params.file_path, e
-                ))
-            })?;
+        let options = SegmentedTranscriptionOptions {
+            model: params
+                .model
+                .clone()
+                .unwrap_or_else(|| "whisper-1".to_string()),
+            language: params.language.clone(),
+            timestamp_granularity: if params.include_segments.unwrap_or(false) {
+                TimestampGranularity::Segment
+            } else {
+                TimestampGranularity::None
+            },
+            chunk_long_audio: params.chunk_long_audio.unwrap_or(false),
+        };
 
-        // Validate file size before upload
-        if audio_bytes.len() > self.config.max_file_size {
-            return Err(crate::ToolError::Tool(format!(
-                "File too large ({} bytes). Maximum size is {} bytes.",
-                audio_bytes.len(),
-                self.config.max_file_size
-            )));
-        }
-
-        let filename = std::path::Path::new(&params.file_path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("audio");
-
-        let mut form = Form::new()
-            .part(
-                "file",
-                Part::bytes(audio_bytes)
-                    .file_name(filename.to_string())
-                    .mime_str("application/octet-stream")
-                    .map_err(|e| crate::ToolError::Other(e.into()))?,
-            )
-            .text(
-                "model",
-                params
-                    .model
-                    .clone()
-                    .unwrap_or_else(|| "whisper-1".to_string()),
-            );
-
-        if let Some(language) = params.language.clone() {
-            form = form.text("language", language);
-        }
-
-        let response = self
-            .client
-            .post("https://api.openai.com/v1/audio/transcriptions")
-            .bearer_auth(api_key)
-            .multipart(form)
-            .send()
-            .await
-            .map_err(|e| {
-                ToolError::Tool(format!(
-                    "Transcription API request failed: {}. This may be a network issue or rate limit. Retry after a brief wait.",
-                    e
-                ))
-            })?;
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Ok(ToolOutput::error(format!(
-                "Transcription failed: {}",
-                Self::format_api_error(status, &error_text)
-            )));
-        }
-
-        let body: Value = response
-            .json()
-            .await
-            .map_err(|_| {
-                ToolError::Tool(
-                    "Transcription API returned an unexpected response format. This may indicate an API version mismatch. Retry or report the issue.".to_string(),
-                )
-            })?;
-
-        let text = body
-            .get("text")
-            .and_then(|value| value.as_str())
-            .unwrap_or("")
-            .to_string();
+        let output = transcribe_audio_file(
+            &api_key,
+            &params.file_path,
+            &options,
+            &self.build_transcription_config(),
+        )
+        .await
+        .map_err(|error| ToolError::Tool(error.to_string()))?;
 
         Ok(ToolOutput::success(json!({
-            "text": text,
+            "text": output.text,
             "file_path": params.file_path,
-            "model": params.model.unwrap_or_else(|| "whisper-1".to_string())
+            "model": output.model,
+            "segments": output.segments,
         })))
     }
 }
@@ -282,20 +216,8 @@ mod tests {
         let schema = tool.parameters_schema();
         assert_eq!(tool.name(), "transcribe");
         assert!(schema.get("properties").is_some());
-    }
-
-    #[test]
-    fn test_transcribe_api_error_mapping() {
-        let unauthorized = TranscribeTool::format_api_error(StatusCode::UNAUTHORIZED, "ignored");
-        assert!(unauthorized.contains("Invalid API key"));
-
-        let rate_limited =
-            TranscribeTool::format_api_error(StatusCode::TOO_MANY_REQUESTS, "ignored");
-        assert!(rate_limited.contains("Rate limited"));
-
-        let passthrough =
-            TranscribeTool::format_api_error(StatusCode::BAD_REQUEST, "custom message");
-        assert_eq!(passthrough, "custom message");
+        assert!(schema["properties"].get("include_segments").is_some());
+        assert!(schema["properties"].get("chunk_long_audio").is_some());
     }
 
     #[test]
@@ -310,7 +232,6 @@ mod tests {
     fn test_is_path_allowed() {
         let allowed = vec![PathBuf::from("/home/user/workspace")];
 
-        // Path within allowed directory
         assert!(is_path_allowed(
             Path::new("/home/user/workspace/audio.mp3"),
             &allowed
@@ -320,7 +241,6 @@ mod tests {
             &allowed
         ));
 
-        // Path outside allowed directory
         assert!(!is_path_allowed(Path::new("/etc/passwd"), &allowed));
         assert!(!is_path_allowed(
             Path::new("/home/user/../etc/passwd"),
@@ -372,7 +292,6 @@ mod tests {
         };
         let tool = TranscribeTool::with_config(resolver, config).unwrap();
 
-        // Test with .txt extension
         let result = tool.validate_path("/tmp/test.txt");
         assert!(result.is_err());
         let err = result.unwrap_err();
