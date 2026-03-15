@@ -527,6 +527,32 @@ async fn execute_chat_session_returns_bad_request_without_user_message() {
 }
 
 #[tokio::test]
+async fn add_message_returns_bad_request_for_invalid_role_payload() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::AddMessage {
+            session_id: "missing-session".to_string(),
+            role: "not_a_role".to_string(),
+            content: "hello".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert!(error.message.contains("Invalid request payload"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn execute_chat_session_returns_internal_error_for_malformed_session_payload() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();

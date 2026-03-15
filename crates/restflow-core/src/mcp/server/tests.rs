@@ -1,8 +1,8 @@
 use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
-    AIModel, AgentNode, ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource, Skill,
-    SkillReference,
+    AIModel, AgentNode, ApiKeyConfig, BackgroundAgentSchedule, ChannelSessionBinding, ChatSession,
+    ChatSessionSource, Skill, SkillReference,
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
@@ -1255,11 +1255,15 @@ impl McpBackend for MockBackend {
         Ok(Vec::new())
     }
 
-    async fn get_background_agent(&self, id: &str) -> Result<Value, String> {
-        Ok(serde_json::json!({
-            "id": id,
-            "chat_session_id": id,
-        }))
+    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String> {
+        let mut task = BackgroundAgent::new(
+            id.to_string(),
+            "Mock Task".to_string(),
+            "mock-agent".to_string(),
+            BackgroundAgentSchedule::default(),
+        );
+        task.chat_session_id = id.to_string();
+        Ok(task)
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
