@@ -1,4 +1,5 @@
 use super::*;
+use crate::daemon::request_mapper::to_contract;
 use restflow_contracts::{DeleteResponse, DeleteWithIdResponse};
 
 pub(super) struct CoreBackend {
@@ -283,15 +284,13 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn get_background_agent(&self, id: &str) -> Result<Value, String> {
-        let task = self
-            .core
+    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String> {
+        self.core
             .storage
             .background_agents
             .get_task(id)
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Task {} not found", id))?;
-        serde_json::to_value(task).map_err(|e| e.to_string())
+            .ok_or_else(|| format!("Task {} not found", id))
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
@@ -515,6 +514,7 @@ impl McpBackend for IpcBackend {
         &self,
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent, String> {
+        let spec = to_contract(spec).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::CreateBackgroundAgent { spec })
             .await
     }
@@ -524,6 +524,7 @@ impl McpBackend for IpcBackend {
         id: &str,
         patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent, String> {
+        let patch = to_contract(patch).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::UpdateBackgroundAgent {
             id: id.to_string(),
             patch,
@@ -543,6 +544,7 @@ impl McpBackend for IpcBackend {
         id: &str,
         action: BackgroundAgentControlAction,
     ) -> Result<BackgroundAgent, String> {
+        let action = to_contract(action).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::ControlBackgroundAgent {
             id: id.to_string(),
             action,
@@ -568,6 +570,7 @@ impl McpBackend for IpcBackend {
         message: String,
         source: BackgroundMessageSource,
     ) -> Result<BackgroundMessage, String> {
+        let source = to_contract(source).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::SendBackgroundAgentMessage {
             id: id.to_string(),
             message,
@@ -633,14 +636,13 @@ impl McpBackend for IpcBackend {
         .await
     }
 
-    async fn get_background_agent(&self, id: &str) -> Result<Value, String> {
+    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String> {
         let mut client = self.client.lock().await;
-        let task: Option<BackgroundAgent> = client
+        client
             .get_background_agent(id.to_string())
             .await
-            .map_err(|e| e.to_string())?;
-        let task = task.ok_or_else(|| format!("Task {} not found", id))?;
-        serde_json::to_value(task).map_err(|e| e.to_string())
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("Task {} not found", id))
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
@@ -648,10 +650,12 @@ impl McpBackend for IpcBackend {
     }
 
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
+        let hook = to_contract(hook).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::CreateHook { hook }).await
     }
 
     async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String> {
+        let hook = to_contract(hook).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::UpdateHook {
             id: id.to_string(),
             hook,
