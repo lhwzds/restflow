@@ -1,6 +1,7 @@
 use super::ipc_client::IpcClient;
 use super::ipc_protocol::IpcRequest;
 use super::launcher::ensure_daemon_running;
+use super::request_mapper::to_contract;
 use crate::AppCore;
 use crate::models::{
     AgentNode, BackgroundAgent, BackgroundAgentSpec, BackgroundAgentStatus, Skill,
@@ -60,6 +61,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::create_agent(core, name, agent).await,
             CoreAccess::Remote(client) => {
+                let agent = to_contract(agent)?;
                 client
                     .request_typed(IpcRequest::CreateAgent { name, agent })
                     .await
@@ -76,6 +78,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::update_agent(core, id, name, agent).await,
             CoreAccess::Remote(client) => {
+                let agent = agent.map(to_contract).transpose()?;
                 client
                     .request_typed(IpcRequest::UpdateAgent {
                         id: id.to_string(),
@@ -121,6 +124,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => skills_service::create_skill(core, skill).await,
             CoreAccess::Remote(client) => {
+                let skill = to_contract(skill)?;
                 let _: OkResponse = client
                     .request_typed(IpcRequest::CreateSkill { skill })
                     .await?;
@@ -133,6 +137,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => skills_service::update_skill(core, id, &skill).await,
             CoreAccess::Remote(client) => {
+                let skill = to_contract(skill)?;
                 let _: OkResponse = client
                     .request_typed(IpcRequest::UpdateSkill {
                         id: id.to_string(),
@@ -193,6 +198,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => core.storage.background_agents.create_background_agent(spec),
             CoreAccess::Remote(client) => {
+                let spec = to_contract(spec)?;
                 client
                     .request_typed(IpcRequest::CreateBackgroundAgent { spec })
                     .await
@@ -276,6 +282,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => config_service::update_config(core, config).await,
             CoreAccess::Remote(client) => {
+                let config = to_contract(config)?;
                 let _: OkResponse = client
                     .request_typed(IpcRequest::SetConfig { config })
                     .await?;

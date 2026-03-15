@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
+use crate::daemon::request_mapper::to_contract;
+#[cfg(unix)]
 use restflow_contracts::OkResponse;
 
 #[cfg(unix)]
@@ -47,6 +49,7 @@ impl IpcClient {
         &mut self,
         session: TerminalSession,
     ) -> Result<TerminalSession> {
+        let session = to_contract(session)?;
         self.request_typed(IpcRequest::SaveTerminalSession { session })
             .await
     }

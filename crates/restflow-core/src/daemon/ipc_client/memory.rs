@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
+use crate::daemon::request_mapper::to_contract;
+#[cfg(unix)]
 use restflow_contracts::{ClearResponse, DeleteResponse, IdResponse};
 
 #[cfg(unix)]
@@ -24,6 +26,7 @@ impl IpcClient {
         min_score: Option<f64>,
         scoring_preset: Option<String>,
     ) -> Result<crate::memory::RankedSearchResult> {
+        let query = to_contract(query)?;
         self.request_typed(IpcRequest::SearchMemoryRanked {
             query,
             min_score,
@@ -63,6 +66,7 @@ impl IpcClient {
     }
 
     pub async fn create_memory_chunk(&mut self, chunk: MemoryChunk) -> Result<MemoryChunk> {
+        let chunk = to_contract(chunk)?;
         self.request_typed(IpcRequest::CreateMemoryChunk { chunk })
             .await
     }
@@ -136,6 +140,7 @@ impl IpcClient {
     }
 
     pub async fn create_memory_session(&mut self, session: MemorySession) -> Result<MemorySession> {
+        let session = to_contract(session)?;
         self.request_typed(IpcRequest::CreateMemorySession { session })
             .await
     }

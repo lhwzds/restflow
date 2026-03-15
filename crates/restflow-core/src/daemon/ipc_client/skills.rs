@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
+use crate::daemon::request_mapper::to_contract;
+#[cfg(unix)]
 use restflow_contracts::OkResponse;
 
 #[cfg(unix)]
@@ -14,6 +16,7 @@ impl IpcClient {
     }
 
     pub async fn create_skill(&mut self, skill: Skill) -> Result<()> {
+        let skill = to_contract(skill)?;
         let _: OkResponse = self
             .request_typed(IpcRequest::CreateSkill { skill })
             .await?;
@@ -21,6 +24,7 @@ impl IpcClient {
     }
 
     pub async fn update_skill(&mut self, id: String, skill: Skill) -> Result<()> {
+        let skill = to_contract(skill)?;
         let _: OkResponse = self
             .request_typed(IpcRequest::UpdateSkill { id, skill })
             .await?;

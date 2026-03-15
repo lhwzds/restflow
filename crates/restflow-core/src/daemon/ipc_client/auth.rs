@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
+use crate::daemon::request_mapper::to_contract;
+#[cfg(unix)]
 use restflow_contracts::{ApiKeyResponse, OkResponse};
 
 #[cfg(unix)]
@@ -20,6 +22,9 @@ impl IpcClient {
         source: CredentialSource,
         provider: AuthProvider,
     ) -> Result<AuthProfile> {
+        let credential = to_contract(credential)?;
+        let source = to_contract(source)?;
+        let provider = to_contract(provider)?;
         self.request_typed(IpcRequest::AddAuthProfile {
             name,
             credential,
@@ -39,6 +44,7 @@ impl IpcClient {
         id: String,
         updates: ProfileUpdate,
     ) -> Result<AuthProfile> {
+        let updates = to_contract(updates)?;
         self.request_typed(IpcRequest::UpdateAuthProfile { id, updates })
             .await
     }
@@ -62,6 +68,7 @@ impl IpcClient {
     }
 
     pub async fn get_api_key(&mut self, provider: AuthProvider) -> Result<String> {
+        let provider = to_contract(provider)?;
         let resp: ApiKeyResponse = self
             .request_typed(IpcRequest::GetApiKey { provider })
             .await?;

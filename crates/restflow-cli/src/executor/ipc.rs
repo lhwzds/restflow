@@ -5,6 +5,7 @@ use std::path::Path;
 use tokio::sync::Mutex;
 
 use crate::executor::CommandExecutor;
+use restflow_core::daemon::request_mapper::to_contract;
 use restflow_core::daemon::{IpcClient, IpcRequest};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
@@ -54,6 +55,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
+        let agent = to_contract(agent)?;
         self.request_typed(IpcRequest::CreateAgent { name, agent })
             .await
     }
@@ -64,6 +66,7 @@ impl CommandExecutor for IpcExecutor {
         name: Option<String>,
         agent: Option<AgentNode>,
     ) -> Result<StoredAgent> {
+        let agent = agent.map(to_contract).transpose()?;
         self.request_typed(IpcRequest::UpdateAgent {
             id: id.to_string(),
             name,
@@ -89,6 +92,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn create_skill(&self, skill: Skill) -> Result<()> {
+        let skill = to_contract(skill)?;
         let _: OkResponse = self
             .request_typed(IpcRequest::CreateSkill { skill })
             .await?;
@@ -96,6 +100,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn update_skill(&self, id: &str, skill: Skill) -> Result<()> {
+        let skill = to_contract(skill)?;
         let _: OkResponse = self
             .request_typed(IpcRequest::UpdateSkill {
                 id: id.to_string(),
@@ -196,6 +201,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>> {
+        let query = to_contract(query)?;
         self.request_typed(IpcRequest::ListWorkItems { query })
             .await
     }
@@ -206,11 +212,13 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem> {
+        let spec = to_contract(spec)?;
         self.request_typed(IpcRequest::CreateWorkItem { spec })
             .await
     }
 
     async fn update_note(&self, id: &str, patch: WorkItemPatch) -> Result<WorkItem> {
+        let patch = to_contract(patch)?;
         self.request_typed(IpcRequest::UpdateWorkItem {
             id: id.to_string(),
             patch,
@@ -303,6 +311,7 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn set_config(&self, config: SystemConfig) -> Result<()> {
+        let config = to_contract(config)?;
         let _: OkResponse = self.request_typed(IpcRequest::SetConfig { config }).await?;
         Ok(())
     }
@@ -370,7 +379,7 @@ impl CommandExecutor for IpcExecutor {
             .request_typed(IpcRequest::SendBackgroundAgentMessage {
                 id: id.to_string(),
                 message: message.to_string(),
-                source: None,
+                source: None::<String>,
             })
             .await?;
         Ok(())

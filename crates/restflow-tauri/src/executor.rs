@@ -6,6 +6,7 @@ use restflow_contracts::{
     SteerResponse,
 };
 use restflow_core::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
+use restflow_core::daemon::request_mapper::to_contract;
 use restflow_core::daemon::{
     ChatSessionEvent, IpcClient, IpcDaemonStatus, IpcRequest, StreamFrame, ToolExecutionResult,
 };
@@ -69,6 +70,7 @@ impl TauriExecutor {
         name: String,
         agent: AgentNode,
     ) -> Result<restflow_core::storage::agent::StoredAgent> {
+        let agent = to_contract(agent)?;
         self.request(IpcRequest::CreateAgent { name, agent }).await
     }
 
@@ -78,6 +80,7 @@ impl TauriExecutor {
         name: Option<String>,
         agent: Option<AgentNode>,
     ) -> Result<restflow_core::storage::agent::StoredAgent> {
+        let agent = agent.map(to_contract).transpose()?;
         self.request(IpcRequest::UpdateAgent { id, name, agent })
             .await
     }
@@ -96,11 +99,13 @@ impl TauriExecutor {
     }
 
     pub async fn create_skill(&self, skill: Skill) -> Result<()> {
+        let skill = to_contract(skill)?;
         let _: OkResponse = self.request(IpcRequest::CreateSkill { skill }).await?;
         Ok(())
     }
 
     pub async fn update_skill(&self, id: String, skill: Skill) -> Result<()> {
+        let skill = to_contract(skill)?;
         let _: OkResponse = self.request(IpcRequest::UpdateSkill { id, skill }).await?;
         Ok(())
     }
@@ -136,10 +141,12 @@ impl TauriExecutor {
     }
 
     pub async fn create_hook(&self, hook: Hook) -> Result<Hook> {
+        let hook = to_contract(hook)?;
         self.request(IpcRequest::CreateHook { hook }).await
     }
 
     pub async fn update_hook(&self, id: String, hook: Hook) -> Result<Hook> {
+        let hook = to_contract(hook)?;
         self.request(IpcRequest::UpdateHook { id, hook }).await
     }
 
@@ -157,6 +164,7 @@ impl TauriExecutor {
         &self,
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent> {
+        let spec = to_contract(spec)?;
         self.request(IpcRequest::CreateBackgroundAgent { spec })
             .await
     }
@@ -166,6 +174,7 @@ impl TauriExecutor {
         id: String,
         patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent> {
+        let patch = to_contract(patch)?;
         self.request(IpcRequest::UpdateBackgroundAgent { id, patch })
             .await
     }
@@ -182,6 +191,7 @@ impl TauriExecutor {
         id: String,
         action: BackgroundAgentControlAction,
     ) -> Result<BackgroundAgent> {
+        let action = to_contract(action)?;
         self.request(IpcRequest::ControlBackgroundAgent { id, action })
             .await
     }
@@ -235,6 +245,7 @@ impl TauriExecutor {
         message: String,
         source: Option<BackgroundMessageSource>,
     ) -> Result<()> {
+        let source = source.map(to_contract).transpose()?;
         let _: BackgroundMessage = self
             .request(IpcRequest::SendBackgroundAgentMessage {
                 id,
@@ -276,6 +287,7 @@ impl TauriExecutor {
         min_score: Option<f64>,
         scoring_preset: Option<String>,
     ) -> Result<RankedSearchResult> {
+        let query = to_contract(query)?;
         self.request(IpcRequest::SearchMemoryRanked {
             query,
             min_score,
@@ -314,6 +326,7 @@ impl TauriExecutor {
     }
 
     pub async fn create_memory_chunk(&self, chunk: MemoryChunk) -> Result<MemoryChunk> {
+        let chunk = to_contract(chunk)?;
         self.request(IpcRequest::CreateMemoryChunk { chunk }).await
     }
 
@@ -379,6 +392,7 @@ impl TauriExecutor {
     }
 
     pub async fn create_memory_session(&self, session: MemorySession) -> Result<MemorySession> {
+        let session = to_contract(session)?;
         self.request(IpcRequest::CreateMemorySession { session })
             .await
     }
@@ -449,6 +463,7 @@ impl TauriExecutor {
         id: String,
         updates: ChatSessionUpdate,
     ) -> Result<ChatSession> {
+        let updates = to_contract(updates)?;
         self.request(IpcRequest::UpdateSession { id, updates })
             .await
     }
@@ -482,6 +497,7 @@ impl TauriExecutor {
         role: ChatRole,
         content: String,
     ) -> Result<ChatSession> {
+        let role = to_contract(role)?;
         self.request(IpcRequest::AddMessage {
             session_id,
             role,
@@ -495,6 +511,7 @@ impl TauriExecutor {
         session_id: String,
         message: ChatMessage,
     ) -> Result<ChatSession> {
+        let message = to_contract(message)?;
         self.request(IpcRequest::AppendMessage {
             session_id,
             message,
@@ -619,6 +636,7 @@ impl TauriExecutor {
     }
 
     pub async fn save_terminal_session(&self, session: TerminalSession) -> Result<TerminalSession> {
+        let session = to_contract(session)?;
         self.request(IpcRequest::SaveTerminalSession { session })
             .await
     }
@@ -650,6 +668,9 @@ impl TauriExecutor {
         source: CredentialSource,
         provider: AuthProvider,
     ) -> Result<AuthProfile> {
+        let credential = to_contract(credential)?;
+        let source = to_contract(source)?;
+        let provider = to_contract(provider)?;
         self.request(IpcRequest::AddAuthProfile {
             name,
             credential,
@@ -668,6 +689,7 @@ impl TauriExecutor {
         id: String,
         updates: ProfileUpdate,
     ) -> Result<AuthProfile> {
+        let updates = to_contract(updates)?;
         self.request(IpcRequest::UpdateAuthProfile { id, updates })
             .await
     }
@@ -689,6 +711,7 @@ impl TauriExecutor {
     }
 
     pub async fn get_api_key(&self, provider: AuthProvider) -> Result<String> {
+        let provider = to_contract(provider)?;
         let response: ApiKeyResponse = self.request(IpcRequest::GetApiKey { provider }).await?;
         Ok(response.api_key)
     }
@@ -782,6 +805,7 @@ impl TauriExecutor {
     }
 
     pub async fn set_config(&self, config: SystemConfig) -> Result<()> {
+        let config = to_contract(config)?;
         let _: OkResponse = self.request(IpcRequest::SetConfig { config }).await?;
         Ok(())
     }
@@ -803,6 +827,7 @@ impl TauriExecutor {
     }
 
     pub async fn build_agent_system_prompt(&self, agent_node: AgentNode) -> Result<String> {
+        let agent_node = to_contract(agent_node)?;
         let response: PromptResponse = self
             .request(IpcRequest::BuildAgentSystemPrompt { agent_node })
             .await?;

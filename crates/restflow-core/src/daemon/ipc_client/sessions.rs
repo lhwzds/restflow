@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
+use crate::daemon::request_mapper::to_contract;
+#[cfg(unix)]
 use restflow_contracts::{ArchiveResponse, DeleteResponse};
 
 #[cfg(unix)]
@@ -57,6 +59,7 @@ impl IpcClient {
         id: String,
         updates: ChatSessionUpdate,
     ) -> Result<ChatSession> {
+        let updates = to_contract(updates)?;
         self.request_typed(IpcRequest::UpdateSession { id, updates })
             .await
     }
@@ -94,6 +97,7 @@ impl IpcClient {
         role: ChatRole,
         content: String,
     ) -> Result<ChatSession> {
+        let role = to_contract(role)?;
         self.request_typed(IpcRequest::AddMessage {
             session_id,
             role,
@@ -107,6 +111,7 @@ impl IpcClient {
         session_id: String,
         message: ChatMessage,
     ) -> Result<ChatSession> {
+        let message = to_contract(message)?;
         self.request_typed(IpcRequest::AppendMessage {
             session_id,
             message,
@@ -152,6 +157,7 @@ impl IpcClient {
         &mut self,
         query: ExecutionTraceQuery,
     ) -> Result<Vec<ExecutionTraceEvent>> {
+        let query = to_contract(query)?;
         self.request_typed(IpcRequest::QueryExecutionTraces { query })
             .await
     }
