@@ -59,17 +59,12 @@ impl RestFlowMcpServer {
                         .get_background_agent(&task_id)
                         .await
                         .map_err(|e| format!("Failed to get task: {}", e))?;
-                    let session_id = task
-                        .get("chat_session_id")
-                        .and_then(|v| v.as_str())
-                        .filter(|v| !v.trim().is_empty())
-                        .unwrap_or(task_id.as_str())
-                        .to_string();
-                    let agent_id = task
-                        .get("agent_id")
-                        .and_then(|v| v.as_str())
-                        .unwrap_or_default()
-                        .to_string();
+                    let session_id = if task.chat_session_id.trim().is_empty() {
+                        task_id.clone()
+                    } else {
+                        task.chat_session_id.clone()
+                    };
+                    let agent_id = task.agent_id.clone();
 
                     if let Some(agent_filter) = params.agent_id.as_deref()
                         && !agent_id.is_empty()
@@ -77,39 +72,10 @@ impl RestFlowMcpServer {
                     {
                         Vec::new()
                     } else {
-                        vec![BackgroundAgent {
-                            id: task_id,
-                            name: "trace_query_task".to_string(),
-                            description: None,
-                            agent_id,
-                            chat_session_id: session_id,
-                            owns_chat_session: false,
-                            input: None,
-                            input_template: None,
-                            schedule: BackgroundAgentSchedule::default(),
-                            execution_mode: crate::models::ExecutionMode::default(),
-                            timeout_secs: None,
-                            notification: crate::models::NotificationConfig::default(),
-                            memory: MemoryConfig::default(),
-                            durability_mode: DurabilityMode::default(),
-                            resource_limits: ResourceLimits::default(),
-                            prerequisites: Vec::new(),
-                            continuation: crate::models::ContinuationConfig::default(),
-                            continuation_total_iterations: 0,
-                            continuation_segments_completed: 0,
-                            status: BackgroundAgentStatus::default(),
-                            created_at: 0,
-                            updated_at: 0,
-                            last_run_at: None,
-                            next_run_at: None,
-                            success_count: 0,
-                            failure_count: 0,
-                            total_tokens_used: 0,
-                            total_cost_usd: 0.0,
-                            last_error: None,
-                            webhook: None,
-                            summary_message_id: None,
-                        }]
+                        let mut task = task;
+                        task.id = task_id;
+                        task.chat_session_id = session_id;
+                        vec![task]
                     }
                 } else {
                     let mut tasks = self

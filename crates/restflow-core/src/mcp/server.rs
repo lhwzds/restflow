@@ -7,11 +7,10 @@ use crate::AppCore;
 use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig,
-    MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, ResourceLimits,
-    SearchMode, Skill, SkillStatus, ToolTrace, ToolTraceEvent, ValidationError,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
+    BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable, Hook, HookAction, HookEvent,
+    HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
+    Provider, SearchMode, Skill, SkillStatus, ToolTrace, ToolTraceEvent, ValidationError,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::agent::StoredAgent;
@@ -151,7 +150,7 @@ pub trait McpBackend: Send + Sync {
         turn_id: &str,
         limit: usize,
     ) -> Result<Vec<crate::models::ToolTrace>, String>;
-    async fn get_background_agent(&self, id: &str) -> Result<Value, String>;
+    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String>;
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
