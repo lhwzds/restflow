@@ -22,7 +22,7 @@ use restflow_core::runtime::{
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
 use restflow_core::storage::{SecretStorage, SystemConfig};
-use restflow_storage::{AgentDefaults, AuthProfileStorage, RuntimeDefaults};
+use restflow_storage::{AgentDefaults, AuthProfileStorage};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{error, info, warn};
@@ -491,6 +491,7 @@ mod tests {
     use restflow_core::models::{
         BackgroundAgentSpec, MemoryConfig, NotificationConfig, TaskSchedule,
     };
+    use restflow_storage::RuntimeDefaults;
     use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
