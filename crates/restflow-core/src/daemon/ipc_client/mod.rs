@@ -1,6 +1,6 @@
 use super::ipc_protocol::{
-    IpcDaemonStatus, IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition,
-    ToolExecutionResult,
+    IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent, MAX_MESSAGE_SIZE, StreamFrame,
+    ToolDefinition, ToolExecutionResult,
 };
 use crate::auth::{AuthProfile, AuthProvider, Credential, CredentialSource, ProfileUpdate};
 use crate::daemon::session_events::ChatSessionEvent;
@@ -16,7 +16,6 @@ use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;
 use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
-use serde_json::Value;
 use std::path::Path;
 
 #[cfg(unix)]
@@ -49,22 +48,23 @@ pub struct IpcClient {
 #[cfg(all(test, unix))]
 mod tests {
     use super::*;
+    use restflow_contracts::ErrorPayload;
 
     #[test]
     fn format_ipc_error_without_details_uses_simple_message() {
         assert_eq!(
-            IpcClient::format_ipc_error(500, "boom", None),
+            IpcClient::format_ipc_error(&ErrorPayload::new(500, "boom", None)),
             "IPC error 500: boom"
         );
     }
 
     #[test]
     fn format_ipc_error_with_details_serializes_json() {
-        let formatted = IpcClient::format_ipc_error(
+        let formatted = IpcClient::format_ipc_error(&ErrorPayload::new(
             400,
             "bad request",
             Some(serde_json::json!({ "field": "agent_id" })),
-        );
+        ));
 
         assert!(formatted.contains('"'.to_string().as_str()));
         assert!(formatted.contains("bad request"));

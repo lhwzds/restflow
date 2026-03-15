@@ -6,6 +6,7 @@ use crate::models::{
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
+use restflow_traits::ToolErrorCategory;
 use rmcp::ClientHandler;
 use rmcp::model::ClientInfo;
 use serde_json::json;

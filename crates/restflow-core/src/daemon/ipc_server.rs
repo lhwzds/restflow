@@ -1,6 +1,6 @@
 use super::ipc_protocol::{
-    IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame,
-    ToolDefinition, ToolExecutionResult,
+    IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent,
+    MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
 };
 use super::session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 use super::subscribe_background_events;
@@ -352,10 +352,7 @@ impl IpcServer {
                     )
                     .await
                     {
-                        let frame = StreamFrame::Error {
-                            code: 500,
-                            message: err.to_string(),
-                        };
+                        let frame = StreamFrame::error(500, err.to_string());
                         let _ = Self::send_stream_frame(&mut stream, &frame).await;
                     }
                 }
@@ -368,19 +365,13 @@ impl IpcServer {
                     )
                     .await
                     {
-                        let frame = StreamFrame::Error {
-                            code: 500,
-                            message: err.to_string(),
-                        };
+                        let frame = StreamFrame::error(500, err.to_string());
                         let _ = Self::send_stream_frame(&mut stream, &frame).await;
                     }
                 }
                 Ok(IpcRequest::SubscribeSessionEvents) => {
                     if let Err(err) = Self::handle_subscribe_session_events(&mut stream).await {
-                        let frame = StreamFrame::Error {
-                            code: 500,
-                            message: err.to_string(),
-                        };
+                        let frame = StreamFrame::error(500, err.to_string());
                         let _ = Self::send_stream_frame(&mut stream, &frame).await;
                     }
                 }
@@ -511,17 +502,14 @@ impl IpcServer {
                         }
                         let _ = tx.send(StreamFrame::Done { total_tokens });
                     } else {
-                        let _ = tx.send(StreamFrame::Error {
-                            code: 500,
-                            message: "Assistant response missing after execution".to_string(),
-                        });
+                        let _ = tx.send(StreamFrame::error(
+                            500,
+                            "Assistant response missing after execution",
+                        ));
                     }
                 }
                 Err(err) => {
-                    let _ = tx.send(StreamFrame::Error {
-                        code: 500,
-                        message: err.to_string(),
-                    });
+                    let _ = tx.send(StreamFrame::error(err.status_code(), err.to_string()));
                 }
             }
 
@@ -548,8 +536,7 @@ impl IpcServer {
 
         let mut reached_terminal = false;
         while let Some(frame) = rx.recv().await {
-            reached_terminal =
-                matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error { .. });
+            reached_terminal = matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
             Self::send_stream_frame(stream, &frame).await?;
             if reached_terminal {
                 break;
@@ -566,10 +553,7 @@ impl IpcServer {
             );
             let _ = Self::send_stream_frame(
                 stream,
-                &StreamFrame::Error {
-                    code: 499,
-                    message: "Chat stream interrupted".to_string(),
-                },
+                &StreamFrame::error(499, "Chat stream interrupted"),
             )
             .await;
         }
@@ -619,10 +603,7 @@ impl IpcServer {
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     let _ = Self::send_stream_frame(
                         stream,
-                        &StreamFrame::Error {
-                            code: 500,
-                            message: "Background event stream closed".to_string(),
-                        },
+                        &StreamFrame::error(500, "Background event stream closed"),
                     )
                     .await;
                     break;
@@ -633,7 +614,9 @@ impl IpcServer {
                 continue;
             }
 
-            let frame = StreamFrame::BackgroundAgentEvent { event };
+            let frame = StreamFrame::Event {
+                event: IpcStreamEvent::BackgroundAgent(event),
+            };
             if let Err(err) = Self::send_stream_frame(stream, &frame).await {
                 debug!(error = %err, "Background event subscriber disconnected");
                 break;
@@ -670,17 +653,16 @@ impl IpcServer {
                 Err(tokio::sync::broadcast::error::RecvError::Closed) => {
                     let _ = Self::send_stream_frame(
                         stream,
-                        &StreamFrame::Error {
-                            code: 500,
-                            message: "Session event stream closed".to_string(),
-                        },
+                        &StreamFrame::error(500, "Session event stream closed"),
                     )
                     .await;
                     break;
                 }
             };
 
-            let frame = StreamFrame::SessionEvent { event };
+            let frame = StreamFrame::Event {
+                event: IpcStreamEvent::Session(event),
+            };
             if let Err(err) = Self::send_stream_frame(stream, &frame).await {
                 debug!(error = %err, "Session event subscriber disconnected");
                 break;
