@@ -2,6 +2,7 @@
 
 mod error;
 mod operation;
+pub mod request;
 mod response;
 mod stream;
 mod tool;
@@ -12,6 +13,7 @@ pub use operation::{
     DeleteResponse, DeleteWithIdResponse, IdResponse, IpcDaemonStatus, OkResponse, PromptResponse,
     SecretResponse, SteerResponse,
 };
+pub use request::IpcRequest;
 pub use response::ResponseEnvelope;
 pub use stream::StreamEnvelope;
 pub use tool::{ToolDefinition, ToolExecutionResult};
@@ -27,6 +29,7 @@ mod tests {
         let _ = ResponseEnvelope::<Value>::Pong;
         let _ = StreamEnvelope::<()>::Done { total_tokens: None };
         let _ = OkResponse { ok: true };
+        let _ = IpcRequest::Ping;
         let _ = IpcDaemonStatus {
             status: "running".to_string(),
             protocol_version: "2".to_string(),
