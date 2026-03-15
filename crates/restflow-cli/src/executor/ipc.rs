@@ -1,16 +1,17 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
+use restflow_contracts::{ClearResponse, IdResponse, OkResponse};
 use std::path::Path;
 use tokio::sync::Mutex;
 
 use crate::executor::CommandExecutor;
-use restflow_core::daemon::{IpcClient, IpcRequest, IpcResponse};
+use restflow_core::daemon::{IpcClient, IpcRequest};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, ToolTrace,
-    WorkItem, WorkItemPatch, WorkItemSpec,
+    BackgroundAgentSpec, BackgroundMessage, BackgroundProgress, ChatSession, ChatSessionSummary,
+    Deliverable, ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry,
+    Skill, ToolTrace, WorkItem, WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -27,51 +28,34 @@ impl IpcExecutor {
         })
     }
 
-    async fn request(&self, req: IpcRequest) -> Result<IpcResponse> {
+    async fn request_typed<T: serde::de::DeserializeOwned>(&self, req: IpcRequest) -> Result<T> {
         let mut client = self.client.lock().await;
-        client.request(req).await
+        client.request_typed(req).await
     }
 
-    fn decode_response<T: serde::de::DeserializeOwned>(&self, response: IpcResponse) -> Result<T> {
-        match response {
-            IpcResponse::Success(value) => Ok(serde_json::from_value(value)?),
-            IpcResponse::Error { message, .. } => bail!(message),
-            IpcResponse::Pong => bail!("Unexpected Pong response"),
-        }
-    }
-
-    fn decode_response_optional<T: serde::de::DeserializeOwned>(
+    async fn request_optional<T: serde::de::DeserializeOwned>(
         &self,
-        response: IpcResponse,
+        req: IpcRequest,
     ) -> Result<Option<T>> {
-        match response {
-            IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
-            IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error { message, .. } => bail!(message),
-            IpcResponse::Pong => bail!("Unexpected Pong response"),
-        }
+        let mut client = self.client.lock().await;
+        client.request_optional(req).await
     }
 }
 
 #[async_trait]
 impl CommandExecutor for IpcExecutor {
     async fn list_agents(&self) -> Result<Vec<StoredAgent>> {
-        let response = self.request(IpcRequest::ListAgents).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::ListAgents).await
     }
 
     async fn get_agent(&self, id: &str) -> Result<StoredAgent> {
-        let response = self
-            .request(IpcRequest::GetAgent { id: id.to_string() })
-            .await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::GetAgent { id: id.to_string() })
+            .await
     }
 
     async fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
-        let response = self
-            .request(IpcRequest::CreateAgent { name, agent })
-            .await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::CreateAgent { name, agent })
+            .await
     }
 
     async fn update_agent(
@@ -80,59 +64,52 @@ impl CommandExecutor for IpcExecutor {
         name: Option<String>,
         agent: Option<AgentNode>,
     ) -> Result<StoredAgent> {
-        let response = self
-            .request(IpcRequest::UpdateAgent {
-                id: id.to_string(),
-                name,
-                agent,
-            })
-            .await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::UpdateAgent {
+            id: id.to_string(),
+            name,
+            agent,
+        })
+        .await
     }
 
     async fn delete_agent(&self, id: &str) -> Result<()> {
-        let response = self
-            .request(IpcRequest::DeleteAgent { id: id.to_string() })
+        let _: OkResponse = self
+            .request_typed(IpcRequest::DeleteAgent { id: id.to_string() })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn list_skills(&self) -> Result<Vec<Skill>> {
-        let response = self.request(IpcRequest::ListSkills).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::ListSkills).await
     }
 
     async fn get_skill(&self, id: &str) -> Result<Option<Skill>> {
-        let response = self
-            .request(IpcRequest::GetSkill { id: id.to_string() })
-            .await?;
-        self.decode_response_optional(response)
+        self.request_optional(IpcRequest::GetSkill { id: id.to_string() })
+            .await
     }
 
     async fn create_skill(&self, skill: Skill) -> Result<()> {
-        let response = self.request(IpcRequest::CreateSkill { skill }).await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        let _: OkResponse = self
+            .request_typed(IpcRequest::CreateSkill { skill })
+            .await?;
+        Ok(())
     }
 
     async fn update_skill(&self, id: &str, skill: Skill) -> Result<()> {
-        let response = self
-            .request(IpcRequest::UpdateSkill {
+        let _: OkResponse = self
+            .request_typed(IpcRequest::UpdateSkill {
                 id: id.to_string(),
                 skill,
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn delete_skill(&self, id: &str) -> Result<()> {
-        let response = self
-            .request(IpcRequest::DeleteSkill { id: id.to_string() })
+        let _: OkResponse = self
+            .request_typed(IpcRequest::DeleteSkill { id: id.to_string() })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn search_memory(
@@ -141,14 +118,12 @@ impl CommandExecutor for IpcExecutor {
         agent_id: Option<String>,
         limit: Option<u32>,
     ) -> Result<MemorySearchResult> {
-        let response = self
-            .request(IpcRequest::SearchMemory {
-                query,
-                agent_id,
-                limit,
-            })
-            .await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::SearchMemory {
+            query,
+            agent_id,
+            limit,
+        })
+        .await
     }
 
     async fn list_memory(
@@ -156,32 +131,25 @@ impl CommandExecutor for IpcExecutor {
         agent_id: Option<String>,
         tag: Option<String>,
     ) -> Result<Vec<MemoryChunk>> {
-        let response = self
-            .request(IpcRequest::ListMemory { agent_id, tag })
-            .await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::ListMemory { agent_id, tag })
+            .await
     }
 
     async fn clear_memory(&self, agent_id: Option<String>) -> Result<u32> {
-        let response = self.request(IpcRequest::ClearMemory { agent_id }).await?;
-        #[derive(serde::Deserialize)]
-        struct ClearResponse {
-            deleted: u32,
-        }
-        let resp: ClearResponse = self.decode_response(response)?;
+        let resp: ClearResponse = self
+            .request_typed(IpcRequest::ClearMemory { agent_id })
+            .await?;
         Ok(resp.deleted)
     }
 
     async fn get_memory_stats(&self, agent_id: Option<String>) -> Result<MemoryStats> {
-        let response = self
-            .request(IpcRequest::GetMemoryStats { agent_id })
-            .await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::GetMemoryStats { agent_id })
+            .await
     }
 
     async fn export_memory(&self, agent_id: Option<String>) -> Result<ExportResult> {
-        let response = self.request(IpcRequest::ExportMemory { agent_id }).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::ExportMemory { agent_id })
+            .await
     }
 
     async fn store_memory(
@@ -190,18 +158,13 @@ impl CommandExecutor for IpcExecutor {
         content: &str,
         tags: Vec<String>,
     ) -> Result<String> {
-        #[derive(serde::Deserialize)]
-        struct StoreResponse {
-            id: String,
-        }
-        let response = self
-            .request(IpcRequest::AddMemory {
+        let resp: IdResponse = self
+            .request_typed(IpcRequest::AddMemory {
                 content: content.to_string(),
                 agent_id: Some(agent_id.to_string()),
                 tags,
             })
             .await?;
-        let resp: StoreResponse = self.decode_response(response)?;
         Ok(resp.id)
     }
 
@@ -233,60 +196,52 @@ impl CommandExecutor for IpcExecutor {
     }
 
     async fn list_notes(&self, query: ItemQuery) -> Result<Vec<WorkItem>> {
-        let response = self.request(IpcRequest::ListWorkItems { query }).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::ListWorkItems { query })
+            .await
     }
 
     async fn get_note(&self, id: &str) -> Result<Option<WorkItem>> {
-        let response = self
-            .request(IpcRequest::GetWorkItem { id: id.to_string() })
-            .await?;
-        self.decode_response_optional(response)
+        self.request_optional(IpcRequest::GetWorkItem { id: id.to_string() })
+            .await
     }
 
     async fn create_note(&self, spec: WorkItemSpec) -> Result<WorkItem> {
-        let response = self.request(IpcRequest::CreateWorkItem { spec }).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::CreateWorkItem { spec })
+            .await
     }
 
     async fn update_note(&self, id: &str, patch: WorkItemPatch) -> Result<WorkItem> {
-        let response = self
-            .request(IpcRequest::UpdateWorkItem {
-                id: id.to_string(),
-                patch,
-            })
-            .await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::UpdateWorkItem {
+            id: id.to_string(),
+            patch,
+        })
+        .await
     }
 
     async fn delete_note(&self, id: &str) -> Result<()> {
-        let response = self
-            .request(IpcRequest::DeleteWorkItem { id: id.to_string() })
+        let _: OkResponse = self
+            .request_typed(IpcRequest::DeleteWorkItem { id: id.to_string() })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn list_note_folders(&self) -> Result<Vec<String>> {
-        let response = self.request(IpcRequest::ListWorkItemFolders).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::ListWorkItemFolders).await
     }
 
     async fn list_secrets(&self) -> Result<Vec<Secret>> {
-        let response = self.request(IpcRequest::ListSecrets).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::ListSecrets).await
     }
 
     async fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()> {
-        let response = self
-            .request(IpcRequest::SetSecret {
+        let _: OkResponse = self
+            .request_typed(IpcRequest::SetSecret {
                 key: key.to_string(),
                 value: value.to_string(),
                 description,
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn create_secret(
@@ -295,15 +250,14 @@ impl CommandExecutor for IpcExecutor {
         value: &str,
         description: Option<String>,
     ) -> Result<()> {
-        let response = self
-            .request(IpcRequest::CreateSecret {
+        let _: OkResponse = self
+            .request_typed(IpcRequest::CreateSecret {
                 key: key.to_string(),
                 value: value.to_string(),
                 description,
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn update_secret(
@@ -312,55 +266,45 @@ impl CommandExecutor for IpcExecutor {
         value: &str,
         description: Option<String>,
     ) -> Result<()> {
-        let response = self
-            .request(IpcRequest::UpdateSecret {
+        let _: OkResponse = self
+            .request_typed(IpcRequest::UpdateSecret {
                 key: key.to_string(),
                 value: value.to_string(),
                 description,
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn delete_secret(&self, key: &str) -> Result<()> {
-        let response = self
-            .request(IpcRequest::DeleteSecret {
+        let _: OkResponse = self
+            .request_typed(IpcRequest::DeleteSecret {
                 key: key.to_string(),
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn has_secret(&self, key: &str) -> Result<bool> {
         let response = self
-            .request(IpcRequest::GetSecret {
+            .request_optional::<restflow_contracts::SecretResponse>(IpcRequest::GetSecret {
                 key: key.to_string(),
             })
             .await?;
-        match response {
-            IpcResponse::Success(_) => Ok(true),
-            IpcResponse::Error { code: 404, .. } => Ok(false),
-            IpcResponse::Error { message, .. } => bail!(message),
-            IpcResponse::Pong => bail!("Unexpected Pong response"),
-        }
+        Ok(response.is_some())
     }
 
     async fn get_config(&self) -> Result<SystemConfig> {
-        let response = self.request(IpcRequest::GetConfig).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::GetConfig).await
     }
 
     async fn get_global_config(&self) -> Result<SystemConfig> {
-        let response = self.request(IpcRequest::GetGlobalConfig).await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::GetGlobalConfig).await
     }
 
     async fn set_config(&self, config: SystemConfig) -> Result<()> {
-        let response = self.request(IpcRequest::SetConfig { config }).await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        let _: OkResponse = self.request_typed(IpcRequest::SetConfig { config }).await?;
+        Ok(())
     }
 
     // Background Agent operations - use IPC client methods
@@ -414,25 +358,22 @@ impl CommandExecutor for IpcExecutor {
         id: &str,
         event_limit: Option<usize>,
     ) -> Result<BackgroundProgress> {
-        let response = self
-            .request(IpcRequest::GetBackgroundAgentProgress {
-                id: id.to_string(),
-                event_limit,
-            })
-            .await?;
-        self.decode_response(response)
+        self.request_typed(IpcRequest::GetBackgroundAgentProgress {
+            id: id.to_string(),
+            event_limit,
+        })
+        .await
     }
 
     async fn send_background_agent_message(&self, id: &str, message: &str) -> Result<()> {
-        let response = self
-            .request(IpcRequest::SendBackgroundAgentMessage {
+        let _: BackgroundMessage = self
+            .request_typed(IpcRequest::SendBackgroundAgentMessage {
                 id: id.to_string(),
                 message: message.to_string(),
                 source: None,
             })
             .await?;
-        self.decode_response::<serde_json::Value>(response)
-            .map(|_| ())
+        Ok(())
     }
 
     async fn list_tool_traces(

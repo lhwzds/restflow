@@ -1,5 +1,7 @@
 #[cfg(unix)]
 use super::*;
+#[cfg(unix)]
+use restflow_contracts::OkResponse;
 
 #[cfg(unix)]
 impl IpcClient {
@@ -50,7 +52,7 @@ impl IpcClient {
     }
 
     pub async fn delete_terminal_session(&mut self, id: String) -> Result<()> {
-        let _: serde_json::Value = self
+        let _: OkResponse = self
             .request_typed(IpcRequest::DeleteTerminalSession { id })
             .await?;
         Ok(())

@@ -1,5 +1,6 @@
 use super::super::runtime::build_auth_manager;
 use super::super::*;
+use restflow_contracts::{ApiKeyResponse, OkResponse};
 
 impl IpcServer {
     pub(super) async fn handle_list_auth_profiles(core: &Arc<AppCore>) -> IpcResponse {
@@ -87,7 +88,7 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         match manager.enable_profile(&id).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -102,7 +103,7 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         match manager.disable_profile(&id, &reason).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -117,10 +118,10 @@ impl IpcServer {
         };
         match manager.get_available_profile(provider).await {
             Some(profile) => match profile.get_api_key(manager.resolver()) {
-                Ok(key) => IpcResponse::success(serde_json::json!({
-                    "profile_id": profile.id,
-                    "api_key": key,
-                })),
+                Ok(key) => IpcResponse::success(ApiKeyResponse {
+                    api_key: key,
+                    profile_id: Some(profile.id),
+                }),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
             None => IpcResponse::not_found("Auth profile"),
@@ -137,10 +138,10 @@ impl IpcServer {
         };
         match manager.get_profile(&id).await {
             Some(profile) => match profile.get_api_key(manager.resolver()) {
-                Ok(key) => IpcResponse::success(serde_json::json!({
-                    "profile_id": profile.id,
-                    "api_key": key,
-                })),
+                Ok(key) => IpcResponse::success(ApiKeyResponse {
+                    api_key: key,
+                    profile_id: Some(profile.id),
+                }),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
             None => IpcResponse::not_found("Auth profile"),
@@ -154,7 +155,7 @@ impl IpcServer {
         };
         match manager.get_profile(&id).await {
             Some(profile) => match profile.get_api_key(manager.resolver()) {
-                Ok(_) => IpcResponse::success(serde_json::json!({ "ok": true })),
+                Ok(_) => IpcResponse::success(OkResponse { ok: true }),
                 Err(err) => IpcResponse::error(500, err.to_string()),
             },
             None => IpcResponse::not_found("Auth profile"),
@@ -167,7 +168,7 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         match manager.mark_success(&id).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -178,7 +179,7 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         match manager.mark_failure(&id).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -189,6 +190,6 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         manager.clear().await;
-        IpcResponse::success(serde_json::json!({ "ok": true }))
+        IpcResponse::success(OkResponse { ok: true })
     }
 }

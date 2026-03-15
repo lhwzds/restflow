@@ -1,4 +1,5 @@
 use super::super::*;
+use restflow_contracts::OkResponse;
 
 impl IpcServer {
     pub(super) async fn handle_list_terminal_sessions(core: &Arc<AppCore>) -> IpcResponse {
@@ -86,7 +87,7 @@ impl IpcServer {
         id: String,
     ) -> IpcResponse {
         match core.storage.terminal_sessions.delete(&id) {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }

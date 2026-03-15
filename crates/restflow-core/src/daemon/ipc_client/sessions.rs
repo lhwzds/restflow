@@ -1,5 +1,7 @@
 #[cfg(unix)]
 use super::*;
+#[cfg(unix)]
+use restflow_contracts::{ArchiveResponse, DeleteResponse};
 
 #[cfg(unix)]
 impl IpcClient {
@@ -65,10 +67,6 @@ impl IpcClient {
     }
 
     pub async fn archive_session(&mut self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct ArchiveResponse {
-            archived: bool,
-        }
         let resp: ArchiveResponse = self
             .request_typed(IpcRequest::ArchiveSession { id })
             .await?;
@@ -76,10 +74,6 @@ impl IpcClient {
     }
 
     pub async fn delete_session(&mut self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct DeleteResponse {
-            deleted: bool,
-        }
         let resp: DeleteResponse = self.request_typed(IpcRequest::DeleteSession { id }).await?;
         Ok(resp.deleted)
     }

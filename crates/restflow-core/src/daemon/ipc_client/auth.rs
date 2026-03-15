@@ -1,5 +1,7 @@
 #[cfg(unix)]
 use super::*;
+#[cfg(unix)]
+use restflow_contracts::{ApiKeyResponse, OkResponse};
 
 #[cfg(unix)]
 impl IpcClient {
@@ -46,24 +48,20 @@ impl IpcClient {
     }
 
     pub async fn enable_auth_profile(&mut self, id: String) -> Result<()> {
-        let _: serde_json::Value = self
+        let _: OkResponse = self
             .request_typed(IpcRequest::EnableAuthProfile { id })
             .await?;
         Ok(())
     }
 
     pub async fn disable_auth_profile(&mut self, id: String, reason: String) -> Result<()> {
-        let _: serde_json::Value = self
+        let _: OkResponse = self
             .request_typed(IpcRequest::DisableAuthProfile { id, reason })
             .await?;
         Ok(())
     }
 
     pub async fn get_api_key(&mut self, provider: AuthProvider) -> Result<String> {
-        #[derive(serde::Deserialize)]
-        struct ApiKeyResponse {
-            api_key: String,
-        }
         let resp: ApiKeyResponse = self
             .request_typed(IpcRequest::GetApiKey { provider })
             .await?;
@@ -71,10 +69,6 @@ impl IpcClient {
     }
 
     pub async fn get_api_key_for_profile(&mut self, id: String) -> Result<String> {
-        #[derive(serde::Deserialize)]
-        struct ApiKeyResponse {
-            api_key: String,
-        }
         let resp: ApiKeyResponse = self
             .request_typed(IpcRequest::GetApiKeyForProfile { id })
             .await?;
@@ -82,32 +76,28 @@ impl IpcClient {
     }
 
     pub async fn test_auth_profile(&mut self, id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct TestResponse {
-            ok: bool,
-        }
-        let resp: TestResponse = self
+        let resp: OkResponse = self
             .request_typed(IpcRequest::TestAuthProfile { id })
             .await?;
         Ok(resp.ok)
     }
 
     pub async fn mark_auth_success(&mut self, id: String) -> Result<()> {
-        let _: serde_json::Value = self
+        let _: OkResponse = self
             .request_typed(IpcRequest::MarkAuthSuccess { id })
             .await?;
         Ok(())
     }
 
     pub async fn mark_auth_failure(&mut self, id: String) -> Result<()> {
-        let _: serde_json::Value = self
+        let _: OkResponse = self
             .request_typed(IpcRequest::MarkAuthFailure { id })
             .await?;
         Ok(())
     }
 
     pub async fn clear_auth_profiles(&mut self) -> Result<()> {
-        let _: serde_json::Value = self.request_typed(IpcRequest::ClearAuthProfiles).await?;
+        let _: OkResponse = self.request_typed(IpcRequest::ClearAuthProfiles).await?;
         Ok(())
     }
 }

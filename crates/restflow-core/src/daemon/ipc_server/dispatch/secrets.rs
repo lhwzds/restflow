@@ -1,4 +1,5 @@
 use super::super::*;
+use restflow_contracts::{OkResponse, SecretResponse};
 
 impl IpcServer {
     pub(super) async fn handle_list_secrets(core: &Arc<AppCore>) -> IpcResponse {
@@ -10,7 +11,7 @@ impl IpcServer {
 
     pub(super) async fn handle_get_secret(core: &Arc<AppCore>, key: String) -> IpcResponse {
         match secrets_service::get_secret(core, &key).await {
-            Ok(Some(value)) => IpcResponse::success(serde_json::json!({ "value": value })),
+            Ok(Some(value)) => IpcResponse::success(SecretResponse { value: Some(value) }),
             Ok(None) => IpcResponse::not_found("Secret"),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -23,7 +24,7 @@ impl IpcServer {
         description: Option<String>,
     ) -> IpcResponse {
         match secrets_service::set_secret(core, &key, &value, description).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -35,7 +36,7 @@ impl IpcServer {
         description: Option<String>,
     ) -> IpcResponse {
         match secrets_service::create_secret(core, &key, &value, description).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -47,14 +48,14 @@ impl IpcServer {
         description: Option<String>,
     ) -> IpcResponse {
         match secrets_service::update_secret(core, &key, &value, description).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
 
     pub(super) async fn handle_delete_secret(core: &Arc<AppCore>, key: String) -> IpcResponse {
         match secrets_service::delete_secret(core, &key).await {
-            Ok(()) => IpcResponse::success(serde_json::json!({ "ok": true })),
+            Ok(()) => IpcResponse::success(OkResponse { ok: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }

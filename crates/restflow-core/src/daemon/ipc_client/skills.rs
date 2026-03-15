@@ -1,5 +1,7 @@
 #[cfg(unix)]
 use super::*;
+#[cfg(unix)]
+use restflow_contracts::OkResponse;
 
 #[cfg(unix)]
 impl IpcClient {
@@ -12,21 +14,21 @@ impl IpcClient {
     }
 
     pub async fn create_skill(&mut self, skill: Skill) -> Result<()> {
-        let _: serde_json::Value = self
+        let _: OkResponse = self
             .request_typed(IpcRequest::CreateSkill { skill })
             .await?;
         Ok(())
     }
 
     pub async fn update_skill(&mut self, id: String, skill: Skill) -> Result<()> {
-        let _: serde_json::Value = self
+        let _: OkResponse = self
             .request_typed(IpcRequest::UpdateSkill { id, skill })
             .await?;
         Ok(())
     }
 
     pub async fn delete_skill(&mut self, id: String) -> Result<()> {
-        let _: serde_json::Value = self.request_typed(IpcRequest::DeleteSkill { id }).await?;
+        let _: OkResponse = self.request_typed(IpcRequest::DeleteSkill { id }).await?;
         Ok(())
     }
 
