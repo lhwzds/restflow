@@ -17,8 +17,8 @@ pub use core_access::CoreAccess;
 pub use health::{HealthChecker, HealthStatus, check_health};
 pub use ipc_client::{IpcClient, is_daemon_available};
 pub use ipc_protocol::{
-    IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, MAX_MESSAGE_SIZE, StreamFrame,
-    ToolDefinition, ToolExecutionResult,
+    IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent,
+    MAX_MESSAGE_SIZE, StreamFrame,
 };
 pub use ipc_server::IpcServer;
 pub use launcher::{
@@ -28,5 +28,6 @@ pub use launcher::{
 pub use logging::{LogPaths, open_daemon_log_append, resolve_log_paths};
 pub use mcp::run_mcp_http_server;
 pub use process::{DaemonConfig, ProcessManager};
+pub use restflow_contracts::{ToolDefinition, ToolExecutionResult};
 pub use session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 pub use supervisor::{Supervisor, SupervisorConfig};

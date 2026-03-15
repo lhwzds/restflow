@@ -4,7 +4,7 @@
 //! to AI assistants like Claude Code.
 
 use crate::AppCore;
-use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
+use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
@@ -20,12 +20,13 @@ use restflow_ai::llm::{
     CodexClient, DefaultLlmClientFactory, LlmClient, LlmProvider, LlmSwitcherImpl, SwappableLlm,
 };
 use restflow_ai::tools::Tool as RuntimeTool;
+pub(crate) use restflow_contracts::ToolDefinition as RuntimeToolDefinition;
+pub(crate) use restflow_contracts::ToolExecutionResult as RuntimeToolResult;
 use restflow_storage::ApiDefaults;
 use restflow_tools::SwitchModelTool;
 use restflow_traits::store::{
     MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
 };
-use restflow_traits::tool::ToolErrorCategory;
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -73,23 +74,6 @@ use self::types::*;
 pub struct RestFlowMcpServer {
     backend: Arc<dyn McpBackend>,
     switch_model_tool: SwitchModelTool,
-}
-
-#[derive(Debug, Clone)]
-pub struct RuntimeToolDefinition {
-    pub name: String,
-    pub description: String,
-    pub parameters: Value,
-}
-
-#[derive(Debug, Clone)]
-pub struct RuntimeToolResult {
-    pub success: bool,
-    pub result: Value,
-    pub error: Option<String>,
-    pub error_category: Option<ToolErrorCategory>,
-    pub retryable: Option<bool>,
-    pub retry_after_ms: Option<u64>,
 }
 
 #[async_trait::async_trait]

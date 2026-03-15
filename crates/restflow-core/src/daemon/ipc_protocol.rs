@@ -7,43 +7,14 @@ use crate::models::{
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::SystemConfig;
-use restflow_traits::tool::ToolErrorCategory;
+pub use restflow_contracts::{IpcDaemonStatus, ToolDefinition, ToolExecutionResult};
+use restflow_contracts::{ResponseEnvelope, StreamEnvelope};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 /// Message frame: [4 bytes length LE][JSON payload]
 pub const MAX_MESSAGE_SIZE: usize = 16 * 1024 * 1024;
-pub const IPC_PROTOCOL_VERSION: &str = "1";
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct IpcDaemonStatus {
-    pub status: String,
-    pub protocol_version: String,
-    pub daemon_version: String,
-    pub pid: u32,
-    pub started_at_ms: i64,
-    pub uptime_secs: u64,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolDefinition {
-    pub name: String,
-    pub description: String,
-    pub parameters: Value,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ToolExecutionResult {
-    pub success: bool,
-    pub result: Value,
-    pub error: Option<String>,
-    #[serde(default)]
-    pub error_category: Option<ToolErrorCategory>,
-    #[serde(default)]
-    pub retryable: Option<bool>,
-    #[serde(default)]
-    pub retry_after_ms: Option<u64>,
-}
+pub const IPC_PROTOCOL_VERSION: &str = "2";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", content = "data")]
@@ -430,92 +401,21 @@ pub enum IpcRequest {
     },
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum IpcResponse {
-    Pong,
-    Success(serde_json::Value),
-    Error {
-        code: i32,
-        message: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        details: Option<serde_json::Value>,
-    },
-}
+pub type IpcResponse = ResponseEnvelope<serde_json::Value>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", content = "data")]
-pub enum StreamFrame {
-    Start {
-        stream_id: String,
-    },
-    Ack {
-        content: String,
-    },
-    Data {
-        content: String,
-    },
-    ToolCall {
-        id: String,
-        name: String,
-        arguments: serde_json::Value,
-    },
-    ToolResult {
-        id: String,
-        result: String,
-        success: bool,
-    },
-    BackgroundAgentEvent {
-        event: TaskStreamEvent,
-    },
-    SessionEvent {
-        event: ChatSessionEvent,
-    },
-    Done {
-        total_tokens: Option<u32>,
-    },
-    Error {
-        code: i32,
-        message: String,
-    },
+#[serde(rename_all = "snake_case")]
+pub enum IpcStreamEvent {
+    BackgroundAgent(TaskStreamEvent),
+    Session(ChatSessionEvent),
 }
 
-impl IpcResponse {
-    pub fn success<T: Serialize>(data: T) -> Self {
-        match serde_json::to_value(data) {
-            Ok(value) => Self::Success(value),
-            Err(_) => Self::Success(serde_json::Value::Null),
-        }
-    }
-
-    pub fn error(code: i32, message: impl Into<String>) -> Self {
-        Self::error_with_details(code, message, None)
-    }
-
-    pub fn error_with_details(
-        code: i32,
-        message: impl Into<String>,
-        details: Option<serde_json::Value>,
-    ) -> Self {
-        Self::Error {
-            code,
-            message: message.into(),
-            details,
-        }
-    }
-
-    pub fn not_found(what: &str) -> Self {
-        Self::Error {
-            code: 404,
-            message: format!("{} not found", what),
-            details: None,
-        }
-    }
-}
+pub type StreamFrame = StreamEnvelope<IpcStreamEvent>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_traits::ToolErrorCategory;
 
     #[test]
     fn test_ping_serialization() {
@@ -879,15 +779,15 @@ mod tests {
             Some(100),
             Some("done".to_string()),
         );
-        let frame = StreamFrame::BackgroundAgentEvent {
-            event: event.clone(),
+        let frame = StreamFrame::Event {
+            event: IpcStreamEvent::BackgroundAgent(event.clone()),
         };
         let json = serde_json::to_string(&frame).unwrap();
         let parsed: StreamFrame = serde_json::from_str(&json).unwrap();
 
         match parsed {
-            StreamFrame::BackgroundAgentEvent {
-                event: parsed_event,
+            StreamFrame::Event {
+                event: IpcStreamEvent::BackgroundAgent(parsed_event),
             } => {
                 assert_eq!(parsed_event.task_id, event.task_id);
             }
@@ -901,6 +801,7 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         let parsed: IpcResponse = serde_json::from_str(&json).unwrap();
 
+        assert!(json.contains("response_type"));
         if let IpcResponse::Success(value) = parsed {
             assert_eq!(value["id"], "test-123");
         } else {
@@ -914,15 +815,11 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         let parsed: IpcResponse = serde_json::from_str(&json).unwrap();
 
-        if let IpcResponse::Error {
-            code,
-            message,
-            details,
-        } = parsed
-        {
-            assert_eq!(code, 404);
-            assert_eq!(message, "Not found");
-            assert_eq!(details, None);
+        if let IpcResponse::Error(error) = parsed {
+            assert_eq!(error.code, 404);
+            assert_eq!(error.message, "Not found");
+            assert_eq!(error.details, None);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
         } else {
             panic!("Wrong variant");
         }
@@ -940,43 +837,39 @@ mod tests {
         let json = serde_json::to_string(&response).unwrap();
         let parsed: IpcResponse = serde_json::from_str(&json).unwrap();
 
-        if let IpcResponse::Error {
-            code,
-            message,
-            details,
-        } = parsed
-        {
-            assert_eq!(code, 500);
-            assert_eq!(message, "Tool execution failed");
-            assert_eq!(details.unwrap()["metadata"]["exit_code"], 7);
+        if let IpcResponse::Error(error) = parsed {
+            assert_eq!(error.code, 500);
+            assert_eq!(error.message, "Tool execution failed");
+            assert_eq!(error.details.unwrap()["metadata"]["exit_code"], 7);
         } else {
             panic!("Wrong variant");
         }
     }
 
     #[test]
-    fn test_response_error_backward_compat_without_details() {
-        let legacy = serde_json::json!({
-            "type": "Error",
+    fn test_response_error_v2_shape_without_details() {
+        let encoded = serde_json::json!({
+            "response_type": "Error",
             "data": {
                 "code": 409,
+                "kind": "conflict",
                 "message": "conflict"
             }
         });
 
-        let parsed: IpcResponse = serde_json::from_value(legacy).unwrap();
-        if let IpcResponse::Error {
-            code,
-            message,
-            details,
-        } = parsed
-        {
-            assert_eq!(code, 409);
-            assert_eq!(message, "conflict");
-            assert_eq!(details, None);
+        let parsed: IpcResponse = serde_json::from_value(encoded).unwrap();
+        if let IpcResponse::Error(error) = parsed {
+            assert_eq!(error.code, 409);
+            assert_eq!(error.message, "conflict");
+            assert_eq!(error.details, None);
         } else {
             panic!("Wrong variant");
         }
+    }
+
+    #[test]
+    fn test_protocol_version_is_v2() {
+        assert_eq!(IPC_PROTOCOL_VERSION, "2");
     }
 
     #[test]
@@ -1003,6 +896,7 @@ mod tests {
         let json = serde_json::to_string(&frame).unwrap();
         let parsed: StreamFrame = serde_json::from_str(&json).unwrap();
 
+        assert!(json.contains("stream_type"));
         if let StreamFrame::Start { stream_id } = parsed {
             assert_eq!(stream_id, "stream-1");
         } else {
@@ -1105,16 +999,13 @@ mod tests {
 
     #[test]
     fn test_stream_frame_error() {
-        let frame = StreamFrame::Error {
-            code: 500,
-            message: "Internal error".to_string(),
-        };
+        let frame = StreamFrame::error(500, "Internal error");
         let json = serde_json::to_string(&frame).unwrap();
         let parsed: StreamFrame = serde_json::from_str(&json).unwrap();
 
-        if let StreamFrame::Error { code, message } = parsed {
-            assert_eq!(code, 500);
-            assert_eq!(message, "Internal error");
+        if let StreamFrame::Error(error) = parsed {
+            assert_eq!(error.code, 500);
+            assert_eq!(error.message, "Internal error");
         } else {
             panic!("Wrong variant");
         }

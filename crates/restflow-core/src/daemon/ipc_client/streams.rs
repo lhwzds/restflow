@@ -1,5 +1,27 @@
 #[cfg(unix)]
 use super::*;
+#[cfg(unix)]
+use restflow_contracts::{CancelResponse, SteerResponse};
+
+#[cfg(unix)]
+fn read_stream_frame_or_ipc_error(
+    buf: &[u8],
+    deserialize_context: &str,
+    unexpected_success: &str,
+    unexpected_pong: &str,
+) -> Result<StreamFrame> {
+    if let Ok(frame) = serde_json::from_slice::<StreamFrame>(buf) {
+        return Ok(frame);
+    }
+
+    let response: IpcResponse =
+        serde_json::from_slice(buf).with_context(|| deserialize_context.to_string())?;
+    match response {
+        IpcResponse::Error(error) => bail!("{}", IpcClient::format_ipc_error(&error)),
+        IpcResponse::Success(_) => bail!("{}", unexpected_success),
+        IpcResponse::Pong => bail!("{}", unexpected_pong),
+    }
+}
 
 #[cfg(unix)]
 impl IpcClient {
@@ -22,57 +44,16 @@ impl IpcClient {
 
         loop {
             let buf = self.read_raw_frame().await?;
-            let value: Value = serde_json::from_slice(&buf)
-                .context("Failed to deserialize streaming IPC frame")?;
-            // StreamFrame::Error and IpcResponse::Error share the same serde tag.
-            // Treat only payloads with `details` as structured IPC errors.
-            let has_structured_details = value
-                .get("type")
-                .and_then(Value::as_str)
-                .is_some_and(|kind| kind == "Error")
-                && value
-                    .get("data")
-                    .and_then(|data| data.get("details"))
-                    .is_some();
-            if has_structured_details {
-                let response: IpcResponse = serde_json::from_value(value.clone())
-                    .context("Failed to decode structured IPC error while reading stream")?;
-                if let IpcResponse::Error {
-                    code,
-                    message,
-                    details,
-                } = response
-                {
-                    bail!("{}", Self::format_ipc_error(code, &message, details));
-                }
-            }
-
-            if let Ok(frame) = serde_json::from_value::<StreamFrame>(value.clone()) {
-                let terminal =
-                    matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error { .. });
-                on_frame(frame)?;
-                if terminal {
-                    break;
-                }
-                continue;
-            }
-
-            let response: IpcResponse = serde_json::from_value(value)
-                .context("Failed to deserialize streaming IPC frame")?;
-            match response {
-                IpcResponse::Error {
-                    code,
-                    message,
-                    details,
-                } => {
-                    bail!("{}", Self::format_ipc_error(code, &message, details));
-                }
-                IpcResponse::Success(_) => {
-                    bail!("Unexpected success response while reading stream")
-                }
-                IpcResponse::Pong => {
-                    bail!("Unexpected Pong response while reading stream")
-                }
+            let frame = read_stream_frame_or_ipc_error(
+                &buf,
+                "Failed to deserialize streaming IPC frame",
+                "Unexpected success response while reading stream",
+                "Unexpected Pong response while reading stream",
+            )?;
+            let terminal = matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
+            on_frame(frame)?;
+            if terminal {
+                break;
             }
         }
 
@@ -80,10 +61,6 @@ impl IpcClient {
     }
 
     pub async fn cancel_chat_session_stream(&mut self, stream_id: String) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct CancelResponse {
-            canceled: bool,
-        }
         let resp: CancelResponse = self
             .request_typed(IpcRequest::CancelChatSessionStream { stream_id })
             .await?;
@@ -95,10 +72,6 @@ impl IpcClient {
         session_id: String,
         instruction: String,
     ) -> Result<bool> {
-        #[derive(serde::Deserialize)]
-        struct SteerResponse {
-            steered: bool,
-        }
         let resp: SteerResponse = self
             .request_typed(IpcRequest::SteerChatSessionStream {
                 session_id,
@@ -122,61 +95,26 @@ impl IpcClient {
 
         loop {
             let buf = self.read_raw_frame().await?;
-            let value: Value = serde_json::from_slice(&buf)
-                .context("Failed to deserialize background stream frame")?;
-            let has_structured_details = value
-                .get("type")
-                .and_then(Value::as_str)
-                .is_some_and(|kind| kind == "Error")
-                && value
-                    .get("data")
-                    .and_then(|data| data.get("details"))
-                    .is_some();
-            if has_structured_details {
-                let response: IpcResponse = serde_json::from_value(value.clone()).context(
-                    "Failed to decode structured IPC error while reading background stream",
-                )?;
-                if let IpcResponse::Error {
-                    code,
-                    message,
-                    details,
-                } = response
-                {
-                    bail!("{}", Self::format_ipc_error(code, &message, details));
-                }
-            }
-
-            if let Ok(frame) = serde_json::from_value::<StreamFrame>(value.clone()) {
-                match frame {
-                    StreamFrame::Start { .. } => {}
-                    StreamFrame::BackgroundAgentEvent { event } => {
-                        on_event(event)?;
-                    }
-                    StreamFrame::Error { code, message } => {
-                        bail!("Background event stream error {}: {}", code, message);
-                    }
-                    StreamFrame::Done { .. } => break Ok(()),
-                    _ => {}
-                }
-                continue;
-            }
-
-            let response: IpcResponse = serde_json::from_value(value)
-                .context("Failed to deserialize background stream frame")?;
-            match response {
-                IpcResponse::Error {
-                    code,
-                    message,
-                    details,
+            match read_stream_frame_or_ipc_error(
+                &buf,
+                "Failed to deserialize background stream frame",
+                "Unexpected success response while reading background stream",
+                "Unexpected Pong response while reading background stream",
+            )? {
+                StreamFrame::Start { .. } => {}
+                StreamFrame::Event {
+                    event: IpcStreamEvent::BackgroundAgent(event),
                 } => {
-                    bail!("{}", Self::format_ipc_error(code, &message, details));
+                    on_event(event)?;
                 }
-                IpcResponse::Success(_) => {
-                    bail!("Unexpected success response while reading background stream")
+                StreamFrame::Error(error) => {
+                    bail!(
+                        "Background event stream error: {}",
+                        Self::format_ipc_error(&error)
+                    );
                 }
-                IpcResponse::Pong => {
-                    bail!("Unexpected Pong response while reading background stream")
-                }
+                StreamFrame::Done { .. } => break Ok(()),
+                _ => {}
             }
         }
     }
@@ -190,59 +128,116 @@ impl IpcClient {
 
         loop {
             let buf = self.read_raw_frame().await?;
-            let value: Value = serde_json::from_slice(&buf)
-                .context("Failed to deserialize session event stream frame")?;
-            let has_structured_details = value
-                .get("type")
-                .and_then(Value::as_str)
-                .is_some_and(|kind| kind == "Error")
-                && value
-                    .get("data")
-                    .and_then(|data| data.get("details"))
-                    .is_some();
-            if has_structured_details {
-                let response: IpcResponse = serde_json::from_value(value.clone()).context(
-                    "Failed to decode structured IPC error while reading session event stream",
-                )?;
-                if let IpcResponse::Error {
-                    code,
-                    message,
-                    details,
-                } = response
-                {
-                    bail!("{}", Self::format_ipc_error(code, &message, details));
-                }
-            }
-
-            if let Ok(frame) = serde_json::from_value::<StreamFrame>(value.clone()) {
-                match frame {
-                    StreamFrame::Start { .. } => {}
-                    StreamFrame::SessionEvent { event } => {
-                        on_event(event)?;
-                    }
-                    StreamFrame::Error { code, message } => {
-                        bail!("Session event stream error {}: {}", code, message);
-                    }
-                    StreamFrame::Done { .. } => break Ok(()),
-                    _ => {}
-                }
-                continue;
-            }
-
-            let response: IpcResponse = serde_json::from_value(value)
-                .context("Failed to deserialize session event stream frame")?;
-            match response {
-                IpcResponse::Error {
-                    code,
-                    message,
-                    details,
+            match read_stream_frame_or_ipc_error(
+                &buf,
+                "Failed to deserialize session event stream frame",
+                "Unexpected success response while reading session event stream",
+                "Unexpected Pong response while reading session event stream",
+            )? {
+                StreamFrame::Start { .. } => {}
+                StreamFrame::Event {
+                    event: IpcStreamEvent::Session(event),
                 } => {
-                    bail!("{}", Self::format_ipc_error(code, &message, details));
+                    on_event(event)?;
                 }
-                _ => {
-                    bail!("Unexpected response while reading session event stream")
+                StreamFrame::Error(error) => {
+                    bail!(
+                        "Session event stream error: {}",
+                        Self::format_ipc_error(&error)
+                    );
                 }
+                StreamFrame::Done { .. } => break Ok(()),
+                _ => {}
             }
         }
+    }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn read_stream_frame_or_ipc_error_accepts_done_frame() {
+        let encoded = serde_json::to_vec(&StreamFrame::Done {
+            total_tokens: Some(7),
+        })
+        .unwrap();
+
+        let decoded = read_stream_frame_or_ipc_error(
+            &encoded,
+            "decode failed",
+            "unexpected success",
+            "unexpected pong",
+        )
+        .unwrap();
+
+        assert!(matches!(
+            decoded,
+            StreamFrame::Done {
+                total_tokens: Some(7)
+            }
+        ));
+    }
+
+    #[test]
+    fn read_stream_frame_or_ipc_error_accepts_error_frame() {
+        let encoded = serde_json::to_vec(&StreamFrame::error(500, "boom")).unwrap();
+
+        let decoded = read_stream_frame_or_ipc_error(
+            &encoded,
+            "decode failed",
+            "unexpected success",
+            "unexpected pong",
+        )
+        .unwrap();
+
+        assert!(matches!(decoded, StreamFrame::Error(_)));
+    }
+
+    #[test]
+    fn read_stream_frame_or_ipc_error_surfaces_ipc_error() {
+        let encoded = serde_json::to_vec(&IpcResponse::error(404, "missing session")).unwrap();
+
+        let err = read_stream_frame_or_ipc_error(
+            &encoded,
+            "decode failed",
+            "unexpected success",
+            "unexpected pong",
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("missing session"));
+    }
+
+    #[test]
+    fn read_stream_frame_or_ipc_error_rejects_unexpected_success() {
+        let encoded =
+            serde_json::to_vec(&IpcResponse::success(serde_json::json!({ "ok": true }))).unwrap();
+
+        let err = read_stream_frame_or_ipc_error(
+            &encoded,
+            "decode failed",
+            "unexpected success",
+            "unexpected pong",
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("unexpected success"));
+    }
+
+    #[test]
+    fn read_stream_frame_or_ipc_error_rejects_unexpected_pong() {
+        let encoded = serde_json::to_vec(&IpcResponse::Pong).unwrap();
+
+        let err = read_stream_frame_or_ipc_error(
+            &encoded,
+            "decode failed",
+            "unexpected success",
+            "unexpected pong",
+        )
+        .unwrap_err();
+
+        assert!(err.to_string().contains("unexpected pong"));
     }
 }

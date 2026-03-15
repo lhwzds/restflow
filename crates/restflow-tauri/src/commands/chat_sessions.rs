@@ -5,7 +5,7 @@
 
 use crate::chat::ChatStreamState;
 use crate::state::AppState;
-use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
+use restflow_core::daemon::{ChatSessionEvent, IpcStreamEvent, StreamFrame};
 use restflow_core::models::{
     ChatMessage, ChatRole, ChatSession, ChatSessionSummary, ChatSessionUpdate, ToolTrace,
 };
@@ -468,13 +468,17 @@ pub async fn send_chat_message_stream(
                             }
                             stream_state.emit_completed();
                         }
-                        StreamFrame::BackgroundAgentEvent { .. } => {}
-                        StreamFrame::SessionEvent { .. } => {}
-                        StreamFrame::Error { code, message } => {
-                            if code == 499 {
+                        StreamFrame::Event {
+                            event: IpcStreamEvent::BackgroundAgent(_),
+                        } => {}
+                        StreamFrame::Event {
+                            event: IpcStreamEvent::Session(_),
+                        } => {}
+                        StreamFrame::Error(error) => {
+                            if error.code == 499 {
                                 stream_state.emit_interrupted();
                             } else {
-                                stream_state.emit_failed(&message);
+                                stream_state.emit_failed(&error.message);
                             }
                         }
                     }

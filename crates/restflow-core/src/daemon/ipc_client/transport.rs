@@ -1,5 +1,7 @@
 #[cfg(unix)]
 use super::*;
+#[cfg(unix)]
+use restflow_contracts::ErrorPayload;
 
 #[cfg(unix)]
 impl IpcClient {
@@ -46,56 +48,38 @@ impl IpcClient {
         self.request_typed(IpcRequest::GetStatus).await
     }
 
-    pub(super) async fn request_typed<T: DeserializeOwned>(
-        &mut self,
-        req: IpcRequest,
-    ) -> Result<T> {
+    pub async fn request_typed<T: DeserializeOwned>(&mut self, req: IpcRequest) -> Result<T> {
         match self.request(req).await? {
             IpcResponse::Success(value) => {
                 serde_json::from_value(value).context("Failed to deserialize response")
             }
             IpcResponse::Pong => bail!("Unexpected Pong response"),
-            IpcResponse::Error {
-                code,
-                message,
-                details,
-            } => {
-                bail!(Self::format_ipc_error(code, &message, details))
-            }
+            IpcResponse::Error(error) => bail!(Self::format_ipc_error(&error)),
         }
     }
 
-    pub(super) async fn request_optional<T: DeserializeOwned>(
+    pub async fn request_optional<T: DeserializeOwned>(
         &mut self,
         req: IpcRequest,
     ) -> Result<Option<T>> {
         match self.request(req).await? {
             IpcResponse::Success(value) => Ok(Some(serde_json::from_value(value)?)),
-            IpcResponse::Error { code: 404, .. } => Ok(None),
-            IpcResponse::Error {
-                code,
-                message,
-                details,
-            } => {
-                bail!(Self::format_ipc_error(code, &message, details))
-            }
+            IpcResponse::Error(error) if error.code == 404 => Ok(None),
+            IpcResponse::Error(error) => bail!(Self::format_ipc_error(&error)),
             IpcResponse::Pong => bail!("Unexpected Pong response"),
         }
     }
 
-    pub(super) fn format_ipc_error(
-        code: i32,
-        message: &str,
-        details: Option<serde_json::Value>,
-    ) -> String {
-        match details {
+    pub fn format_ipc_error(error: &ErrorPayload) -> String {
+        match &error.details {
             Some(details) => serde_json::json!({
-                "code": code,
-                "message": message,
+                "code": error.code,
+                "kind": error.kind,
+                "message": error.message,
                 "details": details
             })
             .to_string(),
-            None => format!("IPC error {}: {}", code, message),
+            None => format!("IPC error {}: {}", error.code, error.message),
         }
     }
 }
