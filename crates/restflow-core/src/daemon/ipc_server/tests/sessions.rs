@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::Storage;
+use restflow_storage::SimpleStorage;
 #[tokio::test]
 async fn resolve_chat_stream_trace_uses_session_agent_and_run_turn_id() {
     let (core, _temp) = create_test_core().await;
@@ -226,9 +227,9 @@ async fn delete_session_rejects_background_bound_workspace_session() {
     )
     .await;
     match response {
-        IpcResponse::Error { code, message, .. } => {
-            assert_eq!(code, 409);
-            assert!(message.contains("bound to background task"));
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 409);
+            assert!(error.message.contains("bound to background task"));
         }
         other => panic!("expected error response, got {other:?}"),
     }
@@ -272,9 +273,9 @@ async fn archive_session_rejects_background_bound_workspace_session() {
     )
     .await;
     match response {
-        IpcResponse::Error { code, message, .. } => {
-            assert_eq!(code, 409);
-            assert!(message.contains("bound to background task"));
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 409);
+            assert!(error.message.contains("bound to background task"));
         }
         other => panic!("expected error response, got {other:?}"),
     }
@@ -470,5 +471,85 @@ async fn session_reply_sender_buffers_message_and_emits_ack_frame() {
     match frame {
         StreamFrame::Ack { content } => assert_eq!(content, "Working on it"),
         _ => panic!("expected ack frame"),
+    }
+}
+
+#[tokio::test]
+async fn execute_chat_session_returns_not_found_for_missing_session() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ExecuteChatSession {
+            session_id: "missing-session".to_string(),
+            user_input: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 404);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
+            assert_eq!(error.message, "Session not found");
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn execute_chat_session_returns_bad_request_without_user_message() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    core.storage.chat_sessions.create(&session).unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ExecuteChatSession {
+            session_id: session.id.clone(),
+            user_input: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert_eq!(error.message, "No user message found in session");
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn execute_chat_session_returns_internal_error_for_malformed_session_payload() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let raw_storage = restflow_storage::ChatSessionStorage::new(core.storage.get_db()).unwrap();
+
+    raw_storage.put_raw("bad-session", b"{bad-json").unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ExecuteChatSession {
+            session_id: "bad-session".to_string(),
+            user_input: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 500);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Internal);
+            assert!(error.message.contains("key must be a string"));
+        }
+        other => panic!("expected error response, got {other:?}"),
     }
 }

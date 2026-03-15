@@ -1,4 +1,26 @@
 use super::*;
+use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
+
+fn background_agent_spec(name: &str) -> crate::models::BackgroundAgentSpec {
+    crate::models::BackgroundAgentSpec {
+        name: name.to_string(),
+        agent_id: "agent-1".to_string(),
+        chat_session_id: None,
+        description: None,
+        input: Some("run".to_string()),
+        input_template: None,
+        schedule: crate::models::BackgroundAgentSchedule::default(),
+        notification: None,
+        execution_mode: None,
+        timeout_secs: None,
+        memory: None,
+        durability_mode: None,
+        resource_limits: None,
+        prerequisites: Vec::new(),
+        continuation: None,
+    }
+}
+
 #[tokio::test]
 async fn process_get_background_agent_returns_created_task() {
     let (core, _temp) = create_test_core().await;
@@ -7,23 +29,7 @@ async fn process_get_background_agent_returns_created_task() {
     let task = core
         .storage
         .background_agents
-        .create_background_agent(crate::models::BackgroundAgentSpec {
-            name: "ipc-background".to_string(),
-            agent_id: "agent-1".to_string(),
-            chat_session_id: None,
-            description: None,
-            input: Some("run".to_string()),
-            input_template: None,
-            schedule: crate::models::BackgroundAgentSchedule::default(),
-            notification: None,
-            execution_mode: None,
-            timeout_secs: None,
-            memory: None,
-            durability_mode: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
+        .create_background_agent(background_agent_spec("ipc-background"))
         .unwrap();
 
     let response = IpcServer::process(
@@ -43,6 +49,161 @@ async fn process_get_background_agent_returns_created_task() {
             assert_eq!(returned.name, "ipc-background");
         }
         other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_delete_background_agent_returns_delete_with_id_response() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let task = core
+        .storage
+        .background_agents
+        .create_background_agent(background_agent_spec("ipc-delete"))
+        .unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::DeleteBackgroundAgent {
+            id: task.id.clone(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let deleted: DeleteWithIdResponse =
+                serde_json::from_value(value).expect("delete response");
+            assert_eq!(deleted.id, task.id);
+            assert!(deleted.deleted);
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_handle_background_agent_approval_returns_typed_response() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let task = core
+        .storage
+        .background_agents
+        .create_background_agent(background_agent_spec("ipc-approval"))
+        .unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::HandleBackgroundAgentApproval {
+            id: task.id.clone(),
+            approved: true,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let handled: ApprovalHandledResponse =
+                serde_json::from_value(value).expect("approval response");
+            assert!(handled.handled);
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_get_background_agent_returns_not_found_for_missing_task() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetBackgroundAgent {
+            id: "missing-task".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 404);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
+            assert!(error.message.contains("Background agent"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_get_background_agent_returns_bad_request_for_ambiguous_prefix() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let raw_storage = restflow_storage::BackgroundAgentStorage::new(core.storage.get_db()).unwrap();
+
+    for id in ["shared-1", "shared-2"] {
+        let task = crate::models::BackgroundAgent::new(
+            id.to_string(),
+            format!("Task {id}"),
+            "agent-1".to_string(),
+            crate::models::BackgroundAgentSchedule::default(),
+        );
+        let raw = serde_json::to_vec(&task).unwrap();
+        raw_storage
+            .put_task_raw_with_status(id, task.status.as_str(), &raw)
+            .unwrap();
+    }
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetBackgroundAgent {
+            id: "shared".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert!(error.message.contains("ambiguous"));
+            assert!(error.message.contains("shared-1"));
+            assert!(error.message.contains("shared-2"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_get_background_agent_returns_internal_error_when_resolution_scan_fails() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let raw_storage = restflow_storage::BackgroundAgentStorage::new(core.storage.get_db()).unwrap();
+
+    raw_storage
+        .put_task_raw_with_status("bad-task", "active", b"{bad-json")
+        .unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetBackgroundAgent {
+            id: "missing-task".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 500);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Internal);
+            assert!(error.message.contains("key must be a string"));
+        }
+        other => panic!("expected error response, got {other:?}"),
     }
 }
 #[tokio::test]

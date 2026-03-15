@@ -40,6 +40,22 @@ fn test_resolve_existing_task_id_exact_match() {
 }
 
 #[test]
+fn test_resolve_existing_task_id_typed_exact_match() {
+    let storage = create_test_storage();
+
+    let task = storage
+        .create_task(
+            "Typed Exact".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+
+    let resolved = storage.resolve_existing_task_id_typed(&task.id).unwrap();
+    assert_eq!(resolved, task.id);
+}
+
+#[test]
 fn test_resolve_existing_task_id_unique_prefix() {
     let storage = create_test_storage();
 
@@ -70,12 +86,40 @@ fn test_resolve_existing_task_id_unique_prefix() {
 }
 
 #[test]
+fn test_resolve_existing_task_id_typed_unique_prefix() {
+    let storage = create_test_storage();
+
+    let task = storage
+        .create_task(
+            "Typed Prefix".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+
+    let prefix = &task.id[..8];
+    let resolved = storage.resolve_existing_task_id_typed(prefix).unwrap();
+    assert_eq!(resolved, task.id);
+}
+
+#[test]
 fn test_resolve_existing_task_id_unknown_prefix() {
     let storage = create_test_storage();
 
     let result = storage.resolve_existing_task_id("nonexist");
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("Task not found"));
+}
+
+#[test]
+fn test_resolve_existing_task_id_typed_returns_not_found() {
+    let storage = create_test_storage();
+
+    let result = storage.resolve_existing_task_id_typed("nonexist");
+    match result {
+        Err(ResolveTaskIdError::NotFound(id)) => assert_eq!(id, "nonexist"),
+        other => panic!("expected not found error, got {other:?}"),
+    }
 }
 
 #[test]
@@ -135,6 +179,52 @@ fn test_resolve_existing_task_id_ambiguous_prefix() {
         err_msg.contains("Candidates"),
         "Error should list candidates"
     );
+}
+
+#[test]
+fn test_resolve_existing_task_id_typed_returns_ambiguous() {
+    let storage = create_test_storage();
+    let raw_storage = storage.inner.clone();
+
+    for id in ["shared-1", "shared-2"] {
+        let task = BackgroundAgent::new(
+            id.to_string(),
+            format!("Task {id}"),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        );
+        let raw = serde_json::to_vec(&task).unwrap();
+        raw_storage
+            .put_task_raw_with_status(id, task.status.as_str(), &raw)
+            .unwrap();
+    }
+
+    let result = storage.resolve_existing_task_id_typed("shared");
+    match result {
+        Err(ResolveTaskIdError::Ambiguous { prefix, preview }) => {
+            assert_eq!(prefix, "shared");
+            assert!(preview.contains("shared-1"));
+            assert!(preview.contains("shared-2"));
+        }
+        other => panic!("expected ambiguous error, got {other:?}"),
+    }
+}
+
+#[test]
+fn test_resolve_existing_task_id_typed_returns_internal_for_malformed_task_scan() {
+    let storage = create_test_storage();
+    storage
+        .inner
+        .put_task_raw_with_status("bad-task", "active", b"{bad-json")
+        .unwrap();
+
+    let result = storage.resolve_existing_task_id_typed("missing-prefix");
+    match result {
+        Err(ResolveTaskIdError::Internal(err)) => {
+            assert!(err.to_string().contains("key must be a string"));
+        }
+        other => panic!("expected internal error, got {other:?}"),
+    }
 }
 
 #[test]
