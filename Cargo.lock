@@ -5203,6 +5203,7 @@ dependencies = [
  "redb",
  "reqwest",
  "restflow-ai",
+ "restflow-contracts",
  "restflow-core",
  "restflow-storage",
  "restflow-traits",
@@ -5219,6 +5220,15 @@ dependencies = [
  "uuid",
  "walkdir",
  "zip",
+]
+
+[[package]]
+name = "restflow-contracts"
+version = "0.3.5"
+dependencies = [
+ "restflow-traits",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -5256,6 +5266,7 @@ dependencies = [
  "regex",
  "reqwest",
  "restflow-ai",
+ "restflow-contracts",
  "restflow-storage",
  "restflow-tools",
  "restflow-trace",
@@ -5346,6 +5357,7 @@ dependencies = [
  "redb",
  "reqwest",
  "restflow-ai",
+ "restflow-contracts",
  "restflow-core",
  "restflow-storage",
  "restflow-tools",

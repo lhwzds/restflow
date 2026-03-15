@@ -1,5 +1,6 @@
 [workspace]
 members = [
+    "crates/restflow-contracts",
     "crates/restflow-traits",
     "crates/restflow-trace",
     "crates/restflow-storage",
@@ -22,6 +23,7 @@ authors = ["RestFlow Team"]
 edition = "2024"
 
 [workspace.dependencies]
+restflow-contracts = { path = "crates/restflow-contracts" }
 restflow-traits = { path = "crates/restflow-traits" }
 restflow-trace = { path = "crates/restflow-trace" }
 restflow-storage = { path = "crates/restflow-storage" }
