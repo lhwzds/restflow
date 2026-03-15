@@ -1,4 +1,5 @@
 use super::*;
+use crate::daemon::request_mapper::to_contract;
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
 
 fn background_agent_spec(name: &str) -> crate::models::BackgroundAgentSpec {
@@ -19,6 +20,28 @@ fn background_agent_spec(name: &str) -> crate::models::BackgroundAgentSpec {
         prerequisites: Vec::new(),
         continuation: None,
     }
+}
+
+fn raw_background_agent_storage(core: &Arc<AppCore>) -> restflow_storage::BackgroundAgentStorage {
+    restflow_storage::BackgroundAgentStorage::new(core.storage.get_db()).unwrap()
+}
+
+fn insert_background_agent_with_id(
+    core: &Arc<AppCore>,
+    id: &str,
+) -> crate::models::BackgroundAgent {
+    let mut task = crate::models::BackgroundAgent::new(
+        id.to_string(),
+        format!("Task {id}"),
+        "agent-1".to_string(),
+        crate::models::BackgroundAgentSchedule::default(),
+    );
+    task.input = Some("run".to_string());
+    let raw = serde_json::to_vec(&task).unwrap();
+    raw_background_agent_storage(core)
+        .put_task_raw_with_status(id, task.status.as_str(), &raw)
+        .unwrap();
+    task
 }
 
 #[tokio::test]
@@ -142,19 +165,9 @@ async fn process_get_background_agent_returns_not_found_for_missing_task() {
 async fn process_get_background_agent_returns_bad_request_for_ambiguous_prefix() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
-    let raw_storage = restflow_storage::BackgroundAgentStorage::new(core.storage.get_db()).unwrap();
 
     for id in ["shared-1", "shared-2"] {
-        let task = crate::models::BackgroundAgent::new(
-            id.to_string(),
-            format!("Task {id}"),
-            "agent-1".to_string(),
-            crate::models::BackgroundAgentSchedule::default(),
-        );
-        let raw = serde_json::to_vec(&task).unwrap();
-        raw_storage
-            .put_task_raw_with_status(id, task.status.as_str(), &raw)
-            .unwrap();
+        insert_background_agent_with_id(&core, id);
     }
 
     let response = IpcServer::process(
@@ -182,7 +195,7 @@ async fn process_get_background_agent_returns_bad_request_for_ambiguous_prefix()
 async fn process_get_background_agent_returns_internal_error_when_resolution_scan_fails() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
-    let raw_storage = restflow_storage::BackgroundAgentStorage::new(core.storage.get_db()).unwrap();
+    let raw_storage = raw_background_agent_storage(&core);
 
     raw_storage
         .put_task_raw_with_status("bad-task", "active", b"{bad-json")
@@ -204,6 +217,143 @@ async fn process_get_background_agent_returns_internal_error_when_resolution_sca
             assert!(error.message.contains("key must be a string"));
         }
         other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_update_background_agent_resolves_unique_prefix() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let task = insert_background_agent_with_id(&core, "prefix-update-1");
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::UpdateBackgroundAgent {
+            id: "prefix-update".to_string(),
+            patch: to_contract(crate::models::BackgroundAgentPatch {
+                description: Some("updated description".to_string()),
+                ..Default::default()
+            })
+            .expect("contract patch"),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let updated: crate::models::BackgroundAgent =
+                serde_json::from_value(value).expect("background agent");
+            assert_eq!(updated.id, task.id);
+            assert_eq!(updated.description.as_deref(), Some("updated description"));
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_delete_background_agent_rejects_ambiguous_prefix() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    for id in ["dup-delete-1", "dup-delete-2"] {
+        insert_background_agent_with_id(&core, id);
+    }
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::DeleteBackgroundAgent {
+            id: "dup-delete".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert!(error.message.contains("ambiguous"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_get_background_agent_history_returns_not_found_for_missing_task() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetBackgroundAgentHistory {
+            id: "missing-history".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 404);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::NotFound);
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_list_background_agent_messages_returns_internal_error_when_resolution_scan_fails()
+{
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    raw_background_agent_storage(&core)
+        .put_task_raw_with_status("broken-task", "active", b"{bad-json")
+        .unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ListBackgroundAgentMessages {
+            id: "missing-messages".to_string(),
+            limit: Some(5),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 500);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Internal);
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_control_background_agent_resolves_unique_prefix() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let task = insert_background_agent_with_id(&core, "prefix-control-1");
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ControlBackgroundAgent {
+            id: "prefix-control".to_string(),
+            action: to_contract(crate::models::BackgroundAgentControlAction::Pause)
+                .expect("contract action"),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let updated: crate::models::BackgroundAgent =
+                serde_json::from_value(value).expect("background agent");
+            assert_eq!(updated.id, task.id);
+            assert_eq!(updated.status, crate::models::BackgroundAgentStatus::Paused);
+        }
+        other => panic!("expected success response, got {other:?}"),
     }
 }
 #[tokio::test]
@@ -309,13 +459,14 @@ async fn process_create_work_item_returns_item() {
         &core,
         &runtime_tool_registry,
         IpcRequest::CreateWorkItem {
-            spec: crate::models::WorkItemSpec {
+            spec: to_contract(crate::models::WorkItemSpec {
                 folder: "inbox".to_string(),
                 title: "Follow up".to_string(),
                 content: "Review ipc dispatch split".to_string(),
                 priority: Some("p1".to_string()),
                 tags: vec!["ipc".to_string()],
-            },
+            })
+            .expect("contract work item spec"),
         },
     )
     .await;
@@ -341,7 +492,7 @@ async fn process_create_agent_returns_stored_agent() {
         &runtime_tool_registry,
         IpcRequest::CreateAgent {
             name: "IPC Agent".to_string(),
-            agent: AgentNode {
+            agent: to_contract(AgentNode {
                 model: Some(crate::models::AIModel::ClaudeSonnet4_5),
                 model_ref: Some(crate::models::ModelRef::from_model(
                     crate::models::AIModel::ClaudeSonnet4_5,
@@ -356,7 +507,8 @@ async fn process_create_agent_returns_stored_agent() {
                 skill_variables: None,
                 skill_preflight_policy_mode: None,
                 model_routing: None,
-            },
+            })
+            .expect("contract agent node"),
         },
     )
     .await;
@@ -386,7 +538,7 @@ async fn process_create_skill_and_get_skill_round_trip() {
         &core,
         &runtime_tool_registry,
         IpcRequest::CreateSkill {
-            skill: skill.clone(),
+            skill: to_contract(skill.clone()).expect("contract skill"),
         },
     )
     .await;
