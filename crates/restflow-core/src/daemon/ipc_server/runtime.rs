@@ -210,12 +210,9 @@ pub(super) async fn execute_chat_session(
     {
         Ok(Some(ack_content)) => {
             session.add_message(ChatMessage::assistant(&ack_content));
-            match core.storage.chat_sessions.update(&session) {
+            match SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")
+            {
                 Ok(()) => {
-                    publish_session_event(ChatSessionEvent::MessageAdded {
-                        session_id: session.id.clone(),
-                        source: "ipc".to_string(),
-                    });
                     if let Some(tx) = ack_frame_tx.as_ref() {
                         let _ = tx.send(StreamFrame::Ack {
                             content: ack_content,
@@ -280,14 +277,17 @@ pub(super) async fn execute_chat_session(
     for reply in buffered_replies {
         session.add_message(ChatMessage::assistant(&reply));
     }
-    let assistant_message = ChatMessage::assistant(&exec_result.output).with_execution(execution);
-    session.add_message(assistant_message);
-    if let Some(normalized_model) = AIModel::normalize_model_id(&exec_result.active_model) {
-        // Only update last_model metadata; preserve the user's chosen session model
-        // so that switch_model calls during execution don't permanently override it.
-        session.metadata.last_model = Some(normalized_model);
-    }
-    SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")?;
+    SessionService::from_storage(&core.storage).persist_interactive_turn(
+        &mut session,
+        PersistInteractiveTurnRequest {
+            original_input: &input,
+            persisted_input: &persisted_input,
+            assistant_output: &exec_result.output,
+            active_model: Some(&exec_result.active_model),
+            execution,
+            source: "ipc",
+        },
+    )?;
     Ok(session)
 }
 
@@ -317,11 +317,7 @@ pub(super) fn persist_ipc_user_message_if_needed(
     if session.name == "New Chat" && session.messages.len() == 1 {
         session.auto_name_from_first_message();
     }
-    core.storage.chat_sessions.update(session)?;
-    publish_session_event(ChatSessionEvent::MessageAdded {
-        session_id: session.id.clone(),
-        source: "ipc".to_string(),
-    });
+    SessionService::from_storage(&core.storage).save_existing_session(session, "ipc")?;
     Ok(())
 }
 

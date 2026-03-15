@@ -6,87 +6,8 @@ pub(super) struct CoreBackend {
 }
 
 impl CoreBackend {
-    fn parse_binding_channel_source(channel: &str) -> Option<ChatSessionSource> {
-        match channel.trim().to_ascii_lowercase().as_str() {
-            "telegram" => Some(ChatSessionSource::Telegram),
-            "discord" => Some(ChatSessionSource::Discord),
-            "slack" => Some(ChatSessionSource::Slack),
-            _ => None,
-        }
-    }
-
-    fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
-        match source {
-            ChatSessionSource::Telegram => Some("telegram"),
-            ChatSessionSource::Discord => Some("discord"),
-            ChatSessionSource::Slack => Some("slack"),
-            ChatSessionSource::Workspace | ChatSessionSource::ExternalLegacy => None,
-        }
-    }
-
-    fn resolve_legacy_external_route(session: &ChatSession) -> Option<(ChatSessionSource, String)> {
-        let source = match session.source_channel {
-            Some(ChatSessionSource::Workspace) | None => return None,
-            Some(source) => source,
-        };
-        let conversation_id = session
-            .source_conversation_id
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())?
-            .to_string();
-        Some((source, conversation_id))
-    }
-
-    fn ensure_binding_from_legacy_source(
-        &self,
-        session: &ChatSession,
-    ) -> Result<Option<(ChatSessionSource, String)>, String> {
-        let Some((source, conversation_id)) = Self::resolve_legacy_external_route(session) else {
-            return Ok(None);
-        };
-
-        if let Some(channel_key) = Self::channel_key_from_source(source) {
-            let binding = crate::models::ChannelSessionBinding::new(
-                channel_key,
-                None,
-                &conversation_id,
-                &session.id,
-            );
-            self.core
-                .storage
-                .channel_session_bindings
-                .upsert(&binding)
-                .map_err(|e| e.to_string())?;
-        }
-
-        Ok(Some((source, conversation_id)))
-    }
-
-    fn apply_effective_session_source(&self, session: &mut ChatSession) -> Result<(), String> {
-        let bindings = self
-            .core
-            .storage
-            .channel_session_bindings
-            .list_by_session(&session.id)
-            .map_err(|e| e.to_string())?;
-        if let Some(binding) = bindings.first() {
-            let effective_source = Self::parse_binding_channel_source(&binding.channel)
-                .unwrap_or(ChatSessionSource::ExternalLegacy);
-            session.source_channel = Some(effective_source);
-            session.source_conversation_id = Some(binding.conversation_id.clone());
-            return Ok(());
-        }
-
-        if let Some((source, conversation_id)) = self.ensure_binding_from_legacy_source(session)? {
-            session.source_channel = Some(source);
-            session.source_conversation_id = Some(conversation_id);
-            return Ok(());
-        }
-
-        session.source_channel = Some(ChatSessionSource::Workspace);
-        session.source_conversation_id = None;
-        Ok(())
+    fn session_service(&self) -> crate::services::session::SessionService {
+        crate::services::session::SessionService::from_storage(&self.core.storage)
     }
 
     fn get_registry(&self) -> Result<&restflow_traits::registry::ToolRegistry, String> {
@@ -185,8 +106,11 @@ impl McpBackend for CoreBackend {
             .chat_sessions
             .list()
             .map_err(|e| e.to_string())?;
+        let session_service = self.session_service();
         for session in &mut sessions {
-            self.apply_effective_session_source(session)?;
+            session_service
+                .apply_effective_source(session)
+                .map_err(|e| e.to_string())?;
         }
         Ok(sessions.iter().map(ChatSessionSummary::from).collect())
     }
@@ -202,8 +126,11 @@ impl McpBackend for CoreBackend {
             .list_by_agent(agent_id)
             .map_err(|e| e.to_string())?;
         let mut sessions = sessions;
+        let session_service = self.session_service();
         for session in &mut sessions {
-            self.apply_effective_session_source(session)?;
+            session_service
+                .apply_effective_source(session)
+                .map_err(|e| e.to_string())?;
         }
         Ok(sessions.iter().map(ChatSessionSummary::from).collect())
     }
@@ -216,7 +143,9 @@ impl McpBackend for CoreBackend {
             .get(id)
             .map_err(|e| e.to_string())?
             .ok_or_else(|| format!("Session not found: {}", id))?;
-        self.apply_effective_session_source(&mut session)?;
+        self.session_service()
+            .apply_effective_source(&mut session)
+            .map_err(|e| e.to_string())?;
         Ok(session)
     }
 

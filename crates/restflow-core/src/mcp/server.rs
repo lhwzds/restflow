@@ -8,11 +8,10 @@ use crate::daemon::{IpcClient, IpcRequest, IpcResponse};
 use crate::models::{
     AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage,
-    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSource,
-    ChatSessionSummary, Deliverable, DurabilityMode, Hook, HookAction, HookEvent, HookFilter,
-    MemoryChunk, MemoryConfig, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
-    Provider, ResourceLimits, SearchMode, Skill, SkillStatus, ToolTrace, ToolTraceEvent,
-    ValidationError,
+    BackgroundMessageSource, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
+    DurabilityMode, Hook, HookAction, HookEvent, HookFilter, MemoryChunk, MemoryConfig,
+    MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, Provider, ResourceLimits,
+    SearchMode, Skill, SkillStatus, ToolTrace, ToolTraceEvent, ValidationError,
 };
 use crate::services::tool_registry::create_tool_registry;
 use crate::storage::agent::StoredAgent;
