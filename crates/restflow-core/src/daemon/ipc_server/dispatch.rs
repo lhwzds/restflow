@@ -26,6 +26,7 @@ mod terminals;
 mod work_items;
 
 use super::*;
+use crate::daemon::request_mapper::{from_contract, invalid_request_response};
 
 impl IpcServer {
     pub(super) async fn process(
@@ -38,30 +39,46 @@ impl IpcServer {
             IpcRequest::GetStatus => Self::handle_get_status().await,
             IpcRequest::ListAgents => Self::handle_list_agents(core).await,
             IpcRequest::GetAgent { id } => Self::handle_get_agent(core, id).await,
-            IpcRequest::CreateAgent { name, agent } => {
-                Self::handle_create_agent(core, name, agent).await
-            }
+            IpcRequest::CreateAgent { name, agent } => match from_contract(agent) {
+                Ok(agent) => Self::handle_create_agent(core, name, agent).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::UpdateAgent { id, name, agent } => {
+                let agent = match agent.map(from_contract).transpose() {
+                    Ok(agent) => agent,
+                    Err(err) => return invalid_request_response(err),
+                };
                 Self::handle_update_agent(core, id, name, agent).await
             }
             IpcRequest::DeleteAgent { id } => Self::handle_delete_agent(core, id).await,
             IpcRequest::ListSkills => Self::handle_list_skills(core).await,
             IpcRequest::GetSkill { id } => Self::handle_get_skill(core, id).await,
-            IpcRequest::CreateSkill { skill } => Self::handle_create_skill(core, skill).await,
-            IpcRequest::UpdateSkill { id, skill } => {
-                Self::handle_update_skill(core, id, skill).await
-            }
+            IpcRequest::CreateSkill { skill } => match from_contract(skill) {
+                Ok(skill) => Self::handle_create_skill(core, skill).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::UpdateSkill { id, skill } => match from_contract(skill) {
+                Ok(skill) => Self::handle_update_skill(core, id, skill).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::GetSkillReference { skill_id, ref_id } => {
                 Self::handle_get_skill_reference(core, skill_id, ref_id).await
             }
             IpcRequest::DeleteSkill { id } => Self::handle_delete_skill(core, id).await,
-            IpcRequest::ListWorkItems { query } => Self::handle_list_work_items(core, query).await,
+            IpcRequest::ListWorkItems { query } => match from_contract(query) {
+                Ok(query) => Self::handle_list_work_items(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::ListWorkItemFolders => Self::handle_list_work_item_folders(core).await,
             IpcRequest::GetWorkItem { id } => Self::handle_get_work_item(core, id).await,
-            IpcRequest::CreateWorkItem { spec } => Self::handle_create_work_item(core, spec).await,
-            IpcRequest::UpdateWorkItem { id, patch } => {
-                Self::handle_update_work_item(core, id, patch).await
-            }
+            IpcRequest::CreateWorkItem { spec } => match from_contract(spec) {
+                Ok(spec) => Self::handle_create_work_item(core, spec).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::UpdateWorkItem { id, patch } => match from_contract(patch) {
+                Ok(patch) => Self::handle_update_work_item(core, id, patch).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::DeleteWorkItem { id } => Self::handle_delete_work_item(core, id).await,
             IpcRequest::ListBackgroundAgents { status } => {
                 Self::handle_list_background_agents(core, status).await
@@ -73,8 +90,14 @@ impl IpcServer {
                 Self::handle_get_background_agent(core, id).await
             }
             IpcRequest::ListHooks => Self::handle_list_hooks(core).await,
-            IpcRequest::CreateHook { hook } => Self::handle_create_hook(core, hook).await,
-            IpcRequest::UpdateHook { id, hook } => Self::handle_update_hook(core, id, hook).await,
+            IpcRequest::CreateHook { hook } => match from_contract(hook) {
+                Ok(hook) => Self::handle_create_hook(core, hook).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::UpdateHook { id, hook } => match from_contract(hook) {
+                Ok(hook) => Self::handle_update_hook(core, id, hook).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::DeleteHook { id } => Self::handle_delete_hook(core, id).await,
             IpcRequest::TestHook { id } => Self::handle_test_hook(core, id).await,
             IpcRequest::ListSecrets => Self::handle_list_secrets(core).await,
@@ -97,7 +120,10 @@ impl IpcServer {
             IpcRequest::DeleteSecret { key } => Self::handle_delete_secret(core, key).await,
             IpcRequest::GetConfig => Self::handle_get_config(core).await,
             IpcRequest::GetGlobalConfig => Self::handle_get_global_config(core).await,
-            IpcRequest::SetConfig { config } => Self::handle_set_config(core, config).await,
+            IpcRequest::SetConfig { config } => match from_contract(config) {
+                Ok(config) => Self::handle_set_config(core, config).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::SearchMemory {
                 query,
                 agent_id,
@@ -107,7 +133,12 @@ impl IpcServer {
                 query,
                 min_score,
                 scoring_preset,
-            } => Self::handle_search_memory_ranked(core, query, min_score, scoring_preset).await,
+            } => match from_contract(query) {
+                Ok(query) => {
+                    Self::handle_search_memory_ranked(core, query, min_score, scoring_preset).await
+                }
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::GetMemoryChunk { id } => Self::handle_get_memory_chunk(core, id).await,
             IpcRequest::ListMemory { agent_id, tag } => {
                 Self::handle_list_memory(core, agent_id, tag).await
@@ -120,9 +151,10 @@ impl IpcServer {
                 agent_id,
                 tags,
             } => Self::handle_add_memory(core, content, agent_id, tags).await,
-            IpcRequest::CreateMemoryChunk { chunk } => {
-                Self::handle_create_memory_chunk(core, chunk).await
-            }
+            IpcRequest::CreateMemoryChunk { chunk } => match from_contract(chunk) {
+                Ok(chunk) => Self::handle_create_memory_chunk(core, chunk).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::DeleteMemory { id } => Self::handle_delete_memory(core, id).await,
             IpcRequest::ClearMemory { agent_id } => Self::handle_clear_memory(core, agent_id).await,
             IpcRequest::GetMemoryStats { agent_id } => {
@@ -161,9 +193,10 @@ impl IpcServer {
             IpcRequest::ListMemorySessions { agent_id } => {
                 Self::handle_list_memory_sessions(core, agent_id).await
             }
-            IpcRequest::CreateMemorySession { session } => {
-                Self::handle_create_memory_session(core, session).await
-            }
+            IpcRequest::CreateMemorySession { session } => match from_contract(session) {
+                Ok(session) => Self::handle_create_memory_session(core, session).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::DeleteMemorySession {
                 session_id,
                 delete_chunks,
@@ -187,9 +220,10 @@ impl IpcServer {
                 name,
                 skill_id,
             } => Self::handle_create_session(core, agent_id, model, name, skill_id).await,
-            IpcRequest::UpdateSession { id, updates } => {
-                Self::handle_update_session(core, id, updates).await
-            }
+            IpcRequest::UpdateSession { id, updates } => match from_contract(updates) {
+                Ok(updates) => Self::handle_update_session(core, id, updates).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::RenameSession { id, name } => {
                 Self::handle_rename_session(core, id, name).await
             }
@@ -203,11 +237,17 @@ impl IpcServer {
                 session_id,
                 role,
                 content,
-            } => Self::handle_add_message(core, session_id, role, content).await,
+            } => match from_contract(role) {
+                Ok(role) => Self::handle_add_message(core, session_id, role, content).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::AppendMessage {
                 session_id,
                 message,
-            } => Self::handle_append_message(core, session_id, message).await,
+            } => match from_contract(message) {
+                Ok(message) => Self::handle_append_message(core, session_id, message).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::ExecuteChatSession {
                 session_id,
                 user_input,
@@ -230,9 +270,10 @@ impl IpcServer {
                 turn_id,
                 limit,
             } => Self::handle_list_tool_traces(core, session_id, turn_id, limit).await,
-            IpcRequest::QueryExecutionTraces { query } => {
-                Self::handle_query_execution_traces(core, query).await
-            }
+            IpcRequest::QueryExecutionTraces { query } => match from_contract(query) {
+                Ok(query) => Self::handle_query_execution_traces(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::GetExecutionTraceStats { task_id } => {
                 Self::handle_get_execution_trace_stats(core, task_id).await
             }
@@ -262,9 +303,10 @@ impl IpcServer {
                 )
                 .await
             }
-            IpcRequest::SaveTerminalSession { session } => {
-                Self::handle_save_terminal_session(core, session).await
-            }
+            IpcRequest::SaveTerminalSession { session } => match from_contract(session) {
+                Ok(session) => Self::handle_save_terminal_session(core, session).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::DeleteTerminalSession { id } => {
                 Self::handle_delete_terminal_session(core, id).await
             }
@@ -278,13 +320,28 @@ impl IpcServer {
                 credential,
                 source,
                 provider,
-            } => Self::handle_add_auth_profile(core, name, credential, source, provider).await,
+            } => {
+                let credential = match from_contract(credential) {
+                    Ok(credential) => credential,
+                    Err(err) => return invalid_request_response(err),
+                };
+                let source = match from_contract(source) {
+                    Ok(source) => source,
+                    Err(err) => return invalid_request_response(err),
+                };
+                let provider = match from_contract(provider) {
+                    Ok(provider) => provider,
+                    Err(err) => return invalid_request_response(err),
+                };
+                Self::handle_add_auth_profile(core, name, credential, source, provider).await
+            }
             IpcRequest::RemoveAuthProfile { id } => {
                 Self::handle_remove_auth_profile(core, id).await
             }
-            IpcRequest::UpdateAuthProfile { id, updates } => {
-                Self::handle_update_auth_profile(core, id, updates).await
-            }
+            IpcRequest::UpdateAuthProfile { id, updates } => match from_contract(updates) {
+                Ok(updates) => Self::handle_update_auth_profile(core, id, updates).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::DiscoverAuth => Self::handle_discover_auth(core).await,
             IpcRequest::EnableAuthProfile { id } => {
                 Self::handle_enable_auth_profile(core, id).await
@@ -292,7 +349,10 @@ impl IpcServer {
             IpcRequest::DisableAuthProfile { id, reason } => {
                 Self::handle_disable_auth_profile(core, id, reason).await
             }
-            IpcRequest::GetApiKey { provider } => Self::handle_get_api_key(core, provider).await,
+            IpcRequest::GetApiKey { provider } => match from_contract(provider) {
+                Ok(provider) => Self::handle_get_api_key(core, provider).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::GetApiKeyForProfile { id } => {
                 Self::handle_get_api_key_for_profile(core, id).await
             }
@@ -303,18 +363,21 @@ impl IpcServer {
             IpcRequest::GetBackgroundAgentHistory { id } => {
                 Self::handle_get_background_agent_history(core, id).await
             }
-            IpcRequest::CreateBackgroundAgent { spec } => {
-                Self::handle_create_background_agent(core, spec).await
-            }
-            IpcRequest::UpdateBackgroundAgent { id, patch } => {
-                Self::handle_update_background_agent(core, id, patch).await
-            }
+            IpcRequest::CreateBackgroundAgent { spec } => match from_contract(spec) {
+                Ok(spec) => Self::handle_create_background_agent(core, spec).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::UpdateBackgroundAgent { id, patch } => match from_contract(patch) {
+                Ok(patch) => Self::handle_update_background_agent(core, id, patch).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::DeleteBackgroundAgent { id } => {
                 Self::handle_delete_background_agent(core, id).await
             }
-            IpcRequest::ControlBackgroundAgent { id, action } => {
-                Self::handle_control_background_agent(core, id, action).await
-            }
+            IpcRequest::ControlBackgroundAgent { id, action } => match from_contract(action) {
+                Ok(action) => Self::handle_control_background_agent(core, id, action).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::GetBackgroundAgentProgress { id, event_limit } => {
                 Self::handle_get_background_agent_progress(core, id, event_limit).await
             }
@@ -322,7 +385,13 @@ impl IpcServer {
                 id,
                 message,
                 source,
-            } => Self::handle_send_background_agent_message(core, id, message, source).await,
+            } => {
+                let source = match source.map(from_contract).transpose() {
+                    Ok(source) => source,
+                    Err(err) => return invalid_request_response(err),
+                };
+                Self::handle_send_background_agent_message(core, id, message, source).await
+            }
             IpcRequest::HandleBackgroundAgentApproval { id, approved } => {
                 Self::handle_background_agent_approval(core, id, approved).await
             }
@@ -347,9 +416,10 @@ impl IpcServer {
                 Self::handle_execute_tool(core, runtime_tool_registry, name, input).await
             }
             IpcRequest::ListMcpServers => Self::handle_list_mcp_servers().await,
-            IpcRequest::BuildAgentSystemPrompt { agent_node } => {
-                Self::handle_build_agent_system_prompt(core, agent_node).await
-            }
+            IpcRequest::BuildAgentSystemPrompt { agent_node } => match from_contract(agent_node) {
+                Ok(agent_node) => Self::handle_build_agent_system_prompt(core, agent_node).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::Shutdown => Self::handle_shutdown().await,
         }
     }
