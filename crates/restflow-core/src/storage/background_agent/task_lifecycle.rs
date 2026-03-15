@@ -1,4 +1,15 @@
 use super::*;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub enum ResolveTaskIdError {
+    #[error("Task not found: {0}")]
+    NotFound(String),
+    #[error("Task ID prefix '{prefix}' is ambiguous. Candidates: {preview}")]
+    Ambiguous { prefix: String, preview: String },
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
 
 impl BackgroundAgentStorage {
     // ============== Agent Task Operations ==============
@@ -54,6 +65,14 @@ impl BackgroundAgentStorage {
     /// let task = storage.get_task(&full_id)?.unwrap();
     /// ```
     pub fn resolve_existing_task_id(&self, id_or_prefix: &str) -> Result<String> {
+        self.resolve_existing_task_id_typed(id_or_prefix)
+            .map_err(anyhow::Error::from)
+    }
+
+    pub fn resolve_existing_task_id_typed(
+        &self,
+        id_or_prefix: &str,
+    ) -> std::result::Result<String, ResolveTaskIdError> {
         // First, try exact match (most common case)
         if self.get_task(id_or_prefix)?.is_some() {
             return Ok(id_or_prefix.to_string());
@@ -68,7 +87,7 @@ impl BackgroundAgentStorage {
             .collect();
 
         match candidates.len() {
-            0 => Err(anyhow::anyhow!("Task not found: {}", id_or_prefix)),
+            0 => Err(ResolveTaskIdError::NotFound(id_or_prefix.to_string())),
             1 => Ok(candidates.into_iter().next().unwrap()),
             _ => {
                 let preview: Vec<String> = candidates
@@ -83,11 +102,10 @@ impl BackgroundAgentStorage {
                         }
                     })
                     .collect();
-                Err(anyhow::anyhow!(
-                    "Task ID prefix '{}' is ambiguous. Candidates: {}",
-                    id_or_prefix,
-                    preview.join(", ")
-                ))
+                Err(ResolveTaskIdError::Ambiguous {
+                    prefix: id_or_prefix.to_string(),
+                    preview: preview.join(", "),
+                })
             }
         }
     }

@@ -1,5 +1,26 @@
 use super::super::runtime::parse_background_agent_status;
 use super::super::*;
+use crate::storage::background_agent::ResolveTaskIdError;
+use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
+
+fn resolve_background_agent_id(
+    core: &Arc<AppCore>,
+    id: &str,
+) -> std::result::Result<String, IpcResponse> {
+    match core
+        .storage
+        .background_agents
+        .resolve_existing_task_id_typed(id)
+    {
+        Ok(id) => Ok(id),
+        Err(ResolveTaskIdError::NotFound(_)) => Err(IpcResponse::not_found("Background agent")),
+        Err(ResolveTaskIdError::Ambiguous { prefix, preview }) => Err(IpcResponse::error(
+            400,
+            format!("Task ID prefix '{prefix}' is ambiguous. Candidates: {preview}"),
+        )),
+        Err(ResolveTaskIdError::Internal(err)) => Err(IpcResponse::error(500, err.to_string())),
+    }
+}
 
 impl IpcServer {
     pub(super) async fn handle_list_background_agents(
@@ -35,9 +56,9 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
     ) -> IpcResponse {
-        let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+        let resolved_id = match resolve_background_agent_id(core, &id) {
             Ok(id) => id,
-            Err(_) => return IpcResponse::not_found("Background agent"),
+            Err(response) => return response,
         };
         match core.storage.background_agents.get_task(&resolved_id) {
             Ok(Some(background_agent)) => IpcResponse::success(background_agent),
@@ -86,9 +107,7 @@ impl IpcServer {
         id: String,
     ) -> IpcResponse {
         match core.storage.background_agents.delete_task(&id) {
-            Ok(deleted) => {
-                IpcResponse::success(serde_json::json!({ "deleted": deleted, "id": id }))
-            }
+            Ok(deleted) => IpcResponse::success(DeleteWithIdResponse { id, deleted }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -98,9 +117,9 @@ impl IpcServer {
         id: String,
         action: crate::models::BackgroundAgentControlAction,
     ) -> IpcResponse {
-        let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+        let resolved_id = match resolve_background_agent_id(core, &id) {
             Ok(id) => id,
-            Err(_) => return IpcResponse::not_found("Background agent"),
+            Err(response) => return response,
         };
         match core
             .storage
@@ -117,9 +136,9 @@ impl IpcServer {
         id: String,
         event_limit: Option<usize>,
     ) -> IpcResponse {
-        let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+        let resolved_id = match resolve_background_agent_id(core, &id) {
             Ok(id) => id,
-            Err(_) => return IpcResponse::not_found("Background agent"),
+            Err(response) => return response,
         };
         match core
             .storage
@@ -137,9 +156,9 @@ impl IpcServer {
         message: String,
         source: Option<crate::models::BackgroundMessageSource>,
     ) -> IpcResponse {
-        let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+        let resolved_id = match resolve_background_agent_id(core, &id) {
             Ok(id) => id,
-            Err(_) => return IpcResponse::not_found("Background agent"),
+            Err(response) => return response,
         };
         match core
             .storage
@@ -159,9 +178,9 @@ impl IpcServer {
         id: String,
         approved: bool,
     ) -> IpcResponse {
-        let resolved_id = match core.storage.background_agents.resolve_existing_task_id(&id) {
+        let resolved_id = match resolve_background_agent_id(core, &id) {
             Ok(id) => id,
-            Err(_) => return IpcResponse::not_found("Background agent"),
+            Err(response) => return response,
         };
         let message = if approved {
             "User approved the pending action."
@@ -176,13 +195,7 @@ impl IpcServer {
                 message.to_string(),
                 crate::models::BackgroundMessageSource::System,
             ) {
-            Ok(_) => {
-                // Simplified placeholder:
-                // approval is currently injected as a system message so running
-                // background agents can continue without a dedicated approval queue.
-                // Keep handled=false to make this fallback explicit to callers.
-                IpcResponse::success(serde_json::json!({ "handled": false }))
-            }
+            Ok(_) => IpcResponse::success(ApprovalHandledResponse { handled: true }),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
