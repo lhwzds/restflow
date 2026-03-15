@@ -279,5 +279,7 @@ mod message_queue;
 mod session_binding;
 mod task_lifecycle;
 
+pub use task_lifecycle::ResolveTaskIdError;
+
 #[cfg(test)]
 mod tests;

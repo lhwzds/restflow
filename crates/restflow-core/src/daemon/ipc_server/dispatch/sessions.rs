@@ -2,6 +2,7 @@ use super::super::runtime::{
     cancel_chat_stream, execute_chat_session, resolve_agent_id, steer_chat_stream,
 };
 use super::super::*;
+use restflow_contracts::{ArchiveResponse, CancelResponse, DeleteResponse, SteerResponse};
 use uuid::Uuid;
 
 impl IpcServer {
@@ -198,7 +199,7 @@ impl IpcServer {
     pub(super) async fn handle_archive_session(core: &Arc<AppCore>, id: String) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
         match session_service.archive_session(&id) {
-            Ok(archived) => IpcResponse::success(serde_json::json!({ "archived": archived })),
+            Ok(archived) => IpcResponse::success(ArchiveResponse { archived }),
             Err(err) => ipc_session_lifecycle_error(err),
         }
     }
@@ -206,7 +207,7 @@ impl IpcServer {
     pub(super) async fn handle_delete_session(core: &Arc<AppCore>, id: String) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
         match session_service.delete_session(&id) {
-            Ok(deleted) => IpcResponse::success(serde_json::json!({ "deleted": deleted })),
+            Ok(deleted) => IpcResponse::success(DeleteResponse { deleted }),
             Err(err) => ipc_session_lifecycle_error(err),
         }
     }
@@ -295,16 +296,7 @@ impl IpcServer {
         .await
         {
             Ok(session) => IpcResponse::success(session),
-            Err(err) => {
-                let message = err.to_string();
-                if message.contains("Session not found") {
-                    IpcResponse::not_found("Session")
-                } else if message.contains("No user message found") {
-                    IpcResponse::error(400, message)
-                } else {
-                    IpcResponse::error(500, message)
-                }
-            }
+            Err(err) => IpcResponse::error(err.status_code(), err.to_string()),
         }
     }
 
@@ -313,12 +305,12 @@ impl IpcServer {
         instruction: String,
     ) -> IpcResponse {
         let steered = steer_chat_stream(&session_id, &instruction).await;
-        IpcResponse::success(serde_json::json!({ "steered": steered }))
+        IpcResponse::success(SteerResponse { steered })
     }
 
     pub(super) async fn handle_cancel_chat_session_stream(stream_id: String) -> IpcResponse {
         let canceled = cancel_chat_stream(&stream_id).await;
-        IpcResponse::success(serde_json::json!({ "canceled": canceled }))
+        IpcResponse::success(CancelResponse { canceled })
     }
 
     pub(super) async fn handle_get_session_messages(

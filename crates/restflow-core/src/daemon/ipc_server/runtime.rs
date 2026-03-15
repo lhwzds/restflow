@@ -1,4 +1,25 @@
 use super::*;
+use thiserror::Error;
+
+#[derive(Debug, Error)]
+pub(super) enum ExecuteChatSessionError {
+    #[error("Session not found")]
+    SessionNotFound,
+    #[error("No user message found in session")]
+    MissingUserMessage,
+    #[error(transparent)]
+    Internal(#[from] anyhow::Error),
+}
+
+impl ExecuteChatSessionError {
+    pub(super) fn status_code(&self) -> i32 {
+        match self {
+            Self::SessionNotFound => 404,
+            Self::MissingUserMessage => 400,
+            Self::Internal(_) => 500,
+        }
+    }
+}
 
 pub(super) fn create_runtime_tool_registry(
     core: &Arc<AppCore>,
@@ -170,12 +191,12 @@ pub(super) async fn execute_chat_session(
     ack_frame_tx: Option<mpsc::UnboundedSender<StreamFrame>>,
     emitter: Option<Box<dyn StreamEmitter>>,
     steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-) -> Result<ChatSession> {
+) -> std::result::Result<ChatSession, ExecuteChatSessionError> {
     let mut session = core
         .storage
         .chat_sessions
         .get(&session_id)?
-        .ok_or_else(|| anyhow::anyhow!("Session not found"))?;
+        .ok_or(ExecuteChatSessionError::SessionNotFound)?;
 
     let explicit_user_input = user_input.as_deref();
     let input = match explicit_user_input {
@@ -186,7 +207,7 @@ pub(super) async fn execute_chat_session(
             .rev()
             .find(|msg| msg.role == ChatRole::User)
             .map(|msg| msg.content.clone())
-            .ok_or_else(|| anyhow::anyhow!("No user message found in session"))?,
+            .ok_or(ExecuteChatSessionError::MissingUserMessage)?,
     };
 
     persist_ipc_user_message_if_needed(core, &mut session, explicit_user_input, &input)?;
