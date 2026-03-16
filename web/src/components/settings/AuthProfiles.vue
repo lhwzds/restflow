@@ -42,7 +42,6 @@ import {
   authDiscover,
   authGetSummary,
   type ManagerSummary,
-  type AddProfileRequest,
 } from '@/api/auth'
 import { useConfirm } from '@/composables/useConfirm'
 import type { AuthProfile, AuthProvider, SecureCredential } from '@/types/generated'
@@ -57,12 +56,20 @@ const loading = ref(false)
 const error = ref<string | null>(null)
 const showAddDialog = ref(false)
 
+interface AddProfileForm {
+  name: string
+  api_key: string
+  provider: AuthProvider
+  email: string
+  priority: number
+}
+
 // New profile form
-const newProfile = ref<AddProfileRequest>({
+const newProfile = ref<AddProfileForm>({
   name: '',
   api_key: '',
   provider: 'anthropic' as AuthProvider,
-  email: undefined,
+  email: '',
   priority: 0,
 })
 
@@ -117,7 +124,10 @@ async function addProfile() {
   loading.value = true
   error.value = null
   try {
-    const response = await authAddProfile(newProfile.value)
+    const response = await authAddProfile({
+      ...newProfile.value,
+      email: newProfile.value.email.trim() || null,
+    })
     if (!response.success) {
       error.value = response.error || t('settings.auth.failedToAdd')
       return
@@ -127,7 +137,7 @@ async function addProfile() {
       name: '',
       api_key: '',
       provider: 'anthropic' as AuthProvider,
-      email: undefined,
+      email: '',
       priority: 0,
     }
     await loadProfiles()

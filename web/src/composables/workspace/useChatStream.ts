@@ -1,69 +1,40 @@
 /**
  * Chat Stream Composable
  *
- * Handles streaming chat responses from AI, providing real-time
- * token updates, status tracking, and cancellation support.
+ * Handles streaming chat responses from the daemon HTTP stream endpoint.
  */
 
 import { ref, computed, onUnmounted, type ComputedRef } from 'vue'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { sendChatMessageStream, cancelChatStream } from '@/api/chat-stream'
+import { cancelChatStream, openChatStream } from '@/api/chat-stream'
 import { listToolTraces, type ToolTrace } from '@/api/tool-traces'
-import type { ChatStreamEvent } from '@/types/generated/ChatStreamEvent'
-import type { ChatStreamKind } from '@/types/generated/ChatStreamKind'
+import type { StreamFrame } from '@/types/generated/StreamFrame'
 import type { StepStatus } from '@/types/generated/StepStatus'
 
-/**
- * State of an active chat stream
- */
 export interface StreamState {
-  /** Message ID being generated */
   messageId: string | null
-  /** Whether streaming is active */
   isStreaming: boolean
-  /** Accumulated response content */
   content: string
-  /** Approximate token count */
   tokenCount: number
-  /** Input tokens used */
   inputTokens: number
-  /** Output tokens generated */
   outputTokens: number
-  /** Execution steps */
   steps: StreamStep[]
-  /** Error message if failed */
   error: string | null
-  /** Stream start timestamp (Unix ms) */
   startedAt: number | null
-  /** Stream completion timestamp (Unix ms) */
   completedAt: number | null
-  /** Thinking/reasoning content */
   thinking: string
-  /** Early assistant acknowledgement message */
   acknowledgement: string
 }
 
-/**
- * An execution step during streaming
- */
 export interface StreamStep {
   type: string
-  /** Raw tool name (e.g. spawn_subagent, web_search) */
   name: string
-  /** Human-readable step label for UI rendering */
   displayName?: string
   status: StepStatus
-  /** Tool call ID for correlating start/end events */
   toolId?: string
-  /** Tool call arguments JSON (populated on tool_call_start) */
   arguments?: string
-  /** Tool call result JSON (populated on tool_call_end) */
   result?: string
 }
 
-/**
- * Create initial stream state
- */
 function createInitialState(): StreamState {
   return {
     messageId: null,
@@ -142,16 +113,68 @@ function formatToolDisplayName(
   return toolName
 }
 
-/**
- * Composable for handling streaming chat responses
- *
- * @param sessionId - Getter for the current session ID
- * @returns Stream state and control methods
- */
 export function useChatStream(sessionId: () => string | null) {
   const state = ref<StreamState>(createInitialState())
-  let unlistenFn: UnlistenFn | null = null
   let disposed = false
+  let streamAbortController: AbortController | null = null
+
+  function markRunningStepsFailed(): void {
+    for (const step of state.value.steps) {
+      if (step.status === 'running') {
+        step.status = 'failed'
+      }
+    }
+  }
+
+  function upsertToolCall(id: string, name: string, args: unknown): void {
+    const serializedArgs = args === undefined ? undefined : JSON.stringify(args)
+    state.value.steps.push({
+      type: 'tool_call',
+      name,
+      displayName: formatToolDisplayName(name, serializedArgs, null),
+      status: 'running',
+      toolId: id,
+      arguments: serializedArgs,
+    })
+  }
+
+  function applyToolResult(id: string, result: string, success: boolean): void {
+    const step =
+      state.value.steps.find((item) => item.toolId === id) ??
+      state.value.steps.find((item) => item.status === 'running')
+
+    if (!step) {
+      state.value.steps.push({
+        type: 'tool_call',
+        name: 'tool',
+        status: success ? 'completed' : 'failed',
+        toolId: id,
+        result,
+      })
+      return
+    }
+
+    step.result = result
+    step.status = success ? 'completed' : 'failed'
+    step.displayName = formatToolDisplayName(step.name, step.arguments, result)
+  }
+
+  async function syncPersistedExecutionEvents(turnId: string): Promise<void> {
+    const sid = sessionId()
+    if (!sid) return
+
+    try {
+      const events = await listToolTraces(sid, turnId, 200)
+      if (disposed || state.value.messageId !== turnId) return
+
+      const steps = buildStepsFromExecutionEvents(events)
+      if (steps.length > 0) {
+        state.value.steps = steps
+      }
+    } catch {
+      // Ignore persistence read errors and keep live stream behavior.
+    }
+  }
 
   function buildStepsFromExecutionEvents(events: ToolTrace[]): StreamStep[] {
     const sortedEvents = [...events].sort(
@@ -183,22 +206,14 @@ export function useChatStream(sessionId: () => string | null) {
           step = {
             type: 'tool_call',
             name: event.tool_name ?? 'tool',
-            displayName: formatToolDisplayName(
-              event.tool_name ?? 'tool',
-              event.input,
-              event.output,
-            ),
+            displayName: formatToolDisplayName(event.tool_name ?? 'tool', event.input, event.output),
             status: 'running',
             toolId,
           }
           stepByToolId.set(toolId, step)
           steps.push(step)
         }
-        step.displayName = formatToolDisplayName(
-          step.name,
-          step.arguments,
-          event.output ?? event.error,
-        )
+        step.displayName = formatToolDisplayName(step.name, step.arguments, event.output ?? event.error)
         step.status = event.success === false ? 'failed' : 'completed'
         if (event.output) {
           step.result = event.output
@@ -220,178 +235,66 @@ export function useChatStream(sessionId: () => string | null) {
     return steps
   }
 
-  async function syncPersistedExecutionEvents(turnId: string): Promise<void> {
-    const sid = sessionId()
-    if (!sid) return
-
+  async function consumeFrames(frames: AsyncGenerator<StreamFrame>, turnId: string): Promise<void> {
     try {
-      const events = await listToolTraces(sid, turnId, 200)
-      if (disposed || state.value.messageId !== turnId) return
-
-      const steps = buildStepsFromExecutionEvents(events)
-      if (steps.length > 0) {
-        state.value.steps = steps
-      }
-    } catch {
-      // Ignore persistence read errors and keep live stream behavior.
-    }
-  }
-
-  /**
-   * Set up the Tauri event listener for chat stream events
-   */
-  async function setupListener(): Promise<void> {
-    if (unlistenFn || disposed) return
-
-    const unlisten = await listen<ChatStreamEvent>('chat:stream', (event) => {
-      const data = event.payload
-      const currentSessionId = sessionId()
-
-      // Only process events for the current session
-      if (data.session_id !== currentSessionId) return
-
-      handleEvent(data)
-    })
-
-    // Component was unmounted while awaiting listen
-    if (disposed) {
-      unlisten()
-      return
-    }
-
-    unlistenFn = unlisten
-  }
-
-  /**
-   * Handle a chat stream event
-   */
-  function handleEvent(event: ChatStreamEvent): void {
-    const kind = event.kind as ChatStreamKind
-    if (state.value.messageId && event.message_id !== state.value.messageId) return
-
-    // Handle different event types based on the 'type' discriminator
-    if ('type' in kind) {
-      switch (kind.type) {
-        case 'started':
-          state.value = {
-            ...createInitialState(),
-            messageId: event.message_id,
-            isStreaming: true,
-            startedAt: event.timestamp,
-          }
+      for await (const frame of frames) {
+        if (disposed || state.value.messageId !== turnId) {
           break
+        }
 
-        case 'token':
-          if ('text' in kind && 'token_count' in kind) {
-            state.value.content += kind.text
-            state.value.tokenCount = kind.token_count
-          }
-          break
-
-        case 'ack':
-          if ('content' in kind) {
-            state.value.acknowledgement = kind.content
+        switch (frame.stream_type) {
+          case 'start':
+            break
+          case 'ack':
+            state.value.acknowledgement = frame.data.content
             if (!state.value.content) {
-              state.value.content = `${kind.content}\n\n`
+              state.value.content = `${frame.data.content}\n\n`
             }
-          }
-          break
-
-        case 'thinking':
-          if ('content' in kind) {
-            state.value.thinking += kind.content
-          }
-          break
-
-        case 'tool_call_start':
-          if ('tool_name' in kind) {
-            state.value.steps.push({
-              type: 'tool_call',
-              name: kind.tool_name,
-              displayName: formatToolDisplayName(kind.tool_name, kind.arguments, null),
-              status: 'running',
-              toolId: kind.tool_id,
-              arguments: kind.arguments,
-            })
-          }
-          break
-
-        case 'tool_call_end':
-          if ('tool_id' in kind) {
-            // Find step by tool_id for accurate correlation, fallback to first running
-            const step =
-              state.value.steps.find((s) => s.toolId === kind.tool_id) ||
-              state.value.steps.find((s) => s.status === 'running')
-            if (step && 'success' in kind) {
-              step.status = kind.success ? 'completed' : 'failed'
-              if ('result' in kind) {
-                step.result = kind.result
-              }
-              step.displayName = formatToolDisplayName(step.name, step.arguments, step.result)
-            }
-          }
-          break
-
-        case 'step':
-          if ('step_type' in kind && 'name' in kind && 'status' in kind) {
-            const existingStep = state.value.steps.find((s) => s.name === kind.name)
-            if (existingStep) {
-              existingStep.status = kind.status
-            } else {
-              state.value.steps.push({
-                type: kind.step_type,
-                name: kind.name,
-                status: kind.status,
-              })
-            }
-          }
-          break
-
-        case 'usage':
-          if ('input_tokens' in kind && 'output_tokens' in kind) {
-            state.value.inputTokens = kind.input_tokens
-            state.value.outputTokens = kind.output_tokens
-          }
-          break
-
-        case 'completed':
-          if ('full_content' in kind && 'total_tokens' in kind) {
+            break
+          case 'data':
+            state.value.content += frame.data.content
+            break
+          case 'tool_call':
+            upsertToolCall(frame.data.id, frame.data.name, frame.data.arguments)
+            break
+          case 'tool_result':
+            applyToolResult(frame.data.id, frame.data.result, frame.data.success)
+            break
+          case 'done':
             state.value.isStreaming = false
-            state.value.content = kind.full_content
-            state.value.tokenCount = kind.total_tokens
-            state.value.completedAt = event.timestamp
-            void syncPersistedExecutionEvents(event.message_id)
-          }
-          break
-
-        case 'failed':
-          if ('error' in kind) {
+            state.value.completedAt = Date.now()
+            state.value.tokenCount = frame.data.total_tokens ?? state.value.tokenCount
+            await syncPersistedExecutionEvents(turnId)
+            return
+          case 'error':
             state.value.isStreaming = false
-            state.value.error = kind.error
-            if ('partial_content' in kind && kind.partial_content) {
-              state.value.content = kind.partial_content
-            }
-            void syncPersistedExecutionEvents(event.message_id)
-          }
-          break
-
-        case 'interrupted':
-          state.value.isStreaming = false
-          if ('partial_content' in kind && kind.partial_content) {
-            state.value.content = kind.partial_content
-          }
-          void syncPersistedExecutionEvents(event.message_id)
-          break
+            state.value.completedAt = Date.now()
+            state.value.error = frame.data.message
+            markRunningStepsFailed()
+            await syncPersistedExecutionEvents(turnId)
+            return
+          case 'event':
+            break
+        }
       }
+
+      if (state.value.isStreaming && state.value.messageId === turnId) {
+        state.value.isStreaming = false
+        state.value.completedAt = Date.now()
+        await syncPersistedExecutionEvents(turnId)
+      }
+    } catch (error) {
+      if (streamAbortController?.signal.aborted) {
+        return
+      }
+      state.value.isStreaming = false
+      state.value.completedAt = Date.now()
+      state.value.error = error instanceof Error ? error.message : 'Streaming request failed'
+      markRunningStepsFailed()
+      await syncPersistedExecutionEvents(turnId)
     }
   }
 
-  /**
-   * Send a message with streaming response
-   *
-   * @param message - User message content
-   * @returns Message ID of the generated response
-   */
   async function send(message: string): Promise<string> {
     const sid = sessionId()
     if (!sid) throw new Error('No session ID')
@@ -399,41 +302,36 @@ export function useChatStream(sessionId: () => string | null) {
       throw new Error('Streaming response is already in progress')
     }
 
-    await setupListener()
-    state.value = createInitialState()
-    state.value.isStreaming = true
+    streamAbortController?.abort()
+    streamAbortController = new AbortController()
 
-    try {
-      const messageId = await sendChatMessageStream(sid, message)
-      state.value.messageId = messageId
-      void syncPersistedExecutionEvents(messageId)
-      return messageId
-    } catch (error) {
-      state.value.isStreaming = false
-      state.value.error = error instanceof Error ? error.message : 'Failed to send'
-      throw error
+    const { streamId, frames } = openChatStream(sid, message, streamAbortController.signal)
+    state.value = {
+      ...createInitialState(),
+      messageId: streamId,
+      isStreaming: true,
+      startedAt: Date.now(),
     }
+
+    void consumeFrames(frames, streamId)
+    void syncPersistedExecutionEvents(streamId)
+    return streamId
   }
 
-  /**
-   * Cancel the current streaming response
-   */
   async function cancel(): Promise<void> {
-    const sid = sessionId()
     const mid = state.value.messageId
-    if (!sid || !mid) return
+    if (!mid) return
 
-    await cancelChatStream(sid, mid)
+    await cancelChatStream(mid)
+    streamAbortController?.abort()
+    state.value.isStreaming = false
+    state.value.completedAt = Date.now()
   }
 
-  /**
-   * Reset the stream state
-   */
   function reset(): void {
     state.value = createInitialState()
   }
 
-  // Computed properties
   const isStreaming: ComputedRef<boolean> = computed(() => state.value.isStreaming)
   const hasError: ComputedRef<boolean> = computed(() => state.value.error !== null)
   const duration: ComputedRef<number> = computed(() => {
@@ -447,13 +345,10 @@ export function useChatStream(sessionId: () => string | null) {
     return (state.value.tokenCount / ms) * 1000
   })
 
-  // Cleanup on unmount
   onUnmounted(() => {
     disposed = true
-    if (unlistenFn) {
-      unlistenFn()
-      unlistenFn = null
-    }
+    streamAbortController?.abort()
+    streamAbortController = null
   })
 
   return {

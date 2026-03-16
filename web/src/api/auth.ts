@@ -1,13 +1,18 @@
 /**
  * Auth Profile Management API
  *
- * TypeScript API for managing authentication profiles in RestFlow.
+ * Browser-first wrappers around daemon request contracts.
  */
 
-import type { AuthProfile, AuthProvider, DiscoverySummary } from '@/types/generated'
-import { invokeCommand } from './tauri-client'
+import type { AuthProfile } from '@/types/generated/AuthProfile'
+import type { AuthProvider } from '@/types/generated/AuthProvider'
+import type { DiscoverySummary } from '@/types/generated/DiscoverySummary'
+import type { AddProfileRequest } from '@/types/generated/AddProfileRequest'
+import type { ProfileResponse } from '@/types/generated/ProfileResponse'
+import { requestOptional, requestTyped } from './http-client'
 
-// Local types for manager summary and requests
+export type { AddProfileRequest, ProfileResponse }
+
 export interface ManagerSummary {
   total: number
   enabled: number
@@ -18,144 +23,242 @@ export interface ManagerSummary {
   by_source: Record<string, number>
 }
 
-export interface AddProfileRequest {
-  name: string
-  api_key: string
-  provider: AuthProvider
-  email?: string
-  priority?: number
-}
-
 export interface ProfileUpdate {
   name?: string
   enabled?: boolean
   priority?: number
 }
 
-export interface ProfileResponse {
-  success: boolean
-  profile?: AuthProfile
-  error?: string
+function buildProfileResponse(profile: AuthProfile): ProfileResponse {
+  return { success: true, profile, error: null }
 }
 
-/**
- * Initialize the auth manager and run discovery
- */
+function buildProfileError(error: unknown): ProfileResponse {
+  const message = error instanceof Error ? error.message : String(error)
+  return { success: false, profile: null, error: message }
+}
+
+function summarizeProfiles(profiles: AuthProfile[]): ManagerSummary {
+  const by_provider: Record<string, number> = {}
+  const by_source: Record<string, number> = {}
+  let enabled = 0
+  let available = 0
+  let in_cooldown = 0
+  let disabled = 0
+
+  for (const profile of profiles) {
+    if (profile.enabled) {
+      enabled += 1
+    }
+    if (profile.enabled && profile.health === 'healthy') {
+      available += 1
+    }
+    if (profile.health === 'cooldown') {
+      in_cooldown += 1
+    }
+    if (profile.health === 'disabled') {
+      disabled += 1
+    }
+
+    by_provider[profile.provider] = (by_provider[profile.provider] ?? 0) + 1
+    by_source[profile.source] = (by_source[profile.source] ?? 0) + 1
+  }
+
+  return {
+    total: profiles.length,
+    enabled,
+    available,
+    in_cooldown,
+    disabled,
+    by_provider,
+    by_source,
+  }
+}
+
 export async function authInitialize(): Promise<DiscoverySummary> {
-  return invokeCommand('authInitialize')
+  return requestTyped<DiscoverySummary>({ type: 'DiscoverAuth' })
 }
 
-/**
- * Run credential discovery
- */
 export async function authDiscover(): Promise<DiscoverySummary> {
-  return invokeCommand('authDiscover')
+  return requestTyped<DiscoverySummary>({ type: 'DiscoverAuth' })
 }
 
-/**
- * List all profiles
- */
 export async function authListProfiles(): Promise<AuthProfile[]> {
-  return invokeCommand('authListProfiles')
+  return requestTyped<AuthProfile[]>({ type: 'ListAuthProfiles' })
 }
 
-/**
- * Get profiles for a specific provider
- */
 export async function authGetProfilesForProvider(provider: AuthProvider): Promise<AuthProfile[]> {
-  return invokeCommand('authGetProfilesForProvider', provider)
+  const profiles = await authListProfiles()
+  return profiles.filter((profile) => profile.provider === provider)
 }
 
-/**
- * Get available profiles (enabled, not expired, not in cooldown)
- */
 export async function authGetAvailableProfiles(): Promise<AuthProfile[]> {
-  return invokeCommand('authGetAvailableProfiles')
+  const profiles = await authListProfiles()
+  return profiles.filter((profile) => profile.enabled && profile.health === 'healthy')
 }
 
-/**
- * Get a specific profile by ID
- */
 export async function authGetProfile(profileId: string): Promise<AuthProfile | null> {
-  return invokeCommand('authGetProfile', profileId)
+  return requestOptional<AuthProfile>({
+    type: 'GetAuthProfile',
+    data: { id: profileId },
+  })
 }
 
-/**
- * Add a manual profile
- */
 export async function authAddProfile(request: AddProfileRequest): Promise<ProfileResponse> {
-  return invokeCommand('authAddProfile', request)
+  try {
+    let profile = await requestTyped<AuthProfile>({
+      type: 'AddAuthProfile',
+      data: {
+        name: request.name,
+        credential: {
+          type: 'api_key',
+          key: request.api_key,
+          email: request.email,
+        },
+        source: 'manual',
+        provider: request.provider,
+      },
+    })
+
+    if (request.priority !== 0) {
+      profile = await requestTyped<AuthProfile>({
+        type: 'UpdateAuthProfile',
+        data: {
+          id: profile.id,
+          updates: {
+            name: null,
+            enabled: null,
+            priority: request.priority,
+          },
+        },
+      })
+    }
+
+    return buildProfileResponse(profile)
+  } catch (error) {
+    return buildProfileError(error)
+  }
 }
 
-/**
- * Remove a profile
- */
 export async function authRemoveProfile(profileId: string): Promise<ProfileResponse> {
-  return invokeCommand('authRemoveProfile', profileId)
+  const profile = await authGetProfile(profileId)
+  if (!profile) {
+    return buildProfileError(new Error(`Profile '${profileId}' not found`))
+  }
+
+  try {
+    await requestTyped({
+      type: 'RemoveAuthProfile',
+      data: { id: profileId },
+    })
+    return buildProfileResponse(profile)
+  } catch (error) {
+    return buildProfileError(error)
+  }
 }
 
-/**
- * Update a profile
- */
 export async function authUpdateProfile(
   profileId: string,
   update: ProfileUpdate,
 ): Promise<ProfileResponse> {
-  return invokeCommand('authUpdateProfile', profileId, {
-    name: update.name ?? null,
-    enabled: update.enabled ?? null,
-    priority: update.priority ?? null,
-  })
+  try {
+    const profile = await requestTyped<AuthProfile>({
+      type: 'UpdateAuthProfile',
+      data: {
+        id: profileId,
+        updates: {
+          name: update.name ?? null,
+          enabled: update.enabled ?? null,
+          priority: update.priority ?? null,
+        },
+      },
+    })
+    return buildProfileResponse(profile)
+  } catch (error) {
+    return buildProfileError(error)
+  }
 }
 
-/**
- * Enable a profile
- */
 export async function authEnableProfile(profileId: string): Promise<ProfileResponse> {
-  return invokeCommand('authEnableProfile', profileId)
+  try {
+    await requestTyped({
+      type: 'EnableAuthProfile',
+      data: { id: profileId },
+    })
+    const profile = await requestTyped<AuthProfile>({
+      type: 'GetAuthProfile',
+      data: { id: profileId },
+    })
+    return buildProfileResponse(profile)
+  } catch (error) {
+    return buildProfileError(error)
+  }
 }
 
-/**
- * Disable a profile
- */
 export async function authDisableProfile(
   profileId: string,
   reason: string,
 ): Promise<ProfileResponse> {
-  return invokeCommand('authDisableProfile', profileId, reason)
+  try {
+    await requestTyped({
+      type: 'DisableAuthProfile',
+      data: { id: profileId, reason },
+    })
+    const profile = await requestTyped<AuthProfile>({
+      type: 'GetAuthProfile',
+      data: { id: profileId },
+    })
+    return buildProfileResponse(profile)
+  } catch (error) {
+    return buildProfileError(error)
+  }
 }
 
-/**
- * Mark a profile as successfully used
- */
 export async function authMarkSuccess(profileId: string): Promise<ProfileResponse> {
-  return invokeCommand('authMarkSuccess', profileId)
+  try {
+    await requestTyped({
+      type: 'MarkAuthSuccess',
+      data: { id: profileId },
+    })
+    const profile = await requestTyped<AuthProfile>({
+      type: 'GetAuthProfile',
+      data: { id: profileId },
+    })
+    return buildProfileResponse(profile)
+  } catch (error) {
+    return buildProfileError(error)
+  }
 }
 
-/**
- * Mark a profile as failed
- */
 export async function authMarkFailure(profileId: string): Promise<ProfileResponse> {
-  return invokeCommand('authMarkFailure', profileId)
+  try {
+    await requestTyped({
+      type: 'MarkAuthFailure',
+      data: { id: profileId },
+    })
+    const profile = await requestTyped<AuthProfile>({
+      type: 'GetAuthProfile',
+      data: { id: profileId },
+    })
+    return buildProfileResponse(profile)
+  } catch (error) {
+    return buildProfileError(error)
+  }
 }
 
-/**
- * Check if an API key exists for a provider (selects best available profile)
- */
 export async function authGetApiKey(provider: AuthProvider): Promise<boolean | null> {
-  return invokeCommand('authGetApiKey', provider)
+  const response = await requestTyped<{ api_key: string | null }>({
+    type: 'GetApiKey',
+    data: { provider },
+  })
+  return response.api_key ? true : null
 }
 
-/**
- * Get manager summary
- */
 export async function authGetSummary(): Promise<ManagerSummary> {
-  return invokeCommand('authGetSummary')
+  const profiles = await authListProfiles()
+  return summarizeProfiles(profiles)
 }
 
-/**
- * Clear all profiles
- */
 export async function authClear(): Promise<void> {
-  await invokeCommand('authClear')
+  await requestTyped({ type: 'ClearAuthProfiles' })
 }

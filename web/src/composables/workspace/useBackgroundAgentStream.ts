@@ -1,17 +1,14 @@
 /**
  * Background Agent Stream Composable
  *
- * Handles real-time streaming events and heartbeat for background agents.
- * Uses Tauri event listeners to receive task execution output and runner status.
+ * Handles real-time streaming events for background agents over the daemon HTTP stream endpoint.
  */
 
 import { ref, computed, onUnmounted, type ComputedRef } from 'vue'
-import { listen, type UnlistenFn } from '@tauri-apps/api/event'
-import { getBackgroundAgentStreamEventName, getHeartbeatEventName } from '@/api/background-agents'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import type { TaskStreamEvent } from '@/types/generated/TaskStreamEvent'
 import type { StreamEventKind } from '@/types/generated/StreamEventKind'
-import type { HeartbeatEvent } from '@/types/generated/HeartbeatEvent'
+import { streamClient } from '@/api/http-client'
 
 const MAX_OUTPUT_LINES = 5000
 
@@ -46,11 +43,6 @@ function createInitialStreamState(): StreamState {
   }
 }
 
-/**
- * Composable for background agent streaming events
- *
- * @param trackTaskId - Getter for the task ID to filter stream events by
- */
 export function useBackgroundAgentStream(trackTaskId: () => string | null) {
   const streamState = ref<StreamState>(createInitialStreamState())
   const heartbeatState = ref<HeartbeatState>({
@@ -61,18 +53,16 @@ export function useBackgroundAgentStream(trackTaskId: () => string | null) {
   })
   const outputLines = ref<string[]>([])
 
-  let unlistenStream: UnlistenFn | null = null
-  let unlistenHeartbeat: UnlistenFn | null = null
-  let bridgeActivated = false
-
+  let streamAbortController: AbortController | null = null
   const store = useBackgroundAgentStore()
 
   function handleStreamEvent(event: TaskStreamEvent): void {
     const taskId = trackTaskId()
     if (event.task_id !== taskId) return
 
-    const kind = event.kind as StreamEventKind
+    heartbeatState.value.lastPulse = event.timestamp
 
+    const kind = event.kind as StreamEventKind
     if (!('type' in kind)) return
 
     switch (kind.type) {
@@ -84,7 +74,7 @@ export function useBackgroundAgentStream(trackTaskId: () => string | null) {
           phase: 'Starting...',
         }
         outputLines.value = []
-        store.fetchAgents()
+        void store.fetchAgents()
         break
 
       case 'output':
@@ -107,7 +97,7 @@ export function useBackgroundAgentStream(trackTaskId: () => string | null) {
         streamState.value.durationMs = kind.duration_ms
         streamState.value.result = kind.result
         streamState.value.phase = 'Completed'
-        store.fetchAgents()
+        void store.fetchAgents()
         break
 
       case 'failed':
@@ -115,53 +105,59 @@ export function useBackgroundAgentStream(trackTaskId: () => string | null) {
         streamState.value.error = kind.error
         streamState.value.durationMs = kind.duration_ms
         streamState.value.phase = 'Failed'
-        store.fetchAgents()
+        void store.fetchAgents()
         break
 
       case 'interrupted':
         streamState.value.isStreaming = false
         streamState.value.phase = 'Interrupted'
         streamState.value.durationMs = kind.duration_ms
-        store.fetchAgents()
+        void store.fetchAgents()
         break
 
       case 'heartbeat':
-        // inline heartbeat during execution — just update phase
         streamState.value.phase = `Running (${Math.round(kind.elapsed_ms / 1000)}s)`
         break
     }
   }
 
-  function handleHeartbeatEvent(event: HeartbeatEvent): void {
-    if (event.kind === 'pulse') {
-      const pulse = event as Extract<HeartbeatEvent, { kind: 'pulse' }>
-      heartbeatState.value = {
-        activeTasks: pulse.active_tasks,
-        pendingTasks: pulse.pending_tasks,
-        uptimeMs: pulse.uptime_ms,
-        lastPulse: pulse.timestamp,
-      }
-    }
-  }
-
   async function setupListeners(): Promise<void> {
-    // Activate the Rust bridge first (ensures events flow to frontend)
-    if (!bridgeActivated) {
-      await getBackgroundAgentStreamEventName()
-      bridgeActivated = true
-    }
+    const taskId = trackTaskId()
+    if (!taskId || streamAbortController) return
 
-    if (!unlistenStream) {
-      unlistenStream = await listen<TaskStreamEvent>('background-agent:stream', (event) => {
-        handleStreamEvent(event.payload)
-      })
-    }
+    streamAbortController = new AbortController()
 
-    if (!unlistenHeartbeat) {
-      const heartbeatChannel = await getHeartbeatEventName()
-      unlistenHeartbeat = await listen<HeartbeatEvent>(heartbeatChannel, (event) => {
-        handleHeartbeatEvent(event.payload)
-      })
+    try {
+      for await (const frame of streamClient(
+        {
+          type: 'SubscribeBackgroundAgentEvents',
+          data: { background_agent_id: taskId },
+        },
+        { signal: streamAbortController.signal },
+      )) {
+        if (
+          frame.stream_type === 'event' &&
+          'background_agent' in frame.data.event &&
+          frame.data.event.background_agent
+        ) {
+          handleStreamEvent(frame.data.event.background_agent)
+          continue
+        }
+
+        if (frame.stream_type === 'error') {
+          streamState.value.error = frame.data.message
+          streamState.value.isStreaming = false
+          break
+        }
+      }
+    } catch (error) {
+      if (streamAbortController?.signal.aborted) {
+        return
+      }
+      streamState.value.error = error instanceof Error ? error.message : 'Background stream failed'
+      streamState.value.isStreaming = false
+    } finally {
+      streamAbortController = null
     }
   }
 
@@ -171,14 +167,8 @@ export function useBackgroundAgentStream(trackTaskId: () => string | null) {
   }
 
   function cleanup(): void {
-    if (unlistenStream) {
-      unlistenStream()
-      unlistenStream = null
-    }
-    if (unlistenHeartbeat) {
-      unlistenHeartbeat()
-      unlistenHeartbeat = null
-    }
+    streamAbortController?.abort()
+    streamAbortController = null
   }
 
   const isStreaming: ComputedRef<boolean> = computed(() => streamState.value.isStreaming)

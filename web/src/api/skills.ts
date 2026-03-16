@@ -1,8 +1,8 @@
-import { invokeCommand, tauriInvoke } from './tauri-client'
+import { requestTyped } from './http-client'
 import type { Skill } from '@/types/generated/Skill'
 
 export interface CreateSkillRequest {
-  id?: string // Optional - auto-generated if not provided
+  id?: string
   name: string
   description?: string
   tags?: string[]
@@ -22,29 +22,31 @@ export interface ExportSkillResponse {
   markdown: string
 }
 
-/** Import a skill from raw JSON payload. */
 export async function importSkillFromJson(json: string): Promise<Skill> {
-  return tauriInvoke<Skill>('import_skill', { json })
+  const skill = JSON.parse(json) as Skill
+  return createSkill({
+    id: skill.id,
+    name: skill.name,
+    description: skill.description ?? undefined,
+    tags: skill.tags ?? undefined,
+    content: skill.content,
+  })
 }
 
-// List all skills
 export async function listSkills(): Promise<Skill[]> {
-  return invokeCommand<Skill[]>('listSkills')
+  return requestTyped<Skill[]>({ type: 'ListSkills' })
 }
 
-// Get a single skill by ID
 export async function getSkill(id: string): Promise<Skill> {
-  return invokeCommand<Skill>('getSkill', id)
+  return requestTyped<Skill>({ type: 'GetSkill', data: { id } })
 }
 
-// Create a new skill
 export async function createSkill(request: CreateSkillRequest): Promise<Skill> {
-  // Convert request to Skill format for Tauri
   const skill: Skill = {
     id: request.id || crypto.randomUUID(),
     name: request.name,
-    description: request.description || '',
-    tags: request.tags || [],
+    description: request.description ?? null,
+    tags: request.tags ?? [],
     content: request.content,
     folder_path: null,
     gating: null,
@@ -59,13 +61,11 @@ export async function createSkill(request: CreateSkillRequest): Promise<Skill> {
     created_at: Date.now(),
     updated_at: Date.now(),
   }
-  return invokeCommand<Skill>('createSkill', skill)
+  return requestTyped<Skill>({ type: 'CreateSkill', data: { skill } })
 }
 
-// Update an existing skill
 export async function updateSkill(id: string, request: UpdateSkillRequest): Promise<Skill> {
-  // First get the existing skill, then merge with updates
-  const existing = await invokeCommand<Skill>('getSkill', id)
+  const existing = await getSkill(id)
   const skill: Skill = {
     ...existing,
     name: request.name ?? existing.name,
@@ -74,19 +74,15 @@ export async function updateSkill(id: string, request: UpdateSkillRequest): Prom
     content: request.content ?? existing.content,
     updated_at: Date.now(),
   }
-  return invokeCommand<Skill>('updateSkill', id, skill)
+  return requestTyped<Skill>({ type: 'UpdateSkill', data: { id, skill } })
 }
 
-// Delete a skill
 export async function deleteSkill(id: string): Promise<void> {
-  await invokeCommand('deleteSkill', id)
+  await requestTyped({ type: 'DeleteSkill', data: { id } })
 }
 
-// Export a skill to markdown format
 export async function exportSkill(id: string): Promise<ExportSkillResponse> {
-  // Tauri returns JSON string, parse it to get the skill then format
-  const jsonStr = await invokeCommand<string>('exportSkill', id)
-  const skill = JSON.parse(jsonStr) as Skill
+  const skill = await getSkill(id)
   return {
     id: skill.id,
     filename: `${skill.name.replace(/[^a-zA-Z0-9]/g, '_')}.md`,

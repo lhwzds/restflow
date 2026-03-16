@@ -1,10 +1,28 @@
-// API module exports
-export * from './tauri-client'
-export * from './skills'
-export * from './secrets'
+export * from './http-client'
+export * from './auth'
 export * from './agents'
 export * from './chat-session'
-export * from './tool-traces'
-export * from './background-agents'
+export * from './chat-stream'
+export * from './config'
+export * from './daemon'
 export * from './hooks'
 export * from './marketplace'
+export * from './secrets'
+export * from './skills'
+export * from './tool-traces'
+export * from './voice'
+export {
+  listBackgroundAgents,
+  pauseBackgroundAgent,
+  resumeBackgroundAgent,
+  stopBackgroundAgent,
+  runBackgroundAgentStreaming,
+  steerTask,
+  getBackgroundAgentEvents,
+  getBackgroundAgentStreamEventName,
+  getHeartbeatEventName,
+  deleteBackgroundAgent,
+  convertSessionToBackgroundAgent,
+  updateBackgroundAgent,
+} from './background-agents'
+export * from './memory'

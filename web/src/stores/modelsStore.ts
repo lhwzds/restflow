@@ -2,7 +2,7 @@ import { defineStore } from 'pinia'
 import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { Provider } from '@/types/generated/Provider'
-import { tauriInvoke } from '@/api/config'
+import { getAvailableModels } from '@/api/config'
 
 interface ModelsState {
   models: ModelMetadataDTO[]
@@ -89,7 +89,7 @@ export const useModelsStore = defineStore('models', {
       this.error = null
 
       try {
-        this.models = await tauriInvoke<ModelMetadataDTO[]>('get_available_models')
+        this.models = await getAvailableModels()
         this.loaded = true
       } catch (error) {
         this.error = error instanceof Error ? error.message : 'Unknown error'

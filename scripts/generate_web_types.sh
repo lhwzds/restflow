@@ -14,7 +14,3 @@ export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-${TYPEGEN_TARGET_DIR}}"
 cargo test -p restflow-traits --features ts --lib export_bindings -- --test-threads=1
 cargo test -p restflow-core --lib export_bindings -- --test-threads=1
 cargo test -p restflow-tools --features ts --lib export_bindings -- --test-threads=1
-cargo test -p restflow-tauri --lib export_bindings -- --test-threads=1
-
-# Tauri IPC bindings are generated through specta into web/src/api/bindings.ts.
-cargo test -p restflow-tauri --lib export_ipc_bindings_for_web -- --nocapture

@@ -1,10 +1,10 @@
 /**
  * Memory API
  *
- * Wrappers around memory-related Tauri IPC commands.
+ * Browser-first wrappers around memory-related daemon request contracts.
  */
 
-import { invokeCommand, tauriInvoke } from './tauri-client'
+import { requestOptional, requestTyped } from './http-client'
 import type {
   ExportResult,
   MemoryChunk,
@@ -58,148 +58,186 @@ export class UnsupportedMemoryOperationError extends Error {
   }
 }
 
-const DELETE_AGENT_TAG_COMMANDS = [
-  'delete_memory_chunks_for_agent_and_tag',
-  'delete_memory_chunks_for_tag',
-] as const
-
-function isUnsupportedCommandError(error: unknown): boolean {
-  const message = error instanceof Error ? error.message : String(error)
-  return (
-    /unknown command/i.test(message) ||
-    /command .* not found/i.test(message) ||
-    /not implemented/i.test(message) ||
-    /missing required key/i.test(message)
-  )
-}
-
 function isMemoryDataRuntimeError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return /not found/i.test(message) || /agent/i.test(message) || /session/i.test(message)
 }
 
-/** Search memory with default scoring. */
 export async function searchMemory(query: MemorySearchQuery): Promise<RankedSearchResult> {
-  return tauriInvoke('search_memory', { query })
+  return requestTyped<RankedSearchResult>({
+    type: 'SearchMemoryRanked',
+    data: {
+      query,
+      min_score: null,
+      scoring_preset: null,
+    },
+  })
 }
 
-/** Search memory with additional scoring controls. */
 export async function searchMemoryAdvanced(
   request: SearchMemoryRequest,
 ): Promise<RankedSearchResult> {
-  return tauriInvoke('search_memory_advanced', { request })
+  return requestTyped<RankedSearchResult>({
+    type: 'SearchMemoryRanked',
+    data: {
+      query: request.query,
+      min_score: request.min_score ?? null,
+      scoring_preset: request.scoring_preset ?? null,
+    },
+  })
 }
 
-/** Get one memory chunk by id. */
 export async function getMemoryChunk(chunkId: string): Promise<MemoryChunk | null> {
-  return tauriInvoke('get_memory_chunk', { chunkId })
+  return requestOptional<MemoryChunk>({
+    type: 'GetMemoryChunk',
+    data: { id: chunkId },
+  })
 }
 
-/** List memory chunks for one agent. */
 export async function listMemoryChunks(
   agentId: string,
   limit?: number,
   offset?: number,
 ): Promise<MemoryListResponse<MemoryChunk>> {
-  return tauriInvoke('list_memory_chunks', {
-    agentId,
-    limit: limit ?? null,
-    offset: offset ?? null,
+  const chunks = await requestTyped<MemoryChunk[]>({
+    type: 'ListMemory',
+    data: {
+      agent_id: agentId,
+      tag: null,
+    },
   })
+  const effectiveLimit = limit ?? 50
+  const effectiveOffset = offset ?? 0
+  return {
+    items: chunks.slice(effectiveOffset, effectiveOffset + effectiveLimit),
+    total: chunks.length,
+  }
 }
 
-/** List chunks by tag. */
 export async function listMemoryChunksByTag(
   tag: string,
   limit?: number,
 ): Promise<MemoryListResponse<MemoryChunk>> {
-  // This command is already available in generated bindings.
-  return invokeCommand('listMemoryChunksByTag', tag, limit ?? null)
+  const chunks = await requestTyped<MemoryChunk[]>({
+    type: 'ListMemory',
+    data: {
+      agent_id: null,
+      tag,
+    },
+  })
+  const effectiveLimit = limit ?? 50
+  return {
+    items: chunks.slice(0, effectiveLimit),
+    total: chunks.length,
+  }
 }
 
-/** List chunks in one memory session. */
 export async function listMemoryChunksForSession(sessionId: string): Promise<MemoryChunk[]> {
-  // This command is already available in generated bindings.
-  return invokeCommand('listMemoryChunksForSession', sessionId)
+  return requestTyped<MemoryChunk[]>({
+    type: 'ListMemoryBySession',
+    data: { session_id: sessionId },
+  })
 }
 
-/** Create one memory chunk manually. */
 export async function createMemoryChunk(request: CreateMemoryChunkRequest): Promise<MemoryChunk> {
-  return tauriInvoke('create_memory_chunk', {
-    request: {
-      agent_id: request.agent_id,
-      content: request.content,
-      session_id: request.session_id ?? null,
-      tags: request.tags ?? [],
+  return requestTyped<MemoryChunk>({
+    type: 'CreateMemoryChunk',
+    data: {
+      chunk: {
+        agent_id: request.agent_id,
+        content: request.content,
+        session_id: request.session_id ?? null,
+        tags: request.tags ?? [],
+      },
     },
   })
 }
 
-/** Delete one memory chunk by id. */
 export async function deleteMemoryChunk(chunkId: string): Promise<boolean> {
-  return tauriInvoke('delete_memory_chunk', { chunkId })
+  const response = await requestTyped<{ deleted: boolean }>({
+    type: 'DeleteMemory',
+    data: { id: chunkId },
+  })
+  return response.deleted
 }
 
-/** Delete all chunks for one agent namespace. */
 export async function deleteMemoryChunksForAgent(agentId: string): Promise<number> {
-  return tauriInvoke('delete_memory_chunks_for_agent', { agentId })
+  const response = await requestTyped<{ deleted: number }>({
+    type: 'ClearMemory',
+    data: { agent_id: agentId },
+  })
+  return response.deleted
 }
 
-/** List memory sessions for one agent namespace. */
 export async function listMemorySessions(agentId: string): Promise<MemorySession[]> {
-  // This command is already available in generated bindings.
-  return invokeCommand('listMemorySessions', agentId)
+  return requestTyped<MemorySession[]>({
+    type: 'ListMemorySessions',
+    data: { agent_id: agentId },
+  })
 }
 
-/** Get one memory session by id. */
 export async function getMemorySession(sessionId: string): Promise<MemorySession | null> {
-  return tauriInvoke('get_memory_session', { sessionId })
+  return requestOptional<MemorySession>({
+    type: 'GetMemorySession',
+    data: { session_id: sessionId },
+  })
 }
 
-/** Create one memory session. */
 export async function createMemorySession(
   request: CreateMemorySessionRequest,
 ): Promise<MemorySession> {
-  return tauriInvoke('create_memory_session', {
-    request: {
-      agent_id: request.agent_id,
-      name: request.name,
-      description: request.description ?? null,
-      tags: request.tags ?? [],
+  return requestTyped<MemorySession>({
+    type: 'CreateMemorySession',
+    data: {
+      session: {
+        agent_id: request.agent_id,
+        name: request.name,
+        description: request.description ?? null,
+        tags: request.tags ?? [],
+      },
     },
   })
 }
 
-/** Delete one memory session. */
 export async function deleteMemorySession(
   sessionId: string,
   deleteChunks = true,
 ): Promise<boolean> {
-  return tauriInvoke('delete_memory_session', {
-    sessionId,
-    deleteChunks,
+  const response = await requestTyped<{ deleted: boolean }>({
+    type: 'DeleteMemorySession',
+    data: {
+      session_id: sessionId,
+      delete_chunks: deleteChunks,
+    },
+  })
+  return response.deleted
+}
+
+export async function getMemoryStats(agentId: string): Promise<MemoryStats> {
+  return requestTyped<MemoryStats>({
+    type: 'GetMemoryStats',
+    data: { agent_id: agentId },
   })
 }
 
-/** Get memory stats for one agent namespace. */
-export async function getMemoryStats(agentId: string): Promise<MemoryStats> {
-  return tauriInvoke('get_memory_stats', { agentId })
-}
-
-/** Export memory for one agent namespace. */
 export async function exportMemoryMarkdown(agentId: string): Promise<ExportResult> {
-  return tauriInvoke('export_memory_markdown', { agentId })
+  return requestTyped<ExportResult>({
+    type: 'ExportMemory',
+    data: { agent_id: agentId },
+  })
 }
 
-/** Export one memory session. */
 export async function exportMemorySessionMarkdown(sessionId: string): Promise<ExportResult> {
-  return tauriInvoke('export_memory_session_markdown', { sessionId })
+  return requestTyped<ExportResult>({
+    type: 'ExportMemorySession',
+    data: { session_id: sessionId },
+  })
 }
 
-/** Export memory with custom options. */
 export async function exportMemoryAdvanced(request: ExportMemoryRequest): Promise<ExportResult> {
-  return tauriInvoke('export_memory_advanced', {
-    request: {
+  return requestTyped<ExportResult>({
+    type: 'ExportMemoryAdvanced',
+    data: {
       agent_id: request.agent_id,
       session_id: request.session_id ?? null,
       preset: request.preset ?? null,
@@ -211,27 +249,15 @@ export async function exportMemoryAdvanced(request: ExportMemoryRequest): Promis
   })
 }
 
-/** Delete all memory chunks for one agent/tag scope (if command exists). */
-export async function deleteMemoryChunksForAgentTag(agentId: string, tag: string): Promise<number> {
-  let lastUnsupportedError: unknown
-  for (const command of DELETE_AGENT_TAG_COMMANDS) {
-    try {
-      return await tauriInvoke<number>(command, { agentId, tag })
-    } catch (error) {
-      if (isUnsupportedCommandError(error)) {
-        lastUnsupportedError = error
-        continue
-      }
-      throw error
-    }
-  }
-
+export async function deleteMemoryChunksForAgentTag(
+  _agentId: string,
+  _tag: string,
+): Promise<number> {
   throw new UnsupportedMemoryOperationError(
-    `Delete memory chunks by agent/tag is not supported (${String(lastUnsupportedError ?? '')})`,
+    'Delete memory chunks by agent/tag is not supported by the daemon HTTP API',
   )
 }
 
-/** Check whether advanced export command is available in current backend. */
 export async function supportsExportMemoryAdvanced(): Promise<boolean> {
   try {
     await exportMemoryAdvanced({
@@ -245,36 +271,22 @@ export async function supportsExportMemoryAdvanced(): Promise<boolean> {
     })
     return true
   } catch (error) {
-    if (isUnsupportedCommandError(error)) {
-      return false
-    }
     return !isMemoryDataRuntimeError(error)
   }
 }
 
-/** Check whether delete-by-agent-and-tag command is available in current backend. */
 export async function supportsDeleteMemoryChunksForAgentTag(): Promise<boolean> {
-  try {
-    await deleteMemoryChunksForAgentTag('__memory_capability_probe__', '__capability_tag__')
-    return true
-  } catch (error) {
-    if (error instanceof UnsupportedMemoryOperationError) {
-      return false
-    }
-    return !isMemoryDataRuntimeError(error)
-  }
+  return false
 }
 
 export function isUnsupportedMemoryOperationError(error: unknown): boolean {
   return error instanceof UnsupportedMemoryOperationError
 }
 
-/** Build the memory tag used by background agent tasks. */
 export function getBackgroundAgentMemoryTag(taskId: string): string {
   return `task:${taskId}`
 }
 
-/** List memory chunks for one background task id. */
 export async function listBackgroundAgentMemory(
   taskId: string,
   limit?: number,
