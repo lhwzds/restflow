@@ -30,6 +30,13 @@ pub(crate) fn invalid_request_response(error: anyhow::Error) -> IpcResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{
+        BackgroundAgentSpec as CoreBackgroundAgentSpec, ExecutionMode as CoreExecutionMode,
+    };
+    use restflow_contracts::request::{
+        BackgroundAgentSpec as ContractBackgroundAgentSpec, ExecutionMode as ContractExecutionMode,
+        TaskSchedule,
+    };
     use serde::{Deserialize, Serialize};
 
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -76,5 +83,79 @@ mod tests {
                 enabled: false,
             }
         );
+    }
+
+    #[test]
+    fn from_contract_preserves_background_agent_defaults() {
+        let contract: ContractBackgroundAgentSpec = serde_json::from_value(serde_json::json!({
+            "name": "nightly",
+            "agent_id": "agent-1",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            },
+            "execution_mode": {
+                "type": "cli",
+                "binary": "claude"
+            },
+            "memory": {},
+            "resource_limits": {}
+        }))
+        .expect("contract background spec");
+
+        let core: CoreBackgroundAgentSpec = from_contract(contract).expect("core background spec");
+
+        match core.execution_mode {
+            Some(CoreExecutionMode::Cli(config)) => {
+                assert_eq!(
+                    config.timeout_secs,
+                    crate::models::CliExecutionConfig::default().timeout_secs
+                );
+            }
+            other => panic!("expected cli execution mode, got {other:?}"),
+        }
+
+        let memory = core.memory.expect("memory");
+        assert_eq!(memory, crate::models::MemoryConfig::default());
+
+        let limits = core.resource_limits.expect("resource limits");
+        assert_eq!(limits, crate::models::ResourceLimits::default());
+    }
+
+    #[test]
+    fn to_contract_preserves_background_agent_shape() {
+        let core = CoreBackgroundAgentSpec {
+            name: "nightly".to_string(),
+            agent_id: "agent-1".to_string(),
+            chat_session_id: None,
+            description: None,
+            input: Some("run".to_string()),
+            input_template: None,
+            schedule: crate::models::BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: Some(CoreExecutionMode::Cli(
+                crate::models::CliExecutionConfig::default(),
+            )),
+            timeout_secs: None,
+            memory: Some(crate::models::MemoryConfig::default()),
+            durability_mode: None,
+            resource_limits: Some(crate::models::ResourceLimits::default()),
+            prerequisites: Vec::new(),
+            continuation: None,
+        };
+
+        let contract: ContractBackgroundAgentSpec =
+            to_contract(core).expect("contract background spec");
+        assert_eq!(contract.schedule, TaskSchedule::default());
+        match contract.execution_mode {
+            Some(ContractExecutionMode::Cli(config)) => {
+                assert_eq!(
+                    config.timeout_secs,
+                    crate::models::CliExecutionConfig::default().timeout_secs
+                );
+            }
+            other => panic!("expected cli execution mode, got {other:?}"),
+        }
     }
 }
