@@ -60,7 +60,7 @@ impl RestFlowMcpServer {
                         .await
                         .map_err(|e| format!("Failed to get task: {}", e))?;
                     let session_id = if task.chat_session_id.trim().is_empty() {
-                        task_id.clone()
+                        task.id.clone()
                     } else {
                         task.chat_session_id.clone()
                     };
@@ -73,7 +73,6 @@ impl RestFlowMcpServer {
                         Vec::new()
                     } else {
                         let mut task = task;
-                        task.id = task_id;
                         task.chat_session_id = session_id;
                         vec![task]
                     }

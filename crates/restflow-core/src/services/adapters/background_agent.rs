@@ -155,11 +155,19 @@ impl BackgroundAgentStoreAdapter {
         Ok(self.storage.resolve_existing_task_id(id_or_prefix)?)
     }
 
+    fn resolve_task(
+        &self,
+        id_or_prefix: &str,
+    ) -> Result<crate::models::BackgroundAgent, ToolError> {
+        let resolved_id = self.resolve_task_id(id_or_prefix)?;
+        self.storage
+            .get_task(&resolved_id)?
+            .ok_or_else(|| ToolError::Tool(format!("background agent {} not found", resolved_id)))
+    }
+
     fn task_trace_target(&self, task_id_or_prefix: &str) -> Result<(String, String), ToolError> {
-        let resolved_id = self.resolve_task_id(task_id_or_prefix)?;
-        let task = self.storage.get_task(&resolved_id)?.ok_or_else(|| {
-            ToolError::Tool(format!("background agent {} not found", resolved_id))
-        })?;
+        let task = self.resolve_task(task_id_or_prefix)?;
+        let resolved_id = task.id.clone();
         let session_id = task.chat_session_id.trim();
         let session_id = if session_id.is_empty() {
             task.id.clone()
@@ -321,7 +329,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
     fn delete_background_agent(&self, id: &str) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(id)?;
         let deleted = self.storage.delete_task(&resolved_id)?;
-        Ok(json!({ "id": id, "deleted": deleted }))
+        Ok(json!({ "id": resolved_id, "deleted": deleted }))
     }
 
     fn list_background_agents(&self, status: Option<String>) -> restflow_tools::Result<Value> {
@@ -393,7 +401,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentDeliverableListRequest,
     ) -> restflow_tools::Result<Value> {
-        let items = self.deliverable_storage.list_by_task(&request.id)?;
+        let resolved_id = self.resolve_task_id(&request.id)?;
+        let items = self.deliverable_storage.list_by_task(&resolved_id)?;
         Ok(serde_json::to_value(items)?)
     }
 
@@ -714,6 +723,33 @@ mod tests {
     }
 
     #[test]
+    fn test_delete_background_agent_returns_resolved_id_for_prefix() {
+        let (adapter, _dir, _guard) = setup();
+        let agent_id = get_agent_id(&adapter);
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Delete Prefix".to_string(),
+                agent_id,
+                chat_session_id: None,
+                input: Some("task to delete".to_string()),
+                input_template: None,
+                schedule: None,
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+            })
+            .unwrap();
+        let id = created["id"].as_str().unwrap().to_string();
+        let prefix = &id[..8];
+
+        let result = adapter.delete_background_agent(prefix).unwrap();
+        assert_eq!(result["id"], id);
+        assert_eq!(result["deleted"], true);
+    }
+
+    #[test]
     fn test_send_and_list_messages() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
@@ -750,6 +786,36 @@ mod tests {
             .unwrap();
         let msgs = messages.as_array().unwrap();
         assert!(!msgs.is_empty());
+    }
+
+    #[test]
+    fn test_list_background_agent_deliverables_resolves_prefix() {
+        let (adapter, _dir, _guard) = setup();
+        let agent_id = get_agent_id(&adapter);
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Deliverables".to_string(),
+                agent_id,
+                chat_session_id: None,
+                input: Some("deliverables task".to_string()),
+                input_template: None,
+                schedule: None,
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+            })
+            .unwrap();
+        let id = created["id"].as_str().unwrap().to_string();
+        let prefix = &id[..8];
+
+        let value = adapter
+            .list_background_agent_deliverables(BackgroundAgentDeliverableListRequest {
+                id: prefix.to_string(),
+            })
+            .unwrap();
+        assert!(value.as_array().is_some());
     }
 
     #[test]
