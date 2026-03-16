@@ -1,5 +1,9 @@
 .DS_Store
-target/
+
+# Cargo build output
+/target/
+/target-*/
+/crates/*/target/stress-artifacts/
 /node_modules/
 
 # Internal development documentation

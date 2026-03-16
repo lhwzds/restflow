@@ -1428,6 +1428,10 @@ approval_timeout_secs: number;
  */
 max_iterations: number; 
 /**
+ * Maximum nesting depth for sub-agents.
+ */
+max_depth: number; 
+/**
  * Default timeout for sub-agent execution in seconds.
  */
 subagent_timeout_secs: number; 
