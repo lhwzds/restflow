@@ -1,43 +1,51 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { tauriInvoke } from '../tauri-client'
+import { requestOptional, requestTyped } from '../http-client'
 import { getSystemConfig, hasSecretKey, updateSystemConfig } from '../config'
 
-vi.mock('../tauri-client', () => ({
-  tauriInvoke: vi.fn(),
+vi.mock('../http-client', () => ({
+  requestOptional: vi.fn(),
+  requestTyped: vi.fn(),
 }))
 
-const mockedTauriInvoke = vi.mocked(tauriInvoke)
+const mockedRequestTyped = vi.mocked(requestTyped)
+const mockedRequestOptional = vi.mocked(requestOptional)
 
 describe('config API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('loads system config via tauri command', async () => {
-    mockedTauriInvoke.mockResolvedValue({ key: 'value' })
+  it('loads system config via daemon request contract', async () => {
+    mockedRequestTyped.mockResolvedValue({ key: 'value' })
 
     const result = await getSystemConfig()
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('get_config')
+    expect(mockedRequestTyped).toHaveBeenCalledWith({ type: 'GetConfig' })
     expect(result).toEqual({ key: 'value' })
   })
 
-  it('updates system config via tauri command', async () => {
+  it('updates system config via daemon request contract', async () => {
     const payload = { memory: { enabled: true } }
-    mockedTauriInvoke.mockResolvedValue(payload)
+    mockedRequestTyped.mockResolvedValue(undefined)
 
     const result = await updateSystemConfig(payload)
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('update_config', { config: payload })
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'SetConfig',
+      data: { config: payload },
+    })
     expect(result).toEqual(payload)
   })
 
-  it('checks secret existence via tauri command', async () => {
-    mockedTauriInvoke.mockResolvedValue(true)
+  it('checks secret existence via GetSecret', async () => {
+    mockedRequestOptional.mockResolvedValue({ value: 'secret' })
 
     const result = await hasSecretKey('OPENAI_API_KEY')
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('has_secret', { key: 'OPENAI_API_KEY' })
+    expect(mockedRequestOptional).toHaveBeenCalledWith({
+      type: 'GetSecret',
+      data: { key: 'OPENAI_API_KEY' },
+    })
     expect(result).toBe(true)
   })
 })

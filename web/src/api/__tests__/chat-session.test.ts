@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { invokeCommand } from '../tauri-client'
 import {
   addChatMessage,
   archiveChatSession,
@@ -17,57 +16,82 @@ import {
   subscribeSessionEvents,
   updateChatSession,
 } from '@/api/chat-session'
+import { requestTyped, streamClient } from '../http-client'
+import type { StreamFrame } from '@/types/generated/StreamFrame'
 
-const listenMock = vi.fn()
-
-vi.mock('../tauri-client', () => ({
-  isTauri: vi.fn(() => true),
-  invokeCommand: vi.fn(),
+vi.mock('../http-client', () => ({
+  requestTyped: vi.fn(),
+  streamClient: vi.fn(),
 }))
 
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: (...args: unknown[]) => listenMock(...args),
-}))
+async function* createFrames(frames: StreamFrame[]): AsyncGenerator<StreamFrame> {
+  for (const frame of frames) {
+    yield frame
+  }
+}
 
-const mockedInvokeCommand = vi.mocked(invokeCommand)
+async function flushPromises(turns = 4): Promise<void> {
+  for (let index = 0; index < turns; index += 1) {
+    await Promise.resolve()
+  }
+}
 
-describe('Chat Session API', () => {
+describe('chat session API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    listenMock.mockReset()
   })
 
   it('creates session and maps optional fields to null', async () => {
-    mockedInvokeCommand.mockResolvedValue({ id: 'session-1' })
+    vi.mocked(requestTyped).mockResolvedValue({ id: 'session-1' })
 
     await createChatSession({
       agentId: 'agent-1',
       model: 'gpt-5',
     })
 
-    expect(mockedInvokeCommand).toHaveBeenCalledWith(
-      'createChatSession',
-      'agent-1',
-      'gpt-5',
-      null,
-      null,
-    )
-  })
-
-  it('updates session and normalizes undefined fields to null', async () => {
-    mockedInvokeCommand.mockResolvedValue({ id: 'session-1' })
-
-    await updateChatSession('session-1', { name: 'renamed' })
-
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('updateChatSession', 'session-1', {
-      agentId: null,
-      model: null,
-      name: 'renamed',
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'CreateSession',
+      data: {
+        agent_id: 'agent-1',
+        model: 'gpt-5',
+        name: null,
+        skill_id: null,
+      },
     })
   })
 
-  it('forwards all CRUD and messaging commands', async () => {
-    mockedInvokeCommand.mockResolvedValue(true)
+  it('updates session and normalizes undefined fields to null', async () => {
+    vi.mocked(requestTyped).mockResolvedValue({ id: 'session-1' })
+
+    await updateChatSession('session-1', { name: 'renamed' })
+
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'UpdateSession',
+      data: {
+        id: 'session-1',
+        updates: {
+          agentId: null,
+          model: null,
+          name: 'renamed',
+        },
+      },
+    })
+  })
+
+  it('forwards CRUD and messaging requests', async () => {
+    vi.mocked(requestTyped)
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ id: 'session-1' })
+      .mockResolvedValueOnce({ id: 'session-1' })
+      .mockResolvedValueOnce({ deleted: true })
+      .mockResolvedValueOnce({ archived: true })
+      .mockResolvedValueOnce({ id: 'session-1' })
+      .mockResolvedValueOnce({ id: 'session-1' })
+      .mockResolvedValueOnce({ id: 'session-1' })
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce({ id: 'session-1' })
 
     await listChatSessions()
     await listChatSessionSummaries()
@@ -82,47 +106,76 @@ describe('Chat Session API', () => {
     await listChatSessionsBySkill('skill-1')
     await executeChatSession('session-1')
 
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('listChatSessions')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('listChatSessionSummaries')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('getChatSession', 'session-1')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('renameChatSession', 'session-1', 'new name')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('deleteChatSession', 'session-1')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('archiveChatSession', 'session-1')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('rebuildExternalChatSession', 'session-1')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith(
-      'addChatMessage',
-      'session-1',
-      expect.objectContaining({ role: 'user' }),
-    )
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('sendChatMessage', 'session-1', 'hello')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('listChatSessionsByAgent', 'agent-1')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('listChatSessionsBySkill', 'skill-1')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('executeChatSession', 'session-1')
+    expect(requestTyped).toHaveBeenCalledWith({ type: 'ListFullSessions' })
+    expect(requestTyped).toHaveBeenCalledWith({ type: 'ListSessions' })
+    expect(requestTyped).toHaveBeenCalledWith({ type: 'GetSession', data: { id: 'session-1' } })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'RenameSession',
+      data: { id: 'session-1', name: 'new name' },
+    })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'DeleteSession',
+      data: { id: 'session-1' },
+    })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ArchiveSession',
+      data: { id: 'session-1' },
+    })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'RebuildExternalSession',
+      data: { id: 'session-1' },
+    })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'AppendMessage',
+      data: {
+        session_id: 'session-1',
+        message: expect.objectContaining({ role: 'user' }),
+      },
+    })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'AddMessage',
+      data: { session_id: 'session-1', role: 'user', content: 'hello' },
+    })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ListSessionsByAgent',
+      data: { agent_id: 'agent-1' },
+    })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ListSessionsBySkill',
+      data: { skill_id: 'skill-1' },
+    })
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ExecuteChatSession',
+      data: { session_id: 'session-1', user_input: null },
+    })
   })
 
-  it('subscribes with dynamic event name and forwards payload', async () => {
+  it('subscribes to daemon session events over the shared stream endpoint', async () => {
     const callback = vi.fn()
-    const unlisten = vi.fn()
+    vi.mocked(streamClient).mockReturnValue(
+      createFrames([
+        {
+          stream_type: 'event',
+          data: { event: { session: { type: 'Updated', session_id: 'session-1' } } },
+        } as StreamFrame,
+        { stream_type: 'done', data: { total_tokens: null } } as StreamFrame,
+      ]),
+    )
 
-    mockedInvokeCommand.mockResolvedValueOnce('session-change-event')
-    listenMock.mockResolvedValue(unlisten)
+    const unlisten = await subscribeSessionEvents(callback)
+    await flushPromises()
 
-    const result = await subscribeSessionEvents(callback)
-
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('getSessionChangeEventName')
-    expect(listenMock).toHaveBeenCalledWith('session-change-event', expect.any(Function))
-
-    const listener = listenMock.mock.calls[0]?.[1] as
-      | ((event: { payload: unknown }) => void)
-      | undefined
-    expect(listener).toBeTypeOf('function')
-    listener?.({ payload: { type: 'Updated', session_id: 'session-1' } })
+    expect(streamClient).toHaveBeenCalledWith(
+      { type: 'SubscribeSessionEvents' },
+      expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    )
     expect(callback).toHaveBeenCalledWith({ type: 'Updated', session_id: 'session-1' })
-    expect(result).toBe(unlisten)
+
+    unlisten()
   })
 
-  it('propagates invoke errors', async () => {
-    mockedInvokeCommand.mockRejectedValue(new Error('session not found'))
+  it('propagates request errors', async () => {
+    vi.mocked(requestTyped).mockRejectedValue(new Error('session not found'))
 
     await expect(getChatSession('missing')).rejects.toThrow('session not found')
   })

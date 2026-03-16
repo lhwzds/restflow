@@ -1,52 +1,70 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { invokeCommand } from '../tauri-client'
-import { cancelChatStream, sendChatMessageStream, steerChatStream } from '@/api/chat-stream'
+import { cancelChatStream, openChatStream, steerChatStream } from '@/api/chat-stream'
+import { requestTyped, streamClient } from '../http-client'
+import type { StreamFrame } from '@/types/generated/StreamFrame'
 
-vi.mock('../tauri-client', () => ({
-  isTauri: vi.fn(() => true),
-  invokeCommand: vi.fn(),
+vi.mock('../http-client', () => ({
+  requestTyped: vi.fn(),
+  streamClient: vi.fn(),
 }))
 
-const mockedInvokeCommand = vi.mocked(invokeCommand)
+async function* createFrames(frames: StreamFrame[]): AsyncGenerator<StreamFrame> {
+  for (const frame of frames) {
+    yield frame
+  }
+}
 
-describe('Chat Stream API', () => {
+describe('chat stream API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('crypto', { randomUUID: () => 'stream-123' })
   })
 
-  it('sends streaming chat message with session and content', async () => {
-    mockedInvokeCommand.mockResolvedValue('msg-123')
+  it('opens a chat stream using daemon stream contracts', async () => {
+    const frames = createFrames([{ stream_type: 'start', data: { stream_id: 'stream-123' } }])
+    vi.mocked(streamClient).mockReturnValue(frames)
 
-    const result = await sendChatMessageStream('session-1', 'hello')
+    const handle = openChatStream('session-1', 'hello')
+    const first = await handle.frames.next()
 
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('sendChatMessageStream', 'session-1', 'hello')
-    expect(result).toBe('msg-123')
+    expect(handle.streamId).toBe('stream-123')
+    expect(streamClient).toHaveBeenCalledWith(
+      {
+        type: 'ExecuteChatSessionStream',
+        data: {
+          session_id: 'session-1',
+          user_input: 'hello',
+          stream_id: 'stream-123',
+        },
+      },
+      { signal: undefined },
+    )
+    expect(first.value).toEqual({ stream_type: 'start', data: { stream_id: 'stream-123' } })
   })
 
-  it('cancels stream with session and message id', async () => {
-    mockedInvokeCommand.mockResolvedValue(undefined)
+  it('cancels an active stream by stream id', async () => {
+    vi.mocked(requestTyped).mockResolvedValue(null)
 
-    await cancelChatStream('session-1', 'msg-123')
+    await cancelChatStream('stream-123')
 
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('cancelChatStream', 'session-1', 'msg-123')
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'CancelChatSessionStream',
+      data: { stream_id: 'stream-123' },
+    })
   })
 
-  it('sends steering instruction for active stream', async () => {
-    mockedInvokeCommand.mockResolvedValue(true)
+  it('sends steering instructions through request contracts', async () => {
+    vi.mocked(requestTyped).mockResolvedValue({ steered: true })
 
     const result = await steerChatStream('session-1', 'focus on latest error')
 
-    expect(mockedInvokeCommand).toHaveBeenCalledWith(
-      'steerChatStream',
-      'session-1',
-      'focus on latest error',
-    )
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'SteerChatSessionStream',
+      data: {
+        session_id: 'session-1',
+        instruction: 'focus on latest error',
+      },
+    })
     expect(result).toBe(true)
-  })
-
-  it('propagates invoke errors', async () => {
-    mockedInvokeCommand.mockRejectedValue(new Error('stream unavailable'))
-
-    await expect(sendChatMessageStream('session-1', 'test')).rejects.toThrow('stream unavailable')
   })
 })

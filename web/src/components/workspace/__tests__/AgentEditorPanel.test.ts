@@ -4,7 +4,7 @@ import AgentEditorPanel from '../AgentEditorPanel.vue'
 
 const mockGetAgent = vi.fn()
 const mockUpdateAgent = vi.fn()
-const mockTauriInvoke = vi.fn()
+const mockGetAvailableTools = vi.fn()
 const mockListSkills = vi.fn()
 
 vi.mock('vue-i18n', () => ({
@@ -19,7 +19,7 @@ vi.mock('@/api/agents', () => ({
 }))
 
 vi.mock('@/api/config', () => ({
-  tauriInvoke: (...args: unknown[]) => mockTauriInvoke(...args),
+  getAvailableTools: (...args: unknown[]) => mockGetAvailableTools(...args),
 }))
 
 vi.mock('@/api/skills', () => ({
@@ -72,7 +72,7 @@ describe('AgentEditorPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockUpdateAgent.mockResolvedValue(baseAgent())
-    mockTauriInvoke.mockResolvedValue([
+    mockGetAvailableTools.mockResolvedValue([
       { name: 'bash', description: 'Tool: bash' },
       { name: 'web_search', description: 'Tool: web_search' },
       { name: 'file', description: 'Tool: file' },

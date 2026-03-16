@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { transcribeAudio, transcribeAudioStream, saveVoiceMessage } from '../voice'
-import { invokeCommand } from '../tauri-client'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchJson } from '../http-client'
+import { readMediaFile, saveVoiceMessage, transcribeAudio } from '../voice'
 
-vi.mock('../tauri-client', () => ({
-  invokeCommand: vi.fn(),
+vi.mock('../http-client', () => ({
+  fetchJson: vi.fn(),
 }))
 
 describe('voice API', () => {
@@ -11,72 +11,49 @@ describe('voice API', () => {
     vi.clearAllMocks()
   })
 
-  describe('transcribeAudio', () => {
-    it('should call transcribe_audio with correct arguments', async () => {
-      const mockInvokeCommand = vi.mocked(invokeCommand)
-      mockInvokeCommand.mockResolvedValue({ text: 'Hello world', model: 'whisper-1' })
+  it('posts audio transcription requests to the daemon', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({ text: 'Hello world', model: 'whisper-1' })
 
-      const result = await transcribeAudio('base64data', 'whisper-1', 'en')
+    const result = await transcribeAudio('base64data', 'whisper-1', 'en')
 
-      expect(mockInvokeCommand).toHaveBeenCalledWith(
-        'transcribeAudio',
-        'base64data',
-        'whisper-1',
-        'en',
-      )
-      expect(result).toEqual({ text: 'Hello world', model: 'whisper-1' })
+    expect(fetchJson).toHaveBeenCalledWith('/api/voice/transcribe', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        audio_base64: 'base64data',
+        model: 'whisper-1',
+        language: 'en',
+      }),
     })
-
-    it('should pass null for optional params when not provided', async () => {
-      const mockInvokeCommand = vi.mocked(invokeCommand)
-      mockInvokeCommand.mockResolvedValue({ text: 'test', model: 'gpt-4o-mini-transcribe' })
-
-      await transcribeAudio('base64data')
-
-      expect(mockInvokeCommand).toHaveBeenCalledWith('transcribeAudio', 'base64data', null, null)
-    })
+    expect(result).toEqual({ text: 'Hello world', model: 'whisper-1' })
   })
 
-  describe('transcribeAudioStream', () => {
-    it('should call transcribe_audio_stream and return transcribe_id', async () => {
-      const mockInvokeCommand = vi.mocked(invokeCommand)
-      mockInvokeCommand.mockResolvedValue('abc-123-transcribe-id')
+  it('saves voice messages through the daemon HTTP API', async () => {
+    vi.mocked(fetchJson).mockResolvedValue('/tmp/voice.webm')
 
-      const result = await transcribeAudioStream('base64data', 'gpt-4o-mini-transcribe', 'en')
+    const result = await saveVoiceMessage('base64data')
 
-      expect(mockInvokeCommand).toHaveBeenCalledWith(
-        'transcribeAudioStream',
-        'base64data',
-        'gpt-4o-mini-transcribe',
-        'en',
-      )
-      expect(result).toBe('abc-123-transcribe-id')
+    expect(fetchJson).toHaveBeenCalledWith('/api/voice/save', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        audio_base64: 'base64data',
+        session_id: null,
+      }),
     })
-
-    it('should pass null for optional params when not provided', async () => {
-      const mockInvokeCommand = vi.mocked(invokeCommand)
-      mockInvokeCommand.mockResolvedValue('some-id')
-
-      await transcribeAudioStream('base64data')
-
-      expect(mockInvokeCommand).toHaveBeenCalledWith(
-        'transcribeAudioStream',
-        'base64data',
-        null,
-        null,
-      )
-    })
+    expect(result).toBe('/tmp/voice.webm')
   })
 
-  describe('saveVoiceMessage', () => {
-    it('should call save_voice_message and return file path', async () => {
-      const mockInvokeCommand = vi.mocked(invokeCommand)
-      mockInvokeCommand.mockResolvedValue('/home/user/.restflow/media/voice-abc123.webm')
+  it('reads media files through the daemon HTTP API', async () => {
+    vi.mocked(fetchJson).mockResolvedValue('encoded-audio')
 
-      const result = await saveVoiceMessage('base64data')
+    const result = await readMediaFile('/tmp/voice.webm')
 
-      expect(mockInvokeCommand).toHaveBeenCalledWith('saveVoiceMessage', 'base64data', null)
-      expect(result).toBe('/home/user/.restflow/media/voice-abc123.webm')
+    expect(fetchJson).toHaveBeenCalledWith('/api/voice/read', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ file_path: '/tmp/voice.webm' }),
     })
+    expect(result).toBe('encoded-audio')
   })
 })

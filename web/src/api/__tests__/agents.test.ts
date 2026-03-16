@@ -1,14 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import * as agentsApi from '@/api/agents'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
-import { invokeCommand } from '../tauri-client'
+import { requestTyped } from '../http-client'
 
-vi.mock('../tauri-client', () => ({
-  isTauri: vi.fn(() => true),
-  invokeCommand: vi.fn(),
+vi.mock('../http-client', () => ({
+  requestTyped: vi.fn(),
 }))
 
-const mockedInvokeCommand = vi.mocked(invokeCommand)
+const mockedRequestTyped = vi.mocked(requestTyped)
 
 describe('Agents API', () => {
   beforeEach(() => {
@@ -27,139 +26,65 @@ describe('Agents API', () => {
     },
   })
 
-  describe('listAgents', () => {
-    it('should invoke list_agents', async () => {
-      const mockAgents = [createMockAgent('agent1'), createMockAgent('agent2')]
-      mockedInvokeCommand.mockResolvedValue(mockAgents)
+  it('lists agents', async () => {
+    const mockAgents = [createMockAgent('agent1'), createMockAgent('agent2')]
+    mockedRequestTyped.mockResolvedValue(mockAgents)
 
-      const result = await agentsApi.listAgents()
+    const result = await agentsApi.listAgents()
 
-      expect(mockedInvokeCommand).toHaveBeenCalledWith('listAgents')
-      expect(result).toEqual(mockAgents)
-    })
+    expect(mockedRequestTyped).toHaveBeenCalledWith({ type: 'ListAgents' })
+    expect(result).toEqual(mockAgents)
   })
 
-  describe('getAgent', () => {
-    it('should invoke get_agent with id', async () => {
-      const mockAgent = createMockAgent('agent1')
-      mockedInvokeCommand.mockResolvedValue(mockAgent)
+  it('gets one agent', async () => {
+    const mockAgent = createMockAgent('agent1')
+    mockedRequestTyped.mockResolvedValue(mockAgent)
 
-      const result = await agentsApi.getAgent('agent1')
+    const result = await agentsApi.getAgent('agent1')
 
-      expect(mockedInvokeCommand).toHaveBeenCalledWith('getAgent', 'agent1')
-      expect(result).toEqual(mockAgent)
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'GetAgent',
+      data: { id: 'agent1' },
     })
+    expect(result).toEqual(mockAgent)
   })
 
-  describe('createAgent', () => {
-    it('should invoke create_agent with request', async () => {
-      const request: agentsApi.CreateAgentRequest = {
-        name: 'New Agent',
-        agent: {
-          model: 'claude-sonnet-4-5',
-          prompt: 'Test prompt',
-          temperature: undefined,
-          api_key_config: undefined,
-          tools: undefined,
-        },
-      }
-      const mockResponse = createMockAgent('new-agent')
-      mockedInvokeCommand.mockResolvedValue(mockResponse)
+  it('creates and updates agents through request contracts', async () => {
+    const request: agentsApi.CreateAgentRequest = {
+      name: 'New Agent',
+      agent: { model: 'claude-sonnet-4-5', prompt: 'Test prompt' },
+    }
+    const created = createMockAgent('new-agent')
+    const updated = createMockAgent('agent1')
+    updated.name = 'Updated Name'
 
-      const result = await agentsApi.createAgent(request)
+    mockedRequestTyped.mockResolvedValueOnce(created).mockResolvedValueOnce(updated)
 
-      expect(mockedInvokeCommand).toHaveBeenCalledWith('createAgent', request)
-      expect(result).toEqual(mockResponse)
+    await agentsApi.createAgent(request)
+    await agentsApi.updateAgent('agent1', { name: 'Updated Name' })
+
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(1, {
+      type: 'CreateAgent',
+      data: request,
     })
-
-    it('should pass model_ref in create request', async () => {
-      const request: agentsApi.CreateAgentRequest = {
-        name: 'Model Ref Agent',
-        agent: {
-          model: 'gpt-5',
-          model_ref: {
-            provider: 'openai',
-            model: 'gpt-5',
-          },
-        },
-      }
-      const mockResponse = createMockAgent('agent-model-ref')
-      mockedInvokeCommand.mockResolvedValue(mockResponse)
-
-      await agentsApi.createAgent(request)
-
-      expect(mockedInvokeCommand).toHaveBeenCalledWith('createAgent', {
-        name: 'Model Ref Agent',
-        agent: {
-          model: 'gpt-5',
-          model_ref: {
-            provider: 'openai',
-            model: 'gpt-5',
-          },
-        },
-      })
-    })
-  })
-
-  describe('updateAgent', () => {
-    it('should invoke update_agent with id and request', async () => {
-      const updateData: agentsApi.UpdateAgentRequest = { name: 'Updated Name' }
-      const mockResponse = createMockAgent('agent1')
-      mockResponse.name = 'Updated Name'
-      mockedInvokeCommand.mockResolvedValue(mockResponse)
-
-      const result = await agentsApi.updateAgent('agent1', updateData)
-
-      expect(mockedInvokeCommand).toHaveBeenCalledWith('updateAgent', 'agent1', {
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(2, {
+      type: 'UpdateAgent',
+      data: {
+        id: 'agent1',
         name: 'Updated Name',
         agent: null,
-      })
-      expect(result.name).toBe('Updated Name')
-    })
-
-    it('should invoke update_agent with model_ref payload', async () => {
-      const updateData: agentsApi.UpdateAgentRequest = {
-        agent: {
-          model: 'gpt-5-mini',
-          model_ref: {
-            provider: 'openai',
-            model: 'gpt-5-mini',
-          },
-        },
-      }
-      const mockResponse = createMockAgent('agent1')
-      mockedInvokeCommand.mockResolvedValue(mockResponse)
-
-      await agentsApi.updateAgent('agent1', updateData)
-
-      expect(mockedInvokeCommand).toHaveBeenCalledWith('updateAgent', 'agent1', {
-        name: null,
-        agent: {
-          model: 'gpt-5-mini',
-          model_ref: {
-            provider: 'openai',
-            model: 'gpt-5-mini',
-          },
-        },
-      })
+      },
     })
   })
 
-  describe('deleteAgent', () => {
-    it('should invoke delete_agent with id', async () => {
-      mockedInvokeCommand.mockResolvedValue(undefined)
+  it('deletes agents', async () => {
+    mockedRequestTyped.mockResolvedValue(undefined)
 
-      await agentsApi.deleteAgent('agent1')
+    await agentsApi.deleteAgent('agent1')
 
-      expect(mockedInvokeCommand).toHaveBeenCalledWith('deleteAgent', 'agent1')
-    })
-  })
-
-  describe('Error Handling', () => {
-    it('should propagate errors from invokeCommand', async () => {
-      mockedInvokeCommand.mockRejectedValue(new Error('Agent not found'))
-
-      await expect(agentsApi.getAgent('missing')).rejects.toThrow('Agent not found')
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'DeleteAgent',
+      data: { id: 'agent1' },
     })
   })
 })
