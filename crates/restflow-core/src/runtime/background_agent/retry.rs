@@ -29,6 +29,9 @@
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
+use super::error_classification::{classify_execution_error_message, is_retryable_classification};
+use super::outcome::ExecutionErrorKind;
+
 /// Configuration for the retry mechanism
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetryConfig {
@@ -258,81 +261,12 @@ impl RetryState {
 /// Prefer using `AiError::is_retryable()` when the original error type is available.
 /// This string-based check is a fallback for contexts where only the error message is available.
 pub fn is_transient_error(error: &str) -> bool {
-    let error_lower = error.to_lowercase();
-
-    // Transient error patterns
-    let transient_patterns = [
-        "timeout",
-        "timed out",
-        "connection refused",
-        "connection reset",
-        "error sending request for url",
-        "connection aborted",
-        "broken pipe",
-        "transport error",
-        "connection closed",
-        "network error",
-        "network unreachable",
-        "temporary failure",
-        "temporarily unavailable",
-        "service unavailable",
-        "rate limit",
-        "rate-limit",
-        "too many requests",
-        "429",
-        "502",
-        "503",
-        "504",
-        "gateway timeout",
-        "bad gateway",
-        "overloaded",
-        "capacity",
-        "retry after",
-        "retry-after",
-        "please try again",
-        "internal server error",
-        "500",
-    ];
-
-    // Non-transient error patterns (explicitly not retryable)
-    let non_transient_patterns = [
-        "unauthorized",
-        "authentication",
-        "auth failed",
-        "invalid api key",
-        "invalid token",
-        "forbidden",
-        "access denied",
-        "permission denied",
-        "401",
-        "403",
-        "not found",
-        "404",
-        "bad request",
-        "invalid request",
-        "validation error",
-        "400",
-        "invalid model",
-        "model not found",
-        "configuration error",
-    ];
-
-    // First check if it's explicitly non-transient
-    for pattern in non_transient_patterns {
-        if error_lower.contains(pattern) {
-            return false;
-        }
-    }
-
-    // Then check if it matches transient patterns
-    for pattern in transient_patterns {
-        if error_lower.contains(pattern) {
-            return true;
-        }
-    }
-
-    // Default: unknown errors are not retried
-    false
+    let classification = classify_execution_error_message(error);
+    is_retryable_classification(classification)
+        && matches!(
+            classification.kind,
+            ExecutionErrorKind::RateLimited | ExecutionErrorKind::Timeout
+        )
 }
 
 /// Categorize an error for logging and metrics
@@ -354,34 +288,16 @@ impl ErrorCategory {
     /// Categorize an error message
     pub fn from_error(error: &str) -> Self {
         let error_lower = error.to_lowercase();
-
-        if error_lower.contains("401")
-            || error_lower.contains("403")
-            || error_lower.contains("unauthorized")
-            || error_lower.contains("forbidden")
-            || error_lower.contains("authentication")
-            || error_lower.contains("api key")
-        {
-            return Self::AuthError;
-        }
-
         if error_lower.contains("404") || error_lower.contains("not found") {
             return Self::NotFound;
         }
 
-        if error_lower.contains("400")
-            || error_lower.contains("bad request")
-            || error_lower.contains("validation")
-            || error_lower.contains("invalid")
-        {
-            return Self::ClientError;
+        match classify_execution_error_message(error).kind {
+            ExecutionErrorKind::Authentication => Self::AuthError,
+            ExecutionErrorKind::RateLimited | ExecutionErrorKind::Timeout => Self::Transient,
+            ExecutionErrorKind::Validation => Self::ClientError,
+            _ => Self::Unknown,
         }
-
-        if is_transient_error(error) {
-            return Self::Transient;
-        }
-
-        Self::Unknown
     }
 
     /// Whether this error category should be retried

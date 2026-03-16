@@ -219,12 +219,7 @@ impl CliAgentExecutor {
             "CLI execution completed successfully"
         );
 
-        Ok(ExecutionResult {
-            output: output_trimmed,
-            messages: vec![], // CLI doesn't produce structured messages
-            success: true,
-            compaction: None,
-        })
+        Ok(ExecutionResult::success(output_trimmed, Vec::new()))
     }
 }
 

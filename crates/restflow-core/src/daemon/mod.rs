@@ -12,6 +12,7 @@ pub mod recovery;
 pub mod request_mapper;
 pub(crate) mod session_events;
 mod supervisor;
+pub(crate) mod tool_result_mapper;
 
 pub use background_events::{publish_background_event, subscribe_background_events};
 pub use core_access::CoreAccess;

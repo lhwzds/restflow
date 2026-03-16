@@ -159,12 +159,14 @@
 
 pub mod broadcast_emitter;
 pub mod cli_executor;
+pub mod error_classification;
 pub mod events;
 pub mod executor;
 pub mod failover;
 pub mod heartbeat;
 pub mod model_catalog;
 pub mod notifier;
+pub mod outcome;
 pub mod persist;
 pub mod preflight;
 pub mod reply_sender;
@@ -183,7 +185,7 @@ pub use events::{
     ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TASK_STREAM_EVENT,
     TaskEventEmitter, TaskStreamEvent,
 };
-pub use executor::{AgentRuntimeExecutor, SessionExecutionResult, SessionInputMode};
+pub use executor::{AgentRuntimeExecutor, SessionInputMode};
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
 #[cfg(feature = "tauri-runtime")]
 pub use heartbeat::TauriHeartbeatEmitter;
@@ -192,6 +194,10 @@ pub use heartbeat::{
     HeartbeatWarning, NoopHeartbeatEmitter, RunnerStatus, RunnerStatusEvent, SystemStats,
 };
 pub use notifier::TelegramNotifier;
+pub use outcome::{
+    CompactionMetrics, ExecutionErrorClassification, ExecutionErrorKind, ExecutionFailure,
+    ExecutionMetrics, ExecutionOutcome, RetryClass, SessionExecutionResult,
+};
 pub use persist::{MemoryPersister, PersistConfig, PersistResult};
 pub use reply_sender::BackgroundReplySenderFactory;
 pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};

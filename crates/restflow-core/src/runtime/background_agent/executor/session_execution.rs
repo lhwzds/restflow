@@ -309,11 +309,13 @@ impl AgentRuntimeExecutor {
             ));
         }
 
-        Ok(SessionExecutionResult {
-            output: result.answer.unwrap_or_default(),
-            iterations: result.iterations as u32,
-            active_model: swappable.current_model(),
-        })
+        let mut execution = SessionExecutionResult::new(
+            result.answer.unwrap_or_default(),
+            result.iterations as u32,
+            swappable.current_model(),
+        );
+        execution.metrics.message_count = result.state.messages.len();
+        Ok(execution)
     }
 
     #[allow(clippy::too_many_arguments)]

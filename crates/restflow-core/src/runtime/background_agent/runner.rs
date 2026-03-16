@@ -20,7 +20,7 @@ use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::steer::SteerRegistry;
 use crate::storage::{BackgroundAgentStorage, MemoryStorage};
 use anyhow::{Result, anyhow};
-use restflow_ai::{agent::StreamEmitter, llm::Message};
+use restflow_ai::agent::StreamEmitter;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -43,36 +43,14 @@ use super::heartbeat::{
     HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse, NoopHeartbeatEmitter, RunnerStatus,
     RunnerStatusEvent,
 };
+use super::outcome::ExecutionOutcome;
 mod notification;
 mod persistence;
 
 #[cfg(test)]
 mod tests;
 
-/// Result of agent execution including conversation messages.
-///
-/// This extended result allows the runner to persist the conversation
-/// to long-term memory after task completion.
-#[derive(Debug, Clone)]
-pub struct ExecutionResult {
-    /// The final output/answer from the agent
-    pub output: String,
-    /// All messages from the conversation (for memory persistence)
-    pub messages: Vec<Message>,
-    /// Whether the execution was successful
-    pub success: bool,
-    /// Aggregated memory compaction metrics from this execution, if any.
-    pub compaction: Option<CompactionMetrics>,
-}
-
-/// Aggregated working-memory compaction metrics.
-#[derive(Debug, Clone, Default)]
-pub struct CompactionMetrics {
-    pub event_count: u32,
-    pub tokens_before: usize,
-    pub tokens_after: usize,
-    pub messages_compacted: usize,
-}
+pub type ExecutionResult = ExecutionOutcome;
 
 struct NoopStreamEmitter;
 
@@ -94,42 +72,6 @@ impl StreamEmitter for NoopStreamEmitter {
     }
 
     async fn emit_complete(&mut self) {}
-}
-
-impl ExecutionResult {
-    /// Create a successful execution result.
-    pub fn success(output: String, messages: Vec<Message>) -> Self {
-        Self {
-            output,
-            messages,
-            success: true,
-            compaction: None,
-        }
-    }
-
-    /// Create a successful execution result with compaction metrics.
-    pub fn success_with_compaction(
-        output: String,
-        messages: Vec<Message>,
-        compaction: CompactionMetrics,
-    ) -> Self {
-        Self {
-            output,
-            messages,
-            success: true,
-            compaction: Some(compaction),
-        }
-    }
-
-    /// Create a failed execution result.
-    pub fn failure(error: String) -> Self {
-        Self {
-            output: error,
-            messages: Vec::new(),
-            success: false,
-            compaction: None,
-        }
-    }
 }
 
 /// Message types for controlling the runner
@@ -1778,7 +1720,7 @@ impl BackgroundAgentRunner {
                     duration_ms,
                 );
 
-                if let Some(compaction) = exec_result.compaction.as_ref() {
+                if let Some(compaction) = exec_result.metrics.compaction.as_ref() {
                     let compaction_message = format!(
                         "Compacted {} messages ({} -> {} tokens) across {} event(s)",
                         compaction.messages_compacted,

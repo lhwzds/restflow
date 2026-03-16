@@ -76,7 +76,7 @@ pub async fn run_plan(
     run_with_request(kernel, request)
         .await
         .map(|result| {
-            let compaction = result.compaction.as_ref().map(|metrics| {
+            let compaction = result.metrics.compaction.as_ref().map(|metrics| {
                 json!({
                     "event_count": metrics.event_count,
                     "tokens_before": metrics.tokens_before,

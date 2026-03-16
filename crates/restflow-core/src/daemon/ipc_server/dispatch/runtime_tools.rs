@@ -1,5 +1,6 @@
 use super::super::runtime::{build_agent_system_prompt, get_runtime_tool_registry};
 use super::super::*;
+use crate::daemon::tool_result_mapper::to_tool_execution_result;
 use restflow_contracts::PromptResponse;
 
 impl IpcServer {
@@ -49,14 +50,7 @@ impl IpcServer {
     ) -> IpcResponse {
         match get_runtime_tool_registry(core, runtime_tool_registry) {
             Ok(registry) => match registry.execute_safe(&name, input).await {
-                Ok(output) => IpcResponse::success(ToolExecutionResult {
-                    success: output.success,
-                    result: output.result,
-                    error: output.error,
-                    error_category: output.error_category,
-                    retryable: output.retryable,
-                    retry_after_ms: output.retry_after_ms,
-                }),
+                Ok(output) => IpcResponse::success(to_tool_execution_result(output)),
                 Err(err) => ipc_error_with_optional_json_details(500, err.to_string()),
             },
             Err(err) => ipc_error_with_optional_json_details(500, err.to_string()),

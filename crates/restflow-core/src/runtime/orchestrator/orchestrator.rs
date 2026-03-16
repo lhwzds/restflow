@@ -407,11 +407,11 @@ mod tests {
             _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         ) -> Result<SessionExecutionResult> {
             session.agent_id = "fallback-agent".to_string();
-            Ok(SessionExecutionResult {
-                output: "interactive-output".to_string(),
-                iterations: 3,
-                active_model: "gpt-5.3-codex".to_string(),
-            })
+            Ok(SessionExecutionResult::new(
+                "interactive-output".to_string(),
+                3,
+                "gpt-5.3-codex".to_string(),
+            ))
         }
 
         async fn execute_background(
@@ -567,11 +567,11 @@ mod tests {
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
             ) -> Result<SessionExecutionResult> {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-                Ok(SessionExecutionResult {
-                    output: "too-late".to_string(),
-                    iterations: 1,
-                    active_model: "gpt-5".to_string(),
-                })
+                Ok(SessionExecutionResult::new(
+                    "too-late".to_string(),
+                    1,
+                    "gpt-5".to_string(),
+                ))
             }
 
             async fn execute_background(
