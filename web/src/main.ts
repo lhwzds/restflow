@@ -24,9 +24,7 @@ async function enableMocking() {
 
   // Enable mocking in demo mode or during Playwright E2E runs
   if (import.meta.env.VITE_DEMO_MODE === 'true' || isPlaywright) {
-    // Use Tauri IPC mock to intercept invoke() calls directly.
-    // MSW only intercepts HTTP requests, but our API layer uses Tauri IPC,
-    // so mockIPC is the correct approach.
+    // Demo mode and selected browser tests can still install lightweight mocks.
     const { setupTauriMock } = await import('./mocks/tauri-ipc')
     setupTauriMock()
   }

@@ -1,10 +1,10 @@
 /**
  * Hook Management API
  *
- * Thin wrappers around Tauri commands for lifecycle hooks.
+ * Browser-first wrappers around daemon request contracts.
  */
 
-import { tauriInvoke } from './tauri-client'
+import { requestTyped } from './http-client'
 import type { Hook, HookAction, HookEvent, HookFilter } from '@/types/generated'
 
 export interface CreateHookRequest {
@@ -25,24 +25,20 @@ export interface UpdateHookRequest {
   enabled?: boolean
 }
 
-/** List all hooks. */
 export async function listHooks(): Promise<Hook[]> {
-  return tauriInvoke('list_hooks')
+  return requestTyped<Hook[]>({ type: 'ListHooks' })
 }
 
-/** Get one hook by id. */
 export async function getHook(id: string): Promise<Hook | null> {
   const hooks = await listHooks()
   return hooks.find((hook) => hook.id === id) ?? null
 }
 
-/** List hooks for a specific event. */
 export async function listHooksForEvent(event: HookEvent): Promise<Hook[]> {
   const hooks = await listHooks()
   return hooks.filter((hook) => hook.event === event)
 }
 
-/** Create a hook. */
 export async function createHook(request: CreateHookRequest): Promise<Hook> {
   const now = Date.now()
   const hook: Hook = {
@@ -57,10 +53,12 @@ export async function createHook(request: CreateHookRequest): Promise<Hook> {
     updated_at: now,
   }
 
-  return tauriInvoke('create_hook', { hook })
+  return requestTyped<Hook>({
+    type: 'CreateHook',
+    data: { hook },
+  })
 }
 
-/** Update a hook. */
 export async function updateHook(id: string, request: UpdateHookRequest): Promise<Hook> {
   const existing = await getHook(id)
   if (!existing) {
@@ -77,25 +75,24 @@ export async function updateHook(id: string, request: UpdateHookRequest): Promis
     enabled: request.enabled ?? existing.enabled,
   }
 
-  return tauriInvoke('update_hook', { id, hook })
+  return requestTyped<Hook>({
+    type: 'UpdateHook',
+    data: { id, hook },
+  })
 }
 
-/** Delete a hook. */
 export async function deleteHook(id: string): Promise<void> {
-  await tauriInvoke('delete_hook', { id })
+  await requestTyped({ type: 'DeleteHook', data: { id } })
 }
 
-/** Trigger a hook once for verification. */
 export async function testHook(id: string): Promise<void> {
-  await tauriInvoke('test_hook', { id })
+  await requestTyped({ type: 'TestHook', data: { id } })
 }
 
-/** Enable a hook. */
 export async function enableHook(id: string): Promise<Hook> {
   return updateHook(id, { enabled: true })
 }
 
-/** Disable a hook. */
 export async function disableHook(id: string): Promise<Hook> {
   return updateHook(id, { enabled: false })
 }

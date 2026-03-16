@@ -1,80 +1,101 @@
 /**
  * Background Agent API
  *
- * Thin wrappers around Tauri commands for background agent management.
+ * Browser-first wrappers around daemon request contracts.
  */
 
-import { invokeCommand } from './tauri-client'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 import type { MemorySession } from '@/types/generated/MemorySession'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
+import { fetchJson, requestTyped } from './http-client'
 
 export type { BackgroundAgent, TaskEvent }
 
-/** Response from running a background agent with streaming */
 export interface StreamingBackgroundAgentResponse {
   task_id: string
   event_channel: string
   already_running: boolean
 }
 
-/** List all background agents */
 export async function listBackgroundAgents(): Promise<BackgroundAgent[]> {
-  return invokeCommand('listBackgroundAgents')
+  return requestTyped<BackgroundAgent[]>({
+    type: 'ListBackgroundAgents',
+    data: { status: null },
+  })
 }
 
-/** Pause a background agent */
 export async function pauseBackgroundAgent(id: string): Promise<BackgroundAgent> {
-  return invokeCommand('pauseBackgroundAgent', id)
+  return requestTyped<BackgroundAgent>({
+    type: 'ControlBackgroundAgent',
+    data: { id, action: 'pause' },
+  })
 }
 
-/** Resume a paused background agent */
 export async function resumeBackgroundAgent(id: string): Promise<BackgroundAgent> {
-  return invokeCommand('resumeBackgroundAgent', id)
+  return requestTyped<BackgroundAgent>({
+    type: 'ControlBackgroundAgent',
+    data: { id, action: 'resume' },
+  })
 }
 
-/** Stop a running background agent */
 export async function stopBackgroundAgent(taskId: string): Promise<boolean> {
-  return invokeCommand('stopBackgroundAgent', taskId)
+  await requestTyped({
+    type: 'ControlBackgroundAgent',
+    data: { id: taskId, action: 'stop' },
+  })
+  return true
 }
 
-/** Run a background agent immediately with streaming */
 export async function runBackgroundAgentStreaming(
   id: string,
 ): Promise<StreamingBackgroundAgentResponse> {
-  return invokeCommand('runBackgroundAgentStreaming', id)
+  const agent = await requestTyped<BackgroundAgent>({
+    type: 'ControlBackgroundAgent',
+    data: { id, action: 'run_now' },
+  })
+
+  return {
+    task_id: agent.id,
+    event_channel: '/api/stream',
+    already_running: false,
+  }
 }
 
-/** Steer a running task with a new instruction */
 export async function steerTask(taskId: string, instruction: string): Promise<boolean> {
-  return invokeCommand('steerTask', taskId, instruction)
+  const response = await requestTyped<{ steered: boolean }>({
+    type: 'SendBackgroundAgentMessage',
+    data: { id: taskId, message: instruction, source: 'user' },
+  })
+  return response.steered
 }
 
-/** Get event history for a task */
 export async function getBackgroundAgentEvents(
   taskId: string,
   limit?: number,
 ): Promise<TaskEvent[]> {
-  return invokeCommand('getBackgroundAgentEvents', taskId, limit ?? null)
+  return requestTyped<TaskEvent[]>({
+    type: 'GetBackgroundAgentHistory',
+    data: { id: taskId, limit: limit ?? null },
+  })
 }
 
-/** Get the stream event channel name (also activates the Rust bridge) */
 export async function getBackgroundAgentStreamEventName(): Promise<string> {
-  return invokeCommand('getBackgroundAgentStreamEventName')
+  return 'background-agent:stream'
 }
 
-/** Get the heartbeat event channel name */
 export async function getHeartbeatEventName(): Promise<string> {
-  return invokeCommand('getHeartbeatEventName')
+  return 'background-agent:heartbeat'
 }
 
-/** Delete a background agent */
 export async function deleteBackgroundAgent(id: string): Promise<boolean> {
-  return invokeCommand('deleteBackgroundAgent', id)
+  const response = await requestTyped<{ deleted: boolean }>({
+    type: 'DeleteBackgroundAgent',
+    data: { id },
+  })
+  return response.deleted
 }
 
-/** Request payload for converting a session to background agent */
 export interface ConvertSessionToBackgroundAgentRequest {
   session_id: string
   name?: string
@@ -82,7 +103,6 @@ export interface ConvertSessionToBackgroundAgentRequest {
   run_now?: boolean
 }
 
-/** Request payload for updating an existing background agent. */
 export interface UpdateBackgroundAgentRequest {
   name?: string
   description?: string
@@ -93,37 +113,45 @@ export interface UpdateBackgroundAgentRequest {
   timeout_secs?: number
 }
 
-/** Convert a chat session into a background agent */
 export async function convertSessionToBackgroundAgent(
   request: ConvertSessionToBackgroundAgentRequest,
 ): Promise<BackgroundAgent> {
-  return invokeCommand('convertSessionToBackgroundAgent', request)
+  return fetchJson<BackgroundAgent>('/api/background-agents/convert-session', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
+  })
 }
 
-/** Update an existing background agent */
 export async function updateBackgroundAgent(
   id: string,
   request: UpdateBackgroundAgentRequest,
 ): Promise<BackgroundAgent> {
-  return invokeCommand('updateBackgroundAgent', id, request)
+  return requestTyped<BackgroundAgent>({
+    type: 'UpdateBackgroundAgent',
+    data: { id, patch: request },
+  })
 }
 
-/** List memory sessions for a memory namespace (agent ID) */
 export async function listMemorySessions(agentId: string): Promise<MemorySession[]> {
-  return invokeCommand('listMemorySessions', agentId)
+  return requestTyped<MemorySession[]>({
+    type: 'ListMemorySessions',
+    data: { agent_id: agentId },
+  })
 }
 
-/** List memory chunks for a given session */
 export async function listMemoryChunksForSession(sessionId: string): Promise<MemoryChunk[]> {
-  return invokeCommand('listMemoryChunksForSession', sessionId)
+  return requestTyped<MemoryChunk[]>({
+    type: 'ListMemoryBySession',
+    data: { session_id: sessionId },
+  })
 }
 
-/** List memory chunks by tag (used for task:<background-agent-id>) */
 export async function listMemoryChunksByTag(tag: string, limit?: number): Promise<MemoryChunk[]> {
-  const response = await invokeCommand<{ items: MemoryChunk[]; total: number }>(
-    'listMemoryChunksByTag',
-    tag,
-    limit ?? null,
-  )
-  return response.items
+  const chunks = await requestTyped<MemoryChunk[]>({
+    type: 'ListMemory',
+    data: { agent_id: null, tag },
+  })
+  const effectiveLimit = limit ?? 50
+  return chunks.slice(0, effectiveLimit)
 }

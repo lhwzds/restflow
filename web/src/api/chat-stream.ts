@@ -1,41 +1,59 @@
 /**
- * Chat Stream API
+ * Chat stream API
  *
- * Provides streaming chat message functionality using Tauri events.
- * Enables real-time token-by-token AI response streaming.
+ * Web transport wrappers around daemon stream contracts.
  */
 
-import { invokeCommand } from './tauri-client'
+import { requestTyped, streamClient } from './http-client'
+import type { StreamFrame } from '@/types/generated/StreamFrame'
 
-/**
- * Send a chat message with streaming response.
- *
- * The response will be streamed via Tauri events (chat:stream).
- * Use useChatStream composable to handle the stream events.
- *
- * @param sessionId - Chat session ID
- * @param message - User message content
- * @returns Message ID for the generated response
- */
-export async function sendChatMessageStream(sessionId: string, message: string): Promise<string> {
-  return invokeCommand('sendChatMessageStream', sessionId, message)
+export interface ChatStreamHandle {
+  streamId: string
+  frames: AsyncGenerator<StreamFrame>
 }
 
-/**
- * Cancel an active streaming chat response.
- *
- * @param sessionId - Chat session ID
- * @param messageId - Message ID being generated
- */
-export async function cancelChatStream(sessionId: string, messageId: string): Promise<void> {
-  await invokeCommand('cancelChatStream', sessionId, messageId)
+function createStreamId(): string {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID()
+  }
+  return `stream-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-/**
- * Send a steering instruction to the currently running stream for a session.
- *
- * Returns false when no active stream is steerable.
- */
+export function openChatStream(
+  sessionId: string,
+  message: string,
+  signal?: AbortSignal,
+): ChatStreamHandle {
+  const streamId = createStreamId()
+  const frames = streamClient(
+    {
+      type: 'ExecuteChatSessionStream',
+      data: {
+        session_id: sessionId,
+        user_input: message,
+        stream_id: streamId,
+      },
+    },
+    { signal },
+  )
+
+  return { streamId, frames }
+}
+
+export async function cancelChatStream(streamId: string): Promise<void> {
+  await requestTyped<null>({
+    type: 'CancelChatSessionStream',
+    data: { stream_id: streamId },
+  })
+}
+
 export async function steerChatStream(sessionId: string, instruction: string): Promise<boolean> {
-  return invokeCommand('steerChatStream', sessionId, instruction)
+  const response = await requestTyped<{ steered: boolean }>({
+    type: 'SteerChatSessionStream',
+    data: {
+      session_id: sessionId,
+      instruction,
+    },
+  })
+  return response.steered
 }

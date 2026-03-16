@@ -1,10 +1,10 @@
 /**
  * Marketplace Skill API
  *
- * Wrappers for marketplace-related Tauri commands.
+ * Browser-first wrappers around daemon marketplace HTTP endpoints.
  */
 
-import { tauriInvoke } from './tauri-client'
+import { buildUrl, fetchJson } from './http-client'
 import type { GatingCheckResult, Skill, SkillManifest, SkillVersion } from '@/types/generated'
 
 export type MarketplaceSource = 'marketplace' | 'github'
@@ -64,25 +64,28 @@ export interface MarketplaceStats {
   featured_skills: string[]
 }
 
-/** Search marketplace skills. */
+async function postNoContent(path: string, body: unknown): Promise<void> {
+  const response = await fetch(buildUrl(path), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+
+  if (!response.ok) {
+    throw new Error((await response.text()) || `HTTP ${response.status}`)
+  }
+}
+
 export async function searchMarketplace(
   request: MarketplaceSearchRequest = {},
 ): Promise<MarketplaceSearchItem[]> {
-  return tauriInvoke('marketplace_search', {
-    request: {
-      query: request.query ?? null,
-      category: request.category ?? null,
-      tags: request.tags ?? null,
-      author: request.author ?? null,
-      limit: request.limit ?? null,
-      offset: request.offset ?? null,
-      sort: request.sort ?? null,
-      include_github: request.include_github ?? null,
-    },
+  return fetchJson<MarketplaceSearchItem[]>('/api/marketplace/search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(request),
   })
 }
 
-/** List marketplace skills, alias for search without filter. */
 export async function listMarketplaceSkills(
   limit?: number,
   offset?: number,
@@ -90,44 +93,51 @@ export async function listMarketplaceSkills(
   return searchMarketplace({ limit, offset })
 }
 
-/** Get a marketplace skill manifest. */
 export async function getMarketplaceSkill(
   id: string,
   source: MarketplaceSource = 'marketplace',
 ): Promise<SkillManifest> {
-  return tauriInvoke('marketplace_get_skill', { id, source })
+  return fetchJson<SkillManifest>('/api/marketplace/skill', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, source }),
+  })
 }
 
-/** Get all published versions for a skill. */
 export async function getMarketplaceVersions(
   id: string,
   source: MarketplaceSource = 'marketplace',
 ): Promise<SkillVersion[]> {
-  return tauriInvoke('marketplace_get_versions', { id, source })
+  return fetchJson<SkillVersion[]>('/api/marketplace/versions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, source }),
+  })
 }
 
-/** Get raw markdown/content from marketplace source. */
 export async function getMarketplaceContent(
   id: string,
   version?: string,
   source: MarketplaceSource = 'marketplace',
 ): Promise<string> {
-  return tauriInvoke('marketplace_get_content', {
-    id,
-    version: version ?? null,
-    source,
+  return fetchJson<string>('/api/marketplace/content', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, version: version ?? null, source }),
   })
 }
 
-/** Check local environment gating requirements for a skill. */
 export async function checkMarketplaceGating(
   id: string,
   source: MarketplaceSource = 'marketplace',
 ): Promise<GatingCheckResult> {
-  return tauriInvoke('marketplace_check_gating', { id, source })
+  return fetchJson<GatingCheckResult>('/api/marketplace/gating', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, source }),
+  })
 }
 
-/** Aggregate detail for one marketplace skill. */
 export async function getMarketplaceSkillDetail(
   id: string,
   source: MarketplaceSource = 'marketplace',
@@ -148,20 +158,19 @@ export async function getMarketplaceSkillDetail(
   return { manifest, versions, content, gating }
 }
 
-/** Install one marketplace skill. */
 export async function installMarketplaceSkill(
   request: InstallSkillRequest,
 ): Promise<InstallSkillResult> {
   try {
     if (request.overwrite) {
       try {
-        await tauriInvoke('marketplace_uninstall_skill', { id: request.id })
+        await postNoContent('/api/marketplace/uninstall', { id: request.id })
       } catch {
         // Best-effort cleanup before reinstall.
       }
     }
 
-    await tauriInvoke('marketplace_install_skill', {
+    await postNoContent('/api/marketplace/install', {
       id: request.id,
       version: request.version ?? null,
       source: request.source ?? 'marketplace',
@@ -175,10 +184,9 @@ export async function installMarketplaceSkill(
   }
 }
 
-/** Uninstall one installed skill. */
 export async function uninstallMarketplaceSkill(id: string): Promise<UninstallSkillResult> {
   try {
-    await tauriInvoke('marketplace_uninstall_skill', { id })
+    await postNoContent('/api/marketplace/uninstall', { id })
     return { success: true }
   } catch (error) {
     return {
@@ -188,18 +196,15 @@ export async function uninstallMarketplaceSkill(id: string): Promise<UninstallSk
   }
 }
 
-/** List all locally installed skills. */
 export async function listInstalledMarketplaceSkills(): Promise<Skill[]> {
-  return tauriInvoke('marketplace_list_installed')
+  return fetchJson<Skill[]>('/api/marketplace/installed')
 }
 
-/** Check whether a skill is installed locally. */
 export async function isMarketplaceSkillInstalled(id: string): Promise<boolean> {
   const installed = await listInstalledMarketplaceSkills()
   return installed.some((skill) => skill.id === id)
 }
 
-/** Compute a light stats payload from search results. */
 export async function getMarketplaceStats(): Promise<MarketplaceStats> {
   const items = await searchMarketplace({ limit: 200, offset: 0, sort: 'popular' })
   const categories = new Map<string, number>()
@@ -225,13 +230,11 @@ export async function getMarketplaceStats(): Promise<MarketplaceStats> {
   }
 }
 
-/** Return aggregated category list. */
 export async function listMarketplaceCategories(): Promise<MarketplaceCategory[]> {
   const stats = await getMarketplaceStats()
   return stats.categories
 }
 
-/** Return featured skills by popularity. */
 export async function getFeaturedMarketplaceSkills(): Promise<MarketplaceSearchItem[]> {
   const stats = await getMarketplaceStats()
   if (stats.featured_skills.length === 0) {
@@ -242,7 +245,6 @@ export async function getFeaturedMarketplaceSkills(): Promise<MarketplaceSearchI
   return items.filter((item) => stats.featured_skills.includes(item.manifest.id))
 }
 
-/** Update one installed skill to latest available version. */
 export async function updateMarketplaceSkill(
   id: string,
   source: MarketplaceSource = 'marketplace',

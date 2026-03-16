@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/select'
 import { getAgent, updateAgent } from '@/api/agents'
 import { listSkills } from '@/api/skills'
-import { tauriInvoke } from '@/api/config'
+import { getAvailableTools } from '@/api/config'
 import { useModelsStore } from '@/stores/modelsStore'
 import { useToast } from '@/composables/useToast'
 import type { AIModel } from '@/types/generated/AIModel'
@@ -132,7 +132,7 @@ onMounted(() => {
 async function loadReferenceCounts() {
   try {
     const [tools, skills] = await Promise.all([
-      tauriInvoke<Array<{ name: string; description: string }>>('get_available_tools'),
+      getAvailableTools(),
       listSkills(),
     ])
     availableToolCount.value = tools.length
