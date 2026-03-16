@@ -566,7 +566,7 @@ impl AgentRuntimeExecutor {
     /// Execute a chat turn for an existing chat session.
     ///
     /// This method keeps chat execution in daemon-side runtime logic so UI
-    /// clients (Tauri/HTTP/MCP) can share the same execution behavior.
+    /// clients (HTTP/MCP/CLI) can share the same execution behavior.
     pub async fn execute_session_turn(
         &self,
         session: &mut ChatSession,

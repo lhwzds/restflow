@@ -45,7 +45,7 @@
 //! # Usage
 //!
 //! ```ignore
-//! use restflow_tauri::channel::{
+//! use restflow_core::runtime::channel::{
 //!     start_message_handler, start_message_handler_with_chat,
 //!     MessageHandlerConfig, ChatDispatcher, ChatDispatcherConfig,
 //! };

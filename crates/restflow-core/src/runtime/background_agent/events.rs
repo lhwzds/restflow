@@ -1,7 +1,7 @@
-//! Real-time streaming events for agent task execution.
+//! Real-time streaming events for background task execution.
 //!
-//! These event types are designed for Tauri's event system to stream
-//! task execution updates to the frontend in real-time.
+//! These event types are shared across daemon HTTP streams and any in-process
+//! publishers that need to broadcast task execution updates.
 //!
 //! # Event Flow
 //!
@@ -12,30 +12,24 @@
 //! # Usage
 //!
 //! ```ignore
-//! use tauri::Manager;
-//! use restflow_tauri::background_agent::events::{TaskStreamEvent, StreamEventKind};
+//! use restflow_core::runtime::background_agent::events::{TaskStreamEvent, StreamEventKind};
 //!
-//! // In the runner, emit events to the frontend
-//! app_handle.emit("background-agent:stream", TaskStreamEvent::started(task_id));
-//!
-//! // Stream output as it arrives
-//! app_handle.emit("background-agent:stream", TaskStreamEvent::output(task_id, "Processing...", false));
-//!
-//! // On completion
-//! app_handle.emit("background-agent:stream", TaskStreamEvent::completed(task_id, result, duration_ms));
+//! let started = TaskStreamEvent::started("task-1", "Build Project", "agent-1", "api");
+//! let output = TaskStreamEvent::output("task-1", "Processing...\n", false);
+//! let completed = TaskStreamEvent::completed("task-1", "Done", 1_500);
 //! ```
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
-/// Event name constant for Tauri event emission
+/// Event name constant for background task streams.
 pub const TASK_STREAM_EVENT: &str = "background-agent:stream";
 
-/// Real-time streaming event for task execution
+/// Real-time streaming event for task execution.
 ///
-/// This is the primary event type emitted via Tauri's event system
-/// for real-time updates during task execution.
+/// This is the primary event type delivered through the shared daemon stream
+/// contracts for live task updates.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct TaskStreamEvent {
@@ -327,7 +321,7 @@ impl TaskStreamEvent {
 /// Trait for emitting task stream events
 ///
 /// This trait allows the runner to emit events without being coupled
-/// to a specific implementation (Tauri, channel, etc.)
+/// to a specific transport or buffering strategy.
 #[async_trait::async_trait]
 pub trait TaskEventEmitter: Send + Sync {
     /// Emit a task stream event
@@ -361,46 +355,6 @@ impl ChannelEventEmitter {
 impl TaskEventEmitter for ChannelEventEmitter {
     async fn emit(&self, event: TaskStreamEvent) {
         let _ = self.sender.send(event);
-    }
-}
-
-/// Tauri-based event emitter that uses AppHandle to emit events to the frontend
-///
-/// This emitter integrates with Tauri's event system to stream real-time
-/// task execution updates to the frontend via the `background-agent:stream` event.
-///
-/// # Example
-///
-/// ```ignore
-/// use restflow_tauri::background_agent::events::TauriEventEmitter;
-/// use tauri::Manager;
-///
-/// // In a Tauri command
-/// let emitter = TauriEventEmitter::new(app_handle.clone());
-/// emitter.emit(TaskStreamEvent::started("task-1", "My Task", "agent-1", "api")).await;
-/// ```
-#[cfg(feature = "tauri-runtime")]
-#[derive(Clone)]
-pub struct TauriEventEmitter {
-    app_handle: tauri::AppHandle,
-}
-
-#[cfg(feature = "tauri-runtime")]
-impl TauriEventEmitter {
-    /// Create a new Tauri event emitter
-    pub fn new(app_handle: tauri::AppHandle) -> Self {
-        Self { app_handle }
-    }
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[async_trait::async_trait]
-impl TaskEventEmitter for TauriEventEmitter {
-    async fn emit(&self, event: TaskStreamEvent) {
-        use tauri::Emitter;
-        if let Err(e) = self.app_handle.emit(TASK_STREAM_EVENT, &event) {
-            tracing::warn!("Failed to emit task stream event: {}", e);
-        }
     }
 }
 

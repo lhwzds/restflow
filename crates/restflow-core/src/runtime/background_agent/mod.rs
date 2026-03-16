@@ -26,9 +26,9 @@
 //! # Usage
 //!
 //! ```ignore
-//! use restflow_tauri::background_agent::{
+//! use restflow_core::runtime::background_agent::{
 //!     BackgroundAgentRunner, AgentRuntimeExecutor, RunnerConfig,
-//!     TelegramNotifier, TaskStreamEvent, TauriHeartbeatEmitter,
+//!     TelegramNotifier, TaskStreamEvent, NoopHeartbeatEmitter,
 //!     RetryConfig, FailoverConfig, FailoverManager
 //! };
 //!
@@ -42,7 +42,7 @@
 //!     subagent_config.clone(),
 //! ));
 //! let notifier = Arc::new(TelegramNotifier::new(storage.secrets.clone()));
-//! let heartbeat_emitter = Arc::new(TauriHeartbeatEmitter::new(app_handle.clone()));
+//! let heartbeat_emitter = Arc::new(NoopHeartbeatEmitter);
 //!
 //! let runner = Arc::new(BackgroundAgentRunner::with_heartbeat_emitter(
 //!     task_storage,
@@ -63,23 +63,12 @@
 //! The events module provides real-time streaming to the frontend:
 //!
 //! ```ignore
-//! use restflow_tauri::background_agent::events::{TaskStreamEvent, TASK_STREAM_EVENT};
-//! use tauri::Manager;
+//! use restflow_core::runtime::background_agent::events::{TaskStreamEvent, TASK_STREAM_EVENT};
 //!
-//! // Emit task started event
-//! app_handle.emit(TASK_STREAM_EVENT, TaskStreamEvent::started(
-//!     "task-123", "My Task", "agent-456", "api"
-//! ));
-//!
-//! // Stream output
-//! app_handle.emit(TASK_STREAM_EVENT, TaskStreamEvent::output(
-//!     "task-123", "Processing...\n", false
-//! ));
-//!
-//! // Emit completion
-//! app_handle.emit(TASK_STREAM_EVENT, TaskStreamEvent::completed(
-//!     "task-123", "Task completed successfully", 1500
-//! ));
+//! let started = TaskStreamEvent::started("task-123", "My Task", "agent-456", "api");
+//! let output = TaskStreamEvent::output("task-123", "Processing...\n", false);
+//! let completed = TaskStreamEvent::completed("task-123", "Task completed successfully", 1500);
+//! let _event_name = TASK_STREAM_EVENT;
 //! ```
 //!
 //! # Status Events
@@ -87,30 +76,20 @@
 //! The runner emits heartbeat events inline during its poll cycle:
 //!
 //! ```ignore
-//! use restflow_tauri::background_agent::{HeartbeatEvent, HEARTBEAT_EVENT};
-//! use tauri::Manager;
+//! use restflow_core::runtime::background_agent::{HeartbeatEvent, HEARTBEAT_EVENT};
 //!
-//! // Frontend listens to heartbeat events
-//! app_handle.listen(HEARTBEAT_EVENT, |event| {
-//!     let heartbeat: HeartbeatEvent = serde_json::from_str(event.payload()).unwrap();
-//!     match heartbeat {
-//!         HeartbeatEvent::Pulse(pulse) => {
-//!             // Update connection status, task counts, etc.
-//!         }
-//!         HeartbeatEvent::StatusChange(status) => {
-//!             // Handle runner status changes
-//!         }
-//!         HeartbeatEvent::Warning(warning) => {
-//!             // Display warning to user
-//!         }
-//!     }
+//! let _event_name = HEARTBEAT_EVENT;
+//! let _event = HeartbeatEvent::Warning(restflow_core::runtime::background_agent::HeartbeatWarning {
+//!     code: "SLOW_LOOP".into(),
+//!     message: "Runner is catching up".into(),
+//!     timestamp: chrono::Utc::now().timestamp_millis(),
 //! });
 //! ```
 //!
 //! # Retry Example
 //!
 //! ```ignore
-//! use restflow_tauri::background_agent::retry::{RetryConfig, RetryState};
+//! use restflow_core::runtime::background_agent::retry::{RetryConfig, RetryState};
 //!
 //! let config = RetryConfig::default();
 //! let mut state = RetryState::new();
@@ -125,7 +104,7 @@
 //! # Failover Example
 //!
 //! ```ignore
-//! use restflow_tauri::background_agent::failover::{FailoverConfig, FailoverManager};
+//! use restflow_core::runtime::background_agent::failover::{FailoverConfig, FailoverManager};
 //! use crate::AIModel;
 //!
 //! let config = FailoverConfig::with_fallbacks(
@@ -179,16 +158,12 @@ pub mod transactional_checkpoint;
 
 pub use crate::runtime::orchestrator::OrchestratingAgentExecutor;
 pub use cli_executor::{CliAgentExecutor, create_cli_executor_with_events};
-#[cfg(feature = "tauri-runtime")]
-pub use events::TauriEventEmitter;
 pub use events::{
     ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TASK_STREAM_EVENT,
     TaskEventEmitter, TaskStreamEvent,
 };
 pub use executor::{AgentRuntimeExecutor, SessionInputMode};
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
-#[cfg(feature = "tauri-runtime")]
-pub use heartbeat::TauriHeartbeatEmitter;
 pub use heartbeat::{
     ChannelHeartbeatEmitter, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse,
     HeartbeatWarning, NoopHeartbeatEmitter, RunnerStatus, RunnerStatusEvent, SystemStats,

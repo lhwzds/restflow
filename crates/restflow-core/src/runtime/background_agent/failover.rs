@@ -15,7 +15,7 @@
 //! # Example
 //!
 //! ```ignore
-//! use restflow_tauri::background_agent::failover::{FailoverConfig, FailoverManager};
+//! use restflow_core::runtime::background_agent::failover::{FailoverConfig, FailoverManager};
 //! use crate::AIModel;
 //!
 //! let config = FailoverConfig {

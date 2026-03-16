@@ -701,4 +701,4 @@ fn test_is_credential_error_for_llm_message_fallback() {
 
 // Note: test_build_tool_registry removed because build_tool_registry now requires
 // an LlmClient for SubagentDeps. The core logic (registry_from_allowlist) is
-// tested in restflow-tauri/src/agent/tools/mod.rs
+// covered by integration tests in the daemon transport stack

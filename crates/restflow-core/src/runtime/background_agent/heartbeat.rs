@@ -6,28 +6,34 @@
 //! # Usage
 //!
 //! ```ignore
-//! use restflow_tauri::background_agent::{HeartbeatEvent, RunnerStatus};
-//! use tauri::Manager;
+//! use restflow_core::runtime::background_agent::{
+//!     HeartbeatEvent, HeartbeatPulse, RunnerStatus, RunnerStatusEvent,
+//! };
 //!
-//! // Emit status during poll cycle
-//! app_handle.emit(HEARTBEAT_EVENT, HeartbeatEvent::StatusChange(RunnerStatusEvent {
+//! let pulse = HeartbeatEvent::Pulse(HeartbeatPulse {
+//!     sequence: 1,
+//!     timestamp: chrono::Utc::now().timestamp_millis(),
+//!     active_tasks: 0,
+//!     pending_tasks: 0,
+//!     uptime_ms: 1_000,
+//!     stats: None,
+//! });
+//! let status = HeartbeatEvent::StatusChange(RunnerStatusEvent {
 //!     status: RunnerStatus::Running,
 //!     timestamp: chrono::Utc::now().timestamp_millis(),
 //!     message: None,
-//! }));
+//! });
 //! ```
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::mpsc;
-#[cfg(feature = "tauri-runtime")]
-use tracing::warn;
 use ts_rs::TS;
 
-/// Tauri event name for heartbeat/status events
+/// Event name for heartbeat and runner status streams.
 pub const HEARTBEAT_EVENT: &str = "background-agent:heartbeat";
 
-/// Heartbeat event sent to the frontend
+/// Heartbeat event sent to connected daemon clients.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -124,31 +130,6 @@ pub struct HeartbeatWarning {
 pub trait HeartbeatEmitter: Send + Sync {
     /// Emit a heartbeat event
     async fn emit(&self, event: HeartbeatEvent);
-}
-
-/// Tauri-based heartbeat emitter
-#[cfg(feature = "tauri-runtime")]
-#[derive(Clone)]
-pub struct TauriHeartbeatEmitter {
-    app_handle: tauri::AppHandle,
-}
-
-#[cfg(feature = "tauri-runtime")]
-impl TauriHeartbeatEmitter {
-    pub fn new(app_handle: tauri::AppHandle) -> Self {
-        Self { app_handle }
-    }
-}
-
-#[cfg(feature = "tauri-runtime")]
-#[async_trait::async_trait]
-impl HeartbeatEmitter for TauriHeartbeatEmitter {
-    async fn emit(&self, event: HeartbeatEvent) {
-        use tauri::Emitter;
-        if let Err(e) = self.app_handle.emit(HEARTBEAT_EVENT, &event) {
-            warn!("Failed to emit heartbeat event: {}", e);
-        }
-    }
 }
 
 /// Channel-based heartbeat emitter for testing

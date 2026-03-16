@@ -10,7 +10,6 @@ path = "src/lib.rs"
 [features]
 default = []
 keychain = ["keyring"]
-tauri-runtime = []
 test-utils = []
 
 [dependencies]
