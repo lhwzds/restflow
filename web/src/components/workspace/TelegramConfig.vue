@@ -124,7 +124,7 @@ async function testConnection() {
 
   isTesting.value = true
   try {
-    // TODO: Add `test_telegram_connection` Tauri command in backend
+    // TODO: Add a daemon HTTP endpoint for `test_telegram_connection`
     // Backend should: 1) Read stored secrets 2) Call Telegram sendMessage API
     // See: crates/restflow-tools/src/impls/telegram.rs::send_telegram_notification
     toast.warning('Test connection requires backend command (not yet implemented)')

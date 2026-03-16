@@ -207,7 +207,7 @@ async function save() {
 
 <template>
   <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-    <div class="h-8 shrink-0 border-b border-border px-2 flex items-center" data-tauri-drag-region>
+    <div class="h-8 shrink-0 border-b border-border px-2 flex items-center">
       <Button variant="ghost" size="sm" class="h-7 gap-1.5" @click="emit('backToSessions')">
         <ArrowLeft :size="14" />
         {{ t('workspace.agent.backToSessions') }}

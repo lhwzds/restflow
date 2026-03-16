@@ -390,15 +390,10 @@ onMounted(() => {
 
     <div v-show="!showSettings" class="flex flex-1 min-w-0">
       <div class="w-56 border-r border-border shrink-0 flex flex-col">
-        <div class="h-10 shrink-0 flex items-center pr-2" data-tauri-drag-region>
-          <div
-            class="w-[5rem] shrink-0"
-            data-tauri-drag-region
-            data-testid="workspace-traffic-safe-zone"
-          />
+        <div class="h-10 shrink-0 flex items-center pr-2">
+          <div class="w-[5rem] shrink-0" data-testid="workspace-traffic-safe-zone" />
           <div
             class="ml-2 inline-flex items-center gap-1.5 select-none pointer-events-none"
-            data-tauri-drag-region
             data-testid="workspace-brand"
           >
             <img src="/restflow.svg" alt="RestFlow logo" class="h-5 w-5 shrink-0 opacity-95" />

@@ -467,7 +467,6 @@ defineExpose({
     <div
       v-if="linkedBgAgent"
       class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground"
-      data-tauri-drag-region
     >
       <AgentStatusBadge :status="linkedBgAgent.status" />
       <div class="flex-1" />
@@ -512,7 +511,7 @@ defineExpose({
         <XCircle :size="12" />
       </Button>
     </div>
-    <div v-else class="h-8 shrink-0" data-tauri-drag-region />
+    <div v-else class="h-8 shrink-0" />
 
     <!-- Message List -->
     <MessageList
