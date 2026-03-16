@@ -29,7 +29,7 @@ use super::*;
 use crate::daemon::request_mapper::{from_contract, invalid_request_response};
 
 impl IpcServer {
-    pub(super) async fn process(
+    pub(crate) async fn process(
         core: &Arc<AppCore>,
         runtime_tool_registry: &OnceLock<restflow_ai::tools::ToolRegistry>,
         request: IpcRequest,

@@ -131,6 +131,19 @@ pub async fn transcribe_audio_file(
     options: &SegmentedTranscriptionOptions,
     config: &SegmentedTranscriptionConfig,
 ) -> Result<SegmentedTranscriptionOutput> {
+    transcribe_audio_file_with_progress(api_key, file_path, options, config, |_, _, _| Ok(())).await
+}
+
+pub async fn transcribe_audio_file_with_progress<F>(
+    api_key: &str,
+    file_path: &str,
+    options: &SegmentedTranscriptionOptions,
+    config: &SegmentedTranscriptionConfig,
+    mut on_progress: F,
+) -> Result<SegmentedTranscriptionOutput>
+where
+    F: FnMut(&SegmentedTranscriptionOutput, usize, usize) -> Result<()>,
+{
     if api_key.trim().is_empty() {
         return Err(anyhow!("API key is required."));
     }
@@ -142,7 +155,8 @@ pub async fn transcribe_audio_file(
     ensure_supported_model(options)?;
 
     let prepared = prepare_transcription_input(file_path, options, config).await?;
-    let output = transcribe_prepared_input(api_key, options, config, &prepared).await;
+    let output =
+        transcribe_prepared_input(api_key, options, config, &prepared, &mut on_progress).await;
 
     if let Some(directory) = prepared.cleanup_dir {
         let _ = fs::remove_dir_all(directory).await;
@@ -151,16 +165,21 @@ pub async fn transcribe_audio_file(
     output
 }
 
-async fn transcribe_prepared_input(
+async fn transcribe_prepared_input<F>(
     api_key: &str,
     options: &SegmentedTranscriptionOptions,
     config: &SegmentedTranscriptionConfig,
     prepared: &PreparedTranscriptionInput,
-) -> Result<SegmentedTranscriptionOutput> {
+    on_progress: &mut F,
+) -> Result<SegmentedTranscriptionOutput>
+where
+    F: FnMut(&SegmentedTranscriptionOutput, usize, usize) -> Result<()>,
+{
     let mut merged_segments = Vec::new();
     let mut merged_text_parts = Vec::new();
+    let total_uploads = prepared.uploads.len();
 
-    for upload in &prepared.uploads {
+    for (index, upload) in prepared.uploads.iter().enumerate() {
         let output = timeout(
             config.request_timeout,
             transcribe_chunk(api_key, options, config, upload),
@@ -172,23 +191,21 @@ async fn transcribe_prepared_input(
             merged_text_parts.push(output.text.trim().to_string());
         }
         merged_segments.extend(output.segments);
+
+        let snapshot =
+            build_transcription_snapshot(&options.model, &merged_text_parts, &merged_segments);
+        if !snapshot.text.trim().is_empty() {
+            on_progress(&snapshot, index + 1, total_uploads)?;
+        }
     }
 
-    let text = if merged_segments.is_empty() {
-        merged_text_parts.join("\n\n")
-    } else {
-        join_segment_text(&merged_segments)
-    };
-
-    if text.trim().is_empty() {
+    let final_output =
+        build_transcription_snapshot(&options.model, &merged_text_parts, &merged_segments);
+    if final_output.text.trim().is_empty() {
         return Err(anyhow!("Transcription completed without any text."));
     }
 
-    Ok(SegmentedTranscriptionOutput {
-        text,
-        model: options.model.clone(),
-        segments: merged_segments,
-    })
+    Ok(final_output)
 }
 
 async fn transcribe_chunk(
@@ -569,6 +586,24 @@ fn ensure_supported_model(options: &SegmentedTranscriptionOptions) -> Result<()>
     Ok(())
 }
 
+fn build_transcription_snapshot(
+    model: &str,
+    merged_text_parts: &[String],
+    merged_segments: &[TimedTextSegment],
+) -> SegmentedTranscriptionOutput {
+    let text = if merged_segments.is_empty() {
+        merged_text_parts.join("\n\n")
+    } else {
+        join_segment_text(merged_segments)
+    };
+
+    SegmentedTranscriptionOutput {
+        text,
+        model: model.to_string(),
+        segments: merged_segments.to_vec(),
+    }
+}
+
 fn join_segment_text(segments: &[TimedTextSegment]) -> String {
     segments
         .iter()
@@ -698,5 +733,29 @@ mod tests {
                 .to_string()
                 .contains("Segmented timestamps require whisper-1")
         );
+    }
+
+    #[test]
+    fn build_transcription_snapshot_prefers_cumulative_segments() {
+        let snapshot = build_transcription_snapshot(
+            "whisper-1",
+            &["chunk one".to_string(), "chunk two".to_string()],
+            &[
+                TimedTextSegment {
+                    start_ms: 0,
+                    end_ms: 1_000,
+                    text: "chunk one".to_string(),
+                },
+                TimedTextSegment {
+                    start_ms: 1_000,
+                    end_ms: 2_000,
+                    text: "chunk two".to_string(),
+                },
+            ],
+        );
+
+        assert_eq!(snapshot.model, "whisper-1");
+        assert_eq!(snapshot.segments.len(), 2);
+        assert_eq!(snapshot.text, "chunk one\n\nchunk two");
     }
 }

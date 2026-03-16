@@ -126,7 +126,7 @@ fn resolve_chat_stream_trace(core: &AppCore, session_id: &str, stream_id: &str) 
     build_chat_stream_trace(session_id, stream_id, actor_id)
 }
 
-fn build_daemon_status() -> IpcDaemonStatus {
+pub(crate) fn build_daemon_status() -> IpcDaemonStatus {
     let started_at_ms = daemon_started_at_ms();
     let now_ms = Utc::now().timestamp_millis();
     let uptime_secs = ((now_ms - started_at_ms).max(0) / 1000) as u64;
@@ -338,43 +338,24 @@ impl IpcServer {
             stream.read_exact(&mut buf).await?;
 
             match serde_json::from_slice::<IpcRequest>(&buf) {
-                Ok(IpcRequest::ExecuteChatSessionStream {
-                    session_id,
-                    user_input,
-                    stream_id,
-                }) => {
-                    if let Err(err) = Self::handle_execute_chat_session_stream(
-                        &mut stream,
-                        core.clone(),
-                        session_id,
-                        user_input,
-                        stream_id,
-                    )
-                    .await
-                    {
+                Ok(
+                    request @ (IpcRequest::ExecuteChatSessionStream { .. }
+                    | IpcRequest::SubscribeBackgroundAgentEvents { .. }
+                    | IpcRequest::SubscribeSessionEvents),
+                ) => match Self::open_stream(core.clone(), request).await {
+                    Ok(mut rx) => {
+                        while let Some(frame) = rx.recv().await {
+                            if let Err(err) = Self::send_stream_frame(&mut stream, &frame).await {
+                                debug!(error = %err, "Stream client disconnected");
+                                break;
+                            }
+                        }
+                    }
+                    Err(err) => {
                         let frame = StreamFrame::error(500, err.to_string());
                         let _ = Self::send_stream_frame(&mut stream, &frame).await;
                     }
-                }
-                Ok(IpcRequest::SubscribeBackgroundAgentEvents {
-                    background_agent_id,
-                }) => {
-                    if let Err(err) = Self::handle_subscribe_background_agent_events(
-                        &mut stream,
-                        background_agent_id,
-                    )
-                    .await
-                    {
-                        let frame = StreamFrame::error(500, err.to_string());
-                        let _ = Self::send_stream_frame(&mut stream, &frame).await;
-                    }
-                }
-                Ok(IpcRequest::SubscribeSessionEvents) => {
-                    if let Err(err) = Self::handle_subscribe_session_events(&mut stream).await {
-                        let frame = StreamFrame::error(500, err.to_string());
-                        let _ = Self::send_stream_frame(&mut stream, &frame).await;
-                    }
-                }
+                },
                 Ok(req) => {
                     let response = Self::process(&core, runtime_tool_registry.as_ref(), req).await;
                     Self::send(&mut stream, &response).await?;
@@ -404,14 +385,33 @@ impl IpcServer {
         Ok(())
     }
 
-    #[cfg(unix)]
-    async fn handle_execute_chat_session_stream(
-        stream: &mut UnixStream,
+    pub(crate) async fn open_stream(
+        core: Arc<AppCore>,
+        request: IpcRequest,
+    ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
+        match request {
+            IpcRequest::ExecuteChatSessionStream {
+                session_id,
+                user_input,
+                stream_id,
+            } => {
+                Self::open_execute_chat_session_stream(core, session_id, user_input, stream_id)
+                    .await
+            }
+            IpcRequest::SubscribeBackgroundAgentEvents {
+                background_agent_id,
+            } => Self::open_background_agent_event_stream(background_agent_id).await,
+            IpcRequest::SubscribeSessionEvents => Self::open_session_event_stream().await,
+            other => anyhow::bail!("Unsupported streaming request: {:?}", other),
+        }
+    }
+
+    async fn open_execute_chat_session_stream(
         core: Arc<AppCore>,
         session_id: String,
         user_input: Option<String>,
         stream_id: String,
-    ) -> Result<()> {
+    ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
         let stream_id = if stream_id.trim().is_empty() {
             Uuid::new_v4().to_string()
         } else {
@@ -435,10 +435,11 @@ impl IpcServer {
         active_chat_stream_steers().lock().await.remove(&stream_id);
 
         // Ensure at most one active stream per session.
-        if let Some(previous_stream_id) = active_chat_stream_sessions()
+        let previous_stream_id = active_chat_stream_sessions()
             .lock()
             .await
-            .insert(session_id.clone(), stream_id.clone())
+            .insert(session_id.clone(), stream_id.clone());
+        if let Some(previous_stream_id) = previous_stream_id
             && previous_stream_id != stream_id
         {
             if let Some(previous) = active_chat_streams()
@@ -464,15 +465,10 @@ impl IpcServer {
                 .remove(&previous_stream_id);
         }
 
-        Self::send_stream_frame(
-            stream,
-            &StreamFrame::Start {
-                stream_id: stream_id.clone(),
-            },
-        )
-        .await?;
-
-        let (tx, mut rx) = mpsc::unbounded_channel::<StreamFrame>();
+        let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
+        tx.send(StreamFrame::Start {
+            stream_id: stream_id.clone(),
+        })?;
         let (steer_tx, steer_rx) = mpsc::channel::<SteerMessage>(64);
         let worker_stream_id = stream_id.clone();
         let worker_turn_id = stream_id.clone();
@@ -534,143 +530,96 @@ impl IpcServer {
             .await
             .insert(stream_id.clone(), steer_tx);
 
-        let mut reached_terminal = false;
-        while let Some(frame) = rx.recv().await {
-            reached_terminal = matches!(frame, StreamFrame::Done { .. } | StreamFrame::Error(_));
-            Self::send_stream_frame(stream, &frame).await?;
-            if reached_terminal {
-                break;
-            }
-        }
-
-        if !reached_terminal {
-            // Worker stopped unexpectedly (usually interrupted).
-            let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
-            append_trace_event(
-                &core.storage.tool_traces,
-                Some(&core.storage.execution_traces),
-                &TraceEvent::run_interrupted(trace, "chat stream interrupted", None),
-            );
-            let _ = Self::send_stream_frame(
-                stream,
-                &StreamFrame::error(499, "Chat stream interrupted"),
-            )
-            .await;
-        }
-
-        if let Some(handle) = active_chat_streams().lock().await.remove(&stream_id)
-            && !handle.is_finished()
-        {
-            handle.abort();
-        }
-        active_chat_stream_steers().lock().await.remove(&stream_id);
-        let mut session_streams = active_chat_stream_sessions().lock().await;
-        if session_streams.get(&session_id) == Some(&stream_id) {
-            session_streams.remove(&session_id);
-        }
-
-        Ok(())
+        Ok(rx)
     }
 
-    #[cfg(unix)]
-    async fn handle_subscribe_background_agent_events(
-        stream: &mut UnixStream,
+    async fn open_background_agent_event_stream(
         background_agent_id: String,
-    ) -> Result<()> {
+    ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
         let stream_id = format!("background-agent-{}", Uuid::new_v4());
-        Self::send_stream_frame(
-            stream,
-            &StreamFrame::Start {
-                stream_id: stream_id.clone(),
-            },
-        )
-        .await?;
-
-        let include_all = background_agent_id.trim().is_empty() || background_agent_id == "*";
+        let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
         let mut receiver = subscribe_background_events();
+        tx.send(StreamFrame::Start {
+            stream_id: stream_id.clone(),
+        })?;
+        let include_all = background_agent_id.trim().is_empty() || background_agent_id == "*";
+        tokio::spawn(async move {
+            loop {
+                let event = match receiver.recv().await {
+                    Ok(event) => event,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!(
+                            skipped,
+                            background_agent_id = %background_agent_id,
+                            "Background event stream lagged; dropping oldest events"
+                        );
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        let _ = tx.send(StreamFrame::error(500, "Background event stream closed"));
+                        break;
+                    }
+                };
 
-        loop {
-            let event = match receiver.recv().await {
-                Ok(event) => event,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    warn!(
-                        skipped,
-                        background_agent_id = %background_agent_id,
-                        "Background event stream lagged; dropping oldest events"
-                    );
+                if !include_all && event.task_id != background_agent_id {
                     continue;
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    let _ = Self::send_stream_frame(
-                        stream,
-                        &StreamFrame::error(500, "Background event stream closed"),
-                    )
-                    .await;
+
+                if tx
+                    .send(StreamFrame::Event {
+                        event: IpcStreamEvent::BackgroundAgent(event),
+                    })
+                    .is_err()
+                {
                     break;
                 }
-            };
-
-            if !include_all && event.task_id != background_agent_id {
-                continue;
             }
 
-            let frame = StreamFrame::Event {
-                event: IpcStreamEvent::BackgroundAgent(event),
-            };
-            if let Err(err) = Self::send_stream_frame(stream, &frame).await {
-                debug!(error = %err, "Background event subscriber disconnected");
-                break;
-            }
-        }
+            debug!(stream_id = %stream_id, "Background event subscription ended");
+        });
 
-        debug!(stream_id = %stream_id, "Background event subscription ended");
-        Ok(())
+        Ok(rx)
     }
 
-    #[cfg(unix)]
-    async fn handle_subscribe_session_events(stream: &mut UnixStream) -> Result<()> {
+    async fn open_session_event_stream() -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
         let stream_id = format!("session-events-{}", Uuid::new_v4());
-        Self::send_stream_frame(
-            stream,
-            &StreamFrame::Start {
-                stream_id: stream_id.clone(),
-            },
-        )
-        .await?;
-
+        let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
         let mut receiver = subscribe_session_events();
+        tx.send(StreamFrame::Start {
+            stream_id: stream_id.clone(),
+        })?;
 
-        loop {
-            let event = match receiver.recv().await {
-                Ok(event) => event,
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
-                    warn!(
-                        skipped,
-                        "Session event stream lagged; dropping oldest events"
-                    );
-                    continue;
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    let _ = Self::send_stream_frame(
-                        stream,
-                        &StreamFrame::error(500, "Session event stream closed"),
-                    )
-                    .await;
+        tokio::spawn(async move {
+            loop {
+                let event = match receiver.recv().await {
+                    Ok(event) => event,
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
+                        warn!(
+                            skipped,
+                            "Session event stream lagged; dropping oldest events"
+                        );
+                        continue;
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                        let _ = tx.send(StreamFrame::error(500, "Session event stream closed"));
+                        break;
+                    }
+                };
+
+                if tx
+                    .send(StreamFrame::Event {
+                        event: IpcStreamEvent::Session(event),
+                    })
+                    .is_err()
+                {
                     break;
                 }
-            };
-
-            let frame = StreamFrame::Event {
-                event: IpcStreamEvent::Session(event),
-            };
-            if let Err(err) = Self::send_stream_frame(stream, &frame).await {
-                debug!(error = %err, "Session event subscriber disconnected");
-                break;
             }
-        }
 
-        debug!(stream_id = %stream_id, "Session event subscription ended");
-        Ok(())
+            debug!(stream_id = %stream_id, "Session event subscription ended");
+        });
+
+        Ok(rx)
     }
 }
 
