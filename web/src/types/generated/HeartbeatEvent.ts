@@ -4,6 +4,6 @@ import type { HeartbeatWarning } from "./HeartbeatWarning";
 import type { RunnerStatusEvent } from "./RunnerStatusEvent";
 
 /**
- * Heartbeat event sent to the frontend
+ * Heartbeat event sent to connected daemon clients.
  */
 export type HeartbeatEvent = { "kind": "pulse" } & HeartbeatPulse | { "kind": "status_change" } & RunnerStatusEvent | { "kind": "warning" } & HeartbeatWarning;

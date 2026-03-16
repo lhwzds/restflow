@@ -2,10 +2,10 @@
 import type { StreamEventKind } from "./StreamEventKind";
 
 /**
- * Real-time streaming event for task execution
+ * Real-time streaming event for task execution.
  *
- * This is the primary event type emitted via Tauri's event system
- * for real-time updates during task execution.
+ * This is the primary event type delivered through the shared daemon stream
+ * contracts for live task updates.
  */
 export type TaskStreamEvent = { 
 /**

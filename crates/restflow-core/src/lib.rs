@@ -168,7 +168,7 @@ use std::sync::Arc;
 use storage::Storage;
 use tracing::{info, warn};
 
-/// Core application state shared between server and Tauri modes
+/// Core application state shared between daemon-backed application modes
 ///
 /// After AgentFlow refactor, this struct focuses on:
 /// - Storage access for Agent, Skill, Trigger, and Secrets
