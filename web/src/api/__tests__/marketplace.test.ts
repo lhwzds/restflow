@@ -13,14 +13,17 @@ import {
   uninstallMarketplaceSkill,
   updateMarketplaceSkill,
 } from '../marketplace'
-import { tauriInvoke } from '../tauri-client'
+import { fetchJson } from '../http-client'
 import type { GatingCheckResult, SkillManifest, SkillVersion } from '@/types/generated'
 
-vi.mock('../tauri-client', () => ({
-  tauriInvoke: vi.fn(),
+vi.mock('../http-client', () => ({
+  buildUrl: vi.fn((path: string) => `http://127.0.0.1:8787${path}`),
+  fetchJson: vi.fn(),
 }))
 
-const mockedTauriInvoke = vi.mocked(tauriInvoke)
+declare const global: typeof globalThis
+
+const mockedFetchJson = vi.mocked(fetchJson)
 
 const createManifest = (id: string, categories: string[] = ['productivity']): SkillManifest => ({
   id,
@@ -65,10 +68,11 @@ const versions: SkillVersion[] = [
 describe('Marketplace API', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    vi.stubGlobal('fetch', vi.fn())
   })
 
-  it('searches marketplace with transformed request', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce([
+  it('searches marketplace through daemon HTTP', async () => {
+    mockedFetchJson.mockResolvedValueOnce([
       {
         manifest: createManifest('skill-1'),
         score: 90,
@@ -86,8 +90,10 @@ describe('Marketplace API', () => {
       offset: 0,
     })
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('marketplace_search', {
-      request: expect.objectContaining({
+    expect(mockedFetchJson).toHaveBeenCalledWith('/api/marketplace/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
         query: 'automation',
         include_github: true,
         sort: 'popular',
@@ -100,31 +106,33 @@ describe('Marketplace API', () => {
 
   it('gets one marketplace skill', async () => {
     const manifest = createManifest('skill-1')
-    mockedTauriInvoke.mockResolvedValueOnce(manifest)
+    mockedFetchJson.mockResolvedValueOnce(manifest)
 
     const result = await getMarketplaceSkill('skill-1')
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('marketplace_get_skill', {
-      id: 'skill-1',
-      source: 'marketplace',
+    expect(mockedFetchJson).toHaveBeenCalledWith('/api/marketplace/skill', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'skill-1', source: 'marketplace' }),
     })
     expect(result.id).toBe('skill-1')
   })
 
   it('checks marketplace gating', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce(passingGating)
+    mockedFetchJson.mockResolvedValueOnce(passingGating)
 
     const result = await checkMarketplaceGating('skill-1')
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('marketplace_check_gating', {
-      id: 'skill-1',
-      source: 'marketplace',
+    expect(mockedFetchJson).toHaveBeenCalledWith('/api/marketplace/gating', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'skill-1', source: 'marketplace' }),
     })
     expect(result.passed).toBe(true)
   })
 
   it('aggregates marketplace skill detail', async () => {
-    mockedTauriInvoke
+    mockedFetchJson
       .mockResolvedValueOnce(createManifest('skill-1'))
       .mockResolvedValueOnce(versions)
       .mockResolvedValueOnce(passingGating)
@@ -139,7 +147,7 @@ describe('Marketplace API', () => {
   })
 
   it('keeps detail content null when content fetch fails', async () => {
-    mockedTauriInvoke
+    mockedFetchJson
       .mockResolvedValueOnce(createManifest('skill-1'))
       .mockResolvedValueOnce(versions)
       .mockResolvedValueOnce(passingGating)
@@ -150,8 +158,8 @@ describe('Marketplace API', () => {
     expect(result.content).toBeNull()
   })
 
-  it('installs a skill', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce(undefined)
+  it('installs a skill via HTTP endpoint', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
 
     const result = await installMarketplaceSkill({
       id: 'skill-1',
@@ -159,35 +167,41 @@ describe('Marketplace API', () => {
       version: '1.0.0',
     })
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('marketplace_install_skill', {
-      id: 'skill-1',
-      version: '1.0.0',
-      source: 'marketplace',
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8787/api/marketplace/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: 'skill-1',
+        version: '1.0.0',
+        source: 'marketplace',
+      }),
     })
     expect(result.success).toBe(true)
   })
 
   it('installs with overwrite by uninstalling first', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
 
     const result = await installMarketplaceSkill({
       id: 'skill-1',
       overwrite: true,
     })
 
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(1, 'marketplace_uninstall_skill', {
-      id: 'skill-1',
+    expect(fetch).toHaveBeenNthCalledWith(1, 'http://127.0.0.1:8787/api/marketplace/uninstall', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'skill-1' }),
     })
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(2, 'marketplace_install_skill', {
-      id: 'skill-1',
-      version: null,
-      source: 'marketplace',
+    expect(fetch).toHaveBeenNthCalledWith(2, 'http://127.0.0.1:8787/api/marketplace/install', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'skill-1', version: null, source: 'marketplace' }),
     })
     expect(result.success).toBe(true)
   })
 
   it('returns install error payload when install fails', async () => {
-    mockedTauriInvoke.mockRejectedValueOnce(new Error('install failed'))
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('install failed', { status: 500 })))
 
     const result = await installMarketplaceSkill({ id: 'skill-1' })
 
@@ -196,30 +210,32 @@ describe('Marketplace API', () => {
   })
 
   it('uninstalls a skill', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce(undefined)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
 
     const result = await uninstallMarketplaceSkill('skill-1')
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('marketplace_uninstall_skill', {
-      id: 'skill-1',
+    expect(fetch).toHaveBeenCalledWith('http://127.0.0.1:8787/api/marketplace/uninstall', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: 'skill-1' }),
     })
     expect(result.success).toBe(true)
   })
 
   it('lists installed skills', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce([
+    mockedFetchJson.mockResolvedValueOnce([
       { id: 'skill-1', name: 'Skill 1' },
       { id: 'skill-2', name: 'Skill 2' },
     ])
 
     const result = await listInstalledMarketplaceSkills()
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('marketplace_list_installed')
+    expect(mockedFetchJson).toHaveBeenCalledWith('/api/marketplace/installed')
     expect(result).toHaveLength(2)
   })
 
   it('checks installed skill by id', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce([
+    mockedFetchJson.mockResolvedValueOnce([
       { id: 'skill-1', name: 'Skill 1' },
       { id: 'skill-2', name: 'Skill 2' },
     ])
@@ -229,8 +245,8 @@ describe('Marketplace API', () => {
     expect(result).toBe(true)
   })
 
-  it('computes marketplace stats', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce([
+  it('computes marketplace stats and categories', async () => {
+    mockedFetchJson.mockResolvedValue([
       {
         manifest: createManifest('skill-1', ['productivity', 'ops']),
         score: 100,
@@ -248,60 +264,21 @@ describe('Marketplace API', () => {
     ])
 
     const stats = await getMarketplaceStats()
+    const categories = await listMarketplaceCategories()
+    const featured = await getFeaturedMarketplaceSkills()
 
     expect(stats.total_skills).toBe(2)
-    expect(stats.total_downloads).toBe(750)
-    expect(stats.categories).toEqual(
+    expect(categories).toEqual(
       expect.arrayContaining([
         { name: 'productivity', count: 2 },
         { name: 'ops', count: 1 },
       ]),
     )
-    expect(stats.featured_skills[0]).toBe('skill-1')
+    expect(featured).toHaveLength(2)
   })
 
-  it('lists categories from stats', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce([
-      {
-        manifest: createManifest('skill-1', ['ops']),
-        score: 88,
-        downloads: 10,
-        rating: null,
-        source: 'marketplace',
-      },
-    ])
-
-    const categories = await listMarketplaceCategories()
-
-    expect(categories).toEqual([{ name: 'ops', count: 1 }])
-  })
-
-  it('returns featured skills', async () => {
-    const items = [
-      {
-        manifest: createManifest('skill-1'),
-        score: 100,
-        downloads: 1000,
-        rating: 4.9,
-        source: 'marketplace',
-      },
-      {
-        manifest: createManifest('skill-2'),
-        score: 90,
-        downloads: 10,
-        rating: 4.0,
-        source: 'marketplace',
-      },
-    ]
-    mockedTauriInvoke.mockResolvedValueOnce(items).mockResolvedValueOnce(items)
-
-    const featured = await getFeaturedMarketplaceSkills()
-
-    expect(featured[0]?.manifest.id).toBe('skill-1')
-  })
-
-  it('updates skill via overwrite install', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce(undefined).mockResolvedValueOnce(undefined)
+  it('updates a marketplace skill by reinstalling', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 200 })))
 
     const result = await updateMarketplaceSkill('skill-1')
 

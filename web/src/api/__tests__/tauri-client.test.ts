@@ -1,105 +1,68 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { invoke } from '@tauri-apps/api/core'
-import { isTauri, invokeCommand, tauriInvoke } from '../tauri-client'
-import { commands } from '../bindings'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchJson, requestOptional, requestTyped } from '../http-client'
+import { invokeCommand, isTauri, tauriInvoke } from '../tauri-client'
 
-// Declare global for Node.js environment in tests
-declare const global: typeof globalThis
-
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
+vi.mock('../http-client', () => ({
+  buildUrl: vi.fn((path: string) => `http://127.0.0.1:8787${path}`),
+  fetchJson: vi.fn(),
+  requestOptional: vi.fn(),
+  requestTyped: vi.fn(),
 }))
 
-vi.mock('../bindings', () => ({
-  commands: {
-    listAgents: vi.fn(),
-    getHeartbeatEventName: vi.fn(),
-  },
-}))
-
-describe('tauri-client', () => {
-  describe('isTauri', () => {
-    const originalWindow = global.window
-
-    beforeEach(() => {
-      global.window = {} as Window & typeof globalThis
-    })
-
-    afterEach(() => {
-      global.window = originalWindow
-    })
-
-    it('returns false when __TAURI_INTERNALS__ is not present', () => {
-      expect(isTauri()).toBe(false)
-    })
-
-    it('returns false when window is undefined', () => {
-      const savedWindow = global.window
-      // @ts-expect-error - testing undefined window
-      global.window = undefined
-      expect(isTauri()).toBe(false)
-      global.window = savedWindow
-    })
-
-    it('returns true when __TAURI_INTERNALS__ is present', () => {
-      ;(global.window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {}
-      expect(isTauri()).toBe(true)
-    })
+describe('tauri-client compatibility layer', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
   })
 
-  describe('invokeCommand', () => {
-    beforeEach(() => {
-      vi.clearAllMocks()
-    })
-
-    it('unwraps Specta result envelope when status is ok', async () => {
-      vi.mocked(commands.listAgents).mockResolvedValue({
-        status: 'ok',
-        data: [{ id: 'agent-1', name: 'Agent 1' }] as any,
-      })
-
-      const result = await invokeCommand('listAgents')
-
-      expect(commands.listAgents).toHaveBeenCalledTimes(1)
-      expect(result).toEqual([{ id: 'agent-1', name: 'Agent 1' }])
-    })
-
-    it('throws normalized error when Specta status is error', async () => {
-      vi.mocked(commands.listAgents).mockResolvedValue({
-        status: 'error',
-        error: 'permission denied',
-      })
-
-      await expect(invokeCommand('listAgents')).rejects.toThrow('permission denied')
-    })
-
-    it('returns raw values for commands without Specta envelope', async () => {
-      vi.mocked(commands.getHeartbeatEventName).mockResolvedValue('background-agent:heartbeat')
-
-      const result = await invokeCommand('getHeartbeatEventName')
-
-      expect(result).toBe('background-agent:heartbeat')
-    })
+  it('always reports non-tauri runtime', () => {
+    expect(isTauri()).toBe(false)
   })
 
-  describe('tauriInvoke', () => {
-    beforeEach(() => {
-      vi.clearAllMocks()
+  it('maps legacy invokeCommand calls to request contracts', async () => {
+    vi.mocked(requestTyped).mockResolvedValue([{ id: 'agent-1' }])
+
+    const result = await invokeCommand('listAgents')
+
+    expect(requestTyped).toHaveBeenCalledWith({ type: 'ListAgents' })
+    expect(result).toEqual([{ id: 'agent-1' }])
+  })
+
+  it('unwraps typed delete responses for legacy callers', async () => {
+    vi.mocked(requestTyped).mockResolvedValue({ deleted: true })
+
+    const result = await invokeCommand('deleteChatSession', 'session-1')
+
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'DeleteSession',
+      data: { id: 'session-1' },
+    })
+    expect(result).toBe(true)
+  })
+
+  it('uses fetch-based endpoints for marketplace calls', async () => {
+    vi.mocked(fetchJson).mockResolvedValue([{ manifest: { id: 'skill-1' } }])
+
+    const result = await tauriInvoke('marketplace_search', {
+      request: { query: 'search' },
     })
 
-    it('calls invoke with command and args', async () => {
-      vi.mocked(invoke).mockResolvedValue({ data: 'test' })
-
-      const result = await tauriInvoke('test_command', { arg1: 'value1' })
-
-      expect(invoke).toHaveBeenCalledWith('test_command', { arg1: 'value1' })
-      expect(result).toEqual({ data: 'test' })
+    expect(fetchJson).toHaveBeenCalledWith('/api/marketplace/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: 'search' }),
     })
+    expect(result).toEqual([{ manifest: { id: 'skill-1' } }])
+  })
 
-    it('normalizes string errors', async () => {
-      vi.mocked(invoke).mockRejectedValue('Something went wrong')
+  it('preserves nullable lookups through requestOptional', async () => {
+    vi.mocked(requestOptional).mockResolvedValue(null)
 
-      await expect(tauriInvoke('failing_command')).rejects.toThrow('Something went wrong')
+    const result = await tauriInvoke('get_memory_chunk', { chunkId: 'missing' })
+
+    expect(requestOptional).toHaveBeenCalledWith({
+      type: 'GetMemoryChunk',
+      data: { id: 'missing' },
     })
+    expect(result).toBeNull()
   })
 })

@@ -18,48 +18,68 @@ import {
   authClear,
 } from '../auth'
 import type { AddProfileRequest, ProfileUpdate } from '../auth'
-import { invokeCommand } from '../tauri-client'
+import { requestOptional, requestTyped } from '../http-client'
 
-vi.mock('../tauri-client', () => ({
-  invokeCommand: vi.fn(),
+vi.mock('../http-client', () => ({
+  requestOptional: vi.fn(),
+  requestTyped: vi.fn(),
 }))
 
-const mockedInvokeCommand = vi.mocked(invokeCommand)
+const mockedRequestTyped = vi.mocked(requestTyped)
+const mockedRequestOptional = vi.mocked(requestOptional)
+
+const profile = {
+  id: 'profile-1',
+  name: 'Main',
+  provider: 'openai',
+  source: 'manual',
+  enabled: true,
+  priority: 0,
+  health: 'healthy',
+  usage_count: 0,
+  failure_count: 0,
+  cooldown_until: null,
+  last_used_at: null,
+  created_at: 1,
+  updated_at: 2,
+}
 
 describe('Auth API', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
+    mockedRequestTyped.mockReset()
+    mockedRequestOptional.mockReset()
   })
 
-  it('invokes authInitialize and authDiscover without params', async () => {
-    mockedInvokeCommand.mockResolvedValueOnce({ found: 1 }).mockResolvedValueOnce({ found: 2 })
+  it('loads discovery through daemon request contracts', async () => {
+    mockedRequestTyped.mockResolvedValueOnce({ found: 1 }).mockResolvedValueOnce({ found: 2 })
 
     await authInitialize()
     await authDiscover()
 
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(1, 'authInitialize')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(2, 'authDiscover')
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(1, { type: 'DiscoverAuth' })
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(2, { type: 'DiscoverAuth' })
   })
 
-  it('invokes profile list/get APIs', async () => {
-    mockedInvokeCommand
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce(null)
+  it('lists and filters profiles', async () => {
+    mockedRequestTyped
+      .mockResolvedValueOnce([profile])
+      .mockResolvedValueOnce([profile])
+      .mockResolvedValueOnce([profile])
+    mockedRequestOptional.mockResolvedValueOnce(profile)
 
     await authListProfiles()
     await authGetProfilesForProvider('openai')
     await authGetAvailableProfiles()
     await authGetProfile('profile-1')
 
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(1, 'authListProfiles')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(2, 'authGetProfilesForProvider', 'openai')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(3, 'authGetAvailableProfiles')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(4, 'authGetProfile', 'profile-1')
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(1, { type: 'ListAuthProfiles' })
+    expect(mockedRequestOptional).toHaveBeenCalledWith({
+      type: 'GetAuthProfile',
+      data: { id: 'profile-1' },
+    })
   })
 
-  it('invokes mutation APIs with mapped payloads', async () => {
+  it('maps mutation payloads to request contracts', async () => {
     const addRequest: AddProfileRequest = {
       name: 'My Key',
       api_key: 'sk-test-123',
@@ -69,7 +89,21 @@ describe('Auth API', () => {
     }
     const update: ProfileUpdate = { name: 'Updated Name', enabled: true, priority: 5 }
 
-    mockedInvokeCommand.mockResolvedValue({ success: true })
+    mockedRequestTyped
+      .mockResolvedValueOnce(profile)
+      .mockResolvedValueOnce({ ...profile, priority: 10 })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce({ ...profile, name: 'Updated Name' })
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(profile)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(profile)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(profile)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(profile)
+      .mockResolvedValueOnce(undefined)
+    mockedRequestOptional.mockResolvedValueOnce(profile)
 
     await authAddProfile(addRequest)
     await authRemoveProfile('profile-1')
@@ -79,41 +113,53 @@ describe('Auth API', () => {
     await authMarkSuccess('profile-1')
     await authMarkFailure('profile-1')
 
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(1, 'authAddProfile', addRequest)
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(2, 'authRemoveProfile', 'profile-1')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(3, 'authUpdateProfile', 'profile-1', {
-      name: 'Updated Name',
-      enabled: true,
-      priority: 5,
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'AddAuthProfile',
+      data: {
+        name: 'My Key',
+        credential: {
+          type: 'api_key',
+          key: 'sk-test-123',
+          email: 'test@example.com',
+        },
+        source: 'manual',
+        provider: 'openai',
+      },
     })
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(4, 'authEnableProfile', 'profile-1')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(
-      5,
-      'authDisableProfile',
-      'profile-1',
-      'rate limited',
-    )
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(6, 'authMarkSuccess', 'profile-1')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(7, 'authMarkFailure', 'profile-1')
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'UpdateAuthProfile',
+      data: {
+        id: 'profile-1',
+        updates: {
+          name: 'Updated Name',
+          enabled: true,
+          priority: 5,
+        },
+      },
+    })
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'DisableAuthProfile',
+      data: { id: 'profile-1', reason: 'rate limited' },
+    })
   })
 
-  it('invokes authGetApiKey/authGetSummary/authClear', async () => {
-    mockedInvokeCommand
-      .mockResolvedValueOnce(true)
-      .mockResolvedValueOnce({ total: 1 })
+  it('returns api-key presence and summary', async () => {
+    mockedRequestTyped
+      .mockResolvedValueOnce({ api_key: 'secret' })
+      .mockResolvedValueOnce([profile])
       .mockResolvedValueOnce(undefined)
 
-    await authGetApiKey('anthropic')
-    await authGetSummary()
+    const hasKey = await authGetApiKey('anthropic')
+    const summary = await authGetSummary()
     await authClear()
 
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(1, 'authGetApiKey', 'anthropic')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(2, 'authGetSummary')
-    expect(mockedInvokeCommand).toHaveBeenNthCalledWith(3, 'authClear')
+    expect(hasKey).toBe(true)
+    expect(summary.total).toBe(1)
+    expect(mockedRequestTyped).toHaveBeenLastCalledWith({ type: 'ClearAuthProfiles' })
   })
 
-  it('propagates invokeCommand errors', async () => {
-    mockedInvokeCommand.mockRejectedValue(new Error('Backend unavailable'))
+  it('propagates typed request errors', async () => {
+    mockedRequestTyped.mockRejectedValue(new Error('Backend unavailable'))
 
     await expect(authListProfiles()).rejects.toThrow('Backend unavailable')
   })

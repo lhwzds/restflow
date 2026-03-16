@@ -1,15 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import * as memoryApi from '../memory'
-import { invokeCommand, tauriInvoke } from '../tauri-client'
+import { requestOptional, requestTyped } from '../http-client'
 import type { MemorySearchQuery } from '@/types/generated'
 
-vi.mock('../tauri-client', () => ({
-  invokeCommand: vi.fn(),
-  tauriInvoke: vi.fn(),
+vi.mock('../http-client', () => ({
+  requestOptional: vi.fn(),
+  requestTyped: vi.fn(),
 }))
 
-const mockedInvokeCommand = vi.mocked(invokeCommand)
-const mockedTauriInvoke = vi.mocked(tauriInvoke)
+const mockedRequestTyped = vi.mocked(requestTyped)
+const mockedRequestOptional = vi.mocked(requestOptional)
 
 const defaultQuery: MemorySearchQuery = {
   agent_id: 'agent-1',
@@ -30,18 +30,23 @@ describe('Memory API', () => {
   })
 
   it('searches memory', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce({ chunks: [], total_count: 0, has_more: false })
+    mockedRequestTyped.mockResolvedValueOnce({ chunks: [], total_count: 0, has_more: false })
 
     const result = await memoryApi.searchMemory(defaultQuery)
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('search_memory', {
-      query: defaultQuery,
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'SearchMemoryRanked',
+      data: {
+        query: defaultQuery,
+        min_score: null,
+        scoring_preset: null,
+      },
     })
     expect(result.total_count).toBe(0)
   })
 
   it('searches memory with advanced request', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce({ chunks: [], total_count: 0, has_more: false })
+    mockedRequestTyped.mockResolvedValueOnce({ chunks: [], total_count: 0, has_more: false })
 
     await memoryApi.searchMemoryAdvanced({
       query: defaultQuery,
@@ -49,8 +54,9 @@ describe('Memory API', () => {
       scoring_preset: 'balanced',
     })
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('search_memory_advanced', {
-      request: {
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'SearchMemoryRanked',
+      data: {
         query: defaultQuery,
         min_score: 12,
         scoring_preset: 'balanced',
@@ -59,49 +65,57 @@ describe('Memory API', () => {
   })
 
   it('gets one chunk', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce({ id: 'chunk-1', content: 'note' })
+    mockedRequestOptional.mockResolvedValueOnce({ id: 'chunk-1', content: 'note' })
 
     const result = await memoryApi.getMemoryChunk('chunk-1')
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('get_memory_chunk', { chunkId: 'chunk-1' })
+    expect(mockedRequestOptional).toHaveBeenCalledWith({
+      type: 'GetMemoryChunk',
+      data: { id: 'chunk-1' },
+    })
     expect(result).toEqual(expect.objectContaining({ id: 'chunk-1' }))
   })
 
   it('lists chunks by agent', async () => {
-    mockedTauriInvoke.mockResolvedValueOnce({ items: [], total: 0 })
+    mockedRequestTyped.mockResolvedValueOnce([{ id: 'chunk-1' }, { id: 'chunk-2' }])
 
-    const result = await memoryApi.listMemoryChunks('agent-1', 10, 5)
+    const result = await memoryApi.listMemoryChunks('agent-1', 1, 1)
 
-    expect(mockedTauriInvoke).toHaveBeenCalledWith('list_memory_chunks', {
-      agentId: 'agent-1',
-      limit: 10,
-      offset: 5,
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'ListMemory',
+      data: { agent_id: 'agent-1', tag: null },
     })
-    expect(result.total).toBe(0)
+    expect(result).toEqual({ items: [{ id: 'chunk-2' }], total: 2 })
   })
 
-  it('lists chunks by tag via generated binding command', async () => {
-    mockedInvokeCommand.mockResolvedValueOnce({ items: [{ id: 'chunk-1' }], total: 1 })
+  it('lists chunks by tag', async () => {
+    mockedRequestTyped.mockResolvedValueOnce([{ id: 'chunk-1' }])
 
     const result = await memoryApi.listMemoryChunksByTag('task:abc', 50)
 
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('listMemoryChunksByTag', 'task:abc', 50)
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'ListMemory',
+      data: { agent_id: null, tag: 'task:abc' },
+    })
     expect(result.total).toBe(1)
   })
 
-  it('lists session chunks via generated binding command', async () => {
-    mockedInvokeCommand.mockResolvedValueOnce([{ id: 'chunk-1' }])
+  it('lists session chunks', async () => {
+    mockedRequestTyped.mockResolvedValueOnce([{ id: 'chunk-1' }])
 
     const result = await memoryApi.listMemoryChunksForSession('session-1')
 
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('listMemoryChunksForSession', 'session-1')
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'ListMemoryBySession',
+      data: { session_id: 'session-1' },
+    })
     expect(result).toHaveLength(1)
   })
 
   it('creates and deletes chunk', async () => {
-    mockedTauriInvoke
+    mockedRequestTyped
       .mockResolvedValueOnce({ id: 'chunk-1', content: 'manual' })
-      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce({ deleted: true })
 
     const created = await memoryApi.createMemoryChunk({
       agent_id: 'agent-1',
@@ -111,27 +125,31 @@ describe('Memory API', () => {
     })
     const deleted = await memoryApi.deleteMemoryChunk('chunk-1')
 
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(1, 'create_memory_chunk', {
-      request: {
-        agent_id: 'agent-1',
-        content: 'manual note',
-        session_id: 'session-1',
-        tags: ['manual'],
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(1, {
+      type: 'CreateMemoryChunk',
+      data: {
+        chunk: {
+          agent_id: 'agent-1',
+          content: 'manual note',
+          session_id: 'session-1',
+          tags: ['manual'],
+        },
       },
     })
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(2, 'delete_memory_chunk', {
-      chunkId: 'chunk-1',
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(2, {
+      type: 'DeleteMemory',
+      data: { id: 'chunk-1' },
     })
     expect(created).toEqual(expect.objectContaining({ id: 'chunk-1' }))
     expect(deleted).toBe(true)
   })
 
   it('lists and manages sessions', async () => {
-    mockedInvokeCommand.mockResolvedValueOnce([{ id: 'session-1' }])
-    mockedTauriInvoke
-      .mockResolvedValueOnce({ id: 'session-1' })
+    mockedRequestTyped.mockResolvedValueOnce([{ id: 'session-1' }])
+    mockedRequestOptional.mockResolvedValueOnce({ id: 'session-1' })
+    mockedRequestTyped
       .mockResolvedValueOnce({ id: 'session-2' })
-      .mockResolvedValueOnce(true)
+      .mockResolvedValueOnce({ deleted: true })
 
     const sessions = await memoryApi.listMemorySessions('agent-1')
     const one = await memoryApi.getMemorySession('session-1')
@@ -143,21 +161,31 @@ describe('Memory API', () => {
     })
     const deleted = await memoryApi.deleteMemorySession('session-2', false)
 
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('listMemorySessions', 'agent-1')
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(1, 'get_memory_session', {
-      sessionId: 'session-1',
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(1, {
+      type: 'ListMemorySessions',
+      data: { agent_id: 'agent-1' },
     })
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(2, 'create_memory_session', {
-      request: {
-        agent_id: 'agent-1',
-        name: 'Research',
-        description: null,
-        tags: ['research'],
+    expect(mockedRequestOptional).toHaveBeenCalledWith({
+      type: 'GetMemorySession',
+      data: { session_id: 'session-1' },
+    })
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(2, {
+      type: 'CreateMemorySession',
+      data: {
+        session: {
+          agent_id: 'agent-1',
+          name: 'Research',
+          description: null,
+          tags: ['research'],
+        },
       },
     })
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(3, 'delete_memory_session', {
-      sessionId: 'session-2',
-      deleteChunks: false,
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(3, {
+      type: 'DeleteMemorySession',
+      data: {
+        session_id: 'session-2',
+        delete_chunks: false,
+      },
     })
     expect(sessions).toHaveLength(1)
     expect(one).toEqual(expect.objectContaining({ id: 'session-1' }))
@@ -166,7 +194,7 @@ describe('Memory API', () => {
   })
 
   it('gets stats and exports memory', async () => {
-    mockedTauriInvoke
+    mockedRequestTyped
       .mockResolvedValueOnce({ total_chunks: 10 })
       .mockResolvedValueOnce({ markdown: '# Agent Export' })
       .mockResolvedValueOnce({ markdown: '# Session Export' })
@@ -185,17 +213,21 @@ describe('Memory API', () => {
       include_tags: true,
     })
 
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(1, 'get_memory_stats', {
-      agentId: 'agent-1',
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(1, {
+      type: 'GetMemoryStats',
+      data: { agent_id: 'agent-1' },
     })
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(2, 'export_memory_markdown', {
-      agentId: 'agent-1',
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(2, {
+      type: 'ExportMemory',
+      data: { agent_id: 'agent-1' },
     })
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(3, 'export_memory_session_markdown', {
-      sessionId: 'session-1',
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(3, {
+      type: 'ExportMemorySession',
+      data: { session_id: 'session-1' },
     })
-    expect(mockedTauriInvoke).toHaveBeenNthCalledWith(4, 'export_memory_advanced', {
-      request: {
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(4, {
+      type: 'ExportMemoryAdvanced',
+      data: {
         agent_id: 'agent-1',
         session_id: null,
         preset: 'compact',
@@ -212,13 +244,16 @@ describe('Memory API', () => {
   })
 
   it('builds background memory tag and fetches task memory', async () => {
-    mockedInvokeCommand.mockResolvedValueOnce({ items: [{ id: 'chunk-1' }], total: 1 })
+    mockedRequestTyped.mockResolvedValueOnce([{ id: 'chunk-1' }])
 
     const tag = memoryApi.getBackgroundAgentMemoryTag('task-1')
     const result = await memoryApi.listBackgroundAgentMemory('task-1', 5)
 
     expect(tag).toBe('task:task-1')
-    expect(mockedInvokeCommand).toHaveBeenCalledWith('listMemoryChunksByTag', 'task:task-1', 5)
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'ListMemory',
+      data: { agent_id: null, tag: 'task:task-1' },
+    })
     expect(result.total).toBe(1)
   })
 })

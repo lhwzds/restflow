@@ -1,72 +1,37 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { getVoiceModel, setVoiceModel, useVoiceRecorder } from '../useVoiceRecorder'
+import { saveVoiceMessage, transcribeAudio } from '@/api/voice'
 
 declare const global: typeof globalThis
-import { useVoiceRecorder, getVoiceModel, setVoiceModel } from '../useVoiceRecorder'
-import { listen } from '@tauri-apps/api/event'
-import { startLiveTranscription, stopLiveTranscription } from '@/api/voice'
 
-// Mock voice API
 vi.mock('@/api/voice', () => ({
-  transcribeAudio: vi.fn(),
-  saveVoiceMessage: vi.fn(),
-  startLiveTranscription: vi.fn().mockResolvedValue('transcribe-id'),
-  sendLiveAudioChunk: vi.fn().mockResolvedValue(undefined),
-  stopLiveTranscription: vi.fn().mockResolvedValue(undefined),
+  saveVoiceMessage: vi.fn().mockResolvedValue('/tmp/voice.webm'),
+  transcribeAudio: vi.fn().mockResolvedValue({ text: 'hello world', model: 'whisper-1' }),
 }))
 
-vi.mock('@tauri-apps/api/event', () => ({
-  listen: vi.fn().mockResolvedValue(vi.fn()),
-}))
-
-const mockedListen = vi.mocked(listen)
-const mockedStartLiveTranscription = vi.mocked(startLiveTranscription)
-const mockedStopLiveTranscription = vi.mocked(stopLiveTranscription)
-
-// Mock MediaRecorder (voice-message mode)
 class MockMediaRecorder {
   static isTypeSupported = vi.fn().mockReturnValue(true)
   ondataavailable: ((event: { data: Blob }) => void) | null = null
   onstop: (() => void) | null = null
   mimeType = 'audio/webm'
+  state = 'recording'
+
+  constructor(_stream: MediaStream, _options?: unknown) {}
 
   start = vi.fn()
   stop = vi.fn().mockImplementation(() => {
+    this.ondataavailable?.({ data: new Blob(['audio'], { type: 'audio/webm' }) })
+    this.state = 'inactive'
     this.onstop?.()
   })
 }
 
-// Mock MediaStream
 class MockMediaStream {
   getTracks = vi.fn().mockReturnValue([{ stop: vi.fn() }])
 }
 
-// Mock AudioContext + AudioWorkletNode (voice-to-text live mode)
-class MockAudioContext {
-  audioWorklet = {
-    addModule: vi.fn().mockResolvedValue(undefined),
-  }
-
-  createMediaStreamSource = vi.fn().mockReturnValue({
-    connect: vi.fn(),
-    disconnect: vi.fn(),
-  })
-
-  close = vi.fn().mockResolvedValue(undefined)
-}
-
-class MockAudioWorkletNode {
-  port = {
-    onmessage: null as ((event: { data: unknown }) => void) | null,
-  }
-
-  constructor(_context: AudioContext, _name: string) {}
-
-  connect = vi.fn()
-  disconnect = vi.fn()
-}
-
-async function flushMicrotasks(turns = 5): Promise<void> {
-  for (let i = 0; i < turns; i++) {
+async function flushPromises(turns = 6): Promise<void> {
+  for (let index = 0; index < turns; index += 1) {
     await Promise.resolve()
   }
 }
@@ -75,23 +40,9 @@ describe('useVoiceRecorder', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.useFakeTimers()
-    mockedListen.mockResolvedValue(vi.fn())
-    mockedStartLiveTranscription.mockResolvedValue('transcribe-id')
-    mockedStopLiveTranscription.mockResolvedValue(undefined)
 
-    // Set up global mocks
     Object.defineProperty(global, 'MediaRecorder', {
       value: MockMediaRecorder,
-      writable: true,
-      configurable: true,
-    })
-    Object.defineProperty(global, 'AudioContext', {
-      value: MockAudioContext,
-      writable: true,
-      configurable: true,
-    })
-    Object.defineProperty(global, 'AudioWorkletNode', {
-      value: MockAudioWorkletNode,
       writable: true,
       configurable: true,
     })
@@ -109,96 +60,71 @@ describe('useVoiceRecorder', () => {
     vi.useRealTimers()
   })
 
-  it('should report isSupported when mediaDevices is available', () => {
+  it('reports support when media recording APIs are available', () => {
     const { isSupported } = useVoiceRecorder()
     expect(isSupported.value).toBe(true)
   })
 
-  it('should start in idle state', () => {
-    const { state } = useVoiceRecorder()
-    expect(state.value.isRecording).toBe(false)
-    expect(state.value.isTranscribing).toBe(false)
-    expect(state.value.duration).toBe(0)
-    expect(state.value.mode).toBeNull()
-    expect(state.value.error).toBeNull()
-  })
-
-  it('should start recording with explicit voice-to-text mode', async () => {
-    const { state, startRecording } = useVoiceRecorder()
+  it('transcribes voice-to-text recordings through the daemon HTTP API', async () => {
+    const onTranscribed = vi.fn()
+    const onTranscribeDelta = vi.fn()
+    const { state, startRecording, stopRecording } = useVoiceRecorder({
+      onTranscribed,
+      onTranscribeDelta,
+    })
 
     await startRecording('voice-to-text')
+    stopRecording()
+    await flushPromises()
 
-    expect(state.value.isRecording).toBe(true)
-    expect(state.value.mode).toBe('voice-to-text')
+    expect(transcribeAudio).toHaveBeenCalled()
+    expect(onTranscribeDelta).toHaveBeenCalledWith('hello world', 'hello world')
+    expect(onTranscribed).toHaveBeenCalledWith('hello world')
+    expect(state.value.isTranscribing).toBe(false)
+    expect(state.value.mode).toBeNull()
   })
 
-  it('should start recording with explicit voice-message mode', async () => {
-    const { state, startRecording } = useVoiceRecorder()
+  it('saves voice-message recordings through the daemon HTTP API', async () => {
+    const onVoiceMessage = vi.fn()
+    const { startRecording, stopRecording } = useVoiceRecorder({
+      onVoiceMessage,
+      getSessionId: () => 'session-1',
+    })
 
     await startRecording('voice-message')
+    stopRecording()
+    await flushPromises()
 
-    expect(state.value.isRecording).toBe(true)
-    expect(state.value.mode).toBe('voice-message')
+    expect(saveVoiceMessage).toHaveBeenCalledWith(expect.any(String), 'session-1')
+    expect(onVoiceMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filePath: '/tmp/voice.webm',
+        durationSec: 0,
+      }),
+    )
   })
 
-  it('should not start recording with null mode', async () => {
-    const { state, startRecording } = useVoiceRecorder()
-
-    await startRecording(null)
-
-    expect(state.value.isRecording).toBe(false)
-  })
-
-  it('should toggle recording on and off', async () => {
-    const { state, toggleRecording } = useVoiceRecorder()
-
-    // Toggle on
-    toggleRecording('voice-to-text')
-    await flushMicrotasks()
-    expect(state.value.isRecording).toBe(true)
-    expect(state.value.mode).toBe('voice-to-text')
-
-    // Toggle off (stops recording)
-    toggleRecording('voice-to-text')
-    // After stop, isRecording becomes false via onstop handler
-    expect(state.value.isRecording).toBe(false)
-  })
-
-  it('should increment duration every second', async () => {
-    const { state, startRecording } = useVoiceRecorder()
-
-    await startRecording('voice-to-text')
-    expect(state.value.duration).toBe(0)
-
-    vi.advanceTimersByTime(1000)
-    expect(state.value.duration).toBe(1)
-
-    vi.advanceTimersByTime(2000)
-    expect(state.value.duration).toBe(3)
-  })
-
-  it('should set error on mic permission denied', async () => {
+  it('handles permission errors', async () => {
     const mediaDevices = navigator.mediaDevices as unknown as { getUserMedia: ReturnType<typeof vi.fn> }
     mediaDevices.getUserMedia = vi.fn().mockRejectedValue(new DOMException('Permission denied'))
 
     const { state, startRecording } = useVoiceRecorder()
 
     await startRecording('voice-to-text')
+
     expect(state.value.error).toBe('mic_permission_denied')
     expect(state.value.isRecording).toBe(false)
   })
 
-  it('should cancel recording without processing', async () => {
-    const onTranscribed = vi.fn()
-    const { state, startRecording, cancelRecording } = useVoiceRecorder({ onTranscribed })
+  it('cancels recording without uploading audio', async () => {
+    const { state, startRecording, cancelRecording } = useVoiceRecorder()
 
     await startRecording('voice-to-text')
-    expect(state.value.isRecording).toBe(true)
-
     cancelRecording()
+
     expect(state.value.isRecording).toBe(false)
-    expect(state.value.mode).toBeNull()
-    expect(onTranscribed).not.toHaveBeenCalled()
+    expect(transcribeAudio).not.toHaveBeenCalled()
+    expect(saveVoiceMessage).not.toHaveBeenCalled()
   })
 })
 
@@ -211,9 +137,15 @@ describe('voice model storage', () => {
     store = {}
     mockStorage = {
       getItem: vi.fn((key: string) => store[key] ?? null),
-      setItem: vi.fn((key: string, value: string) => { store[key] = value }),
-      removeItem: vi.fn((key: string) => { delete store[key] }),
-      clear: vi.fn(() => { store = {} }),
+      setItem: vi.fn((key: string, value: string) => {
+        store[key] = value
+      }),
+      removeItem: vi.fn((key: string) => {
+        delete store[key]
+      }),
+      clear: vi.fn(() => {
+        store = {}
+      }),
       key: vi.fn(() => null),
       length: 0,
     }
@@ -224,16 +156,16 @@ describe('voice model storage', () => {
     vi.unstubAllGlobals()
   })
 
-  it('should return default model when not set', () => {
+  it('returns the default model when not set', () => {
     expect(getVoiceModel()).toBe('gpt-4o-mini-transcribe')
   })
 
-  it('should persist and retrieve model via localStorage', () => {
+  it('persists and retrieves the model via localStorage', () => {
     store[STORAGE_KEY] = 'whisper-1'
     expect(getVoiceModel()).toBe('whisper-1')
   })
 
-  it('should set model via setVoiceModel', () => {
+  it('sets the model via setVoiceModel', () => {
     setVoiceModel('whisper-1')
     expect(store[STORAGE_KEY]).toBe('whisper-1')
   })

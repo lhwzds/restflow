@@ -1,9 +1,9 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import * as daemonApi from '../daemon'
-import { tauriInvoke } from '../tauri-client'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { fetchJson } from '../http-client'
+import { getCliDaemonStatus } from '../daemon'
 
-vi.mock('../tauri-client', () => ({
-  tauriInvoke: vi.fn(),
+vi.mock('../http-client', () => ({
+  fetchJson: vi.fn(),
 }))
 
 describe('daemon API', () => {
@@ -11,54 +11,20 @@ describe('daemon API', () => {
     vi.clearAllMocks()
   })
 
-  it('fetches cli daemon status', async () => {
-    vi.mocked(tauriInvoke).mockResolvedValue({
-      lifecycle: 'running',
+  it('fetches daemon health from the loopback HTTP endpoint', async () => {
+    vi.mocked(fetchJson).mockResolvedValue({
+      status: 'running',
+      protocol_version: '2',
+      daemon_version: '0.4.0',
       pid: 1234,
-      socket_available: true,
-      managed_by_tauri: false,
+      started_at_ms: 1,
+      uptime_secs: 45,
     })
 
-    const result = await daemonApi.getCliDaemonStatus()
-    expect(tauriInvoke).toHaveBeenCalledWith('get_cli_daemon_status')
-    expect(result.lifecycle).toBe('running')
-    expect(result.pid).toBe(1234)
-  })
+    const result = await getCliDaemonStatus()
 
-  it('starts cli daemon', async () => {
-    vi.mocked(tauriInvoke).mockResolvedValue({
-      lifecycle: 'running',
-      pid: 2000,
-      socket_available: true,
-      managed_by_tauri: true,
-    })
-
-    await daemonApi.startCliDaemon()
-    expect(tauriInvoke).toHaveBeenCalledWith('start_cli_daemon')
-  })
-
-  it('stops cli daemon', async () => {
-    vi.mocked(tauriInvoke).mockResolvedValue({
-      lifecycle: 'not_running',
-      pid: null,
-      socket_available: false,
-      managed_by_tauri: false,
-    })
-
-    await daemonApi.stopCliDaemon()
-    expect(tauriInvoke).toHaveBeenCalledWith('stop_cli_daemon')
-  })
-
-  it('restarts cli daemon', async () => {
-    vi.mocked(tauriInvoke).mockResolvedValue({
-      lifecycle: 'running',
-      pid: 3000,
-      socket_available: true,
-      managed_by_tauri: true,
-    })
-
-    await daemonApi.restartCliDaemon()
-    expect(tauriInvoke).toHaveBeenCalledWith('restart_cli_daemon')
+    expect(fetchJson).toHaveBeenCalledWith('/api/health')
+    expect(result.status).toBe('running')
+    expect(result.protocol_version).toBe('2')
   })
 })
-

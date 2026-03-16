@@ -4,42 +4,49 @@ import {
   listMemoryChunksForSession,
   listMemorySessions,
 } from '../background-agents'
-import { invokeCommand } from '../tauri-client'
+import { requestTyped } from '../http-client'
 
-vi.mock('../tauri-client', () => ({
-  invokeCommand: vi.fn(),
+vi.mock('../http-client', () => ({
+  fetchJson: vi.fn(),
+  requestTyped: vi.fn(),
 }))
 
 describe('background-agents memory API', () => {
   beforeEach(() => {
-    vi.mocked(invokeCommand).mockReset()
+    vi.mocked(requestTyped).mockReset()
   })
 
-  it('calls list_memory_sessions with agent_id', async () => {
-    vi.mocked(invokeCommand).mockResolvedValueOnce([])
+  it('calls list memory sessions with agent_id', async () => {
+    vi.mocked(requestTyped).mockResolvedValueOnce([])
 
     await listMemorySessions('agent-1')
 
-    expect(invokeCommand).toHaveBeenCalledWith('listMemorySessions', 'agent-1')
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ListMemorySessions',
+      data: { agent_id: 'agent-1' },
+    })
   })
 
-  it('calls list_memory_chunks_for_session with session_id', async () => {
-    vi.mocked(invokeCommand).mockResolvedValueOnce([])
+  it('calls list memory chunks for session', async () => {
+    vi.mocked(requestTyped).mockResolvedValueOnce([])
 
     await listMemoryChunksForSession('session-1')
 
-    expect(invokeCommand).toHaveBeenCalledWith('listMemoryChunksForSession', 'session-1')
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ListMemoryBySession',
+      data: { session_id: 'session-1' },
+    })
   })
 
-  it('returns items from list_memory_chunks_by_tag', async () => {
-    vi.mocked(invokeCommand).mockResolvedValueOnce({
-      items: [{ id: 'chunk-1' }],
-      total: 1,
+  it('returns sliced chunks from list memory by tag', async () => {
+    vi.mocked(requestTyped).mockResolvedValueOnce([{ id: 'chunk-1' }, { id: 'chunk-2' }])
+
+    const chunks = await listMemoryChunksByTag('task:task-1', 1)
+
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ListMemory',
+      data: { agent_id: null, tag: 'task:task-1' },
     })
-
-    const chunks = await listMemoryChunksByTag('task:task-1', 50)
-
-    expect(invokeCommand).toHaveBeenCalledWith('listMemoryChunksByTag', 'task:task-1', 50)
-    expect(chunks).toHaveLength(1)
+    expect(chunks).toEqual([{ id: 'chunk-1' }])
   })
 })
