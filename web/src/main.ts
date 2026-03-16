@@ -18,15 +18,15 @@ import router from './router'
 import './style.scss'
 
 async function enableMocking() {
-  const isPlaywright =
-    typeof navigator !== 'undefined' &&
-    (navigator.userAgent.includes('Playwright') || navigator.webdriver)
-
-  // Enable mocking in demo mode or during Playwright E2E runs
-  if (import.meta.env.VITE_DEMO_MODE === 'true' || isPlaywright) {
-    // Demo mode and selected browser tests can still install lightweight mocks.
-    const { setupTauriMock } = await import('./mocks/tauri-ipc')
-    setupTauriMock()
+  if (import.meta.env.VITE_DEMO_MODE === 'true') {
+    const { worker } = await import('./mocks/browser')
+    await worker.start({
+      onUnhandledRequest: 'bypass',
+      quiet: true,
+      serviceWorker: {
+        url: '/mockServiceWorker.js',
+      },
+    })
   }
 }
 

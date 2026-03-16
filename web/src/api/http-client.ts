@@ -1,6 +1,7 @@
 import type { ErrorPayload } from '@/types/generated/ErrorPayload'
 import type { IpcRequest } from '@/types/generated/IpcRequest'
 import type { IpcResponse } from '@/types/generated/IpcResponse'
+import type { IpcStreamEvent } from '@/types/generated/IpcStreamEvent'
 import type { StreamFrame } from '@/types/generated/StreamFrame'
 
 export class BackendError extends Error {
@@ -14,6 +15,87 @@ export class BackendError extends Error {
     this.code = payload.code
     this.kind = payload.kind
     this.details = payload.details ?? null
+  }
+}
+
+function normalizeEnvelopeTag(tag: string): string {
+  return tag.toLowerCase()
+}
+
+function normalizeStreamTag(tag: string): string {
+  return tag.replace(/([a-z0-9])([A-Z])/g, '$1_$2').toLowerCase()
+}
+
+type RawEnvelope = {
+  response_type: string
+  data?: unknown
+}
+
+type RawStreamFrame = {
+  stream_type: string
+  data: unknown
+}
+
+function normalizeIpcResponse(payload: RawEnvelope): IpcResponse {
+  const responseType = normalizeEnvelopeTag(payload.response_type)
+
+  switch (responseType) {
+    case 'success':
+      return {
+        response_type: 'success',
+        data: 'data' in payload ? payload.data : null,
+      }
+    case 'error':
+      return {
+        response_type: 'error',
+        data:
+          payload.data !== undefined
+            ? (payload.data as ErrorPayload)
+            : ({
+            code: 500,
+            kind: 'internal',
+            message: 'Unknown daemon error',
+            details: null,
+          } as ErrorPayload),
+      }
+    case 'pong':
+      return { response_type: 'pong' }
+    default:
+      throw new Error(`Unknown response envelope: ${payload.response_type}`)
+  }
+}
+
+function normalizeStreamFrame(frame: RawStreamFrame): StreamFrame {
+  const streamType = normalizeStreamTag(frame.stream_type)
+
+  switch (streamType) {
+    case 'start':
+      return { stream_type: 'start', data: frame.data as { stream_id: string } }
+    case 'ack':
+      return { stream_type: 'ack', data: frame.data as { content: string } }
+    case 'data':
+      return { stream_type: 'data', data: frame.data as { content: string } }
+    case 'tool_call':
+      return {
+        stream_type: 'tool_call',
+        data: frame.data as { id: string; name: string; arguments: unknown },
+      }
+    case 'tool_result':
+      return {
+        stream_type: 'tool_result',
+        data: frame.data as { id: string; result: string; success: boolean },
+      }
+    case 'event':
+      return { stream_type: 'event', data: frame.data as { event: IpcStreamEvent } }
+    case 'done':
+      return {
+        stream_type: 'done',
+        data: frame.data as { total_tokens?: number | null },
+      }
+    case 'error':
+      return { stream_type: 'error', data: frame.data as ErrorPayload }
+    default:
+      throw new Error(`Unknown stream envelope: ${frame.stream_type}`)
   }
 }
 
@@ -57,7 +139,8 @@ export async function requestClient(request: IpcRequest): Promise<IpcResponse> {
     body: JSON.stringify(request),
   })
 
-  return readJson<IpcResponse>(response)
+  const payload = await readJson<RawEnvelope>(response)
+  return normalizeIpcResponse(payload)
 }
 
 export async function requestTyped<T>(request: IpcRequest): Promise<T> {
@@ -126,14 +209,16 @@ export async function* streamClient(
       for (const line of lines) {
         const trimmed = line.trim()
         if (!trimmed) continue
-        yield JSON.parse(trimmed) as StreamFrame
+        const frame = JSON.parse(trimmed) as RawStreamFrame
+        yield normalizeStreamFrame(frame)
       }
     }
 
     buffer += decoder.decode()
     const trimmed = buffer.trim()
     if (trimmed) {
-      yield JSON.parse(trimmed) as StreamFrame
+      const frame = JSON.parse(trimmed) as RawStreamFrame
+      yield normalizeStreamFrame(frame)
     }
   } finally {
     reader.releaseLock()

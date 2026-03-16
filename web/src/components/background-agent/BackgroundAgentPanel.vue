@@ -315,10 +315,7 @@ onMounted(() => {
 <template>
   <div class="relative flex-1 flex flex-col min-w-0 overflow-hidden">
     <!-- Header (mirrors ChatHeader style) -->
-    <div
-      class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground"
-      data-tauri-drag-region
-    >
+    <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground">
       <Cog :size="12" class="text-blue-500 shrink-0" />
       <span class="font-medium text-foreground truncate">{{ agent.name }}</span>
       <AgentStatusBadge :status="agent.status" />
