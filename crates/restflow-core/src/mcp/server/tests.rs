@@ -1757,6 +1757,85 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
     assert!(stored.next_run_at.is_some());
 }
 
+#[tokio::test]
+async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefix() {
+    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+    let create = call_tool_through_mcp(
+        server.clone(),
+        "manage_background_agents",
+        serde_json::json!({
+            "operation": "create",
+            "name": "delete-prefix-contract",
+            "agent_id": "default",
+            "input": "delete later"
+        }),
+    )
+    .await;
+    assert!(!create.is_error.unwrap_or(false));
+    let created: serde_json::Value =
+        serde_json::from_str(call_tool_text(&create)).expect("create response json");
+    let task_id = created["id"]
+        .as_str()
+        .expect("created task should have id")
+        .to_string();
+    let prefix = &task_id[..8];
+
+    let delete = call_tool_through_mcp(
+        server,
+        "manage_background_agents",
+        serde_json::json!({
+            "operation": "delete",
+            "id": prefix
+        }),
+    )
+    .await;
+    assert!(!delete.is_error.unwrap_or(false));
+    let deleted: serde_json::Value =
+        serde_json::from_str(call_tool_text(&delete)).expect("delete response json");
+    assert_eq!(deleted["id"], task_id);
+    assert_eq!(deleted["deleted"], true);
+}
+
+#[tokio::test]
+async fn test_mcp_manage_background_agents_list_deliverables_accepts_prefix() {
+    let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
+
+    let create = call_tool_through_mcp(
+        server.clone(),
+        "manage_background_agents",
+        serde_json::json!({
+            "operation": "create",
+            "name": "deliverable-prefix-contract",
+            "agent_id": "default",
+            "input": "deliver later"
+        }),
+    )
+    .await;
+    assert!(!create.is_error.unwrap_or(false));
+    let created: serde_json::Value =
+        serde_json::from_str(call_tool_text(&create)).expect("create response json");
+    let task_id = created["id"]
+        .as_str()
+        .expect("created task should have id")
+        .to_string();
+    let prefix = &task_id[..8];
+
+    let list = call_tool_through_mcp(
+        server,
+        "manage_background_agents",
+        serde_json::json!({
+            "operation": "list_deliverables",
+            "id": prefix
+        }),
+    )
+    .await;
+    assert!(!list.is_error.unwrap_or(false));
+    let value: serde_json::Value =
+        serde_json::from_str(call_tool_text(&list)).expect("deliverables response json");
+    assert!(value.is_array());
+}
+
 #[test]
 fn test_parse_trace_category_rejects_unknown_value() {
     let err = RestFlowMcpServer::parse_trace_category(Some("unknown".to_string())).unwrap_err();

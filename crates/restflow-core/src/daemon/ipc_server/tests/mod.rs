@@ -4,6 +4,7 @@ pub(super) use super::runtime::{
 };
 pub(super) use super::*;
 pub(super) use crate::models::{AgentNode, ChannelSessionBinding, Skill};
+pub(super) use restflow_contracts::ToolExecutionResult;
 pub(super) use restflow_traits::SteerCommand;
 pub(super) use restflow_traits::store::ReplySender;
 pub(super) use restflow_traits::tool::ToolErrorCategory;

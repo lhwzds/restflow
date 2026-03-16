@@ -671,7 +671,7 @@ fn test_is_credential_error_for_http_statuses() {
         message: "rate limited".to_string(),
         retry_after_secs: Some(1),
     });
-    assert!(is_credential_error(&rate_limit));
+    assert!(!is_credential_error(&rate_limit));
 
     let unauthorized = anyhow::Error::new(AiError::LlmHttp {
         provider: "openai".to_string(),
@@ -693,7 +693,7 @@ fn test_is_credential_error_for_http_statuses() {
 #[test]
 fn test_is_credential_error_for_llm_message_fallback() {
     let err = anyhow::Error::new(AiError::Llm("Rate limit exceeded".to_string()));
-    assert!(is_credential_error(&err));
+    assert!(!is_credential_error(&err));
 
     let err = anyhow::Error::new(AiError::Llm("context window exceeded".to_string()));
     assert!(!is_credential_error(&err));
