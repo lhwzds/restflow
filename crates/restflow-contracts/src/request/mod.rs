@@ -1,3 +1,5 @@
+mod defaults;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeMap, HashMap};
@@ -515,7 +517,7 @@ pub struct CliExecutionConfig {
     pub args: Vec<String>,
     #[serde(default)]
     pub working_dir: Option<String>,
-    #[serde(default)]
+    #[serde(default = "defaults::default_cli_timeout_secs")]
     pub timeout_secs: u64,
     #[serde(default)]
     pub use_pty: bool,
@@ -551,7 +553,7 @@ impl Default for TaskSchedule {
 pub struct NotificationConfig {
     #[serde(default)]
     pub notify_on_failure_only: bool,
-    #[serde(default = "default_true")]
+    #[serde(default = "defaults::default_true")]
     pub include_output: bool,
     #[serde(default)]
     pub broadcast_steps: bool,
@@ -578,60 +580,83 @@ pub enum MemoryScope {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct MemoryConfig {
-    #[serde(default)]
+    #[serde(default = "defaults::default_memory_max_messages")]
     pub max_messages: usize,
-    #[serde(default = "default_true")]
+    #[serde(default = "defaults::default_true")]
     pub enable_file_memory: bool,
     #[serde(default)]
     pub persist_on_complete: bool,
-    #[serde(default)]
+    #[serde(default = "defaults::default_memory_scope")]
     pub memory_scope: MemoryScope,
-    #[serde(default)]
+    #[serde(default = "defaults::default_memory_compaction_enabled")]
     pub enable_compaction: bool,
-    #[serde(default)]
+    #[serde(default = "defaults::default_memory_compaction_threshold_ratio")]
     pub compaction_threshold_ratio: f32,
-    #[serde(default)]
+    #[serde(default = "defaults::default_memory_max_summary_tokens")]
     pub max_summary_tokens: usize,
 }
 
 impl Default for MemoryConfig {
     fn default() -> Self {
         Self {
-            max_messages: 100,
+            max_messages: defaults::default_memory_max_messages(),
             enable_file_memory: true,
             persist_on_complete: false,
-            memory_scope: MemoryScope::SharedAgent,
-            enable_compaction: true,
-            compaction_threshold_ratio: 0.80,
-            max_summary_tokens: 2_000,
+            memory_scope: defaults::default_memory_scope(),
+            enable_compaction: defaults::default_memory_compaction_enabled(),
+            compaction_threshold_ratio: defaults::default_memory_compaction_threshold_ratio(),
+            max_summary_tokens: defaults::default_memory_max_summary_tokens(),
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResourceLimits {
-    #[serde(default)]
+    #[serde(default = "defaults::default_max_tool_calls")]
     pub max_tool_calls: usize,
-    #[serde(default)]
+    #[serde(default = "defaults::default_max_duration_secs")]
     pub max_duration_secs: u64,
-    #[serde(default)]
+    #[serde(default = "defaults::default_max_output_bytes")]
     pub max_output_bytes: usize,
     #[serde(default)]
     pub max_cost_usd: Option<f64>,
+}
+
+impl Default for ResourceLimits {
+    fn default() -> Self {
+        Self {
+            max_tool_calls: defaults::default_max_tool_calls(),
+            max_duration_secs: defaults::default_max_duration_secs(),
+            max_output_bytes: defaults::default_max_output_bytes(),
+            max_cost_usd: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ContinuationConfig {
     #[serde(default)]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default = "defaults::default_segment_iterations")]
     pub segment_iterations: usize,
-    #[serde(default)]
+    #[serde(default = "defaults::default_max_total_iterations")]
     pub max_total_iterations: usize,
     #[serde(default)]
     pub max_total_cost_usd: Option<f64>,
-    #[serde(default)]
+    #[serde(default = "defaults::default_inter_segment_pause_ms")]
     pub inter_segment_pause_ms: u64,
+}
+
+impl Default for ContinuationConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            segment_iterations: defaults::default_segment_iterations(),
+            max_total_iterations: defaults::default_max_total_iterations(),
+            max_total_cost_usd: None,
+            inter_segment_pause_ms: defaults::default_inter_segment_pause_ms(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -839,7 +864,7 @@ pub struct Hook {
     pub action: HookAction,
     #[serde(default)]
     pub filter: Option<HookFilter>,
-    #[serde(default = "default_true")]
+    #[serde(default = "defaults::default_true")]
     pub enabled: bool,
     pub created_at: i64,
     pub updated_at: i64,
@@ -936,7 +961,7 @@ pub struct MemorySearchQuery {
     pub from_time: Option<i64>,
     #[serde(default)]
     pub to_time: Option<i64>,
-    #[serde(default = "default_memory_limit")]
+    #[serde(default = "defaults::default_memory_limit")]
     pub limit: u32,
     #[serde(default)]
     pub offset: u32,
@@ -1222,14 +1247,6 @@ pub struct SystemConfig {
     pub registry_defaults: RegistrySettings,
 }
 
-fn default_true() -> bool {
-    true
-}
-
-fn default_memory_limit() -> u32 {
-    50
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1308,6 +1325,72 @@ mod tests {
             },
         };
         assert_roundtrip(&request);
+    }
+
+    #[test]
+    fn background_agent_contract_defaults_match_expected_semantics() {
+        let contract: BackgroundAgentSpec = serde_json::from_value(serde_json::json!({
+            "name": "nightly",
+            "agent_id": "agent-1",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            },
+            "execution_mode": {
+                "type": "cli",
+                "binary": "claude"
+            },
+            "memory": {},
+            "resource_limits": {},
+            "continuation": {}
+        }))
+        .expect("background agent defaults");
+
+        let cli = match contract.execution_mode.expect("execution mode") {
+            ExecutionMode::Cli(config) => config,
+            ExecutionMode::Api => panic!("expected cli config"),
+        };
+        assert_eq!(cli.timeout_secs, defaults::default_cli_timeout_secs());
+
+        let memory = contract.memory.expect("memory config");
+        assert_eq!(memory.max_messages, defaults::default_memory_max_messages());
+        assert!(memory.enable_file_memory);
+        assert_eq!(memory.memory_scope, MemoryScope::SharedAgent);
+        assert!(memory.enable_compaction);
+        assert_eq!(
+            memory.compaction_threshold_ratio,
+            defaults::default_memory_compaction_threshold_ratio()
+        );
+        assert_eq!(
+            memory.max_summary_tokens,
+            defaults::default_memory_max_summary_tokens()
+        );
+
+        let limits = contract.resource_limits.expect("resource limits");
+        assert_eq!(limits.max_tool_calls, defaults::default_max_tool_calls());
+        assert_eq!(
+            limits.max_duration_secs,
+            defaults::default_max_duration_secs()
+        );
+        assert_eq!(
+            limits.max_output_bytes,
+            defaults::default_max_output_bytes()
+        );
+
+        let continuation = contract.continuation.expect("continuation");
+        assert_eq!(
+            continuation.segment_iterations,
+            defaults::default_segment_iterations()
+        );
+        assert_eq!(
+            continuation.max_total_iterations,
+            defaults::default_max_total_iterations()
+        );
+        assert_eq!(
+            continuation.inter_segment_pause_ms,
+            defaults::default_inter_segment_pause_ms()
+        );
     }
 
     #[test]
