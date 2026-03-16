@@ -1,4 +1,14 @@
 use super::*;
+use crate::daemon::tool_result_mapper::to_tool_execution_result;
+
+fn resolve_task_id(
+    storage: &crate::storage::BackgroundAgentStorage,
+    id_or_prefix: &str,
+) -> Result<String, String> {
+    storage
+        .resolve_existing_task_id_typed(id_or_prefix)
+        .map_err(|e| e.to_string())
+}
 use crate::daemon::request_mapper::to_contract;
 use restflow_contracts::{DeleteResponse, DeleteWithIdResponse};
 
@@ -252,10 +262,11 @@ impl McpBackend for CoreBackend {
     }
 
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
+        let resolved_id = resolve_task_id(&self.core.storage.background_agents, task_id)?;
         self.core
             .storage
             .deliverables
-            .list_by_task(task_id)
+            .list_by_task(&resolved_id)
             .map_err(|e| e.to_string())
     }
 
@@ -285,12 +296,13 @@ impl McpBackend for CoreBackend {
     }
 
     async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String> {
+        let resolved_id = resolve_task_id(&self.core.storage.background_agents, id)?;
         self.core
             .storage
             .background_agents
-            .get_task(id)
+            .get_task(&resolved_id)
             .map_err(|e| e.to_string())?
-            .ok_or_else(|| format!("Task {} not found", id))
+            .ok_or_else(|| format!("Task {} not found", resolved_id))
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
@@ -346,14 +358,7 @@ impl McpBackend for CoreBackend {
             .execute_safe(name, input)
             .await
             .map_err(|e| e.to_string())?;
-        Ok(RuntimeToolResult {
-            success: output.success,
-            result: output.result,
-            error: output.error,
-            error_category: output.error_category,
-            retryable: output.retryable,
-            retry_after_ms: output.retry_after_ms,
-        })
+        Ok(to_tool_execution_result(output))
     }
 
     async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {
