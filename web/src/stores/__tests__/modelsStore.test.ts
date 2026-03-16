@@ -3,7 +3,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { useModelsStore } from '../modelsStore'
 
 vi.mock('@/api/config', () => ({
-  tauriInvoke: vi.fn(),
+  getAvailableModels: vi.fn(),
 }))
 
 describe('modelsStore getters', () => {

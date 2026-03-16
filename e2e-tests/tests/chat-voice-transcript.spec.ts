@@ -1,31 +1,34 @@
 import { test, expect } from '@playwright/test'
-import { goToWorkspace } from './helpers'
+import { goToWorkspace, requestIpc } from './helpers'
 
 test.describe('Chat Voice Transcript', () => {
   test('persists structured transcript metadata into chat history', async ({ page }) => {
     await goToWorkspace(page)
     await page.getByRole('button', { name: 'New Session' }).click()
 
-    const payload = await page.evaluate(async () => {
-      const invoke = (window as any).__TAURI_INTERNALS__?.invoke as
-        | ((cmd: string, args?: Record<string, unknown>) => Promise<any>)
-        | undefined
-      if (!invoke) {
-        throw new Error('Tauri invoke is not available')
-      }
+    type SessionSummary = { id: string; updated_at: number }
+    type ChatSession = {
+      messages?: Array<{
+        id: string
+        content?: string
+        transcript?: { text?: string }
+      }>
+    }
 
-      const transcriptText = 'e2e structured transcript'
-      const now = Date.now()
-      const messageId = `e2e-voice-transcript-${now}`
+    const transcriptText = 'e2e structured transcript'
+    const now = Date.now()
+    const messageId = `e2e-voice-transcript-${now}`
 
-      const summaries = await invoke('list_chat_session_summaries')
-      const sessionId = summaries?.[0]?.id as string | undefined
-      if (!sessionId) {
-        throw new Error('Failed to locate latest chat session for e2e test')
-      }
+    const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
+    const sessionId = [...summaries].sort((left, right) => right.updated_at - left.updated_at)[0]?.id
+    if (!sessionId) {
+      throw new Error('Failed to locate latest chat session for e2e test')
+    }
 
-      await invoke('add_chat_message', {
-        sessionId,
+    await requestIpc<ChatSession>(page, {
+      type: 'AppendMessage',
+      data: {
+        session_id: sessionId,
         message: {
           id: messageId,
           role: 'user',
@@ -43,26 +46,21 @@ test.describe('Chat Voice Transcript', () => {
             updated_at: now,
           },
         },
-      })
-
-      const session = await invoke('get_chat_session', { id: sessionId })
-      const persistedMessage = Array.isArray(session?.messages)
-        ? session.messages.find((msg: any) => msg.id === messageId)
-        : null
-      if (!persistedMessage) {
-        throw new Error('Injected voice message was not persisted')
-      }
-
-      return {
-        transcriptText,
-        persistedTranscript: persistedMessage.transcript?.text ?? null,
-        persistedContent: persistedMessage.content ?? '',
-      }
+      },
     })
 
+    const persisted = await requestIpc<ChatSession>(page, {
+      type: 'GetSession',
+      data: { id: sessionId },
+    })
+    const persistedMessage = persisted.messages?.find((message) => message.id === messageId)
+    expect(persistedMessage?.transcript?.text).toBe(transcriptText)
+    expect(persistedMessage?.content ?? '').toContain(transcriptText)
+
     await page.reload()
-    await page.waitForLoadState('networkidle')
-    expect(payload.persistedTranscript).toBe(payload.transcriptText)
-    expect(payload.persistedContent).toContain(payload.transcriptText)
+    await page.waitForLoadState('domcontentloaded')
+    await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
+    await page.getByTestId(`session-row-${sessionId}`).click()
+    await expect(page.getByText(transcriptText)).toBeVisible()
   })
 })

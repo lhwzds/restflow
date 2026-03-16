@@ -12,9 +12,9 @@ import {
 import { useModelsStore } from '@/stores/modelsStore'
 import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
 
-// Mock the config module that modelsStore imports (tauriInvoke)
+// Mock the config module that modelsStore imports.
 vi.mock('@/api/config', () => ({
-  tauriInvoke: vi.fn(),
+  getAvailableModels: vi.fn(),
 }))
 
 const MOCK_MODELS: ModelMetadataDTO[] = [

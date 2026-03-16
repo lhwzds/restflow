@@ -67,6 +67,8 @@ test.describe('Workspace Layout', () => {
   })
 
   test('shows empty state when no messages', async ({ page }) => {
+    await page.getByRole('button', { name: 'New Session' }).click()
+
     // Empty state with placeholder text
     await expect(page.locator('text=Start a new conversation')).toBeVisible()
   })

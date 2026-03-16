@@ -91,7 +91,7 @@ describe('skills API', () => {
     })
   })
 
-  it('imports a skill from JSON without tauri bindings', async () => {
+  it('imports a skill from JSON through request contracts', async () => {
     mockedRequestTyped.mockResolvedValue(mockSkill)
 
     const { importSkillFromJson } = await import('../skills')
