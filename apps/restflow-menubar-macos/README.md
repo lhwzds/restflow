@@ -4,7 +4,7 @@ Lightweight Swift menubar app scaffold for RestFlow.
 
 ## Goals
 
-- Keep this app independent from existing Tauri code.
+- Keep this app independent from the browser frontend and daemon transport stack.
 - Provide a minimal menu bar shell that can poll RestFlow CLI state.
 - Use only Apple frameworks and Swift standard library (no external dependencies).
 

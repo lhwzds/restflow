@@ -51,7 +51,6 @@ jobs:
           - restflow-storage
           - restflow-core
           - restflow-ai
-          - restflow-tauri
           - restflow-cli
 
     steps:
@@ -95,7 +94,6 @@ jobs:
           - restflow-storage
           - restflow-core
           - restflow-ai
-          - restflow-tauri
           - restflow-cli
 
     steps:
