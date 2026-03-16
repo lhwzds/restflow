@@ -9,12 +9,11 @@ members = [
     "crates/restflow-ai",
     "crates/restflow-tools",
     "crates/restflow-browser",
-    "crates/restflow-tauri",
     "crates/restflow-sandbox",
 ]
 resolver = "2"
 
-# Default to running core (tauri later)
+# Default to running core
 default-members = ["crates/restflow-core"]
 
 [workspace.package]

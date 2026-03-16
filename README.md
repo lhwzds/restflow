@@ -62,7 +62,7 @@ You: "Research competitors, build a prototype, and monitor the deployment"
 | **LLM Providers**  | Anthropic Claude, OpenAI GPT, DeepSeek, Claude Code CLI, OpenAI Codex, Gemini             |
 | **Security**       | Approval gate for bash/file ops, command chain detection, header sanitization             |
 | **Integration**    | MCP server (port 8787), Telegram bot, scheduled cron tasks, skill system                  |
-| **Platform**       | CLI daemon, Tauri desktop app, Docker, self-hosted                                        |
+| **Platform**       | Browser + local daemon, CLI daemon, Docker, self-hosted                                   |
 
 ## Architecture
 
@@ -100,14 +100,6 @@ Download pre-built binaries from [GitHub Releases](https://github.com/lhwzds/res
 
 ```bash
 cargo install --git https://github.com/lhwzds/restflow --package restflow-cli
-```
-
-### Desktop App
-
-```bash
-git clone https://github.com/lhwzds/restflow.git
-cd restflow
-cargo tauri dev
 ```
 
 ### Docker

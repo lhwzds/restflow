@@ -4,7 +4,7 @@
 
 - Updated: 2026-03-11
 - Scope: Runtime architecture, deployment model, and migration baseline
-- Audience: Core contributors working on Tauri, CLI, daemon, and runtime channels
+- Audience: Core contributors working on browser, CLI, daemon, and runtime channels
 
 ## Refactor Docs
 
@@ -17,7 +17,7 @@
 RestFlow follows a **daemon-centric** architecture.
 
 - Daemon is the only execution and persistence owner.
-- Tauri and CLI are client facades and must call daemon APIs (IPC/RPC).
+- Browser and CLI are client facades and must call daemon APIs (HTTP/MCP/IPC).
 - Business execution happens in core runtime on daemon side.
 - Storage writes are centralized in daemon-owned service/storage layers.
 
@@ -28,13 +28,13 @@ This avoids split-brain behavior, inconsistent routing logic, and duplicated wri
 1. Single writer: only daemon writes sessions, tool traces, background task state, and bindings.
 2. Single execution center: agent execution and routing decisions are daemon-owned.
 3. Single event identity: realtime and persisted events must share stable IDs.
-4. Client isolation: Tauri/CLI must not add direct storage business paths.
+4. Client isolation: browser/CLI must not add direct storage business paths.
 
 ## 3. Runtime Topology
 
 ```text
 UI/Clients
-  - Tauri Desktop
+  - Browser frontend
   - CLI
   - External channel connectors (Telegram/Discord/Slack)
   - MCP callers
@@ -82,10 +82,10 @@ Storage
 
 ## 5. Component Responsibilities
 
-### Tauri
+### Browser Frontend
 
 - UI state and interaction only.
-- Calls daemon through executor/IPC.
+- Calls daemon through shared HTTP request and stream contracts.
 - No local direct storage write path.
 
 ### CLI
@@ -199,7 +199,7 @@ Do:
 
 Do not:
 
-- Add direct storage access in Tauri commands.
+- Add direct storage access in browser adapters or request handlers.
 - Add fallback write paths that bypass daemon ownership.
 - Encode routing ownership only in display fields on session models.
 
