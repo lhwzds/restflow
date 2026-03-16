@@ -8,7 +8,10 @@ export async function goToWorkspace(page: Page) {
     window.localStorage.setItem('locale', 'en')
   })
   await page.goto('/workspace')
-  await page.waitForLoadState('networkidle')
+  await page.waitForLoadState('domcontentloaded')
+  await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible({
+    timeout: 15000,
+  })
 }
 
 /**
