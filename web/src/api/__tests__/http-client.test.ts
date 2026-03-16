@@ -25,7 +25,7 @@ describe('http-client', () => {
 
   it('unwraps successful response envelopes', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createJsonResponse({
-      response_type: 'success',
+      response_type: 'Success',
       data: { ok: true },
     })))
 
@@ -36,7 +36,7 @@ describe('http-client', () => {
 
   it('throws structured backend errors', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createJsonResponse({
-      response_type: 'error',
+      response_type: 'Error',
       data: {
         code: 500,
         kind: 'internal',
@@ -50,7 +50,7 @@ describe('http-client', () => {
 
   it('returns null for typed 404 envelopes', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(createJsonResponse({
-      response_type: 'error',
+      response_type: 'Error',
       data: {
         code: 404,
         kind: 'not_found',
@@ -68,9 +68,9 @@ describe('http-client', () => {
       'fetch',
       vi.fn().mockResolvedValue(
         createNdjsonResponse([
-          { stream_type: 'start', data: { stream_id: 'stream-1' } },
-          { stream_type: 'data', data: { content: 'hello' } },
-          { stream_type: 'done', data: { total_tokens: 1 } },
+          { stream_type: 'Start', data: { stream_id: 'stream-1' } },
+          { stream_type: 'Data', data: { content: 'hello' } },
+          { stream_type: 'Done', data: { total_tokens: 1 } },
         ]),
       ),
     )

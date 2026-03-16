@@ -35,7 +35,7 @@ describe('web transport consistency', () => {
     expect(offenders.map((file) => path.relative(SRC_DIR, file))).toEqual([])
   })
 
-  it('does not depend on generated Tauri bindings at runtime', () => {
+  it('does not depend on removed compatibility bindings at runtime', () => {
     const files = collectSourceFiles(SRC_DIR)
     const offenders = files.filter((file) => {
       const source = readFileSync(file, 'utf8')
@@ -45,14 +45,19 @@ describe('web transport consistency', () => {
     expect(offenders.map((file) => path.relative(SRC_DIR, file))).toEqual([])
   })
 
-  it('does not route application API wrappers through tauri-client', () => {
-    const apiDir = path.resolve(SRC_DIR, 'api')
-    const files = collectSourceFiles(apiDir).filter((file) => !file.endsWith('tauri-client.ts'))
-    const offenders = files.filter((file) => {
-      const source = readFileSync(file, 'utf8')
-      return source.includes("from './tauri-client'") || source.includes('from "./tauri-client"')
-    })
+  it('does not ship removed tauri compatibility files in source', () => {
+    expect(readdirSync(path.resolve(SRC_DIR, 'api'))).not.toContain('tauri-client.ts')
+    expect(readdirSync(path.resolve(SRC_DIR, 'api'))).not.toContain('bindings.ts')
+    expect(readdirSync(path.resolve(SRC_DIR, 'mocks'))).not.toContain('tauri-ipc.ts')
+  })
 
-    expect(offenders.map((file) => path.relative(SRC_DIR, file))).toEqual([])
+  it('does not reference removed tauri internals in application or test code', () => {
+    const appFiles = collectSourceFiles(SRC_DIR)
+    const e2eFiles = collectSourceFiles(path.resolve(SRC_DIR, '../../e2e-tests/tests'))
+    const offenders = [...appFiles, ...e2eFiles].filter((file) =>
+      readFileSync(file, 'utf8').includes('__TAURI_INTERNALS__'),
+    )
+
+    expect(offenders.map((file) => path.relative(path.resolve(SRC_DIR, '../..'), file))).toEqual([])
   })
 })

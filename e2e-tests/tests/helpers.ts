@@ -33,3 +33,38 @@ export async function closeSettings(page: Page) {
   // Wait for session list to appear
   await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
 }
+
+export async function requestIpc<T>(page: Page, request: Record<string, unknown>): Promise<T> {
+  return page.evaluate(async (payload) => {
+    const response = await fetch('/api/request', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    if (!response.ok) {
+      throw new Error((await response.text()) || `HTTP ${response.status}`)
+    }
+
+    const envelope = (await response.json()) as
+      | { response_type: 'Success' | 'success'; data: T }
+      | { response_type: 'Error' | 'error'; data: { message?: string } }
+      | { response_type: 'Pong' | 'pong'; data: unknown }
+      | { response_type: string; data: unknown }
+
+    const responseType = envelope.response_type.toLowerCase()
+
+    if (responseType === 'success') {
+      return envelope.data
+    }
+
+    if (responseType === 'error') {
+      throw new Error(envelope.data?.message || 'Daemon request failed')
+    }
+
+    throw new Error(`Unexpected daemon response: ${envelope.response_type}`)
+  }, request)
+}
