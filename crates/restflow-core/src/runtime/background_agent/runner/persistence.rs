@@ -1,4 +1,5 @@
 use super::*;
+use restflow_ai::llm::Message;
 
 impl BackgroundAgentRunner {
     pub(super) async fn clear_task_conversation_links(&self, task_id: &str) {

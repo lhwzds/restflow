@@ -45,6 +45,10 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{debug, info, warn};
 
+use super::error_classification::{
+    classify_execution_error_message, is_authentication_classification,
+};
+
 /// Configuration for the model failover system
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailoverConfig {
@@ -470,15 +474,7 @@ impl FailoverManager {
 
 /// Check if an error is an authentication/credential error (non-retryable for this model).
 fn is_auth_error(error: &str) -> bool {
-    let lower = error.to_lowercase();
-    lower.contains("api key")
-        || lower.contains("api_key")
-        || lower.contains("unauthorized")
-        || lower.contains("authentication")
-        || lower.contains("no api key configured")
-        || (lower.contains("secret") && lower.contains("not found"))
-        || lower.contains("401")
-        || lower.contains("403")
+    is_authentication_classification(classify_execution_error_message(error))
 }
 
 /// Execute a task with automatic failover

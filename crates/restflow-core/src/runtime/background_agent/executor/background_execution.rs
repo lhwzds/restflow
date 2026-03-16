@@ -184,7 +184,7 @@ impl AgentRuntimeExecutor {
             });
         }
 
-        let mut agent = ReActAgentExecutor::new(swappable, tools)
+        let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
         if let Some(rx) = steer_rx {
             agent = agent.with_steer_channel(rx);
@@ -223,9 +223,17 @@ impl AgentRuntimeExecutor {
             agent.run(config).await?
         };
         if result.success {
+            let message_count = result.state.messages.len();
             let messages = result.state.messages;
             let output = result.answer.unwrap_or_default();
-            Ok(ExecutionResult::success(output, messages))
+            Ok(ExecutionResult::success(output, messages).with_metrics(
+                crate::runtime::background_agent::ExecutionMetrics {
+                    iterations: Some(result.iterations as u32),
+                    active_model: Some(swappable.current_model()),
+                    message_count,
+                    ..crate::runtime::background_agent::ExecutionMetrics::default()
+                },
+            ))
         } else {
             Err(anyhow!(
                 "Agent execution failed: {}",

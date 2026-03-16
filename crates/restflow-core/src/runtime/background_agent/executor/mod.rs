@@ -41,8 +41,10 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
 
+use super::error_classification::{classify_execution_error, is_authentication_classification};
 use super::failover::{FailoverConfig, FailoverManager, execute_with_failover};
 use super::model_catalog::ModelCatalog;
+use super::outcome::SessionExecutionResult;
 use super::preflight::{PreflightCategory, PreflightIssue, run_preflight};
 use super::retry::{RetryConfig, RetryState};
 use super::runner::{AgentExecutor, ExecutionResult};
@@ -111,14 +113,6 @@ Rules:
 - Match the user's language.
 - Output plain text only.
 "#;
-
-/// Result of executing a chat turn for a persisted chat session.
-#[derive(Debug, Clone)]
-pub struct SessionExecutionResult {
-    pub output: String,
-    pub iterations: u32,
-    pub active_model: String,
-}
 
 /// Controls whether the latest user input has already been persisted
 /// to the chat session before execution.
@@ -358,31 +352,7 @@ impl AgentRuntimeExecutor {
 }
 
 fn is_credential_error(error: &anyhow::Error) -> bool {
-    if let Some(ai_error) = error.downcast_ref::<AiError>() {
-        return match ai_error {
-            AiError::LlmHttp { status, .. } => matches!(status, 401 | 403 | 429),
-            AiError::Llm(message) => {
-                let lower = message.to_lowercase();
-                lower.contains("rate limit")
-                    || lower.contains("429")
-                    || lower.contains("unauthorized")
-                    || lower.contains("forbidden")
-                    || lower.contains("quota")
-                    || lower.contains("billing")
-                    || lower.contains("api key")
-            }
-            _ => false,
-        };
-    }
-
-    let lower = error.to_string().to_lowercase();
-    lower.contains("rate limit")
-        || lower.contains("429")
-        || lower.contains("unauthorized")
-        || lower.contains("forbidden")
-        || lower.contains("quota")
-        || lower.contains("billing")
-        || lower.contains("api key")
+    is_authentication_classification(classify_execution_error(error))
 }
 
 mod background_execution;

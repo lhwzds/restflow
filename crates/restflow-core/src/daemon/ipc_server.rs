@@ -1,6 +1,6 @@
 use super::ipc_protocol::{
     IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent,
-    MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition, ToolExecutionResult,
+    MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition,
 };
 use super::session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
 use super::subscribe_background_events;
