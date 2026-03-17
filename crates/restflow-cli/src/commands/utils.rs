@@ -67,9 +67,11 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         "minimax-coding-plan-m2-5" => AIModel::MiniMaxM25CodingPlan,
         // Zai
         "glm-5" | "glm5" => AIModel::Glm5,
+        "glm-5-turbo" | "glm5-turbo" => AIModel::Glm5Turbo,
         "glm-5-code" | "glm5-code" => AIModel::Glm5Code,
         "glm-4.7" | "glm-4-7" | "glm" => AIModel::Glm4_7,
         "zai-coding-plan-glm-5" => AIModel::Glm5CodingPlan,
+        "zai-coding-plan-glm-5-turbo" => AIModel::Glm5TurboCodingPlan,
         "zai-coding-plan-glm-5-code" => AIModel::Glm5CodeCodingPlan,
         "zai-coding-plan-glm-4-7" => AIModel::Glm4_7CodingPlan,
         // Moonshot
@@ -195,8 +197,8 @@ pub fn preview_text(input: &str, max_len: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_provider;
-    use restflow_core::models::Provider;
+    use super::{parse_model, parse_provider};
+    use restflow_core::models::{AIModel, Provider};
 
     #[test]
     fn parse_provider_accepts_shared_aliases() {
@@ -205,6 +207,16 @@ mod tests {
         assert_eq!(
             parse_provider("minimax-coding").unwrap(),
             Provider::MiniMaxCodingPlan
+        );
+    }
+
+    #[test]
+    fn parse_model_accepts_glm5_turbo_variants() {
+        assert_eq!(parse_model("glm-5-turbo").unwrap(), AIModel::Glm5Turbo);
+        assert_eq!(parse_model("glm5-turbo").unwrap(), AIModel::Glm5Turbo);
+        assert_eq!(
+            parse_model("zai-coding-plan-glm-5-turbo").unwrap(),
+            AIModel::Glm5TurboCodingPlan
         );
     }
 }

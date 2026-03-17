@@ -334,12 +334,16 @@ pub enum AIModel {
     // Zai
     #[serde(rename = "glm-5")]
     Glm5,
+    #[serde(rename = "glm-5-turbo")]
+    Glm5Turbo,
     #[serde(rename = "glm-5-code")]
     Glm5Code,
     #[serde(rename = "glm-4-7")]
     Glm4_7,
     #[serde(rename = "zai-coding-plan-glm-5")]
     Glm5CodingPlan,
+    #[serde(rename = "zai-coding-plan-glm-5-turbo")]
+    Glm5TurboCodingPlan,
     #[serde(rename = "zai-coding-plan-glm-5-code")]
     Glm5CodeCodingPlan,
     #[serde(rename = "zai-coding-plan-glm-4-7")]
@@ -633,6 +637,11 @@ impl AIModel {
                 supports_temperature: true,
                 name: "GLM-5",
             },
+            Self::Glm5Turbo => ModelMetadata {
+                provider: Provider::Zai,
+                supports_temperature: true,
+                name: "GLM-5 Turbo",
+            },
             Self::Glm5Code => ModelMetadata {
                 provider: Provider::Zai,
                 supports_temperature: true,
@@ -647,6 +656,11 @@ impl AIModel {
                 provider: Provider::ZaiCodingPlan,
                 supports_temperature: true,
                 name: "GLM-5 (Coding Plan)",
+            },
+            Self::Glm5TurboCodingPlan => ModelMetadata {
+                provider: Provider::ZaiCodingPlan,
+                supports_temperature: true,
+                name: "GLM-5 Turbo (Coding Plan)",
             },
             Self::Glm5CodeCodingPlan => ModelMetadata {
                 provider: Provider::ZaiCodingPlan,
@@ -879,9 +893,11 @@ impl AIModel {
 
             // Zai
             Self::Glm5 => "glm-5",
+            Self::Glm5Turbo => "glm-5-turbo",
             Self::Glm5Code => "glm-5",
             Self::Glm4_7 => "glm-4.7",
             Self::Glm5CodingPlan => "glm-5",
+            Self::Glm5TurboCodingPlan => "glm-5-turbo",
             Self::Glm5CodeCodingPlan => "glm-5",
             Self::Glm4_7CodingPlan => "glm-4.7",
 
@@ -936,8 +952,10 @@ impl AIModel {
         }
 
         match normalized.to_ascii_lowercase().as_str() {
+            "glm-5-turbo" => Some(Self::Glm5Turbo),
             "glm-5-code" => Some(Self::Glm5Code),
             "zai-coding-plan-glm-5" => Some(Self::Glm5CodingPlan),
+            "zai-coding-plan-glm-5-turbo" => Some(Self::Glm5TurboCodingPlan),
             "zai-coding-plan-glm-5-code" => Some(Self::Glm5CodeCodingPlan),
             "zai-coding-plan-glm-4-7" => Some(Self::Glm4_7CodingPlan),
             "minimax-m2-1" | "minimax-m2.1" => Some(Self::MiniMaxM21),
@@ -978,6 +996,7 @@ impl AIModel {
 
         let canonical = match normalized.as_str() {
             "glm5" => "glm-5",
+            "glm5-turbo" => "glm-5-turbo",
             "glm5-code" => "glm-5-code",
             "glm-4.7" => "glm-4-7",
             "minimax-m2.1" => "minimax-m2-1",
@@ -998,12 +1017,14 @@ impl AIModel {
             },
             Provider::Zai => match canonical {
                 "glm-5" => Some(Self::Glm5),
+                "glm-5-turbo" => Some(Self::Glm5Turbo),
                 "glm-5-code" => Some(Self::Glm5Code),
                 "glm-4-7" => Some(Self::Glm4_7),
                 _ => None,
             },
             Provider::ZaiCodingPlan => match canonical {
                 "glm-5" => Some(Self::Glm5CodingPlan),
+                "glm-5-turbo" => Some(Self::Glm5TurboCodingPlan),
                 "glm-5-code" => Some(Self::Glm5CodeCodingPlan),
                 "glm-4-7" => Some(Self::Glm4_7CodingPlan),
                 _ => None,
@@ -1029,6 +1050,7 @@ impl AIModel {
             Self::MiniMaxM21 | Self::MiniMaxM21CodingPlan => "minimax-m2-1",
             Self::MiniMaxM25 | Self::MiniMaxM25CodingPlan => "minimax-m2-5",
             Self::Glm5 | Self::Glm5CodingPlan => "glm-5",
+            Self::Glm5Turbo | Self::Glm5TurboCodingPlan => "glm-5-turbo",
             Self::Glm5Code | Self::Glm5CodeCodingPlan => "glm-5-code",
             Self::Glm4_7 | Self::Glm4_7CodingPlan => "glm-4-7",
             _ => return None,
@@ -1101,9 +1123,11 @@ impl AIModel {
 
             // Zai
             Self::Glm5 => "glm-5",
+            Self::Glm5Turbo => "glm-5-turbo",
             Self::Glm5Code => "glm-5-code",
             Self::Glm4_7 => "glm-4-7",
             Self::Glm5CodingPlan => "zai-coding-plan-glm-5",
+            Self::Glm5TurboCodingPlan => "zai-coding-plan-glm-5-turbo",
             Self::Glm5CodeCodingPlan => "zai-coding-plan-glm-5-code",
             Self::Glm4_7CodingPlan => "zai-coding-plan-glm-4-7",
 
@@ -1189,10 +1213,12 @@ impl AIModel {
             // Gemini: Pro -> Flash (both generations)
             Self::Gemini3Pro => Some(Self::Gemini3Flash),
             Self::Gemini25Pro => Some(Self::Gemini25Flash),
-            // GLM: 5 -> 5Code -> 4.7
-            Self::Glm5 => Some(Self::Glm5Code),
+            // GLM: 5 -> 5 Turbo -> 5 Code -> 4.7
+            Self::Glm5 => Some(Self::Glm5Turbo),
+            Self::Glm5Turbo => Some(Self::Glm5Code),
             Self::Glm5Code => Some(Self::Glm4_7),
-            Self::Glm5CodingPlan => Some(Self::Glm5CodeCodingPlan),
+            Self::Glm5CodingPlan => Some(Self::Glm5TurboCodingPlan),
+            Self::Glm5TurboCodingPlan => Some(Self::Glm5CodeCodingPlan),
             Self::Glm5CodeCodingPlan => Some(Self::Glm4_7CodingPlan),
             // X.AI: Grok4 -> Grok3Mini
             Self::Grok4 => Some(Self::Grok3Mini),
@@ -1209,9 +1235,11 @@ impl AIModel {
             Self::DeepseekChat | Self::DeepseekReasoner => Some(Self::OrDeepseekV3_2),
             Self::Grok4 | Self::Grok3Mini => Some(Self::OrGrok4),
             Self::Glm5
+            | Self::Glm5Turbo
             | Self::Glm5Code
             | Self::Glm4_7
             | Self::Glm5CodingPlan
+            | Self::Glm5TurboCodingPlan
             | Self::Glm5CodeCodingPlan
             | Self::Glm4_7CodingPlan => Some(Self::OrGlm4_7),
             Self::KimiK2_5 => Some(Self::OrKimiK2_5),
@@ -1274,9 +1302,11 @@ impl AIModel {
             Self::Qwen3Plus,
             // Zai
             Self::Glm5,
+            Self::Glm5Turbo,
             Self::Glm5Code,
             Self::Glm4_7,
             Self::Glm5CodingPlan,
+            Self::Glm5TurboCodingPlan,
             Self::Glm5CodeCodingPlan,
             Self::Glm4_7CodingPlan,
             // Moonshot
@@ -1338,7 +1368,12 @@ mod tests {
         assert_eq!(AIModel::Grok4.provider(), Provider::XAI);
         assert_eq!(AIModel::Qwen3Max.provider(), Provider::Qwen);
         assert_eq!(AIModel::Glm4_7.provider(), Provider::Zai);
+        assert_eq!(AIModel::Glm5Turbo.provider(), Provider::Zai);
         assert_eq!(AIModel::Glm5CodingPlan.provider(), Provider::ZaiCodingPlan);
+        assert_eq!(
+            AIModel::Glm5TurboCodingPlan.provider(),
+            Provider::ZaiCodingPlan
+        );
         assert_eq!(AIModel::KimiK2_5.provider(), Provider::Moonshot);
         assert_eq!(AIModel::DoubaoPro.provider(), Provider::Doubao);
         assert_eq!(AIModel::YiLightning.provider(), Provider::Yi);
@@ -1407,8 +1442,10 @@ mod tests {
         assert_eq!(AIModel::GeminiCli.as_str(), "gemini-2.5-pro");
         assert_eq!(AIModel::MiniMaxM21.as_str(), "MiniMax-M2.1");
         assert_eq!(AIModel::MiniMaxM21CodingPlan.as_str(), "MiniMax-M2.1");
+        assert_eq!(AIModel::Glm5Turbo.as_str(), "glm-5-turbo");
         assert_eq!(AIModel::Glm5Code.as_str(), "glm-5");
         assert_eq!(AIModel::Glm5CodingPlan.as_str(), "glm-5");
+        assert_eq!(AIModel::Glm5TurboCodingPlan.as_str(), "glm-5-turbo");
         assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
         assert_eq!(AIModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
         assert_eq!(
@@ -1444,6 +1481,14 @@ mod tests {
             AIModel::for_provider_and_model(Provider::ZaiCodingPlan, "glm-5"),
             Some(AIModel::Glm5CodingPlan)
         );
+        assert_eq!(
+            AIModel::for_provider_and_model(Provider::Zai, "glm-5-turbo"),
+            Some(AIModel::Glm5Turbo)
+        );
+        assert_eq!(
+            AIModel::for_provider_and_model(Provider::ZaiCodingPlan, "glm5-turbo"),
+            Some(AIModel::Glm5TurboCodingPlan)
+        );
     }
 
     #[test]
@@ -1455,6 +1500,10 @@ mod tests {
         assert_eq!(
             AIModel::Glm5CodingPlan.remap_provider(Provider::Zai),
             Some(AIModel::Glm5)
+        );
+        assert_eq!(
+            AIModel::Glm5Turbo.remap_provider(Provider::ZaiCodingPlan),
+            Some(AIModel::Glm5TurboCodingPlan)
         );
         assert_eq!(
             AIModel::ClaudeSonnet4_5.remap_provider(Provider::MiniMax),
@@ -1476,12 +1525,13 @@ mod tests {
         assert_eq!(AIModel::GeminiCli.display_name(), "Gemini CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
         assert_eq!(AIModel::MiniMaxM21.display_name(), "MiniMax M2.1");
+        assert_eq!(AIModel::Glm5Turbo.display_name(), "GLM-5 Turbo");
     }
 
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 56);
+        assert_eq!(models.len(), 58);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::Gpt5_1));
         assert!(models.contains(&AIModel::ClaudeOpus4_6));
@@ -1497,6 +1547,8 @@ mod tests {
         assert!(models.contains(&AIModel::Gemini25Pro));
         assert!(models.contains(&AIModel::MiniMaxM21));
         assert!(models.contains(&AIModel::MiniMaxM21CodingPlan));
+        assert!(models.contains(&AIModel::Glm5Turbo));
+        assert!(models.contains(&AIModel::Glm5TurboCodingPlan));
     }
 
     #[test]
@@ -1565,10 +1617,22 @@ mod tests {
             Some("https://api.z.ai/api/coding/paas/v4")
         );
 
+        let turbo_spec = AIModel::Glm5Turbo.as_model_spec();
+        assert_eq!(turbo_spec.client_model, "glm-5-turbo");
+        assert_eq!(turbo_spec.name, "glm-5-turbo");
+        assert_eq!(turbo_spec.base_url, None);
+
         let coding_plan_spec = AIModel::Glm5CodingPlan.as_model_spec();
         assert_eq!(coding_plan_spec.client_model, "glm-5");
         assert_eq!(
             coding_plan_spec.base_url.as_deref(),
+            Some("https://api.z.ai/api/coding/paas/v4")
+        );
+
+        let coding_plan_turbo_spec = AIModel::Glm5TurboCodingPlan.as_model_spec();
+        assert_eq!(coding_plan_turbo_spec.client_model, "glm-5-turbo");
+        assert_eq!(
+            coding_plan_turbo_spec.base_url.as_deref(),
             Some("https://api.z.ai/api/coding/paas/v4")
         );
     }
@@ -1625,6 +1689,24 @@ mod tests {
         );
         assert_eq!(AIModel::DeepseekChat.same_provider_fallback(), None);
 
+        // GLM chain
+        assert_eq!(
+            AIModel::Glm5.same_provider_fallback(),
+            Some(AIModel::Glm5Turbo)
+        );
+        assert_eq!(
+            AIModel::Glm5Turbo.same_provider_fallback(),
+            Some(AIModel::Glm5Code)
+        );
+        assert_eq!(
+            AIModel::Glm5CodingPlan.same_provider_fallback(),
+            Some(AIModel::Glm5TurboCodingPlan)
+        );
+        assert_eq!(
+            AIModel::Glm5TurboCodingPlan.same_provider_fallback(),
+            Some(AIModel::Glm5CodeCodingPlan)
+        );
+
         // CLI models have no fallback
         assert_eq!(AIModel::CodexCli.same_provider_fallback(), None);
     }
@@ -1639,6 +1721,10 @@ mod tests {
         assert_eq!(
             AIModel::DeepseekChat.openrouter_equivalent(),
             Some(AIModel::OrDeepseekV3_2)
+        );
+        assert_eq!(
+            AIModel::Glm5Turbo.openrouter_equivalent(),
+            Some(AIModel::OrGlm4_7)
         );
         assert_eq!(
             AIModel::KimiK2_5.openrouter_equivalent(),

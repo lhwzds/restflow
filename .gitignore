@@ -3,6 +3,7 @@
 # Cargo build output
 /target/
 /target-*/
+/target-release-check/
 /crates/*/target/stress-artifacts/
 /node_modules/
 

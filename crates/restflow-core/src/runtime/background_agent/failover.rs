@@ -109,7 +109,7 @@ impl FailoverConfig {
     /// Build a failover chain that only includes models with available credentials.
     ///
     /// Priority order:
-    /// 1. Same-provider downgrade (e.g., glm-5 -> glm-4-7)
+    /// 1. Same-provider downgrade (e.g., glm-5 -> glm-5-turbo -> glm-5-code -> glm-4-7)
     /// 2. Manually configured cross-provider fallbacks (from config)
     ///
     /// Note: Automatic cross-provider failover has been removed.

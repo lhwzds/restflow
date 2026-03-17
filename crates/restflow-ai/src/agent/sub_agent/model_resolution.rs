@@ -167,6 +167,20 @@ fn resolve_model_alias(normalized_query: &str, available: &[String]) -> Option<S
 
     if matches!(
         normalized_query,
+        "glm5-turbo-coding-plan"
+            | "glm-5-turbo-coding-plan"
+            | "zai-coding-plan-glm5-turbo"
+            | "zai-coding-plan-glm-5-turbo"
+    ) && let Some(exact) = normalized_available
+        .iter()
+        .find(|(normalized, _)| normalized == "zai-coding-plan-glm-5-turbo")
+        .map(|(_, original)| original.clone())
+    {
+        return Some(exact);
+    }
+
+    if matches!(
+        normalized_query,
         "glm5-coding-plan-code" | "glm-5-coding-plan-code"
     ) && let Some(exact) = normalized_available
         .iter()
@@ -347,6 +361,17 @@ mod tests {
             AliasOnlyFactory::new(vec!["zai-coding-plan-glm-5", "zai-coding-plan-glm-5-code"]);
         let resolved = resolve_model_name("glm-5 coding-plan code", &factory).unwrap();
         assert_eq!(resolved, "zai-coding-plan-glm-5-code");
+    }
+
+    #[test]
+    fn resolve_model_name_maps_glm5_turbo_coding_plan_alias() {
+        let factory = AliasOnlyFactory::new(vec![
+            "zai-coding-plan-glm-5",
+            "zai-coding-plan-glm-5-turbo",
+            "zai-coding-plan-glm-5-code",
+        ]);
+        let resolved = resolve_model_name("glm5 turbo coding plan", &factory).unwrap();
+        assert_eq!(resolved, "zai-coding-plan-glm-5-turbo");
     }
 
     #[test]

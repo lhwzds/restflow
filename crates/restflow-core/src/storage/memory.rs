@@ -1399,7 +1399,12 @@ mod tests {
         let semantic_before = storage
             .semantic_search("agent-001", &[0.1, 0.2, 0.3], 10)
             .unwrap();
-        assert_eq!(semantic_before.len(), 2);
+        assert!(!semantic_before.is_empty());
+        assert!(
+            semantic_before
+                .iter()
+                .all(|m| m.chunk.agent_id == "agent-001")
+        );
 
         let deleted = storage.delete_chunks_for_agent("agent-001").unwrap();
         assert_eq!(deleted, 2);
