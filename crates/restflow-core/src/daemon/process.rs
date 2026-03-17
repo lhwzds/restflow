@@ -50,6 +50,7 @@ impl ProcessManager {
 
         let exe = std::env::current_exe()?;
         let mut cmd = Command::new(exe);
+        cmd.current_dir(daemon_working_dir()?);
         cmd.args(["daemon", "start", "--foreground"]);
         // MCP server is enabled by default; only pass an explicit port override.
         if config.mcp
@@ -195,6 +196,10 @@ impl ProcessManager {
     }
 }
 
+fn daemon_working_dir() -> Result<PathBuf> {
+    paths::ensure_restflow_dir()
+}
+
 fn build_daemon_child_path() -> Option<OsString> {
     let mut entries: Vec<PathBuf> = std::env::var_os("PATH")
         .map(|value| std::env::split_paths(&value).collect())
@@ -246,6 +251,14 @@ fn unique_paths(entries: Vec<PathBuf>) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::{Mutex, OnceLock};
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
 
     #[test]
     fn unique_paths_removes_duplicates() {
@@ -263,5 +276,21 @@ mod tests {
     fn pid_to_unix_pid_rejects_out_of_range() {
         assert!(pid_to_unix_pid(i32::MAX as u32).is_ok());
         assert!(pid_to_unix_pid(i32::MAX as u32 + 1).is_err());
+    }
+
+    #[test]
+    fn daemon_working_dir_uses_restflow_dir() {
+        let _lock = env_lock();
+        let temp = tempfile::tempdir().expect("tempdir");
+        let prev = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
+
+        let dir = daemon_working_dir().expect("daemon working dir");
+        assert_eq!(dir, temp.path());
+
+        match prev {
+            Some(value) => unsafe { std::env::set_var("RESTFLOW_DIR", value) },
+            None => unsafe { std::env::remove_var("RESTFLOW_DIR") },
+        }
     }
 }
