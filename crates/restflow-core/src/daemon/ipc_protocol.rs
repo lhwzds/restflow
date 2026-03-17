@@ -76,7 +76,7 @@ mod tests {
         let status = IpcDaemonStatus {
             status: "running".to_string(),
             protocol_version: IPC_PROTOCOL_VERSION.to_string(),
-            daemon_version: "0.3.5".to_string(),
+            daemon_version: "0.4.0".to_string(),
             pid: 1234,
             started_at_ms: 1_700_000_000_000,
             uptime_secs: 42,

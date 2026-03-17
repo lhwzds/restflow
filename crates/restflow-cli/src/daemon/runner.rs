@@ -492,6 +492,7 @@ mod tests {
         BackgroundAgentSpec, MemoryConfig, NotificationConfig, TaskSchedule,
     };
     use restflow_storage::RuntimeDefaults;
+    use std::ffi::OsString;
     use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
@@ -543,18 +544,43 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<OsString>,
+    }
+
+    impl EnvGuard {
+        fn set_path(key: &'static str, value: &std::path::Path) -> Self {
+            let original = std::env::var_os(key);
+            unsafe { std::env::set_var(key, value) };
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            match &self.original {
+                Some(value) => unsafe { std::env::set_var(self.key, value) },
+                None => unsafe { std::env::remove_var(self.key) },
+            }
+        }
+    }
+
     async fn setup_trigger_with_background_agent() -> (
         Arc<AppCore>,
         CliBackgroundAgentTrigger,
         BackgroundAgent,
         tempfile::TempDir,
+        EnvGuard,
+        EnvGuard,
         std::sync::MutexGuard<'static, ()>,
     ) {
         let env_lock = env_lock();
         let temp_dir = tempdir().expect("failed to create temp dir");
+        let restflow_dir_guard = EnvGuard::set_path("RESTFLOW_DIR", temp_dir.path());
         let agents_dir = temp_dir.path().join("agents");
         std::fs::create_dir_all(&agents_dir).expect("failed to create agents dir");
-        unsafe { std::env::set_var("RESTFLOW_AGENTS_DIR", &agents_dir) };
+        let agents_dir_guard = EnvGuard::set_path("RESTFLOW_AGENTS_DIR", &agents_dir);
         let db_path = temp_dir.path().join("runner-test.db");
         let core = Arc::new(
             AppCore::new(db_path.to_str().expect("invalid db path"))
@@ -596,12 +622,20 @@ mod tests {
             Arc::new(RwLock::new(None)),
         );
 
-        (core, trigger, task, temp_dir, env_lock)
+        (
+            core,
+            trigger,
+            task,
+            temp_dir,
+            restflow_dir_guard,
+            agents_dir_guard,
+            env_lock,
+        )
     }
 
     #[tokio::test]
     async fn send_input_to_task_enqueues_user_message() {
-        let (core, trigger, task, _temp_dir, _env_lock) =
+        let (core, trigger, task, _temp_dir, _restflow_dir_guard, _agents_dir_guard, _env_lock) =
             setup_trigger_with_background_agent().await;
 
         trigger
@@ -618,12 +652,11 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].source, BackgroundMessageSource::User);
         assert_eq!(messages[0].message, "hello from main agent");
-        unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
 
     #[tokio::test]
     async fn handle_approval_falls_back_to_system_message_injection() {
-        let (core, trigger, task, _temp_dir, _env_lock) =
+        let (core, trigger, task, _temp_dir, _restflow_dir_guard, _agents_dir_guard, _env_lock) =
             setup_trigger_with_background_agent().await;
 
         let handled = trigger
@@ -641,6 +674,5 @@ mod tests {
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].source, BackgroundMessageSource::System);
         assert!(messages[0].message.contains("approved"));
-        unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
 }

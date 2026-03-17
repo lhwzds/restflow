@@ -17,7 +17,7 @@ resolver = "2"
 default-members = ["crates/restflow-core"]
 
 [workspace.package]
-version = "0.3.5"
+version = "0.4.0"
 authors = ["RestFlow Team"]
 edition = "2024"
 
@@ -46,4 +46,4 @@ tracing = "0.1"
 lto = true
 opt-level = "z"
 codegen-units = 1
-strip = true
+strip = "debuginfo"
