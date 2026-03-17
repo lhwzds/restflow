@@ -33,7 +33,7 @@ mod tests {
         let _ = IpcDaemonStatus {
             status: "running".to_string(),
             protocol_version: "2".to_string(),
-            daemon_version: "0.3.5".to_string(),
+            daemon_version: "0.4.0".to_string(),
             pid: 1,
             started_at_ms: 0,
             uptime_secs: 0,
