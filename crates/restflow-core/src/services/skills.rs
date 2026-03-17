@@ -214,14 +214,41 @@ pub fn validate_skill_complete(
 mod tests {
     use super::*;
     use crate::models::SkillReference;
-    use tempfile::tempdir;
+    use std::ffi::OsString;
+    use std::sync::MutexGuard;
+    use tempfile::{TempDir, tempdir};
 
     const MASTER_KEY_ENV: &str = "RESTFLOW_MASTER_KEY";
     const RESTFLOW_DIR_ENV: &str = "RESTFLOW_DIR";
 
+    struct SkillsTestEnv {
+        _lock: MutexGuard<'static, ()>,
+        _temp_dir: TempDir,
+        previous_master_key: Option<OsString>,
+        previous_restflow_dir: Option<OsString>,
+    }
+
+    impl Drop for SkillsTestEnv {
+        fn drop(&mut self) {
+            // SAFETY: env vars are restored while the lock is still held.
+            unsafe {
+                if let Some(value) = self.previous_restflow_dir.as_ref() {
+                    std::env::set_var(RESTFLOW_DIR_ENV, value);
+                } else {
+                    std::env::remove_var(RESTFLOW_DIR_ENV);
+                }
+                if let Some(value) = self.previous_master_key.as_ref() {
+                    std::env::set_var(MASTER_KEY_ENV, value);
+                } else {
+                    std::env::remove_var(MASTER_KEY_ENV);
+                }
+            }
+        }
+    }
+
     #[allow(clippy::await_holding_lock)]
-    async fn create_test_core() -> Arc<AppCore> {
-        let _env_lock = crate::paths::restflow_dir_env_lock();
+    async fn create_test_core() -> (Arc<AppCore>, SkillsTestEnv) {
+        let env_lock = crate::paths::restflow_dir_env_lock();
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
         let state_dir = temp_dir.path().join("state");
@@ -237,19 +264,15 @@ mod tests {
             std::env::remove_var(MASTER_KEY_ENV);
         }
         let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
-        unsafe {
-            if let Some(value) = previous_restflow_dir {
-                std::env::set_var(RESTFLOW_DIR_ENV, value);
-            } else {
-                std::env::remove_var(RESTFLOW_DIR_ENV);
-            }
-            if let Some(value) = previous_master_key {
-                std::env::set_var(MASTER_KEY_ENV, value);
-            } else {
-                std::env::remove_var(MASTER_KEY_ENV);
-            }
-        }
-        core
+        (
+            core,
+            SkillsTestEnv {
+                _lock: env_lock,
+                _temp_dir: temp_dir,
+                previous_master_key,
+                previous_restflow_dir,
+            },
+        )
     }
 
     fn create_test_skill(id: &str, name: &str) -> Skill {
@@ -264,7 +287,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_list_skills_empty() {
-        let core = create_test_core().await;
+        let (core, _env) = create_test_core().await;
         let skills = list_skills(&core).await.unwrap();
         // Default skills are bootstrapped; only verify no test artifacts exist
         assert!(!skills.is_empty());
@@ -273,7 +296,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_create_and_get_skill() {
-        let core = create_test_core().await;
+        let (core, _env) = create_test_core().await;
 
         let skill = create_test_skill("test-skill", "Test Skill");
         create_skill(&core, skill.clone()).await.unwrap();
@@ -292,7 +315,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_list_skills_multiple() {
-        let core = create_test_core().await;
+        let (core, _env) = create_test_core().await;
 
         let base_skills = list_skills(&core).await.unwrap();
         let base_len = base_skills.len();
@@ -309,7 +332,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_update_skill() {
-        let core = create_test_core().await;
+        let (core, _env) = create_test_core().await;
 
         let mut skill = create_test_skill("test-skill", "Original Name");
         create_skill(&core, skill.clone()).await.unwrap();
@@ -334,7 +357,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_delete_skill() {
-        let core = create_test_core().await;
+        let (core, _env) = create_test_core().await;
 
         let skill = create_test_skill("test-skill", "Test Skill");
         create_skill(&core, skill).await.unwrap();
@@ -349,7 +372,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_skill_exists() {
-        let core = create_test_core().await;
+        let (core, _env) = create_test_core().await;
 
         assert!(!skill_exists(&core, "nonexistent").await.unwrap());
 
@@ -361,7 +384,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_get_nonexistent_skill() {
-        let core = create_test_core().await;
+        let (core, _env) = create_test_core().await;
 
         let result = get_skill(&core, "nonexistent").await.unwrap();
         assert!(result.is_none());
@@ -369,7 +392,7 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_get_skill_reference_from_referenced_skill() {
-        let core = create_test_core().await;
+        let (core, _env) = create_test_core().await;
 
         let mut skill = create_test_skill("root-skill", "Root Skill");
         skill.references = vec![SkillReference {

@@ -187,7 +187,6 @@ pub enum Commands {
         #[command(subcommand)]
         command: TriggerCommands,
     },
-
 }
 
 #[derive(Args, Default, Clone, Copy)]
@@ -443,7 +442,6 @@ mod tests {
             })
         ));
     }
-
 }
 
 #[derive(Subcommand)]

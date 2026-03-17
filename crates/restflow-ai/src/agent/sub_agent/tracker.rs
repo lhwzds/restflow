@@ -630,8 +630,10 @@ mod tests {
 
         tracker.cancel("race-test");
 
-        let state_after_cancel = tracker.states.get("race-test").unwrap();
-        assert_eq!(state_after_cancel.status, SubagentStatus::Interrupted);
+        {
+            let state_after_cancel = tracker.states.get("race-test").unwrap();
+            assert_eq!(state_after_cancel.status, SubagentStatus::Interrupted);
+        }
 
         let result = SubagentResult {
             success: false,
