@@ -214,6 +214,7 @@ impl AgentRuntimeExecutor {
             None,
             Some(bash_config),
             None,
+            None,
         )?;
         execute_subagent_once(
             self.subagent_definitions.clone(),

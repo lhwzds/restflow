@@ -61,9 +61,7 @@ pub struct FileConfig {
 impl Default for FileConfig {
     fn default() -> Self {
         Self {
-            allowed_paths: vec![
-                std::env::current_dir().unwrap_or_else(|_| PathBuf::from("/nonexistent")),
-            ],
+            allowed_paths: Vec::new(),
             allow_write: true,
             max_read_bytes: 1_000_000,
         }
@@ -71,20 +69,33 @@ impl Default for FileConfig {
 }
 
 impl FileConfig {
+    pub fn for_workspace_root(workspace_root: impl Into<PathBuf>) -> Self {
+        Self {
+            allowed_paths: vec![workspace_root.into()],
+            ..Self::default()
+        }
+    }
+
     /// Convert into a [`FileTool`] with a new internal tracker.
     pub fn into_file_tool(self) -> FileTool {
+        let require_base_dir = self.allowed_paths.is_empty();
         let mut tool = FileTool::new().with_max_read(self.max_read_bytes);
         if let Some(base) = self.allowed_paths.into_iter().next() {
             tool = tool.with_base_dir(base);
+        } else if require_base_dir {
+            tool = tool.require_base_dir();
         }
         tool
     }
 
     /// Convert into a [`FileTool`] using a shared [`FileTracker`].
     pub fn into_file_tool_with_tracker(self, tracker: Arc<FileTracker>) -> FileTool {
+        let require_base_dir = self.allowed_paths.is_empty();
         let mut tool = FileTool::with_tracker(tracker).with_max_read(self.max_read_bytes);
         if let Some(base) = self.allowed_paths.into_iter().next() {
             tool = tool.with_base_dir(base);
+        } else if require_base_dir {
+            tool = tool.require_base_dir();
         }
         tool
     }

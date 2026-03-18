@@ -7,6 +7,7 @@
 pub(crate) mod assembly;
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tracing::{debug, warn};
 
@@ -30,7 +31,7 @@ pub use restflow_tools::impls::{
     ListSubagentsTool, SlackTool, SpawnSubagentTool, SpawnTool, TelegramTool, ToolRegistryBuilder,
     UseSkillTool, WaitSubagentsTool, default_registry,
 };
-pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeTool, VisionTool};
+pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeConfig, TranscribeTool, VisionTool};
 
 // Re-export core types from restflow-ai
 pub use restflow_ai::agent::{SubagentDeps, SubagentManagerImpl, SubagentSpawner};
@@ -124,6 +125,7 @@ pub fn registry_from_allowlist(
     storage: Option<&Storage>,
     agent_id: Option<&str>,
     bash_config: Option<BashConfig>,
+    workspace_root: Option<&Path>,
 ) -> anyhow::Result<ToolRegistry> {
     registry_from_allowlist_with_security_gate(
         tool_names,
@@ -132,6 +134,7 @@ pub fn registry_from_allowlist(
         storage,
         agent_id,
         bash_config,
+        workspace_root,
         None,
     )
 }
@@ -149,6 +152,7 @@ pub fn registry_from_allowlist_with_security_gate(
     storage: Option<&Storage>,
     agent_id: Option<&str>,
     bash_config: Option<BashConfig>,
+    workspace_root: Option<&Path>,
     security_gate: Option<Arc<dyn SecurityGate>>,
 ) -> anyhow::Result<ToolRegistry> {
     let Some(tool_names) = tool_names else {
@@ -165,19 +169,24 @@ pub fn registry_from_allowlist_with_security_gate(
     let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let mut allowlisted_skill_ids: Vec<String> = Vec::new();
     let mut recorded_skill_ids: HashSet<String> = HashSet::new();
-    let effective_config = storage.and_then(|value| value.config.get_effective_config().ok());
+    let effective_config = storage.and_then(|value| {
+        value
+            .config
+            .get_effective_config_for_workspace(workspace_root)
+            .ok()
+    });
 
     // Pre-create shared diagnostics provider when any of diagnostics/edit/multiedit
     // are in the allowlist, so they all share the same LspManager instance.
     let needs_diag = tool_names
         .iter()
         .any(|n| matches!(n.as_str(), "diagnostics" | "edit" | "multiedit"));
-    let shared_diagnostics: Option<Arc<dyn DiagnosticsProvider>> = if needs_diag {
-        let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-        Some(Arc::new(LspManager::new(root)))
-    } else {
-        None
-    };
+    let shared_diagnostics: Option<Arc<dyn DiagnosticsProvider>> =
+        if needs_diag && let Some(root) = workspace_root {
+            Some(Arc::new(LspManager::new(root.to_path_buf())))
+        } else {
+            None
+        };
 
     /// Register a storage-backed tool, warning if storage is unavailable.
     macro_rules! with_storage {
@@ -252,7 +261,10 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "transcribe" => {
                 if let Some(resolver) = secret_resolver.clone() {
-                    builder = builder.with_transcribe(resolver)?;
+                    let config = workspace_root
+                        .map(TranscribeConfig::for_workspace_root)
+                        .unwrap_or_default();
+                    builder = builder.with_transcribe_config(resolver, config)?;
                 } else {
                     warn!(
                         tool_name = "transcribe",
@@ -307,13 +319,19 @@ pub fn registry_from_allowlist_with_security_gate(
                 builder = builder.with_security_query(provider);
             }
             "patch" => {
-                builder = builder.with_patch();
+                builder = builder.with_patch_and_base_dir(workspace_root.map(Path::to_path_buf));
             }
             "edit" => {
-                builder = builder.with_edit_and_diagnostics(shared_diagnostics.clone());
+                builder = builder.with_edit_and_diagnostics_and_base_dir(
+                    shared_diagnostics.clone(),
+                    workspace_root.map(Path::to_path_buf),
+                );
             }
             "multiedit" => {
-                builder = builder.with_multiedit_and_diagnostics(shared_diagnostics.clone());
+                builder = builder.with_multiedit_and_diagnostics_and_base_dir(
+                    shared_diagnostics.clone(),
+                    workspace_root.map(Path::to_path_buf),
+                );
             }
 
             // --- Subagent tools ---
@@ -516,10 +534,10 @@ pub fn registry_from_allowlist_with_security_gate(
 
             // --- Search tools ---
             "glob" => {
-                builder = builder.with_glob();
+                builder = builder.with_glob_and_base_dir(workspace_root.map(Path::to_path_buf));
             }
             "grep" => {
-                builder = builder.with_grep();
+                builder = builder.with_grep_and_base_dir(workspace_root.map(Path::to_path_buf));
             }
             "task_list" => {
                 with_storage!(storage, "task_list", builder, |s| {
@@ -567,9 +585,13 @@ pub fn registry_from_allowlist_with_security_gate(
     }
 
     if allow_file {
+        let mut file_config = workspace_root
+            .map(FileConfig::for_workspace_root)
+            .unwrap_or_default();
+        file_config.allow_write = allow_file_write;
         builder = register_file_execution_tool(
             builder,
-            allow_file_write,
+            file_config,
             security_gate.clone(),
             agent_id.unwrap_or(DEFAULT_SECURITY_AGENT_ID),
             DEFAULT_SECURITY_TASK_ID,
@@ -678,7 +700,8 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None).unwrap();
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
+                .unwrap();
         assert!(registry.has("manage_background_agents"));
         assert!(registry.has("manage_agents"));
     }
@@ -689,7 +712,8 @@ mod tests {
             "manage_background_agents".to_string(),
             "manage_agents".to_string(),
         ];
-        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, None, None, None, None).unwrap();
         assert!(!registry.has("manage_background_agents"));
         assert!(!registry.has("manage_agents"));
     }
@@ -726,6 +750,7 @@ mod tests {
             Some(&storage),
             None,
             None,
+            None,
         )
         .expect("registry should build");
         assert!(
@@ -744,6 +769,7 @@ mod tests {
             None,
             None,
             Some(&storage),
+            None,
             None,
             None,
         )
@@ -770,7 +796,8 @@ mod tests {
         ];
 
         let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None).unwrap();
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
+                .unwrap();
         assert!(registry.has("manage_marketplace"));
         assert!(registry.has("manage_triggers"));
         assert!(registry.has("manage_terminal"));
@@ -797,9 +824,55 @@ mod tests {
     #[test]
     fn test_python_alias_and_run_python_are_both_registered() {
         let names = vec!["python".to_string()];
-        let registry = registry_from_allowlist(Some(&names), None, None, None, None, None).unwrap();
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, None, None, None, None).unwrap();
         assert!(registry.has("python"));
         assert!(registry.has("run_python"));
+    }
+
+    #[tokio::test]
+    async fn test_filesystem_tools_require_workspace_root_when_unset() {
+        let names = vec!["file".to_string(), "glob".to_string(), "grep".to_string()];
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, None, None, None, None).unwrap();
+
+        let file_result = registry
+            .get("file")
+            .unwrap()
+            .execute(serde_json::json!({
+                "action": "read",
+                "path": "relative.txt"
+            }))
+            .await
+            .unwrap();
+        assert!(!file_result.success);
+        assert!(
+            file_result
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("workspace root or base directory")
+        );
+
+        let glob_result = registry
+            .get("glob")
+            .unwrap()
+            .execute(serde_json::json!({
+                "pattern": "**/*.rs"
+            }))
+            .await
+            .unwrap();
+        assert!(!glob_result.success);
+
+        let grep_result = registry
+            .get("grep")
+            .unwrap()
+            .execute(serde_json::json!({
+                "pattern": "hello"
+            }))
+            .await
+            .unwrap();
+        assert!(!grep_result.success);
     }
 
     #[test]
@@ -832,8 +905,16 @@ mod tests {
             .expect("config should update");
 
         let names = vec!["web_search".to_string(), "diagnostics".to_string()];
-        let registry =
-            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None).unwrap();
+        let registry = registry_from_allowlist(
+            Some(&names),
+            None,
+            None,
+            Some(&storage),
+            None,
+            None,
+            Some(dir.path()),
+        )
+        .unwrap();
 
         let web_search_schema = registry
             .get("web_search")
@@ -848,6 +929,17 @@ mod tests {
         assert_eq!(
             diagnostics_schema["properties"]["timeout_ms"]["default"],
             9_000
+        );
+    }
+
+    #[test]
+    fn test_diagnostics_tool_requires_workspace_root() {
+        let names = vec!["diagnostics".to_string()];
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, None, None, None, None).unwrap();
+        assert!(
+            !registry.has("diagnostics"),
+            "diagnostics should not be registered without an explicit workspace root"
         );
     }
 }

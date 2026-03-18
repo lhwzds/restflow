@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::Instant;
@@ -227,6 +228,47 @@ impl BashTool {
 
         (ToolErrorCategory::Execution, false)
     }
+
+    fn resolve_workdir(&self, workdir: Option<String>) -> std::result::Result<String, ToolOutput> {
+        let explicit = workdir.map(PathBuf::from);
+        let default = self.default_workdir.as_deref().map(PathBuf::from);
+
+        let resolved = match (explicit, default) {
+            (Some(path), Some(base)) => {
+                if path.is_absolute() {
+                    path
+                } else {
+                    base.join(path)
+                }
+            }
+            (Some(path), None) => {
+                if path.is_absolute() {
+                    path
+                } else {
+                    return Err(ToolOutput::non_retryable_error(
+                        "Relative workdir values require an explicit workspace root.",
+                        ToolErrorCategory::Config,
+                    ));
+                }
+            }
+            (None, Some(base)) => base,
+            (None, None) => {
+                return Err(ToolOutput::non_retryable_error(
+                    "This tool requires an explicit workspace root or workdir.",
+                    ToolErrorCategory::Config,
+                ));
+            }
+        };
+
+        if !resolved.is_absolute() {
+            return Err(ToolOutput::non_retryable_error(
+                "Workdir values must resolve to an absolute workspace path.",
+                ToolErrorCategory::Config,
+            ));
+        }
+
+        Ok(resolved.to_string_lossy().into_owned())
+    }
 }
 
 /// Input parameters for bash command execution.
@@ -285,10 +327,10 @@ impl Tool for BashTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let input: BashInput = serde_json::from_value(input)?;
 
-        let workdir = input
-            .workdir
-            .or_else(|| self.default_workdir.clone())
-            .unwrap_or_else(|| ".".to_string());
+        let workdir = match self.resolve_workdir(input.workdir) {
+            Ok(workdir) => workdir,
+            Err(output) => return Ok(output),
+        };
 
         let timeout_secs = input.timeout.unwrap_or(self.timeout_secs);
 
@@ -438,7 +480,8 @@ mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn test_bash_tool_execute_simple() {
-        let tool = BashTool::new();
+        let temp = tempfile::tempdir().unwrap();
+        let tool = BashTool::new().with_workdir(temp.path().to_string_lossy().into_owned());
         let output = tool
             .execute(serde_json::json!({
                 "command": "echo hello"
@@ -455,7 +498,10 @@ mod tests {
     #[tokio::test]
     #[cfg(unix)]
     async fn test_bash_tool_execute_timeout() {
-        let tool = BashTool::new().with_timeout(1);
+        let temp = tempfile::tempdir().unwrap();
+        let tool = BashTool::new()
+            .with_workdir(temp.path().to_string_lossy().into_owned())
+            .with_timeout(1);
         let output = tool
             .execute(serde_json::json!({
                 "command": "sleep 10"
@@ -465,5 +511,48 @@ mod tests {
 
         assert!(!output.success);
         assert!(output.error.as_ref().unwrap().contains("Timeout"));
+    }
+
+    #[tokio::test]
+    async fn test_bash_tool_requires_explicit_workdir() {
+        let tool = BashTool::new();
+        let output = tool
+            .execute(serde_json::json!({
+                "command": "echo hello"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert_eq!(output.error_category, Some(ToolErrorCategory::Config));
+        assert!(
+            output
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("workspace root or workdir")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bash_tool_rejects_relative_workdir_without_workspace_root() {
+        let tool = BashTool::new();
+        let output = tool
+            .execute(serde_json::json!({
+                "command": "echo hello",
+                "workdir": "subdir"
+            }))
+            .await
+            .unwrap();
+
+        assert!(!output.success);
+        assert_eq!(output.error_category, Some(ToolErrorCategory::Config));
+        assert!(
+            output
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Relative workdir values")
+        );
     }
 }

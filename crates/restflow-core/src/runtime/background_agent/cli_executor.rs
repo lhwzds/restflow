@@ -63,6 +63,19 @@ impl CliAgentExecutor {
         }
     }
 
+    fn resolve_working_dir(config: &CliExecutionConfig) -> Result<&str> {
+        let cwd = config
+            .working_dir
+            .as_deref()
+            .ok_or_else(|| anyhow::anyhow!("CLI execution requires an explicit working_dir"))?;
+
+        if !std::path::Path::new(cwd).is_absolute() {
+            bail!("CLI execution working_dir must be an absolute path");
+        }
+
+        Ok(cwd)
+    }
+
     /// Execute a CLI command with the given configuration and input.
     ///
     /// `task_id` is used to tag background-agent processes for hook enforcement.
@@ -80,14 +93,12 @@ impl CliAgentExecutor {
             "Starting CLI execution"
         );
 
+        let cwd = Self::resolve_working_dir(config)?;
+
         // Build the command
         let mut cmd = Command::new(&config.binary);
         cmd.args(&config.args);
-
-        // Set working directory if specified
-        if let Some(ref cwd) = config.working_dir {
-            cmd.current_dir(cwd);
-        }
+        cmd.current_dir(cwd);
 
         // Tag process as background-agent for git hook enforcement.
         if let Some(tid) = task_id {
@@ -250,10 +261,11 @@ mod tests {
     #[tokio::test]
     async fn test_cli_executor_echo() {
         let executor = CliAgentExecutor::new();
+        let temp = tempfile::tempdir().unwrap();
         let config = CliExecutionConfig {
             binary: "echo".to_string(),
             args: vec!["Hello, World!".to_string()],
-            working_dir: None,
+            working_dir: Some(temp.path().to_string_lossy().into_owned()),
             timeout_secs: 10,
             use_pty: false,
         };
@@ -270,6 +282,7 @@ mod tests {
     async fn test_cli_executor_with_callback() {
         let line_count = Arc::new(AtomicUsize::new(0));
         let line_count_clone = line_count.clone();
+        let temp = tempfile::tempdir().unwrap();
 
         let executor = CliAgentExecutor::with_output_callback(move |_line| {
             line_count_clone.fetch_add(1, Ordering::SeqCst);
@@ -278,7 +291,7 @@ mod tests {
         let config = CliExecutionConfig {
             binary: "echo".to_string(),
             args: vec!["line1\nline2\nline3".to_string()],
-            working_dir: None,
+            working_dir: Some(temp.path().to_string_lossy().into_owned()),
             timeout_secs: 10,
             use_pty: false,
         };
@@ -291,10 +304,11 @@ mod tests {
     #[tokio::test]
     async fn test_cli_executor_timeout() {
         let executor = CliAgentExecutor::new();
+        let temp = tempfile::tempdir().unwrap();
         let config = CliExecutionConfig {
             binary: "sleep".to_string(),
             args: vec!["10".to_string()],
-            working_dir: None,
+            working_dir: Some(temp.path().to_string_lossy().into_owned()),
             timeout_secs: 1, // 1 second timeout
             use_pty: false,
         };
@@ -309,10 +323,11 @@ mod tests {
     #[tokio::test]
     async fn test_cli_executor_nonexistent_binary() {
         let executor = CliAgentExecutor::new();
+        let temp = tempfile::tempdir().unwrap();
         let config = CliExecutionConfig {
             binary: "nonexistent_binary_12345".to_string(),
             args: vec![],
-            working_dir: None,
+            working_dir: Some(temp.path().to_string_lossy().into_owned()),
             timeout_secs: 10,
             use_pty: false,
         };
@@ -327,10 +342,11 @@ mod tests {
     #[tokio::test]
     async fn test_cli_executor_with_input() {
         let executor = CliAgentExecutor::new();
+        let temp = tempfile::tempdir().unwrap();
         let config = CliExecutionConfig {
             binary: "echo".to_string(),
             args: vec![],
-            working_dir: None,
+            working_dir: Some(temp.path().to_string_lossy().into_owned()),
             timeout_secs: 10,
             use_pty: false,
         };
@@ -386,5 +402,45 @@ mod tests {
         let result = result.unwrap();
         // Output should contain the temp directory path
         assert!(result.output.to_lowercase().contains("temp"));
+    }
+
+    #[tokio::test]
+    async fn test_cli_executor_requires_explicit_working_dir() {
+        let executor = CliAgentExecutor::new();
+        let config = CliExecutionConfig {
+            binary: "echo".to_string(),
+            args: vec!["Hello, World!".to_string()],
+            working_dir: None,
+            timeout_secs: 10,
+            use_pty: false,
+        };
+
+        let result = executor.execute_cli(&config, None, None).await;
+        let error = result.expect_err("missing working_dir should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("CLI execution requires an explicit working_dir")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cli_executor_requires_absolute_working_dir() {
+        let executor = CliAgentExecutor::new();
+        let config = CliExecutionConfig {
+            binary: "echo".to_string(),
+            args: vec!["Hello, World!".to_string()],
+            working_dir: Some("relative-dir".to_string()),
+            timeout_secs: 10,
+            use_pty: false,
+        };
+
+        let result = executor.execute_cli(&config, None, None).await;
+        let error = result.expect_err("relative working_dir should fail");
+        assert!(
+            error
+                .to_string()
+                .contains("CLI execution working_dir must be an absolute path")
+        );
     }
 }

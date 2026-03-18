@@ -3,7 +3,6 @@
 //! Adapter implementations live in [`super::adapters`]. This module provides
 //! the [`create_tool_registry`] function that wires adapters into tools.
 
-use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::models::{AIModel, Provider};
 use crate::process::ProcessRegistry;

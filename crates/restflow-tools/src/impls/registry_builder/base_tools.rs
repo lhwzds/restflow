@@ -1,3 +1,4 @@
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::impls::batch::BatchTool;
@@ -9,7 +10,7 @@ use crate::impls::jina_reader::JinaReaderTool;
 use crate::impls::monty_python::{PythonTool, RunPythonTool};
 use crate::impls::multiedit::MultiEditTool;
 use crate::impls::patch::PatchTool;
-use crate::impls::transcribe::TranscribeTool;
+use crate::impls::transcribe::{TranscribeConfig, TranscribeTool};
 use crate::impls::vision::VisionTool;
 use crate::impls::web_fetch::WebFetchTool;
 use crate::impls::web_search::WebSearchTool;
@@ -82,6 +83,16 @@ impl ToolRegistryBuilder {
         Ok(self)
     }
 
+    pub fn with_transcribe_config(
+        mut self,
+        resolver: SecretResolver,
+        config: TranscribeConfig,
+    ) -> std::result::Result<Self, reqwest::Error> {
+        self.registry
+            .register(TranscribeTool::with_config(resolver, config)?);
+        Ok(self)
+    }
+
     pub fn with_vision(
         mut self,
         resolver: SecretResolver,
@@ -142,6 +153,15 @@ impl ToolRegistryBuilder {
         self
     }
 
+    pub fn with_patch_and_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
+        let mut tool = PatchTool::new(self.tracker.clone()).require_base_dir();
+        if let Some(base_dir) = base_dir {
+            tool = tool.with_base_dir(base_dir);
+        }
+        self.registry.register(tool);
+        self
+    }
+
     pub fn with_edit(self) -> Self {
         self.with_edit_and_diagnostics(None)
     }
@@ -153,6 +173,22 @@ impl ToolRegistryBuilder {
         let mut tool = EditTool::with_tracker(self.tracker.clone());
         if let Some(diag) = diagnostics {
             tool = tool.with_diagnostics_provider(diag);
+        }
+        self.registry.register(tool);
+        self
+    }
+
+    pub fn with_edit_and_diagnostics_and_base_dir(
+        mut self,
+        diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
+        base_dir: Option<PathBuf>,
+    ) -> Self {
+        let mut tool = EditTool::with_tracker(self.tracker.clone()).require_base_dir();
+        if let Some(diag) = diagnostics {
+            tool = tool.with_diagnostics_provider(diag);
+        }
+        if let Some(base_dir) = base_dir {
+            tool = tool.with_base_dir(base_dir);
         }
         self.registry.register(tool);
         self
@@ -174,13 +210,47 @@ impl ToolRegistryBuilder {
         self
     }
 
+    pub fn with_multiedit_and_diagnostics_and_base_dir(
+        mut self,
+        diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
+        base_dir: Option<PathBuf>,
+    ) -> Self {
+        let mut tool = MultiEditTool::with_tracker(self.tracker.clone()).require_base_dir();
+        if let Some(diag) = diagnostics {
+            tool = tool.with_diagnostics_provider(diag);
+        }
+        if let Some(base_dir) = base_dir {
+            tool = tool.with_base_dir(base_dir);
+        }
+        self.registry.register(tool);
+        self
+    }
+
     pub fn with_glob(mut self) -> Self {
         self.registry.register(GlobTool::new());
         self
     }
 
+    pub fn with_glob_and_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
+        let mut tool = GlobTool::new().require_base_dir();
+        if let Some(base_dir) = base_dir {
+            tool = tool.with_base_dir(base_dir);
+        }
+        self.registry.register(tool);
+        self
+    }
+
     pub fn with_grep(mut self) -> Self {
         self.registry.register(GrepTool::new());
+        self
+    }
+
+    pub fn with_grep_and_base_dir(mut self, base_dir: Option<PathBuf>) -> Self {
+        let mut tool = GrepTool::new().require_base_dir();
+        if let Some(base_dir) = base_dir {
+            tool = tool.with_base_dir(base_dir);
+        }
+        self.registry.register(tool);
         self
     }
 

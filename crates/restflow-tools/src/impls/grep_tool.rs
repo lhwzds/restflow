@@ -61,6 +61,7 @@ struct MatchResult {
 #[derive(Clone)]
 pub struct GrepTool {
     base_dir: Option<PathBuf>,
+    require_base_dir: bool,
 }
 
 impl Default for GrepTool {
@@ -71,7 +72,10 @@ impl Default for GrepTool {
 
 impl GrepTool {
     pub fn new() -> Self {
-        Self { base_dir: None }
+        Self {
+            base_dir: None,
+            require_base_dir: false,
+        }
     }
 
     pub fn with_base_dir(mut self, base: impl Into<PathBuf>) -> Self {
@@ -79,13 +83,30 @@ impl GrepTool {
         self
     }
 
-    fn resolve_base(&self, path: Option<&str>) -> PathBuf {
+    pub fn require_base_dir(mut self) -> Self {
+        self.require_base_dir = true;
+        self
+    }
+
+    fn resolve_base(&self, path: Option<&str>) -> std::result::Result<PathBuf, String> {
         if let Some(p) = path {
-            PathBuf::from(p)
+            let candidate = PathBuf::from(p);
+            if candidate.is_absolute() {
+                Ok(candidate)
+            } else if let Some(base) = &self.base_dir {
+                Ok(base.join(candidate))
+            } else {
+                Err(
+                    "Relative search paths require an explicit workspace root or base directory."
+                        .to_string(),
+                )
+            }
         } else if let Some(base) = &self.base_dir {
-            base.clone()
+            Ok(base.clone())
+        } else if self.require_base_dir {
+            Err("This tool requires an explicit workspace root or base directory.".to_string())
         } else {
-            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+            Err("A search path or base directory is required.".to_string())
         }
     }
 }
@@ -109,7 +130,7 @@ impl Tool for GrepTool {
                     "type": "string"
                 },
                 "path": {
-                    "description": "File or directory to search in. Defaults to current working directory.",
+                    "description": "File or directory to search in. Requires an explicit path or configured workspace root.",
                     "type": "string"
                 },
                 "glob": {
@@ -197,7 +218,10 @@ impl Tool for GrepTool {
             Err(err) => return Ok(ToolOutput::error(format!("Invalid regex: {}", err))),
         };
 
-        let base = self.resolve_base(params.path.as_deref());
+        let base = match self.resolve_base(params.path.as_deref()) {
+            Ok(base) => base,
+            Err(error) => return Ok(ToolOutput::error(error)),
+        };
 
         // If path is a file, search just that file
         if base.is_file() {
@@ -862,5 +886,39 @@ mod tests {
             .unwrap();
         assert!(out.success);
         assert_eq!(out.result["match_count"], 0);
+    }
+
+    #[tokio::test]
+    async fn test_grep_requires_explicit_base_dir_when_scoped() {
+        let tool = GrepTool::new().require_base_dir();
+
+        let out = tool.execute(json!({ "pattern": "Hello" })).await.unwrap();
+        assert!(!out.success);
+        assert!(
+            out.error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("workspace root or base directory")
+        );
+    }
+
+    #[tokio::test]
+    async fn test_grep_rejects_relative_search_path_without_workspace_root() {
+        let tool = GrepTool::new();
+
+        let out = tool
+            .execute(json!({
+                "pattern": "Hello",
+                "path": "src"
+            }))
+            .await
+            .unwrap();
+        assert!(!out.success);
+        assert!(
+            out.error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("Relative search paths require")
+        );
     }
 }

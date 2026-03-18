@@ -1703,6 +1703,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         None,
         None,
         None,
+        None,
     )
     .unwrap();
 

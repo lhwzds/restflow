@@ -33,9 +33,18 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
 /// lexical normalization (via [`normalize_path`]) combined with ancestor
 /// canonicalization when possible.
 ///
-/// When `base_dir` is `None`, relative paths are resolved against the current
-/// working directory with no further restrictions.
+/// When `base_dir` is `None`, absolute paths are accepted as-is and relative
+/// paths are rejected. Callers that require a workspace root can use
+/// [`resolve_path_with_policy`] with `require_base_dir = true`.
 pub(crate) fn resolve_path(path: &str, base_dir: Option<&Path>) -> Result<PathBuf, String> {
+    resolve_path_with_policy(path, base_dir, false)
+}
+
+pub(crate) fn resolve_path_with_policy(
+    path: &str,
+    base_dir: Option<&Path>,
+    require_base_dir: bool,
+) -> Result<PathBuf, String> {
     let path = PathBuf::from(path);
 
     if let Some(base) = base_dir {
@@ -98,13 +107,17 @@ pub(crate) fn resolve_path(path: &str, base_dir: Option<&Path>) -> Result<PathBu
 
         Ok(normalized)
     } else {
+        if require_base_dir {
+            return Err(
+                "This tool requires an explicit workspace root or base directory.".to_string(),
+            );
+        }
+
         // No base directory restriction.
         if path.is_absolute() {
             Ok(path)
         } else {
-            std::env::current_dir()
-                .map(|cwd| cwd.join(&path))
-                .map_err(|e| e.to_string())
+            Err("Relative paths require an explicit workspace root or base directory.".to_string())
         }
     }
 }
@@ -127,5 +140,22 @@ fn find_existing_ancestor(path: &Path) -> Option<(PathBuf, PathBuf)> {
         if !ancestor.pop() {
             return None;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_resolve_path_requires_base_dir_for_relative_paths() {
+        let error = resolve_path("relative.txt", None).unwrap_err();
+        assert!(error.contains("Relative paths require an explicit workspace root"));
+    }
+
+    #[test]
+    fn test_resolve_path_with_policy_requires_base_dir() {
+        let error = resolve_path_with_policy("/tmp/file.txt", None, true).unwrap_err();
+        assert!(error.contains("explicit workspace root or base directory"));
     }
 }

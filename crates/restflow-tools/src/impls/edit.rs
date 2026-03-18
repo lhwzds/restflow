@@ -278,6 +278,7 @@ fn apply_line_replacements(
 #[derive(Clone)]
 pub struct EditTool {
     base_dir: Option<PathBuf>,
+    require_base_dir: bool,
     tracker: Arc<FileTracker>,
     diagnostics: Option<Arc<dyn DiagnosticsProvider>>,
     cache_manager: Option<Arc<dyn AgentCache>>,
@@ -287,6 +288,7 @@ impl EditTool {
     pub fn with_tracker(tracker: Arc<FileTracker>) -> Self {
         Self {
             base_dir: None,
+            require_base_dir: false,
             tracker,
             diagnostics: None,
             cache_manager: None,
@@ -295,6 +297,11 @@ impl EditTool {
 
     pub fn with_base_dir(mut self, base_dir: impl Into<PathBuf>) -> Self {
         self.base_dir = Some(base_dir.into());
+        self
+    }
+
+    pub fn require_base_dir(mut self) -> Self {
+        self.require_base_dir = true;
         self
     }
 
@@ -309,7 +316,11 @@ impl EditTool {
     }
 
     fn resolve_path(&self, path: &str) -> std::result::Result<PathBuf, String> {
-        super::path_utils::resolve_path(path, self.base_dir.as_deref())
+        super::path_utils::resolve_path_with_policy(
+            path,
+            self.base_dir.as_deref(),
+            self.require_base_dir,
+        )
     }
 
     /// Invalidate caches for the given path and its parent directories.

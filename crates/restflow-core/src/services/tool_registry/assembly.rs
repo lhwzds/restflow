@@ -1,4 +1,5 @@
 use super::*;
+use restflow_tools::FileConfig;
 
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
@@ -28,9 +29,6 @@ pub fn create_tool_registry(
     agent_id: Option<String>,
     security_gate: Option<Arc<dyn SecurityGate>>,
 ) -> anyhow::Result<ToolRegistry> {
-    let root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-    let lsp_manager = Arc::new(LspManager::new(root));
-
     let config_storage = Arc::new(config_storage);
     let agent_defaults = load_agent_defaults(&config_storage);
     let api_defaults = load_api_defaults(&config_storage);
@@ -107,7 +105,10 @@ pub fn create_tool_registry(
     );
     builder = register_file_execution_tool(
         builder,
-        false,
+        FileConfig {
+            allow_write: false,
+            ..Default::default()
+        },
         security_gate.clone(),
         security_agent_id,
         DEFAULT_SECURITY_TASK_ID,
@@ -147,19 +148,21 @@ pub fn create_tool_registry(
         .with_discord()?
         .with_slack()?
         .with_browser_timeout(agent_defaults.browser_timeout_secs)?
-        .with_patch()
-        .with_edit_and_diagnostics(Some(lsp_manager.clone()))
-        .with_multiedit_and_diagnostics(Some(lsp_manager.clone()))
-        .with_glob()
-        .with_grep()
+        .with_patch_and_base_dir(None)
+        .with_edit_and_diagnostics_and_base_dir(None, None)
+        .with_multiedit_and_diagnostics_and_base_dir(None, None)
+        .with_glob_and_base_dir(None)
+        .with_grep_and_base_dir(None)
         .with_web_fetch()
         .with_jina_reader()?
         .with_web_search_with_resolver_and_defaults(
             secret_resolver.clone(),
             api_defaults.web_search_num_results,
         )?
-        .with_diagnostics_with_timeout(lsp_manager.clone(), api_defaults.diagnostics_timeout_ms)
-        .with_transcribe(secret_resolver.clone())?
+        .with_transcribe_config(
+            secret_resolver.clone(),
+            restflow_tools::TranscribeConfig::default(),
+        )?
         .with_vision(secret_resolver)?
         .with_session(session_store)
         .with_memory_management(memory_manager)
