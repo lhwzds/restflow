@@ -18,7 +18,7 @@ use anyhow::Result;
 use hnsw_rs::prelude::*;
 use parking_lot::RwLock;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Arc;
 
 type VectorIndex = Hnsw<'static, f32, DistCosine>;
@@ -231,35 +231,12 @@ impl VectorStorage {
             );
         }
 
-        let allowed_set: HashSet<&String> = allowed_ids.iter().collect();
-        let id_map = self.id_map.read();
-        let allowed_vector_ids: Vec<usize> = allowed_ids
-            .iter()
-            .filter_map(|chunk_id| id_map.get(chunk_id).copied())
-            .collect();
-
-        if allowed_vector_ids.is_empty() {
+        if allowed_ids.is_empty() {
             return Ok(Vec::new());
         }
 
-        let index = self.index.read();
-        let reverse = self.reverse_map.read();
-        // Search for more results than needed, then filter
-        let search_k = top_k * 10; // Over-fetch to account for filtering
-        let results = index.search(query, search_k, ef_search);
-
-        Ok(results
-            .into_iter()
-            .filter_map(|item| {
-                let chunk_id = reverse.get(&item.d_id)?;
-                if allowed_set.contains(chunk_id) {
-                    Some((chunk_id.clone(), item.distance))
-                } else {
-                    None
-                }
-            })
-            .take(top_k)
-            .collect())
+        let _ = ef_search;
+        self.search_filtered_exact(query, top_k, allowed_ids)
     }
 
     /// Check if a chunk has a vector.
@@ -320,6 +297,35 @@ impl VectorStorage {
         Ok(())
     }
 
+    fn search_filtered_exact(
+        &self,
+        query: &[f32],
+        top_k: usize,
+        allowed_ids: &[String],
+    ) -> Result<Vec<(String, f32)>> {
+        let read_txn = self.db.begin_read()?;
+        let table = read_txn.open_table(VECTOR_TABLE)?;
+        let mut matches = Vec::new();
+
+        for chunk_id in allowed_ids {
+            let Some(value) = table.get(chunk_id.as_str())? else {
+                continue;
+            };
+            let (vector, _): (Vec<f32>, usize) =
+                bincode::serde::decode_from_slice(value.value(), bincode::config::standard())?;
+            let distance = cosine_distance(query, &vector);
+            matches.push((chunk_id.clone(), distance));
+        }
+
+        matches.sort_by(|left, right| {
+            left.1
+                .total_cmp(&right.1)
+                .then_with(|| left.0.cmp(&right.0))
+        });
+        matches.truncate(top_k);
+        Ok(matches)
+    }
+
     fn rebuild_index(&self) -> Result<()> {
         let read_txn = self.db.begin_read()?;
         let table = read_txn.open_table(VECTOR_TABLE)?;
@@ -363,6 +369,30 @@ impl VectorStorage {
         tracing::info!("Rebuilt vector index with {} vectors", id_map.len());
         Ok(())
     }
+}
+
+fn cosine_distance(query: &[f32], vector: &[f32]) -> f32 {
+    debug_assert_eq!(query.len(), vector.len());
+
+    let (dot, query_norm, vector_norm) = query.iter().zip(vector.iter()).fold(
+        (0.0_f64, 0.0_f64, 0.0_f64),
+        |(dot, query_norm, vector_norm), (&query_value, &vector_value)| {
+            let query_value = query_value as f64;
+            let vector_value = vector_value as f64;
+            (
+                dot + query_value * vector_value,
+                query_norm + query_value * query_value,
+                vector_norm + vector_value * vector_value,
+            )
+        },
+    );
+
+    if query_norm == 0.0 || vector_norm == 0.0 {
+        return 0.0;
+    }
+
+    let cosine_similarity = dot / (query_norm * vector_norm).sqrt();
+    (1.0 - cosine_similarity).max(0.0) as f32
 }
 
 #[cfg(test)]
@@ -514,6 +544,27 @@ mod tests {
         let after_delete_ids: Vec<_> = results.iter().map(|(id, _)| id.as_str()).collect();
         assert!(after_delete_ids.contains(&"chunk-1"));
         assert!(!after_delete_ids.contains(&"chunk-2"));
+    }
+
+    #[test]
+    fn test_filtered_search_returns_active_match_after_orphan_delete() {
+        let storage = create_test_storage(3);
+
+        storage.add("deleted-chunk", &[0.3, 0.1, 0.2]).unwrap();
+        storage.add("retained-chunk", &[0.8, 0.1, 0.1]).unwrap();
+        storage.delete("deleted-chunk").unwrap();
+
+        let results = storage
+            .search_filtered(
+                &[0.3, 0.1, 0.2],
+                10,
+                100,
+                &[String::from("deleted-chunk"), String::from("retained-chunk")],
+            )
+            .unwrap();
+
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "retained-chunk");
     }
 
     #[test]
