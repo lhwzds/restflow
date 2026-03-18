@@ -1383,14 +1383,16 @@ fn global_config_path() -> Option<ResolvedOverridePath> {
         })
 }
 
-fn workspace_config_path() -> Option<ResolvedOverridePath> {
+fn workspace_config_path_for_workspace(
+    workspace_root: Option<&Path>,
+) -> Option<ResolvedOverridePath> {
     if let Some(path) = env_override_path(WORKSPACE_CONFIG_ENV) {
         return Some(ResolvedOverridePath {
             path,
             from_env: true,
         });
     }
-    env::current_dir().ok().map(|dir| ResolvedOverridePath {
+    workspace_root.map(|dir| ResolvedOverridePath {
         path: dir.join(CONFIG_SUBDIR).join(CONFIG_FILE_NAME),
         from_env: false,
     })
@@ -1480,9 +1482,11 @@ fn fingerprint_override_path(
         .transpose()
 }
 
-fn resolve_config_layer_snapshot() -> Result<ConfigLayerSnapshot> {
+fn resolve_config_layer_snapshot_for_workspace(
+    workspace_root: Option<&Path>,
+) -> Result<ConfigLayerSnapshot> {
     let global_path = global_config_path();
-    let workspace_path = workspace_config_path();
+    let workspace_path = workspace_config_path_for_workspace(workspace_root);
 
     let cache_key = ConfigLayerCacheKey {
         global: fingerprint_override_path(global_path.as_ref())?,
@@ -1527,8 +1531,8 @@ fn load_config_layers_uncached(snapshot: &ConfigLayerSnapshot) -> Result<ConfigL
     })
 }
 
-fn load_config_layers() -> Result<ConfigLayerState> {
-    let snapshot = resolve_config_layer_snapshot()?;
+fn load_config_layers_for_workspace(workspace_root: Option<&Path>) -> Result<ConfigLayerState> {
+    let snapshot = resolve_config_layer_snapshot_for_workspace(workspace_root)?;
 
     {
         let cache = config_layer_cache()
@@ -1550,6 +1554,10 @@ fn load_config_layers() -> Result<ConfigLayerState> {
         layers: layers.clone(),
     });
     Ok(layers)
+}
+
+fn load_config_layers() -> Result<ConfigLayerState> {
+    load_config_layers_for_workspace(None)
 }
 
 fn write_global_config_file(config: &UnifiedConfigFile) -> Result<()> {
@@ -1653,7 +1661,13 @@ pub fn write_cli_config(config: &CliConfig) -> Result<()> {
 
 /// Resolve the current effective config source paths and whether they exist.
 pub fn effective_config_sources() -> Result<EffectiveConfigSources> {
-    let layers = load_config_layers()?;
+    effective_config_sources_for_workspace(None)
+}
+
+pub fn effective_config_sources_for_workspace(
+    workspace_root: Option<&Path>,
+) -> Result<EffectiveConfigSources> {
+    let layers = load_config_layers_for_workspace(workspace_root)?;
     Ok(EffectiveConfigSources {
         global: path_info(layers.global_path.clone()),
         workspace: path_info(layers.workspace_path.clone()),
@@ -1684,6 +1698,15 @@ impl ConfigStorage {
     /// Get the effective configuration by applying config.toml overrides.
     pub fn get_effective_config(&self) -> Result<SystemConfig> {
         Ok(load_config_layers()?.effective.system_config())
+    }
+
+    pub fn get_effective_config_for_workspace(
+        &self,
+        workspace_root: Option<&Path>,
+    ) -> Result<SystemConfig> {
+        Ok(load_config_layers_for_workspace(workspace_root)?
+            .effective
+            .system_config())
     }
 
     /// Update the global config.toml system configuration while preserving the CLI section.
@@ -1725,6 +1748,10 @@ mod tests {
         original: Option<std::ffi::OsString>,
     }
 
+    struct CurrentDirGuard {
+        original: PathBuf,
+    }
+
     impl EnvGuard {
         fn set_path(key: &'static str, path: &Path) -> Self {
             let original = env::var_os(key);
@@ -1747,6 +1774,20 @@ mod tests {
                     env::remove_var(self.key);
                 }
             }
+        }
+    }
+
+    impl CurrentDirGuard {
+        fn set(path: &Path) -> Self {
+            let original = env::current_dir().unwrap();
+            env::set_current_dir(path).unwrap();
+            Self { original }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            let _ = env::set_current_dir(&self.original);
         }
     }
 
@@ -2494,5 +2535,39 @@ background_trace_line_limit = 444
         let effective = ctx.storage.get_effective_config().unwrap();
         assert_eq!(effective.api_defaults.memory_search_limit, 33);
         assert_eq!(effective.api_defaults.background_trace_line_limit, 444);
+    }
+
+    #[test]
+    fn test_effective_config_does_not_infer_workspace_from_current_dir() {
+        let ctx = setup_test_storage();
+        let workspace = tempdir().unwrap();
+        fs::create_dir_all(workspace.path().join(CONFIG_SUBDIR)).unwrap();
+        fs::write(
+            workspace.path().join(CONFIG_SUBDIR).join(CONFIG_FILE_NAME),
+            "[system]\nworker_count = 9\n",
+        )
+        .unwrap();
+
+        let _cwd_guard = CurrentDirGuard::set(workspace.path());
+        let effective = ctx.storage.get_effective_config().unwrap();
+        assert_eq!(effective.worker_count, DEFAULT_WORKER_COUNT);
+    }
+
+    #[test]
+    fn test_effective_config_for_workspace_uses_explicit_workspace_root() {
+        let ctx = setup_test_storage();
+        let workspace = tempdir().unwrap();
+        fs::create_dir_all(workspace.path().join(CONFIG_SUBDIR)).unwrap();
+        fs::write(
+            workspace.path().join(CONFIG_SUBDIR).join(CONFIG_FILE_NAME),
+            "[system]\nworker_count = 9\n",
+        )
+        .unwrap();
+
+        let effective = ctx
+            .storage
+            .get_effective_config_for_workspace(Some(workspace.path()))
+            .unwrap();
+        assert_eq!(effective.worker_count, 9);
     }
 }
