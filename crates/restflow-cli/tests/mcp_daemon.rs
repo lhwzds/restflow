@@ -40,6 +40,7 @@ impl Drop for DaemonChild {
 }
 
 fn spawn_daemon(db_path: &str, state_dir: &str, port: u16) -> Result<DaemonChild> {
+    let web_dist_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/dist");
     let child = Command::new(assert_cmd::cargo::cargo_bin!("restflow"))
         .args([
             "--db-path",
@@ -51,6 +52,7 @@ fn spawn_daemon(db_path: &str, state_dir: &str, port: u16) -> Result<DaemonChild
             &port.to_string(),
         ])
         .env("RESTFLOW_DIR", state_dir)
+        .env("RESTFLOW_WEB_DIST_DIR", web_dist_dir)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()

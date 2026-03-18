@@ -37,9 +37,8 @@ pub struct SkillRegistryConfig {
 
 impl Default for SkillRegistryConfig {
     fn default() -> Self {
-        let data_dir = dirs::data_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join("restflow");
+        let data_dir = restflow_storage::paths::resolve_restflow_dir()
+            .unwrap_or_else(|_| std::env::temp_dir().join("restflow"));
 
         Self {
             skills_dir: data_dir.join("skills"),
