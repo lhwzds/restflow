@@ -18,11 +18,37 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         initial_state: Option<restflow_ai::AgentState>,
     ) -> Result<ExecutionResult> {
+        let background_task_snapshot = if let Some(task_id) = background_task_id {
+            match self.storage.background_agents.get_task(task_id) {
+                Ok(task) => task,
+                Err(error) => {
+                    warn!(
+                        task_id,
+                        error = %error,
+                        "Failed to load background task for execution context"
+                    );
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let workspace_root = background_task_snapshot
+            .as_ref()
+            .and_then(|task| match &task.execution_mode {
+                crate::models::ExecutionMode::Cli(config) => config.working_dir.as_deref(),
+                crate::models::ExecutionMode::Api => None,
+            })
+            .and_then(|path| {
+                let path = std::path::PathBuf::from(path);
+                path.is_absolute().then_some(path)
+            });
+
         // Load agent execution defaults from system config (runtime-configurable).
         let agent_defaults = self
             .storage
             .config
-            .get_effective_config()
+            .get_effective_config_for_workspace(workspace_root.as_deref())
             .ok()
             .map(|c| c.agent)
             .unwrap_or_default();
@@ -30,6 +56,9 @@ impl AgentRuntimeExecutor {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
         let bash_config = BashConfig {
+            working_dir: workspace_root
+                .as_ref()
+                .map(|path| path.to_string_lossy().into_owned()),
             timeout_secs: agent_defaults.bash_timeout_secs,
             ..BashConfig::default()
         };
@@ -42,6 +71,7 @@ impl AgentRuntimeExecutor {
             agent_id,
             Some(bash_config),
             reply_sender,
+            workspace_root.as_deref(),
         )?;
         let system_prompt =
             self.build_background_system_prompt(agent_node, agent_id, background_task_id, input)?;
@@ -60,21 +90,6 @@ impl AgentRuntimeExecutor {
             resource_limits.max_output_bytes,
             context_window,
         );
-        let background_task_snapshot = if let Some(task_id) = background_task_id {
-            match self.storage.background_agents.get_task(task_id) {
-                Ok(task) => task,
-                Err(error) => {
-                    warn!(
-                        task_id,
-                        error = %error,
-                        "Failed to load background task for execution context"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
         let execution_context = background_task_id.map(|task_id| {
             let chat_session_id = background_task_snapshot
                 .as_ref()
@@ -186,6 +201,9 @@ impl AgentRuntimeExecutor {
 
         let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
+        if let Some(workspace_root) = workspace_root {
+            agent = agent.with_workspace_root(workspace_root);
+        }
         if let Some(rx) = steer_rx {
             agent = agent.with_steer_channel(rx);
         }

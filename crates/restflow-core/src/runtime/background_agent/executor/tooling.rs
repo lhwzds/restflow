@@ -114,6 +114,7 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         bash_config: Option<BashConfig>,
         reply_sender: Option<Arc<dyn ReplySender>>,
+        workspace_root: Option<&std::path::Path>,
     ) -> anyhow::Result<Arc<ToolRegistry>> {
         let has_reply_sender = reply_sender.is_some();
         let filtered_tool_names = self.filter_requested_tool_names(tool_names, has_reply_sender);
@@ -126,6 +127,7 @@ impl AgentRuntimeExecutor {
             Some(self.storage.as_ref()),
             agent_id,
             bash_config.clone(),
+            workspace_root,
         )?);
         let subagent_deps =
             self.build_subagent_deps(llm_client, subagent_tool_registry, Some(factory.clone()));
@@ -138,6 +140,7 @@ impl AgentRuntimeExecutor {
             Some(self.storage.as_ref()),
             agent_id,
             bash_config,
+            workspace_root,
         )?;
 
         let requested = |name: &str| {

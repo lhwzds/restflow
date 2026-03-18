@@ -15,6 +15,13 @@ fn test_file_tool_with_base_dir() {
 }
 
 #[test]
+fn test_file_tool_can_require_base_dir() {
+    let tool = FileTool::new().require_base_dir();
+    let error = tool.resolve_path("relative.txt").unwrap_err();
+    assert!(error.contains("workspace root or base directory"));
+}
+
+#[test]
 fn test_file_tool_with_max_read() {
     let tool = FileTool::new().with_max_read(50_000);
     assert_eq!(tool.max_read_bytes, 50_000);

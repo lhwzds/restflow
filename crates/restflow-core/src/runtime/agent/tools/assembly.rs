@@ -38,16 +38,11 @@ pub(crate) fn register_bash_execution_tool(
 
 pub(crate) fn register_file_execution_tool(
     mut builder: ToolRegistryBuilder,
-    allow_write: bool,
+    config: FileConfig,
     security_gate: Option<Arc<dyn SecurityGate>>,
     agent_id: &str,
     task_id: &str,
 ) -> ToolRegistryBuilder {
-    let config = FileConfig {
-        allow_write,
-        ..Default::default()
-    };
-
     if let Some(gate) = security_gate {
         let tool = config
             .into_file_tool_with_tracker(builder.tracker())

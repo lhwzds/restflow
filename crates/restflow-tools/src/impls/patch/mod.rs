@@ -19,6 +19,7 @@ use parser::{PatchOperation, parse_patch};
 #[derive(Debug, Clone)]
 pub struct PatchTool {
     base_dir: Option<PathBuf>,
+    require_base_dir: bool,
     tracker: Arc<FileTracker>,
 }
 
@@ -26,6 +27,7 @@ impl PatchTool {
     pub fn new(tracker: Arc<FileTracker>) -> Self {
         Self {
             base_dir: None,
+            require_base_dir: false,
             tracker,
         }
     }
@@ -35,8 +37,17 @@ impl PatchTool {
         self
     }
 
+    pub fn require_base_dir(mut self) -> Self {
+        self.require_base_dir = true;
+        self
+    }
+
     fn resolve_path(&self, path: &str) -> std::result::Result<PathBuf, String> {
-        crate::impls::path_utils::resolve_path(path, self.base_dir.as_deref())
+        crate::impls::path_utils::resolve_path_with_policy(
+            path,
+            self.base_dir.as_deref(),
+            self.require_base_dir,
+        )
     }
 }
 

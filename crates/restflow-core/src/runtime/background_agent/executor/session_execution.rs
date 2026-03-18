@@ -191,7 +191,7 @@ impl AgentRuntimeExecutor {
         let agent_defaults = self
             .storage
             .config
-            .get_effective_config()
+            .get_effective_config_for_workspace(None)
             .ok()
             .map(|c| c.agent)
             .unwrap_or_default();
@@ -208,6 +208,7 @@ impl AgentRuntimeExecutor {
             agent_id,
             Some(bash_config),
             reply_sender,
+            None,
         )?;
         let system_prompt = build_agent_system_prompt(self.storage.clone(), agent_node, agent_id)?;
 

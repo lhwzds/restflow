@@ -25,7 +25,7 @@ pub struct TranscribeConfig {
 
 impl Default for TranscribeConfig {
     fn default() -> Self {
-        let mut allowed = vec![std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))];
+        let mut allowed = Vec::new();
         if let Ok(restflow_dir) = restflow_storage::paths::ensure_restflow_dir() {
             allowed.push(restflow_dir.join("media"));
         }
@@ -44,6 +44,15 @@ impl Default for TranscribeConfig {
                 "oga".to_string(),
             ],
         }
+    }
+}
+
+impl TranscribeConfig {
+    pub fn for_workspace_root(workspace_root: impl Into<PathBuf>) -> Self {
+        let workspace_root = workspace_root.into();
+        let mut config = Self::default();
+        config.allowed_paths.insert(0, workspace_root);
+        config
     }
 }
 
@@ -88,6 +97,12 @@ impl TranscribeTool {
     }
 
     fn validate_path(&self, file_path: &str) -> Result<()> {
+        if self.config.allowed_paths.is_empty() {
+            return Err(crate::ToolError::Tool(
+                "This tool requires an explicit workspace root or allowed path.".to_string(),
+            ));
+        }
+
         let path = Path::new(file_path);
 
         if !is_path_allowed(path, &self.config.allowed_paths) {
@@ -299,6 +314,26 @@ mod tests {
             err.to_string().contains("extension") || err.to_string().contains("not allowed"),
             "Error: {}",
             err
+        );
+    }
+
+    #[test]
+    fn test_validate_path_requires_allowed_root() {
+        let resolver: SecretResolver = Arc::new(|_| None);
+        let config = TranscribeConfig {
+            allowed_paths: vec![],
+            max_file_size: 25 * 1024 * 1024,
+            allowed_extensions: vec!["mp3".to_string()],
+        };
+        let tool = TranscribeTool::with_config(resolver, config).unwrap();
+
+        let result = tool.validate_path("/tmp/test.mp3");
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("workspace root or allowed path")
         );
     }
 }

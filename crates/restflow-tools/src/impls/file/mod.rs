@@ -92,6 +92,8 @@ const DEFAULT_BATCH_CONTEXT_LINES: usize = 2;
 pub struct FileTool {
     /// Base directory for file operations (security boundary)
     base_dir: Option<PathBuf>,
+    /// Whether file operations require an explicit base directory.
+    require_base_dir: bool,
     /// Maximum file size to read in bytes
     max_read_bytes: usize,
     /// Track file reads/writes for external modification detection
@@ -123,6 +125,7 @@ impl FileTool {
     pub fn with_tracker(tracker: Arc<FileTracker>) -> Self {
         Self {
             base_dir: None,
+            require_base_dir: false,
             max_read_bytes: DEFAULT_MAX_READ_BYTES,
             tracker,
             diagnostics: None,
@@ -137,6 +140,11 @@ impl FileTool {
     /// All paths will be resolved relative to this directory
     pub fn with_base_dir(mut self, base: impl Into<PathBuf>) -> Self {
         self.base_dir = Some(base.into());
+        self
+    }
+
+    pub fn require_base_dir(mut self) -> Self {
+        self.require_base_dir = true;
         self
     }
 
@@ -171,7 +179,11 @@ impl FileTool {
 
     /// Resolve and validate a path against the base directory
     fn resolve_path(&self, path: &str) -> std::result::Result<PathBuf, String> {
-        super::path_utils::resolve_path(path, self.base_dir.as_deref())
+        super::path_utils::resolve_path_with_policy(
+            path,
+            self.base_dir.as_deref(),
+            self.require_base_dir,
+        )
     }
 
     /// Read file with line numbers
