@@ -35,7 +35,10 @@ use tool_exec::ToolInvocationContext;
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use std::{fs, path::Path};
+use std::{
+    fs,
+    path::{Path, PathBuf},
+};
 
 use serde_json::Value;
 
@@ -132,6 +135,7 @@ fn truncate_tool_output(
 pub struct AgentExecutor {
     pub(crate) llm: Arc<dyn LlmClient>,
     pub(crate) tools: Arc<ToolRegistry>,
+    pub(crate) workspace_root: Option<PathBuf>,
     pub(crate) context_cache: Option<WorkspaceContextCache>,
     pub(crate) steer_rx: Option<Mutex<mpsc::Receiver<SteerMessage>>>,
     /// Optional sub-agent tracker for completion notification injection.
@@ -146,19 +150,27 @@ pub struct AgentExecutor {
 impl AgentExecutor {
     /// Create a new agent executor
     pub fn new(llm: Arc<dyn LlmClient>, tools: Arc<ToolRegistry>) -> Self {
-        let context_cache = std::env::current_dir()
-            .ok()
-            .map(|workdir| WorkspaceContextCache::new(ContextDiscoveryConfig::default(), workdir));
-
         Self {
             llm,
             tools,
-            context_cache,
+            workspace_root: None,
+            context_cache: None,
             steer_rx: None,
             subagent_tracker: None,
             active_tool_calls: Arc::new(DashMap::new()),
             steer_buffer: Mutex::new(Vec::new()),
         }
+    }
+
+    /// Attach an explicit workspace root for workspace instruction discovery.
+    pub fn with_workspace_root(mut self, workspace_root: impl Into<PathBuf>) -> Self {
+        let workspace_root = workspace_root.into();
+        self.context_cache = Some(WorkspaceContextCache::new(
+            ContextDiscoveryConfig::default(),
+            workspace_root.clone(),
+        ));
+        self.workspace_root = Some(workspace_root);
+        self
     }
 
     /// Attach a steer channel for live instruction updates.
@@ -187,10 +199,7 @@ impl AgentExecutor {
             "Loaded workspace instructions for user-role injection"
         );
 
-        let directory = std::env::current_dir()
-            .ok()
-            .map(|path| path.to_string_lossy().into_owned())
-            .unwrap_or_else(|| ".".to_string());
+        let directory = self.workspace_root.as_ref()?.to_string_lossy().into_owned();
 
         Some(format!(
             "{USER_INSTRUCTIONS_PREFIX}{directory}\n\n<INSTRUCTIONS>\n{instructions}\n</INSTRUCTIONS>"
