@@ -13,6 +13,16 @@ use std::path::PathBuf;
 use tracing::warn;
 use tracing::{debug, info};
 
+fn credential_home_dir() -> PathBuf {
+    dirs::home_dir()
+        .or_else(|| {
+            restflow_storage::paths::resolve_restflow_dir()
+                .ok()
+                .and_then(|dir| dir.parent().map(|path| path.to_path_buf()))
+        })
+        .unwrap_or_else(|| PathBuf::from("/"))
+}
+
 /// Discovered profile details (plaintext credentials before storage).
 #[derive(Debug, Clone)]
 pub struct DiscoveredProfile {
@@ -98,7 +108,7 @@ pub struct ClaudeCodeDiscoverer {
 impl ClaudeCodeDiscoverer {
     /// Create a new Claude Code discoverer with default path
     pub fn new() -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let home = credential_home_dir();
         Self {
             credentials_path: home.join(".claude").join(".credentials.json"),
         }
@@ -129,7 +139,7 @@ pub struct CodexCliDiscoverer {
 impl CodexCliDiscoverer {
     /// Create a new Codex CLI discoverer with default path
     pub fn new() -> Self {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
+        let home = credential_home_dir();
         Self {
             credentials_path: home.join(".codex").join("auth.json"),
         }

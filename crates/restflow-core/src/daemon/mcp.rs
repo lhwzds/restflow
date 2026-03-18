@@ -981,10 +981,9 @@ fn resolve_web_dist_dir() -> Option<PathBuf> {
         return from_env;
     }
 
-    let candidates = [
-        std::env::current_dir().ok().map(|dir| dir.join("web/dist")),
-        Some(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/dist")),
-    ];
+    let candidates = [Some(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/dist"),
+    )];
 
     candidates
         .into_iter()
@@ -1098,8 +1097,9 @@ fn is_expected_connection_close(error: &str) -> bool {
 mod tests {
     use super::{
         ERROR_CONTENT_TYPE, NDJSON_CONTENT_TYPE, RECOVERY_HEADER, RECOVERY_REINITIALIZE,
-        build_http_router, build_mcp_server_factory, build_streamable_http_server_config,
-        is_expected_connection_close, normalize_mcp_error_response,
+        WEB_DIST_ENV, build_http_router, build_mcp_server_factory,
+        build_streamable_http_server_config, is_expected_connection_close,
+        normalize_mcp_error_response, resolve_web_dist_dir,
     };
     use crate::AppCore;
     use crate::daemon::session_events::ChatSessionEvent;
@@ -1113,11 +1113,68 @@ mod tests {
     use http::Response;
     use http_body_util::{BodyExt, Full};
     use serde_json::Value;
+    use std::env;
+    use std::path::{Path, PathBuf};
     use std::sync::Arc;
+    use std::sync::{Mutex, MutexGuard, OnceLock};
     use tempfile::tempdir;
     use tokio::time::Duration;
     use tokio_util::sync::CancellationToken;
     use tower::ServiceExt;
+
+    fn env_lock() -> MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set_path(key: &'static str, path: &Path) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::set_var(key, path);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                unsafe {
+                    env::set_var(self.key, value);
+                }
+            } else {
+                unsafe {
+                    env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    struct CurrentDirGuard {
+        original: PathBuf,
+    }
+
+    impl CurrentDirGuard {
+        fn set(path: &Path) -> Self {
+            let original = env::current_dir().expect("current dir");
+            env::set_current_dir(path).expect("set current dir");
+            Self { original }
+        }
+    }
+
+    impl Drop for CurrentDirGuard {
+        fn drop(&mut self) {
+            let _ = env::set_current_dir(&self.original);
+        }
+    }
 
     async fn test_core() -> Arc<AppCore> {
         let temp = tempdir().expect("tempdir");
@@ -1355,5 +1412,30 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(body, Bytes::from_static(b"<html>spa</html>"));
+    }
+
+    #[test]
+    fn resolve_web_dist_dir_ignores_current_dir_without_env_override() {
+        let _lock = env_lock();
+        let temp = tempdir().expect("tempdir");
+        let cwd = temp.path().join("cwd");
+        let dist = cwd.join("web/dist");
+        std::fs::create_dir_all(&dist).unwrap();
+        std::fs::write(dist.join("index.html"), "<html>cwd</html>").unwrap();
+        let _cwd_guard = CurrentDirGuard::set(&cwd);
+
+        let resolved = resolve_web_dist_dir();
+        assert_ne!(resolved, Some(dist));
+    }
+
+    #[test]
+    fn resolve_web_dist_dir_prefers_env_override() {
+        let _lock = env_lock();
+        let temp = tempdir().expect("tempdir");
+        std::fs::write(temp.path().join("index.html"), "<html>env</html>").unwrap();
+        let _env_guard = EnvGuard::set_path(WEB_DIST_ENV, temp.path());
+
+        let resolved = resolve_web_dist_dir();
+        assert_eq!(resolved, Some(temp.path().to_path_buf()));
     }
 }
