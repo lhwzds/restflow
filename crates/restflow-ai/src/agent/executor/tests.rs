@@ -12,9 +12,11 @@ use crate::tools::ToolResult;
 use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use tokio::sync::Mutex as AsyncMutex;
+use tokio::sync::{Mutex as AsyncMutex, MutexGuard as AsyncMutexGuard};
 use tokio::time::sleep;
 
 /// Mock LLM client for testing
@@ -24,6 +26,29 @@ struct MockLlmClient {
     supports_streaming: bool,
     /// Captured requests for verification
     captured_requests: Mutex<Vec<Vec<Message>>>,
+}
+
+async fn cwd_lock() -> AsyncMutexGuard<'static, ()> {
+    static LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
+    LOCK.get_or_init(|| AsyncMutex::new(())).lock().await
+}
+
+struct CurrentDirGuard {
+    original: PathBuf,
+}
+
+impl CurrentDirGuard {
+    fn set(path: &Path) -> Self {
+        let original = std::env::current_dir().expect("current dir");
+        std::env::set_current_dir(path).expect("set current dir");
+        Self { original }
+    }
+}
+
+impl Drop for CurrentDirGuard {
+    fn drop(&mut self) {
+        let _ = std::env::set_current_dir(&self.original);
+    }
 }
 
 impl MockLlmClient {
@@ -692,6 +717,7 @@ async fn test_executor_injects_workspace_instructions_as_user_message() {
         },
         temp.path().to_path_buf(),
     ));
+    executor.workspace_root = Some(temp.path().to_path_buf());
 
     let config = AgentConfig::new("primary user goal");
     let result = executor.run(config).await.unwrap();
@@ -724,6 +750,25 @@ async fn test_executor_injects_workspace_instructions_as_user_message() {
         .find(|message| message.role == Role::User)
         .expect("missing user goal message");
     assert!(goal.content.contains("primary user goal"));
+}
+
+#[tokio::test]
+async fn test_executor_does_not_discover_workspace_from_current_dir() {
+    let _lock = cwd_lock().await;
+    let llm = Arc::new(MockLlmClient::new(Vec::new()));
+    let tools = Arc::new(ToolRegistry::new());
+    let executor = AgentExecutor::new(llm.clone(), tools);
+
+    let temp = tempfile::tempdir().expect("tempdir");
+    std::fs::write(
+        temp.path().join("AGENTS.md"),
+        "Implicit workspace instruction.",
+    )
+    .unwrap();
+    let _guard = CurrentDirGuard::set(temp.path());
+
+    let workspace_message = executor.build_workspace_instruction_user_message().await;
+    assert!(workspace_message.is_none());
 }
 
 #[tokio::test]
