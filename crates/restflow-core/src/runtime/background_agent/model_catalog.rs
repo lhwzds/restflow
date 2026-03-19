@@ -308,6 +308,8 @@ fn models_dev_provider_candidates(provider: Provider) -> &'static [&'static str]
     match provider {
         Provider::OpenAI => &["openai"],
         Provider::Anthropic => &["anthropic"],
+        Provider::ClaudeCode => &["claude-code", "anthropic"],
+        Provider::Codex => &["codex", "openai-codex", "openai"],
         Provider::DeepSeek => &["deepseek"],
         Provider::Google => &["google"],
         Provider::Groq => &["groq"],

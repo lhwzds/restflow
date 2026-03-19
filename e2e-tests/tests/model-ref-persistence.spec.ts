@@ -25,35 +25,31 @@ test.describe('ModelRef Persistence', () => {
       }
     }
 
-    let summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-    if (summaries.length === 0) {
-      await page.getByRole('button', { name: 'New Session' }).click()
-      summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-    }
+    await page.getByRole('button', { name: 'New Session' }).click()
+    const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
 
     if (summaries.length === 0) {
       throw new Error('No chat session summaries available for model_ref persistence test')
     }
 
-    const targetSession =
-      summaries.find((session) => session.model === 'gpt-5') ??
-      summaries.find((session) => session.model === 'gpt-5-mini') ??
-      summaries[0]
+    const targetSession = summaries[0]
     if (!targetSession) {
       throw new Error('No target session available for model_ref persistence test')
     }
 
     const allModels = await requestIpc<ModelMetadata[]>(page, { type: 'GetAvailableModels' })
-    const currentMetadata = allModels.find((model) => model.model === targetSession.model)
-    const currentProvider = currentMetadata?.provider ?? null
-    const sameProviderAlternative = allModels.find(
-      (model) => model.provider === currentProvider && model.model !== targetSession.model,
-    )
-    const crossProviderAlternative = allModels.find(
-      (model) =>
-        model.model !== targetSession.model || (currentProvider !== null && model.provider !== currentProvider),
-    )
-    const targetModel = sameProviderAlternative ?? crossProviderAlternative
+    const preferredModelIds = [
+      'claude-code-sonnet',
+      'minimax-coding-plan-m2-5',
+      'zai-coding-plan-glm-5-turbo',
+      'gpt-5.3-codex',
+      'gpt-5-mini',
+    ]
+    const targetModel =
+      preferredModelIds
+        .map((modelId) => allModels.find((model) => model.model === modelId))
+        .find((model) => model && model.model !== targetSession.model) ??
+      allModels.find((model) => model.model !== targetSession.model)
 
     test.skip(!targetModel, 'No alternative model available in this daemon environment')
     if (!targetModel) {
@@ -77,9 +73,14 @@ test.describe('ModelRef Persistence', () => {
     await expect(modelSelector).toBeVisible()
     await modelSelector.click()
 
-    const modelOption = page.getByRole('option', { name: setup.targetModelName })
+    const modelListbox = page.getByRole('listbox').last()
+    const modelOption = modelListbox.getByRole('option', {
+      name: setup.targetModelName,
+      exact: true,
+    })
     await expect(modelOption).toBeVisible()
     await modelOption.click()
+    await expect(modelSelector).toContainText(setup.targetModelName)
 
     await expect
       .poll(async () => {

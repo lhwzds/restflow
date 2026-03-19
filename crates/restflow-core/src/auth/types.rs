@@ -372,8 +372,10 @@ impl AuthProvider {
     /// Return compatible auth providers for a model provider, ordered by preference.
     pub fn compatible_with(provider: Provider) -> Vec<AuthProvider> {
         match provider {
-            Provider::Anthropic => vec![AuthProvider::ClaudeCode, AuthProvider::Anthropic],
-            Provider::OpenAI => vec![AuthProvider::OpenAICodex, AuthProvider::OpenAI],
+            Provider::Anthropic => vec![AuthProvider::Anthropic],
+            Provider::ClaudeCode => vec![AuthProvider::ClaudeCode],
+            Provider::OpenAI => vec![AuthProvider::OpenAI],
+            Provider::Codex => vec![AuthProvider::OpenAICodex],
             Provider::Google => vec![AuthProvider::Google],
             Provider::MiniMax
             | Provider::MiniMaxCodingPlan
@@ -587,11 +589,19 @@ mod tests {
     fn test_compatible_with_provider() {
         assert_eq!(
             AuthProvider::compatible_with(Provider::OpenAI),
-            vec![AuthProvider::OpenAICodex, AuthProvider::OpenAI]
+            vec![AuthProvider::OpenAI]
         );
         assert_eq!(
             AuthProvider::compatible_with(Provider::Anthropic),
-            vec![AuthProvider::ClaudeCode, AuthProvider::Anthropic]
+            vec![AuthProvider::Anthropic]
+        );
+        assert_eq!(
+            AuthProvider::compatible_with(Provider::ClaudeCode),
+            vec![AuthProvider::ClaudeCode]
+        );
+        assert_eq!(
+            AuthProvider::compatible_with(Provider::Codex),
+            vec![AuthProvider::OpenAICodex]
         );
     }
 

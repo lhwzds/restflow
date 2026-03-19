@@ -2,6 +2,7 @@ import { useModelsStore } from '@/stores/modelsStore'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { Provider } from '@/types/generated/Provider'
 import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
+import { getProviderDisplayName } from '@/utils/providerCatalog'
 
 // Model option interface for UI components
 export interface ModelOption {
@@ -23,9 +24,9 @@ function getMetadata(model: AIModel): ModelMetadataDTO | undefined {
 /**
  * Get provider for a model
  */
-export function getProvider(model: AIModel): Provider {
+export function getProvider(model: AIModel): Provider | undefined {
   const metadata = getMetadata(model)
-  return metadata?.provider || 'openai'
+  return metadata?.provider
 }
 
 /**
@@ -95,3 +96,5 @@ export function getProviderTagType(provider: Provider): 'success' | 'warning' | 
       return 'info'
   }
 }
+
+export { getProviderDisplayName }

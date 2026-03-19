@@ -27,6 +27,7 @@ import { useToast } from '@/composables/useToast'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { Provider } from '@/types/generated/Provider'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
+import { getProviderDisplayName } from '@/utils/providerCatalog'
 
 const props = defineProps<{ open: boolean }>()
 
@@ -152,7 +153,7 @@ async function submit() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem v-for="p in providers" :key="p" :value="p">
-                {{ p }}
+                {{ getProviderDisplayName(p) }}
               </SelectItem>
             </SelectContent>
           </Select>

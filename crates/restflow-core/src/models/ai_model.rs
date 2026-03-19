@@ -1,32 +1,80 @@
 use restflow_ai::llm::{LlmProvider, ModelSpec};
 use restflow_traits::ModelProvider;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
 use crate::models::ValidationError;
 
 /// AI model provider
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, TS, Type)]
 #[ts(export)]
-#[serde(rename_all = "lowercase")]
 pub enum Provider {
+    #[serde(rename = "openai")]
+    #[ts(rename = "openai")]
     OpenAI,
+    #[serde(rename = "anthropic")]
+    #[ts(rename = "anthropic")]
     Anthropic,
+    #[serde(rename = "claude-code")]
+    #[ts(rename = "claude-code")]
+    ClaudeCode,
+    #[serde(rename = "codex")]
+    #[ts(rename = "codex")]
+    Codex,
+    #[serde(rename = "deepseek")]
+    #[ts(rename = "deepseek")]
     DeepSeek,
+    #[serde(rename = "google")]
+    #[ts(rename = "google")]
     Google,
+    #[serde(rename = "groq")]
+    #[ts(rename = "groq")]
     Groq,
+    #[serde(rename = "openrouter")]
+    #[ts(rename = "openrouter")]
     OpenRouter,
+    #[serde(rename = "xai")]
+    #[ts(rename = "xai")]
     XAI,
+    #[serde(rename = "qwen")]
+    #[ts(rename = "qwen")]
     Qwen,
+    #[serde(rename = "zai")]
+    #[ts(rename = "zai")]
     Zai,
+    #[serde(rename = "zai-coding-plan")]
+    #[ts(rename = "zai-coding-plan")]
     ZaiCodingPlan,
+    #[serde(rename = "moonshot")]
+    #[ts(rename = "moonshot")]
     Moonshot,
+    #[serde(rename = "doubao")]
+    #[ts(rename = "doubao")]
     Doubao,
+    #[serde(rename = "yi")]
+    #[ts(rename = "yi")]
     Yi,
+    #[serde(rename = "siliconflow")]
+    #[ts(rename = "siliconflow")]
     SiliconFlow,
+    #[serde(rename = "minimax")]
+    #[ts(rename = "minimax")]
     MiniMax,
+    #[serde(rename = "minimax-coding-plan")]
+    #[ts(rename = "minimax-coding-plan")]
     MiniMaxCodingPlan,
+}
+
+impl<'de> Deserialize<'de> for Provider {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::from_canonical_str(&raw)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown provider: {raw}")))
+    }
 }
 
 impl Provider {
@@ -34,6 +82,8 @@ impl Provider {
         &[
             Self::OpenAI,
             Self::Anthropic,
+            Self::ClaudeCode,
+            Self::Codex,
             Self::DeepSeek,
             Self::Google,
             Self::Groq,
@@ -51,24 +101,26 @@ impl Provider {
         ]
     }
 
-    pub fn api_key_env(&self) -> &'static str {
+    pub fn api_key_env(&self) -> Option<&'static str> {
         match self {
-            Self::OpenAI => "OPENAI_API_KEY",
-            Self::Anthropic => "ANTHROPIC_API_KEY",
-            Self::DeepSeek => "DEEPSEEK_API_KEY",
-            Self::Google => "GEMINI_API_KEY",
-            Self::Groq => "GROQ_API_KEY",
-            Self::OpenRouter => "OPENROUTER_API_KEY",
-            Self::XAI => "XAI_API_KEY",
-            Self::Qwen => "DASHSCOPE_API_KEY",
-            Self::Zai => "ZAI_API_KEY",
-            Self::ZaiCodingPlan => "ZAI_CODING_PLAN_API_KEY",
-            Self::Moonshot => "MOONSHOT_API_KEY",
-            Self::Doubao => "ARK_API_KEY",
-            Self::Yi => "YI_API_KEY",
-            Self::SiliconFlow => "SILICONFLOW_API_KEY",
-            Self::MiniMax => "MINIMAX_API_KEY",
-            Self::MiniMaxCodingPlan => "MINIMAX_CODING_PLAN_API_KEY",
+            Self::OpenAI => Some("OPENAI_API_KEY"),
+            Self::Anthropic => Some("ANTHROPIC_API_KEY"),
+            Self::ClaudeCode => None,
+            Self::Codex => None,
+            Self::DeepSeek => Some("DEEPSEEK_API_KEY"),
+            Self::Google => Some("GEMINI_API_KEY"),
+            Self::Groq => Some("GROQ_API_KEY"),
+            Self::OpenRouter => Some("OPENROUTER_API_KEY"),
+            Self::XAI => Some("XAI_API_KEY"),
+            Self::Qwen => Some("DASHSCOPE_API_KEY"),
+            Self::Zai => Some("ZAI_API_KEY"),
+            Self::ZaiCodingPlan => Some("ZAI_CODING_PLAN_API_KEY"),
+            Self::Moonshot => Some("MOONSHOT_API_KEY"),
+            Self::Doubao => Some("ARK_API_KEY"),
+            Self::Yi => Some("YI_API_KEY"),
+            Self::SiliconFlow => Some("SILICONFLOW_API_KEY"),
+            Self::MiniMax => Some("MINIMAX_API_KEY"),
+            Self::MiniMaxCodingPlan => Some("MINIMAX_CODING_PLAN_API_KEY"),
         }
     }
 
@@ -77,6 +129,8 @@ impl Provider {
         match self {
             Self::OpenAI => LlmProvider::OpenAI,
             Self::Anthropic => LlmProvider::Anthropic,
+            Self::ClaudeCode => LlmProvider::Anthropic,
+            Self::Codex => LlmProvider::OpenAI,
             Self::DeepSeek => LlmProvider::DeepSeek,
             Self::Google => LlmProvider::Google,
             Self::Groq => LlmProvider::Groq,
@@ -99,6 +153,8 @@ impl Provider {
         match self {
             Self::OpenAI => ModelProvider::OpenAI,
             Self::Anthropic => ModelProvider::Anthropic,
+            Self::ClaudeCode => ModelProvider::ClaudeCode,
+            Self::Codex => ModelProvider::Codex,
             Self::DeepSeek => ModelProvider::DeepSeek,
             Self::Google => ModelProvider::Google,
             Self::Groq => ModelProvider::Groq,
@@ -121,6 +177,8 @@ impl Provider {
         match provider {
             ModelProvider::OpenAI => Self::OpenAI,
             ModelProvider::Anthropic => Self::Anthropic,
+            ModelProvider::ClaudeCode => Self::ClaudeCode,
+            ModelProvider::Codex => Self::Codex,
             ModelProvider::DeepSeek => Self::DeepSeek,
             ModelProvider::Google => Self::Google,
             ModelProvider::Groq => Self::Groq,
@@ -155,6 +213,8 @@ impl Provider {
         match self {
             Self::OpenAI => AIModel::Gpt5,
             Self::Anthropic => AIModel::ClaudeSonnet4_5,
+            Self::ClaudeCode => AIModel::ClaudeCodeOpus,
+            Self::Codex => AIModel::CodexCli,
             Self::DeepSeek => AIModel::DeepseekChat,
             Self::Google => AIModel::Gemini3Pro,
             Self::Groq => AIModel::GroqLlama4Maverick,
@@ -210,13 +270,14 @@ impl ModelRef {
 
     /// Validate that provider and model provider metadata are consistent.
     pub fn validate(&self) -> Result<(), ValidationError> {
-        let expected_provider = self.model.provider();
-        if self.provider != expected_provider {
+        let normalized = self.normalized();
+        let expected_provider = normalized.model.provider();
+        if normalized.provider != expected_provider {
             return Err(ValidationError::new(
                 "model_ref",
                 format!(
                     "provider '{}' does not match model provider '{}'",
-                    self.provider.as_canonical_str(),
+                    normalized.provider.as_canonical_str(),
                     expected_provider.as_canonical_str()
                 ),
             ));
@@ -226,11 +287,20 @@ impl ModelRef {
 
     /// Return canonical ID in `provider:model` format.
     pub fn canonical_id(&self) -> String {
+        let normalized = self.normalized();
         format!(
             "{}:{}",
-            self.provider.as_canonical_str(),
-            self.model.as_serialized_str()
+            normalized.provider.as_canonical_str(),
+            normalized.model.as_serialized_str()
         )
+    }
+
+    /// Normalize legacy provider/model combinations into canonical provider identities.
+    pub fn normalized(&self) -> Self {
+        Self {
+            provider: AIModel::normalize_provider_for_model(self.model, self.provider),
+            model: self.model,
+        }
     }
 }
 
@@ -484,17 +554,17 @@ impl AIModel {
 
             // Claude Code CLI aliases
             Self::ClaudeCodeOpus => ModelMetadata {
-                provider: Provider::Anthropic,
+                provider: Provider::ClaudeCode,
                 supports_temperature: true,
                 name: "Claude Code Opus",
             },
             Self::ClaudeCodeSonnet => ModelMetadata {
-                provider: Provider::Anthropic,
+                provider: Provider::ClaudeCode,
                 supports_temperature: true,
                 name: "Claude Code Sonnet",
             },
             Self::ClaudeCodeHaiku => ModelMetadata {
-                provider: Provider::Anthropic,
+                provider: Provider::ClaudeCode,
                 supports_temperature: true,
                 name: "Claude Code Haiku",
             },
@@ -725,22 +795,22 @@ impl AIModel {
 
             // Codex CLI
             Self::Gpt5Codex => ModelMetadata {
-                provider: Provider::OpenAI,
+                provider: Provider::Codex,
                 supports_temperature: false,
                 name: "Codex GPT-5",
             },
             Self::Gpt5_1Codex => ModelMetadata {
-                provider: Provider::OpenAI,
+                provider: Provider::Codex,
                 supports_temperature: false,
                 name: "Codex GPT-5.1",
             },
             Self::Gpt5_2Codex => ModelMetadata {
-                provider: Provider::OpenAI,
+                provider: Provider::Codex,
                 supports_temperature: false,
                 name: "Codex GPT-5.2",
             },
             Self::CodexCli => ModelMetadata {
-                provider: Provider::OpenAI,
+                provider: Provider::Codex,
                 supports_temperature: false,
                 name: "Codex GPT-5.3",
             },
@@ -764,6 +834,22 @@ impl AIModel {
     /// Get the provider for this model
     pub fn provider(&self) -> Provider {
         self.metadata().provider
+    }
+
+    /// Normalize a provider against model-specific canonical ownership.
+    pub fn normalize_provider_for_model(model: AIModel, provider: Provider) -> Provider {
+        if model.is_claude_code() && provider == Provider::Anthropic {
+            Provider::ClaudeCode
+        } else if model.is_codex_cli() && provider == Provider::OpenAI {
+            Provider::Codex
+        } else {
+            provider
+        }
+    }
+
+    /// Check whether the provider matches the model, allowing legacy stored provider values.
+    pub fn provider_matches(&self, provider: Provider) -> bool {
+        Self::normalize_provider_for_model(*self, provider) == self.provider()
     }
 
     /// Get the canonical model identity in "provider:model" format.
@@ -792,7 +878,7 @@ impl AIModel {
         {
             // Search for matching model (case-insensitive comparison)
             for model in Self::all() {
-                if model.provider() == provider {
+                if model.provider_matches(provider) {
                     let serialized = model.as_serialized_str().to_lowercase();
                     if serialized == model_str || model.as_str() == model_str {
                         return Some(*model);
@@ -1029,9 +1115,22 @@ impl AIModel {
                 "glm-4-7" => Some(Self::Glm4_7CodingPlan),
                 _ => None,
             },
+            Provider::ClaudeCode => match canonical {
+                "claude-code-opus" | "opus" => Some(Self::ClaudeCodeOpus),
+                "claude-code-sonnet" | "sonnet" => Some(Self::ClaudeCodeSonnet),
+                "claude-code-haiku" | "haiku" => Some(Self::ClaudeCodeHaiku),
+                _ => None,
+            },
+            Provider::Codex => match canonical {
+                "gpt-5-codex" => Some(Self::Gpt5Codex),
+                "gpt-5.1-codex" => Some(Self::Gpt5_1Codex),
+                "gpt-5.2-codex" => Some(Self::Gpt5_2Codex),
+                "gpt-5.3-codex" => Some(Self::CodexCli),
+                _ => None,
+            },
             _ => {
                 let parsed = Self::from_api_name(canonical)?;
-                if parsed.provider() == provider {
+                if parsed.provider_matches(provider) {
                     Some(parsed)
                 } else {
                     None
@@ -1362,6 +1461,7 @@ mod tests {
     fn test_provider() {
         assert_eq!(AIModel::Gpt5.provider(), Provider::OpenAI);
         assert_eq!(AIModel::ClaudeSonnet4_5.provider(), Provider::Anthropic);
+        assert_eq!(AIModel::ClaudeCodeSonnet.provider(), Provider::ClaudeCode);
         assert_eq!(AIModel::DeepseekChat.provider(), Provider::DeepSeek);
         assert_eq!(AIModel::Gemini25Pro.provider(), Provider::Google);
         assert_eq!(AIModel::GroqLlama4Scout.provider(), Provider::Groq);
@@ -1383,6 +1483,7 @@ mod tests {
             AIModel::MiniMaxM25CodingPlan.provider(),
             Provider::MiniMaxCodingPlan
         );
+        assert_eq!(AIModel::CodexCli.provider(), Provider::Codex);
     }
 
     #[test]
@@ -1579,6 +1680,11 @@ mod tests {
             Provider::Anthropic.as_llm_provider(),
             LlmProvider::Anthropic
         );
+        assert_eq!(
+            Provider::ClaudeCode.as_llm_provider(),
+            LlmProvider::Anthropic
+        );
+        assert_eq!(Provider::Codex.as_llm_provider(), LlmProvider::OpenAI);
         assert_eq!(Provider::Google.as_llm_provider(), LlmProvider::Google);
     }
 
@@ -1639,19 +1745,21 @@ mod tests {
 
     #[test]
     fn test_provider_api_key_env() {
-        assert_eq!(Provider::Google.api_key_env(), "GEMINI_API_KEY");
-        assert_eq!(Provider::Groq.api_key_env(), "GROQ_API_KEY");
-        assert_eq!(Provider::Qwen.api_key_env(), "DASHSCOPE_API_KEY");
-        assert_eq!(Provider::MiniMax.api_key_env(), "MINIMAX_API_KEY");
+        assert_eq!(Provider::Google.api_key_env(), Some("GEMINI_API_KEY"));
+        assert_eq!(Provider::Groq.api_key_env(), Some("GROQ_API_KEY"));
+        assert_eq!(Provider::Qwen.api_key_env(), Some("DASHSCOPE_API_KEY"));
+        assert_eq!(Provider::MiniMax.api_key_env(), Some("MINIMAX_API_KEY"));
         assert_eq!(
             Provider::MiniMaxCodingPlan.api_key_env(),
-            "MINIMAX_CODING_PLAN_API_KEY"
+            Some("MINIMAX_CODING_PLAN_API_KEY")
         );
-        assert_eq!(Provider::Zai.api_key_env(), "ZAI_API_KEY");
+        assert_eq!(Provider::Zai.api_key_env(), Some("ZAI_API_KEY"));
         assert_eq!(
             Provider::ZaiCodingPlan.api_key_env(),
-            "ZAI_CODING_PLAN_API_KEY"
+            Some("ZAI_CODING_PLAN_API_KEY")
         );
+        assert_eq!(Provider::ClaudeCode.api_key_env(), None);
+        assert_eq!(Provider::Codex.api_key_env(), None);
     }
 
     #[test]
@@ -1758,7 +1866,11 @@ mod tests {
         );
         assert_eq!(AIModel::Gemini3Pro.canonical_id(), "google:gemini-3-pro");
         assert_eq!(AIModel::OrGpt5.canonical_id(), "openrouter:or-gpt-5");
-        assert_eq!(AIModel::CodexCli.canonical_id(), "openai:gpt-5.3-codex");
+        assert_eq!(AIModel::CodexCli.canonical_id(), "codex:gpt-5.3-codex");
+        assert_eq!(
+            AIModel::ClaudeCodeSonnet.canonical_id(),
+            "claude-code:claude-code-sonnet"
+        );
     }
 
     #[test]
@@ -1775,6 +1887,22 @@ mod tests {
         assert_eq!(
             AIModel::from_canonical_id("deepseek:deepseek-chat"),
             Some(AIModel::DeepseekChat)
+        );
+        assert_eq!(
+            AIModel::from_canonical_id("claude-code:claude-code-sonnet"),
+            Some(AIModel::ClaudeCodeSonnet)
+        );
+        assert_eq!(
+            AIModel::from_canonical_id("codex:gpt-5.3-codex"),
+            Some(AIModel::CodexCli)
+        );
+        assert_eq!(
+            AIModel::from_canonical_id("anthropic:claude-code-sonnet"),
+            Some(AIModel::ClaudeCodeSonnet)
+        );
+        assert_eq!(
+            AIModel::from_canonical_id("openai:gpt-5.3-codex"),
+            Some(AIModel::CodexCli)
         );
 
         // Test legacy model-only strings (fallback)
@@ -1828,6 +1956,35 @@ mod tests {
     }
 
     #[test]
+    fn test_model_ref_validate_accepts_legacy_cli_provider_pairs() {
+        let claude_code_ref = ModelRef {
+            provider: Provider::Anthropic,
+            model: AIModel::ClaudeCodeSonnet,
+        };
+        assert!(claude_code_ref.validate().is_ok());
+        assert_eq!(
+            claude_code_ref.normalized(),
+            ModelRef {
+                provider: Provider::ClaudeCode,
+                model: AIModel::ClaudeCodeSonnet,
+            }
+        );
+
+        let codex_ref = ModelRef {
+            provider: Provider::OpenAI,
+            model: AIModel::CodexCli,
+        };
+        assert!(codex_ref.validate().is_ok());
+        assert_eq!(
+            codex_ref.normalized(),
+            ModelRef {
+                provider: Provider::Codex,
+                model: AIModel::CodexCli,
+            }
+        );
+    }
+
+    #[test]
     fn test_provider_canonical_str() {
         // Test provider canonical strings
         assert_eq!(Provider::OpenAI.as_canonical_str(), "openai");
@@ -1835,6 +1992,8 @@ mod tests {
         assert_eq!(Provider::DeepSeek.as_canonical_str(), "deepseek");
         assert_eq!(Provider::Google.as_canonical_str(), "google");
         assert_eq!(Provider::OpenRouter.as_canonical_str(), "openrouter");
+        assert_eq!(Provider::ClaudeCode.as_canonical_str(), "claude-code");
+        assert_eq!(Provider::Codex.as_canonical_str(), "codex");
         assert_eq!(
             Provider::ZaiCodingPlan.as_canonical_str(),
             "zai-coding-plan"
@@ -1856,6 +2015,15 @@ mod tests {
         assert_eq!(
             Provider::from_canonical_str("anthropic"),
             Some(Provider::Anthropic)
+        );
+        assert_eq!(
+            Provider::from_canonical_str("claude-code"),
+            Some(Provider::ClaudeCode)
+        );
+        assert_eq!(Provider::from_canonical_str("codex"), Some(Provider::Codex));
+        assert_eq!(
+            Provider::from_canonical_str("openai-codex"),
+            Some(Provider::Codex)
         );
         assert_eq!(
             Provider::from_canonical_str("deepseek"),
@@ -1915,6 +2083,8 @@ mod tests {
             Provider::MiniMaxCodingPlan.flagship_model(),
             AIModel::MiniMaxM25CodingPlan
         );
+        assert_eq!(Provider::ClaudeCode.flagship_model(), AIModel::ClaudeCodeOpus);
+        assert_eq!(Provider::Codex.flagship_model(), AIModel::CodexCli);
         assert_eq!(
             Provider::OpenRouter.flagship_model(),
             AIModel::OrClaudeOpus4_6

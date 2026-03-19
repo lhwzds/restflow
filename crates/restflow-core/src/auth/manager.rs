@@ -1223,8 +1223,9 @@ mod tests {
         let (secrets, _dir) = create_test_secrets();
         let manager = AuthProfileManager::new(secrets.clone());
 
-        let profile_high = create_test_profile(&secrets, "A", AuthProvider::Anthropic);
-        let mut profile_low = create_test_profile(&secrets, "B", AuthProvider::ClaudeCode);
+        let mut profile_high = create_test_profile(&secrets, "A", AuthProvider::Anthropic);
+        profile_high.priority = 10;
+        let mut profile_low = create_test_profile(&secrets, "B", AuthProvider::Anthropic);
         profile_low.priority = -1;
         profile_low.last_used_at = Some(chrono::Utc::now());
 
@@ -1237,6 +1238,22 @@ mod tests {
         assert_eq!(profiles.len(), 2);
         assert_eq!(profiles[0].id, id_low);
         assert_eq!(profiles[1].id, id_high);
+    }
+
+    #[tokio::test]
+    async fn test_manager_get_compatible_profiles_for_cli_model_provider() {
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+
+        let mut profile = create_test_profile(&secrets, "Claude Code", AuthProvider::ClaudeCode);
+        profile.priority = 5;
+        let id = manager.add_profile(profile).await.unwrap();
+
+        let profiles = manager
+            .get_compatible_profiles_for_model_provider(Provider::ClaudeCode)
+            .await;
+        assert_eq!(profiles.len(), 1);
+        assert_eq!(profiles[0].id, id);
     }
 
     #[tokio::test]

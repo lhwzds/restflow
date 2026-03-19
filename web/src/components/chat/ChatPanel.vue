@@ -66,6 +66,7 @@ const availableModels = computed<ModelOption[]>(() =>
   modelsStore.getAllModels.map((model) => ({
     id: model.model,
     name: model.name,
+    provider: model.provider,
   })),
 )
 const chatBoxKey = computed(() => {

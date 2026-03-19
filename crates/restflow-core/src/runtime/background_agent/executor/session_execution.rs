@@ -1,5 +1,9 @@
 use super::*;
 
+fn should_force_non_stream(model: AIModel) -> bool {
+    model.is_cli_model()
+}
+
 impl AgentRuntimeExecutor {
     fn resolve_stored_agent_for_session(
         &self,
@@ -261,7 +265,7 @@ impl AgentRuntimeExecutor {
             agent = agent.with_steer_channel(rx);
         }
         let history_messages = Self::session_history_messages(session, max_history, input_mode);
-        let force_non_stream = model.is_codex_cli();
+        let force_non_stream = should_force_non_stream(model);
         let result = if history_messages.is_empty() {
             if force_non_stream {
                 if let Some(mut emitter) = emitter {
@@ -683,5 +687,19 @@ impl AgentRuntimeExecutor {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_force_non_stream_for_all_cli_models() {
+        assert!(should_force_non_stream(AIModel::ClaudeCodeSonnet));
+        assert!(should_force_non_stream(AIModel::CodexCli));
+        assert!(should_force_non_stream(AIModel::GeminiCli));
+        assert!(should_force_non_stream(AIModel::OpenCodeCli));
+        assert!(!should_force_non_stream(AIModel::Gpt5));
     }
 }

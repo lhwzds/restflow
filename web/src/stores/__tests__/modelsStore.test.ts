@@ -15,6 +15,30 @@ describe('modelsStore getters', () => {
     const store = useModelsStore()
     store.$patch({
       models: [
+        {
+          model: 'gpt-5.3-codex',
+          provider: 'codex',
+          supports_temperature: false,
+          name: 'Codex GPT-5.3',
+        },
+        {
+          model: 'claude-code-sonnet',
+          provider: 'claude-code',
+          supports_temperature: true,
+          name: 'Claude Code Sonnet',
+        },
+        {
+          model: 'minimax-coding-plan-m2-5',
+          provider: 'minimax-coding-plan',
+          supports_temperature: false,
+          name: 'MiniMax M2.5 Coding Plan',
+        },
+        {
+          model: 'glm-5-turbo',
+          provider: 'zai-coding-plan',
+          supports_temperature: true,
+          name: 'GLM-5 Turbo Coding Plan',
+        },
         { model: 'gpt-5', provider: 'openai', supports_temperature: false, name: 'GPT-5' },
         {
           model: 'claude-sonnet-4-5',
@@ -26,7 +50,14 @@ describe('modelsStore getters', () => {
       ],
     })
 
-    expect(store.getProviders).toEqual(['anthropic', 'openai'])
+    expect(store.getProviders).toEqual([
+      'openai',
+      'minimax-coding-plan',
+      'zai-coding-plan',
+      'claude-code',
+      'codex',
+      'anthropic',
+    ])
   })
 
   it('returns first model for provider and membership checks', () => {

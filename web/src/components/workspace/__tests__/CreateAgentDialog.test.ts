@@ -127,4 +127,30 @@ describe('CreateAgentDialog', () => {
     ])
     expect(wrapper.emitted('update:open')).toEqual([[false]])
   })
+
+  it('renders provider display labels instead of raw provider ids', async () => {
+    const wrapper = mount(CreateAgentDialog, {
+      props: { open: true },
+      global: {
+        stubs: {
+          Dialog: { template: '<div><slot /></div>' },
+          DialogContent: { template: '<div><slot /></div>' },
+          DialogHeader: { template: '<div><slot /></div>' },
+          DialogTitle: { template: '<div><slot /></div>' },
+          DialogFooter: { template: '<div><slot /></div>' },
+          Button: { template: '<button><slot /></button>' },
+          Input: { template: '<input />' },
+          Label: { template: '<label><slot /></label>' },
+          Select: { template: '<div><slot /></div>' },
+          SelectTrigger: { template: '<div><slot /></div>' },
+          SelectValue: { template: '<div><slot /></div>' },
+          SelectContent: { template: '<div><slot /></div>' },
+          SelectItem: { template: '<div><slot /></div>' },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('OpenAI API')
+    expect(wrapper.text()).not.toContain('>openai<')
+  })
 })

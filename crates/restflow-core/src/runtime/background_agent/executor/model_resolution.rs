@@ -34,7 +34,12 @@ impl AgentRuntimeExecutor {
         }
 
         // Fall back to well-known secret names for each provider
-        let secret_name = provider.api_key_env();
+        let Some(secret_name) = provider.api_key_env() else {
+            return Err(anyhow!(
+                "No API key fallback is defined for provider {:?}. Please configure a compatible auth profile.",
+                provider
+            ));
+        };
 
         if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
             return Ok(secret_value);
@@ -66,6 +71,8 @@ impl AgentRuntimeExecutor {
         match provider {
             Provider::OpenAI => AIModel::Gpt5,
             Provider::Anthropic => AIModel::ClaudeOpus4_6,
+            Provider::ClaudeCode => AIModel::ClaudeCodeOpus,
+            Provider::Codex => AIModel::CodexCli,
             Provider::DeepSeek => AIModel::DeepseekChat,
             Provider::Google => AIModel::Gemini25Pro,
             Provider::Groq => AIModel::GroqLlama4Maverick,
@@ -166,7 +173,10 @@ impl AgentRuntimeExecutor {
         ];
 
         for provider in SECRET_PROVIDER_ORDER {
-            if self.has_non_empty_secret(provider.api_key_env())? {
+            let Some(secret_name) = provider.api_key_env() else {
+                continue;
+            };
+            if self.has_non_empty_secret(secret_name)? {
                 return Ok(Some(Self::default_model_for_provider(provider)));
             }
         }
@@ -200,6 +210,9 @@ impl AgentRuntimeExecutor {
         let mut keys = HashMap::new();
 
         for provider in Provider::all() {
+            if provider.api_key_env().is_none() {
+                continue;
+            }
             if let Ok(key) = self
                 .resolve_api_key_for_model(*provider, agent_api_key_config, primary_provider)
                 .await

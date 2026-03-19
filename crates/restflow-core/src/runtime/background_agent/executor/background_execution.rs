@@ -1,6 +1,10 @@
 use super::*;
 use async_trait::async_trait;
 
+fn should_force_non_stream(model: AIModel) -> bool {
+    model.is_cli_model()
+}
+
 impl AgentRuntimeExecutor {
     #[allow(clippy::too_many_arguments)]
     async fn execute_agent_with_client(
@@ -208,7 +212,7 @@ impl AgentRuntimeExecutor {
             agent = agent.with_steer_channel(rx);
         }
 
-        let force_non_stream = model.is_codex_cli();
+        let force_non_stream = should_force_non_stream(model);
 
         let result = if let Some(state) = initial_state {
             if force_non_stream {
@@ -486,6 +490,20 @@ impl AgentRuntimeExecutor {
         Err(last_error.unwrap_or_else(|| {
             anyhow!("All profiles exhausted for provider {:?}", model.provider())
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_force_non_stream_for_all_cli_models() {
+        assert!(should_force_non_stream(AIModel::ClaudeCodeSonnet));
+        assert!(should_force_non_stream(AIModel::CodexCli));
+        assert!(should_force_non_stream(AIModel::GeminiCli));
+        assert!(should_force_non_stream(AIModel::OpenCodeCli));
+        assert!(!should_force_non_stream(AIModel::Gpt5));
     }
 }
 #[async_trait]
