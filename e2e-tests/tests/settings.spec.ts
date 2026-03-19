@@ -94,8 +94,8 @@ test.describe('Settings Panel', () => {
     await page.locator('nav button', { hasText: 'Marketplace' }).click()
 
     await expect(page.getByPlaceholder('Search skills by name, tag, or author')).toBeVisible()
-    await expect(page.getByText('Category')).toBeVisible()
-    await expect(page.getByText('Sort')).toBeVisible()
+    await expect(page.locator('label').filter({ hasText: /^Category$/ })).toBeVisible()
+    await expect(page.locator('label').filter({ hasText: /^Sort$/ })).toBeVisible()
   })
 
   test('memory section exposes session and export actions', async ({ page }) => {
