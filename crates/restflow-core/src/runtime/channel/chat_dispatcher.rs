@@ -17,13 +17,16 @@ use crate::models::{
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
-use crate::runtime::channel::{build_turn_persistence_payload, hydrate_voice_message_metadata};
+use crate::runtime::channel::{
+    build_turn_persistence_payload, detect_voice_message, hydrate_voice_message_metadata,
+    preprocess_voice_message,
+};
 use crate::runtime::orchestrator::{
     AgentOrchestratorImpl, InteractiveExecutionError, InteractiveSessionRequest,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::runtime::trace::append_message_trace;
-use crate::services::session::SessionService;
+use crate::services::session::{PersistInteractiveTurnRequest, SessionService};
 use crate::storage::Storage;
 use restflow_storage::AgentDefaults;
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
@@ -66,6 +69,8 @@ pub enum ChatError {
     ExecutionFailed(String),
     /// Session storage error.
     SessionError(String),
+    /// Voice preprocessing failed before agent execution.
+    VoicePreprocessFailed(String),
     /// API key not configured.
     NoApiKey { provider: String },
     /// Rate limited.
@@ -110,7 +115,7 @@ impl ChatError {
             Self::NoApiKey { .. } => "API key not configured. Please add your API key in settings.",
             Self::RateLimited => "Too many requests. Please wait a moment and try again.",
             Self::Timeout => "AI response timed out. Please try again or simplify your question.",
-            Self::ExecutionFailed(_) | Self::SessionError(_) => {
+            Self::ExecutionFailed(_) | Self::SessionError(_) | Self::VoicePreprocessFailed(_) => {
                 "An error occurred while processing your message. Please try again."
             }
         }
@@ -125,6 +130,12 @@ impl ChatError {
             Self::SessionError(detail) => {
                 format!("Session error: {}", summarize_error_detail(detail))
             }
+            Self::VoicePreprocessFailed(detail) => {
+                format!(
+                    "Voice transcription failed: {}",
+                    summarize_error_detail(detail)
+                )
+            }
             _ => self.user_message().to_string(),
         }
     }
@@ -136,6 +147,9 @@ impl std::fmt::Display for ChatError {
             Self::NoDefaultAgent => write!(f, "No default agent configured"),
             Self::ExecutionFailed(msg) => write!(f, "Execution failed: {}", msg),
             Self::SessionError(msg) => write!(f, "Session error: {}", msg),
+            Self::VoicePreprocessFailed(msg) => {
+                write!(f, "Voice preprocessing failed: {}", msg)
+            }
             Self::NoApiKey { provider } => write!(f, "No API key for provider: {}", provider),
             Self::RateLimited => write!(f, "Rate limited"),
             Self::Timeout => write!(f, "Response timeout"),
@@ -144,6 +158,18 @@ impl std::fmt::Display for ChatError {
 }
 
 impl std::error::Error for ChatError {}
+
+#[derive(Debug)]
+struct PreparedVoiceInput {
+    agent_input: String,
+    persisted_input: String,
+}
+
+#[derive(Debug)]
+struct VoicePreprocessFailure {
+    normalized_input: String,
+    error: ChatError,
+}
 
 /// Chat session manager for conversation persistence.
 pub struct ChatSessionManager {
@@ -428,6 +454,23 @@ impl ChatSessionManager {
         Ok(())
     }
 
+    pub fn append_user_message(&self, session_id: &str, user_message: &str) -> Result<ChatSession> {
+        self.session_service.append_user_message(
+            session_id,
+            ChatMessage::user(user_message),
+            "channel",
+        )
+    }
+
+    pub fn persist_interactive_turn(
+        &self,
+        session: &mut ChatSession,
+        request: PersistInteractiveTurnRequest<'_>,
+    ) -> Result<()> {
+        self.session_service
+            .persist_interactive_turn(session, request)
+    }
+
     /// Get message history for a session (for context).
     pub fn get_history(&self, session_id: &str) -> Result<Vec<ChatMessage>> {
         let session = self
@@ -599,35 +642,49 @@ impl ChatDispatcher {
         ChatError::ExecutionFailed(msg)
     }
 
-    /// Build the effective agent input from an inbound message.
+    /// Build the persisted user-facing content for an inbound message.
     ///
-    /// For voice messages, we attach a media context block so the main agent
-    /// can call the `transcribe` tool with a concrete local file path.
-    fn build_agent_input(message: &InboundMessage, file_path_override: Option<&str>) -> String {
-        Self::build_agent_input_from_content(message, &message.content, file_path_override)
-    }
-
-    fn build_agent_input_from_content(
+    /// Voice messages are normalized into a stable media-context block without
+    /// embedding agent-specific instructions.
+    fn build_effective_input(
         message: &InboundMessage,
         content: &str,
         file_path_override: Option<&str>,
     ) -> String {
-        let Some(metadata) = message.metadata.as_ref() else {
-            return content.to_string();
+        if let Some(descriptor) =
+            detect_voice_message(content, message.metadata.as_ref(), file_path_override)
+        {
+            return descriptor.persisted_content(None);
+        }
+
+        content.to_string()
+    }
+
+    async fn preprocess_voice_input(
+        &self,
+        message: &InboundMessage,
+        content: &str,
+        file_path_override: Option<&str>,
+    ) -> std::result::Result<Option<PreparedVoiceInput>, VoicePreprocessFailure> {
+        let Some(descriptor) =
+            detect_voice_message(content, message.metadata.as_ref(), file_path_override)
+        else {
+            return Ok(None);
         };
 
-        let media_type = metadata.get("media_type").and_then(|value| value.as_str());
-        let file_path = file_path_override
-            .or_else(|| metadata.get("file_path").and_then(|value| value.as_str()));
-
-        match (media_type, file_path) {
-            (Some("voice"), Some(path)) => format!(
-                "{content}\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {path}\ninstruction: Use the transcribe tool with this file_path before answering.",
-                content = content,
-                path = path
-            ),
-            _ => content.to_string(),
-        }
+        let normalized = descriptor.persisted_content(None);
+        preprocess_voice_message(&self.storage, &descriptor)
+            .await
+            .map(|result| {
+                Some(PreparedVoiceInput {
+                    agent_input: result.agent_input,
+                    persisted_input: result.persisted_input,
+                })
+            })
+            .map_err(|error| VoicePreprocessFailure {
+                normalized_input: normalized,
+                error: ChatError::VoicePreprocessFailed(error.to_string()),
+            })
     }
 
     /// Relocate a media file from `~/.restflow/media/` to `~/.restflow/media/{session_id}/`
@@ -675,8 +732,8 @@ impl ChatDispatcher {
 
     /// Dispatch a message to the AI agent.
     pub async fn dispatch(&self, message: &InboundMessage) -> Result<()> {
-        // 1. Build initial agent input (before session is known)
-        let initial_input = Self::build_agent_input(message, None);
+        // 1. Build initial persisted input (before session is known)
+        let initial_input = Self::build_effective_input(message, &message.content, None);
 
         // 2. Debounce messages
         let debounced = match self
@@ -718,10 +775,72 @@ impl ChatDispatcher {
         let relocated_path =
             Self::relocate_media_to_session(message.metadata.as_ref(), &session.id);
         let input = if relocated_path.is_some() {
-            // Preserve the debounced text while swapping in the relocated media path.
-            Self::build_agent_input_from_content(message, &debounced, relocated_path.as_deref())
+            Self::build_effective_input(message, &debounced, relocated_path.as_deref())
         } else {
             debounced
+        };
+
+        let voice_input = match self
+            .preprocess_voice_input(message, &input, relocated_path.as_deref())
+            .await
+        {
+            Ok(result) => result,
+            Err(VoicePreprocessFailure {
+                normalized_input,
+                error,
+            }) => {
+                if let Err(session_error) = self
+                    .sessions
+                    .append_user_message(&session.id, &normalized_input)
+                {
+                    warn!(
+                        session_id = %session.id,
+                        error = %session_error,
+                        "Failed to persist voice message after preprocessing error"
+                    );
+                }
+                self.send_error_response(message, error).await?;
+                return Ok(());
+            }
+        };
+        let persisted_input = voice_input
+            .as_ref()
+            .map(|voice| voice.persisted_input.clone())
+            .unwrap_or_else(|| input.clone());
+        let agent_input = voice_input
+            .as_ref()
+            .map(|voice| voice.agent_input.clone())
+            .unwrap_or_else(|| input.clone());
+        let input_mode = if voice_input.is_some() {
+            if let Err(error) = self
+                .sessions
+                .append_user_message(&session.id, &persisted_input)
+            {
+                self.send_error_response(message, ChatError::SessionError(error.to_string()))
+                    .await?;
+                return Ok(());
+            }
+            match self.storage.chat_sessions.get(&session.id) {
+                Ok(Some(updated)) => session = updated,
+                Ok(None) => {
+                    self.send_error_response(
+                        message,
+                        ChatError::SessionError(
+                            "Session not found after user message persistence".to_string(),
+                        ),
+                    )
+                    .await?;
+                    return Ok(());
+                }
+                Err(error) => {
+                    self.send_error_response(message, ChatError::SessionError(error.to_string()))
+                        .await?;
+                    return Ok(());
+                }
+            }
+            SessionInputMode::PersistedInSession
+        } else {
+            SessionInputMode::EphemeralInput
         };
 
         info!(
@@ -746,16 +865,16 @@ impl ChatDispatcher {
             message.channel_type,
         ));
         let executor = self.create_executor().with_reply_sender(reply_sender);
-        self.maybe_send_acknowledgement(&executor, &mut session, &input, message)
+        self.maybe_send_acknowledgement(&executor, &mut session, &agent_input, input_mode, message)
             .await;
         let run_id = uuid::Uuid::new_v4().to_string();
         let orchestrator = AgentOrchestratorImpl::from_runtime_executor(executor);
         let traced_execution = match orchestrator
             .run_traced_interactive_session_turn(InteractiveSessionRequest {
                 session: &mut session,
-                user_input: &input,
+                user_input: &agent_input,
                 max_history: self.config.max_session_history,
-                input_mode: SessionInputMode::EphemeralInput,
+                input_mode,
                 run_id,
                 tool_trace_storage: self.storage.tool_traces.clone(),
                 execution_trace_storage: self.storage.execution_traces.clone(),
@@ -808,22 +927,36 @@ impl ChatDispatcher {
             &verification,
         );
 
-        // 5. Save exchange to session (use `input` which includes [Media Context] for voice messages)
-        let (execution, persisted_input) = build_turn_persistence_payload(
+        let (execution, final_persisted_input) = build_turn_persistence_payload(
             &self.storage.tool_traces,
             &session.id,
             &trace.turn_id,
-            &input,
+            &persisted_input,
             duration_ms,
             exec_result.iterations,
         );
-        if let Err(e) = self.sessions.append_exchange(
-            &session.id,
-            &persisted_input,
-            &structured_output,
-            Some(&exec_result.active_model),
-            Some(execution),
-        ) {
+        let persist_result = if voice_input.is_some() {
+            self.sessions.persist_interactive_turn(
+                &mut session,
+                PersistInteractiveTurnRequest {
+                    original_input: &persisted_input,
+                    persisted_input: &final_persisted_input,
+                    assistant_output: &structured_output,
+                    active_model: Some(&exec_result.active_model),
+                    execution,
+                    source: "channel",
+                },
+            )
+        } else {
+            self.sessions.append_exchange(
+                &session.id,
+                &final_persisted_input,
+                &structured_output,
+                Some(&exec_result.active_model),
+                Some(execution),
+            )
+        };
+        if let Err(e) = persist_result {
             warn!("Failed to save exchange to session: {}", e);
         } else {
             append_message_trace(
@@ -831,7 +964,7 @@ impl ChatDispatcher {
                 &self.storage.execution_traces,
                 &trace,
                 "user",
-                &persisted_input,
+                &final_persisted_input,
             );
             append_message_trace(
                 &self.storage.tool_traces,
@@ -870,10 +1003,11 @@ impl ChatDispatcher {
         executor: &AgentRuntimeExecutor,
         session: &mut ChatSession,
         user_input: &str,
+        input_mode: SessionInputMode,
         message: &InboundMessage,
     ) {
         match executor
-            .generate_session_acknowledgement(session, user_input, SessionInputMode::EphemeralInput)
+            .generate_session_acknowledgement(session, user_input, input_mode)
             .await
         {
             Ok(Some(content)) => {
@@ -950,14 +1084,14 @@ mod tests {
     }
 
     #[test]
-    fn test_build_agent_input_plain_text_unchanged() {
+    fn test_build_effective_input_plain_text_unchanged() {
         let message = create_message("hello");
-        let input = ChatDispatcher::build_agent_input(&message, None);
+        let input = ChatDispatcher::build_effective_input(&message, &message.content, None);
         assert_eq!(input, "hello");
     }
 
     #[test]
-    fn test_build_agent_input_voice_includes_transcribe_hint() {
+    fn test_build_effective_input_voice_normalizes_media_context_without_instruction() {
         let media_dir = crate::paths::media_dir().unwrap();
         let voice_path = media_dir.join("tg-voice.ogg");
         let voice_path_str = voice_path.to_string_lossy().to_string();
@@ -967,42 +1101,50 @@ mod tests {
             "file_path": voice_path_str
         }));
 
-        let input = ChatDispatcher::build_agent_input(&message, None);
+        let input = ChatDispatcher::build_effective_input(&message, &message.content, None);
         assert!(input.contains("media_type: voice"));
         assert!(input.contains(&format!("local_file_path: {}", voice_path_str)));
-        assert!(input.contains("Use the transcribe tool with this file_path"));
+        assert!(!input.contains("Use the transcribe tool with this file_path"));
     }
 
     #[test]
-    fn test_build_agent_input_voice_without_file_path_keeps_original_content() {
+    fn test_build_effective_input_voice_without_file_path_keeps_original_content() {
         let message = create_message("[Voice message, 6s]").with_metadata(json!({
             "media_type": "voice"
         }));
 
-        let input = ChatDispatcher::build_agent_input(&message, None);
+        let input = ChatDispatcher::build_effective_input(&message, &message.content, None);
         assert_eq!(input, "[Voice message, 6s]");
     }
 
     #[test]
-    fn test_build_agent_input_from_content_preserves_debounced_text_with_voice_media() {
+    fn test_build_effective_input_rewrites_media_path_after_relocation() {
         let media_dir = crate::paths::media_dir().unwrap();
         let voice_path = media_dir.join("session-voice.ogg");
         let voice_path_str = voice_path.to_string_lossy().to_string();
+        let relocated_path = media_dir
+            .join("session-id")
+            .join("session-voice.ogg")
+            .to_string_lossy()
+            .to_string();
 
         let message = create_message("[Voice message, 6s]").with_metadata(json!({
             "media_type": "voice",
             "file_path": voice_path_str
         }));
 
-        let input = ChatDispatcher::build_agent_input_from_content(
+        let input = ChatDispatcher::build_effective_input(
             &message,
-            "first line\nsecond line",
-            None,
+            &format!(
+                "[Voice message, 6s]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: {}",
+                voice_path_str
+            ),
+            Some(&relocated_path),
         );
 
-        assert!(input.contains("first line\nsecond line"));
-        assert!(input.contains(&voice_path_str));
-        assert!(!input.contains("[Voice message, 6s]\n\n[Media Context]"));
+        assert!(input.contains("[Voice message, 6s]"));
+        assert!(input.contains(&relocated_path));
+        assert!(!input.contains("instruction:"));
     }
 
     #[test]

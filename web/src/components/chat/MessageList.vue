@@ -25,10 +25,7 @@ import { readMediaFile } from '@/api/voice'
 import { useToast } from '@/composables/useToast'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
-
-const VOICE_MSG_PATTERN =
-  /^\[Voice message[^\]]*\]\n\n\[Media Context\]\nmedia_type: voice\nlocal_file_path: (.+)\ninstruction:/
-const VOICE_TRANSCRIPT_PATTERN = /\n\n\[Transcript\]\n([\s\S]+)$/
+import { extractVoiceFilePath, extractVoiceTranscript } from './voiceMessageContent'
 
 const props = withDefaults(
   defineProps<{
@@ -104,15 +101,13 @@ function getVoiceFilePath(msg: ChatMessage): string | null {
     const structuredPath = msg.media.file_path?.trim()
     if (structuredPath) return structuredPath
   }
-  const match = msg.content.match(VOICE_MSG_PATTERN)
-  return match?.[1] ?? null
+  return extractVoiceFilePath(msg.content)
 }
 
 function getVoiceAudio(msg: ChatMessage): { blobUrl: string; duration: number } | null {
   const filePath = getVoiceFilePath(msg)
   if (!filePath) return null
-  const structuredDuration =
-    msg.media?.media_type === 'voice' ? (msg.media.duration_sec ?? 0) : 0
+  const structuredDuration = msg.media?.media_type === 'voice' ? (msg.media.duration_sec ?? 0) : 0
   // Check in-memory cache first (fresh recordings from this session)
   const cached = props.voiceAudioUrls?.get(filePath)
   if (cached) return { ...cached, duration: cached.duration || structuredDuration }
@@ -132,9 +127,7 @@ function getVoiceTranscript(msg: ChatMessage): string | null {
   if (!filePath) return null
   const structuredTranscript = msg.transcript?.text?.trim()
   if (structuredTranscript) return structuredTranscript
-  const match = msg.content.match(VOICE_TRANSCRIPT_PATTERN)
-  const transcript = match?.[1]?.trim()
-  return transcript ? transcript : null
+  return extractVoiceTranscript(msg.content)
 }
 
 async function loadMediaFromDisk(filePath: string) {

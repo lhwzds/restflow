@@ -20,12 +20,17 @@ import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
-import { sendChatMessage as sendChatMessageApi, subscribeSessionEvents, type UnlistenFn } from '@/api/chat-session'
+import {
+  sendChatMessage as sendChatMessageApi,
+  subscribeSessionEvents,
+  type UnlistenFn,
+} from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import { buildVoiceMessageContent } from './voiceMessageContent'
 
 const emit = defineEmits<{
   showPanel: [resultJson: string]
@@ -402,7 +407,7 @@ function getSessionId(): string | undefined {
 }
 
 async function onSendVoiceMessage(info: VoiceMessageInfo) {
-  const message = `[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: ${info.filePath}\ninstruction: Use the transcribe tool with this file_path before answering.`
+  const message = buildVoiceMessageContent(info.filePath)
 
   // Cache the blob URL for audio playback in the UI
   voiceAudioUrls.value.set(info.filePath, {

@@ -15,8 +15,8 @@ use crate::models::{
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
 use crate::runtime::channel::{
-    build_turn_persistence_payload, hydrate_voice_message_metadata,
-    replace_latest_user_message_content,
+    build_turn_persistence_payload, detect_voice_message, hydrate_voice_message_metadata,
+    preprocess_voice_message, replace_latest_user_message_content,
 };
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
 use crate::runtime::subagent::StorageBackedSubagentLookup;

@@ -91,6 +91,70 @@ describe('MessageList', () => {
     expect(wrapper.text()).toContain('hello voice transcript')
   })
 
+  it('renders voice bubble for new raw voice content format without instruction', () => {
+    const filePath = '/tmp/voice-new.webm'
+    const voiceAudioUrls = new Map([[filePath, { blobUrl: 'blob:new', duration: 5 }]])
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-voice-new',
+            role: 'user',
+            content:
+              '[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice-new.webm\n\n[Transcript]\nnew transcript',
+            timestamp: 1n,
+            execution: null,
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+        voiceAudioUrls,
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.find('[data-testid="voice-bubble"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('new transcript')
+  })
+
+  it('renders voice bubble for legacy raw voice content format with instruction', () => {
+    const filePath = '/tmp/voice-legacy.webm'
+    const voiceAudioUrls = new Map([[filePath, { blobUrl: 'blob:legacy', duration: 6 }]])
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-voice-legacy',
+            role: 'user',
+            content:
+              '[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice-legacy.webm\ninstruction: Use the transcribe tool with this file_path before answering.\n\n[Transcript]\nlegacy transcript',
+            timestamp: 1n,
+            execution: null,
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+        voiceAudioUrls,
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.find('[data-testid="voice-bubble"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('legacy transcript')
+  })
+
   it('renders persisted execution steps for assistant messages', () => {
     const wrapper = mount(MessageList, {
       props: {
@@ -259,8 +323,7 @@ describe('MessageList', () => {
     expect(viewButton).toBeTruthy()
 
     await viewButton!.trigger('click')
-    const emittedView =
-      wrapper.emitted('viewToolResult') ?? wrapper.emitted('view-tool-result')
+    const emittedView = wrapper.emitted('viewToolResult') ?? wrapper.emitted('view-tool-result')
     expect(emittedView).toBeTruthy()
     expect(emittedView?.[0]?.[0]).toEqual(step)
   })

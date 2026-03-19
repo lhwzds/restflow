@@ -7,6 +7,8 @@ pub(super) enum ExecuteChatSessionError {
     SessionNotFound,
     #[error("No user message found in session")]
     MissingUserMessage,
+    #[error("Voice transcription failed: {0}")]
+    VoicePreprocessFailed(String),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -16,6 +18,7 @@ impl ExecuteChatSessionError {
         match self {
             Self::SessionNotFound => 404,
             Self::MissingUserMessage => 400,
+            Self::VoicePreprocessFailed(_) => 400,
             Self::Internal(_) => 500,
         }
     }
@@ -209,8 +212,48 @@ pub(super) async fn execute_chat_session(
             .map(|msg| msg.content.clone())
             .ok_or(ExecuteChatSessionError::MissingUserMessage)?,
     };
+    let mut persisted_input = input.clone();
+    let mut agent_input = input.clone();
+    if let Some(descriptor) = detect_voice_message(&input, None, None) {
+        let normalized_input = descriptor.persisted_content(None);
+        match preprocess_voice_message(&core.storage, &descriptor).await {
+            Ok(result) => {
+                persisted_input = result.persisted_input;
+                agent_input = result.agent_input;
+            }
+            Err(error) => {
+                if explicit_user_input.is_some() {
+                    persist_ipc_user_message_if_needed(
+                        core,
+                        &mut session,
+                        explicit_user_input,
+                        &normalized_input,
+                    )?;
+                } else if replace_latest_user_message_content(
+                    &mut session,
+                    &input,
+                    &normalized_input,
+                ) {
+                    SessionService::from_storage(&core.storage)
+                        .save_existing_session(&session, "ipc")?;
+                }
+                return Err(ExecuteChatSessionError::VoicePreprocessFailed(
+                    error.to_string(),
+                ));
+            }
+        }
+    }
 
-    persist_ipc_user_message_if_needed(core, &mut session, explicit_user_input, &input)?;
+    if explicit_user_input.is_some() {
+        persist_ipc_user_message_if_needed(
+            core,
+            &mut session,
+            explicit_user_input,
+            &persisted_input,
+        )?;
+    } else if replace_latest_user_message_content(&mut session, &input, &persisted_input) {
+        SessionService::from_storage(&core.storage).save_existing_session(&session, "ipc")?;
+    }
 
     let reply_buffer = Arc::new(Mutex::new(VecDeque::<String>::new()));
     let auth_manager = Arc::new(build_auth_manager(core).await?);
@@ -224,7 +267,7 @@ pub(super) async fn execute_chat_session(
     match executor
         .generate_session_acknowledgement(
             &mut session,
-            &input,
+            &agent_input,
             SessionInputMode::PersistedInSession,
         )
         .await
@@ -263,7 +306,7 @@ pub(super) async fn execute_chat_session(
     let traced_execution = orchestrator
         .run_traced_interactive_session_turn(InteractiveSessionRequest {
             session: &mut session,
-            user_input: &input,
+            user_input: &agent_input,
             max_history: chat_max_session_history,
             input_mode: SessionInputMode::PersistedInSession,
             run_id: turn_id,
@@ -279,17 +322,22 @@ pub(super) async fn execute_chat_session(
     let duration_ms = traced_execution.duration_ms;
     let exec_result = traced_execution.execution;
 
-    let (execution, persisted_input) = build_turn_persistence_payload(
+    let original_persisted_input = persisted_input.clone();
+    let (execution, final_persisted_input) = build_turn_persistence_payload(
         &core.storage.tool_traces,
         &session.id,
         &trace.turn_id,
-        &input,
+        &original_persisted_input,
         duration_ms,
         exec_result.iterations,
     );
 
-    if persisted_input != input {
-        replace_latest_user_message_content(&mut session, &input, &persisted_input);
+    if final_persisted_input != original_persisted_input {
+        replace_latest_user_message_content(
+            &mut session,
+            &original_persisted_input,
+            &final_persisted_input,
+        );
     }
     let buffered_replies = {
         let mut guard = reply_buffer.lock().await;
@@ -301,8 +349,8 @@ pub(super) async fn execute_chat_session(
     SessionService::from_storage(&core.storage).persist_interactive_turn(
         &mut session,
         PersistInteractiveTurnRequest {
-            original_input: &input,
-            persisted_input: &persisted_input,
+            original_input: &original_persisted_input,
+            persisted_input: &final_persisted_input,
             assistant_output: &exec_result.output,
             active_model: Some(&exec_result.active_model),
             execution,
@@ -316,7 +364,7 @@ pub(super) fn persist_ipc_user_message_if_needed(
     core: &Arc<AppCore>,
     session: &mut ChatSession,
     explicit_user_input: Option<&str>,
-    effective_input: &str,
+    persisted_input: &str,
 ) -> Result<()> {
     let Some(raw_input) = explicit_user_input.map(str::trim) else {
         return Ok(());
@@ -328,13 +376,15 @@ pub(super) fn persist_ipc_user_message_if_needed(
     let already_persisted = session
         .messages
         .last()
-        .map(|message| message.role == ChatRole::User && message.content == effective_input)
+        .map(|message| message.role == ChatRole::User && message.content == persisted_input)
         .unwrap_or(false);
     if already_persisted {
         return Ok(());
     }
 
-    session.add_message(ChatMessage::user(effective_input));
+    let mut message = ChatMessage::user(persisted_input);
+    hydrate_voice_message_metadata(&mut message);
+    session.add_message(message);
     if session.name == "New Chat" && session.messages.len() == 1 {
         session.auto_name_from_first_message();
     }

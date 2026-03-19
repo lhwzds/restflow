@@ -119,6 +119,40 @@ async fn persist_ipc_user_message_if_needed_auto_names_new_chat() {
     assert_eq!(stored.name, "hello from ipc");
 }
 
+#[tokio::test]
+async fn persist_ipc_user_message_if_needed_hydrates_voice_metadata() {
+    let (core, _temp) = create_test_core().await;
+    let mut session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    core.storage.chat_sessions.create(&session).unwrap();
+
+    persist_ipc_user_message_if_needed(
+        &core,
+        &mut session,
+        Some("[Voice message]"),
+        "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm\n\n[Transcript]\nhello from audio",
+    )
+    .unwrap();
+
+    let stored = core
+        .storage
+        .chat_sessions
+        .get(&session.id)
+        .unwrap()
+        .expect("session");
+    let user = stored.messages.last().expect("voice message");
+    assert_eq!(user.role, ChatRole::User);
+    assert_eq!(
+        user.media.as_ref().map(|media| media.file_path.as_str()),
+        Some("/tmp/voice.webm")
+    );
+    assert_eq!(
+        user.transcript
+            .as_ref()
+            .map(|transcript| transcript.text.as_str()),
+        Some("hello from audio")
+    );
+}
+
 #[test]
 fn normalize_model_input_converts_to_serialized_form() {
     assert_eq!(
@@ -524,6 +558,46 @@ async fn execute_chat_session_returns_bad_request_without_user_message() {
         }
         other => panic!("expected error response, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn execute_chat_session_persists_voice_message_when_preprocess_fails() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    core.storage.chat_sessions.create(&session).unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ExecuteChatSession {
+            session_id: session.id.clone(),
+            user_input: Some(
+                "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm".to_string(),
+            ),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert!(error.message.contains("Voice transcription failed:"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+
+    let stored = core
+        .storage
+        .chat_sessions
+        .get(&session.id)
+        .unwrap()
+        .expect("session");
+    assert_eq!(stored.messages.len(), 1);
+    assert_eq!(stored.messages[0].role, ChatRole::User);
+    assert!(stored.messages[0].content.contains("media_type: voice"));
+    assert!(!stored.messages[0].content.contains("instruction:"));
 }
 
 #[tokio::test]
