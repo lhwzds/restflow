@@ -5,7 +5,9 @@ pub(super) fn build_api_keys(
 ) -> HashMap<LlmProvider, String> {
     let mut keys = HashMap::new();
     for provider in Provider::all() {
-        let env_name = provider.api_key_env();
+        let Some(env_name) = provider.api_key_env() else {
+            continue;
+        };
         if let Some(storage) = secret_storage
             && let Ok(Some(value)) = storage.get_secret(env_name)
             && !value.trim().is_empty()

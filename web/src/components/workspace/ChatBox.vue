@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, nextTick, useTemplateRef } from 'vue'
+import { computed, ref, watch, nextTick, useTemplateRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Send, Square, X, Cpu, Mic, Loader2, AudioLines, Type } from 'lucide-vue-next'
 import AudioWaveform from '@/components/workspace/AudioWaveform.vue'
@@ -10,7 +10,9 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -19,6 +21,7 @@ import { useToast } from '@/composables/useToast'
 import SessionAgentSelector from '@/components/workspace/SessionAgentSelector.vue'
 import TokenCounter from '@/components/chat/TokenCounter.vue'
 import type { AgentFile, ModelOption } from '@/types/workspace'
+import { getProviderDisplayName, sortProviders } from '@/utils/providerCatalog'
 
 const props = defineProps<{
   isExpanded: boolean
@@ -136,6 +139,21 @@ const handleMicClick = () => {
 const setVoiceMode = (mode: 'voice-to-text' | 'voice-message') => {
   selectedVoiceMode.value = mode
 }
+
+const groupedModels = computed(() => {
+  const groups = new Map<ModelOption['provider'], ModelOption[]>()
+  for (const model of props.availableModels) {
+    const existing = groups.get(model.provider) ?? []
+    existing.push(model)
+    groups.set(model.provider, existing)
+  }
+
+  return sortProviders(Array.from(groups.keys())).map((provider) => ({
+    provider,
+    label: getProviderDisplayName(provider),
+    models: groups.get(provider) ?? [],
+  }))
+})
 </script>
 
 <template>
@@ -195,9 +213,12 @@ const setVoiceMode = (mode: 'voice-to-text' | 'voice-message') => {
             <SelectValue :placeholder="t('common.model')" />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem v-for="model in availableModels" :key="model.id" :value="model.id">
-              {{ model.name }}
-            </SelectItem>
+            <SelectGroup v-for="group in groupedModels" :key="group.provider">
+              <SelectLabel>{{ group.label }}</SelectLabel>
+              <SelectItem v-for="model in group.models" :key="model.id" :value="model.id">
+                {{ model.name }}
+              </SelectItem>
+            </SelectGroup>
           </SelectContent>
         </Select>
 

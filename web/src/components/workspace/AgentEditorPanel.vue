@@ -22,6 +22,7 @@ import type { AIModel } from '@/types/generated/AIModel'
 import type { Provider } from '@/types/generated/Provider'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
+import { getProviderDisplayName } from '@/utils/providerCatalog'
 
 const props = defineProps<{
   agentId: string | null
@@ -251,7 +252,7 @@ async function save() {
             </SelectTrigger>
             <SelectContent>
               <SelectItem v-for="p in providers" :key="p" :value="p">
-                {{ p }}
+                {{ getProviderDisplayName(p) }}
               </SelectItem>
             </SelectContent>
           </Select>

@@ -3,6 +3,7 @@ import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { Provider } from '@/types/generated/Provider'
 import { getAvailableModels } from '@/api/config'
+import { sortProviders } from '@/utils/providerCatalog'
 
 interface ModelsState {
   models: ModelMetadataDTO[]
@@ -43,7 +44,7 @@ export const useModelsStore = defineStore('models', {
      */
     getProviders: (state): Provider[] => {
       const providers = Array.from(new Set(state.models.map((m) => m.provider)))
-      return providers.sort()
+      return sortProviders(providers)
     },
 
     /**

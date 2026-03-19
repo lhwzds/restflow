@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator, type Page } from '@playwright/test'
 import { goToWorkspace, requestIpc } from './helpers'
 
 type SessionSummary = {
@@ -12,6 +12,28 @@ type BackgroundAgentSummary = {
 }
 
 test.describe('Background Agent Web Flow', () => {
+  async function openSessionMenu(page: Page, sessionRow: Locator) {
+    const menuTrigger = sessionRow.locator('button').last()
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await sessionRow.hover()
+      await expect(menuTrigger).toBeVisible()
+      await menuTrigger.click({ force: true })
+
+      const convertItem = page.getByRole('menuitem', {
+        name: 'Convert to Background Agent',
+        exact: true,
+      })
+      if (await convertItem.isVisible().catch(() => false)) {
+        return convertItem
+      }
+
+      await page.keyboard.press('Escape').catch(() => {})
+    }
+
+    throw new Error('Failed to open session context menu for background-agent conversion')
+  }
+
   test('converts a workspace session into a background agent from the web UI', async ({ page }) => {
     await goToWorkspace(page)
     await page.getByRole('button', { name: 'New Session' }).click()
@@ -25,8 +47,9 @@ test.describe('Background Agent Web Flow', () => {
     const sessionRow = page.getByTestId(`session-row-${sessionId}`)
     await expect(sessionRow).toBeVisible()
 
-    await sessionRow.locator('button').click()
-    await page.getByRole('menuitem', { name: 'Convert to Background Agent' }).click()
+    const convertItem = await openSessionMenu(page, sessionRow)
+    await expect(convertItem).toBeVisible()
+    await convertItem.click()
 
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()

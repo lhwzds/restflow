@@ -5,6 +5,8 @@
 pub enum ModelProvider {
     OpenAI,
     Anthropic,
+    ClaudeCode,
+    Codex,
     DeepSeek,
     Google,
     Groq,
@@ -27,6 +29,8 @@ impl ModelProvider {
         match self {
             Self::OpenAI => "openai",
             Self::Anthropic => "anthropic",
+            Self::ClaudeCode => "claude-code",
+            Self::Codex => "codex",
             Self::DeepSeek => "deepseek",
             Self::Google => "google",
             Self::Groq => "groq",
@@ -56,6 +60,8 @@ impl ModelProvider {
         match normalized.as_str() {
             "openai" | "gpt" => Some(Self::OpenAI),
             "anthropic" | "claude" => Some(Self::Anthropic),
+            "claudecode" | "claudecodecli" => Some(Self::ClaudeCode),
+            "codex" | "openaicodex" | "openaicodexcli" => Some(Self::Codex),
             "deepseek" => Some(Self::DeepSeek),
             "google" | "gemini" => Some(Self::Google),
             "groq" => Some(Self::Groq),
@@ -90,6 +96,14 @@ mod tests {
             Some(ModelProvider::Google)
         );
         assert_eq!(
+            ModelProvider::parse_alias("claude-code"),
+            Some(ModelProvider::ClaudeCode)
+        );
+        assert_eq!(
+            ModelProvider::parse_alias("openai-codex"),
+            Some(ModelProvider::Codex)
+        );
+        assert_eq!(
             ModelProvider::parse_alias("zai-coding"),
             Some(ModelProvider::ZaiCodingPlan)
         );
@@ -102,6 +116,8 @@ mod tests {
     #[test]
     fn canonical_str_is_stable() {
         assert_eq!(ModelProvider::OpenAI.canonical_str(), "openai");
+        assert_eq!(ModelProvider::ClaudeCode.canonical_str(), "claude-code");
+        assert_eq!(ModelProvider::Codex.canonical_str(), "codex");
         assert_eq!(
             ModelProvider::ZaiCodingPlan.canonical_str(),
             "zai-coding-plan"

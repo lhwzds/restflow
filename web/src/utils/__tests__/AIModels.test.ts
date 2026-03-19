@@ -59,8 +59,8 @@ describe('AIModels utility', () => {
       expect(getProvider('deepseek-chat')).toBe('deepseek')
     })
 
-    it('falls back to openai for an unknown model', () => {
-      expect(getProvider('nonexistent-model' as any)).toBe('openai')
+    it('returns undefined for an unknown model', () => {
+      expect(getProvider('nonexistent-model' as any)).toBeUndefined()
     })
   })
 

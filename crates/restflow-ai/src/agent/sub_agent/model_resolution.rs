@@ -219,6 +219,8 @@ fn parse_provider_selector(value: &str) -> Option<LlmProvider> {
     Some(match provider {
         ModelProvider::OpenAI => LlmProvider::OpenAI,
         ModelProvider::Anthropic => LlmProvider::Anthropic,
+        ModelProvider::ClaudeCode => LlmProvider::Anthropic,
+        ModelProvider::Codex => LlmProvider::OpenAI,
         ModelProvider::DeepSeek => LlmProvider::DeepSeek,
         ModelProvider::Google => LlmProvider::Google,
         ModelProvider::Groq => LlmProvider::Groq,

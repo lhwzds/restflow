@@ -96,6 +96,8 @@ pub fn parse_provider(input: &str) -> Result<Provider> {
     Ok(match provider {
         ModelProvider::OpenAI => Provider::OpenAI,
         ModelProvider::Anthropic => Provider::Anthropic,
+        ModelProvider::ClaudeCode => Provider::ClaudeCode,
+        ModelProvider::Codex => Provider::Codex,
         ModelProvider::DeepSeek => Provider::DeepSeek,
         ModelProvider::Google => Provider::Google,
         ModelProvider::Groq => Provider::Groq,
@@ -138,6 +140,8 @@ fn provider_label(provider: Provider) -> &'static str {
     match provider {
         Provider::OpenAI => "openai",
         Provider::Anthropic => "anthropic",
+        Provider::ClaudeCode => "claude-code",
+        Provider::Codex => "codex",
         Provider::DeepSeek => "deepseek",
         Provider::Google => "google",
         Provider::Groq => "groq",
@@ -204,6 +208,8 @@ mod tests {
     fn parse_provider_accepts_shared_aliases() {
         assert_eq!(parse_provider("gpt").unwrap(), Provider::OpenAI);
         assert_eq!(parse_provider("zhipu").unwrap(), Provider::Zai);
+        assert_eq!(parse_provider("claude-code").unwrap(), Provider::ClaudeCode);
+        assert_eq!(parse_provider("openai-codex").unwrap(), Provider::Codex);
         assert_eq!(
             parse_provider("minimax-coding").unwrap(),
             Provider::MiniMaxCodingPlan

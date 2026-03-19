@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 import { goToWorkspace } from './helpers'
 
 /**
@@ -10,19 +10,35 @@ import { goToWorkspace } from './helpers'
  * - Keyboard shortcuts (Enter to send, Shift+Enter for new line)
  */
 test.describe('Chat Input', () => {
+  async function fillChatTextarea(page: Page, value: string) {
+    const selector = 'textarea[placeholder*="Ask the agent"]'
+
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const textarea = page.locator(selector)
+      await expect(textarea).toBeVisible()
+      await expect(textarea).toBeEditable()
+      await textarea.click()
+      await textarea.fill(value)
+
+      if ((await textarea.inputValue()) === value) {
+        return textarea
+      }
+    }
+
+    throw new Error(`Failed to fill chat textarea with expected value: ${value}`)
+  }
+
   test.beforeEach(async ({ page }) => {
     await goToWorkspace(page)
   })
 
   test('can type in chat textarea', async ({ page }) => {
-    const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
-    await textarea.fill('Hello, world!')
+    const textarea = await fillChatTextarea(page, 'Hello, world!')
     await expect(textarea).toHaveValue('Hello, world!')
   })
 
   test('Enter key sends and clears the input', async ({ page }) => {
-    const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
-    await textarea.fill('Test message')
+    const textarea = await fillChatTextarea(page, 'Test message')
 
     // Press Enter to send
     await textarea.press('Enter')
@@ -32,24 +48,23 @@ test.describe('Chat Input', () => {
   })
 
   test('Shift+Enter adds new line instead of sending', async ({ page }) => {
-    const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
-    await textarea.fill('Line 1')
+    const textarea = await fillChatTextarea(page, 'Line 1')
+    await expect(textarea).toHaveValue('Line 1')
 
     // Shift+Enter should add new line
     await textarea.press('Shift+Enter')
+    await expect(textarea).toHaveValue(/Line 1[\r\n]+/)
     await textarea.type('Line 2')
 
     // Should contain both lines
-    const value = await textarea.inputValue()
-    expect(value).toContain('Line 1')
-    expect(value).toContain('Line 2')
+    await expect(textarea).toHaveValue(/Line 1[\r\n]+Line 2/)
   })
 
   test('send button click sends and clears the input', async ({ page }) => {
-    const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
-    await textarea.fill('Test message')
+    const textarea = await fillChatTextarea(page, 'Test message')
 
     const sendButton = page.getByTestId('chat-send-button')
+    await expect(sendButton).toBeEnabled()
     await sendButton.click()
 
     // Input should be cleared after send.

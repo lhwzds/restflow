@@ -216,4 +216,32 @@ describe('AgentEditorPanel', () => {
       ],
     ])
   })
+
+  it('renders provider display labels instead of raw provider ids', async () => {
+    mockGetAgent.mockResolvedValue(baseAgent())
+
+    const wrapper = mount(AgentEditorPanel, {
+      props: {
+        agentId: 'agent-1',
+      },
+      global: {
+        stubs: {
+          Button: { template: '<button><slot /></button>' },
+          Input: { template: '<input />' },
+          Label: { template: '<label><slot /></label>' },
+          Textarea: { template: '<textarea />' },
+          Select: { template: '<div><slot /></div>' },
+          SelectTrigger: { template: '<div><slot /></div>' },
+          SelectValue: { template: '<div><slot /></div>' },
+          SelectContent: { template: '<div><slot /></div>' },
+          SelectItem: { template: '<div><slot /></div>' },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('OpenAI API')
+    expect(wrapper.text()).not.toContain('>openai<')
+  })
 })

@@ -405,7 +405,7 @@ impl IpcServer {
                 Self::handle_subscribe_session_events_unsupported().await
             }
             IpcRequest::GetSystemInfo => Self::handle_get_system_info().await,
-            IpcRequest::GetAvailableModels => Self::handle_get_available_models().await,
+            IpcRequest::GetAvailableModels => Self::handle_get_available_models(core).await,
             IpcRequest::GetAvailableTools => {
                 Self::handle_get_available_tools(core, runtime_tool_registry).await
             }
