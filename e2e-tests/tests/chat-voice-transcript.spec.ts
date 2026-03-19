@@ -32,7 +32,8 @@ test.describe('Chat Voice Transcript', () => {
         message: {
           id: messageId,
           role: 'user',
-          content: `[Voice message]\n\n[Transcript]\n${transcriptText}`,
+          content:
+            `[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/e2e-voice.webm\n\n[Transcript]\n${transcriptText}`,
           timestamp: now,
           execution: null,
           media: {

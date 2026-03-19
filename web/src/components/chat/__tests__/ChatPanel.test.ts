@@ -92,7 +92,7 @@ vi.mock('@/components/workspace/ChatBox.vue', () => ({
         default: '',
       },
     },
-    emits: ['send', 'update:selectedModel'],
+    emits: ['send', 'update:selectedModel', 'send-voice-message'],
     setup(props, { emit }) {
       chatBoxMountCount += 1
       return () =>
@@ -119,6 +119,19 @@ vi.mock('@/components/workspace/ChatBox.vue', () => ({
                 onClick: () => emit('update:selectedModel', 'gpt-5'),
               },
               'model',
+            ),
+            h(
+              'button',
+              {
+                'data-testid': 'chatbox-send-voice',
+                onClick: () =>
+                  emit('send-voice-message', {
+                    filePath: '/tmp/voice-message.webm',
+                    audioBlobUrl: 'blob:test',
+                    durationSec: 4,
+                  }),
+              },
+              'voice',
             ),
           ],
         )
@@ -367,6 +380,18 @@ describe('ChatPanel', () => {
     expect(mockSteerChatStream).toHaveBeenCalledWith('session-1', 'follow-up')
     expect(mockSendChatMessageApi).not.toHaveBeenCalled()
     expect(mockSendStream).toHaveBeenCalledWith('follow-up')
+  })
+
+  it('sends normalized voice content without transcribe instruction', async () => {
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="chatbox-send-voice"]').trigger('click')
+    await flushPromises()
+
+    expect(mockSendStream).toHaveBeenCalledWith(
+      '[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice-message.webm',
+    )
   })
 
   it('persists updated agent model with model_ref when session model changes', async () => {

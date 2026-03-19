@@ -143,6 +143,51 @@ impl SessionService {
         Ok(session)
     }
 
+    pub fn append_user_message(
+        &self,
+        session_id: &str,
+        mut user_message: ChatMessage,
+        source: &str,
+    ) -> Result<ChatSession> {
+        hydrate_voice_message_metadata(&mut user_message);
+
+        let session_lock = {
+            let mut locks = self.append_locks.lock().expect("session append locks");
+            if let Some(lock) = locks.get(session_id).and_then(Weak::upgrade) {
+                lock
+            } else {
+                let lock = Arc::new(Mutex::new(()));
+                locks.insert(session_id.to_string(), Arc::downgrade(&lock));
+                lock
+            }
+        };
+
+        let session = {
+            let _guard = session_lock.lock().expect("session append lock");
+            let mut session = self
+                .sessions
+                .get_session(session_id)?
+                .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+
+            session.add_message(user_message);
+            self.sessions.save_session(&session)?;
+            session
+        };
+
+        self.append_locks
+            .lock()
+            .expect("session append locks")
+            .retain(|_, weak| weak.strong_count() > 0);
+
+        self.persist_memory(&session);
+        publish_session_event(ChatSessionEvent::MessageAdded {
+            session_id: session_id.to_string(),
+            source: source.to_string(),
+        });
+
+        Ok(session)
+    }
+
     pub fn save_existing_session(&self, session: &ChatSession, source: &str) -> Result<()> {
         self.sessions.update_session(session)?;
         self.persist_memory(session);
@@ -494,6 +539,38 @@ mod tests {
         assert_eq!(reloaded.messages.len(), 2);
         assert_eq!(reloaded.messages[0].content, "hello");
         assert_eq!(reloaded.messages[1].content, "world");
+    }
+
+    #[test]
+    fn append_user_message_hydrates_voice_metadata() {
+        let (storage, service, session) = setup();
+
+        let persisted = service
+            .append_user_message(
+                &session.id,
+                ChatMessage::user(
+                    "[Voice message]\n\n[Media Context]\nmedia_type: voice\nlocal_file_path: /tmp/voice.webm\n\n[Transcript]\nhello voice",
+                ),
+                "ipc",
+            )
+            .unwrap();
+
+        assert_eq!(persisted.messages.len(), 1);
+        let user = &persisted.messages[0];
+        assert_eq!(user.role, ChatRole::User);
+        assert_eq!(
+            user.media.as_ref().map(|media| media.file_path.as_str()),
+            Some("/tmp/voice.webm")
+        );
+        assert_eq!(
+            user.transcript
+                .as_ref()
+                .map(|transcript| transcript.text.as_str()),
+            Some("hello voice")
+        );
+
+        let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
+        assert_eq!(reloaded.messages.len(), 1);
     }
 
     #[test]

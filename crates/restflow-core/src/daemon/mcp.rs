@@ -7,6 +7,7 @@ use crate::registry::{
     GatingChecker, GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery,
     SkillSearchResult, SkillSortOrder,
 };
+use crate::runtime::channel::transcribe_media_file;
 use crate::services::background_agent_conversion::{
     ConvertSessionSpecOptions, build_convert_session_spec,
 };
@@ -29,7 +30,6 @@ use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
-use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::convert::Infallible;
@@ -265,28 +265,6 @@ async fn api_stream(
     };
 
     stream_frames_response(receiver)
-}
-
-fn status_from_error_code(code: i32) -> StatusCode {
-    StatusCode::from_u16(code as u16).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR)
-}
-
-fn decode_ipc_success<T: DeserializeOwned>(
-    response: IpcResponse,
-) -> std::result::Result<T, (StatusCode, String)> {
-    match response {
-        IpcResponse::Success(value) => serde_json::from_value(value).map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Failed to decode daemon response: {error}"),
-            )
-        }),
-        IpcResponse::Error(error) => Err((status_from_error_code(error.code), error.message)),
-        IpcResponse::Pong => Err((
-            StatusCode::BAD_GATEWAY,
-            "Unexpected pong response".to_string(),
-        )),
-    }
 }
 
 fn provider_name(source: Option<&str>) -> &str {
@@ -700,48 +678,23 @@ async fn api_transcribe_audio(
     Json(request): Json<VoiceTranscribeRequest>,
 ) -> std::result::Result<Json<VoiceTranscribeResponse>, (StatusCode, String)> {
     let file_path = save_audio_to_temp(&request.audio_base64)?;
-    let model = request
-        .model
-        .unwrap_or_else(|| "gpt-4o-mini-transcribe".to_string());
-    let mut input = serde_json::json!({
-        "file_path": file_path,
-        "model": model,
-    });
-    if let Some(language) = request.language {
-        input["language"] = serde_json::json!(language);
-    }
-
-    let response = IpcServer::process(
-        &state.core,
-        state.runtime_tool_registry.as_ref(),
-        IpcRequest::ExecuteTool {
-            name: "transcribe".to_string(),
-            input,
-        },
+    let model = request.model;
+    let language = request.language;
+    let response = transcribe_media_file(
+        &state.core.storage,
+        &file_path,
+        model.as_deref(),
+        language.as_deref(),
     )
     .await;
 
     let _ = std::fs::remove_file(&file_path);
 
-    let result: crate::daemon::ToolExecutionResult = decode_ipc_success(response)?;
-    if !result.success {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            result
-                .error
-                .unwrap_or_else(|| "Transcription failed".to_string()),
-        ));
-    }
-
-    let text = if let Some(text) = result.result.as_str() {
-        text.to_string()
-    } else if let Some(text) = result.result.get("text").and_then(|value| value.as_str()) {
-        text.to_string()
-    } else {
-        String::new()
-    };
-
-    Ok(Json(VoiceTranscribeResponse { text, model }))
+    let transcription = response.map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    Ok(Json(VoiceTranscribeResponse {
+        text: transcription.text,
+        model: transcription.model,
+    }))
 }
 
 async fn api_save_voice_message(
