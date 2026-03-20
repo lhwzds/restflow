@@ -20,7 +20,7 @@ import { getAvailableTools } from '@/api/config'
 import { useModelsStore } from '@/stores/modelsStore'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
-import type { AIModel } from '@/types/generated/AIModel'
+import type { ModelId } from '@/types/generated/ModelId'
 import type { Provider } from '@/types/generated/Provider'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
@@ -49,7 +49,7 @@ const saving = ref(false)
 const current = ref<StoredAgent | null>(null)
 const name = ref('')
 const provider = ref<Provider | ''>('')
-const model = ref<AIModel | ''>('')
+const model = ref<ModelId | ''>('')
 const temperature = ref('')
 const prompt = ref('')
 const availableToolCount = ref(0)
@@ -84,7 +84,7 @@ function applyForm(agent: StoredAgent) {
   model.value = resolvedModel
   const inferredProvider =
     agent.agent.model_ref?.provider ??
-    (resolvedModel ? (modelsStore.getModelMetadata(resolvedModel as AIModel)?.provider ?? '') : '')
+    (resolvedModel ? (modelsStore.getModelMetadata(resolvedModel as ModelId)?.provider ?? '') : '')
   provider.value = inferredProvider
   temperature.value =
     typeof agent.agent.temperature === 'number' ? String(agent.agent.temperature) : ''
@@ -173,12 +173,12 @@ async function save() {
       name: nextName,
       agent: {
         ...current.value.agent,
-        model: model.value ? (model.value as AIModel) : undefined,
+        model: model.value ? (model.value as ModelId) : undefined,
         model_ref:
           provider.value && model.value
             ? {
                 provider: provider.value as Provider,
-                model: model.value as AIModel,
+                model: model.value as ModelId,
               }
             : undefined,
         prompt: prompt.value.trim() || undefined,
@@ -218,7 +218,7 @@ async function save() {
       (provider.value && model.value
         ? {
             provider: provider.value as Provider,
-            model: model.value as AIModel,
+            model: model.value as ModelId,
           }
         : undefined)
     if (!emittedModelRef) {
@@ -294,7 +294,7 @@ async function save() {
 
         <div class="space-y-2">
           <Label>{{ t('workspace.agent.modelLabel') }}</Label>
-          <Select :model-value="model" @update:model-value="model = $event as AIModel | ''">
+          <Select :model-value="model" @update:model-value="model = $event as ModelId | ''">
             <SelectTrigger>
               <SelectValue :placeholder="t('workspace.agent.modelPlaceholder')" />
             </SelectTrigger>

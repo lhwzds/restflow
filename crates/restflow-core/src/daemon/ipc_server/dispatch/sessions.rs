@@ -129,8 +129,8 @@ impl IpcServer {
                     .agent
                     .model
                     .map(|m| m.as_serialized_str().to_string())
-                    .unwrap_or_else(|| AIModel::Gpt5.as_serialized_str().to_string()),
-                Ok(None) => AIModel::Gpt5.as_serialized_str().to_string(),
+                    .unwrap_or_else(|| ModelId::Gpt5.as_serialized_str().to_string()),
+                Ok(None) => ModelId::Gpt5.as_serialized_str().to_string(),
                 Err(err) => return IpcResponse::error(500, err.to_string()),
             },
         };

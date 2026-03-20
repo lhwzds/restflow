@@ -1,6 +1,6 @@
 use super::*;
 
-fn should_force_non_stream(model: AIModel) -> bool {
+fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
 }
 
@@ -19,7 +19,7 @@ impl AgentRuntimeExecutor {
             .agent
             .model
             .map(|m| m.as_serialized_str().to_string())
-            .unwrap_or_else(|| AIModel::Gpt5.as_serialized_str().to_string());
+            .unwrap_or_else(|| ModelId::Gpt5.as_serialized_str().to_string());
         session.agent_id = fallback.id.clone();
         session.model = fallback_model.clone();
         session.metadata.last_model = Some(fallback_model);
@@ -108,14 +108,14 @@ impl AgentRuntimeExecutor {
     async fn generate_ack_with_model(
         &self,
         agent_node: &AgentNode,
-        model: AIModel,
+        model: ModelId,
         session: &ChatSession,
         user_input: &str,
         primary_provider: Provider,
         input_mode: SessionInputMode,
         agent_id: Option<&str>,
     ) -> Result<Option<String>> {
-        let model_specs = AIModel::build_model_specs();
+        let model_specs = ModelId::build_model_specs();
         let api_keys = self
             .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
             .await;
@@ -179,7 +179,7 @@ impl AgentRuntimeExecutor {
     async fn execute_session_with_client(
         &self,
         agent_node: &AgentNode,
-        model: AIModel,
+        model: ModelId,
         llm_client: Arc<dyn LlmClient>,
         session: &ChatSession,
         user_input: &str,
@@ -327,7 +327,7 @@ impl AgentRuntimeExecutor {
     async fn execute_session_with_model(
         &self,
         agent_node: &AgentNode,
-        model: AIModel,
+        model: ModelId,
         session: &ChatSession,
         user_input: &str,
         primary_provider: Provider,
@@ -337,7 +337,7 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     ) -> Result<SessionExecutionResult> {
-        let model_specs = AIModel::build_model_specs();
+        let model_specs = ModelId::build_model_specs();
         let api_keys = self
             .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
             .await;
@@ -386,7 +386,7 @@ impl AgentRuntimeExecutor {
     async fn execute_session_with_profiles(
         &self,
         agent_node: &AgentNode,
-        model: AIModel,
+        model: ModelId,
         session: &ChatSession,
         user_input: &str,
         primary_provider: Provider,
@@ -452,7 +452,7 @@ impl AgentRuntimeExecutor {
                 }
             };
 
-            let model_specs = AIModel::build_model_specs();
+            let model_specs = ModelId::build_model_specs();
             let api_keys = self
                 .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
                 .await;
@@ -546,8 +546,8 @@ impl AgentRuntimeExecutor {
 
         // Prefer the session's model (user override) over the agent's default.
         let primary_model = if !session.model.is_empty() {
-            match AIModel::from_api_name(&session.model)
-                .or_else(|| AIModel::from_canonical_id(&session.model))
+            match ModelId::from_api_name(&session.model)
+                .or_else(|| ModelId::from_canonical_id(&session.model))
             {
                 Some(model) => model,
                 None => self.resolve_primary_model(&agent_node).await?,
@@ -618,8 +618,8 @@ impl AgentRuntimeExecutor {
         let agent_node = stored_agent.agent.clone();
         // Prefer the session's model (user override) over the agent's default
         let primary_model = if !session.model.is_empty() {
-            match AIModel::from_api_name(&session.model)
-                .or_else(|| AIModel::from_canonical_id(&session.model))
+            match ModelId::from_api_name(&session.model)
+                .or_else(|| ModelId::from_canonical_id(&session.model))
             {
                 Some(model) => model,
                 None => self.resolve_primary_model(&agent_node).await?,
@@ -696,10 +696,10 @@ mod tests {
 
     #[test]
     fn should_force_non_stream_for_all_cli_models() {
-        assert!(should_force_non_stream(AIModel::ClaudeCodeSonnet));
-        assert!(should_force_non_stream(AIModel::CodexCli));
-        assert!(should_force_non_stream(AIModel::GeminiCli));
-        assert!(should_force_non_stream(AIModel::OpenCodeCli));
-        assert!(!should_force_non_stream(AIModel::Gpt5));
+        assert!(should_force_non_stream(ModelId::ClaudeCodeSonnet));
+        assert!(should_force_non_stream(ModelId::CodexCli));
+        assert!(should_force_non_stream(ModelId::GeminiCli));
+        assert!(should_force_non_stream(ModelId::OpenCodeCli));
+        assert!(!should_force_non_stream(ModelId::Gpt5));
     }
 }

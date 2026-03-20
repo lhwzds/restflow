@@ -1,12 +1,12 @@
 import { useModelsStore } from '@/stores/modelsStore'
-import type { AIModel } from '@/types/generated/AIModel'
+import type { ModelId } from '@/types/generated/ModelId'
 import type { Provider } from '@/types/generated/Provider'
 import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
 import { getProviderDisplayName } from '@/utils/providerCatalog'
 
 // Model option interface for UI components
 export interface ModelOption {
-  value: AIModel
+  value: ModelId
   label: string
   provider: Provider
   supportsTemperature: boolean
@@ -16,7 +16,7 @@ export interface ModelOption {
  * Get metadata for a specific model
  * Delegates to the models store which fetches from backend
  */
-function getMetadata(model: AIModel): ModelMetadataDTO | undefined {
+function getMetadata(model: ModelId): ModelMetadataDTO | undefined {
   const store = useModelsStore()
   return store.getModelMetadata(model)
 }
@@ -24,7 +24,7 @@ function getMetadata(model: AIModel): ModelMetadataDTO | undefined {
 /**
  * Get provider for a model
  */
-export function getProvider(model: AIModel): Provider | undefined {
+export function getProvider(model: ModelId): Provider | undefined {
   const metadata = getMetadata(model)
   return metadata?.provider
 }
@@ -32,7 +32,7 @@ export function getProvider(model: AIModel): Provider | undefined {
 /**
  * Check if model supports temperature parameter
  */
-export function supportsTemperature(model: AIModel): boolean {
+export function supportsTemperature(model: ModelId): boolean {
   const metadata = getMetadata(model)
   return metadata?.supports_temperature ?? false
 }
@@ -40,7 +40,7 @@ export function supportsTemperature(model: AIModel): boolean {
 /**
  * Get display name for model
  */
-export function getModelDisplayName(model: AIModel): string {
+export function getModelDisplayName(model: ModelId): string {
   const metadata = getMetadata(model)
   return metadata?.name || model
 }
@@ -48,7 +48,7 @@ export function getModelDisplayName(model: AIModel): string {
 /**
  * Get default temperature for a model
  */
-export function getDefaultTemperature(model: AIModel): number | undefined {
+export function getDefaultTemperature(model: ModelId): number | undefined {
   return supportsTemperature(model) ? 0.7 : undefined
 }
 

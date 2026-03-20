@@ -145,7 +145,7 @@ impl AgentRuntimeExecutor {
     pub(super) async fn run_preflight_check(
         &self,
         agent_node: &AgentNode,
-        primary_model: AIModel,
+        primary_model: ModelId,
         primary_provider: Provider,
         user_input: Option<&str>,
     ) -> Result<()> {

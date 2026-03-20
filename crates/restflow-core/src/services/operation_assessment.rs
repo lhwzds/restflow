@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
-use crate::models::{AIModel, AgentNode, ApiKeyConfig, ModelRef, Provider, ValidationError};
+use crate::models::{ModelId, AgentNode, ApiKeyConfig, ModelRef, Provider, ValidationError};
 use crate::storage::agent::StoredAgent;
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -279,20 +279,20 @@ async fn provider_available(
 async fn resolve_model_from_stored_credentials(
     core: &Arc<AppCore>,
     auth_manager: &AuthProfileManager,
-) -> Result<Option<AIModel>> {
+) -> Result<Option<ModelId>> {
     if auth_manager
         .get_available_profile(AuthProvider::OpenAICodex)
         .await
         .is_some()
     {
-        return Ok(Some(AIModel::CodexCli));
+        return Ok(Some(ModelId::CodexCli));
     }
 
     let profile_order = [
-        (AuthProvider::ClaudeCode, AIModel::ClaudeCodeOpus),
-        (AuthProvider::Anthropic, AIModel::ClaudeOpus4_6),
-        (AuthProvider::OpenAI, AIModel::Gpt5),
-        (AuthProvider::Google, AIModel::Gemini25Pro),
+        (AuthProvider::ClaudeCode, ModelId::ClaudeCodeOpus),
+        (AuthProvider::Anthropic, ModelId::ClaudeOpus4_6),
+        (AuthProvider::OpenAI, ModelId::Gpt5),
+        (AuthProvider::Google, ModelId::Gemini25Pro),
     ];
     for (provider, model) in profile_order {
         if auth_manager.get_available_profile(provider).await.is_some() {
@@ -331,26 +331,26 @@ async fn resolve_model_from_stored_credentials(
     Ok(None)
 }
 
-fn default_model_for_provider(provider: Provider) -> AIModel {
+fn default_model_for_provider(provider: Provider) -> ModelId {
     match provider {
-        Provider::OpenAI => AIModel::Gpt5,
-        Provider::Anthropic => AIModel::ClaudeOpus4_6,
-        Provider::ClaudeCode => AIModel::ClaudeCodeOpus,
-        Provider::Codex => AIModel::CodexCli,
-        Provider::DeepSeek => AIModel::DeepseekChat,
-        Provider::Google => AIModel::Gemini25Pro,
-        Provider::Groq => AIModel::GroqLlama4Maverick,
-        Provider::OpenRouter => AIModel::OpenRouterAuto,
-        Provider::XAI => AIModel::Grok4,
-        Provider::Qwen => AIModel::Qwen3Max,
-        Provider::Zai => AIModel::Glm5,
-        Provider::ZaiCodingPlan => AIModel::Glm5CodingPlan,
-        Provider::Moonshot => AIModel::KimiK2_5,
-        Provider::Doubao => AIModel::DoubaoPro,
-        Provider::Yi => AIModel::YiLightning,
-        Provider::SiliconFlow => AIModel::SiliconFlowAuto,
-        Provider::MiniMax => AIModel::MiniMaxM27,
-        Provider::MiniMaxCodingPlan => AIModel::MiniMaxM25CodingPlan,
+        Provider::OpenAI => ModelId::Gpt5,
+        Provider::Anthropic => ModelId::ClaudeOpus4_6,
+        Provider::ClaudeCode => ModelId::ClaudeCodeOpus,
+        Provider::Codex => ModelId::CodexCli,
+        Provider::DeepSeek => ModelId::DeepseekChat,
+        Provider::Google => ModelId::Gemini25Pro,
+        Provider::Groq => ModelId::GroqLlama4Maverick,
+        Provider::OpenRouter => ModelId::OpenRouterAuto,
+        Provider::XAI => ModelId::Grok4,
+        Provider::Qwen => ModelId::Qwen3Max,
+        Provider::Zai => ModelId::Glm5,
+        Provider::ZaiCodingPlan => ModelId::Glm5CodingPlan,
+        Provider::Moonshot => ModelId::KimiK2_5,
+        Provider::Doubao => ModelId::DoubaoPro,
+        Provider::Yi => ModelId::YiLightning,
+        Provider::SiliconFlow => ModelId::SiliconFlowAuto,
+        Provider::MiniMax => ModelId::MiniMaxM27,
+        Provider::MiniMaxCodingPlan => ModelId::MiniMaxM25CodingPlan,
     }
 }
 
@@ -738,12 +738,12 @@ pub async fn assess_subagent_spawn(
             .map(str::trim)
             .filter(|value| !value.is_empty()),
     ) {
-        let normalized_model = AIModel::normalize_model_id(model)
+        let normalized_model = ModelId::normalize_model_id(model)
             .ok_or_else(|| anyhow!("Unsupported model identifier: {}", model))?;
         let requested_provider = SharedModelProvider::parse_alias(provider)
             .map(Provider::from_model_provider)
             .ok_or_else(|| anyhow!("Unsupported provider identifier: {}", provider))?;
-        let resolved_model = AIModel::for_provider_and_model(requested_provider, &normalized_model)
+        let resolved_model = ModelId::for_provider_and_model(requested_provider, &normalized_model)
             .ok_or_else(|| anyhow!("Unsupported model identifier: {}", normalized_model))?;
         let model_ref = ModelRef::from_model(resolved_model);
         let mut assessment = OperationAssessment::ok(operation.to_string(), intent.clone());

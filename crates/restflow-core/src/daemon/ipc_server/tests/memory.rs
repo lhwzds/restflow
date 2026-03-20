@@ -10,9 +10,9 @@ async fn process_search_memory_returns_matching_chunk() {
         .create_agent(
             "Test Agent".to_string(),
             AgentNode {
-                model: Some(crate::models::AIModel::ClaudeSonnet4_5),
+                model: Some(crate::models::ModelId::ClaudeSonnet4_5),
                 model_ref: Some(crate::models::ModelRef::from_model(
-                    crate::models::AIModel::ClaudeSonnet4_5,
+                    crate::models::ModelId::ClaudeSonnet4_5,
                 )),
                 prompt: Some("You are a helpful assistant".to_string()),
                 temperature: Some(0.7),

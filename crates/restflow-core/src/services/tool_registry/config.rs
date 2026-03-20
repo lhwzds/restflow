@@ -31,7 +31,7 @@ pub(super) fn build_llm_factory(
     let api_keys = build_api_keys(secret_storage);
     Arc::new(DefaultLlmClientFactory::new(
         api_keys,
-        AIModel::build_model_specs(),
+        ModelId::build_model_specs(),
     ))
 }
 

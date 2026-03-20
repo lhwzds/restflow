@@ -6,7 +6,7 @@
 use crate::AppCore;
 use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
-    AIModel, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
+    ModelId, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
     BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable, Hook, HookAction, HookEvent,
     HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
@@ -221,7 +221,7 @@ fn build_switch_model_tool(secret_storage: Option<&SecretStorage>) -> SwitchMode
     let api_keys = build_api_keys(secret_storage);
     let factory = Arc::new(DefaultLlmClientFactory::new(
         api_keys,
-        AIModel::build_model_specs(),
+        ModelId::build_model_specs(),
     ));
     let initial_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let swappable = Arc::new(SwappableLlm::new(initial_client));

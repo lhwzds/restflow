@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
-use crate::models::{AIModel, ApiKeyConfig, StorageMode};
+use crate::models::{ModelId, ApiKeyConfig, StorageMode};
 
 /// Agent metadata stored in the database (file content lives on disk).
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
@@ -20,7 +20,7 @@ pub struct AgentMeta {
     pub content_hash: Option<String>,
     /// AI model configuration
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub model: Option<AIModel>,
+    pub model: Option<ModelId>,
     /// Temperature setting for model responses
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f64>,

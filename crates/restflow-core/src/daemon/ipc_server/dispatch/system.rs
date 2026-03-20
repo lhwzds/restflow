@@ -1,7 +1,7 @@
 use super::super::runtime::build_auth_manager;
 use super::super::*;
 use crate::auth::AuthProvider;
-use crate::models::{AIModel, ModelMetadataDTO, Provider};
+use crate::models::{ModelId, ModelMetadataDTO, Provider};
 
 fn provider_sort_key(provider: Provider) -> usize {
     match provider {
@@ -44,7 +44,7 @@ fn has_non_empty_secret(core: &Arc<AppCore>, key: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn is_catalog_model(model: AIModel) -> bool {
+fn is_catalog_model(model: ModelId) -> bool {
     !model.is_opencode_cli() && !model.is_gemini_cli()
 }
 
@@ -104,7 +104,7 @@ async fn available_providers(core: &Arc<AppCore>) -> Result<Vec<Provider>, Strin
 
 async fn available_model_catalog(core: &Arc<AppCore>) -> Result<Vec<ModelMetadataDTO>, String> {
     let providers = available_providers(core).await?;
-    let mut models = AIModel::all_with_metadata()
+    let mut models = ModelId::all_with_metadata()
         .into_iter()
         .filter(|metadata| is_catalog_model(metadata.model))
         .filter(|metadata| providers.contains(&metadata.provider))

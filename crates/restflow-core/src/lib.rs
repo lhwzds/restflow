@@ -22,7 +22,7 @@ pub mod storage;
 mod template;
 
 pub use models::{
-    AIModel,
+    ModelId,
     ActiveTrigger,
     AgentCheckpoint,
     AgentExecuteResponse,
@@ -239,7 +239,7 @@ impl AppCore {
         let agents = storage.agents.list_agents()?;
         if agents.is_empty() {
             info!("Creating default agent...");
-            let agent_node = models::AgentNode::with_model(models::AIModel::CodexCli);
+            let agent_node = models::AgentNode::with_model(models::ModelId::CodexCli);
             let _created = storage.agents.create_agent(
                 crate::storage::agent::DEFAULT_ASSISTANT_NAME.to_string(),
                 agent_node,

@@ -630,7 +630,7 @@ mod tests {
 
         let mut session = crate::models::ChatSession::new(
             agent_id.clone(),
-            crate::models::AIModel::Gpt5.as_serialized_str().to_string(),
+            crate::models::ModelId::Gpt5.as_serialized_str().to_string(),
         )
         .with_name("Session to Convert");
         session.add_message(crate::models::ChatMessage::user(
@@ -669,7 +669,7 @@ mod tests {
 
         let session = crate::models::ChatSession::new(
             agent_id,
-            crate::models::AIModel::Gpt5.as_serialized_str().to_string(),
+            crate::models::ModelId::Gpt5.as_serialized_str().to_string(),
         )
         .with_name("Empty Session");
         adapter.storage.chat_sessions().create(&session).unwrap();

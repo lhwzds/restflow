@@ -4,7 +4,7 @@
 //! the [`create_tool_registry`] function that wires adapters into tools.
 
 use crate::memory::UnifiedSearchEngine;
-use crate::models::{AIModel, Provider};
+use crate::models::{ModelId, Provider};
 use crate::process::ProcessRegistry;
 use crate::runtime::agent::main_agent_default_tool_names;
 use crate::runtime::agent::tools::assembly::{

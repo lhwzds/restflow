@@ -1557,7 +1557,7 @@ fn test_create_background_agent_rejects_chat_session_bound_to_other_agent() {
     let storage = create_test_storage();
     let foreign_session = ChatSession::new(
         "agent-002".to_string(),
-        AIModel::Gpt5.as_serialized_str().to_string(),
+        ModelId::Gpt5.as_serialized_str().to_string(),
     );
     storage.chat_sessions.create(&foreign_session).unwrap();
 

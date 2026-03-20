@@ -3,7 +3,7 @@
 //! Provides type-safe access to chat session storage, wrapping the byte-level
 //! API from restflow-storage with our Rust models.
 
-use crate::models::{AIModel, ChatSession, ChatSessionSource, ChatSessionSummary};
+use crate::models::{ModelId, ChatSession, ChatSessionSource, ChatSessionSummary};
 use anyhow::Result;
 use redb::Database;
 use restflow_storage::SimpleStorage;
@@ -48,7 +48,7 @@ fn parse_retention_to_ms(retention: &str) -> Option<i64> {
 }
 
 fn normalize_session_model_id(model: &str) -> String {
-    AIModel::normalize_model_id(model).unwrap_or_else(|| model.trim().to_string())
+    ModelId::normalize_model_id(model).unwrap_or_else(|| model.trim().to_string())
 }
 
 fn normalize_session_model(session: &mut ChatSession) -> bool {

@@ -1,4 +1,4 @@
-export * from './AIModel'
+export * from './ModelId'
 export * from './ActiveTrigger'
 export * from './AgentDefinition'
 export * from './AgentExecuteResponse'

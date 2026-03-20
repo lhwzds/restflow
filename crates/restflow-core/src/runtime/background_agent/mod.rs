@@ -105,11 +105,11 @@
 //!
 //! ```ignore
 //! use restflow_core::runtime::background_agent::failover::{FailoverConfig, FailoverManager};
-//! use crate::AIModel;
+//! use crate::ModelId;
 //!
 //! let config = FailoverConfig::with_fallbacks(
-//!     AIModel::ClaudeSonnet4_5,
-//!     vec![AIModel::Gpt5, AIModel::DeepseekChat],
+//!     ModelId::ClaudeSonnet4_5,
+//!     vec![ModelId::Gpt5, ModelId::DeepseekChat],
 //! );
 //! let manager = FailoverManager::new(config);
 //!

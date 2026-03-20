@@ -1,7 +1,7 @@
 use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
-    AIModel, AgentNode, ApiKeyConfig, BackgroundAgentSchedule, ChannelSessionBinding, ChatSession,
+    ModelId, AgentNode, ApiKeyConfig, BackgroundAgentSchedule, ChannelSessionBinding, ChatSession,
     ChatSessionSource, Skill, SkillReference,
 };
 use crate::prompt_files;
@@ -55,8 +55,8 @@ async fn create_test_server() -> (
     let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
     let default_agent = core.storage.agents.resolve_default_agent().unwrap();
     let mut configured_agent = default_agent.agent.clone();
-    configured_agent.model = Some(AIModel::Gpt5);
-    configured_agent.model_ref = Some(crate::models::ModelRef::from_model(AIModel::Gpt5));
+    configured_agent.model = Some(ModelId::Gpt5);
+    configured_agent.model_ref = Some(crate::models::ModelRef::from_model(ModelId::Gpt5));
     configured_agent.api_key_config = Some(ApiKeyConfig::Direct("test_key".to_string()));
     core.storage
         .agents
@@ -85,9 +85,9 @@ fn create_test_skill(id: &str, name: &str) -> Skill {
 /// Create a test agent node
 fn create_test_agent_node(prompt: &str) -> AgentNode {
     AgentNode {
-        model: Some(AIModel::ClaudeSonnet4_5),
+        model: Some(ModelId::ClaudeSonnet4_5),
         model_ref: Some(crate::models::ModelRef::from_model(
-            AIModel::ClaudeSonnet4_5,
+            ModelId::ClaudeSonnet4_5,
         )),
         prompt: Some(prompt.to_string()),
         temperature: Some(0.7),
@@ -109,7 +109,7 @@ async fn test_core_backend_session_source_is_resolved_from_binding() {
     let default_agent = core.storage.agents.resolve_default_agent().unwrap();
     let mut session = ChatSession::new(
         default_agent.id.clone(),
-        AIModel::Gpt5.as_serialized_str().to_string(),
+        ModelId::Gpt5.as_serialized_str().to_string(),
     )
     .with_name("binding-source-test");
     session.source_channel = Some(ChatSessionSource::Workspace);
@@ -160,7 +160,7 @@ async fn test_core_backend_backfills_legacy_external_route_to_binding() {
     let default_agent = core.storage.agents.resolve_default_agent().unwrap();
     let session = ChatSession::new(
         default_agent.id.clone(),
-        AIModel::Gpt5.as_serialized_str().to_string(),
+        ModelId::Gpt5.as_serialized_str().to_string(),
     )
     .with_name("legacy-source-test")
     .with_source(ChatSessionSource::Telegram, "legacy-chat");
@@ -957,9 +957,9 @@ impl MockBackend {
             id: "mock-agent".to_string(),
             name: "Mock Agent".to_string(),
             agent: AgentNode {
-                model: Some(AIModel::ClaudeSonnet4_5),
+                model: Some(ModelId::ClaudeSonnet4_5),
                 model_ref: Some(crate::models::ModelRef::from_model(
-                    AIModel::ClaudeSonnet4_5,
+                    ModelId::ClaudeSonnet4_5,
                 )),
                 prompt: Some("Mock prompt".to_string()),
                 temperature: Some(0.5),
@@ -1675,7 +1675,11 @@ async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
         }),
     )
     .await;
-    assert!(!create.is_error.unwrap_or(false), "{}", call_tool_text(&create));
+    assert!(
+        !create.is_error.unwrap_or(false),
+        "{}",
+        call_tool_text(&create)
+    );
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
     let task_id = created["id"]
@@ -1722,7 +1726,11 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
         }),
     )
     .await;
-    assert!(!create.is_error.unwrap_or(false), "{}", call_tool_text(&create));
+    assert!(
+        !create.is_error.unwrap_or(false),
+        "{}",
+        call_tool_text(&create)
+    );
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
     let task_id = created["id"]
@@ -1781,7 +1789,11 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
         }),
     )
     .await;
-    assert!(!create.is_error.unwrap_or(false), "{}", call_tool_text(&create));
+    assert!(
+        !create.is_error.unwrap_or(false),
+        "{}",
+        call_tool_text(&create)
+    );
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
     let task_id = created["id"]
@@ -1821,7 +1833,11 @@ async fn test_mcp_manage_background_agents_list_deliverables_accepts_prefix() {
         }),
     )
     .await;
-    assert!(!create.is_error.unwrap_or(false), "{}", call_tool_text(&create));
+    assert!(
+        !create.is_error.unwrap_or(false),
+        "{}",
+        call_tool_text(&create)
+    );
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
     let task_id = created["id"]

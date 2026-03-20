@@ -336,7 +336,7 @@ fn path_file_name(path: &std::path::Path) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::AIModel;
+    use crate::models::ModelId;
     use crate::prompt_files;
     use tempfile::tempdir;
 
@@ -350,9 +350,9 @@ mod tests {
         use crate::models::ApiKeyConfig;
 
         AgentNode {
-            model: Some(AIModel::ClaudeSonnet4_5),
+            model: Some(ModelId::ClaudeSonnet4_5),
             model_ref: Some(crate::models::ModelRef::from_model(
-                AIModel::ClaudeSonnet4_5,
+                ModelId::ClaudeSonnet4_5,
             )),
             prompt: Some("You are a helpful assistant".to_string()),
             temperature: Some(0.7),
@@ -390,7 +390,7 @@ mod tests {
 
         let agent = retrieved.unwrap();
         assert_eq!(agent.name, "Test Agent");
-        assert_eq!(agent.agent.model, Some(AIModel::ClaudeSonnet4_5));
+        assert_eq!(agent.agent.model, Some(ModelId::ClaudeSonnet4_5));
         assert!(prompts_dir.join("test-agent.md").exists());
         unsafe { std::env::remove_var(AGENTS_DIR_ENV) };
     }
@@ -443,7 +443,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(updated.name, "Updated Name");
-        assert_eq!(updated.agent.model, Some(AIModel::ClaudeSonnet4_5));
+        assert_eq!(updated.agent.model, Some(ModelId::ClaudeSonnet4_5));
 
         let mut new_agent_node = create_test_agent_node();
         new_agent_node.temperature = Some(0.9);

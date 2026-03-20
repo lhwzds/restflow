@@ -13,7 +13,7 @@ use crate::channel::{
     ChannelReplySender, ChannelRouter, ChannelType, InboundMessage, OutboundMessage,
 };
 use crate::models::{
-    AIModel, ChannelSessionBinding, ChatMessage, ChatSession, ChatSessionSource, MessageExecution,
+    ModelId, ChannelSessionBinding, ChatMessage, ChatSession, ChatSessionSource, MessageExecution,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};
@@ -520,7 +520,7 @@ impl ChatSessionManager {
             .agent
             .model
             .map(|m| m.as_serialized_str().to_string())
-            .unwrap_or_else(|| AIModel::Gpt5.as_serialized_str().to_string()))
+            .unwrap_or_else(|| ModelId::Gpt5.as_serialized_str().to_string()))
     }
 
     fn maybe_rebind_to_forced_default(&self, session: &mut ChatSession) -> Result<()> {
@@ -1063,7 +1063,7 @@ impl ChatDispatcher {
 #[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use crate::AIModel;
+    use crate::ModelId;
     use crate::channel::ChannelType;
     use crate::models::ChatSessionSource;
     use crate::runtime::effective_main_agent_tool_names;
@@ -1282,20 +1282,20 @@ mod tests {
             .agents
             .create_agent(
                 "Issue Finder Agent".to_string(),
-                AgentNode::with_model(AIModel::CodexCli),
+                AgentNode::with_model(ModelId::CodexCli),
             )
             .unwrap();
         let default_agent = storage
             .agents
             .create_agent(
                 crate::storage::agent::DEFAULT_ASSISTANT_NAME.to_string(),
-                AgentNode::with_model(AIModel::ClaudeSonnet4_5),
+                AgentNode::with_model(ModelId::ClaudeSonnet4_5),
             )
             .unwrap();
 
         let stale = ChatSession::new(
             non_default.id.clone(),
-            AIModel::CodexCli.as_str().to_string(),
+            ModelId::CodexCli.as_str().to_string(),
         )
         .with_name("conv-rebind")
         .with_source(ChatSessionSource::Telegram, "conv-rebind");
@@ -1310,10 +1310,10 @@ mod tests {
 
         assert_eq!(session.id, stale.id);
         assert_eq!(session.agent_id, default_agent.id);
-        assert_eq!(session.model, AIModel::ClaudeSonnet4_5.as_str());
+        assert_eq!(session.model, ModelId::ClaudeSonnet4_5.as_str());
         assert_eq!(
             session.metadata.last_model.as_deref(),
-            Some(AIModel::ClaudeSonnet4_5.as_str())
+            Some(ModelId::ClaudeSonnet4_5.as_str())
         );
         unsafe { std::env::remove_var("RESTFLOW_AGENTS_DIR") };
     }
@@ -1332,7 +1332,7 @@ mod tests {
 
         let legacy = ChatSession::new(
             agent_id.clone(),
-            AIModel::Gpt5.as_serialized_str().to_string(),
+            ModelId::Gpt5.as_serialized_str().to_string(),
         )
         .with_name("conv-legacy")
         .with_source(ChatSessionSource::ExternalLegacy, "conv-legacy");
@@ -1517,14 +1517,14 @@ mod tests {
             .agents
             .create_agent(
                 "Stale Agent".to_string(),
-                AgentNode::with_model(AIModel::ClaudeSonnet4_5),
+                AgentNode::with_model(ModelId::ClaudeSonnet4_5),
             )
             .unwrap();
         let fallback = storage
             .agents
             .create_agent(
                 "Fallback Agent".to_string(),
-                AgentNode::with_model(AIModel::CodexCli),
+                AgentNode::with_model(ModelId::CodexCli),
             )
             .unwrap();
 
@@ -1539,16 +1539,16 @@ mod tests {
             .expect("session should rebind");
 
         assert_eq!(rebound.agent_id, fallback.id);
-        assert_eq!(rebound.model, AIModel::CodexCli.as_str());
+        assert_eq!(rebound.model, ModelId::CodexCli.as_str());
         assert_eq!(
             rebound.metadata.last_model.as_deref(),
-            Some(AIModel::CodexCli.as_str())
+            Some(ModelId::CodexCli.as_str())
         );
     }
 
     #[test]
     fn test_model_specs_include_codex_entries() {
-        let specs = AIModel::build_model_specs();
+        let specs = ModelId::build_model_specs();
 
         assert!(
             specs

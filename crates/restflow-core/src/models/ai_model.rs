@@ -102,7 +102,7 @@ impl Provider {
     }
 
     pub fn api_key_env(&self) -> Option<&'static str> {
-        match self {
+        match *self {
             Self::OpenAI => Some("OPENAI_API_KEY"),
             Self::Anthropic => Some("ANTHROPIC_API_KEY"),
             Self::ClaudeCode => None,
@@ -126,7 +126,7 @@ impl Provider {
 
     /// Convert Provider to LLM provider used by runtime factory.
     pub fn as_llm_provider(&self) -> LlmProvider {
-        match self {
+        match *self {
             Self::OpenAI => LlmProvider::OpenAI,
             Self::Anthropic => LlmProvider::Anthropic,
             Self::ClaudeCode => LlmProvider::Anthropic,
@@ -150,7 +150,7 @@ impl Provider {
 
     /// Convert to shared provider identity used by cross-crate parsers.
     pub fn as_model_provider(&self) -> ModelProvider {
-        match self {
+        match *self {
             Self::OpenAI => ModelProvider::OpenAI,
             Self::Anthropic => ModelProvider::Anthropic,
             Self::ClaudeCode => ModelProvider::ClaudeCode,
@@ -209,26 +209,26 @@ impl Provider {
     }
 
     /// Get the best available model for this provider.
-    pub fn flagship_model(&self) -> AIModel {
-        match self {
-            Self::OpenAI => AIModel::Gpt5,
-            Self::Anthropic => AIModel::ClaudeSonnet4_5,
-            Self::ClaudeCode => AIModel::ClaudeCodeOpus,
-            Self::Codex => AIModel::CodexCli,
-            Self::DeepSeek => AIModel::DeepseekChat,
-            Self::Google => AIModel::Gemini3Pro,
-            Self::Groq => AIModel::GroqLlama4Maverick,
-            Self::OpenRouter => AIModel::OrClaudeOpus4_6,
-            Self::XAI => AIModel::Grok4,
-            Self::Qwen => AIModel::Qwen3Max,
-            Self::Zai => AIModel::Glm5,
-            Self::ZaiCodingPlan => AIModel::Glm5CodingPlan,
-            Self::Moonshot => AIModel::KimiK2_5,
-            Self::Doubao => AIModel::DoubaoPro,
-            Self::Yi => AIModel::YiLightning,
-            Self::SiliconFlow => AIModel::SiliconFlowAuto,
-            Self::MiniMax => AIModel::MiniMaxM27,
-            Self::MiniMaxCodingPlan => AIModel::MiniMaxM25CodingPlan,
+    pub fn flagship_model(&self) -> ModelId {
+        match *self {
+            Self::OpenAI => ModelId::Gpt5,
+            Self::Anthropic => ModelId::ClaudeSonnet4_5,
+            Self::ClaudeCode => ModelId::ClaudeCodeOpus,
+            Self::Codex => ModelId::CodexCli,
+            Self::DeepSeek => ModelId::DeepseekChat,
+            Self::Google => ModelId::Gemini3Pro,
+            Self::Groq => ModelId::GroqLlama4Maverick,
+            Self::OpenRouter => ModelId::OrClaudeOpus4_6,
+            Self::XAI => ModelId::Grok4,
+            Self::Qwen => ModelId::Qwen3Max,
+            Self::Zai => ModelId::Glm5,
+            Self::ZaiCodingPlan => ModelId::Glm5CodingPlan,
+            Self::Moonshot => ModelId::KimiK2_5,
+            Self::Doubao => ModelId::DoubaoPro,
+            Self::Yi => ModelId::YiLightning,
+            Self::SiliconFlow => ModelId::SiliconFlowAuto,
+            Self::MiniMax => ModelId::MiniMaxM27,
+            Self::MiniMaxCodingPlan => ModelId::MiniMaxM25CodingPlan,
         }
     }
 }
@@ -245,7 +245,7 @@ pub struct ModelMetadata {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
 #[ts(export)]
 pub struct ModelMetadataDTO {
-    pub model: AIModel,
+    pub model: ModelId,
     pub provider: Provider,
     pub supports_temperature: bool,
     pub name: String,
@@ -256,12 +256,12 @@ pub struct ModelMetadataDTO {
 #[ts(export)]
 pub struct ModelRef {
     pub provider: Provider,
-    pub model: AIModel,
+    pub model: ModelId,
 }
 
 impl ModelRef {
     /// Build a consistent model reference from a model enum.
-    pub fn from_model(model: AIModel) -> Self {
+    pub fn from_model(model: ModelId) -> Self {
         Self {
             provider: model.provider(),
             model,
@@ -298,178 +298,181 @@ impl ModelRef {
     /// Normalize legacy provider/model combinations into canonical provider identities.
     pub fn normalized(&self) -> Self {
         Self {
-            provider: AIModel::normalize_provider_for_model(self.model, self.provider),
+            provider: ModelId::normalize_provider_for_model(self.model, self.provider),
             model: self.model,
         }
     }
 }
 
-/// AI model enum - Single Source of Truth for all supported models
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
-#[ts(export)]
-#[serde(rename_all = "kebab-case")]
-pub enum AIModel {
-    // OpenAI GPT-5 series (no temperature support)
-    #[serde(rename = "gpt-5")]
-    Gpt5,
-    #[serde(rename = "gpt-5-mini")]
-    Gpt5Mini,
-    #[serde(rename = "gpt-5-nano")]
-    Gpt5Nano,
-    #[serde(rename = "gpt-5-pro")]
-    Gpt5Pro,
-    #[serde(rename = "gpt-5-1")]
-    Gpt5_1,
-    #[serde(rename = "gpt-5-2")]
-    Gpt5_2,
+/// Canonical model identifier.
+///
+/// This replaces the old large enum with a lightweight value object backed by
+/// the provider/model catalog.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TS, Type)]
+#[ts(type = "string")]
+pub struct ModelId(&'static str);
 
-    // Anthropic Claude series (latest models only, for direct API)
-    #[serde(rename = "claude-opus-4-6")]
-    ClaudeOpus4_6,
-    #[serde(rename = "claude-sonnet-4-5")]
-    ClaudeSonnet4_5,
-    #[serde(rename = "claude-haiku-4-5")]
-    ClaudeHaiku4_5,
-
-    // Claude Code CLI aliases (for use with claude CLI tool)
-    #[serde(rename = "claude-code-opus")]
-    ClaudeCodeOpus,
-    #[serde(rename = "claude-code-sonnet")]
-    ClaudeCodeSonnet,
-    #[serde(rename = "claude-code-haiku")]
-    ClaudeCodeHaiku,
-
-    // DeepSeek series
-    #[serde(rename = "deepseek-chat")]
-    DeepseekChat,
-    #[serde(rename = "deepseek-reasoner")]
-    DeepseekReasoner,
-
-    // Google Gemini (OpenAI-compatible endpoint)
-    #[serde(rename = "gemini-2-5-pro")]
-    Gemini25Pro,
-    #[serde(rename = "gemini-2-5-flash")]
-    Gemini25Flash,
-    #[serde(rename = "gemini-3-pro")]
-    Gemini3Pro,
-    #[serde(rename = "gemini-3-flash")]
-    Gemini3Flash,
-
-    // Groq
-    #[serde(rename = "groq-llama4-scout")]
-    GroqLlama4Scout,
-    #[serde(rename = "groq-llama4-maverick")]
-    GroqLlama4Maverick,
-
-    // X.AI
-    #[serde(rename = "grok-4")]
-    Grok4,
-    #[serde(rename = "grok-3-mini")]
-    Grok3Mini,
-
-    // OpenRouter
-    #[serde(rename = "openrouter")]
-    OpenRouterAuto,
-
-    // OpenRouter flagship models (via openrouter.ai/api/v1)
-    #[serde(rename = "or-claude-opus-4-6")]
-    OrClaudeOpus4_6,
-    #[serde(rename = "or-gpt-5")]
-    OrGpt5,
-    #[serde(rename = "or-gemini-3-pro")]
-    OrGemini3Pro,
-    #[serde(rename = "or-deepseek-v3-2")]
-    OrDeepseekV3_2,
-    #[serde(rename = "or-grok-4")]
-    OrGrok4,
-    #[serde(rename = "or-llama-4-maverick")]
-    OrLlama4Maverick,
-    #[serde(rename = "or-qwen3-coder")]
-    OrQwen3Coder,
-    #[serde(rename = "or-devstral-2")]
-    OrDevstral2,
-    #[serde(rename = "or-glm-4-7")]
-    OrGlm4_7,
-    #[serde(rename = "or-kimi-k2-5")]
-    OrKimiK2_5,
-    #[serde(rename = "or-minimax-m2-1")]
-    OrMinimaxM2_1,
-
-    // Qwen
-    #[serde(rename = "qwen3-max")]
-    Qwen3Max,
-    #[serde(rename = "qwen3-plus")]
-    Qwen3Plus,
-
-    // Zai
-    #[serde(rename = "glm-5")]
-    Glm5,
-    #[serde(rename = "glm-5-turbo")]
-    Glm5Turbo,
-    #[serde(rename = "glm-5-code")]
-    Glm5Code,
-    #[serde(rename = "glm-4-7")]
-    Glm4_7,
-    #[serde(rename = "zai-coding-plan-glm-5")]
-    Glm5CodingPlan,
-    #[serde(rename = "zai-coding-plan-glm-5-turbo")]
-    Glm5TurboCodingPlan,
-    #[serde(rename = "zai-coding-plan-glm-5-code")]
-    Glm5CodeCodingPlan,
-    #[serde(rename = "zai-coding-plan-glm-4-7")]
-    Glm4_7CodingPlan,
-
-    // Moonshot
-    #[serde(rename = "kimi-k2-5")]
-    KimiK2_5,
-
-    // Doubao
-    #[serde(rename = "doubao-pro")]
-    DoubaoPro,
-
-    // Yi
-    #[serde(rename = "yi-lightning")]
-    YiLightning,
-
-    // SiliconFlow
-    #[serde(rename = "siliconflow")]
-    SiliconFlowAuto,
-
-    // MiniMax (Anthropic-compatible API)
-    #[serde(rename = "minimax-m2-1")]
-    MiniMaxM21,
-    #[serde(rename = "minimax-m2-5")]
-    MiniMaxM25,
-    #[serde(rename = "minimax-m2-7")]
-    MiniMaxM27,
-    #[serde(rename = "minimax-m2-7-highspeed")]
-    MiniMaxM27Highspeed,
-    #[serde(rename = "minimax-coding-plan-m2-1")]
-    MiniMaxM21CodingPlan,
-    #[serde(rename = "minimax-coding-plan-m2-5")]
-    MiniMaxM25CodingPlan,
-
-    // Codex CLI (OpenAI)
-    #[serde(rename = "gpt-5-codex")]
-    Gpt5Codex,
-    #[serde(rename = "gpt-5.1-codex")]
-    Gpt5_1Codex,
-    #[serde(rename = "gpt-5.2-codex")]
-    Gpt5_2Codex,
-    #[serde(rename = "gpt-5.3-codex")]
-    CodexCli,
-
-    // OpenCode CLI (multi-provider)
-    #[serde(rename = "opencode-cli")]
-    OpenCodeCli,
-
-    // Gemini CLI (Google)
-    #[serde(rename = "gemini-cli")]
-    GeminiCli,
+impl Serialize for ModelId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.0)
+    }
 }
 
-impl AIModel {
-    /// Convert AIModel to ModelSpec used by runtime LLM factory.
+impl<'de> Deserialize<'de> for ModelId {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::from_api_name(&raw)
+            .or_else(|| Self::from_canonical_id(&raw))
+            .or_else(|| Self::from_serialized_str(&raw))
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown model: {raw}")))
+    }
+}
+
+#[allow(non_upper_case_globals)]
+impl ModelId {
+    pub const Gpt5: Self = Self("gpt-5");
+    pub const Gpt5Mini: Self = Self("gpt-5-mini");
+    pub const Gpt5Nano: Self = Self("gpt-5-nano");
+    pub const Gpt5Pro: Self = Self("gpt-5-pro");
+    pub const Gpt5_1: Self = Self("gpt-5-1");
+    pub const Gpt5_2: Self = Self("gpt-5-2");
+    pub const ClaudeOpus4_6: Self = Self("claude-opus-4-6");
+    pub const ClaudeSonnet4_5: Self = Self("claude-sonnet-4-5");
+    pub const ClaudeHaiku4_5: Self = Self("claude-haiku-4-5");
+    pub const ClaudeCodeOpus: Self = Self("claude-code-opus");
+    pub const ClaudeCodeSonnet: Self = Self("claude-code-sonnet");
+    pub const ClaudeCodeHaiku: Self = Self("claude-code-haiku");
+    pub const DeepseekChat: Self = Self("deepseek-chat");
+    pub const DeepseekReasoner: Self = Self("deepseek-reasoner");
+    pub const Gemini25Pro: Self = Self("gemini-2-5-pro");
+    pub const Gemini25Flash: Self = Self("gemini-2-5-flash");
+    pub const Gemini3Pro: Self = Self("gemini-3-pro");
+    pub const Gemini3Flash: Self = Self("gemini-3-flash");
+    pub const GroqLlama4Scout: Self = Self("groq-llama4-scout");
+    pub const GroqLlama4Maverick: Self = Self("groq-llama4-maverick");
+    pub const Grok4: Self = Self("grok-4");
+    pub const Grok3Mini: Self = Self("grok-3-mini");
+    pub const OpenRouterAuto: Self = Self("openrouter");
+    pub const OrClaudeOpus4_6: Self = Self("or-claude-opus-4-6");
+    pub const OrGpt5: Self = Self("or-gpt-5");
+    pub const OrGemini3Pro: Self = Self("or-gemini-3-pro");
+    pub const OrDeepseekV3_2: Self = Self("or-deepseek-v3-2");
+    pub const OrGrok4: Self = Self("or-grok-4");
+    pub const OrLlama4Maverick: Self = Self("or-llama-4-maverick");
+    pub const OrQwen3Coder: Self = Self("or-qwen3-coder");
+    pub const OrDevstral2: Self = Self("or-devstral-2");
+    pub const OrGlm4_7: Self = Self("or-glm-4-7");
+    pub const OrKimiK2_5: Self = Self("or-kimi-k2-5");
+    pub const OrMinimaxM2_1: Self = Self("or-minimax-m2-1");
+    pub const Qwen3Max: Self = Self("qwen3-max");
+    pub const Qwen3Plus: Self = Self("qwen3-plus");
+    pub const Glm5: Self = Self("glm-5");
+    pub const Glm5Turbo: Self = Self("glm-5-turbo");
+    pub const Glm5Code: Self = Self("glm-5-code");
+    pub const Glm4_7: Self = Self("glm-4-7");
+    pub const Glm5CodingPlan: Self = Self("zai-coding-plan-glm-5");
+    pub const Glm5TurboCodingPlan: Self = Self("zai-coding-plan-glm-5-turbo");
+    pub const Glm5CodeCodingPlan: Self = Self("zai-coding-plan-glm-5-code");
+    pub const Glm4_7CodingPlan: Self = Self("zai-coding-plan-glm-4-7");
+    pub const KimiK2_5: Self = Self("kimi-k2-5");
+    pub const DoubaoPro: Self = Self("doubao-pro");
+    pub const YiLightning: Self = Self("yi-lightning");
+    pub const SiliconFlowAuto: Self = Self("siliconflow");
+    pub const MiniMaxM21: Self = Self("minimax-m2-1");
+    pub const MiniMaxM25: Self = Self("minimax-m2-5");
+    pub const MiniMaxM27: Self = Self("minimax-m2-7");
+    pub const MiniMaxM27Highspeed: Self = Self("minimax-m2-7-highspeed");
+    pub const MiniMaxM21CodingPlan: Self = Self("minimax-coding-plan-m2-1");
+    pub const MiniMaxM25CodingPlan: Self = Self("minimax-coding-plan-m2-5");
+    pub const Gpt5Codex: Self = Self("gpt-5-codex");
+    pub const Gpt5_1Codex: Self = Self("gpt-5.1-codex");
+    pub const Gpt5_2Codex: Self = Self("gpt-5.2-codex");
+    pub const CodexCli: Self = Self("gpt-5.3-codex");
+    pub const OpenCodeCli: Self = Self("opencode-cli");
+    pub const GeminiCli: Self = Self("gemini-cli");
+
+    pub const fn as_serialized_str(&self) -> &'static str {
+        self.0
+    }
+
+    pub fn from_serialized_str(value: &str) -> Option<Self> {
+        Self::all().iter().copied().find(|model| model.as_serialized_str() == value.trim())
+    }
+
+    pub fn all() -> &'static [Self] {
+        &[
+        Self::Gpt5,
+        Self::Gpt5Mini,
+        Self::Gpt5Nano,
+        Self::Gpt5Pro,
+        Self::Gpt5_1,
+        Self::Gpt5_2,
+        Self::ClaudeOpus4_6,
+        Self::ClaudeSonnet4_5,
+        Self::ClaudeHaiku4_5,
+        Self::ClaudeCodeOpus,
+        Self::ClaudeCodeSonnet,
+        Self::ClaudeCodeHaiku,
+        Self::DeepseekChat,
+        Self::DeepseekReasoner,
+        Self::Gemini25Pro,
+        Self::Gemini25Flash,
+        Self::Gemini3Pro,
+        Self::Gemini3Flash,
+        Self::GroqLlama4Scout,
+        Self::GroqLlama4Maverick,
+        Self::Grok4,
+        Self::Grok3Mini,
+        Self::OpenRouterAuto,
+        Self::OrClaudeOpus4_6,
+        Self::OrGpt5,
+        Self::OrGemini3Pro,
+        Self::OrDeepseekV3_2,
+        Self::OrGrok4,
+        Self::OrLlama4Maverick,
+        Self::OrQwen3Coder,
+        Self::OrDevstral2,
+        Self::OrGlm4_7,
+        Self::OrKimiK2_5,
+        Self::OrMinimaxM2_1,
+        Self::Qwen3Max,
+        Self::Qwen3Plus,
+        Self::Glm5,
+        Self::Glm5Turbo,
+        Self::Glm5Code,
+        Self::Glm4_7,
+        Self::Glm5CodingPlan,
+        Self::Glm5TurboCodingPlan,
+        Self::Glm5CodeCodingPlan,
+        Self::Glm4_7CodingPlan,
+        Self::KimiK2_5,
+        Self::DoubaoPro,
+        Self::YiLightning,
+        Self::SiliconFlowAuto,
+        Self::MiniMaxM21,
+        Self::MiniMaxM25,
+        Self::MiniMaxM27,
+        Self::MiniMaxM27Highspeed,
+        Self::MiniMaxM21CodingPlan,
+        Self::MiniMaxM25CodingPlan,
+        Self::Gpt5Codex,
+        Self::Gpt5_1Codex,
+        Self::Gpt5_2Codex,
+        Self::CodexCli,
+        Self::OpenCodeCli,
+        Self::GeminiCli
+        ]
+    }
+}
+
+impl ModelId {
+    /// Convert ModelId to ModelSpec used by runtime LLM factory.
     pub fn as_model_spec(&self) -> ModelSpec {
         let provider = self.provider().as_llm_provider();
         if self.is_opencode_cli() {
@@ -479,7 +482,7 @@ impl AIModel {
         } else if self.is_gemini_cli() {
             ModelSpec::gemini_cli(self.as_serialized_str(), self.as_str())
         } else if matches!(self.provider(), Provider::ZaiCodingPlan)
-            || matches!(self, Self::Glm5Code)
+            || matches!(*self, Self::Glm5Code)
         {
             ModelSpec::new(self.as_serialized_str(), provider, self.as_str())
                 .with_base_url("https://api.z.ai/api/coding/paas/v4")
@@ -506,7 +509,7 @@ impl AIModel {
 
     /// Get comprehensive metadata for this model
     pub fn metadata(&self) -> ModelMetadata {
-        match self {
+        match *self {
             // GPT-5 series (no temperature support)
             Self::Gpt5 => ModelMetadata {
                 provider: Provider::OpenAI,
@@ -842,6 +845,7 @@ impl AIModel {
                 supports_temperature: false,
                 name: "Gemini CLI",
             },
+            _ => panic!("unknown model metadata: {}", self.as_serialized_str()),
         }
     }
 
@@ -851,7 +855,7 @@ impl AIModel {
     }
 
     /// Normalize a provider against model-specific canonical ownership.
-    pub fn normalize_provider_for_model(model: AIModel, provider: Provider) -> Provider {
+    pub fn normalize_provider_for_model(model: ModelId, provider: Provider) -> Provider {
         if model.is_claude_code() && provider == Provider::Anthropic {
             Provider::ClaudeCode
         } else if model.is_codex_cli() && provider == Provider::OpenAI {
@@ -879,7 +883,7 @@ impl AIModel {
         )
     }
 
-    /// Parse a canonical model ID back to AIModel.
+    /// Parse a canonical model ID back to ModelId.
     /// Accepts both "provider:model" format and legacy model-only strings.
     ///
     /// Returns None if the model string is not recognized.
@@ -936,7 +940,7 @@ impl AIModel {
 
     /// Get the string representation used for API calls
     pub fn as_str(&self) -> &'static str {
-        match self {
+        match *self {
             // GPT-5 series
             Self::Gpt5 => "gpt-5",
             Self::Gpt5Mini => "gpt-5-mini",
@@ -1032,10 +1036,11 @@ impl AIModel {
             Self::MiniMaxM27Highspeed => "MiniMax-M2.7-highspeed",
             Self::MiniMaxM21CodingPlan => "MiniMax-M2.1",
             Self::MiniMaxM25CodingPlan => "MiniMax-M2.5",
+            _ => panic!("unknown model api name: {}", self.as_serialized_str()),
         }
     }
 
-    /// Convert an API model name into an AIModel.
+    /// Convert an API model name into an ModelId.
     pub fn from_api_name(name: &str) -> Option<Self> {
         let normalized = name.trim();
         if normalized.is_empty() {
@@ -1167,7 +1172,7 @@ impl AIModel {
             return Some(*self);
         }
 
-        let canonical = match self {
+        let canonical = match *self {
             Self::MiniMaxM21 | Self::MiniMaxM21CodingPlan => "minimax-m2-1",
             Self::MiniMaxM25 | Self::MiniMaxM25CodingPlan => "minimax-m2-5",
             Self::MiniMaxM27 => "minimax-m2-7",
@@ -1187,111 +1192,10 @@ impl AIModel {
         self.metadata().name
     }
 
-    /// Get the serialized string representation (serde rename)
-    pub fn as_serialized_str(&self) -> &'static str {
-        match self {
-            // GPT-5 series
-            Self::Gpt5 => "gpt-5",
-            Self::Gpt5Mini => "gpt-5-mini",
-            Self::Gpt5Nano => "gpt-5-nano",
-            Self::Gpt5Pro => "gpt-5-pro",
-            Self::Gpt5_1 => "gpt-5-1",
-            Self::Gpt5_2 => "gpt-5-2",
-
-            // Claude series (direct API)
-            Self::ClaudeOpus4_6 => "claude-opus-4-6",
-            Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
-            Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
-
-            // Claude Code CLI aliases
-            Self::ClaudeCodeOpus => "claude-code-opus",
-            Self::ClaudeCodeSonnet => "claude-code-sonnet",
-            Self::ClaudeCodeHaiku => "claude-code-haiku",
-
-            // DeepSeek series
-            Self::DeepseekChat => "deepseek-chat",
-            Self::DeepseekReasoner => "deepseek-reasoner",
-
-            // Google Gemini
-            Self::Gemini25Pro => "gemini-2-5-pro",
-            Self::Gemini25Flash => "gemini-2-5-flash",
-            Self::Gemini3Pro => "gemini-3-pro",
-            Self::Gemini3Flash => "gemini-3-flash",
-
-            // Groq
-            Self::GroqLlama4Scout => "groq-llama4-scout",
-            Self::GroqLlama4Maverick => "groq-llama4-maverick",
-
-            // X.AI
-            Self::Grok4 => "grok-4",
-            Self::Grok3Mini => "grok-3-mini",
-
-            // OpenRouter
-            Self::OpenRouterAuto => "openrouter",
-            Self::OrClaudeOpus4_6 => "or-claude-opus-4-6",
-            Self::OrGpt5 => "or-gpt-5",
-            Self::OrGemini3Pro => "or-gemini-3-pro",
-            Self::OrDeepseekV3_2 => "or-deepseek-v3-2",
-            Self::OrGrok4 => "or-grok-4",
-            Self::OrLlama4Maverick => "or-llama-4-maverick",
-            Self::OrQwen3Coder => "or-qwen3-coder",
-            Self::OrDevstral2 => "or-devstral-2",
-            Self::OrGlm4_7 => "or-glm-4-7",
-            Self::OrKimiK2_5 => "or-kimi-k2-5",
-            Self::OrMinimaxM2_1 => "or-minimax-m2-1",
-
-            // Qwen
-            Self::Qwen3Max => "qwen3-max",
-            Self::Qwen3Plus => "qwen3-plus",
-
-            // Zai
-            Self::Glm5 => "glm-5",
-            Self::Glm5Turbo => "glm-5-turbo",
-            Self::Glm5Code => "glm-5-code",
-            Self::Glm4_7 => "glm-4-7",
-            Self::Glm5CodingPlan => "zai-coding-plan-glm-5",
-            Self::Glm5TurboCodingPlan => "zai-coding-plan-glm-5-turbo",
-            Self::Glm5CodeCodingPlan => "zai-coding-plan-glm-5-code",
-            Self::Glm4_7CodingPlan => "zai-coding-plan-glm-4-7",
-
-            // Moonshot
-            Self::KimiK2_5 => "kimi-k2-5",
-
-            // Doubao
-            Self::DoubaoPro => "doubao-pro",
-
-            // Yi
-            Self::YiLightning => "yi-lightning",
-
-            // SiliconFlow
-            Self::SiliconFlowAuto => "siliconflow",
-
-            // MiniMax
-            Self::MiniMaxM21 => "minimax-m2-1",
-            Self::MiniMaxM25 => "minimax-m2-5",
-            Self::MiniMaxM27 => "minimax-m2-7",
-            Self::MiniMaxM27Highspeed => "minimax-m2-7-highspeed",
-            Self::MiniMaxM21CodingPlan => "minimax-coding-plan-m2-1",
-            Self::MiniMaxM25CodingPlan => "minimax-coding-plan-m2-5",
-
-            // Codex CLI
-            Self::Gpt5Codex => "gpt-5-codex",
-            Self::Gpt5_1Codex => "gpt-5.1-codex",
-            Self::Gpt5_2Codex => "gpt-5.2-codex",
-            Self::CodexCli => "gpt-5.3-codex",
-
-            // OpenCode CLI
-            Self::OpenCodeCli => "opencode-cli",
-
-            // Gemini CLI
-            Self::GeminiCli => "gemini-cli",
-        }
-    }
-
     /// Check if this model uses the Codex CLI
     pub fn is_codex_cli(&self) -> bool {
         matches!(
-            self,
+            *self,
             Self::Gpt5Codex | Self::Gpt5_1Codex | Self::Gpt5_2Codex | Self::CodexCli
         )
     }
@@ -1299,19 +1203,19 @@ impl AIModel {
     /// Check if this model uses the Claude Code CLI
     pub fn is_claude_code(&self) -> bool {
         matches!(
-            self,
+            *self,
             Self::ClaudeCodeOpus | Self::ClaudeCodeSonnet | Self::ClaudeCodeHaiku
         )
     }
 
     /// Check if this model uses the OpenCode CLI
     pub fn is_opencode_cli(&self) -> bool {
-        matches!(self, Self::OpenCodeCli)
+        matches!(*self, Self::OpenCodeCli)
     }
 
     /// Check if this model uses the Gemini CLI
     pub fn is_gemini_cli(&self) -> bool {
-        matches!(self, Self::GeminiCli)
+        matches!(*self, Self::GeminiCli)
     }
 
     /// Check if this model is any CLI-based model (manages its own auth)
@@ -1325,7 +1229,7 @@ impl AIModel {
     /// Get a same-provider fallback model (cheaper tier).
     /// Returns None if this is already the cheapest or no fallback exists.
     pub fn same_provider_fallback(&self) -> Option<Self> {
-        match self {
+        match *self {
             // Anthropic: Opus -> Sonnet -> Haiku
             Self::ClaudeOpus4_6 => Some(Self::ClaudeSonnet4_5),
             Self::ClaudeSonnet4_5 => Some(Self::ClaudeHaiku4_5),
@@ -1353,7 +1257,7 @@ impl AIModel {
 
     /// Get the OpenRouter equivalent of this model (if one exists).
     pub fn openrouter_equivalent(&self) -> Option<Self> {
-        match self {
+        match *self {
             Self::ClaudeOpus4_6 | Self::ClaudeSonnet4_5 => Some(Self::OrClaudeOpus4_6),
             Self::Gpt5 | Self::Gpt5Mini | Self::Gpt5Pro => Some(Self::OrGpt5),
             Self::Gemini3Pro | Self::Gemini25Pro => Some(Self::OrGemini3Pro),
@@ -1377,90 +1281,6 @@ impl AIModel {
             | Self::MiniMaxM25CodingPlan => Some(Self::OrMinimaxM2_1),
             _ => None,
         }
-    }
-
-    /// Get all available models as a slice
-    pub fn all() -> &'static [AIModel] {
-        &[
-            // OpenAI
-            Self::Gpt5,
-            Self::Gpt5Mini,
-            Self::Gpt5Nano,
-            Self::Gpt5Pro,
-            Self::Gpt5_1,
-            Self::Gpt5_2,
-            // Anthropic (direct API)
-            Self::ClaudeOpus4_6,
-            Self::ClaudeSonnet4_5,
-            Self::ClaudeHaiku4_5,
-            // Anthropic (Claude Code CLI)
-            Self::ClaudeCodeOpus,
-            Self::ClaudeCodeSonnet,
-            Self::ClaudeCodeHaiku,
-            // DeepSeek
-            Self::DeepseekChat,
-            Self::DeepseekReasoner,
-            // Google Gemini
-            Self::Gemini25Pro,
-            Self::Gemini25Flash,
-            Self::Gemini3Pro,
-            Self::Gemini3Flash,
-            // Groq
-            Self::GroqLlama4Scout,
-            Self::GroqLlama4Maverick,
-            // X.AI
-            Self::Grok4,
-            Self::Grok3Mini,
-            // OpenRouter
-            Self::OpenRouterAuto,
-            Self::OrClaudeOpus4_6,
-            Self::OrGpt5,
-            Self::OrGemini3Pro,
-            Self::OrDeepseekV3_2,
-            Self::OrGrok4,
-            Self::OrLlama4Maverick,
-            Self::OrQwen3Coder,
-            Self::OrDevstral2,
-            Self::OrGlm4_7,
-            Self::OrKimiK2_5,
-            Self::OrMinimaxM2_1,
-            // Qwen
-            Self::Qwen3Max,
-            Self::Qwen3Plus,
-            // Zai
-            Self::Glm5,
-            Self::Glm5Turbo,
-            Self::Glm5Code,
-            Self::Glm4_7,
-            Self::Glm5CodingPlan,
-            Self::Glm5TurboCodingPlan,
-            Self::Glm5CodeCodingPlan,
-            Self::Glm4_7CodingPlan,
-            // Moonshot
-            Self::KimiK2_5,
-            // Doubao
-            Self::DoubaoPro,
-            // Yi
-            Self::YiLightning,
-            // SiliconFlow
-            Self::SiliconFlowAuto,
-            // MiniMax
-            Self::MiniMaxM21,
-            Self::MiniMaxM25,
-            Self::MiniMaxM27,
-            Self::MiniMaxM27Highspeed,
-            Self::MiniMaxM21CodingPlan,
-            Self::MiniMaxM25CodingPlan,
-            // Codex CLI
-            Self::Gpt5Codex,
-            Self::Gpt5_1Codex,
-            Self::Gpt5_2Codex,
-            Self::CodexCli,
-            // OpenCode CLI
-            Self::OpenCodeCli,
-            // Gemini CLI
-            Self::GeminiCli,
-        ]
     }
 
     /// Convert metadata to serializable DTO for frontend
@@ -1489,105 +1309,105 @@ mod tests {
 
     #[test]
     fn test_provider() {
-        assert_eq!(AIModel::Gpt5.provider(), Provider::OpenAI);
-        assert_eq!(AIModel::ClaudeSonnet4_5.provider(), Provider::Anthropic);
-        assert_eq!(AIModel::ClaudeCodeSonnet.provider(), Provider::ClaudeCode);
-        assert_eq!(AIModel::DeepseekChat.provider(), Provider::DeepSeek);
-        assert_eq!(AIModel::Gemini25Pro.provider(), Provider::Google);
-        assert_eq!(AIModel::GroqLlama4Scout.provider(), Provider::Groq);
-        assert_eq!(AIModel::Grok4.provider(), Provider::XAI);
-        assert_eq!(AIModel::Qwen3Max.provider(), Provider::Qwen);
-        assert_eq!(AIModel::Glm4_7.provider(), Provider::Zai);
-        assert_eq!(AIModel::Glm5Turbo.provider(), Provider::Zai);
-        assert_eq!(AIModel::Glm5CodingPlan.provider(), Provider::ZaiCodingPlan);
+        assert_eq!(ModelId::Gpt5.provider(), Provider::OpenAI);
+        assert_eq!(ModelId::ClaudeSonnet4_5.provider(), Provider::Anthropic);
+        assert_eq!(ModelId::ClaudeCodeSonnet.provider(), Provider::ClaudeCode);
+        assert_eq!(ModelId::DeepseekChat.provider(), Provider::DeepSeek);
+        assert_eq!(ModelId::Gemini25Pro.provider(), Provider::Google);
+        assert_eq!(ModelId::GroqLlama4Scout.provider(), Provider::Groq);
+        assert_eq!(ModelId::Grok4.provider(), Provider::XAI);
+        assert_eq!(ModelId::Qwen3Max.provider(), Provider::Qwen);
+        assert_eq!(ModelId::Glm4_7.provider(), Provider::Zai);
+        assert_eq!(ModelId::Glm5Turbo.provider(), Provider::Zai);
+        assert_eq!(ModelId::Glm5CodingPlan.provider(), Provider::ZaiCodingPlan);
         assert_eq!(
-            AIModel::Glm5TurboCodingPlan.provider(),
+            ModelId::Glm5TurboCodingPlan.provider(),
             Provider::ZaiCodingPlan
         );
-        assert_eq!(AIModel::KimiK2_5.provider(), Provider::Moonshot);
-        assert_eq!(AIModel::DoubaoPro.provider(), Provider::Doubao);
-        assert_eq!(AIModel::YiLightning.provider(), Provider::Yi);
-        assert_eq!(AIModel::MiniMaxM25.provider(), Provider::MiniMax);
-        assert_eq!(AIModel::MiniMaxM21.provider(), Provider::MiniMax);
-        assert_eq!(AIModel::MiniMaxM27.provider(), Provider::MiniMax);
-        assert_eq!(AIModel::MiniMaxM27Highspeed.provider(), Provider::MiniMax);
+        assert_eq!(ModelId::KimiK2_5.provider(), Provider::Moonshot);
+        assert_eq!(ModelId::DoubaoPro.provider(), Provider::Doubao);
+        assert_eq!(ModelId::YiLightning.provider(), Provider::Yi);
+        assert_eq!(ModelId::MiniMaxM25.provider(), Provider::MiniMax);
+        assert_eq!(ModelId::MiniMaxM21.provider(), Provider::MiniMax);
+        assert_eq!(ModelId::MiniMaxM27.provider(), Provider::MiniMax);
+        assert_eq!(ModelId::MiniMaxM27Highspeed.provider(), Provider::MiniMax);
         assert_eq!(
-            AIModel::MiniMaxM25CodingPlan.provider(),
+            ModelId::MiniMaxM25CodingPlan.provider(),
             Provider::MiniMaxCodingPlan
         );
-        assert_eq!(AIModel::CodexCli.provider(), Provider::Codex);
+        assert_eq!(ModelId::CodexCli.provider(), Provider::Codex);
     }
 
     #[test]
     fn test_supports_temperature() {
         // Models that don't support temperature
-        assert!(!AIModel::Gpt5.supports_temperature());
-        assert!(!AIModel::Gpt5Mini.supports_temperature());
-        assert!(!AIModel::Gpt5_1.supports_temperature());
-        assert!(!AIModel::Gpt5_2.supports_temperature());
-        assert!(!AIModel::Gpt5Codex.supports_temperature());
-        assert!(!AIModel::Gpt5_1Codex.supports_temperature());
-        assert!(!AIModel::Gpt5_2Codex.supports_temperature());
-        assert!(!AIModel::CodexCli.supports_temperature());
-        assert!(!AIModel::OpenCodeCli.supports_temperature());
-        assert!(!AIModel::GeminiCli.supports_temperature());
+        assert!(!ModelId::Gpt5.supports_temperature());
+        assert!(!ModelId::Gpt5Mini.supports_temperature());
+        assert!(!ModelId::Gpt5_1.supports_temperature());
+        assert!(!ModelId::Gpt5_2.supports_temperature());
+        assert!(!ModelId::Gpt5Codex.supports_temperature());
+        assert!(!ModelId::Gpt5_1Codex.supports_temperature());
+        assert!(!ModelId::Gpt5_2Codex.supports_temperature());
+        assert!(!ModelId::CodexCli.supports_temperature());
+        assert!(!ModelId::OpenCodeCli.supports_temperature());
+        assert!(!ModelId::GeminiCli.supports_temperature());
 
         // Models that support temperature
-        assert!(AIModel::ClaudeSonnet4_5.supports_temperature());
-        assert!(AIModel::ClaudeHaiku4_5.supports_temperature());
-        assert!(AIModel::DeepseekChat.supports_temperature());
-        assert!(AIModel::Gemini25Flash.supports_temperature());
-        assert!(AIModel::GroqLlama4Maverick.supports_temperature());
+        assert!(ModelId::ClaudeSonnet4_5.supports_temperature());
+        assert!(ModelId::ClaudeHaiku4_5.supports_temperature());
+        assert!(ModelId::DeepseekChat.supports_temperature());
+        assert!(ModelId::Gemini25Flash.supports_temperature());
+        assert!(ModelId::GroqLlama4Maverick.supports_temperature());
     }
 
     #[test]
     fn test_is_codex_cli() {
-        assert!(AIModel::Gpt5Codex.is_codex_cli());
-        assert!(AIModel::Gpt5_1Codex.is_codex_cli());
-        assert!(AIModel::Gpt5_2Codex.is_codex_cli());
-        assert!(AIModel::CodexCli.is_codex_cli());
-        assert!(!AIModel::Gpt5.is_codex_cli());
+        assert!(ModelId::Gpt5Codex.is_codex_cli());
+        assert!(ModelId::Gpt5_1Codex.is_codex_cli());
+        assert!(ModelId::Gpt5_2Codex.is_codex_cli());
+        assert!(ModelId::CodexCli.is_codex_cli());
+        assert!(!ModelId::Gpt5.is_codex_cli());
     }
 
     #[test]
     fn test_is_opencode_cli() {
-        assert!(AIModel::OpenCodeCli.is_opencode_cli());
-        assert!(!AIModel::Gpt5.is_opencode_cli());
+        assert!(ModelId::OpenCodeCli.is_opencode_cli());
+        assert!(!ModelId::Gpt5.is_opencode_cli());
     }
 
     #[test]
     fn test_is_gemini_cli() {
-        assert!(AIModel::GeminiCli.is_gemini_cli());
-        assert!(!AIModel::Gpt5.is_gemini_cli());
+        assert!(ModelId::GeminiCli.is_gemini_cli());
+        assert!(!ModelId::Gpt5.is_gemini_cli());
     }
 
     #[test]
     fn test_as_str() {
-        assert_eq!(AIModel::Gpt5.as_str(), "gpt-5");
-        assert_eq!(AIModel::Gpt5_1.as_str(), "gpt-5.1");
-        assert_eq!(AIModel::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
-        assert_eq!(AIModel::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
-        assert_eq!(AIModel::Gpt5Codex.as_str(), "gpt-5-codex");
-        assert_eq!(AIModel::Gpt5_1Codex.as_str(), "gpt-5.1-codex");
-        assert_eq!(AIModel::Gpt5_2Codex.as_str(), "gpt-5.2-codex");
-        assert_eq!(AIModel::CodexCli.as_str(), "gpt-5.3-codex");
-        assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
-        assert_eq!(AIModel::GeminiCli.as_str(), "gemini-2.5-pro");
-        assert_eq!(AIModel::MiniMaxM21.as_str(), "MiniMax-M2.1");
-        assert_eq!(AIModel::MiniMaxM27.as_str(), "MiniMax-M2.7");
+        assert_eq!(ModelId::Gpt5.as_str(), "gpt-5");
+        assert_eq!(ModelId::Gpt5_1.as_str(), "gpt-5.1");
+        assert_eq!(ModelId::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
+        assert_eq!(ModelId::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
+        assert_eq!(ModelId::Gpt5Codex.as_str(), "gpt-5-codex");
+        assert_eq!(ModelId::Gpt5_1Codex.as_str(), "gpt-5.1-codex");
+        assert_eq!(ModelId::Gpt5_2Codex.as_str(), "gpt-5.2-codex");
+        assert_eq!(ModelId::CodexCli.as_str(), "gpt-5.3-codex");
+        assert_eq!(ModelId::OpenCodeCli.as_str(), "opencode");
+        assert_eq!(ModelId::GeminiCli.as_str(), "gemini-2.5-pro");
+        assert_eq!(ModelId::MiniMaxM21.as_str(), "MiniMax-M2.1");
+        assert_eq!(ModelId::MiniMaxM27.as_str(), "MiniMax-M2.7");
         assert_eq!(
-            AIModel::MiniMaxM27Highspeed.as_str(),
+            ModelId::MiniMaxM27Highspeed.as_str(),
             "MiniMax-M2.7-highspeed"
         );
-        assert_eq!(AIModel::MiniMaxM21CodingPlan.as_str(), "MiniMax-M2.1");
-        assert_eq!(AIModel::Glm5Turbo.as_str(), "glm-5-turbo");
-        assert_eq!(AIModel::Glm5Code.as_str(), "glm-5");
-        assert_eq!(AIModel::Glm5CodingPlan.as_str(), "glm-5");
-        assert_eq!(AIModel::Glm5TurboCodingPlan.as_str(), "glm-5-turbo");
-        assert_eq!(AIModel::DeepseekChat.as_str(), "deepseek-chat");
-        assert_eq!(AIModel::Gemini25Pro.as_str(), "gemini-2.5-pro");
+        assert_eq!(ModelId::MiniMaxM21CodingPlan.as_str(), "MiniMax-M2.1");
+        assert_eq!(ModelId::Glm5Turbo.as_str(), "glm-5-turbo");
+        assert_eq!(ModelId::Glm5Code.as_str(), "glm-5");
+        assert_eq!(ModelId::Glm5CodingPlan.as_str(), "glm-5");
+        assert_eq!(ModelId::Glm5TurboCodingPlan.as_str(), "glm-5-turbo");
+        assert_eq!(ModelId::DeepseekChat.as_str(), "deepseek-chat");
+        assert_eq!(ModelId::Gemini25Pro.as_str(), "gemini-2.5-pro");
         assert_eq!(
-            AIModel::GroqLlama4Scout.as_str(),
+            ModelId::GroqLlama4Scout.as_str(),
             "meta-llama/llama-4-scout-17b-16e-instruct"
         );
     }
@@ -1595,131 +1415,131 @@ mod tests {
     #[test]
     fn test_from_api_name() {
         assert_eq!(
-            AIModel::from_api_name("claude-sonnet-4-5-20250514"),
-            Some(AIModel::ClaudeSonnet4_5)
+            ModelId::from_api_name("claude-sonnet-4-5-20250514"),
+            Some(ModelId::ClaudeSonnet4_5)
         );
         assert_eq!(
-            AIModel::from_api_name("claude-sonnet-4-20250514"),
-            Some(AIModel::ClaudeSonnet4_5)
+            ModelId::from_api_name("claude-sonnet-4-20250514"),
+            Some(ModelId::ClaudeSonnet4_5)
         );
-        assert_eq!(AIModel::from_api_name("nonexistent"), None);
+        assert_eq!(ModelId::from_api_name("nonexistent"), None);
     }
 
     #[test]
     fn test_for_provider_and_model() {
         assert_eq!(
-            AIModel::for_provider_and_model(Provider::MiniMax, "minimax-m2-5"),
-            Some(AIModel::MiniMaxM25)
+            ModelId::for_provider_and_model(Provider::MiniMax, "minimax-m2-5"),
+            Some(ModelId::MiniMaxM25)
         );
         assert_eq!(
-            AIModel::for_provider_and_model(Provider::MiniMax, "minimax-m2.7"),
-            Some(AIModel::MiniMaxM27)
+            ModelId::for_provider_and_model(Provider::MiniMax, "minimax-m2.7"),
+            Some(ModelId::MiniMaxM27)
         );
         assert_eq!(
-            AIModel::for_provider_and_model(Provider::MiniMax, "minimax-m2-7-highspeed"),
-            Some(AIModel::MiniMaxM27Highspeed)
+            ModelId::for_provider_and_model(Provider::MiniMax, "minimax-m2-7-highspeed"),
+            Some(ModelId::MiniMaxM27Highspeed)
         );
         assert_eq!(
-            AIModel::for_provider_and_model(Provider::MiniMaxCodingPlan, "minimax-m2-5"),
-            Some(AIModel::MiniMaxM25CodingPlan)
+            ModelId::for_provider_and_model(Provider::MiniMaxCodingPlan, "minimax-m2-5"),
+            Some(ModelId::MiniMaxM25CodingPlan)
         );
         assert_eq!(
-            AIModel::for_provider_and_model(Provider::ZaiCodingPlan, "glm-5"),
-            Some(AIModel::Glm5CodingPlan)
+            ModelId::for_provider_and_model(Provider::ZaiCodingPlan, "glm-5"),
+            Some(ModelId::Glm5CodingPlan)
         );
         assert_eq!(
-            AIModel::for_provider_and_model(Provider::Zai, "glm-5-turbo"),
-            Some(AIModel::Glm5Turbo)
+            ModelId::for_provider_and_model(Provider::Zai, "glm-5-turbo"),
+            Some(ModelId::Glm5Turbo)
         );
         assert_eq!(
-            AIModel::for_provider_and_model(Provider::ZaiCodingPlan, "glm5-turbo"),
-            Some(AIModel::Glm5TurboCodingPlan)
+            ModelId::for_provider_and_model(Provider::ZaiCodingPlan, "glm5-turbo"),
+            Some(ModelId::Glm5TurboCodingPlan)
         );
     }
 
     #[test]
     fn test_remap_provider() {
         assert_eq!(
-            AIModel::MiniMaxM25.remap_provider(Provider::MiniMaxCodingPlan),
-            Some(AIModel::MiniMaxM25CodingPlan)
+            ModelId::MiniMaxM25.remap_provider(Provider::MiniMaxCodingPlan),
+            Some(ModelId::MiniMaxM25CodingPlan)
         );
         assert_eq!(
-            AIModel::MiniMaxM27.remap_provider(Provider::MiniMaxCodingPlan),
+            ModelId::MiniMaxM27.remap_provider(Provider::MiniMaxCodingPlan),
             None
         );
         assert_eq!(
-            AIModel::Glm5CodingPlan.remap_provider(Provider::Zai),
-            Some(AIModel::Glm5)
+            ModelId::Glm5CodingPlan.remap_provider(Provider::Zai),
+            Some(ModelId::Glm5)
         );
         assert_eq!(
-            AIModel::Glm5Turbo.remap_provider(Provider::ZaiCodingPlan),
-            Some(AIModel::Glm5TurboCodingPlan)
+            ModelId::Glm5Turbo.remap_provider(Provider::ZaiCodingPlan),
+            Some(ModelId::Glm5TurboCodingPlan)
         );
         assert_eq!(
-            AIModel::ClaudeSonnet4_5.remap_provider(Provider::MiniMax),
+            ModelId::ClaudeSonnet4_5.remap_provider(Provider::MiniMax),
             None
         );
     }
 
     #[test]
     fn test_display_name() {
-        assert_eq!(AIModel::Gpt5.display_name(), "GPT-5");
-        assert_eq!(AIModel::Gpt5_2.display_name(), "GPT-5.2");
-        assert_eq!(AIModel::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
-        assert_eq!(AIModel::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
-        assert_eq!(AIModel::Gpt5Codex.display_name(), "Codex GPT-5");
-        assert_eq!(AIModel::Gpt5_1Codex.display_name(), "Codex GPT-5.1");
-        assert_eq!(AIModel::Gpt5_2Codex.display_name(), "Codex GPT-5.2");
-        assert_eq!(AIModel::CodexCli.display_name(), "Codex GPT-5.3");
-        assert_eq!(AIModel::OpenCodeCli.display_name(), "OpenCode CLI");
-        assert_eq!(AIModel::GeminiCli.display_name(), "Gemini CLI");
-        assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
-        assert_eq!(AIModel::MiniMaxM21.display_name(), "MiniMax M2.1");
-        assert_eq!(AIModel::MiniMaxM27.display_name(), "MiniMax M2.7");
-        assert_eq!(AIModel::Glm5Turbo.display_name(), "GLM-5 Turbo");
+        assert_eq!(ModelId::Gpt5.display_name(), "GPT-5");
+        assert_eq!(ModelId::Gpt5_2.display_name(), "GPT-5.2");
+        assert_eq!(ModelId::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
+        assert_eq!(ModelId::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
+        assert_eq!(ModelId::Gpt5Codex.display_name(), "Codex GPT-5");
+        assert_eq!(ModelId::Gpt5_1Codex.display_name(), "Codex GPT-5.1");
+        assert_eq!(ModelId::Gpt5_2Codex.display_name(), "Codex GPT-5.2");
+        assert_eq!(ModelId::CodexCli.display_name(), "Codex GPT-5.3");
+        assert_eq!(ModelId::OpenCodeCli.display_name(), "OpenCode CLI");
+        assert_eq!(ModelId::GeminiCli.display_name(), "Gemini CLI");
+        assert_eq!(ModelId::DeepseekChat.display_name(), "DeepSeek Chat");
+        assert_eq!(ModelId::MiniMaxM21.display_name(), "MiniMax M2.1");
+        assert_eq!(ModelId::MiniMaxM27.display_name(), "MiniMax M2.7");
+        assert_eq!(ModelId::Glm5Turbo.display_name(), "GLM-5 Turbo");
     }
 
     #[test]
     fn test_all_models() {
-        let models = AIModel::all();
+        let models = ModelId::all();
         assert_eq!(models.len(), 60);
-        assert!(models.contains(&AIModel::Gpt5));
-        assert!(models.contains(&AIModel::Gpt5_1));
-        assert!(models.contains(&AIModel::ClaudeOpus4_6));
-        assert!(models.contains(&AIModel::ClaudeSonnet4_5));
-        assert!(models.contains(&AIModel::ClaudeHaiku4_5));
-        assert!(models.contains(&AIModel::Gpt5Codex));
-        assert!(models.contains(&AIModel::Gpt5_1Codex));
-        assert!(models.contains(&AIModel::Gpt5_2Codex));
-        assert!(models.contains(&AIModel::CodexCli));
-        assert!(models.contains(&AIModel::OpenCodeCli));
-        assert!(models.contains(&AIModel::GeminiCli));
-        assert!(models.contains(&AIModel::DeepseekChat));
-        assert!(models.contains(&AIModel::Gemini25Pro));
-        assert!(models.contains(&AIModel::MiniMaxM21));
-        assert!(models.contains(&AIModel::MiniMaxM27));
-        assert!(models.contains(&AIModel::MiniMaxM27Highspeed));
-        assert!(models.contains(&AIModel::MiniMaxM21CodingPlan));
-        assert!(models.contains(&AIModel::Glm5Turbo));
-        assert!(models.contains(&AIModel::Glm5TurboCodingPlan));
+        assert!(models.contains(&ModelId::Gpt5));
+        assert!(models.contains(&ModelId::Gpt5_1));
+        assert!(models.contains(&ModelId::ClaudeOpus4_6));
+        assert!(models.contains(&ModelId::ClaudeSonnet4_5));
+        assert!(models.contains(&ModelId::ClaudeHaiku4_5));
+        assert!(models.contains(&ModelId::Gpt5Codex));
+        assert!(models.contains(&ModelId::Gpt5_1Codex));
+        assert!(models.contains(&ModelId::Gpt5_2Codex));
+        assert!(models.contains(&ModelId::CodexCli));
+        assert!(models.contains(&ModelId::OpenCodeCli));
+        assert!(models.contains(&ModelId::GeminiCli));
+        assert!(models.contains(&ModelId::DeepseekChat));
+        assert!(models.contains(&ModelId::Gemini25Pro));
+        assert!(models.contains(&ModelId::MiniMaxM21));
+        assert!(models.contains(&ModelId::MiniMaxM27));
+        assert!(models.contains(&ModelId::MiniMaxM27Highspeed));
+        assert!(models.contains(&ModelId::MiniMaxM21CodingPlan));
+        assert!(models.contains(&ModelId::Glm5Turbo));
+        assert!(models.contains(&ModelId::Glm5TurboCodingPlan));
     }
 
     #[test]
     fn test_metadata() {
         // Test metadata for GPT-5 (no temperature)
-        let metadata = AIModel::Gpt5.metadata();
+        let metadata = ModelId::Gpt5.metadata();
         assert_eq!(metadata.provider, Provider::OpenAI);
         assert!(!metadata.supports_temperature);
         assert_eq!(metadata.name, "GPT-5");
 
         // Test metadata for Claude Sonnet 4.5 (with temperature)
-        let metadata = AIModel::ClaudeSonnet4_5.metadata();
+        let metadata = ModelId::ClaudeSonnet4_5.metadata();
         assert_eq!(metadata.provider, Provider::Anthropic);
         assert!(metadata.supports_temperature);
         assert_eq!(metadata.name, "Claude Sonnet 4.5");
 
         // Test metadata for DeepSeek Chat
-        let metadata = AIModel::DeepseekChat.metadata();
+        let metadata = ModelId::DeepseekChat.metadata();
         assert_eq!(metadata.provider, Provider::DeepSeek);
         assert!(metadata.supports_temperature);
         assert_eq!(metadata.name, "DeepSeek Chat");
@@ -1742,7 +1562,7 @@ mod tests {
 
     #[test]
     fn test_build_model_specs_contains_codex_cli() {
-        let specs = AIModel::build_model_specs();
+        let specs = ModelId::build_model_specs();
         assert!(
             specs
                 .iter()
@@ -1767,7 +1587,7 @@ mod tests {
 
     #[test]
     fn test_glm5_code_uses_glm5_model_with_coding_endpoint() {
-        let spec = AIModel::Glm5Code.as_model_spec();
+        let spec = ModelId::Glm5Code.as_model_spec();
         assert_eq!(spec.client_model, "glm-5");
         assert_eq!(spec.name, "glm-5-code");
         assert_eq!(
@@ -1775,19 +1595,19 @@ mod tests {
             Some("https://api.z.ai/api/coding/paas/v4")
         );
 
-        let turbo_spec = AIModel::Glm5Turbo.as_model_spec();
+        let turbo_spec = ModelId::Glm5Turbo.as_model_spec();
         assert_eq!(turbo_spec.client_model, "glm-5-turbo");
         assert_eq!(turbo_spec.name, "glm-5-turbo");
         assert_eq!(turbo_spec.base_url, None);
 
-        let coding_plan_spec = AIModel::Glm5CodingPlan.as_model_spec();
+        let coding_plan_spec = ModelId::Glm5CodingPlan.as_model_spec();
         assert_eq!(coding_plan_spec.client_model, "glm-5");
         assert_eq!(
             coding_plan_spec.base_url.as_deref(),
             Some("https://api.z.ai/api/coding/paas/v4")
         );
 
-        let coding_plan_turbo_spec = AIModel::Glm5TurboCodingPlan.as_model_spec();
+        let coding_plan_turbo_spec = ModelId::Glm5TurboCodingPlan.as_model_spec();
         assert_eq!(coding_plan_turbo_spec.client_model, "glm-5-turbo");
         assert_eq!(
             coding_plan_turbo_spec.base_url.as_deref(),
@@ -1818,117 +1638,117 @@ mod tests {
     fn test_same_provider_fallback() {
         // Anthropic chain
         assert_eq!(
-            AIModel::ClaudeOpus4_6.same_provider_fallback(),
-            Some(AIModel::ClaudeSonnet4_5)
+            ModelId::ClaudeOpus4_6.same_provider_fallback(),
+            Some(ModelId::ClaudeSonnet4_5)
         );
         assert_eq!(
-            AIModel::ClaudeSonnet4_5.same_provider_fallback(),
-            Some(AIModel::ClaudeHaiku4_5)
+            ModelId::ClaudeSonnet4_5.same_provider_fallback(),
+            Some(ModelId::ClaudeHaiku4_5)
         );
-        assert_eq!(AIModel::ClaudeHaiku4_5.same_provider_fallback(), None);
+        assert_eq!(ModelId::ClaudeHaiku4_5.same_provider_fallback(), None);
 
         // OpenAI chain
         assert_eq!(
-            AIModel::Gpt5Pro.same_provider_fallback(),
-            Some(AIModel::Gpt5)
+            ModelId::Gpt5Pro.same_provider_fallback(),
+            Some(ModelId::Gpt5)
         );
         assert_eq!(
-            AIModel::Gpt5.same_provider_fallback(),
-            Some(AIModel::Gpt5Mini)
+            ModelId::Gpt5.same_provider_fallback(),
+            Some(ModelId::Gpt5Mini)
         );
         assert_eq!(
-            AIModel::Gpt5Mini.same_provider_fallback(),
-            Some(AIModel::Gpt5Nano)
+            ModelId::Gpt5Mini.same_provider_fallback(),
+            Some(ModelId::Gpt5Nano)
         );
-        assert_eq!(AIModel::Gpt5Nano.same_provider_fallback(), None);
+        assert_eq!(ModelId::Gpt5Nano.same_provider_fallback(), None);
 
         // DeepSeek chain
         assert_eq!(
-            AIModel::DeepseekReasoner.same_provider_fallback(),
-            Some(AIModel::DeepseekChat)
+            ModelId::DeepseekReasoner.same_provider_fallback(),
+            Some(ModelId::DeepseekChat)
         );
-        assert_eq!(AIModel::DeepseekChat.same_provider_fallback(), None);
+        assert_eq!(ModelId::DeepseekChat.same_provider_fallback(), None);
 
         // GLM chain
         assert_eq!(
-            AIModel::Glm5.same_provider_fallback(),
-            Some(AIModel::Glm5Turbo)
+            ModelId::Glm5.same_provider_fallback(),
+            Some(ModelId::Glm5Turbo)
         );
         assert_eq!(
-            AIModel::Glm5Turbo.same_provider_fallback(),
-            Some(AIModel::Glm5Code)
+            ModelId::Glm5Turbo.same_provider_fallback(),
+            Some(ModelId::Glm5Code)
         );
         assert_eq!(
-            AIModel::Glm5CodingPlan.same_provider_fallback(),
-            Some(AIModel::Glm5TurboCodingPlan)
+            ModelId::Glm5CodingPlan.same_provider_fallback(),
+            Some(ModelId::Glm5TurboCodingPlan)
         );
         assert_eq!(
-            AIModel::Glm5TurboCodingPlan.same_provider_fallback(),
-            Some(AIModel::Glm5CodeCodingPlan)
+            ModelId::Glm5TurboCodingPlan.same_provider_fallback(),
+            Some(ModelId::Glm5CodeCodingPlan)
         );
 
         // CLI models have no fallback
-        assert_eq!(AIModel::CodexCli.same_provider_fallback(), None);
+        assert_eq!(ModelId::CodexCli.same_provider_fallback(), None);
     }
 
     #[test]
     fn test_openrouter_equivalent() {
         assert_eq!(
-            AIModel::ClaudeOpus4_6.openrouter_equivalent(),
-            Some(AIModel::OrClaudeOpus4_6)
+            ModelId::ClaudeOpus4_6.openrouter_equivalent(),
+            Some(ModelId::OrClaudeOpus4_6)
         );
-        assert_eq!(AIModel::Gpt5.openrouter_equivalent(), Some(AIModel::OrGpt5));
+        assert_eq!(ModelId::Gpt5.openrouter_equivalent(), Some(ModelId::OrGpt5));
         assert_eq!(
-            AIModel::DeepseekChat.openrouter_equivalent(),
-            Some(AIModel::OrDeepseekV3_2)
-        );
-        assert_eq!(
-            AIModel::Glm5Turbo.openrouter_equivalent(),
-            Some(AIModel::OrGlm4_7)
+            ModelId::DeepseekChat.openrouter_equivalent(),
+            Some(ModelId::OrDeepseekV3_2)
         );
         assert_eq!(
-            AIModel::KimiK2_5.openrouter_equivalent(),
-            Some(AIModel::OrKimiK2_5)
+            ModelId::Glm5Turbo.openrouter_equivalent(),
+            Some(ModelId::OrGlm4_7)
         );
         assert_eq!(
-            AIModel::MiniMaxM21.openrouter_equivalent(),
-            Some(AIModel::OrMinimaxM2_1)
+            ModelId::KimiK2_5.openrouter_equivalent(),
+            Some(ModelId::OrKimiK2_5)
         );
         assert_eq!(
-            AIModel::MiniMaxM25.openrouter_equivalent(),
-            Some(AIModel::OrMinimaxM2_1)
+            ModelId::MiniMaxM21.openrouter_equivalent(),
+            Some(ModelId::OrMinimaxM2_1)
         );
         assert_eq!(
-            AIModel::MiniMaxM27.openrouter_equivalent(),
-            Some(AIModel::OrMinimaxM2_1)
+            ModelId::MiniMaxM25.openrouter_equivalent(),
+            Some(ModelId::OrMinimaxM2_1)
         );
         assert_eq!(
-            AIModel::MiniMaxM27Highspeed.openrouter_equivalent(),
-            Some(AIModel::OrMinimaxM2_1)
+            ModelId::MiniMaxM27.openrouter_equivalent(),
+            Some(ModelId::OrMinimaxM2_1)
+        );
+        assert_eq!(
+            ModelId::MiniMaxM27Highspeed.openrouter_equivalent(),
+            Some(ModelId::OrMinimaxM2_1)
         );
         // OR models themselves have no OR equivalent
-        assert_eq!(AIModel::OrClaudeOpus4_6.openrouter_equivalent(), None);
+        assert_eq!(ModelId::OrClaudeOpus4_6.openrouter_equivalent(), None);
         // CLI models have no OR equivalent
-        assert_eq!(AIModel::CodexCli.openrouter_equivalent(), None);
+        assert_eq!(ModelId::CodexCli.openrouter_equivalent(), None);
     }
 
     #[test]
     fn test_canonical_id() {
         // Test canonical ID generation
-        assert_eq!(AIModel::Gpt5.canonical_id(), "openai:gpt-5");
+        assert_eq!(ModelId::Gpt5.canonical_id(), "openai:gpt-5");
         assert_eq!(
-            AIModel::ClaudeSonnet4_5.canonical_id(),
+            ModelId::ClaudeSonnet4_5.canonical_id(),
             "anthropic:claude-sonnet-4-5"
         );
         assert_eq!(
-            AIModel::DeepseekChat.canonical_id(),
+            ModelId::DeepseekChat.canonical_id(),
             "deepseek:deepseek-chat"
         );
-        assert_eq!(AIModel::Gemini3Pro.canonical_id(), "google:gemini-3-pro");
-        assert_eq!(AIModel::OrGpt5.canonical_id(), "openrouter:or-gpt-5");
-        assert_eq!(AIModel::CodexCli.canonical_id(), "codex:gpt-5.3-codex");
+        assert_eq!(ModelId::Gemini3Pro.canonical_id(), "google:gemini-3-pro");
+        assert_eq!(ModelId::OrGpt5.canonical_id(), "openrouter:or-gpt-5");
+        assert_eq!(ModelId::CodexCli.canonical_id(), "codex:gpt-5.3-codex");
         assert_eq!(
-            AIModel::ClaudeCodeSonnet.canonical_id(),
+            ModelId::ClaudeCodeSonnet.canonical_id(),
             "claude-code:claude-code-sonnet"
         );
     }
@@ -1937,52 +1757,52 @@ mod tests {
     fn test_from_canonical_id() {
         // Test parsing canonical IDs
         assert_eq!(
-            AIModel::from_canonical_id("openai:gpt-5"),
-            Some(AIModel::Gpt5)
+            ModelId::from_canonical_id("openai:gpt-5"),
+            Some(ModelId::Gpt5)
         );
         assert_eq!(
-            AIModel::from_canonical_id("anthropic:claude-sonnet-4-5"),
-            Some(AIModel::ClaudeSonnet4_5)
+            ModelId::from_canonical_id("anthropic:claude-sonnet-4-5"),
+            Some(ModelId::ClaudeSonnet4_5)
         );
         assert_eq!(
-            AIModel::from_canonical_id("deepseek:deepseek-chat"),
-            Some(AIModel::DeepseekChat)
+            ModelId::from_canonical_id("deepseek:deepseek-chat"),
+            Some(ModelId::DeepseekChat)
         );
         assert_eq!(
-            AIModel::from_canonical_id("claude-code:claude-code-sonnet"),
-            Some(AIModel::ClaudeCodeSonnet)
+            ModelId::from_canonical_id("claude-code:claude-code-sonnet"),
+            Some(ModelId::ClaudeCodeSonnet)
         );
         assert_eq!(
-            AIModel::from_canonical_id("codex:gpt-5.3-codex"),
-            Some(AIModel::CodexCli)
+            ModelId::from_canonical_id("codex:gpt-5.3-codex"),
+            Some(ModelId::CodexCli)
         );
         assert_eq!(
-            AIModel::from_canonical_id("anthropic:claude-code-sonnet"),
-            Some(AIModel::ClaudeCodeSonnet)
+            ModelId::from_canonical_id("anthropic:claude-code-sonnet"),
+            Some(ModelId::ClaudeCodeSonnet)
         );
         assert_eq!(
-            AIModel::from_canonical_id("openai:gpt-5.3-codex"),
-            Some(AIModel::CodexCli)
+            ModelId::from_canonical_id("openai:gpt-5.3-codex"),
+            Some(ModelId::CodexCli)
         );
 
         // Test legacy model-only strings (fallback)
-        assert_eq!(AIModel::from_canonical_id("gpt-5"), Some(AIModel::Gpt5));
+        assert_eq!(ModelId::from_canonical_id("gpt-5"), Some(ModelId::Gpt5));
         assert_eq!(
-            AIModel::from_canonical_id("claude-sonnet-4-5"),
-            Some(AIModel::ClaudeSonnet4_5)
+            ModelId::from_canonical_id("claude-sonnet-4-5"),
+            Some(ModelId::ClaudeSonnet4_5)
         );
 
         // Test invalid IDs
-        assert_eq!(AIModel::from_canonical_id("unknown:model"), None);
-        assert_eq!(AIModel::from_canonical_id("invalid-model"), None);
+        assert_eq!(ModelId::from_canonical_id("unknown:model"), None);
+        assert_eq!(ModelId::from_canonical_id("invalid-model"), None);
     }
 
     #[test]
     fn test_canonical_id_round_trip() {
         // Test round-trip: canonical_id -> from_canonical_id
-        for model in AIModel::all() {
+        for model in ModelId::all() {
             let canonical = model.canonical_id();
-            let parsed = AIModel::from_canonical_id(&canonical);
+            let parsed = ModelId::from_canonical_id(&canonical);
             assert_eq!(
                 parsed,
                 Some(*model),
@@ -1995,9 +1815,9 @@ mod tests {
 
     #[test]
     fn test_model_ref_from_model_is_consistent() {
-        let model_ref = ModelRef::from_model(AIModel::Gpt5);
+        let model_ref = ModelRef::from_model(ModelId::Gpt5);
         assert_eq!(model_ref.provider, Provider::OpenAI);
-        assert_eq!(model_ref.model, AIModel::Gpt5);
+        assert_eq!(model_ref.model, ModelId::Gpt5);
         assert_eq!(model_ref.canonical_id(), "openai:gpt-5");
         assert!(model_ref.validate().is_ok());
     }
@@ -2006,7 +1826,7 @@ mod tests {
     fn test_model_ref_validate_rejects_provider_mismatch() {
         let model_ref = ModelRef {
             provider: Provider::Anthropic,
-            model: AIModel::Gpt5,
+            model: ModelId::Gpt5,
         };
         let error = model_ref
             .validate()
@@ -2019,27 +1839,27 @@ mod tests {
     fn test_model_ref_validate_accepts_legacy_cli_provider_pairs() {
         let claude_code_ref = ModelRef {
             provider: Provider::Anthropic,
-            model: AIModel::ClaudeCodeSonnet,
+            model: ModelId::ClaudeCodeSonnet,
         };
         assert!(claude_code_ref.validate().is_ok());
         assert_eq!(
             claude_code_ref.normalized(),
             ModelRef {
                 provider: Provider::ClaudeCode,
-                model: AIModel::ClaudeCodeSonnet,
+                model: ModelId::ClaudeCodeSonnet,
             }
         );
 
         let codex_ref = ModelRef {
             provider: Provider::OpenAI,
-            model: AIModel::CodexCli,
+            model: ModelId::CodexCli,
         };
         assert!(codex_ref.validate().is_ok());
         assert_eq!(
             codex_ref.normalized(),
             ModelRef {
                 provider: Provider::Codex,
-                model: AIModel::CodexCli,
+                model: ModelId::CodexCli,
             }
         );
     }
@@ -2107,67 +1927,67 @@ mod tests {
     #[test]
     fn test_normalize_model_id() {
         assert_eq!(
-            AIModel::normalize_model_id("MiniMax-M2.5"),
+            ModelId::normalize_model_id("MiniMax-M2.5"),
             Some("minimax-m2-5".to_string())
         );
         assert_eq!(
-            AIModel::normalize_model_id("MiniMax-M2.7"),
+            ModelId::normalize_model_id("MiniMax-M2.7"),
             Some("minimax-m2-7".to_string())
         );
         assert_eq!(
-            AIModel::normalize_model_id("MiniMax-M2.7-highspeed"),
+            ModelId::normalize_model_id("MiniMax-M2.7-highspeed"),
             Some("minimax-m2-7-highspeed".to_string())
         );
         assert_eq!(
-            AIModel::normalize_model_id("gpt-5.1"),
+            ModelId::normalize_model_id("gpt-5.1"),
             Some("gpt-5-1".to_string())
         );
         assert_eq!(
-            AIModel::normalize_model_id("openai:gpt-5"),
+            ModelId::normalize_model_id("openai:gpt-5"),
             Some("gpt-5".to_string())
         );
         assert_eq!(
-            AIModel::normalize_model_id("claude-sonnet-4-20250514"),
+            ModelId::normalize_model_id("claude-sonnet-4-20250514"),
             Some("claude-sonnet-4-5".to_string())
         );
-        assert_eq!(AIModel::normalize_model_id(""), None);
+        assert_eq!(ModelId::normalize_model_id(""), None);
     }
 
     #[test]
     fn test_flagship_model() {
         assert_eq!(
             Provider::Anthropic.flagship_model(),
-            AIModel::ClaudeSonnet4_5
+            ModelId::ClaudeSonnet4_5
         );
-        assert_eq!(Provider::OpenAI.flagship_model(), AIModel::Gpt5);
-        assert_eq!(Provider::DeepSeek.flagship_model(), AIModel::DeepseekChat);
-        assert_eq!(Provider::Google.flagship_model(), AIModel::Gemini3Pro);
-        assert_eq!(Provider::MiniMax.flagship_model(), AIModel::MiniMaxM27);
-        assert_eq!(Provider::Zai.flagship_model(), AIModel::Glm5);
+        assert_eq!(Provider::OpenAI.flagship_model(), ModelId::Gpt5);
+        assert_eq!(Provider::DeepSeek.flagship_model(), ModelId::DeepseekChat);
+        assert_eq!(Provider::Google.flagship_model(), ModelId::Gemini3Pro);
+        assert_eq!(Provider::MiniMax.flagship_model(), ModelId::MiniMaxM27);
+        assert_eq!(Provider::Zai.flagship_model(), ModelId::Glm5);
         assert_eq!(
             Provider::ZaiCodingPlan.flagship_model(),
-            AIModel::Glm5CodingPlan
+            ModelId::Glm5CodingPlan
         );
         assert_eq!(
             Provider::MiniMaxCodingPlan.flagship_model(),
-            AIModel::MiniMaxM25CodingPlan
+            ModelId::MiniMaxM25CodingPlan
         );
         assert_eq!(
             Provider::ClaudeCode.flagship_model(),
-            AIModel::ClaudeCodeOpus
+            ModelId::ClaudeCodeOpus
         );
-        assert_eq!(Provider::Codex.flagship_model(), AIModel::CodexCli);
+        assert_eq!(Provider::Codex.flagship_model(), ModelId::CodexCli);
         assert_eq!(
             Provider::OpenRouter.flagship_model(),
-            AIModel::OrClaudeOpus4_6
+            ModelId::OrClaudeOpus4_6
         );
     }
 
     #[test]
     fn test_minimax_m25_serialization_consistency() {
         // as_serialized_str() must match the serde rename
-        let json_str = serde_json::to_string(&AIModel::MiniMaxM25).unwrap();
-        let expected = format!("\"{}\"", AIModel::MiniMaxM25.as_serialized_str());
+        let json_str = serde_json::to_string(&ModelId::MiniMaxM25).unwrap();
+        let expected = format!("\"{}\"", ModelId::MiniMaxM25.as_serialized_str());
         assert_eq!(json_str, expected);
     }
 
@@ -2175,8 +1995,8 @@ mod tests {
     fn test_from_api_name_trimmed_input() {
         // Whitespace around model name should still resolve
         assert_eq!(
-            AIModel::from_api_name("  Claude-Sonnet-4-5-20250514  "),
-            Some(AIModel::ClaudeSonnet4_5)
+            ModelId::from_api_name("  Claude-Sonnet-4-5-20250514  "),
+            Some(ModelId::ClaudeSonnet4_5)
         );
     }
 }
