@@ -96,6 +96,46 @@ async fn process_get_available_models_returns_openai_catalog_when_secret_exists(
 }
 
 #[tokio::test]
+async fn process_get_available_models_returns_minimax_m27_catalog_when_secret_exists() {
+    let (core, _temp) = create_test_core().await;
+    core.storage
+        .secrets
+        .set_secret("MINIMAX_API_KEY", "test-minimax-key", None)
+        .expect("store minimax key");
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetAvailableModels,
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let models: Vec<crate::models::ModelMetadataDTO> =
+                serde_json::from_value(value).expect("model catalog");
+            assert!(
+                models
+                    .iter()
+                    .any(|model| model.provider == crate::models::Provider::MiniMax)
+            );
+            assert!(
+                models
+                    .iter()
+                    .any(|model| model.model == crate::models::AIModel::MiniMaxM27)
+            );
+            assert!(
+                models
+                    .iter()
+                    .any(|model| { model.model == crate::models::AIModel::MiniMaxM27Highspeed })
+            );
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_profiles() {
     let (core, _temp) = create_test_core().await;
     let manager = build_auth_manager(&core).await.expect("auth manager");

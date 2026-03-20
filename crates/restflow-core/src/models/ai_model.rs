@@ -227,7 +227,7 @@ impl Provider {
             Self::Doubao => AIModel::DoubaoPro,
             Self::Yi => AIModel::YiLightning,
             Self::SiliconFlow => AIModel::SiliconFlowAuto,
-            Self::MiniMax => AIModel::MiniMaxM25,
+            Self::MiniMax => AIModel::MiniMaxM27,
             Self::MiniMaxCodingPlan => AIModel::MiniMaxM25CodingPlan,
         }
     }
@@ -440,6 +440,10 @@ pub enum AIModel {
     MiniMaxM21,
     #[serde(rename = "minimax-m2-5")]
     MiniMaxM25,
+    #[serde(rename = "minimax-m2-7")]
+    MiniMaxM27,
+    #[serde(rename = "minimax-m2-7-highspeed")]
+    MiniMaxM27Highspeed,
     #[serde(rename = "minimax-coding-plan-m2-1")]
     MiniMaxM21CodingPlan,
     #[serde(rename = "minimax-coding-plan-m2-5")]
@@ -782,6 +786,16 @@ impl AIModel {
                 supports_temperature: true,
                 name: "MiniMax M2.5",
             },
+            Self::MiniMaxM27 => ModelMetadata {
+                provider: Provider::MiniMax,
+                supports_temperature: true,
+                name: "MiniMax M2.7",
+            },
+            Self::MiniMaxM27Highspeed => ModelMetadata {
+                provider: Provider::MiniMax,
+                supports_temperature: true,
+                name: "MiniMax M2.7 Highspeed",
+            },
             Self::MiniMaxM21CodingPlan => ModelMetadata {
                 provider: Provider::MiniMaxCodingPlan,
                 supports_temperature: true,
@@ -1014,6 +1028,8 @@ impl AIModel {
             // MiniMax
             Self::MiniMaxM21 => "MiniMax-M2.1",
             Self::MiniMaxM25 => "MiniMax-M2.5",
+            Self::MiniMaxM27 => "MiniMax-M2.7",
+            Self::MiniMaxM27Highspeed => "MiniMax-M2.7-highspeed",
             Self::MiniMaxM21CodingPlan => "MiniMax-M2.1",
             Self::MiniMaxM25CodingPlan => "MiniMax-M2.5",
         }
@@ -1046,6 +1062,8 @@ impl AIModel {
             "zai-coding-plan-glm-4-7" => Some(Self::Glm4_7CodingPlan),
             "minimax-m2-1" | "minimax-m2.1" => Some(Self::MiniMaxM21),
             "minimax-m2-5" | "minimax-m2.5" => Some(Self::MiniMaxM25),
+            "minimax-m2-7" | "minimax-m2.7" => Some(Self::MiniMaxM27),
+            "minimax-m2-7-highspeed" | "minimax-m2.7-highspeed" => Some(Self::MiniMaxM27Highspeed),
             "minimax-coding-plan-m2-1" | "minimax-coding-plan-m2.1" => {
                 Some(Self::MiniMaxM21CodingPlan)
             }
@@ -1087,6 +1105,8 @@ impl AIModel {
             "glm-4.7" => "glm-4-7",
             "minimax-m2.1" => "minimax-m2-1",
             "minimax-m2.5" => "minimax-m2-5",
+            "minimax-m2.7" => "minimax-m2-7",
+            "minimax-m2.7-highspeed" => "minimax-m2-7-highspeed",
             value => value,
         };
 
@@ -1094,6 +1114,8 @@ impl AIModel {
             Provider::MiniMax => match canonical {
                 "minimax-m2-1" => Some(Self::MiniMaxM21),
                 "minimax-m2-5" => Some(Self::MiniMaxM25),
+                "minimax-m2-7" => Some(Self::MiniMaxM27),
+                "minimax-m2-7-highspeed" => Some(Self::MiniMaxM27Highspeed),
                 _ => None,
             },
             Provider::MiniMaxCodingPlan => match canonical {
@@ -1148,6 +1170,8 @@ impl AIModel {
         let canonical = match self {
             Self::MiniMaxM21 | Self::MiniMaxM21CodingPlan => "minimax-m2-1",
             Self::MiniMaxM25 | Self::MiniMaxM25CodingPlan => "minimax-m2-5",
+            Self::MiniMaxM27 => "minimax-m2-7",
+            Self::MiniMaxM27Highspeed => "minimax-m2-7-highspeed",
             Self::Glm5 | Self::Glm5CodingPlan => "glm-5",
             Self::Glm5Turbo | Self::Glm5TurboCodingPlan => "glm-5-turbo",
             Self::Glm5Code | Self::Glm5CodeCodingPlan => "glm-5-code",
@@ -1245,6 +1269,8 @@ impl AIModel {
             // MiniMax
             Self::MiniMaxM21 => "minimax-m2-1",
             Self::MiniMaxM25 => "minimax-m2-5",
+            Self::MiniMaxM27 => "minimax-m2-7",
+            Self::MiniMaxM27Highspeed => "minimax-m2-7-highspeed",
             Self::MiniMaxM21CodingPlan => "minimax-coding-plan-m2-1",
             Self::MiniMaxM25CodingPlan => "minimax-coding-plan-m2-5",
 
@@ -1345,6 +1371,8 @@ impl AIModel {
             Self::Qwen3Max | Self::Qwen3Plus => Some(Self::OrQwen3Coder),
             Self::MiniMaxM21
             | Self::MiniMaxM25
+            | Self::MiniMaxM27
+            | Self::MiniMaxM27Highspeed
             | Self::MiniMaxM21CodingPlan
             | Self::MiniMaxM25CodingPlan => Some(Self::OrMinimaxM2_1),
             _ => None,
@@ -1419,6 +1447,8 @@ impl AIModel {
             // MiniMax
             Self::MiniMaxM21,
             Self::MiniMaxM25,
+            Self::MiniMaxM27,
+            Self::MiniMaxM27Highspeed,
             Self::MiniMaxM21CodingPlan,
             Self::MiniMaxM25CodingPlan,
             // Codex CLI
@@ -1479,6 +1509,8 @@ mod tests {
         assert_eq!(AIModel::YiLightning.provider(), Provider::Yi);
         assert_eq!(AIModel::MiniMaxM25.provider(), Provider::MiniMax);
         assert_eq!(AIModel::MiniMaxM21.provider(), Provider::MiniMax);
+        assert_eq!(AIModel::MiniMaxM27.provider(), Provider::MiniMax);
+        assert_eq!(AIModel::MiniMaxM27Highspeed.provider(), Provider::MiniMax);
         assert_eq!(
             AIModel::MiniMaxM25CodingPlan.provider(),
             Provider::MiniMaxCodingPlan
@@ -1542,6 +1574,11 @@ mod tests {
         assert_eq!(AIModel::OpenCodeCli.as_str(), "opencode");
         assert_eq!(AIModel::GeminiCli.as_str(), "gemini-2.5-pro");
         assert_eq!(AIModel::MiniMaxM21.as_str(), "MiniMax-M2.1");
+        assert_eq!(AIModel::MiniMaxM27.as_str(), "MiniMax-M2.7");
+        assert_eq!(
+            AIModel::MiniMaxM27Highspeed.as_str(),
+            "MiniMax-M2.7-highspeed"
+        );
         assert_eq!(AIModel::MiniMaxM21CodingPlan.as_str(), "MiniMax-M2.1");
         assert_eq!(AIModel::Glm5Turbo.as_str(), "glm-5-turbo");
         assert_eq!(AIModel::Glm5Code.as_str(), "glm-5");
@@ -1575,6 +1612,14 @@ mod tests {
             Some(AIModel::MiniMaxM25)
         );
         assert_eq!(
+            AIModel::for_provider_and_model(Provider::MiniMax, "minimax-m2.7"),
+            Some(AIModel::MiniMaxM27)
+        );
+        assert_eq!(
+            AIModel::for_provider_and_model(Provider::MiniMax, "minimax-m2-7-highspeed"),
+            Some(AIModel::MiniMaxM27Highspeed)
+        );
+        assert_eq!(
             AIModel::for_provider_and_model(Provider::MiniMaxCodingPlan, "minimax-m2-5"),
             Some(AIModel::MiniMaxM25CodingPlan)
         );
@@ -1597,6 +1642,10 @@ mod tests {
         assert_eq!(
             AIModel::MiniMaxM25.remap_provider(Provider::MiniMaxCodingPlan),
             Some(AIModel::MiniMaxM25CodingPlan)
+        );
+        assert_eq!(
+            AIModel::MiniMaxM27.remap_provider(Provider::MiniMaxCodingPlan),
+            None
         );
         assert_eq!(
             AIModel::Glm5CodingPlan.remap_provider(Provider::Zai),
@@ -1626,13 +1675,14 @@ mod tests {
         assert_eq!(AIModel::GeminiCli.display_name(), "Gemini CLI");
         assert_eq!(AIModel::DeepseekChat.display_name(), "DeepSeek Chat");
         assert_eq!(AIModel::MiniMaxM21.display_name(), "MiniMax M2.1");
+        assert_eq!(AIModel::MiniMaxM27.display_name(), "MiniMax M2.7");
         assert_eq!(AIModel::Glm5Turbo.display_name(), "GLM-5 Turbo");
     }
 
     #[test]
     fn test_all_models() {
         let models = AIModel::all();
-        assert_eq!(models.len(), 58);
+        assert_eq!(models.len(), 60);
         assert!(models.contains(&AIModel::Gpt5));
         assert!(models.contains(&AIModel::Gpt5_1));
         assert!(models.contains(&AIModel::ClaudeOpus4_6));
@@ -1647,6 +1697,8 @@ mod tests {
         assert!(models.contains(&AIModel::DeepseekChat));
         assert!(models.contains(&AIModel::Gemini25Pro));
         assert!(models.contains(&AIModel::MiniMaxM21));
+        assert!(models.contains(&AIModel::MiniMaxM27));
+        assert!(models.contains(&AIModel::MiniMaxM27Highspeed));
         assert!(models.contains(&AIModel::MiniMaxM21CodingPlan));
         assert!(models.contains(&AIModel::Glm5Turbo));
         assert!(models.contains(&AIModel::Glm5TurboCodingPlan));
@@ -1844,6 +1896,14 @@ mod tests {
         );
         assert_eq!(
             AIModel::MiniMaxM25.openrouter_equivalent(),
+            Some(AIModel::OrMinimaxM2_1)
+        );
+        assert_eq!(
+            AIModel::MiniMaxM27.openrouter_equivalent(),
+            Some(AIModel::OrMinimaxM2_1)
+        );
+        assert_eq!(
+            AIModel::MiniMaxM27Highspeed.openrouter_equivalent(),
             Some(AIModel::OrMinimaxM2_1)
         );
         // OR models themselves have no OR equivalent
@@ -2051,6 +2111,14 @@ mod tests {
             Some("minimax-m2-5".to_string())
         );
         assert_eq!(
+            AIModel::normalize_model_id("MiniMax-M2.7"),
+            Some("minimax-m2-7".to_string())
+        );
+        assert_eq!(
+            AIModel::normalize_model_id("MiniMax-M2.7-highspeed"),
+            Some("minimax-m2-7-highspeed".to_string())
+        );
+        assert_eq!(
             AIModel::normalize_model_id("gpt-5.1"),
             Some("gpt-5-1".to_string())
         );
@@ -2074,6 +2142,7 @@ mod tests {
         assert_eq!(Provider::OpenAI.flagship_model(), AIModel::Gpt5);
         assert_eq!(Provider::DeepSeek.flagship_model(), AIModel::DeepseekChat);
         assert_eq!(Provider::Google.flagship_model(), AIModel::Gemini3Pro);
+        assert_eq!(Provider::MiniMax.flagship_model(), AIModel::MiniMaxM27);
         assert_eq!(Provider::Zai.flagship_model(), AIModel::Glm5);
         assert_eq!(
             Provider::ZaiCodingPlan.flagship_model(),
