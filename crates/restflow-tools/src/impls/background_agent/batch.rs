@@ -1,9 +1,10 @@
+use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{Result, ToolError, ToolOutput};
-use restflow_traits::RuntimeTaskPayload;
 use restflow_traits::store::{BackgroundAgentControlRequest, BackgroundAgentCreateRequest};
+use restflow_traits::{OperationAssessmentIntent, RuntimeTaskPayload};
 
 use super::BackgroundAgentTool;
 use super::team::{load_team_workers, save_team_workers};
@@ -163,7 +164,7 @@ fn extract_task_id(value: &Value) -> Option<String> {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_run_batch(
+pub(super) async fn execute_run_batch(
     tool: &BackgroundAgentTool,
     agent_id: Option<String>,
     name: Option<String>,
@@ -181,6 +182,8 @@ pub(super) fn execute_run_batch(
     memory_scope: Option<String>,
     resource_limits: Option<Value>,
     run_now: Option<bool>,
+    preview: bool,
+    confirmation_token: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     if input_template.is_some() {
@@ -216,23 +219,48 @@ pub(super) fn execute_run_batch(
 
     let expanded_workers =
         expand_worker_specs(&resolved_workers, input.as_deref(), inputs.as_deref())?;
+    let resolved_agent_ids = expanded_workers
+        .iter()
+        .map(|(spec_index, _, worker_spec)| {
+            worker_spec
+                .agent_id
+                .clone()
+                .or_else(|| agent_id.clone())
+                .ok_or_else(|| {
+                    ToolError::Tool(format!(
+                        "Worker index {} requires agent_id (set per worker or top-level).",
+                        spec_index
+                    ))
+                })
+        })
+        .collect::<Result<Vec<_>>>()?;
     let should_run_now = run_now.unwrap_or(true);
+    let assessment = tool
+        .assessor()?
+        .assess_background_agent_template(
+            "run_batch",
+            if should_run_now {
+                OperationAssessmentIntent::Run
+            } else {
+                OperationAssessmentIntent::Save
+            },
+            resolved_agent_ids.clone(),
+            false,
+        )
+        .await?;
+    if preview {
+        return Ok(preview_output(assessment));
+    }
+    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let default_name_prefix = name.unwrap_or_else(|| format!("Background Batch {}", run_group_id));
     let mut tasks = Vec::with_capacity(expanded_workers.len());
 
-    for (worker_index, (spec_index, worker_input, worker_spec)) in
-        expanded_workers.into_iter().enumerate()
+    for (worker_index, ((spec_index, worker_input, worker_spec), resolved_agent_id)) in
+        expanded_workers
+            .into_iter()
+            .zip(resolved_agent_ids.into_iter())
+            .enumerate()
     {
-        let resolved_agent_id = worker_spec
-            .agent_id
-            .clone()
-            .or_else(|| agent_id.clone())
-            .ok_or_else(|| {
-                ToolError::Tool(format!(
-                    "Worker index {} requires agent_id (set per worker or top-level).",
-                    spec_index
-                ))
-            })?;
         let worker_name = worker_spec
             .name
             .clone()

@@ -1,4 +1,8 @@
 use super::*;
+use async_trait::async_trait;
+use restflow_traits::assessment::{
+    AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
+};
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
     BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
@@ -13,9 +17,120 @@ use std::sync::Mutex;
 
 struct MockStore;
 struct FailingListStore;
+struct MockAssessor;
 #[derive(Default)]
 struct MockKvStore {
     entries: Mutex<HashMap<String, String>>,
+}
+
+#[async_trait]
+impl AgentOperationAssessor for MockAssessor {
+    async fn assess_agent_create(
+        &self,
+        _request: restflow_traits::store::AgentCreateRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(
+            "create_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_agent_update(
+        &self,
+        _request: restflow_traits::store::AgentUpdateRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(
+            "update_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_create(
+        &self,
+        _request: BackgroundAgentCreateRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(
+            "create_background_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_convert_session(
+        &self,
+        _request: BackgroundAgentConvertSessionRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(
+            "convert_session_to_background_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_update(
+        &self,
+        _request: BackgroundAgentUpdateRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(
+            "update_background_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_control(
+        &self,
+        _request: BackgroundAgentControlRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(
+            "control_background_agent",
+            OperationAssessmentIntent::Run,
+        ))
+    }
+
+    async fn assess_background_agent_template(
+        &self,
+        operation: &str,
+        intent: OperationAssessmentIntent,
+        _agent_ids: Vec<String>,
+        _template_mode: bool,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(operation, intent))
+    }
+
+    async fn assess_subagent_spawn(
+        &self,
+        operation: &str,
+        _request: restflow_traits::subagent::SpawnRequest,
+        _template_mode: bool,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(
+            operation,
+            OperationAssessmentIntent::Run,
+        ))
+    }
+
+    async fn assess_subagent_batch(
+        &self,
+        operation: &str,
+        _requests: Vec<restflow_traits::subagent::SpawnRequest>,
+        _template_mode: bool,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::ok(
+            operation,
+            OperationAssessmentIntent::Run,
+        ))
+    }
+}
+
+fn writable_tool() -> BackgroundAgentTool {
+    BackgroundAgentTool::new(Arc::new(MockStore))
+        .with_write(true)
+        .with_assessor(Arc::new(MockAssessor))
+}
+
+fn writable_team_tool(kv_store: Arc<dyn KvStore>) -> BackgroundAgentTool {
+    BackgroundAgentTool::new(Arc::new(MockStore))
+        .with_kv_store(kv_store)
+        .with_write(true)
+        .with_assessor(Arc::new(MockAssessor))
 }
 
 impl KvStore for MockKvStore {
@@ -331,7 +446,7 @@ async fn test_invalid_input_message() {
 
 #[tokio::test]
 async fn test_convert_session_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = writable_tool();
     let output = tool
         .execute(json!({
             "operation": "convert_session",
@@ -361,7 +476,7 @@ async fn test_convert_session_operation() {
 
 #[tokio::test]
 async fn test_promote_to_background_operation() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = writable_tool();
     let output = tool
         .execute(json!({
             "operation": "promote_to_background",
@@ -515,7 +630,7 @@ async fn test_start_uses_control_with_start_action() {
 
 #[tokio::test]
 async fn test_run_batch_with_mixed_input_modes() {
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let tool = writable_tool();
     let output = tool
         .execute(json!({
             "operation": "run_batch",
@@ -541,9 +656,7 @@ async fn test_run_batch_with_mixed_input_modes() {
 #[tokio::test]
 async fn test_team_management_round_trip() {
     let kv_store = Arc::new(MockKvStore::default());
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
-        .with_write(true);
+    let tool = writable_team_tool(kv_store);
 
     let save = tool
         .execute(json!({
@@ -606,9 +719,7 @@ async fn test_team_management_round_trip() {
 #[tokio::test]
 async fn test_run_batch_from_saved_team() {
     let kv_store = Arc::new(MockKvStore::default());
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
-        .with_write(true);
+    let tool = writable_team_tool(kv_store);
 
     tool.execute(json!({
         "operation": "save_team",
@@ -636,9 +747,7 @@ async fn test_run_batch_from_saved_team() {
 #[tokio::test]
 async fn test_run_batch_save_as_team_strips_runtime_inputs() {
     let kv_store = Arc::new(MockKvStore::default());
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
-        .with_write(true);
+    let tool = writable_team_tool(kv_store);
 
     let saved = tool
         .execute(json!({
@@ -671,9 +780,7 @@ async fn test_run_batch_save_as_team_strips_runtime_inputs() {
 #[tokio::test]
 async fn test_run_batch_rejects_workers_and_team_combined() {
     let kv_store = Arc::new(MockKvStore::default());
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
-        .with_write(true);
+    let tool = writable_team_tool(kv_store);
 
     let result = tool
         .execute(json!({
@@ -698,9 +805,7 @@ async fn test_run_batch_rejects_workers_and_team_combined() {
 #[tokio::test]
 async fn test_save_team_rejects_runtime_input_fields() {
     let kv_store = Arc::new(MockKvStore::default());
-    let tool = BackgroundAgentTool::new(Arc::new(MockStore))
-        .with_kv_store(kv_store)
-        .with_write(true);
+    let tool = writable_team_tool(kv_store);
 
     let result = tool
         .execute(json!({
@@ -749,7 +854,8 @@ async fn test_get_team_rejects_legacy_worker_payload() {
         .expect("store legacy team");
     let tool = BackgroundAgentTool::new(Arc::new(MockStore))
         .with_kv_store(kv_store)
-        .with_write(true);
+        .with_write(true)
+        .with_assessor(Arc::new(MockAssessor));
 
     let error = tool
         .execute(json!({

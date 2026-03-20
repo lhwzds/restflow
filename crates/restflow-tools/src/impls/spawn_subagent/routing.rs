@@ -1,6 +1,7 @@
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 
+use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use crate::impls::spawn_subagent_batch::{SpawnSubagentBatchOperation, SpawnSubagentBatchTool};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_traits::{InlineSubagentConfig, SpawnRequest, SubagentCompletion, SubagentStatus};
@@ -224,6 +225,9 @@ pub(super) async fn execute(
         if let Some(kv_store) = tool.kv_store.clone() {
             batch_tool = batch_tool.with_kv_store(kv_store);
         }
+        if let Some(assessor) = tool.assessor.clone() {
+            batch_tool = batch_tool.with_assessor(assessor);
+        }
 
         let operation = params.operation.clone();
         let task = normalize_optional_text(params.task.as_deref());
@@ -247,7 +251,9 @@ pub(super) async fn execute(
                 "save_as_team": save_as_team,
                 "parent_execution_id": params.parent_execution_id,
                 "trace_session_id": params.trace_session_id,
-                "trace_scope_id": params.trace_scope_id
+                "trace_scope_id": params.trace_scope_id,
+                "preview": params.preview,
+                "confirmation_token": params.confirmation_token
             }))
             .await;
     }
@@ -295,6 +301,20 @@ pub(super) async fn execute(
         trace_session_id: params.trace_session_id.clone(),
         trace_scope_id: params.trace_scope_id.clone(),
     };
+
+    if let Some(assessor) = &tool.assessor {
+        let assessment = assessor
+            .assess_subagent_spawn("spawn_subagent", request.clone(), false)
+            .await?;
+        if params.preview {
+            return Ok(preview_output(assessment));
+        }
+        enforce_confirmation(&assessment, params.confirmation_token.as_deref())?;
+    } else if params.preview {
+        return Err(ToolError::Tool(
+            "Sub-agent capability preview is unavailable in this runtime.".to_string(),
+        ));
+    }
 
     let handle = tool.manager.spawn(request)?;
 

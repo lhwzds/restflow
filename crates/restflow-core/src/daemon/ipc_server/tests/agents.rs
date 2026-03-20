@@ -1,6 +1,36 @@
 use super::*;
 use crate::daemon::request_mapper::to_contract;
+use crate::models::{AIModel, ApiKeyConfig};
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
+use restflow_storage::SimpleStorage;
+
+fn raw_agent_storage(core: &Arc<AppCore>) -> restflow_storage::AgentStorage {
+    restflow_storage::AgentStorage::new(core.storage.get_db()).unwrap()
+}
+
+fn ensure_test_agent_with_id(core: &Arc<AppCore>, id: &str) {
+    if core
+        .storage
+        .agents
+        .get_agent(id.to_string())
+        .unwrap()
+        .is_some()
+    {
+        return;
+    }
+
+    let stored = crate::storage::agent::StoredAgent {
+        id: id.to_string(),
+        name: format!("Agent {id}"),
+        agent: AgentNode::with_model(AIModel::Gpt5)
+            .with_api_key(ApiKeyConfig::Direct("test-key".to_string())),
+        prompt_file: None,
+        created_at: Some(0),
+        updated_at: Some(0),
+    };
+    let raw = serde_json::to_vec(&stored).unwrap();
+    raw_agent_storage(core).put_raw(id, &raw).unwrap();
+}
 
 fn background_agent_spec(name: &str) -> crate::models::BackgroundAgentSpec {
     crate::models::BackgroundAgentSpec {
@@ -30,6 +60,7 @@ fn insert_background_agent_with_id(
     core: &Arc<AppCore>,
     id: &str,
 ) -> crate::models::BackgroundAgent {
+    ensure_test_agent_with_id(core, "agent-1");
     let mut task = crate::models::BackgroundAgent::new(
         id.to_string(),
         format!("Task {id}"),
@@ -48,6 +79,7 @@ fn insert_background_agent_with_id(
 async fn process_get_background_agent_returns_created_task() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
+    ensure_test_agent_with_id(&core, "agent-1");
 
     let task = core
         .storage
@@ -79,6 +111,7 @@ async fn process_get_background_agent_returns_created_task() {
 async fn process_delete_background_agent_returns_delete_with_id_response() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
+    ensure_test_agent_with_id(&core, "agent-1");
 
     let task = core
         .storage
@@ -110,6 +143,7 @@ async fn process_delete_background_agent_returns_delete_with_id_response() {
 async fn process_handle_background_agent_approval_returns_typed_response() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
+    ensure_test_agent_with_id(&core, "agent-1");
 
     let task = core
         .storage
@@ -236,6 +270,8 @@ async fn process_update_background_agent_resolves_unique_prefix() {
                 ..Default::default()
             })
             .expect("contract patch"),
+            preview: false,
+            confirmation_token: None,
         },
     )
     .await;
@@ -342,6 +378,8 @@ async fn process_control_background_agent_resolves_unique_prefix() {
             id: "prefix-control".to_string(),
             action: to_contract(crate::models::BackgroundAgentControlAction::Pause)
                 .expect("contract action"),
+            preview: false,
+            confirmation_token: None,
         },
     )
     .await;
@@ -509,6 +547,8 @@ async fn process_create_agent_returns_stored_agent() {
                 model_routing: None,
             })
             .expect("contract agent node"),
+            preview: false,
+            confirmation_token: None,
         },
     )
     .await;
@@ -519,6 +559,120 @@ async fn process_create_agent_returns_stored_agent() {
             assert!(value["id"].as_str().is_some());
         }
         other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_agent_preview_returns_warning_assessment_without_persisting() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateAgent {
+            name: "preview-agent".to_string(),
+            agent: to_contract(AgentNode::new()).expect("contract agent"),
+            preview: true,
+            confirmation_token: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            assert_eq!(value["status"], "preview");
+            assert_eq!(value["assessment"]["status"], "warning");
+            assert_eq!(value["assessment"]["requires_confirmation"], true);
+            assert!(value["assessment"]["confirmation_token"].is_string());
+            let agents = core.storage.agents.list_agents().unwrap();
+            assert_eq!(agents.len(), 1, "preview must not persist a new agent");
+        }
+        other => panic!("expected preview response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_agent_requires_confirmation_for_unconfigured_provider() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateAgent {
+            name: "warning-agent".to_string(),
+            agent: to_contract(AgentNode::new()).expect("contract agent"),
+            preview: false,
+            confirmation_token: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 428);
+            assert_eq!(
+                error.kind,
+                restflow_contracts::ErrorKind::ConfirmationRequired
+            );
+            let details = error.details.expect("confirmation details");
+            assert_eq!(details["assessment"]["status"], "warning");
+            assert!(details["assessment"]["confirmation_token"].is_string());
+        }
+        other => panic!("expected confirmation_required response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_background_agent_requires_confirmation_when_agent_provider_missing() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let stored_agent = core
+        .storage
+        .agents
+        .create_agent("warning background agent".to_string(), AgentNode::new())
+        .unwrap();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateBackgroundAgent {
+            spec: to_contract(crate::models::BackgroundAgentSpec {
+                name: "bg-warning".to_string(),
+                agent_id: stored_agent.id.clone(),
+                chat_session_id: None,
+                description: Some("warn before save".to_string()),
+                input: Some("run".to_string()),
+                input_template: None,
+                schedule: crate::models::BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("contract spec"),
+            preview: false,
+            confirmation_token: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 428);
+            assert_eq!(
+                error.kind,
+                restflow_contracts::ErrorKind::ConfirmationRequired
+            );
+            let details = error.details.expect("confirmation details");
+            assert_eq!(details["assessment"]["status"], "warning");
+        }
+        other => panic!("expected confirmation_required response, got {other:?}"),
     }
 }
 

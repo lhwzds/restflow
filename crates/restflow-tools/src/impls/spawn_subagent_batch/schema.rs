@@ -107,6 +107,14 @@ pub(super) fn parameters_schema() -> Value {
             "trace_scope_id": {
                 "type": "string",
                 "description": "Optional trace scope ID for context propagation (runtime-injected)."
+            },
+            "preview": {
+                "type": "boolean",
+                "description": "If true, validate capability warnings/blockers without executing."
+            },
+            "confirmation_token": {
+                "type": "string",
+                "description": "Confirmation token returned by preview when warnings require explicit confirmation."
             }
         }
     })

@@ -25,8 +25,12 @@ impl IpcClient {
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent> {
         let spec = to_contract(spec)?;
-        self.request_typed(IpcRequest::CreateBackgroundAgent { spec })
-            .await
+        self.request_typed(IpcRequest::CreateBackgroundAgent {
+            spec,
+            preview: false,
+            confirmation_token: None,
+        })
+        .await
     }
 
     pub async fn update_background_agent(
@@ -35,8 +39,13 @@ impl IpcClient {
         patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent> {
         let patch = to_contract(patch)?;
-        self.request_typed(IpcRequest::UpdateBackgroundAgent { id, patch })
-            .await
+        self.request_typed(IpcRequest::UpdateBackgroundAgent {
+            id,
+            patch,
+            preview: false,
+            confirmation_token: None,
+        })
+        .await
     }
 
     pub async fn delete_background_agent(&mut self, id: String) -> Result<bool> {
@@ -52,8 +61,13 @@ impl IpcClient {
         action: BackgroundAgentControlAction,
     ) -> Result<BackgroundAgent> {
         let action = to_contract(action)?;
-        self.request_typed(IpcRequest::ControlBackgroundAgent { id, action })
-            .await
+        self.request_typed(IpcRequest::ControlBackgroundAgent {
+            id,
+            action,
+            preview: false,
+            confirmation_token: None,
+        })
+        .await
     }
 
     pub async fn get_background_agent_history(

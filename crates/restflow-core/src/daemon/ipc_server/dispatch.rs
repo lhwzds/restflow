@@ -39,16 +39,29 @@ impl IpcServer {
             IpcRequest::GetStatus => Self::handle_get_status().await,
             IpcRequest::ListAgents => Self::handle_list_agents(core).await,
             IpcRequest::GetAgent { id } => Self::handle_get_agent(core, id).await,
-            IpcRequest::CreateAgent { name, agent } => match from_contract(agent) {
-                Ok(agent) => Self::handle_create_agent(core, name, agent).await,
+            IpcRequest::CreateAgent {
+                name,
+                agent,
+                preview,
+                confirmation_token,
+            } => match from_contract(agent) {
+                Ok(agent) => {
+                    Self::handle_create_agent(core, name, agent, preview, confirmation_token).await
+                }
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::UpdateAgent { id, name, agent } => {
+            IpcRequest::UpdateAgent {
+                id,
+                name,
+                agent,
+                preview,
+                confirmation_token,
+            } => {
                 let agent = match agent.map(from_contract).transpose() {
                     Ok(agent) => agent,
                     Err(err) => return invalid_request_response(err),
                 };
-                Self::handle_update_agent(core, id, name, agent).await
+                Self::handle_update_agent(core, id, name, agent, preview, confirmation_token).await
             }
             IpcRequest::DeleteAgent { id } => Self::handle_delete_agent(core, id).await,
             IpcRequest::ListSkills => Self::handle_list_skills(core).await,
@@ -363,19 +376,54 @@ impl IpcServer {
             IpcRequest::GetBackgroundAgentHistory { id } => {
                 Self::handle_get_background_agent_history(core, id).await
             }
-            IpcRequest::CreateBackgroundAgent { spec } => match from_contract(spec) {
-                Ok(spec) => Self::handle_create_background_agent(core, spec).await,
+            IpcRequest::CreateBackgroundAgent {
+                spec,
+                preview,
+                confirmation_token,
+            } => match from_contract(spec) {
+                Ok(spec) => {
+                    Self::handle_create_background_agent(core, spec, preview, confirmation_token)
+                        .await
+                }
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::UpdateBackgroundAgent { id, patch } => match from_contract(patch) {
-                Ok(patch) => Self::handle_update_background_agent(core, id, patch).await,
+            IpcRequest::UpdateBackgroundAgent {
+                id,
+                patch,
+                preview,
+                confirmation_token,
+            } => match from_contract(patch) {
+                Ok(patch) => {
+                    Self::handle_update_background_agent(
+                        core,
+                        id,
+                        patch,
+                        preview,
+                        confirmation_token,
+                    )
+                    .await
+                }
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::DeleteBackgroundAgent { id } => {
                 Self::handle_delete_background_agent(core, id).await
             }
-            IpcRequest::ControlBackgroundAgent { id, action } => match from_contract(action) {
-                Ok(action) => Self::handle_control_background_agent(core, id, action).await,
+            IpcRequest::ControlBackgroundAgent {
+                id,
+                action,
+                preview,
+                confirmation_token,
+            } => match from_contract(action) {
+                Ok(action) => {
+                    Self::handle_control_background_agent(
+                        core,
+                        id,
+                        action,
+                        preview,
+                        confirmation_token,
+                    )
+                    .await
+                }
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::GetBackgroundAgentProgress { id, event_limit } => {

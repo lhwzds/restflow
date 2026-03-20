@@ -94,6 +94,14 @@ pub(super) fn parameters_schema() -> Value {
                 "type": "boolean",
                 "description": "Whether to trigger immediate run after convert_session/promote_to_background (default: true)"
             },
+            "preview": {
+                "type": "boolean",
+                "description": "If true, validate capability warnings/blockers without applying changes."
+            },
+            "confirmation_token": {
+                "type": "string",
+                "description": "Confirmation token returned by preview when warnings require explicit confirmation."
+            },
             "team": {
                 "type": "string",
                 "description": "Team name for save_team/get_team/delete_team, or run_batch from saved team."

@@ -56,8 +56,13 @@ impl CommandExecutor for IpcExecutor {
 
     async fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
         let agent = to_contract(agent)?;
-        self.request_typed(IpcRequest::CreateAgent { name, agent })
-            .await
+        self.request_typed(IpcRequest::CreateAgent {
+            name,
+            agent,
+            preview: false,
+            confirmation_token: None,
+        })
+        .await
     }
 
     async fn update_agent(
@@ -71,6 +76,8 @@ impl CommandExecutor for IpcExecutor {
             id: id.to_string(),
             name,
             agent,
+            preview: false,
+            confirmation_token: None,
         })
         .await
     }
