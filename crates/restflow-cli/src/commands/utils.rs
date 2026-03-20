@@ -69,6 +69,7 @@ pub fn parse_model(input: &str) -> Result<ModelId> {
         "minimax-m2-7-highspeed" | "minimax-m2.7-highspeed" => ModelId::MiniMaxM27Highspeed,
         "minimax-coding-plan-m2-1" => ModelId::MiniMaxM21CodingPlan,
         "minimax-coding-plan-m2-5" => ModelId::MiniMaxM25CodingPlan,
+        "minimax-coding-plan-m2-5-highspeed" => ModelId::MiniMaxM25CodingPlanHighspeed,
         // Zai
         "glm-5" | "glm5" => ModelId::Glm5,
         "glm-5-turbo" | "glm5-turbo" => ModelId::Glm5Turbo,
@@ -237,6 +238,18 @@ mod tests {
         assert_eq!(
             parse_model("minimax-m2-7-highspeed").unwrap(),
             ModelId::MiniMaxM27Highspeed
+        );
+    }
+
+    #[test]
+    fn parse_model_accepts_minimax_coding_plan_highspeed_variants() {
+        assert_eq!(
+            parse_model("minimax-coding-plan-m2-5-highspeed").unwrap(),
+            ModelId::MiniMaxM25CodingPlanHighspeed
+        );
+        assert_eq!(
+            parse_model("minimax-m2.5-highspeed").unwrap(),
+            ModelId::MiniMaxM25CodingPlanHighspeed
         );
     }
 

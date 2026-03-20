@@ -374,6 +374,7 @@ impl ModelId {
     pub const MiniMaxM27Highspeed: Self = Self("minimax-m2-7-highspeed");
     pub const MiniMaxM21CodingPlan: Self = Self("minimax-coding-plan-m2-1");
     pub const MiniMaxM25CodingPlan: Self = Self("minimax-coding-plan-m2-5");
+    pub const MiniMaxM25CodingPlanHighspeed: Self = Self("minimax-coding-plan-m2-5-highspeed");
     pub const Gpt5_4Codex: Self = Self("gpt-5.4");
     pub const Gpt5_4MiniCodex: Self = Self("gpt-5.4-mini");
     pub const Gpt5Codex: Self = Self("gpt-5-codex");
@@ -701,6 +702,10 @@ mod tests {
             ModelId::MiniMaxM25CodingPlan.provider(),
             Provider::MiniMaxCodingPlan
         );
+        assert_eq!(
+            ModelId::MiniMaxM25CodingPlanHighspeed.provider(),
+            Provider::MiniMaxCodingPlan
+        );
         assert_eq!(ModelId::CodexCli.provider(), Provider::Codex);
         assert_eq!(ModelId::Gpt5_4Codex.provider(), Provider::Codex);
         assert_eq!(ModelId::Gpt5_4MiniCodex.provider(), Provider::Codex);
@@ -774,6 +779,11 @@ mod tests {
             "MiniMax-M2.7-highspeed"
         );
         assert_eq!(ModelId::MiniMaxM21CodingPlan.as_str(), "MiniMax-M2.1");
+        assert_eq!(ModelId::MiniMaxM25CodingPlan.as_str(), "MiniMax-M2.5");
+        assert_eq!(
+            ModelId::MiniMaxM25CodingPlanHighspeed.as_str(),
+            "MiniMax-M2.5-highspeed"
+        );
         assert_eq!(ModelId::Glm5Turbo.as_str(), "glm-5-turbo");
         assert_eq!(ModelId::Glm5Code.as_str(), "glm-5");
         assert_eq!(ModelId::Glm5CodingPlan.as_str(), "glm-5");
@@ -818,6 +828,10 @@ mod tests {
             Some(ModelId::MiniMaxM25CodingPlan)
         );
         assert_eq!(
+            ModelId::for_provider_and_model(Provider::MiniMaxCodingPlan, "minimax-m2.5-highspeed"),
+            Some(ModelId::MiniMaxM25CodingPlanHighspeed)
+        );
+        assert_eq!(
             ModelId::for_provider_and_model(Provider::ZaiCodingPlan, "glm-5"),
             Some(ModelId::Glm5CodingPlan)
         );
@@ -839,6 +853,10 @@ mod tests {
         );
         assert_eq!(
             ModelId::MiniMaxM27.remap_provider(Provider::MiniMaxCodingPlan),
+            None
+        );
+        assert_eq!(
+            ModelId::MiniMaxM25CodingPlanHighspeed.remap_provider(Provider::MiniMax),
             None
         );
         assert_eq!(
@@ -872,13 +890,17 @@ mod tests {
         assert_eq!(ModelId::DeepseekChat.display_name(), "DeepSeek Chat");
         assert_eq!(ModelId::MiniMaxM21.display_name(), "MiniMax M2.1");
         assert_eq!(ModelId::MiniMaxM27.display_name(), "MiniMax M2.7");
+        assert_eq!(
+            ModelId::MiniMaxM25CodingPlanHighspeed.display_name(),
+            "MiniMax M2.5 Highspeed (Coding Plan)"
+        );
         assert_eq!(ModelId::Glm5Turbo.display_name(), "GLM-5 Turbo");
     }
 
     #[test]
     fn test_all_models() {
         let models = ModelId::all();
-        assert_eq!(models.len(), 62);
+        assert_eq!(models.len(), 63);
         assert!(models.contains(&ModelId::Gpt5));
         assert!(models.contains(&ModelId::Gpt5_1));
         assert!(models.contains(&ModelId::ClaudeOpus4_6));
@@ -898,6 +920,7 @@ mod tests {
         assert!(models.contains(&ModelId::MiniMaxM27));
         assert!(models.contains(&ModelId::MiniMaxM27Highspeed));
         assert!(models.contains(&ModelId::MiniMaxM21CodingPlan));
+        assert!(models.contains(&ModelId::MiniMaxM25CodingPlanHighspeed));
         assert!(models.contains(&ModelId::Glm5Turbo));
         assert!(models.contains(&ModelId::Glm5TurboCodingPlan));
     }
@@ -1070,6 +1093,10 @@ mod tests {
             ModelId::Glm5TurboCodingPlan.same_provider_fallback(),
             Some(ModelId::Glm5CodeCodingPlan)
         );
+        assert_eq!(
+            ModelId::MiniMaxM25CodingPlanHighspeed.same_provider_fallback(),
+            Some(ModelId::MiniMaxM25CodingPlan)
+        );
 
         // CLI models have no fallback
         assert_eq!(
@@ -1113,6 +1140,10 @@ mod tests {
         );
         assert_eq!(
             ModelId::MiniMaxM27Highspeed.openrouter_equivalent(),
+            Some(ModelId::OrMinimaxM2_1)
+        );
+        assert_eq!(
+            ModelId::MiniMaxM25CodingPlanHighspeed.openrouter_equivalent(),
             Some(ModelId::OrMinimaxM2_1)
         );
         // OR models themselves have no OR equivalent
