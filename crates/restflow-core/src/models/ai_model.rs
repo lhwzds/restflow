@@ -2083,7 +2083,10 @@ mod tests {
             Provider::MiniMaxCodingPlan.flagship_model(),
             AIModel::MiniMaxM25CodingPlan
         );
-        assert_eq!(Provider::ClaudeCode.flagship_model(), AIModel::ClaudeCodeOpus);
+        assert_eq!(
+            Provider::ClaudeCode.flagship_model(),
+            AIModel::ClaudeCodeOpus
+        );
         assert_eq!(Provider::Codex.flagship_model(), AIModel::CodexCli);
         assert_eq!(
             Provider::OpenRouter.flagship_model(),

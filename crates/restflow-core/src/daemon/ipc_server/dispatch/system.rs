@@ -65,22 +65,28 @@ async fn available_providers(core: &Arc<AppCore>) -> Result<Vec<Provider>, Strin
                 .get_available_profile(AuthProvider::OpenAICodex)
                 .await
                 .is_some(),
-            Provider::OpenAI => has_non_empty_secret(core, "OPENAI_API_KEY")
-                || auth_manager
-                    .get_available_profile(AuthProvider::OpenAI)
-                    .await
-                    .is_some(),
-            Provider::Anthropic => has_non_empty_secret(core, "ANTHROPIC_API_KEY")
-                || auth_manager
-                    .get_available_profile(AuthProvider::Anthropic)
-                    .await
-                    .is_some(),
-            Provider::Google => has_non_empty_secret(core, "GEMINI_API_KEY")
-                || has_non_empty_secret(core, "GOOGLE_API_KEY")
-                || auth_manager
-                    .get_available_profile(AuthProvider::Google)
-                    .await
-                    .is_some(),
+            Provider::OpenAI => {
+                has_non_empty_secret(core, "OPENAI_API_KEY")
+                    || auth_manager
+                        .get_available_profile(AuthProvider::OpenAI)
+                        .await
+                        .is_some()
+            }
+            Provider::Anthropic => {
+                has_non_empty_secret(core, "ANTHROPIC_API_KEY")
+                    || auth_manager
+                        .get_available_profile(AuthProvider::Anthropic)
+                        .await
+                        .is_some()
+            }
+            Provider::Google => {
+                has_non_empty_secret(core, "GEMINI_API_KEY")
+                    || has_non_empty_secret(core, "GOOGLE_API_KEY")
+                    || auth_manager
+                        .get_available_profile(AuthProvider::Google)
+                        .await
+                        .is_some()
+            }
             other => other
                 .api_key_env()
                 .map(|env_name| has_non_empty_secret(core, env_name))
