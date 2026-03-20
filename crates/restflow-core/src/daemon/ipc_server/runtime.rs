@@ -356,6 +356,7 @@ pub(super) async fn execute_chat_session(
             persisted_input: &final_persisted_input,
             assistant_output: &exec_result.output,
             active_model: Some(&exec_result.active_model),
+            final_model: Some(exec_result.final_model),
             execution,
             source: "ipc",
         },

@@ -368,7 +368,10 @@ mod tests {
     use tempfile::TempDir;
     use tokio::sync::mpsc;
 
-    use crate::models::{ChatSession, MemoryConfig, SteerMessage};
+    use crate::models::{
+        ChatSession, ExecutionTraceCategory, ExecutionTraceQuery, MemoryConfig, ModelId,
+        SteerMessage,
+    };
     use crate::runtime::background_agent::{
         ExecutionResult, SessionExecutionResult, SessionInputMode,
     };
@@ -411,6 +414,7 @@ mod tests {
                 "interactive-output".to_string(),
                 3,
                 "gpt-5.3-codex".to_string(),
+                ModelId::CodexCli,
             ))
         }
 
@@ -547,6 +551,151 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn run_traced_interactive_session_turn_persists_llm_and_model_switch_events() {
+        #[derive(Default)]
+        struct TraceBackend;
+
+        #[async_trait]
+        impl ExecutionBackend for TraceBackend {
+            fn load_chat_session(&self, _session_id: &str) -> Result<ChatSession> {
+                unreachable!("not used")
+            }
+
+            async fn execute_interactive_session_turn(
+                &self,
+                _session: &mut ChatSession,
+                _user_input: &str,
+                _max_history: usize,
+                _input_mode: SessionInputMode,
+                mut emitter: Option<Box<dyn StreamEmitter>>,
+                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            ) -> Result<SessionExecutionResult> {
+                if let Some(emitter) = emitter.as_mut() {
+                    emitter
+                        .emit_model_switch(
+                            "minimax-coding-plan-m2-5-highspeed",
+                            "minimax-coding-plan-m2-5",
+                            Some("failover"),
+                        )
+                        .await;
+                    emitter
+                        .emit_llm_call(
+                            "minimax-coding-plan-m2-5",
+                            Some(10),
+                            Some(5),
+                            Some(15),
+                            Some(0.01),
+                            Some(120),
+                            None,
+                            Some(2),
+                        )
+                        .await;
+                }
+                Ok(SessionExecutionResult::new(
+                    "done".to_string(),
+                    1,
+                    "minimax-coding-plan-m2-5".to_string(),
+                    ModelId::MiniMaxM25CodingPlan,
+                ))
+            }
+
+            async fn execute_background(
+                &self,
+                _agent_id: &str,
+                _background_task_id: Option<&str>,
+                _input: Option<&str>,
+                _memory_config: &MemoryConfig,
+                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+                _emitter: Option<Box<dyn StreamEmitter>>,
+            ) -> Result<ExecutionResult> {
+                unreachable!("background path not used")
+            }
+
+            async fn execute_background_from_state(
+                &self,
+                _agent_id: &str,
+                _background_task_id: Option<&str>,
+                _state: AgentState,
+                _memory_config: &MemoryConfig,
+                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+                _emitter: Option<Box<dyn StreamEmitter>>,
+            ) -> Result<ExecutionResult> {
+                unreachable!("background resume path not used")
+            }
+
+            async fn execute_subagent_plan(
+                &self,
+                _plan: ExecutionPlan,
+            ) -> Result<ExecutionOutcome> {
+                unreachable!("subagent path not used")
+            }
+        }
+
+        let orchestrator = AgentOrchestratorImpl::new(Arc::new(TraceBackend));
+        let (_temp_dir, tool_trace_storage, execution_trace_storage) = setup_trace_storages();
+        let mut session = ChatSession::new(
+            "agent-a".to_string(),
+            "minimax-coding-plan-m2-5-highspeed".to_string(),
+        );
+        let session_id = session.id.clone();
+        let started_at = chrono::Utc::now().timestamp_millis();
+
+        let result = orchestrator
+            .run_traced_interactive_session_turn(InteractiveSessionRequest {
+                session: &mut session,
+                user_input: "hello",
+                max_history: 20,
+                input_mode: SessionInputMode::EphemeralInput,
+                run_id: "run-traced-llm".to_string(),
+                tool_trace_storage,
+                execution_trace_storage: execution_trace_storage.clone(),
+                timeout_secs: None,
+                emitter: None,
+                steer_rx: None,
+            })
+            .await
+            .expect("traced interactive run should succeed");
+
+        assert_eq!(result.execution.final_model, ModelId::MiniMaxM25CodingPlan);
+
+        let by_task = execution_trace_storage
+            .query(&ExecutionTraceQuery {
+                task_id: Some(session_id.clone()),
+                ..Default::default()
+            })
+            .expect("query by task");
+        assert!(
+            by_task
+                .iter()
+                .any(|event| event.category == ExecutionTraceCategory::LlmCall)
+        );
+        assert!(
+            by_task
+                .iter()
+                .any(|event| event.category == ExecutionTraceCategory::ModelSwitch)
+        );
+
+        let by_agent = execution_trace_storage
+            .query(&ExecutionTraceQuery {
+                agent_id: Some("agent-a".to_string()),
+                from_timestamp: Some(started_at - 1_000),
+                to_timestamp: Some(chrono::Utc::now().timestamp_millis() + 1_000),
+                ..Default::default()
+            })
+            .expect("query by agent");
+        assert!(
+            by_agent
+                .iter()
+                .any(|event| event.category == ExecutionTraceCategory::LlmCall)
+        );
+        assert!(
+            by_agent
+                .iter()
+                .any(|event| event.category == ExecutionTraceCategory::ModelSwitch)
+        );
+    }
+
+    #[tokio::test]
     async fn run_traced_interactive_session_turn_returns_timeout_error() {
         #[derive(Default)]
         struct SlowBackend;
@@ -571,6 +720,7 @@ mod tests {
                     "too-late".to_string(),
                     1,
                     "gpt-5".to_string(),
+                    ModelId::Gpt5,
                 ))
             }
 

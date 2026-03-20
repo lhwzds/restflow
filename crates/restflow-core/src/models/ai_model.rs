@@ -525,6 +525,22 @@ impl ModelId {
             .map(|model| model.as_serialized_str().to_string())
     }
 
+    /// Normalize model identifiers using a provider hint before falling back
+    /// to global lookup. This avoids collisions between providers that expose
+    /// overlapping model families or aliases.
+    pub fn normalize_model_id_for_provider(provider: Provider, input: &str) -> Option<String> {
+        let normalized = input.trim();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        Self::for_provider_and_model(provider, normalized)
+            .or_else(|| Self::from_canonical_id(normalized))
+            .or_else(|| Self::from_api_name(normalized))
+            .filter(|model| model.provider_matches(provider))
+            .map(|model| model.as_serialized_str().to_string())
+    }
+
     /// Get the string representation used for API calls
     pub fn as_str(&self) -> &'static str {
         self.descriptor().api_name
@@ -1398,6 +1414,25 @@ mod tests {
             Some("claude-sonnet-4-5".to_string())
         );
         assert_eq!(ModelId::normalize_model_id(""), None);
+    }
+
+    #[test]
+    fn test_normalize_model_id_for_provider_avoids_minimax_collision() {
+        assert_eq!(
+            ModelId::normalize_model_id_for_provider(Provider::MiniMaxCodingPlan, "MiniMax-M2.5"),
+            Some("minimax-coding-plan-m2-5".to_string())
+        );
+        assert_eq!(
+            ModelId::normalize_model_id_for_provider(
+                Provider::MiniMaxCodingPlan,
+                "MiniMax-M2.5-highspeed"
+            ),
+            Some("minimax-coding-plan-m2-5-highspeed".to_string())
+        );
+        assert_eq!(
+            ModelId::normalize_model_id_for_provider(Provider::MiniMax, "MiniMax-M2.5"),
+            Some("minimax-m2-5".to_string())
+        );
     }
 
     #[test]

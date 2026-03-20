@@ -1,5 +1,7 @@
 use restflow_ai::llm::Message;
 
+use crate::models::ModelId;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutionErrorKind {
     Authentication,
@@ -42,6 +44,7 @@ pub struct CompactionMetrics {
 pub struct ExecutionMetrics {
     pub iterations: Option<u32>,
     pub active_model: Option<String>,
+    pub final_model: Option<ModelId>,
     pub message_count: usize,
     pub compaction: Option<CompactionMetrics>,
 }
@@ -126,18 +129,26 @@ pub struct SessionExecutionResult {
     pub output: String,
     pub iterations: u32,
     pub active_model: String,
+    pub final_model: ModelId,
     pub metrics: ExecutionMetrics,
 }
 
 impl SessionExecutionResult {
-    pub fn new(output: String, iterations: u32, active_model: String) -> Self {
+    pub fn new(
+        output: String,
+        iterations: u32,
+        active_model: String,
+        final_model: ModelId,
+    ) -> Self {
         Self {
             output,
             iterations,
             active_model: active_model.clone(),
+            final_model,
             metrics: ExecutionMetrics {
                 iterations: Some(iterations),
                 active_model: Some(active_model),
+                final_model: Some(final_model),
                 ..ExecutionMetrics::default()
             },
         }
@@ -175,8 +186,11 @@ mod tests {
 
     #[test]
     fn session_execution_result_populates_metrics() {
-        let result = SessionExecutionResult::new("ok".to_string(), 3, "gpt-5".to_string());
+        let result =
+            SessionExecutionResult::new("ok".to_string(), 3, "gpt-5".to_string(), ModelId::Gpt5);
         assert_eq!(result.metrics.iterations, Some(3));
         assert_eq!(result.metrics.active_model.as_deref(), Some("gpt-5"));
+        assert_eq!(result.metrics.final_model, Some(ModelId::Gpt5));
+        assert_eq!(result.final_model, ModelId::Gpt5);
     }
 }

@@ -30,6 +30,7 @@ pub struct PersistInteractiveTurnRequest<'a> {
     pub persisted_input: &'a str,
     pub assistant_output: &'a str,
     pub active_model: Option<&'a str>,
+    pub final_model: Option<ModelId>,
     pub execution: MessageExecution,
     pub source: &'a str,
 }
@@ -96,6 +97,7 @@ impl SessionService {
         user_message: ChatMessage,
         assistant_message: ChatMessage,
         active_model: Option<&str>,
+        final_model: Option<ModelId>,
         source: &str,
     ) -> Result<ChatSession> {
         let session_lock = {
@@ -119,7 +121,9 @@ impl SessionService {
             session.add_message(user_message);
             session.add_message(assistant_message);
 
-            if let Some(model) = active_model
+            if let Some(model) = final_model {
+                session.metadata.last_model = Some(model.as_serialized_str().to_string());
+            } else if let Some(model) = active_model
                 && let Some(normalized) = ModelId::normalize_model_id(model)
             {
                 session.metadata.last_model = Some(normalized);
@@ -389,7 +393,9 @@ impl SessionService {
         session.add_message(
             ChatMessage::assistant(request.assistant_output).with_execution(request.execution),
         );
-        if let Some(model) = request.active_model
+        if let Some(model) = request.final_model {
+            session.metadata.last_model = Some(model.as_serialized_str().to_string());
+        } else if let Some(model) = request.active_model
             && let Some(normalized) = ModelId::normalize_model_id(model)
         {
             session.metadata.last_model = Some(normalized);
@@ -515,6 +521,7 @@ mod tests {
                 ChatMessage::user("hello"),
                 ChatMessage::assistant("world").with_execution(execution),
                 Some("gpt-5"),
+                Some(ModelId::Gpt5),
                 "channel",
             )
             .unwrap();
@@ -525,6 +532,27 @@ mod tests {
         assert_eq!(persisted.metadata.last_model.as_deref(), Some("gpt-5"));
         let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
         assert_eq!(reloaded.messages.len(), 2);
+    }
+
+    #[test]
+    fn append_exchange_prefers_provider_aware_final_model() {
+        let (_storage, service, session) = setup();
+
+        let persisted = service
+            .append_exchange(
+                &session.id,
+                ChatMessage::user("hello"),
+                ChatMessage::assistant("world"),
+                Some("MiniMax-M2.5"),
+                Some(ModelId::MiniMaxM25CodingPlan),
+                "channel",
+            )
+            .unwrap();
+
+        assert_eq!(
+            persisted.metadata.last_model.as_deref(),
+            Some("minimax-coding-plan-m2-5")
+        );
     }
 
     #[test]
@@ -663,6 +691,7 @@ mod tests {
                     persisted_input: "voice transcript",
                     assistant_output: "assistant output",
                     active_model: Some("gpt-5"),
+                    final_model: Some(ModelId::Gpt5),
                     execution: MessageExecution::new().complete(20, 1),
                     source: "ipc",
                 },
@@ -674,5 +703,33 @@ mod tests {
         assert_eq!(reloaded.messages[0].content, "voice transcript");
         assert_eq!(reloaded.messages[1].content, "assistant output");
         assert_eq!(reloaded.metadata.last_model.as_deref(), Some("gpt-5"));
+    }
+
+    #[test]
+    fn persist_interactive_turn_prefers_provider_aware_final_model() {
+        let (storage, service, mut session) = setup();
+        session.add_message(ChatMessage::user("voice input"));
+        storage.chat_sessions.update(&session).unwrap();
+
+        service
+            .persist_interactive_turn(
+                &mut session,
+                PersistInteractiveTurnRequest {
+                    original_input: "voice input",
+                    persisted_input: "voice transcript",
+                    assistant_output: "assistant output",
+                    active_model: Some("MiniMax-M2.5"),
+                    final_model: Some(ModelId::MiniMaxM25CodingPlan),
+                    execution: MessageExecution::new().complete(20, 1),
+                    source: "ipc",
+                },
+            )
+            .unwrap();
+
+        let reloaded = storage.chat_sessions.get(&session.id).unwrap().unwrap();
+        assert_eq!(
+            reloaded.metadata.last_model.as_deref(),
+            Some("minimax-coding-plan-m2-5")
+        );
     }
 }

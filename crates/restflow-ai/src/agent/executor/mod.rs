@@ -444,6 +444,9 @@ impl AgentExecutor {
                             tier = ?tier,
                             "Switched model via router"
                         );
+                        emitter
+                            .emit_model_switch(&current_model, &target_model, Some("routing"))
+                            .await;
                     }
                 }
             }

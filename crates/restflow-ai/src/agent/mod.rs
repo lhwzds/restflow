@@ -38,7 +38,9 @@ pub use prompt_flags::PromptFlags;
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};
 pub use state::{AgentState, AgentStatus};
 pub use step::ExecutionStep;
-pub use stream::{ChannelEmitter, NullEmitter, StreamEmitter, ToolCallAccumulator};
+pub use stream::{
+    ChannelEmitter, NullEmitter, SharedStreamEmitter, StreamEmitter, ToolCallAccumulator,
+};
 pub use stuck::{StuckAction, StuckDetector, StuckDetectorConfig, StuckInfo};
 pub use sub_agent::{
     RunTraceContext, RunTraceEmitterFactory, RunTraceLifecycleSink, RunTraceOutcome, RunTraceSink,

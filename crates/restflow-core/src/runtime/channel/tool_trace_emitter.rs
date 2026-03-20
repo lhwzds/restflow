@@ -1,8 +1,8 @@
 use crate::models::chat_session::ExecutionStepInfo;
 use crate::models::{ToolTrace, ToolTraceEvent};
 use crate::runtime::trace::{
-    MAX_TRACE_EVENT_TEXT_CHARS, RestflowTrace, append_trace_event, normalize_trace_payload,
-    sanitize_trace_secrets, truncate_trace_text,
+    MAX_TRACE_EVENT_TEXT_CHARS, RestflowTrace, append_restflow_model_switch, append_trace_event,
+    normalize_trace_payload, sanitize_trace_secrets, truncate_trace_text,
 };
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
 use async_trait::async_trait;
@@ -255,6 +255,20 @@ impl StreamEmitter for ToolTraceEmitter {
     async fn emit_complete(&mut self) {
         self.inner.emit_complete().await;
     }
+
+    async fn emit_model_switch(&mut self, from_model: &str, to_model: &str, reason: Option<&str>) {
+        self.inner
+            .emit_model_switch(from_model, to_model, reason)
+            .await;
+        append_restflow_model_switch(
+            self.execution_trace_storage.as_ref(),
+            &self.trace,
+            from_model,
+            to_model,
+            reason,
+            true,
+        );
+    }
 }
 
 #[cfg(test)]
@@ -345,6 +359,49 @@ mod tests {
             Some("gpt-5")
         );
         assert_eq!(events[0].subflow_path, vec!["run-1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn test_tool_trace_emitter_writes_model_switch_events_to_execution_trace() {
+        let storage = setup_storage();
+        let execution_storage = setup_execution_storage();
+        let mut emitter = ToolTraceEmitter::new(
+            Box::new(NullEmitter),
+            storage,
+            RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
+        )
+        .with_execution_trace_storage(execution_storage.clone());
+
+        emitter
+            .emit_model_switch(
+                "minimax-coding-plan-m2-5-highspeed",
+                "minimax-coding-plan-m2-5",
+                Some("failover"),
+            )
+            .await;
+
+        let events = execution_storage
+            .query(&crate::models::ExecutionTraceQuery {
+                task_id: Some("task-1".to_string()),
+                ..Default::default()
+            })
+            .expect("query");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].category, ExecutionTraceCategory::ModelSwitch);
+        assert_eq!(
+            events[0].model_switch.as_ref().map(|trace| (
+                trace.from_model.as_str(),
+                trace.to_model.as_str(),
+                trace.reason.as_deref(),
+                trace.success
+            )),
+            Some((
+                "minimax-coding-plan-m2-5-highspeed",
+                "minimax-coding-plan-m2-5",
+                Some("failover"),
+                true
+            ))
+        );
     }
 
     #[test]
