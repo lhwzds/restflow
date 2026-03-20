@@ -63,6 +63,8 @@ pub fn parse_model(input: &str) -> Result<AIModel> {
         // MiniMax
         "minimax-m2-1" => AIModel::MiniMaxM21,
         "minimax-m2-5" => AIModel::MiniMaxM25,
+        "minimax-m2-7" | "minimax-m2.7" => AIModel::MiniMaxM27,
+        "minimax-m2-7-highspeed" | "minimax-m2.7-highspeed" => AIModel::MiniMaxM27Highspeed,
         "minimax-coding-plan-m2-1" => AIModel::MiniMaxM21CodingPlan,
         "minimax-coding-plan-m2-5" => AIModel::MiniMaxM25CodingPlan,
         // Zai
@@ -223,6 +225,16 @@ mod tests {
         assert_eq!(
             parse_model("zai-coding-plan-glm-5-turbo").unwrap(),
             AIModel::Glm5TurboCodingPlan
+        );
+    }
+
+    #[test]
+    fn parse_model_accepts_minimax_m27_variants() {
+        assert_eq!(parse_model("minimax-m2-7").unwrap(), AIModel::MiniMaxM27);
+        assert_eq!(parse_model("minimax-m2.7").unwrap(), AIModel::MiniMaxM27);
+        assert_eq!(
+            parse_model("minimax-m2-7-highspeed").unwrap(),
+            AIModel::MiniMaxM27Highspeed
         );
     }
 }

@@ -13,6 +13,7 @@ const EXPECTED_PROVIDER_LABELS = [
   'ZAI Coding Plan',
   'Claude Code',
   'Codex',
+  'MiniMax',
 ]
 
 const EXPECTED_PROVIDER_IDS = [
@@ -29,6 +30,7 @@ const MOCK_MODELS: ModelMetadata[] = [
   { model: 'zai-coding-plan-glm-5-turbo', provider: 'zai-coding-plan', name: 'GLM-5 Turbo (Coding Plan)' },
   { model: 'claude-code-sonnet', provider: 'claude-code', name: 'Claude Code Sonnet' },
   { model: 'gpt-5.3-codex', provider: 'codex', name: 'Codex GPT-5.3' },
+  { model: 'minimax-m2-7', provider: 'minimax', name: 'MiniMax M2.7' },
 ]
 
 async function mockGetAvailableModels(page: Page) {
@@ -83,6 +85,7 @@ test.describe('Provider Catalog', () => {
     for (const label of EXPECTED_PROVIDER_LABELS) {
       await expect(chatListbox).toContainText(label)
     }
+    await expect(chatListbox).toContainText('MiniMax M2.7')
 
     await page.keyboard.press('Escape')
 
@@ -98,6 +101,12 @@ test.describe('Provider Catalog', () => {
     for (const label of EXPECTED_PROVIDER_LABELS) {
       await expect(createListbox).toContainText(label)
     }
+    await page.getByRole('option', { name: 'MiniMax', exact: true }).click()
+
+    const createModelSelector = dialog.locator('button[role="combobox"]').nth(1)
+    await createModelSelector.click()
+    const createModelListbox = page.getByRole('listbox').last()
+    await expect(createModelListbox).toContainText('MiniMax M2.7')
 
     await page.keyboard.press('Escape')
     await dialog.getByRole('button', { name: 'Cancel' }).click()
@@ -115,5 +124,11 @@ test.describe('Provider Catalog', () => {
     for (const label of EXPECTED_PROVIDER_LABELS) {
       await expect(editorListbox).toContainText(label)
     }
+    await page.getByRole('option', { name: 'MiniMax', exact: true }).click()
+
+    const editorModelSelector = page.locator('button[role="combobox"]').nth(1)
+    await editorModelSelector.click()
+    const editorModelListbox = page.getByRole('listbox').last()
+    await expect(editorModelListbox).toContainText('MiniMax M2.7')
   })
 })

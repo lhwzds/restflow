@@ -435,6 +435,14 @@ fn test_default_model_for_provider_uses_anthropic_opus() {
     );
 }
 
+#[test]
+fn test_default_model_for_provider_uses_minimax_m27() {
+    assert_eq!(
+        AgentRuntimeExecutor::default_model_for_provider(Provider::MiniMax),
+        AIModel::MiniMaxM27
+    );
+}
+
 #[tokio::test]
 async fn test_executor_agent_not_found() {
     let (storage, _temp_dir) = create_test_storage();

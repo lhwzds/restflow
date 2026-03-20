@@ -85,7 +85,7 @@ impl AgentRuntimeExecutor {
             Provider::Doubao => AIModel::DoubaoPro,
             Provider::Yi => AIModel::YiLightning,
             Provider::SiliconFlow => AIModel::SiliconFlowAuto,
-            Provider::MiniMax => AIModel::MiniMaxM25,
+            Provider::MiniMax => AIModel::MiniMaxM27,
             Provider::MiniMaxCodingPlan => AIModel::MiniMaxM25CodingPlan,
         }
     }

@@ -20,6 +20,12 @@ vi.mock('@/api/config', () => ({
 const MOCK_MODELS: ModelMetadataDTO[] = [
   { model: 'gpt-5', provider: 'openai', supports_temperature: true, name: 'GPT-5' },
   {
+    model: 'minimax-m2-7',
+    provider: 'minimax',
+    supports_temperature: true,
+    name: 'MiniMax M2.7',
+  },
+  {
     model: 'claude-sonnet-4-5',
     provider: 'anthropic',
     supports_temperature: true,
@@ -90,6 +96,7 @@ describe('AIModels utility', () => {
   describe('getModelDisplayName', () => {
     it('returns the display name from metadata', () => {
       expect(getModelDisplayName('gpt-5')).toBe('GPT-5')
+      expect(getModelDisplayName('minimax-m2-7')).toBe('MiniMax M2.7')
       expect(getModelDisplayName('claude-sonnet-4-5')).toBe('Claude Sonnet 4.5')
     })
 
