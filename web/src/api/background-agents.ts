@@ -28,31 +28,37 @@ export async function listBackgroundAgents(): Promise<BackgroundAgent[]> {
 export async function pauseBackgroundAgent(id: string): Promise<BackgroundAgent> {
   return requestTyped<BackgroundAgent>({
     type: 'ControlBackgroundAgent',
-    data: { id, action: 'pause' },
+    data: { id, action: 'pause', preview: false, confirmation_token: null },
   })
 }
 
 export async function resumeBackgroundAgent(id: string): Promise<BackgroundAgent> {
   return requestTyped<BackgroundAgent>({
     type: 'ControlBackgroundAgent',
-    data: { id, action: 'resume' },
+    data: { id, action: 'resume', preview: false, confirmation_token: null },
   })
 }
 
 export async function stopBackgroundAgent(taskId: string): Promise<boolean> {
   await requestTyped({
     type: 'ControlBackgroundAgent',
-    data: { id: taskId, action: 'stop' },
+    data: { id: taskId, action: 'stop', preview: false, confirmation_token: null },
   })
   return true
 }
 
 export async function runBackgroundAgentStreaming(
   id: string,
+  confirmationToken?: string,
 ): Promise<StreamingBackgroundAgentResponse> {
   const agent = await requestTyped<BackgroundAgent>({
     type: 'ControlBackgroundAgent',
-    data: { id, action: 'run_now' },
+    data: {
+      id,
+      action: 'run_now',
+      preview: false,
+      confirmation_token: confirmationToken ?? null,
+    },
   })
 
   return {
@@ -101,6 +107,7 @@ export interface ConvertSessionToBackgroundAgentRequest {
   name?: string
   input?: string
   run_now?: boolean
+  confirmation_token?: string
 }
 
 export interface UpdateBackgroundAgentRequest {
@@ -111,6 +118,8 @@ export interface UpdateBackgroundAgentRequest {
   input?: string
   input_template?: string
   timeout_secs?: number
+  preview?: boolean
+  confirmation_token?: string
 }
 
 export async function convertSessionToBackgroundAgent(
@@ -129,7 +138,16 @@ export async function updateBackgroundAgent(
 ): Promise<BackgroundAgent> {
   return requestTyped<BackgroundAgent>({
     type: 'UpdateBackgroundAgent',
-    data: { id, patch: request },
+    data: {
+      id,
+      patch: {
+        ...request,
+        preview: undefined,
+        confirmation_token: undefined,
+      },
+      preview: request.preview ?? false,
+      confirmation_token: request.confirmation_token ?? null,
+    },
   })
 }
 

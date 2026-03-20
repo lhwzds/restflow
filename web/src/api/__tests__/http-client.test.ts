@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { BackendError, requestOptional, requestTyped, streamClient } from '../http-client'
+import { BackendError, fetchJson, requestOptional, requestTyped, streamClient } from '../http-client'
 
 declare const global: typeof globalThis
 
@@ -61,6 +61,30 @@ describe('http-client', () => {
 
     const result = await requestOptional({ type: 'GetThing' })
     expect(result).toBeNull()
+  })
+
+  it('throws BackendError for non-OK JSON payloads', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            code: 428,
+            kind: 'confirmation_required',
+            message: 'confirm',
+            details: { assessment: { status: 'warning' } },
+          }),
+          {
+            status: 428,
+            headers: { 'Content-Type': 'application/json' },
+          },
+        ),
+      ),
+    )
+
+    await expect(fetchJson('/api/background-agents/convert-session')).rejects.toBeInstanceOf(
+      BackendError,
+    )
   })
 
   it('parses NDJSON stream frames', async () => {

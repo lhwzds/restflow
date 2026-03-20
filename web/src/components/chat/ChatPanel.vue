@@ -19,17 +19,24 @@ import { useChatSessionStore } from '@/stores/chatSessionStore'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
+import { BackendError } from '@/api/http-client'
 import { steerChatStream } from '@/api/chat-stream'
 import {
   sendChatMessage as sendChatMessageApi,
   subscribeSessionEvents,
   type UnlistenFn,
 } from '@/api/chat-session'
+import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import {
+  extractOperationAssessment,
+  formatOperationAssessment,
+  type OperationAssessment,
+} from '@/utils/operationAssessment'
 import { buildVoiceMessageContent } from './voiceMessageContent'
 
 const emit = defineEmits<{
@@ -38,6 +45,7 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
+const { confirm } = useConfirm()
 const { t } = useI18n()
 const chatSessionStore = useChatSessionStore()
 const backgroundAgentStore = useBackgroundAgentStore()
@@ -120,7 +128,16 @@ async function handleBgResume() {
 
 async function handleBgRun() {
   if (!linkedBgAgent.value) return
-  await backgroundAgentStore.runAgentNow(linkedBgAgent.value.id)
+  await backgroundAgentStore.runAgentNow(
+    linkedBgAgent.value.id,
+    async (assessment: OperationAssessment) =>
+      confirm({
+        title: 'Confirmation required',
+        description: formatOperationAssessment(assessment),
+        confirmText: 'Run anyway',
+        cancelText: 'Cancel',
+      }),
+  )
 }
 
 async function handleBgStop() {
@@ -368,7 +385,7 @@ async function onUpdateSelectedModel(model: string) {
       const nextModel = model as AIModel
       const metadata = modelsStore.getModelMetadata(nextModel)
       const resolvedProvider = metadata?.provider ?? stored.agent.model_ref?.provider
-      await updateAgent(agentId, {
+      const request = {
         agent: {
           ...stored.agent,
           model: nextModel,
@@ -379,7 +396,30 @@ async function onUpdateSelectedModel(model: string) {
               }
             : undefined,
         },
-      })
+      }
+      try {
+        await updateAgent(agentId, request)
+      } catch (error) {
+        const assessment = extractOperationAssessment(error)
+        if (
+          error instanceof BackendError &&
+          error.code === 428 &&
+          assessment?.confirmation_token
+        ) {
+          const confirmed = await confirm({
+            title: 'Confirmation required',
+            description: formatOperationAssessment(assessment),
+            confirmText: 'Update anyway',
+            cancelText: 'Cancel',
+          })
+          if (confirmed) {
+            await updateAgent(agentId, {
+              ...request,
+              confirmation_token: assessment.confirmation_token,
+            })
+          }
+        }
+      }
     } catch {
       // Non-critical: session model was updated, agent default is best-effort
     }

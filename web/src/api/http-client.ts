@@ -119,6 +119,23 @@ export function buildUrl(path: string): string {
 async function readJson<T>(response: Response): Promise<T> {
   if (!response.ok) {
     const text = await response.text()
+    const contentType = response.headers.get('content-type') ?? ''
+    if (contentType.includes('application/json') && text.trim()) {
+      try {
+        const payload = JSON.parse(text) as Partial<ErrorPayload>
+        if (
+          typeof payload.code === 'number' &&
+          typeof payload.kind === 'string' &&
+          typeof payload.message === 'string'
+        ) {
+          throw new BackendError(payload as ErrorPayload)
+        }
+      } catch (error) {
+        if (error instanceof BackendError) {
+          throw error
+        }
+      }
+    }
     throw new Error(text || `HTTP ${response.status}`)
   }
   return (await response.json()) as T

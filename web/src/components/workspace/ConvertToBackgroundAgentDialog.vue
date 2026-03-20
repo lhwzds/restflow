@@ -16,8 +16,13 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { useConfirm } from '@/composables/useConfirm'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useToast } from '@/composables/useToast'
+import {
+  formatOperationAssessment,
+  type OperationAssessment,
+} from '@/utils/operationAssessment'
 
 const props = defineProps<{
   open: boolean
@@ -31,6 +36,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirm()
 const backgroundAgentStore = useBackgroundAgentStore()
 
 const name = ref('')
@@ -53,12 +59,19 @@ async function submit() {
   if (!name.value.trim()) return
   isSubmitting.value = true
   try {
+    const confirmWarning = async (assessment: OperationAssessment) =>
+      confirm({
+        title: 'Confirmation required',
+        description: formatOperationAssessment(assessment),
+        confirmText: 'Create anyway',
+        cancelText: 'Cancel',
+      })
     const result = await backgroundAgentStore.convertSessionToAgent({
       session_id: props.sessionId,
       name: name.value.trim(),
       input: input.value.trim() || undefined,
       run_now: runNow.value,
-    })
+    }, confirmWarning)
     if (result) {
       toast.success(t('workspace.session.convertSuccess'))
       emit('update:open', false)

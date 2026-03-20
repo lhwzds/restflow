@@ -22,12 +22,18 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { createAgent } from '@/api/agents'
+import { BackendError } from '@/api/http-client'
 import { useModelsStore } from '@/stores/modelsStore'
+import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { AIModel } from '@/types/generated/AIModel'
 import type { Provider } from '@/types/generated/Provider'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
 import { getProviderDisplayName } from '@/utils/providerCatalog'
+import {
+  extractOperationAssessment,
+  formatOperationAssessment,
+} from '@/utils/operationAssessment'
 
 const props = defineProps<{ open: boolean }>()
 
@@ -38,6 +44,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirm()
 const modelsStore = useModelsStore()
 
 const name = ref('')
@@ -70,6 +77,7 @@ watch(
         : ''
     }
   },
+  { immediate: true },
 )
 
 watch(
@@ -97,7 +105,7 @@ async function submit() {
   isSubmitting.value = true
   try {
     const resolvedName = name.value.trim() || generateDefaultAgentName()
-    const agent = await createAgent({
+    const request = {
       name: resolvedName,
       agent: {
         model: selectedModel as AIModel,
@@ -106,7 +114,34 @@ async function submit() {
           model: selectedModel as AIModel,
         },
       },
-    })
+    }
+    let agent
+    try {
+      agent = await createAgent(request)
+    } catch (error) {
+      const assessment = extractOperationAssessment(error)
+      if (
+        error instanceof BackendError &&
+        error.code === 428 &&
+        assessment?.confirmation_token
+      ) {
+        const confirmed = await confirm({
+          title: 'Confirmation required',
+          description: formatOperationAssessment(assessment),
+          confirmText: 'Create anyway',
+          cancelText: 'Cancel',
+        })
+        if (!confirmed) {
+          return
+        }
+        agent = await createAgent({
+          ...request,
+          confirmation_token: assessment.confirmation_token,
+        })
+      } else {
+        throw error
+      }
+    }
     toast.success(t('workspace.agent.createSuccess'))
     const emittedModelRef = agent.agent.model_ref ?? {
       provider: selectedProvider as Provider,
@@ -120,8 +155,9 @@ async function submit() {
       model_ref: emittedModelRef,
     })
     emit('update:open', false)
-  } catch {
-    toast.error(t('workspace.agent.createFailed'))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : t('workspace.agent.createFailed')
+    toast.error(message)
   } finally {
     isSubmitting.value = false
   }

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { setActivePinia, createPinia } from 'pinia'
 import { useBackgroundAgentStore } from '../backgroundAgentStore'
 import * as api from '@/api/background-agents'
+import { BackendError } from '@/api/http-client'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 
 vi.mock('@/api/background-agents', () => ({
@@ -342,6 +343,44 @@ describe('backgroundAgentStore', () => {
         expect(result).toBeNull()
         expect(store.error).toBe('Convert failed')
       })
+
+      it('retries conversion after confirmation warning', async () => {
+        const converted = createMockAgent('a-converted', 'active')
+        const confirmWarning = vi.fn().mockResolvedValue(true)
+        vi.mocked(api.convertSessionToBackgroundAgent)
+          .mockRejectedValueOnce(
+            new BackendError({
+              code: 428,
+              kind: 'confirmation_required',
+              message: 'confirm',
+              details: {
+                assessment: {
+                  status: 'warning',
+                  warnings: [{ message: 'Credential missing.' }],
+                  blockers: [],
+                  requires_confirmation: true,
+                  confirmation_token: 'token-1',
+                },
+              },
+            } as any),
+          )
+          .mockResolvedValueOnce(converted)
+
+        const store = useBackgroundAgentStore()
+        const result = await store.convertSessionToAgent(
+          {
+            session_id: 'session-1',
+          },
+          confirmWarning,
+        )
+
+        expect(confirmWarning).toHaveBeenCalledOnce()
+        expect(api.convertSessionToBackgroundAgent).toHaveBeenNthCalledWith(2, {
+          session_id: 'session-1',
+          confirmation_token: 'token-1',
+        })
+        expect(result).toEqual(converted)
+      })
     })
 
     describe('convertSessionToWorkspace', () => {
@@ -514,6 +553,41 @@ describe('backgroundAgentStore', () => {
 
         expect(result).toBeNull()
         expect(store.error).toBe('Run failed')
+      })
+
+      it('retries run after confirmation warning', async () => {
+        const streamingResponse = {
+          task_id: 'task-1',
+          event_channel: 'channel-1',
+          already_running: false,
+        }
+        const confirmWarning = vi.fn().mockResolvedValue(true)
+        vi.mocked(api.runBackgroundAgentStreaming)
+          .mockRejectedValueOnce(
+            new BackendError({
+              code: 428,
+              kind: 'confirmation_required',
+              message: 'confirm',
+              details: {
+                assessment: {
+                  status: 'warning',
+                  warnings: [{ message: 'Uses fallback model.' }],
+                  blockers: [],
+                  requires_confirmation: true,
+                  confirmation_token: 'token-2',
+                },
+              },
+            } as any),
+          )
+          .mockResolvedValueOnce(streamingResponse)
+        vi.mocked(api.listBackgroundAgents).mockResolvedValue([])
+
+        const store = useBackgroundAgentStore()
+        const result = await store.runAgentNow('a1', confirmWarning)
+
+        expect(confirmWarning).toHaveBeenCalledOnce()
+        expect(api.runBackgroundAgentStreaming).toHaveBeenNthCalledWith(2, 'a1', 'token-2')
+        expect(result).toEqual(streamingResponse)
       })
     })
   })
