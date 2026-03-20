@@ -41,7 +41,7 @@ pub async fn run_with_session(
         success: true,
         text: Some(execution.output.clone()),
         iterations: Some(execution.iterations),
-        model: Some(execution.active_model.clone()),
+        model: Some(execution.final_model.as_serialized_str().to_string()),
         metadata: Some(json!({
             "chat_session_id": session.id,
             "resolved_agent_id": session.agent_id,

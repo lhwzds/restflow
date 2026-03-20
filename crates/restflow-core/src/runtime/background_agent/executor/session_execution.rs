@@ -314,10 +314,16 @@ impl AgentRuntimeExecutor {
             ));
         }
 
+        let active_model = swappable.current_model();
+        let final_model = ModelId::for_provider_and_model(model.provider(), &active_model)
+            .or_else(|| ModelId::from_api_name(&active_model))
+            .or_else(|| ModelId::from_canonical_id(&active_model))
+            .unwrap_or(model);
         let mut execution = SessionExecutionResult::new(
             result.answer.unwrap_or_default(),
             result.iterations as u32,
-            swappable.current_model(),
+            active_model,
+            final_model,
         );
         execution.metrics.message_count = result.state.messages.len();
         Ok(execution)
@@ -643,19 +649,33 @@ impl AgentRuntimeExecutor {
         let mut retry_state = RetryState::new();
         let session_snapshot = session.clone();
         let agent_id = session.agent_id.clone();
-        let mut emitter = emitter;
+        let shared_emitter = share_stream_emitter(emitter);
         let mut steer_rx = steer_rx;
 
         loop {
             let node = agent_node.clone();
             let session_for_execution = session_snapshot.clone();
+            let mut previous_attempt_model: Option<ModelId> = None;
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = node.clone();
                 let session_for_execution = session_for_execution.clone();
                 let agent_id = agent_id.clone();
-                let emitter = emitter.take();
+                let previous_model = previous_attempt_model.replace(model);
+                let mut emitter = clone_shared_emitter(&shared_emitter);
                 let steer_rx = steer_rx.take();
                 async move {
+                    if let (Some(previous_model), Some(trace_emitter)) =
+                        (previous_model, emitter.as_mut())
+                        && previous_model != model
+                    {
+                        trace_emitter
+                            .emit_model_switch(
+                                previous_model.as_serialized_str(),
+                                model.as_serialized_str(),
+                                Some("failover"),
+                            )
+                            .await;
+                    }
                     self.execute_session_with_profiles(
                         &node,
                         model,
@@ -674,7 +694,11 @@ impl AgentRuntimeExecutor {
             .await;
 
             match result {
-                Ok((exec_result, _model)) => return Ok(exec_result),
+                Ok((mut exec_result, final_model)) => {
+                    exec_result.final_model = final_model;
+                    exec_result.metrics.final_model = Some(final_model);
+                    return Ok(exec_result);
+                }
                 Err(err) => {
                     let error_msg = err.to_string();
                     if retry_state.should_retry(&retry_config, &error_msg) {

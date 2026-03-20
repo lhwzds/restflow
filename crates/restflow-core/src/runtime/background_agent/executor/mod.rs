@@ -27,7 +27,7 @@ use crate::{
 };
 use restflow_ai::agent::{
     CheckpointDurability, ModelRoutingConfig as AiModelRoutingConfig,
-    ModelSwitcher as AiModelSwitcher, PromptFlags, StreamEmitter,
+    ModelSwitcher as AiModelSwitcher, PromptFlags, SharedStreamEmitter, StreamEmitter,
 };
 use restflow_ai::llm::{CompletionRequest, Message};
 use restflow_ai::{
@@ -62,6 +62,16 @@ use restflow_ai::agent::{
     SubagentConfig, SubagentExecutionBridge, SubagentTracker, execute_subagent_once,
 };
 use restflow_ai::llm::LlmSwitcherImpl;
+
+fn share_stream_emitter(emitter: Option<Box<dyn StreamEmitter>>) -> Option<SharedStreamEmitter> {
+    emitter.map(SharedStreamEmitter::new)
+}
+
+fn clone_shared_emitter(emitter: &Option<SharedStreamEmitter>) -> Option<Box<dyn StreamEmitter>> {
+    emitter
+        .as_ref()
+        .map(|shared| Box::new(shared.clone()) as Box<dyn StreamEmitter>)
+}
 
 /// Real agent executor that bridges to restflow_ai::AgentExecutor.
 ///

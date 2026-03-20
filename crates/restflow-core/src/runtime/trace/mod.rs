@@ -1,8 +1,8 @@
 //! Shared runtime helpers for RestFlow run traces.
 
 use crate::models::{
-    ExecutionTraceEvent, LifecycleTrace, LlmCallTrace, MessageTrace, ToolCallCompletion,
-    ToolCallTrace, ToolTrace,
+    ExecutionTraceEvent, LifecycleTrace, LlmCallTrace, MessageTrace, ModelSwitchTrace,
+    ToolCallCompletion, ToolCallTrace, ToolTrace,
 };
 use crate::runtime::channel::tool_trace_emitter::ToolTraceEmitter;
 use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
@@ -684,6 +684,44 @@ pub fn append_restflow_llm_call(
             model = %llm_call.model,
             error = %error,
             "Failed to append llm trace event"
+        );
+    }
+}
+
+/// Append model-switch events for a canonical RestFlow trace.
+pub fn append_restflow_model_switch(
+    execution_trace_storage: Option<&ExecutionTraceStorage>,
+    trace: &RestflowTrace,
+    from_model: &str,
+    to_model: &str,
+    reason: Option<&str>,
+    success: bool,
+) {
+    let Some(storage) = execution_trace_storage else {
+        return;
+    };
+
+    let trace_event = with_execution_trace_path(
+        ExecutionTraceEvent::model_switch(
+            trace.scope_id.clone(),
+            trace.actor_id.clone(),
+            ModelSwitchTrace {
+                from_model: from_model.to_string(),
+                to_model: to_model.to_string(),
+                reason: reason.map(str::to_string),
+                success,
+            },
+        ),
+        trace,
+    );
+    if let Err(error) = storage.store(&trace_event) {
+        warn!(
+            scope_id = %trace.scope_id,
+            agent_id = %trace.actor_id,
+            from_model = %from_model,
+            to_model = %to_model,
+            error = %error,
+            "Failed to append model switch trace event"
         );
     }
 }

@@ -364,12 +364,14 @@ type LlmCallRecord = (
     Option<bool>,
     Option<u32>,
 );
+type ModelSwitchRecord = (String, String, Option<String>);
 
 struct CapturingEmitter {
     text: Arc<AsyncMutex<Vec<String>>>,
     tool_starts: Arc<AsyncMutex<Vec<ToolStartRecord>>>,
     tool_results: Arc<AsyncMutex<Vec<ToolResultRecord>>>,
     llm_calls: Arc<AsyncMutex<Vec<LlmCallRecord>>>,
+    model_switches: Arc<AsyncMutex<Vec<ModelSwitchRecord>>>,
     completed: Arc<AtomicUsize>,
 }
 
@@ -380,6 +382,7 @@ impl CapturingEmitter {
             tool_starts: Arc::new(AsyncMutex::new(Vec::new())),
             tool_results: Arc::new(AsyncMutex::new(Vec::new())),
             llm_calls: Arc::new(AsyncMutex::new(Vec::new())),
+            model_switches: Arc::new(AsyncMutex::new(Vec::new())),
             completed: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -431,6 +434,14 @@ impl StreamEmitter for CapturingEmitter {
             duration_ms,
             is_reasoning,
             message_count,
+        ));
+    }
+
+    async fn emit_model_switch(&mut self, from_model: &str, to_model: &str, reason: Option<&str>) {
+        self.model_switches.lock().await.push((
+            from_model.to_string(),
+            to_model.to_string(),
+            reason.map(str::to_string),
         ));
     }
 
@@ -1199,6 +1210,67 @@ async fn test_non_stream_run_with_emitter_records_llm_usage() {
     assert_eq!(llm_calls[0].6, None);
     assert!(llm_calls[0].5.is_some());
     assert!(llm_calls[0].7.unwrap_or_default() >= 2);
+}
+
+#[tokio::test]
+async fn test_run_with_emitter_emits_model_switch_for_routing() {
+    struct RecordingSwitcher {
+        current: Mutex<String>,
+    }
+
+    #[async_trait]
+    impl crate::agent::ModelSwitcher for RecordingSwitcher {
+        fn current_model(&self) -> String {
+            self.current.lock().unwrap().clone()
+        }
+
+        async fn switch_model(&self, target_model: &str) -> Result<()> {
+            *self.current.lock().unwrap() = target_model.to_string();
+            Ok(())
+        }
+    }
+
+    let response = CompletionResponse {
+        content: Some("done".to_string()),
+        tool_calls: vec![],
+        finish_reason: FinishReason::Stop,
+        usage: None,
+    };
+
+    let llm = Arc::new(MockLlmClient::new(vec![response]));
+    let executor = AgentExecutor::new(llm, Arc::new(ToolRegistry::new()));
+    let switcher = Arc::new(RecordingSwitcher {
+        current: Mutex::new("gpt-5".to_string()),
+    });
+    let mut emitter = CapturingEmitter::new();
+
+    let result = executor
+        .run_with_emitter(
+            AgentConfig::new("list files and check status")
+                .with_model_routing(crate::agent::ModelRoutingConfig {
+                    enabled: true,
+                    routine_model: Some("gpt-5.4-mini".to_string()),
+                    moderate_model: None,
+                    complex_model: None,
+                    escalate_on_failure: true,
+                })
+                .with_model_switcher(switcher),
+            &mut emitter,
+        )
+        .await
+        .unwrap();
+
+    assert!(result.success);
+    let switches = emitter.model_switches.lock().await;
+    assert_eq!(switches.len(), 1);
+    assert_eq!(
+        switches[0],
+        (
+            "gpt-5".to_string(),
+            "gpt-5.4-mini".to_string(),
+            Some("routing".to_string())
+        )
+    );
 }
 
 #[test]

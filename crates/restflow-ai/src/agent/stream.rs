@@ -1,6 +1,8 @@
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::BTreeMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc;
 
 use crate::agent::ExecutionStep;
@@ -23,6 +25,13 @@ pub trait StreamEmitter: Send + Sync {
         _duration_ms: Option<u64>,
         _is_reasoning: Option<bool>,
         _message_count: Option<u32>,
+    ) {
+    }
+    async fn emit_model_switch(
+        &mut self,
+        _from_model: &str,
+        _to_model: &str,
+        _reason: Option<&str>,
     ) {
     }
     async fn emit_complete(&mut self);
@@ -100,6 +109,79 @@ impl StreamEmitter for ChannelEmitter {
     }
 
     async fn emit_complete(&mut self) {}
+}
+
+#[derive(Clone)]
+pub struct SharedStreamEmitter {
+    inner: Arc<Mutex<Box<dyn StreamEmitter>>>,
+}
+
+impl SharedStreamEmitter {
+    pub fn new(inner: Box<dyn StreamEmitter>) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(inner)),
+        }
+    }
+}
+
+#[async_trait]
+impl StreamEmitter for SharedStreamEmitter {
+    async fn emit_text_delta(&mut self, text: &str) {
+        let mut inner = self.inner.lock().await;
+        inner.emit_text_delta(text).await;
+    }
+
+    async fn emit_thinking_delta(&mut self, text: &str) {
+        let mut inner = self.inner.lock().await;
+        inner.emit_thinking_delta(text).await;
+    }
+
+    async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str) {
+        let mut inner = self.inner.lock().await;
+        inner.emit_tool_call_start(id, name, arguments).await;
+    }
+
+    async fn emit_tool_call_result(&mut self, id: &str, name: &str, result: &str, success: bool) {
+        let mut inner = self.inner.lock().await;
+        inner.emit_tool_call_result(id, name, result, success).await;
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn emit_llm_call(
+        &mut self,
+        model: &str,
+        input_tokens: Option<u32>,
+        output_tokens: Option<u32>,
+        total_tokens: Option<u32>,
+        cost_usd: Option<f64>,
+        duration_ms: Option<u64>,
+        is_reasoning: Option<bool>,
+        message_count: Option<u32>,
+    ) {
+        let mut inner = self.inner.lock().await;
+        inner
+            .emit_llm_call(
+                model,
+                input_tokens,
+                output_tokens,
+                total_tokens,
+                cost_usd,
+                duration_ms,
+                is_reasoning,
+                message_count,
+            )
+            .await;
+    }
+
+    async fn emit_model_switch(&mut self, from_model: &str, to_model: &str, reason: Option<&str>) {
+        let mut inner = self.inner.lock().await;
+        inner.emit_model_switch(from_model, to_model, reason).await;
+    }
+
+    async fn emit_complete(&mut self) {
+        let mut inner = self.inner.lock().await;
+        inner.emit_complete().await;
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -180,6 +262,43 @@ fn parse_arguments(json: &str) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingEmitter {
+        tool_starts: Arc<AtomicUsize>,
+        model_switches: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl StreamEmitter for CountingEmitter {
+        async fn emit_text_delta(&mut self, _text: &str) {}
+
+        async fn emit_thinking_delta(&mut self, _text: &str) {}
+
+        async fn emit_tool_call_start(&mut self, _id: &str, _name: &str, _arguments: &str) {
+            self.tool_starts.fetch_add(1, Ordering::SeqCst);
+        }
+
+        async fn emit_tool_call_result(
+            &mut self,
+            _id: &str,
+            _name: &str,
+            _result: &str,
+            _success: bool,
+        ) {
+        }
+
+        async fn emit_model_switch(
+            &mut self,
+            _from_model: &str,
+            _to_model: &str,
+            _reason: Option<&str>,
+        ) {
+            self.model_switches.fetch_add(1, Ordering::SeqCst);
+        }
+
+        async fn emit_complete(&mut self) {}
+    }
     use tokio::sync::mpsc;
 
     #[test]
@@ -283,5 +402,30 @@ mod tests {
 
         let step = rx.recv().await.unwrap();
         assert!(matches!(step, ExecutionStep::ToolCallResult { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_shared_stream_emitter_reuses_inner_across_clones() {
+        let tool_starts = Arc::new(AtomicUsize::new(0));
+        let model_switches = Arc::new(AtomicUsize::new(0));
+        let shared = SharedStreamEmitter::new(Box::new(CountingEmitter {
+            tool_starts: Arc::clone(&tool_starts),
+            model_switches: Arc::clone(&model_switches),
+        }));
+
+        let mut first = shared.clone();
+        let mut second = shared.clone();
+
+        first.emit_tool_call_start("call-1", "bash", "{}").await;
+        second
+            .emit_model_switch(
+                "minimax-coding-plan-m2-5-highspeed",
+                "minimax-coding-plan-m2-5",
+                Some("failover"),
+            )
+            .await;
+
+        assert_eq!(tool_starts.load(Ordering::SeqCst), 1);
+        assert_eq!(model_switches.load(Ordering::SeqCst), 1);
     }
 }

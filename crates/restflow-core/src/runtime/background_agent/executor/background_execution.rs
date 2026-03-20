@@ -248,10 +248,16 @@ impl AgentRuntimeExecutor {
             let message_count = result.state.messages.len();
             let messages = result.state.messages;
             let output = result.answer.unwrap_or_default();
+            let active_model = swappable.current_model();
+            let final_model = ModelId::for_provider_and_model(model.provider(), &active_model)
+                .or_else(|| ModelId::from_api_name(&active_model))
+                .or_else(|| ModelId::from_canonical_id(&active_model))
+                .unwrap_or(model);
             Ok(ExecutionResult::success(output, messages).with_metrics(
                 crate::runtime::background_agent::ExecutionMetrics {
                     iterations: Some(result.iterations as u32),
-                    active_model: Some(swappable.current_model()),
+                    active_model: Some(active_model),
+                    final_model: Some(final_model),
                     message_count,
                     ..crate::runtime::background_agent::ExecutionMetrics::default()
                 },
@@ -613,19 +619,33 @@ impl AgentRuntimeExecutor {
         let mut retry_state = RetryState::new();
         let input_owned = input.map(|value| value.to_string());
         let mut steer_rx = steer_rx;
-        let mut emitter = emitter;
+        let shared_emitter = share_stream_emitter(emitter);
 
         loop {
             let input_ref = input_owned.as_deref();
             let agent_node_clone = agent_node.clone();
             // Note: steer_rx is consumed on first execution attempt only.
             // Retries after this point won't have steering support.
+            let mut previous_attempt_model: Option<ModelId> = None;
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
-                let emitter = emitter.take();
+                let previous_model = previous_attempt_model.replace(model);
+                let mut emitter = clone_shared_emitter(&shared_emitter);
                 let limits = resolved_resource_limits.clone();
                 async move {
+                    if let (Some(previous_model), Some(trace_emitter)) =
+                        (previous_model, emitter.as_mut())
+                        && previous_model != model
+                    {
+                        trace_emitter
+                            .emit_model_switch(
+                                previous_model.as_serialized_str(),
+                                model.as_serialized_str(),
+                                Some("failover"),
+                            )
+                            .await;
+                    }
                     self.execute_with_profiles(
                         &node,
                         model,
@@ -645,7 +665,8 @@ impl AgentRuntimeExecutor {
             .await;
 
             match result {
-                Ok((exec_result, _model)) => {
+                Ok((mut exec_result, final_model)) => {
+                    exec_result.metrics.final_model = Some(final_model);
                     self.persist_deliverable_if_needed(
                         background_task_id,
                         agent_id,

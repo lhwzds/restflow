@@ -426,6 +426,7 @@ impl ChatSessionManager {
         user_message: &str,
         assistant_message: &str,
         active_model: Option<&str>,
+        final_model: Option<ModelId>,
         execution: Option<MessageExecution>,
     ) -> Result<()> {
         let mut user_msg = ChatMessage::user(user_message);
@@ -441,6 +442,7 @@ impl ChatSessionManager {
             user_msg,
             assistant_msg,
             active_model,
+            final_model,
             "channel",
         )?;
 
@@ -943,6 +945,7 @@ impl ChatDispatcher {
                     persisted_input: &final_persisted_input,
                     assistant_output: &structured_output,
                     active_model: Some(&exec_result.active_model),
+                    final_model: Some(exec_result.final_model),
                     execution,
                     source: "channel",
                 },
@@ -953,6 +956,7 @@ impl ChatDispatcher {
                 &final_persisted_input,
                 &structured_output,
                 Some(&exec_result.active_model),
+                Some(exec_result.final_model),
                 Some(execution),
             )
         };
@@ -1380,7 +1384,7 @@ mod tests {
             .unwrap();
 
         manager
-            .append_exchange(&session.id, "Hello!", "Hi there!", None, None)
+            .append_exchange(&session.id, "Hello!", "Hi there!", None, None, None)
             .unwrap();
 
         let history = manager.get_history(&session.id).unwrap();
@@ -1409,10 +1413,10 @@ mod tests {
             .unwrap();
 
         manager
-            .append_exchange(&session.id, "Hello!", "Hi there!", None, None)
+            .append_exchange(&session.id, "Hello!", "Hi there!", None, None, None)
             .unwrap();
         manager
-            .append_exchange(&session.id, "How are you?", "Doing well.", None, None)
+            .append_exchange(&session.id, "How are you?", "Doing well.", None, None, None)
             .unwrap();
 
         let history = manager.get_history(&session.id).unwrap();
@@ -1456,6 +1460,7 @@ mod tests {
                 "Hello!",
                 "Switched to Codex.",
                 Some("gpt-5.3-codex"),
+                Some(ModelId::CodexCli),
                 None,
             )
             .unwrap();
@@ -1493,13 +1498,13 @@ mod tests {
             .unwrap();
 
         manager
-            .append_exchange(&session.id, "u1", "a1", None, None)
+            .append_exchange(&session.id, "u1", "a1", None, None, None)
             .unwrap();
         manager
-            .append_exchange(&session.id, "u2", "a2", None, None)
+            .append_exchange(&session.id, "u2", "a2", None, None, None)
             .unwrap();
         manager
-            .append_exchange(&session.id, "u3", "a3", None, None)
+            .append_exchange(&session.id, "u3", "a3", None, None, None)
             .unwrap();
 
         let history = manager.get_history(&session.id).unwrap();
