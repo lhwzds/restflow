@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import type { ModelMetadataDTO } from '@/types/generated/ModelMetadataDTO'
-import type { AIModel } from '@/types/generated/AIModel'
+import type { ModelId } from '@/types/generated/ModelId'
 import type { Provider } from '@/types/generated/Provider'
 import { getAvailableModels } from '@/api/config'
 import { sortProviders } from '@/utils/providerCatalog'
@@ -26,7 +26,7 @@ export const useModelsStore = defineStore('models', {
      */
     getModelMetadata:
       (state) =>
-      (model: AIModel): ModelMetadataDTO | undefined => {
+      (model: ModelId): ModelMetadataDTO | undefined => {
         return state.models.find((m) => m.model === model)
       },
 
@@ -52,7 +52,7 @@ export const useModelsStore = defineStore('models', {
      */
     getFirstModelByProvider:
       (state) =>
-      (provider: Provider): AIModel | undefined => {
+      (provider: Provider): ModelId | undefined => {
         return state.models.find((m) => m.provider === provider)?.model
       },
 
@@ -61,7 +61,7 @@ export const useModelsStore = defineStore('models', {
      */
     isModelInProvider:
       (state) =>
-      (provider: Provider, model: AIModel): boolean => {
+      (provider: Provider, model: ModelId): boolean => {
         return state.models.some((m) => m.provider === provider && m.model === model)
       },
 

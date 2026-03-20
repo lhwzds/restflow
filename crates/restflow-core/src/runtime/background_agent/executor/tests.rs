@@ -99,19 +99,19 @@ fn test_build_subagent_deps_attaches_shared_orchestrator() {
 #[test]
 fn test_context_window_for_model() {
     assert_eq!(
-        AgentRuntimeExecutor::context_window_for_model(AIModel::ClaudeSonnet4_5),
+        AgentRuntimeExecutor::context_window_for_model(ModelId::ClaudeSonnet4_5),
         200_000
     );
     assert_eq!(
-        AgentRuntimeExecutor::context_window_for_model(AIModel::Gpt5),
+        AgentRuntimeExecutor::context_window_for_model(ModelId::Gpt5),
         128_000
     );
     assert_eq!(
-        AgentRuntimeExecutor::context_window_for_model(AIModel::DeepseekChat),
+        AgentRuntimeExecutor::context_window_for_model(ModelId::DeepseekChat),
         64_000
     );
     assert_eq!(
-        AgentRuntimeExecutor::context_window_for_model(AIModel::Gemini25Pro),
+        AgentRuntimeExecutor::context_window_for_model(ModelId::Gemini25Pro),
         1_000_000
     );
 }
@@ -384,10 +384,10 @@ fn test_build_background_system_prompt_does_not_inject_authorized_triggered_skil
 async fn test_resolve_primary_model_prefers_explicit_model() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage);
-    let node = AgentNode::with_model(AIModel::ClaudeSonnet4_5);
+    let node = AgentNode::with_model(ModelId::ClaudeSonnet4_5);
 
     let resolved = executor.resolve_primary_model(&node).await.unwrap();
-    assert_eq!(resolved, AIModel::ClaudeSonnet4_5);
+    assert_eq!(resolved, ModelId::ClaudeSonnet4_5);
 }
 
 #[tokio::test]
@@ -401,7 +401,7 @@ async fn test_resolve_primary_model_uses_openai_secret_when_model_missing() {
     let node = AgentNode::new();
 
     let resolved = executor.resolve_primary_model(&node).await.unwrap();
-    assert_eq!(resolved, AIModel::Gpt5);
+    assert_eq!(resolved, ModelId::Gpt5);
 }
 
 #[tokio::test]
@@ -424,14 +424,14 @@ async fn test_resolve_primary_model_uses_anthropic_opus_when_model_missing() {
     let node = AgentNode::new();
 
     let resolved = executor.resolve_primary_model(&node).await.unwrap();
-    assert_eq!(resolved, AIModel::ClaudeOpus4_6);
+    assert_eq!(resolved, ModelId::ClaudeOpus4_6);
 }
 
 #[test]
 fn test_default_model_for_provider_uses_anthropic_opus() {
     assert_eq!(
         AgentRuntimeExecutor::default_model_for_provider(Provider::Anthropic),
-        AIModel::ClaudeOpus4_6
+        ModelId::ClaudeOpus4_6
     );
 }
 
@@ -439,7 +439,7 @@ fn test_default_model_for_provider_uses_anthropic_opus() {
 fn test_default_model_for_provider_uses_minimax_m27() {
     assert_eq!(
         AgentRuntimeExecutor::default_model_for_provider(Provider::MiniMax),
-        AIModel::MiniMaxM27
+        ModelId::MiniMaxM27
     );
 }
 
@@ -489,7 +489,7 @@ async fn test_execute_session_turn_enforces_skill_preflight_policy() {
     let skill = create_preflight_blocking_skill("preflight-session-skill");
     storage.skills.create(&skill).unwrap();
 
-    let agent = AgentNode::with_model(AIModel::CodexCli)
+    let agent = AgentNode::with_model(ModelId::CodexCli)
         .with_skills(vec![skill.id.clone()])
         .with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Enforce);
     let stored_agent = storage
@@ -499,7 +499,7 @@ async fn test_execute_session_turn_enforces_skill_preflight_policy() {
 
     let mut session = ChatSession::new(
         stored_agent.id.clone(),
-        AIModel::CodexCli.as_serialized_str().to_string(),
+        ModelId::CodexCli.as_serialized_str().to_string(),
     );
 
     let result = executor
@@ -527,7 +527,7 @@ async fn test_execute_from_state_enforces_skill_preflight_policy() {
     let skill = create_preflight_blocking_skill("preflight-resume-skill");
     storage.skills.create(&skill).unwrap();
 
-    let agent = AgentNode::with_model(AIModel::CodexCli)
+    let agent = AgentNode::with_model(ModelId::CodexCli)
         .with_skills(vec![skill.id.clone()])
         .with_skill_preflight_policy_mode(SkillPreflightPolicyMode::Enforce);
     let stored_agent = storage

@@ -26,7 +26,7 @@ import { BackendError } from '@/api/http-client'
 import { useModelsStore } from '@/stores/modelsStore'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
-import type { AIModel } from '@/types/generated/AIModel'
+import type { ModelId } from '@/types/generated/ModelId'
 import type { Provider } from '@/types/generated/Provider'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
 import { getProviderDisplayName } from '@/utils/providerCatalog'
@@ -49,7 +49,7 @@ const modelsStore = useModelsStore()
 
 const name = ref('')
 const provider = ref<Provider | ''>('')
-const model = ref<AIModel | ''>('')
+const model = ref<ModelId | ''>('')
 const isSubmitting = ref(false)
 
 const providers = computed(() => modelsStore.getProviders)
@@ -108,10 +108,10 @@ async function submit() {
     const request = {
       name: resolvedName,
       agent: {
-        model: selectedModel as AIModel,
+        model: selectedModel as ModelId,
         model_ref: {
           provider: selectedProvider as Provider,
-          model: selectedModel as AIModel,
+          model: selectedModel as ModelId,
         },
       },
     }
@@ -145,7 +145,7 @@ async function submit() {
     toast.success(t('workspace.agent.createSuccess'))
     const emittedModelRef = agent.agent.model_ref ?? {
       provider: selectedProvider as Provider,
-      model: selectedModel as AIModel,
+      model: selectedModel as ModelId,
     }
     const emittedModel = emittedModelRef.model || models.value[0]?.model || 'gpt-5'
     emit('created', {

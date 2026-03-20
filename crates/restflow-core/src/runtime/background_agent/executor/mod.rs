@@ -14,7 +14,7 @@ use std::time::Duration;
 
 use crate::runtime::{AgentOrchestratorImpl, ExecutionContext};
 use crate::{
-    AIModel, Provider,
+    ModelId, Provider,
     auth::{AuthProfileManager, AuthProvider},
     models::{
         AgentCheckpoint, AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession,
@@ -143,7 +143,7 @@ impl AiModelSwitcher for RuntimeModelSwitcher {
     }
 
     async fn switch_model(&self, target_model: &str) -> std::result::Result<(), AiError> {
-        let model = AIModel::from_api_name(target_model)
+        let model = ModelId::from_api_name(target_model)
             .ok_or_else(|| AiError::Agent(format!("Unsupported routed model: {}", target_model)))?;
         let client = AgentRuntimeExecutor::create_llm_client(
             self.factory.as_ref(),
@@ -191,7 +191,7 @@ impl AgentRuntimeExecutor {
         let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
         let factory: Arc<dyn LlmClientFactory> = Arc::new(DefaultLlmClientFactory::new(
             self.build_api_keys(None, Provider::OpenAI).await,
-            AIModel::build_model_specs(),
+            ModelId::build_model_specs(),
         ));
         let swappable = Arc::new(SwappableLlm::new(llm_client.clone()));
         let agent_defaults = self

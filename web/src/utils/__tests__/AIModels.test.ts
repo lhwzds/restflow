@@ -45,7 +45,7 @@ const MOCK_MODELS: ModelMetadataDTO[] = [
   },
 ]
 
-describe('AIModels utility', () => {
+describe('ModelId utility', () => {
   beforeEach(() => {
     setActivePinia(createPinia())
     // Pre-populate the models store so utility functions can resolve metadata

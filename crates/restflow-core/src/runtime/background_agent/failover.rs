@@ -16,11 +16,11 @@
 //!
 //! ```ignore
 //! use restflow_core::runtime::background_agent::failover::{FailoverConfig, FailoverManager};
-//! use crate::AIModel;
+//! use crate::ModelId;
 //!
 //! let config = FailoverConfig {
-//!     primary: AIModel::ClaudeSonnet4_5,
-//!     fallbacks: vec![AIModel::Gpt5, AIModel::DeepseekChat],
+//!     primary: ModelId::ClaudeSonnet4_5,
+//!     fallbacks: vec![ModelId::Gpt5, ModelId::DeepseekChat],
 //!     cooldown_secs: 300,
 //!     failure_threshold: 3,
 //! };
@@ -33,11 +33,11 @@
 //! }
 //!
 //! // Record failure/success
-//! manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-//! manager.record_success(AIModel::Gpt5).await;
+//! manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+//! manager.record_success(ModelId::Gpt5).await;
 //! ```
 
-use crate::{AIModel, Provider};
+use crate::{ModelId, Provider};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -53,9 +53,9 @@ use super::error_classification::{
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FailoverConfig {
     /// Primary model to use when healthy
-    pub primary: AIModel,
+    pub primary: ModelId,
     /// Fallback models in order of preference
-    pub fallbacks: Vec<AIModel>,
+    pub fallbacks: Vec<ModelId>,
     /// Cooldown period in seconds after a model failure
     pub cooldown_secs: u64,
     /// Number of consecutive failures before putting model in cooldown
@@ -67,8 +67,8 @@ pub struct FailoverConfig {
 impl Default for FailoverConfig {
     fn default() -> Self {
         Self {
-            primary: AIModel::ClaudeSonnet4_5,
-            fallbacks: vec![AIModel::Gpt5, AIModel::DeepseekChat],
+            primary: ModelId::ClaudeSonnet4_5,
+            fallbacks: vec![ModelId::Gpt5, ModelId::DeepseekChat],
             cooldown_secs: 300,   // 5 minutes
             failure_threshold: 3, // 3 consecutive failures
             auto_recover: true,
@@ -82,11 +82,11 @@ impl FailoverConfig {
     /// CLI-based models (Codex CLI, OpenCode, Gemini CLI) disable fallbacks
     /// because they manage their own authentication and cannot fall back
     /// to API-based models that require different credentials.
-    pub fn with_primary(primary: AIModel) -> Self {
+    pub fn with_primary(primary: ModelId) -> Self {
         let fallbacks = if primary.is_cli_model() {
             vec![]
-        } else if primary == AIModel::ClaudeOpus4_6 {
-            vec![AIModel::ClaudeSonnet4_5]
+        } else if primary == ModelId::ClaudeOpus4_6 {
+            vec![ModelId::ClaudeSonnet4_5]
         } else {
             Self::default().fallbacks
         };
@@ -98,7 +98,7 @@ impl FailoverConfig {
     }
 
     /// Create a config with custom fallbacks
-    pub fn with_fallbacks(primary: AIModel, fallbacks: Vec<AIModel>) -> Self {
+    pub fn with_fallbacks(primary: ModelId, fallbacks: Vec<ModelId>) -> Self {
         Self {
             primary,
             fallbacks,
@@ -115,9 +115,9 @@ impl FailoverConfig {
     /// Note: Automatic cross-provider failover has been removed.
     /// Users must manually configure fallback models via config.toml.
     pub fn build_smart(
-        primary: AIModel,
+        primary: ModelId,
         _available_providers: &HashSet<Provider>,
-        manual_fallbacks: Option<Vec<AIModel>>,
+        manual_fallbacks: Option<Vec<ModelId>>,
     ) -> Self {
         if primary.is_cli_model() {
             return Self {
@@ -157,14 +157,14 @@ impl FailoverConfig {
     }
 
     /// Get all models in priority order (primary first, then fallbacks)
-    pub fn all_models(&self) -> Vec<AIModel> {
+    pub fn all_models(&self) -> Vec<ModelId> {
         let mut models = vec![self.primary];
         models.extend(self.fallbacks.iter().copied());
         models
     }
 
     /// Check if a model is in the failover chain
-    pub fn contains(&self, model: AIModel) -> bool {
+    pub fn contains(&self, model: ModelId) -> bool {
         self.primary == model || self.fallbacks.contains(&model)
     }
 }
@@ -227,7 +227,7 @@ impl ModelHealth {
 /// Model status information for external use
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelStatus {
-    pub model: AIModel,
+    pub model: ModelId,
     pub available: bool,
     pub consecutive_failures: u32,
     pub success_rate: f64,
@@ -238,7 +238,7 @@ pub struct ModelStatus {
 /// The failover manager that tracks model health and selects available models
 pub struct FailoverManager {
     config: FailoverConfig,
-    health: Arc<RwLock<HashMap<AIModel, ModelHealth>>>,
+    health: Arc<RwLock<HashMap<ModelId, ModelHealth>>>,
 }
 
 impl FailoverManager {
@@ -259,7 +259,7 @@ impl FailoverManager {
     ///
     /// Returns the primary model if healthy, otherwise the first healthy fallback.
     /// Returns None if all models are in cooldown.
-    pub async fn get_available_model(&self) -> Option<AIModel> {
+    pub async fn get_available_model(&self) -> Option<ModelId> {
         let health = self.health.read().await;
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -286,7 +286,7 @@ impl FailoverManager {
     }
 
     /// Get a specific model if available, or the best alternative
-    pub async fn get_model_or_fallback(&self, preferred: AIModel) -> Option<AIModel> {
+    pub async fn get_model_or_fallback(&self, preferred: ModelId) -> Option<ModelId> {
         let health = self.health.read().await;
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -303,8 +303,8 @@ impl FailoverManager {
     /// Check if a specific model is available
     fn is_model_available(
         &self,
-        health: &HashMap<AIModel, ModelHealth>,
-        model: AIModel,
+        health: &HashMap<ModelId, ModelHealth>,
+        model: ModelId,
         now: i64,
     ) -> bool {
         match health.get(&model) {
@@ -314,7 +314,7 @@ impl FailoverManager {
     }
 
     /// Record a successful request to a model
-    pub async fn record_success(&self, model: AIModel) {
+    pub async fn record_success(&self, model: ModelId) {
         let mut health = self.health.write().await;
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -337,12 +337,12 @@ impl FailoverManager {
     }
 
     /// Record a failed request to a model
-    pub async fn record_failure(&self, model: AIModel) {
+    pub async fn record_failure(&self, model: ModelId) {
         self.record_failure_with_error(model, None).await
     }
 
     /// Record a failed request with error details
-    pub async fn record_failure_with_error(&self, model: AIModel, error: Option<&str>) {
+    pub async fn record_failure_with_error(&self, model: ModelId, error: Option<&str>) {
         let mut health = self.health.write().await;
         let now = chrono::Utc::now().timestamp_millis();
 
@@ -373,7 +373,7 @@ impl FailoverManager {
     }
 
     /// Manually clear cooldown for a model
-    pub async fn clear_cooldown(&self, model: AIModel) {
+    pub async fn clear_cooldown(&self, model: ModelId) {
         let mut health = self.health.write().await;
         if let Some(entry) = health.get_mut(&model) {
             entry.cooldown_until = None;
@@ -383,7 +383,7 @@ impl FailoverManager {
     }
 
     /// Manually put a model in cooldown
-    pub async fn force_cooldown(&self, model: AIModel) {
+    pub async fn force_cooldown(&self, model: ModelId) {
         let mut health = self.health.write().await;
         let now = chrono::Utc::now().timestamp_millis();
         let cooldown_until = now + (self.config.cooldown_secs * 1000) as i64;
@@ -410,7 +410,7 @@ impl FailoverManager {
     }
 
     /// Get the status of a specific model
-    pub async fn get_status(&self, model: AIModel) -> ModelStatus {
+    pub async fn get_status(&self, model: ModelId) -> ModelStatus {
         let health = self.health.read().await;
         let now = chrono::Utc::now().timestamp_millis();
         self.model_status(&health, model, now)
@@ -418,8 +418,8 @@ impl FailoverManager {
 
     fn model_status(
         &self,
-        health: &HashMap<AIModel, ModelHealth>,
-        model: AIModel,
+        health: &HashMap<ModelId, ModelHealth>,
+        model: ModelId,
         now: i64,
     ) -> ModelStatus {
         match health.get(&model) {
@@ -487,9 +487,9 @@ fn is_auth_error(error: &str) -> bool {
 pub async fn execute_with_failover<F, Fut, T>(
     manager: &FailoverManager,
     mut execute_fn: F,
-) -> Result<(T, AIModel)>
+) -> Result<(T, ModelId)>
 where
-    F: FnMut(AIModel) -> Fut,
+    F: FnMut(ModelId) -> Fut,
     Fut: std::future::Future<Output = Result<T>>,
 {
     let models = manager.config().all_models();
@@ -537,8 +537,8 @@ mod tests {
 
     fn test_config() -> FailoverConfig {
         FailoverConfig {
-            primary: AIModel::ClaudeSonnet4_5,
-            fallbacks: vec![AIModel::Gpt5, AIModel::DeepseekChat],
+            primary: ModelId::ClaudeSonnet4_5,
+            fallbacks: vec![ModelId::Gpt5, ModelId::DeepseekChat],
             cooldown_secs: 60,
             failure_threshold: 2,
             auto_recover: true,
@@ -550,7 +550,7 @@ mod tests {
         let manager = FailoverManager::new(test_config());
 
         let model = manager.get_available_model().await;
-        assert_eq!(model, Some(AIModel::ClaudeSonnet4_5));
+        assert_eq!(model, Some(ModelId::ClaudeSonnet4_5));
     }
 
     #[tokio::test]
@@ -558,19 +558,19 @@ mod tests {
         let manager = FailoverManager::new(test_config());
 
         // Put primary in cooldown
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
 
         let model = manager.get_available_model().await;
         // Should fall back to first fallback
-        assert_eq!(model, Some(AIModel::Gpt5));
+        assert_eq!(model, Some(ModelId::Gpt5));
     }
 
     #[tokio::test]
     async fn test_get_available_model_all_in_cooldown() {
         let config = FailoverConfig {
-            primary: AIModel::ClaudeSonnet4_5,
-            fallbacks: vec![AIModel::Gpt5],
+            primary: ModelId::ClaudeSonnet4_5,
+            fallbacks: vec![ModelId::Gpt5],
             cooldown_secs: 60,
             failure_threshold: 1, // Single failure triggers cooldown
             auto_recover: true,
@@ -578,8 +578,8 @@ mod tests {
         let manager = FailoverManager::new(config);
 
         // Put all models in cooldown
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-        manager.record_failure(AIModel::Gpt5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::Gpt5).await;
 
         let model = manager.get_available_model().await;
         assert_eq!(model, None);
@@ -590,25 +590,25 @@ mod tests {
         let manager = FailoverManager::new(test_config());
 
         // Put in cooldown
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
 
         // Verify in cooldown
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!(!status.available);
 
         // Record success
-        manager.record_success(AIModel::ClaudeSonnet4_5).await;
+        manager.record_success(ModelId::ClaudeSonnet4_5).await;
 
         // Should be available again
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!(status.available);
     }
 
     #[tokio::test]
     async fn test_failure_threshold() {
         let config = FailoverConfig {
-            primary: AIModel::ClaudeSonnet4_5,
+            primary: ModelId::ClaudeSonnet4_5,
             fallbacks: vec![],
             cooldown_secs: 60,
             failure_threshold: 3,
@@ -617,19 +617,19 @@ mod tests {
         let manager = FailoverManager::new(config);
 
         // First two failures: still available
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!(status.available);
         assert_eq!(status.consecutive_failures, 1);
 
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!(status.available);
         assert_eq!(status.consecutive_failures, 2);
 
         // Third failure: should trigger cooldown
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!(!status.available);
         assert_eq!(status.consecutive_failures, 3);
     }
@@ -639,17 +639,17 @@ mod tests {
         let manager = FailoverManager::new(test_config());
 
         // Put in cooldown
-        manager.force_cooldown(AIModel::ClaudeSonnet4_5).await;
+        manager.force_cooldown(ModelId::ClaudeSonnet4_5).await;
 
         // Verify in cooldown
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!(!status.available);
 
         // Clear cooldown
-        manager.clear_cooldown(AIModel::ClaudeSonnet4_5).await;
+        manager.clear_cooldown(ModelId::ClaudeSonnet4_5).await;
 
         // Should be available
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!(status.available);
     }
 
@@ -672,12 +672,12 @@ mod tests {
         let manager = FailoverManager::new(test_config());
 
         // 3 successes, 1 failure = 75% success rate
-        manager.record_success(AIModel::ClaudeSonnet4_5).await;
-        manager.record_success(AIModel::ClaudeSonnet4_5).await;
-        manager.record_success(AIModel::ClaudeSonnet4_5).await;
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
+        manager.record_success(ModelId::ClaudeSonnet4_5).await;
+        manager.record_success(ModelId::ClaudeSonnet4_5).await;
+        manager.record_success(ModelId::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
 
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!((status.success_rate - 0.75).abs() < 0.01);
     }
 
@@ -686,9 +686,9 @@ mod tests {
         let manager = FailoverManager::new(test_config());
 
         // Add some state
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-        manager.record_failure(AIModel::ClaudeSonnet4_5).await;
-        manager.record_failure(AIModel::Gpt5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::ClaudeSonnet4_5).await;
+        manager.record_failure(ModelId::Gpt5).await;
 
         // Reset
         manager.reset().await;
@@ -710,11 +710,11 @@ mod tests {
         assert_eq!(manager.available_count().await, 3);
 
         // Put one in cooldown
-        manager.force_cooldown(AIModel::ClaudeSonnet4_5).await;
+        manager.force_cooldown(ModelId::ClaudeSonnet4_5).await;
         assert_eq!(manager.available_count().await, 2);
 
         // Put another in cooldown
-        manager.force_cooldown(AIModel::Gpt5).await;
+        manager.force_cooldown(ModelId::Gpt5).await;
         assert_eq!(manager.available_count().await, 1);
     }
 
@@ -724,19 +724,19 @@ mod tests {
         let models = config.all_models();
 
         assert_eq!(models.len(), 3);
-        assert_eq!(models[0], AIModel::ClaudeSonnet4_5);
-        assert_eq!(models[1], AIModel::Gpt5);
-        assert_eq!(models[2], AIModel::DeepseekChat);
+        assert_eq!(models[0], ModelId::ClaudeSonnet4_5);
+        assert_eq!(models[1], ModelId::Gpt5);
+        assert_eq!(models[2], ModelId::DeepseekChat);
     }
 
     #[tokio::test]
     async fn test_config_contains() {
         let config = test_config();
 
-        assert!(config.contains(AIModel::ClaudeSonnet4_5));
-        assert!(config.contains(AIModel::Gpt5));
-        assert!(config.contains(AIModel::DeepseekChat));
-        assert!(!config.contains(AIModel::Gemini25Pro));
+        assert!(config.contains(ModelId::ClaudeSonnet4_5));
+        assert!(config.contains(ModelId::Gpt5));
+        assert!(config.contains(ModelId::DeepseekChat));
+        assert!(!config.contains(ModelId::Gemini25Pro));
     }
 
     #[tokio::test]
@@ -744,7 +744,7 @@ mod tests {
         let manager = FailoverManager::new(test_config());
 
         let result = execute_with_failover(&manager, |model| async move {
-            if model == AIModel::ClaudeSonnet4_5 {
+            if model == ModelId::ClaudeSonnet4_5 {
                 Ok("success")
             } else {
                 Err(anyhow::anyhow!("wrong model"))
@@ -755,7 +755,7 @@ mod tests {
         assert!(result.is_ok());
         let (value, model) = result.unwrap();
         assert_eq!(value, "success");
-        assert_eq!(model, AIModel::ClaudeSonnet4_5);
+        assert_eq!(model, ModelId::ClaudeSonnet4_5);
     }
 
     #[tokio::test]
@@ -764,7 +764,7 @@ mod tests {
 
         // Primary fails, fallback succeeds
         let result = execute_with_failover(&manager, |model| async move {
-            if model == AIModel::Gpt5 {
+            if model == ModelId::Gpt5 {
                 Ok("fallback success")
             } else {
                 Err(anyhow::anyhow!("primary failed"))
@@ -775,14 +775,14 @@ mod tests {
         assert!(result.is_ok());
         let (value, model) = result.unwrap();
         assert_eq!(value, "fallback success");
-        assert_eq!(model, AIModel::Gpt5);
+        assert_eq!(model, ModelId::Gpt5);
     }
 
     #[tokio::test]
     async fn test_execute_with_failover_all_fail() {
         let manager = FailoverManager::new(test_config());
 
-        let result: Result<(String, AIModel)> =
+        let result: Result<(String, ModelId)> =
             execute_with_failover(&manager, |_model| async move {
                 Err(anyhow::anyhow!("all models fail"))
             })
@@ -793,9 +793,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_with_primary_claude_opus_uses_sonnet_fallback() {
-        let config = FailoverConfig::with_primary(AIModel::ClaudeOpus4_6);
-        assert_eq!(config.primary, AIModel::ClaudeOpus4_6);
-        assert_eq!(config.fallbacks, vec![AIModel::ClaudeSonnet4_5]);
+        let config = FailoverConfig::with_primary(ModelId::ClaudeOpus4_6);
+        assert_eq!(config.primary, ModelId::ClaudeOpus4_6);
+        assert_eq!(config.fallbacks, vec![ModelId::ClaudeSonnet4_5]);
     }
 
     #[test]
@@ -803,14 +803,14 @@ mod tests {
         let mut providers = HashSet::new();
         providers.insert(Provider::Anthropic);
 
-        let config = FailoverConfig::build_smart(AIModel::ClaudeOpus4_6, &providers, None);
-        assert_eq!(config.primary, AIModel::ClaudeOpus4_6);
+        let config = FailoverConfig::build_smart(ModelId::ClaudeOpus4_6, &providers, None);
+        assert_eq!(config.primary, ModelId::ClaudeOpus4_6);
         // Should include same-provider downgrades only
-        assert!(config.fallbacks.contains(&AIModel::ClaudeSonnet4_5));
-        assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
+        assert!(config.fallbacks.contains(&ModelId::ClaudeSonnet4_5));
+        assert!(config.fallbacks.contains(&ModelId::ClaudeHaiku4_5));
         // Should NOT include models from other providers
-        assert!(!config.fallbacks.contains(&AIModel::Gpt5));
-        assert!(!config.fallbacks.contains(&AIModel::DeepseekChat));
+        assert!(!config.fallbacks.contains(&ModelId::Gpt5));
+        assert!(!config.fallbacks.contains(&ModelId::DeepseekChat));
     }
 
     #[test]
@@ -820,18 +820,18 @@ mod tests {
         providers.insert(Provider::OpenRouter);
 
         // Test with manual fallback configuration
-        let manual_fallbacks = vec![AIModel::OrClaudeOpus4_6, AIModel::Gpt5];
+        let manual_fallbacks = vec![ModelId::OrClaudeOpus4_6, ModelId::Gpt5];
         let config = FailoverConfig::build_smart(
-            AIModel::ClaudeSonnet4_5,
+            ModelId::ClaudeSonnet4_5,
             &providers,
             Some(manual_fallbacks),
         );
-        assert_eq!(config.primary, AIModel::ClaudeSonnet4_5);
+        assert_eq!(config.primary, ModelId::ClaudeSonnet4_5);
         // Should include same-provider downgrade
-        assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
+        assert!(config.fallbacks.contains(&ModelId::ClaudeHaiku4_5));
         // Should include manually configured fallbacks
-        assert!(config.fallbacks.contains(&AIModel::OrClaudeOpus4_6));
-        assert!(config.fallbacks.contains(&AIModel::Gpt5));
+        assert!(config.fallbacks.contains(&ModelId::OrClaudeOpus4_6));
+        assert!(config.fallbacks.contains(&ModelId::Gpt5));
     }
 
     #[test]
@@ -842,18 +842,18 @@ mod tests {
         providers.insert(Provider::OpenRouter);
 
         // Test with manual fallbacks (automatic cross-provider fallback disabled)
-        let manual_fallbacks = vec![AIModel::Glm5, AIModel::OrClaudeOpus4_6];
+        let manual_fallbacks = vec![ModelId::Glm5, ModelId::OrClaudeOpus4_6];
         let config = FailoverConfig::build_smart(
-            AIModel::ClaudeSonnet4_5,
+            ModelId::ClaudeSonnet4_5,
             &providers,
             Some(manual_fallbacks),
         );
-        assert_eq!(config.primary, AIModel::ClaudeSonnet4_5);
+        assert_eq!(config.primary, ModelId::ClaudeSonnet4_5);
         // Same-provider downgrade
-        assert!(config.fallbacks.contains(&AIModel::ClaudeHaiku4_5));
+        assert!(config.fallbacks.contains(&ModelId::ClaudeHaiku4_5));
         // Manually configured fallbacks
-        assert!(config.fallbacks.contains(&AIModel::Glm5));
-        assert!(config.fallbacks.contains(&AIModel::OrClaudeOpus4_6));
+        assert!(config.fallbacks.contains(&ModelId::Glm5));
+        assert!(config.fallbacks.contains(&ModelId::OrClaudeOpus4_6));
     }
 
     #[test]
@@ -862,8 +862,8 @@ mod tests {
         providers.insert(Provider::Anthropic);
         providers.insert(Provider::OpenAI);
 
-        let config = FailoverConfig::build_smart(AIModel::CodexCli, &providers, None);
-        assert_eq!(config.primary, AIModel::CodexCli);
+        let config = FailoverConfig::build_smart(ModelId::CodexCli, &providers, None);
+        assert_eq!(config.primary, ModelId::CodexCli);
         assert!(config.fallbacks.is_empty());
     }
 
@@ -875,7 +875,7 @@ mod tests {
         providers.insert(Provider::OpenRouter);
         providers.insert(Provider::DeepSeek);
 
-        let config = FailoverConfig::build_smart(AIModel::ClaudeOpus4_6, &providers, None);
+        let config = FailoverConfig::build_smart(ModelId::ClaudeOpus4_6, &providers, None);
         let mut seen = HashSet::new();
         seen.insert(config.primary);
         for model in &config.fallbacks {
@@ -910,8 +910,8 @@ mod tests {
     #[tokio::test]
     async fn test_execute_with_failover_auth_error_skips() {
         let config = FailoverConfig {
-            primary: AIModel::ClaudeSonnet4_5,
-            fallbacks: vec![AIModel::Gpt5, AIModel::DeepseekChat],
+            primary: ModelId::ClaudeSonnet4_5,
+            fallbacks: vec![ModelId::Gpt5, ModelId::DeepseekChat],
             cooldown_secs: 60,
             failure_threshold: 3,
             auto_recover: true,
@@ -919,9 +919,9 @@ mod tests {
         let manager = FailoverManager::new(config);
 
         let result = execute_with_failover(&manager, |model| async move {
-            if model == AIModel::ClaudeSonnet4_5 {
+            if model == ModelId::ClaudeSonnet4_5 {
                 Err(anyhow::anyhow!("No API key configured for provider"))
-            } else if model == AIModel::Gpt5 {
+            } else if model == ModelId::Gpt5 {
                 Err(anyhow::anyhow!("Unauthorized"))
             } else {
                 Ok("success from deepseek")
@@ -932,12 +932,12 @@ mod tests {
         assert!(result.is_ok());
         let (value, model) = result.unwrap();
         assert_eq!(value, "success from deepseek");
-        assert_eq!(model, AIModel::DeepseekChat);
+        assert_eq!(model, ModelId::DeepseekChat);
 
         // Auth-failed models should be in cooldown (not just failure-counted)
-        let status = manager.get_status(AIModel::ClaudeSonnet4_5).await;
+        let status = manager.get_status(ModelId::ClaudeSonnet4_5).await;
         assert!(!status.available);
-        let status = manager.get_status(AIModel::Gpt5).await;
+        let status = manager.get_status(ModelId::Gpt5).await;
         assert!(!status.available);
     }
 }

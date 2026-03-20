@@ -29,7 +29,7 @@ import {
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
-import type { AIModel } from '@/types/generated/AIModel'
+import type { ModelId } from '@/types/generated/ModelId'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import {
@@ -382,7 +382,7 @@ async function onUpdateSelectedModel(model: string) {
   if (agentId) {
     try {
       const stored = await getAgent(agentId)
-      const nextModel = model as AIModel
+      const nextModel = model as ModelId
       const metadata = modelsStore.getModelMetadata(nextModel)
       const resolvedProvider = metadata?.provider ?? stored.agent.model_ref?.provider
       const request = {

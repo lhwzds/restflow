@@ -266,7 +266,7 @@ async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<(
 mod tests {
     use super::*;
     use crate::models::{
-        AIModel, ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource,
+        ModelId, ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource,
         ValidationErrorResponse,
     };
     use crate::prompt_files;
@@ -321,9 +321,9 @@ mod tests {
 
     fn create_test_agent_node(prompt: &str) -> AgentNode {
         AgentNode {
-            model: Some(AIModel::ClaudeSonnet4_5),
+            model: Some(ModelId::ClaudeSonnet4_5),
             model_ref: Some(crate::models::ModelRef::from_model(
-                AIModel::ClaudeSonnet4_5,
+                ModelId::ClaudeSonnet4_5,
             )),
             prompt: Some(prompt.to_string()),
             temperature: Some(0.7),
@@ -338,7 +338,7 @@ mod tests {
         }
     }
 
-    fn set_test_model(node: &mut AgentNode, model: AIModel) {
+    fn set_test_model(node: &mut AgentNode, model: ModelId) {
         node.model = Some(model);
         node.model_ref = Some(crate::models::ModelRef::from_model(model));
     }
@@ -451,7 +451,7 @@ mod tests {
         // Use DeepseekChat which supports temperature (unlike Gpt5Mini)
         let mut new_agent_node = create_test_agent_node("Updated prompt");
         new_agent_node.temperature = Some(0.9);
-        set_test_model(&mut new_agent_node, AIModel::DeepseekChat);
+        set_test_model(&mut new_agent_node, ModelId::DeepseekChat);
 
         let updated = update_agent(&core, &created.id, None, Some(new_agent_node))
             .await
@@ -469,7 +469,7 @@ mod tests {
         .unwrap();
         assert_eq!(prompt_on_disk.content, Some("Updated prompt".to_string()));
         assert_eq!(updated.agent.temperature, Some(0.9));
-        assert_eq!(updated.agent.model, Some(AIModel::DeepseekChat));
+        assert_eq!(updated.agent.model, Some(ModelId::DeepseekChat));
     }
 
     #[tokio::test]
@@ -545,7 +545,7 @@ mod tests {
 
         let session = ChatSession::new(
             created.id.clone(),
-            AIModel::Gpt5.as_serialized_str().to_string(),
+            ModelId::Gpt5.as_serialized_str().to_string(),
         )
         .with_name("channel:chat-1")
         .with_source(ChatSessionSource::Telegram, "chat-1");
@@ -577,7 +577,7 @@ mod tests {
 
         let mut session = ChatSession::new(
             created.id.clone(),
-            AIModel::Gpt5.as_serialized_str().to_string(),
+            ModelId::Gpt5.as_serialized_str().to_string(),
         )
         .with_name("workspace-like");
         session.source_channel = Some(ChatSessionSource::Workspace);
@@ -610,7 +610,7 @@ mod tests {
 
         let mut session = ChatSession::new(
             created.id.clone(),
-            AIModel::Gpt5.as_serialized_str().to_string(),
+            ModelId::Gpt5.as_serialized_str().to_string(),
         )
         .with_name("Workspace Session");
         session.source_channel = Some(ChatSessionSource::Workspace);
@@ -724,7 +724,7 @@ mod tests {
     async fn test_create_agent_rejects_temperature_on_unsupported_model() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let mut node = create_test_agent_node("test");
-        set_test_model(&mut node, AIModel::Gpt5);
+        set_test_model(&mut node, ModelId::Gpt5);
         node.temperature = Some(0.5);
 
         let err = create_agent(&core, "Bad Temp Agent".to_string(), node)

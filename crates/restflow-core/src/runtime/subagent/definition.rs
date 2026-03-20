@@ -362,7 +362,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
 #[cfg(test)]
 mod tests {
     use super::{AgentDefinitionRegistry, builtin_agents};
-    use crate::models::{AIModel, AgentNode};
+    use crate::models::{ModelId, AgentNode};
     use crate::prompt_files::agents_dir_env_lock;
     use crate::runtime::subagent::definition::StorageBackedSubagentLookup;
     use crate::storage::{AgentStorage, agent::StoredAgent};
@@ -377,7 +377,7 @@ mod tests {
         name: &str,
         prompt: Option<&str>,
         tools: Option<Vec<String>>,
-        model: Option<AIModel>,
+        model: Option<ModelId>,
     ) -> StoredAgent {
         StoredAgent {
             id: id.to_string(),
@@ -423,7 +423,7 @@ mod tests {
             "Research Coder",
             Some("# Research specialist\nFocus on code and docs"),
             Some(vec!["web_search".to_string(), "file".to_string()]),
-            Some(AIModel::MiniMaxM25CodingPlan),
+            Some(ModelId::MiniMaxM25CodingPlan),
         );
         let registry = AgentDefinitionRegistry::from_agents(&[stored]);
 

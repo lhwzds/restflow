@@ -1,6 +1,6 @@
 use super::*;
 use crate::daemon::request_mapper::to_contract;
-use crate::models::{AIModel, ApiKeyConfig};
+use crate::models::{ModelId, ApiKeyConfig};
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
 use restflow_storage::SimpleStorage;
 
@@ -22,7 +22,7 @@ fn ensure_test_agent_with_id(core: &Arc<AppCore>, id: &str) {
     let stored = crate::storage::agent::StoredAgent {
         id: id.to_string(),
         name: format!("Agent {id}"),
-        agent: AgentNode::with_model(AIModel::Gpt5)
+        agent: AgentNode::with_model(ModelId::Gpt5)
             .with_api_key(ApiKeyConfig::Direct("test-key".to_string())),
         prompt_file: None,
         created_at: Some(0),
@@ -531,9 +531,9 @@ async fn process_create_agent_returns_stored_agent() {
         IpcRequest::CreateAgent {
             name: "IPC Agent".to_string(),
             agent: to_contract(AgentNode {
-                model: Some(crate::models::AIModel::ClaudeSonnet4_5),
+                model: Some(crate::models::ModelId::ClaudeSonnet4_5),
                 model_ref: Some(crate::models::ModelRef::from_model(
-                    crate::models::AIModel::ClaudeSonnet4_5,
+                    crate::models::ModelId::ClaudeSonnet4_5,
                 )),
                 prompt: Some("You are a helpful assistant".to_string()),
                 temperature: Some(0.7),

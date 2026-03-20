@@ -25,6 +25,29 @@ type StreamCollectionOptions = {
   timeoutMs: number
 }
 
+async function waitForLatestSessionId(page: Parameters<typeof goToWorkspace>[0]): Promise<string> {
+  await expect
+    .poll(
+      async () => {
+        const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
+        return [...summaries].sort((left, right) => right.updated_at - left.updated_at)[0]?.id ?? null
+      },
+      {
+        timeout: 5000,
+        message: 'Expected a chat session to be created after clicking New Session',
+      },
+    )
+    .not.toBeNull()
+
+  const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
+  const sessionId = [...summaries].sort((left, right) => right.updated_at - left.updated_at)[0]?.id
+  if (!sessionId) {
+    throw new Error('No chat session available for stream event test')
+  }
+
+  return sessionId
+}
+
 async function collectSessionFrames(
   page: Parameters<typeof goToWorkspace>[0],
   options: Partial<StreamCollectionOptions> = {},
@@ -116,12 +139,7 @@ test.describe('Chat streaming', () => {
 
   test('receives message-added events from the daemon stream endpoint', async ({ page }) => {
     await page.getByRole('button', { name: 'New Session' }).click()
-
-    const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-    const sessionId = [...summaries].sort((left, right) => right.updated_at - left.updated_at)[0]?.id
-    if (!sessionId) {
-      throw new Error('No chat session available for stream event test')
-    }
+    const sessionId = await waitForLatestSessionId(page)
 
     const streamPromise = collectSessionFrames(page)
 

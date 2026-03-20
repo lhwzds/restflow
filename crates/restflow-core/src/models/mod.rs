@@ -31,7 +31,7 @@ pub use agent::{
 };
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
-pub use ai_model::{AIModel, ModelMetadataDTO, ModelRef, Provider};
+pub use ai_model::{ModelId, ModelMetadataDTO, ModelRef, Provider};
 pub use background_agent::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
     BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,

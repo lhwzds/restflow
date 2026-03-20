@@ -67,53 +67,53 @@ impl AgentRuntimeExecutor {
         self.resolve_api_key(provider, config).await
     }
 
-    pub(super) fn default_model_for_provider(provider: Provider) -> AIModel {
+    pub(super) fn default_model_for_provider(provider: Provider) -> ModelId {
         match provider {
-            Provider::OpenAI => AIModel::Gpt5,
-            Provider::Anthropic => AIModel::ClaudeOpus4_6,
-            Provider::ClaudeCode => AIModel::ClaudeCodeOpus,
-            Provider::Codex => AIModel::CodexCli,
-            Provider::DeepSeek => AIModel::DeepseekChat,
-            Provider::Google => AIModel::Gemini25Pro,
-            Provider::Groq => AIModel::GroqLlama4Maverick,
-            Provider::OpenRouter => AIModel::OpenRouterAuto,
-            Provider::XAI => AIModel::Grok4,
-            Provider::Qwen => AIModel::Qwen3Max,
-            Provider::Zai => AIModel::Glm5,
-            Provider::ZaiCodingPlan => AIModel::Glm5CodingPlan,
-            Provider::Moonshot => AIModel::KimiK2_5,
-            Provider::Doubao => AIModel::DoubaoPro,
-            Provider::Yi => AIModel::YiLightning,
-            Provider::SiliconFlow => AIModel::SiliconFlowAuto,
-            Provider::MiniMax => AIModel::MiniMaxM27,
-            Provider::MiniMaxCodingPlan => AIModel::MiniMaxM25CodingPlan,
+            Provider::OpenAI => ModelId::Gpt5,
+            Provider::Anthropic => ModelId::ClaudeOpus4_6,
+            Provider::ClaudeCode => ModelId::ClaudeCodeOpus,
+            Provider::Codex => ModelId::CodexCli,
+            Provider::DeepSeek => ModelId::DeepseekChat,
+            Provider::Google => ModelId::Gemini25Pro,
+            Provider::Groq => ModelId::GroqLlama4Maverick,
+            Provider::OpenRouter => ModelId::OpenRouterAuto,
+            Provider::XAI => ModelId::Grok4,
+            Provider::Qwen => ModelId::Qwen3Max,
+            Provider::Zai => ModelId::Glm5,
+            Provider::ZaiCodingPlan => ModelId::Glm5CodingPlan,
+            Provider::Moonshot => ModelId::KimiK2_5,
+            Provider::Doubao => ModelId::DoubaoPro,
+            Provider::Yi => ModelId::YiLightning,
+            Provider::SiliconFlow => ModelId::SiliconFlowAuto,
+            Provider::MiniMax => ModelId::MiniMaxM27,
+            Provider::MiniMaxCodingPlan => ModelId::MiniMaxM25CodingPlan,
         }
     }
 
-    pub(super) fn context_window_for_model(model: AIModel) -> usize {
+    pub(super) fn context_window_for_model(model: ModelId) -> usize {
         match model {
-            AIModel::ClaudeOpus4_6
-            | AIModel::ClaudeSonnet4_5
-            | AIModel::ClaudeHaiku4_5
-            | AIModel::ClaudeCodeOpus
-            | AIModel::ClaudeCodeSonnet
-            | AIModel::ClaudeCodeHaiku => 200_000,
-            AIModel::Gpt5
-            | AIModel::Gpt5Mini
-            | AIModel::Gpt5Nano
-            | AIModel::Gpt5Pro
-            | AIModel::Gpt5_1
-            | AIModel::Gpt5_2
-            | AIModel::Gpt5Codex
-            | AIModel::Gpt5_1Codex
-            | AIModel::Gpt5_2Codex
-            | AIModel::CodexCli => 128_000,
-            AIModel::DeepseekChat | AIModel::DeepseekReasoner => 64_000,
-            AIModel::Gemini25Pro
-            | AIModel::Gemini25Flash
-            | AIModel::Gemini3Pro
-            | AIModel::Gemini3Flash
-            | AIModel::GeminiCli => 1_000_000,
+            ModelId::ClaudeOpus4_6
+            | ModelId::ClaudeSonnet4_5
+            | ModelId::ClaudeHaiku4_5
+            | ModelId::ClaudeCodeOpus
+            | ModelId::ClaudeCodeSonnet
+            | ModelId::ClaudeCodeHaiku => 200_000,
+            ModelId::Gpt5
+            | ModelId::Gpt5Mini
+            | ModelId::Gpt5Nano
+            | ModelId::Gpt5Pro
+            | ModelId::Gpt5_1
+            | ModelId::Gpt5_2
+            | ModelId::Gpt5Codex
+            | ModelId::Gpt5_1Codex
+            | ModelId::Gpt5_2Codex
+            | ModelId::CodexCli => 128_000,
+            ModelId::DeepseekChat | ModelId::DeepseekReasoner => 64_000,
+            ModelId::Gemini25Pro
+            | ModelId::Gemini25Flash
+            | ModelId::Gemini3Pro
+            | ModelId::Gemini3Flash
+            | ModelId::GeminiCli => 1_000_000,
             _ => 128_000,
         }
     }
@@ -122,7 +122,7 @@ impl AgentRuntimeExecutor {
         Ok(self.storage.secrets.get_non_empty(name)?.is_some())
     }
 
-    pub(super) async fn resolve_model_from_stored_credentials(&self) -> Result<Option<AIModel>> {
+    pub(super) async fn resolve_model_from_stored_credentials(&self) -> Result<Option<ModelId>> {
         // Prefer Codex CLI model only when a dedicated OpenAI Codex profile exists.
         if self
             .auth_manager
@@ -130,15 +130,15 @@ impl AgentRuntimeExecutor {
             .await
             .is_some()
         {
-            return Ok(Some(AIModel::CodexCli));
+            return Ok(Some(ModelId::CodexCli));
         }
 
         // Then try provider-specific auth profiles.
         let profile_order = [
-            (AuthProvider::ClaudeCode, AIModel::ClaudeCodeOpus),
-            (AuthProvider::Anthropic, AIModel::ClaudeOpus4_6),
-            (AuthProvider::OpenAI, AIModel::Gpt5),
-            (AuthProvider::Google, AIModel::Gemini25Pro),
+            (AuthProvider::ClaudeCode, ModelId::ClaudeCodeOpus),
+            (AuthProvider::Anthropic, ModelId::ClaudeOpus4_6),
+            (AuthProvider::OpenAI, ModelId::Gpt5),
+            (AuthProvider::Google, ModelId::Gemini25Pro),
         ];
         for (provider, model) in profile_order {
             if self
@@ -184,7 +184,7 @@ impl AgentRuntimeExecutor {
         Ok(None)
     }
 
-    pub(super) async fn resolve_primary_model(&self, agent_node: &AgentNode) -> Result<AIModel> {
+    pub(super) async fn resolve_primary_model(&self, agent_node: &AgentNode) -> Result<ModelId> {
         if let Some(model) = agent_node.model {
             return Ok(model);
         }
@@ -226,7 +226,7 @@ impl AgentRuntimeExecutor {
 
     pub(super) fn create_llm_client(
         factory: &dyn LlmClientFactory,
-        model: AIModel,
+        model: ModelId,
         api_key: Option<&str>,
         agent_node: &AgentNode,
     ) -> Result<Arc<dyn LlmClient>> {
@@ -251,7 +251,7 @@ impl AgentRuntimeExecutor {
 
     pub(super) async fn build_failover_config(
         &self,
-        primary: AIModel,
+        primary: ModelId,
         agent_api_key_config: Option<&ApiKeyConfig>,
     ) -> FailoverConfig {
         let primary_provider = primary.provider();
@@ -271,13 +271,13 @@ impl AgentRuntimeExecutor {
 
         // Get manually configured fallback models from config
         let config = self.storage.config.get_effective_config().ok();
-        let fallback_models: Option<Vec<AIModel>> = config
+        let fallback_models: Option<Vec<ModelId>> = config
             .as_ref()
             .and_then(|c| c.agent.fallback_models.clone())
             .map(|models| {
                 models
                     .iter()
-                    .filter_map(|s| AIModel::from_api_name(s))
+                    .filter_map(|s| ModelId::from_api_name(s))
                     .collect()
             });
 

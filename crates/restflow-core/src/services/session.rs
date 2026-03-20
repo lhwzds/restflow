@@ -1,6 +1,6 @@
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::models::{
-    AIModel, ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionUpdate,
+    ModelId, ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionUpdate,
     MessageExecution,
 };
 use crate::runtime::background_agent::persist::persist_chat_session_memory;
@@ -120,7 +120,7 @@ impl SessionService {
             session.add_message(assistant_message);
 
             if let Some(model) = active_model
-                && let Some(normalized) = AIModel::normalize_model_id(model)
+                && let Some(normalized) = ModelId::normalize_model_id(model)
             {
                 session.metadata.last_model = Some(normalized);
             }
@@ -222,7 +222,7 @@ impl SessionService {
         }
 
         if let Some(model) = updates.model {
-            let normalized = AIModel::normalize_model_id(&model)
+            let normalized = ModelId::normalize_model_id(&model)
                 .ok_or_else(|| anyhow!("Unknown model: {}", model.trim()))?;
             session.model = normalized;
             updated = true;
@@ -390,7 +390,7 @@ impl SessionService {
             ChatMessage::assistant(request.assistant_output).with_execution(request.execution),
         );
         if let Some(model) = request.active_model
-            && let Some(normalized) = AIModel::normalize_model_id(model)
+            && let Some(normalized) = ModelId::normalize_model_id(model)
         {
             session.metadata.last_model = Some(normalized);
         }

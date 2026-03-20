@@ -1,6 +1,6 @@
 use anyhow::{Result, bail};
 use chrono::{DateTime, Local, TimeZone};
-use restflow_core::models::{AIModel, Provider};
+use restflow_core::models::{ModelId, Provider};
 use restflow_traits::ModelProvider;
 
 pub fn format_timestamp(timestamp: Option<i64>) -> String {
@@ -16,76 +16,76 @@ pub fn format_timestamp(timestamp: Option<i64>) -> String {
     datetime.format("%Y-%m-%d %H:%M:%S").to_string()
 }
 
-pub fn parse_model(input: &str) -> Result<AIModel> {
+pub fn parse_model(input: &str) -> Result<ModelId> {
     let normalized = input.trim().to_lowercase();
     let model = match normalized.as_str() {
         // OpenAI GPT-5 series
-        "gpt-5" => AIModel::Gpt5,
-        "gpt-5-mini" => AIModel::Gpt5Mini,
-        "gpt-5-nano" => AIModel::Gpt5Nano,
-        "gpt-5-pro" => AIModel::Gpt5Pro,
-        "gpt-5.1" | "gpt-5-1" => AIModel::Gpt5_1,
-        "gpt-5.2" | "gpt-5-2" => AIModel::Gpt5_2,
+        "gpt-5" => ModelId::Gpt5,
+        "gpt-5-mini" => ModelId::Gpt5Mini,
+        "gpt-5-nano" => ModelId::Gpt5Nano,
+        "gpt-5-pro" => ModelId::Gpt5Pro,
+        "gpt-5.1" | "gpt-5-1" => ModelId::Gpt5_1,
+        "gpt-5.2" | "gpt-5-2" => ModelId::Gpt5_2,
         // Anthropic Claude (direct API)
-        "claude-opus-4-6" => AIModel::ClaudeOpus4_6,
-        "claude-sonnet-4-5" => AIModel::ClaudeSonnet4_5,
-        "claude-haiku-4-5" => AIModel::ClaudeHaiku4_5,
+        "claude-opus-4-6" => ModelId::ClaudeOpus4_6,
+        "claude-sonnet-4-5" => ModelId::ClaudeSonnet4_5,
+        "claude-haiku-4-5" => ModelId::ClaudeHaiku4_5,
         // Claude Code CLI (accepts both full name and short alias)
-        "claude-code-opus" | "opus" => AIModel::ClaudeCodeOpus,
-        "claude-code-sonnet" | "sonnet" => AIModel::ClaudeCodeSonnet,
-        "claude-code-haiku" | "haiku" => AIModel::ClaudeCodeHaiku,
+        "claude-code-opus" | "opus" => ModelId::ClaudeCodeOpus,
+        "claude-code-sonnet" | "sonnet" => ModelId::ClaudeCodeSonnet,
+        "claude-code-haiku" | "haiku" => ModelId::ClaudeCodeHaiku,
         // Codex CLI (must use concrete model names)
-        "gpt-5-codex" => AIModel::Gpt5Codex,
-        "gpt-5.1-codex" => AIModel::Gpt5_1Codex,
-        "gpt-5.2-codex" => AIModel::Gpt5_2Codex,
-        "gpt-5.3-codex" => AIModel::CodexCli,
+        "gpt-5-codex" => ModelId::Gpt5Codex,
+        "gpt-5.1-codex" => ModelId::Gpt5_1Codex,
+        "gpt-5.2-codex" => ModelId::Gpt5_2Codex,
+        "gpt-5.3-codex" => ModelId::CodexCli,
         // OpenCode CLI
-        "opencode" | "opencode-cli" => AIModel::OpenCodeCli,
+        "opencode" | "opencode-cli" => ModelId::OpenCodeCli,
         // Gemini CLI
-        "gemini-cli" => AIModel::GeminiCli,
+        "gemini-cli" => ModelId::GeminiCli,
         // DeepSeek
-        "deepseek-chat" => AIModel::DeepseekChat,
-        "deepseek-reasoner" => AIModel::DeepseekReasoner,
+        "deepseek-chat" => ModelId::DeepseekChat,
+        "deepseek-reasoner" => ModelId::DeepseekReasoner,
         // Google Gemini
-        "gemini-2.5-pro" | "gemini-pro" => AIModel::Gemini25Pro,
-        "gemini-2.5-flash" | "gemini-flash" => AIModel::Gemini25Flash,
-        "gemini-3-pro" | "gemini-3-pro-preview" => AIModel::Gemini3Pro,
-        "gemini-3-flash" | "gemini-3-flash-preview" => AIModel::Gemini3Flash,
+        "gemini-2.5-pro" | "gemini-pro" => ModelId::Gemini25Pro,
+        "gemini-2.5-flash" | "gemini-flash" => ModelId::Gemini25Flash,
+        "gemini-3-pro" | "gemini-3-pro-preview" => ModelId::Gemini3Pro,
+        "gemini-3-flash" | "gemini-3-flash-preview" => ModelId::Gemini3Flash,
         // Groq
-        "groq-scout" | "llama-4-scout" => AIModel::GroqLlama4Scout,
-        "groq-maverick" | "llama-4-maverick" => AIModel::GroqLlama4Maverick,
+        "groq-scout" | "llama-4-scout" => ModelId::GroqLlama4Scout,
+        "groq-maverick" | "llama-4-maverick" => ModelId::GroqLlama4Maverick,
         // X.AI
-        "grok-4" | "grok4" => AIModel::Grok4,
-        "grok-3-mini" | "grok3-mini" => AIModel::Grok3Mini,
+        "grok-4" | "grok4" => ModelId::Grok4,
+        "grok-3-mini" | "grok3-mini" => ModelId::Grok3Mini,
         // Qwen
-        "qwen3-max" | "qwen-max" | "qwen" => AIModel::Qwen3Max,
-        "qwen3-plus" | "qwen-plus" => AIModel::Qwen3Plus,
+        "qwen3-max" | "qwen-max" | "qwen" => ModelId::Qwen3Max,
+        "qwen3-plus" | "qwen-plus" => ModelId::Qwen3Plus,
         // MiniMax
-        "minimax-m2-1" => AIModel::MiniMaxM21,
-        "minimax-m2-5" => AIModel::MiniMaxM25,
-        "minimax-m2-7" | "minimax-m2.7" => AIModel::MiniMaxM27,
-        "minimax-m2-7-highspeed" | "minimax-m2.7-highspeed" => AIModel::MiniMaxM27Highspeed,
-        "minimax-coding-plan-m2-1" => AIModel::MiniMaxM21CodingPlan,
-        "minimax-coding-plan-m2-5" => AIModel::MiniMaxM25CodingPlan,
+        "minimax-m2-1" => ModelId::MiniMaxM21,
+        "minimax-m2-5" => ModelId::MiniMaxM25,
+        "minimax-m2-7" | "minimax-m2.7" => ModelId::MiniMaxM27,
+        "minimax-m2-7-highspeed" | "minimax-m2.7-highspeed" => ModelId::MiniMaxM27Highspeed,
+        "minimax-coding-plan-m2-1" => ModelId::MiniMaxM21CodingPlan,
+        "minimax-coding-plan-m2-5" => ModelId::MiniMaxM25CodingPlan,
         // Zai
-        "glm-5" | "glm5" => AIModel::Glm5,
-        "glm-5-turbo" | "glm5-turbo" => AIModel::Glm5Turbo,
-        "glm-5-code" | "glm5-code" => AIModel::Glm5Code,
-        "glm-4.7" | "glm-4-7" | "glm" => AIModel::Glm4_7,
-        "zai-coding-plan-glm-5" => AIModel::Glm5CodingPlan,
-        "zai-coding-plan-glm-5-turbo" => AIModel::Glm5TurboCodingPlan,
-        "zai-coding-plan-glm-5-code" => AIModel::Glm5CodeCodingPlan,
-        "zai-coding-plan-glm-4-7" => AIModel::Glm4_7CodingPlan,
+        "glm-5" | "glm5" => ModelId::Glm5,
+        "glm-5-turbo" | "glm5-turbo" => ModelId::Glm5Turbo,
+        "glm-5-code" | "glm5-code" => ModelId::Glm5Code,
+        "glm-4.7" | "glm-4-7" | "glm" => ModelId::Glm4_7,
+        "zai-coding-plan-glm-5" => ModelId::Glm5CodingPlan,
+        "zai-coding-plan-glm-5-turbo" => ModelId::Glm5TurboCodingPlan,
+        "zai-coding-plan-glm-5-code" => ModelId::Glm5CodeCodingPlan,
+        "zai-coding-plan-glm-4-7" => ModelId::Glm4_7CodingPlan,
         // Moonshot
-        "kimi-k2.5" | "kimi-k2-5" | "kimi" | "moonshot" => AIModel::KimiK2_5,
+        "kimi-k2.5" | "kimi-k2-5" | "kimi" | "moonshot" => ModelId::KimiK2_5,
         // Doubao
-        "doubao-pro" | "doubao" => AIModel::DoubaoPro,
+        "doubao-pro" | "doubao" => ModelId::DoubaoPro,
         // Yi
-        "yi-lightning" | "yi" => AIModel::YiLightning,
+        "yi-lightning" | "yi" => ModelId::YiLightning,
         // Aggregators
-        "openrouter" => AIModel::OpenRouterAuto,
-        "siliconflow" => AIModel::SiliconFlowAuto,
-        _ => AIModel::from_api_name(input)
+        "openrouter" => ModelId::OpenRouterAuto,
+        "siliconflow" => ModelId::SiliconFlowAuto,
+        _ => ModelId::from_api_name(input)
             .ok_or_else(|| anyhow::anyhow!("Unknown model: {input}"))?,
     };
 
@@ -117,12 +117,12 @@ pub fn parse_provider(input: &str) -> Result<Provider> {
     })
 }
 
-pub fn parse_model_for_provider(provider: Provider, input: &str) -> Result<AIModel> {
-    if let Some(model) = AIModel::for_provider_and_model(provider, input) {
+pub fn parse_model_for_provider(provider: Provider, input: &str) -> Result<ModelId> {
+    if let Some(model) = ModelId::for_provider_and_model(provider, input) {
         return Ok(model);
     }
 
-    if let Some(parsed) = AIModel::from_api_name(input) {
+    if let Some(parsed) = ModelId::from_api_name(input) {
         if parsed.provider() == provider {
             return Ok(parsed);
         }
@@ -204,7 +204,7 @@ pub fn preview_text(input: &str, max_len: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::{parse_model, parse_provider};
-    use restflow_core::models::{AIModel, Provider};
+    use restflow_core::models::{ModelId, Provider};
 
     #[test]
     fn parse_provider_accepts_shared_aliases() {
@@ -220,21 +220,21 @@ mod tests {
 
     #[test]
     fn parse_model_accepts_glm5_turbo_variants() {
-        assert_eq!(parse_model("glm-5-turbo").unwrap(), AIModel::Glm5Turbo);
-        assert_eq!(parse_model("glm5-turbo").unwrap(), AIModel::Glm5Turbo);
+        assert_eq!(parse_model("glm-5-turbo").unwrap(), ModelId::Glm5Turbo);
+        assert_eq!(parse_model("glm5-turbo").unwrap(), ModelId::Glm5Turbo);
         assert_eq!(
             parse_model("zai-coding-plan-glm-5-turbo").unwrap(),
-            AIModel::Glm5TurboCodingPlan
+            ModelId::Glm5TurboCodingPlan
         );
     }
 
     #[test]
     fn parse_model_accepts_minimax_m27_variants() {
-        assert_eq!(parse_model("minimax-m2-7").unwrap(), AIModel::MiniMaxM27);
-        assert_eq!(parse_model("minimax-m2.7").unwrap(), AIModel::MiniMaxM27);
+        assert_eq!(parse_model("minimax-m2-7").unwrap(), ModelId::MiniMaxM27);
+        assert_eq!(parse_model("minimax-m2.7").unwrap(), ModelId::MiniMaxM27);
         assert_eq!(
             parse_model("minimax-m2-7-highspeed").unwrap(),
-            AIModel::MiniMaxM27Highspeed
+            ModelId::MiniMaxM27Highspeed
         );
     }
 }

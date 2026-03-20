@@ -4,7 +4,7 @@
 //! APIs from restflow-storage with Rust types from our models.
 
 use crate::models::{
-    AIModel, AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
+    ModelId, AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
     BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec,
     BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
     BackgroundProgress, ChatSession,
@@ -105,7 +105,7 @@ impl BackgroundAgentStorage {
     }
 
     fn resolve_agent_model_for_session(&self, agent_id: &str) -> Result<String> {
-        let fallback_model = AIModel::Gpt5.as_serialized_str().to_string();
+        let fallback_model = ModelId::Gpt5.as_serialized_str().to_string();
         let Some(agent) = self.agents.get_agent(agent_id.to_string())? else {
             return Ok(fallback_model);
         };

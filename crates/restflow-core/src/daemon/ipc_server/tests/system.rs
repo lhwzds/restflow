@@ -77,18 +77,18 @@ async fn process_get_available_models_returns_openai_catalog_when_secret_exists(
             assert!(
                 models
                     .iter()
-                    .any(|model| model.model == crate::models::AIModel::Gpt5)
+                    .any(|model| model.model == crate::models::ModelId::Gpt5)
             );
             assert!(
                 !models
                     .iter()
                     .any(|model| model.provider == crate::models::Provider::OpenAI
-                        && model.model == crate::models::AIModel::CodexCli)
+                        && model.model == crate::models::ModelId::CodexCli)
             );
             assert!(
                 !models
                     .iter()
-                    .any(|model| model.model == crate::models::AIModel::OpenCodeCli)
+                    .any(|model| model.model == crate::models::ModelId::OpenCodeCli)
             );
         }
         other => panic!("expected success response, got {other:?}"),
@@ -123,12 +123,12 @@ async fn process_get_available_models_returns_minimax_m27_catalog_when_secret_ex
             assert!(
                 models
                     .iter()
-                    .any(|model| model.model == crate::models::AIModel::MiniMaxM27)
+                    .any(|model| model.model == crate::models::ModelId::MiniMaxM27)
             );
             assert!(
                 models
                     .iter()
-                    .any(|model| { model.model == crate::models::AIModel::MiniMaxM27Highspeed })
+                    .any(|model| { model.model == crate::models::ModelId::MiniMaxM27Highspeed })
             );
         }
         other => panic!("expected success response, got {other:?}"),
@@ -193,12 +193,12 @@ async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_pr
             assert!(
                 models
                     .iter()
-                    .any(|model| model.model == crate::models::AIModel::ClaudeCodeSonnet)
+                    .any(|model| model.model == crate::models::ModelId::ClaudeCodeSonnet)
             );
             assert!(
                 models
                     .iter()
-                    .any(|model| model.model == crate::models::AIModel::CodexCli)
+                    .any(|model| model.model == crate::models::ModelId::CodexCli)
             );
         }
         other => panic!("expected success response, got {other:?}"),

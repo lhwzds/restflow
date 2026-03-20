@@ -1,7 +1,7 @@
 use super::*;
 use async_trait::async_trait;
 
-fn should_force_non_stream(model: AIModel) -> bool {
+fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
 }
 
@@ -10,7 +10,7 @@ impl AgentRuntimeExecutor {
     async fn execute_agent_with_client(
         &self,
         agent_node: &AgentNode,
-        model: AIModel,
+        model: ModelId,
         llm_client: Arc<dyn LlmClient>,
         background_task_id: Option<&str>,
         input: Option<&str>,
@@ -268,7 +268,7 @@ impl AgentRuntimeExecutor {
     async fn execute_with_model(
         &self,
         agent_node: &AgentNode,
-        model: AIModel,
+        model: ModelId,
         background_task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
@@ -279,7 +279,7 @@ impl AgentRuntimeExecutor {
         agent_id: Option<&str>,
         initial_state: Option<restflow_ai::AgentState>,
     ) -> Result<ExecutionResult> {
-        let model_specs = AIModel::build_model_specs();
+        let model_specs = ModelId::build_model_specs();
         let api_keys = self
             .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
             .await;
@@ -329,7 +329,7 @@ impl AgentRuntimeExecutor {
     async fn execute_with_profiles(
         &self,
         agent_node: &AgentNode,
-        model: AIModel,
+        model: ModelId,
         background_task_id: Option<&str>,
         input: Option<&str>,
         memory_config: &MemoryConfig,
@@ -418,7 +418,7 @@ impl AgentRuntimeExecutor {
                 }
             };
 
-            let model_specs = AIModel::build_model_specs();
+            let model_specs = ModelId::build_model_specs();
             let api_keys = self
                 .build_api_keys(agent_node.api_key_config.as_ref(), primary_provider)
                 .await;
@@ -723,10 +723,10 @@ mod tests {
 
     #[test]
     fn should_force_non_stream_for_all_cli_models() {
-        assert!(should_force_non_stream(AIModel::ClaudeCodeSonnet));
-        assert!(should_force_non_stream(AIModel::CodexCli));
-        assert!(should_force_non_stream(AIModel::GeminiCli));
-        assert!(should_force_non_stream(AIModel::OpenCodeCli));
-        assert!(!should_force_non_stream(AIModel::Gpt5));
+        assert!(should_force_non_stream(ModelId::ClaudeCodeSonnet));
+        assert!(should_force_non_stream(ModelId::CodexCli));
+        assert!(should_force_non_stream(ModelId::GeminiCli));
+        assert!(should_force_non_stream(ModelId::OpenCodeCli));
+        assert!(!should_force_non_stream(ModelId::Gpt5));
     }
 }

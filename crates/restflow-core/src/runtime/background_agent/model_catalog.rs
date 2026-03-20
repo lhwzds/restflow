@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use tokio::sync::{OnceCell, RwLock};
 use tracing::{debug, warn};
 
-use crate::{AIModel, Provider};
+use crate::{ModelId, Provider};
 
 const DEFAULT_MODELS_BASE_URL: &str = "https://models.dev";
 const DEFAULT_REFRESH_INTERVAL: Duration = Duration::from_secs(60 * 60);
@@ -69,7 +69,7 @@ impl ModelCatalog {
             .clone()
     }
 
-    pub async fn resolve(&self, model: AIModel) -> Option<ModelCatalogEntry> {
+    pub async fn resolve(&self, model: ModelId) -> Option<ModelCatalogEntry> {
         self.refresh_if_stale(false).await;
 
         let state = self.state.read().await;
@@ -271,7 +271,7 @@ fn normalize(value: &str) -> String {
     value.trim().to_ascii_lowercase()
 }
 
-fn model_id_candidates(model: AIModel) -> Vec<String> {
+fn model_id_candidates(model: ModelId) -> Vec<String> {
     let mut candidates = Vec::new();
     let mut seen = HashSet::new();
     let mut push = |value: String| {

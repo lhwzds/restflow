@@ -8,7 +8,7 @@ use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    AIModel, AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
+    ModelId, AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
     ChatSession, ChatSessionSource, ChatSessionSummary, HookContext, HookEvent, MemoryChunk,
     MemorySearchQuery, MessageExecution, SteerMessage, SteerSource, TerminalSession,
 };
@@ -201,7 +201,7 @@ fn parse_tool_arguments(arguments: &str) -> serde_json::Value {
 }
 
 fn normalize_model_input(model: &str) -> Result<String> {
-    AIModel::normalize_model_id(model)
+    ModelId::normalize_model_id(model)
         .ok_or_else(|| anyhow::anyhow!("Unsupported model identifier: {}", model))
 }
 

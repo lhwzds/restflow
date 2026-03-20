@@ -2,7 +2,7 @@
 //!
 //! These models define the configuration structure for AI agents.
 
-use crate::models::{AIModel, ModelRef};
+use crate::models::{ModelId, ModelRef};
 use crate::{AppCore, models::ValidationError};
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -109,7 +109,7 @@ pub struct AgentNode {
     /// AI model to use for this agent (None = auto-select based on auth profile)
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<AIModel>,
+    pub model: Option<ModelId>,
     /// Explicit provider + model reference (preferred over legacy `model` field).
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -163,7 +163,7 @@ impl AgentNode {
     }
 
     /// Create a new agent with a specific model
-    pub fn with_model(model: AIModel) -> Self {
+    pub fn with_model(model: ModelId) -> Self {
         Self {
             model: Some(model),
             model_ref: Some(ModelRef::from_model(model)),
@@ -279,14 +279,14 @@ impl AgentNode {
     }
 
     /// Get the model, returning an error if not specified
-    pub fn require_model(&self) -> Result<AIModel, &'static str> {
+    pub fn require_model(&self) -> Result<ModelId, &'static str> {
         self.resolved_model_ref()
             .map(|model_ref| model_ref.model)
             .ok_or("Model not specified. Please set a model for this agent.")
     }
 
     /// Get the model or use a fallback default
-    pub fn get_model_or(&self, default: AIModel) -> AIModel {
+    pub fn get_model_or(&self, default: ModelId) -> ModelId {
         self.resolved_model_ref()
             .map(|model_ref| model_ref.model)
             .unwrap_or(default)
@@ -397,7 +397,7 @@ impl AgentNode {
                     let normalized = model.trim();
                     if normalized.is_empty() {
                         errors.push(ValidationError::new(field, "must not be empty"));
-                    } else if AIModel::from_api_name(normalized).is_none() {
+                    } else if ModelId::from_api_name(normalized).is_none() {
                         errors.push(ValidationError::new(
                             field,
                             format!("unsupported model '{}'", normalized),
@@ -605,7 +605,7 @@ mod tests {
     #[test]
     fn validate_accepts_valid_codex_config() {
         let node = AgentNode {
-            model: Some(AIModel::CodexCli),
+            model: Some(ModelId::CodexCli),
             ..AgentNode::new()
                 .with_prompt("You are helpful")
                 .with_codex_cli_reasoning_effort("HIGH")
@@ -617,7 +617,7 @@ mod tests {
     #[test]
     fn validate_accepts_temperature_on_supported_model() {
         let node = AgentNode {
-            model: Some(AIModel::ClaudeSonnet4_5),
+            model: Some(ModelId::ClaudeSonnet4_5),
             ..AgentNode::new().with_temperature(0.7)
         };
         assert!(node.validate().is_ok());
@@ -634,7 +634,7 @@ mod tests {
     #[test]
     fn validate_rejects_temperature_on_unsupported_model() {
         let node = AgentNode {
-            model: Some(AIModel::Gpt5),
+            model: Some(ModelId::Gpt5),
             ..AgentNode::new().with_temperature(0.5)
         };
         let errors = node.validate().expect_err("expected validation error");
@@ -670,7 +670,7 @@ mod tests {
     #[test]
     fn validate_rejects_invalid_reasoning_effort() {
         let node = AgentNode {
-            model: Some(AIModel::CodexCli),
+            model: Some(ModelId::CodexCli),
             ..AgentNode::new().with_codex_cli_reasoning_effort("ultra")
         };
         let errors = node.validate().expect_err("expected validation error");
@@ -684,7 +684,7 @@ mod tests {
     #[test]
     fn validate_rejects_reasoning_effort_on_non_codex_model() {
         let node = AgentNode {
-            model: Some(AIModel::ClaudeSonnet4_5),
+            model: Some(ModelId::ClaudeSonnet4_5),
             ..AgentNode::new().with_codex_cli_reasoning_effort("high")
         };
         let errors = node.validate().expect_err("expected validation error");
@@ -699,7 +699,7 @@ mod tests {
     #[test]
     fn validate_rejects_execution_mode_on_non_codex_model() {
         let node = AgentNode {
-            model: Some(AIModel::DeepseekChat),
+            model: Some(ModelId::DeepseekChat),
             ..AgentNode::new().with_codex_cli_execution_mode(CodexCliExecutionMode::Bypass)
         };
         let errors = node.validate().expect_err("expected validation error");
@@ -710,7 +710,7 @@ mod tests {
     #[test]
     fn validate_accepts_execution_mode_on_codex_model() {
         let node = AgentNode {
-            model: Some(AIModel::Gpt5Codex),
+            model: Some(ModelId::Gpt5Codex),
             ..AgentNode::new().with_codex_cli_execution_mode(CodexCliExecutionMode::Safe)
         };
         assert!(node.validate().is_ok());
@@ -757,7 +757,7 @@ mod tests {
     #[test]
     fn normalize_model_fields_backfills_model_ref_from_legacy_model() {
         let mut node = AgentNode {
-            model: Some(AIModel::Gpt5),
+            model: Some(ModelId::Gpt5),
             model_ref: None,
             ..AgentNode::new()
         };
@@ -765,16 +765,16 @@ mod tests {
             .expect("normalization should pass");
         let model_ref = node.model_ref.expect("model_ref should be backfilled");
         assert_eq!(model_ref.provider, Provider::OpenAI);
-        assert_eq!(model_ref.model, AIModel::Gpt5);
+        assert_eq!(model_ref.model, ModelId::Gpt5);
     }
 
     #[test]
     fn validate_rejects_mismatched_model_and_model_ref() {
         let node = AgentNode {
-            model: Some(AIModel::Gpt5),
+            model: Some(ModelId::Gpt5),
             model_ref: Some(ModelRef {
                 provider: Provider::Anthropic,
-                model: AIModel::ClaudeSonnet4_5,
+                model: ModelId::ClaudeSonnet4_5,
             }),
             ..AgentNode::new()
         };

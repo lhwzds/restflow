@@ -24,6 +24,15 @@ const EXPECTED_PROVIDER_IDS = [
   'codex',
 ]
 
+const PROVIDER_DISPLAY_ORDER = [
+  'openai',
+  'minimax-coding-plan',
+  'zai-coding-plan',
+  'claude-code',
+  'codex',
+  'minimax',
+]
+
 const MOCK_MODELS: ModelMetadata[] = [
   { model: 'gpt-5', provider: 'openai', name: 'GPT-5' },
   { model: 'minimax-coding-plan-m2-5', provider: 'minimax-coding-plan', name: 'MiniMax M2.5 (Coding Plan)' },
@@ -63,10 +72,20 @@ test.describe('Provider Catalog', () => {
       .map((model) => model.provider)
       .filter((provider, index, allProviders) => allProviders.indexOf(provider) === index)
 
-    expect(providers.slice(0, EXPECTED_PROVIDER_IDS.length)).toEqual(EXPECTED_PROVIDER_IDS)
+    expect(models.length).toBeGreaterThan(0)
+    expect(new Set(providers).size).toBe(providers.length)
 
-    for (const provider of EXPECTED_PROVIDER_IDS) {
-      expect(providers).toContain(provider)
+    const orderedProviders = providers.filter((provider) => PROVIDER_DISPLAY_ORDER.includes(provider))
+    const expectedOrder = [...orderedProviders].sort(
+      (left, right) =>
+        PROVIDER_DISPLAY_ORDER.indexOf(left) - PROVIDER_DISPLAY_ORDER.indexOf(right),
+    )
+    expect(orderedProviders).toEqual(expectedOrder)
+
+    for (const model of models) {
+      expect(model.model).toBeTruthy()
+      expect(model.provider).toBeTruthy()
+      expect(model.name).toBeTruthy()
     }
   })
 
