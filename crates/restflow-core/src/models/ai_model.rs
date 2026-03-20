@@ -4,6 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
+use super::catalog;
 use crate::models::ValidationError;
 
 /// AI model provider
@@ -210,26 +211,9 @@ impl Provider {
 
     /// Get the best available model for this provider.
     pub fn flagship_model(&self) -> ModelId {
-        match *self {
-            Self::OpenAI => ModelId::Gpt5,
-            Self::Anthropic => ModelId::ClaudeSonnet4_5,
-            Self::ClaudeCode => ModelId::ClaudeCodeOpus,
-            Self::Codex => ModelId::CodexCli,
-            Self::DeepSeek => ModelId::DeepseekChat,
-            Self::Google => ModelId::Gemini3Pro,
-            Self::Groq => ModelId::GroqLlama4Maverick,
-            Self::OpenRouter => ModelId::OrClaudeOpus4_6,
-            Self::XAI => ModelId::Grok4,
-            Self::Qwen => ModelId::Qwen3Max,
-            Self::Zai => ModelId::Glm5,
-            Self::ZaiCodingPlan => ModelId::Glm5CodingPlan,
-            Self::Moonshot => ModelId::KimiK2_5,
-            Self::Doubao => ModelId::DoubaoPro,
-            Self::Yi => ModelId::YiLightning,
-            Self::SiliconFlow => ModelId::SiliconFlowAuto,
-            Self::MiniMax => ModelId::MiniMaxM27,
-            Self::MiniMaxCodingPlan => ModelId::MiniMaxM25CodingPlan,
-        }
+        catalog::provider_catalog(*self)
+            .map(|catalog| catalog.flagship)
+            .unwrap_or_else(|| panic!("missing provider catalog for {}", self.as_canonical_str()))
     }
 }
 
@@ -390,6 +374,8 @@ impl ModelId {
     pub const MiniMaxM27Highspeed: Self = Self("minimax-m2-7-highspeed");
     pub const MiniMaxM21CodingPlan: Self = Self("minimax-coding-plan-m2-1");
     pub const MiniMaxM25CodingPlan: Self = Self("minimax-coding-plan-m2-5");
+    pub const Gpt5_4Codex: Self = Self("gpt-5.4");
+    pub const Gpt5_4MiniCodex: Self = Self("gpt-5.4-mini");
     pub const Gpt5Codex: Self = Self("gpt-5-codex");
     pub const Gpt5_1Codex: Self = Self("gpt-5.1-codex");
     pub const Gpt5_2Codex: Self = Self("gpt-5.2-codex");
@@ -402,76 +388,29 @@ impl ModelId {
     }
 
     pub fn from_serialized_str(value: &str) -> Option<Self> {
-        Self::all().iter().copied().find(|model| model.as_serialized_str() == value.trim())
+        let normalized = value.trim();
+        if normalized.is_empty() {
+            return None;
+        }
+
+        catalog::lookup_by_name(normalized)
     }
 
     pub fn all() -> &'static [Self] {
-        &[
-        Self::Gpt5,
-        Self::Gpt5Mini,
-        Self::Gpt5Nano,
-        Self::Gpt5Pro,
-        Self::Gpt5_1,
-        Self::Gpt5_2,
-        Self::ClaudeOpus4_6,
-        Self::ClaudeSonnet4_5,
-        Self::ClaudeHaiku4_5,
-        Self::ClaudeCodeOpus,
-        Self::ClaudeCodeSonnet,
-        Self::ClaudeCodeHaiku,
-        Self::DeepseekChat,
-        Self::DeepseekReasoner,
-        Self::Gemini25Pro,
-        Self::Gemini25Flash,
-        Self::Gemini3Pro,
-        Self::Gemini3Flash,
-        Self::GroqLlama4Scout,
-        Self::GroqLlama4Maverick,
-        Self::Grok4,
-        Self::Grok3Mini,
-        Self::OpenRouterAuto,
-        Self::OrClaudeOpus4_6,
-        Self::OrGpt5,
-        Self::OrGemini3Pro,
-        Self::OrDeepseekV3_2,
-        Self::OrGrok4,
-        Self::OrLlama4Maverick,
-        Self::OrQwen3Coder,
-        Self::OrDevstral2,
-        Self::OrGlm4_7,
-        Self::OrKimiK2_5,
-        Self::OrMinimaxM2_1,
-        Self::Qwen3Max,
-        Self::Qwen3Plus,
-        Self::Glm5,
-        Self::Glm5Turbo,
-        Self::Glm5Code,
-        Self::Glm4_7,
-        Self::Glm5CodingPlan,
-        Self::Glm5TurboCodingPlan,
-        Self::Glm5CodeCodingPlan,
-        Self::Glm4_7CodingPlan,
-        Self::KimiK2_5,
-        Self::DoubaoPro,
-        Self::YiLightning,
-        Self::SiliconFlowAuto,
-        Self::MiniMaxM21,
-        Self::MiniMaxM25,
-        Self::MiniMaxM27,
-        Self::MiniMaxM27Highspeed,
-        Self::MiniMaxM21CodingPlan,
-        Self::MiniMaxM25CodingPlan,
-        Self::Gpt5Codex,
-        Self::Gpt5_1Codex,
-        Self::Gpt5_2Codex,
-        Self::CodexCli,
-        Self::OpenCodeCli,
-        Self::GeminiCli
-        ]
+        catalog::all_model_ids()
     }
 }
 
 impl ModelId {
+    fn descriptor(&self) -> &'static catalog::ModelDescriptor {
+        catalog::descriptor(*self).unwrap_or_else(|| {
+            panic!(
+                "missing model catalog entry for {}",
+                self.as_serialized_str()
+            )
+        })
+    }
+
     /// Convert ModelId to ModelSpec used by runtime LLM factory.
     pub fn as_model_spec(&self) -> ModelSpec {
         let provider = self.provider().as_llm_provider();
@@ -509,344 +448,7 @@ impl ModelId {
 
     /// Get comprehensive metadata for this model
     pub fn metadata(&self) -> ModelMetadata {
-        match *self {
-            // GPT-5 series (no temperature support)
-            Self::Gpt5 => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "GPT-5",
-            },
-            Self::Gpt5Mini => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "GPT-5 Mini",
-            },
-            Self::Gpt5Nano => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "GPT-5 Nano",
-            },
-            Self::Gpt5Pro => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "GPT-5 Pro",
-            },
-            Self::Gpt5_1 => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "GPT-5.1",
-            },
-            Self::Gpt5_2 => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "GPT-5.2",
-            },
-
-            // Claude series
-            Self::ClaudeOpus4_6 => ModelMetadata {
-                provider: Provider::Anthropic,
-                supports_temperature: true,
-                name: "Claude Opus 4.6",
-            },
-            Self::ClaudeSonnet4_5 => ModelMetadata {
-                provider: Provider::Anthropic,
-                supports_temperature: true,
-                name: "Claude Sonnet 4.5",
-            },
-            Self::ClaudeHaiku4_5 => ModelMetadata {
-                provider: Provider::Anthropic,
-                supports_temperature: true,
-                name: "Claude Haiku 4.5",
-            },
-
-            // Claude Code CLI aliases
-            Self::ClaudeCodeOpus => ModelMetadata {
-                provider: Provider::ClaudeCode,
-                supports_temperature: true,
-                name: "Claude Code Opus",
-            },
-            Self::ClaudeCodeSonnet => ModelMetadata {
-                provider: Provider::ClaudeCode,
-                supports_temperature: true,
-                name: "Claude Code Sonnet",
-            },
-            Self::ClaudeCodeHaiku => ModelMetadata {
-                provider: Provider::ClaudeCode,
-                supports_temperature: true,
-                name: "Claude Code Haiku",
-            },
-
-            // DeepSeek series
-            Self::DeepseekChat => ModelMetadata {
-                provider: Provider::DeepSeek,
-                supports_temperature: true,
-                name: "DeepSeek Chat",
-            },
-            Self::DeepseekReasoner => ModelMetadata {
-                provider: Provider::DeepSeek,
-                supports_temperature: true,
-                name: "DeepSeek Reasoner",
-            },
-
-            // Google Gemini
-            Self::Gemini25Pro => ModelMetadata {
-                provider: Provider::Google,
-                supports_temperature: true,
-                name: "Gemini 2.5 Pro",
-            },
-            Self::Gemini25Flash => ModelMetadata {
-                provider: Provider::Google,
-                supports_temperature: true,
-                name: "Gemini 2.5 Flash",
-            },
-            Self::Gemini3Pro => ModelMetadata {
-                provider: Provider::Google,
-                supports_temperature: true,
-                name: "Gemini 3 Pro Preview",
-            },
-            Self::Gemini3Flash => ModelMetadata {
-                provider: Provider::Google,
-                supports_temperature: true,
-                name: "Gemini 3 Flash Preview",
-            },
-
-            // Groq
-            Self::GroqLlama4Scout => ModelMetadata {
-                provider: Provider::Groq,
-                supports_temperature: true,
-                name: "Llama 4 Scout",
-            },
-            Self::GroqLlama4Maverick => ModelMetadata {
-                provider: Provider::Groq,
-                supports_temperature: true,
-                name: "Llama 4 Maverick",
-            },
-
-            // X.AI
-            Self::Grok4 => ModelMetadata {
-                provider: Provider::XAI,
-                supports_temperature: true,
-                name: "Grok 4",
-            },
-            Self::Grok3Mini => ModelMetadata {
-                provider: Provider::XAI,
-                supports_temperature: true,
-                name: "Grok 3 Mini",
-            },
-
-            // OpenRouter
-            Self::OpenRouterAuto => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OpenRouter Auto",
-            },
-            Self::OrClaudeOpus4_6 => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR Claude Opus 4.6",
-            },
-            Self::OrGpt5 => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: false,
-                name: "OR GPT-5",
-            },
-            Self::OrGemini3Pro => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR Gemini 3 Pro",
-            },
-            Self::OrDeepseekV3_2 => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR DeepSeek V3.2",
-            },
-            Self::OrGrok4 => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR Grok 4",
-            },
-            Self::OrLlama4Maverick => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR Llama 4 Maverick",
-            },
-            Self::OrQwen3Coder => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR Qwen3 Coder",
-            },
-            Self::OrDevstral2 => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR Devstral 2",
-            },
-            Self::OrGlm4_7 => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR GLM-4.7",
-            },
-            Self::OrKimiK2_5 => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR Kimi K2.5",
-            },
-            Self::OrMinimaxM2_1 => ModelMetadata {
-                provider: Provider::OpenRouter,
-                supports_temperature: true,
-                name: "OR MiniMax M2.1",
-            },
-
-            // Qwen
-            Self::Qwen3Max => ModelMetadata {
-                provider: Provider::Qwen,
-                supports_temperature: true,
-                name: "Qwen3 Max",
-            },
-            Self::Qwen3Plus => ModelMetadata {
-                provider: Provider::Qwen,
-                supports_temperature: true,
-                name: "Qwen3 Plus",
-            },
-
-            // Zai
-            Self::Glm5 => ModelMetadata {
-                provider: Provider::Zai,
-                supports_temperature: true,
-                name: "GLM-5",
-            },
-            Self::Glm5Turbo => ModelMetadata {
-                provider: Provider::Zai,
-                supports_temperature: true,
-                name: "GLM-5 Turbo",
-            },
-            Self::Glm5Code => ModelMetadata {
-                provider: Provider::Zai,
-                supports_temperature: true,
-                name: "GLM-5 Code",
-            },
-            Self::Glm4_7 => ModelMetadata {
-                provider: Provider::Zai,
-                supports_temperature: true,
-                name: "GLM-4.7",
-            },
-            Self::Glm5CodingPlan => ModelMetadata {
-                provider: Provider::ZaiCodingPlan,
-                supports_temperature: true,
-                name: "GLM-5 (Coding Plan)",
-            },
-            Self::Glm5TurboCodingPlan => ModelMetadata {
-                provider: Provider::ZaiCodingPlan,
-                supports_temperature: true,
-                name: "GLM-5 Turbo (Coding Plan)",
-            },
-            Self::Glm5CodeCodingPlan => ModelMetadata {
-                provider: Provider::ZaiCodingPlan,
-                supports_temperature: true,
-                name: "GLM-5 Code (Coding Plan)",
-            },
-            Self::Glm4_7CodingPlan => ModelMetadata {
-                provider: Provider::ZaiCodingPlan,
-                supports_temperature: true,
-                name: "GLM-4.7 (Coding Plan)",
-            },
-
-            // Moonshot
-            Self::KimiK2_5 => ModelMetadata {
-                provider: Provider::Moonshot,
-                supports_temperature: true,
-                name: "Kimi K2.5",
-            },
-
-            // Doubao
-            Self::DoubaoPro => ModelMetadata {
-                provider: Provider::Doubao,
-                supports_temperature: true,
-                name: "Doubao Pro",
-            },
-
-            // Yi
-            Self::YiLightning => ModelMetadata {
-                provider: Provider::Yi,
-                supports_temperature: true,
-                name: "Yi Lightning",
-            },
-
-            // SiliconFlow
-            Self::SiliconFlowAuto => ModelMetadata {
-                provider: Provider::SiliconFlow,
-                supports_temperature: true,
-                name: "SiliconFlow Auto",
-            },
-
-            // MiniMax
-            Self::MiniMaxM21 => ModelMetadata {
-                provider: Provider::MiniMax,
-                supports_temperature: true,
-                name: "MiniMax M2.1",
-            },
-            Self::MiniMaxM25 => ModelMetadata {
-                provider: Provider::MiniMax,
-                supports_temperature: true,
-                name: "MiniMax M2.5",
-            },
-            Self::MiniMaxM27 => ModelMetadata {
-                provider: Provider::MiniMax,
-                supports_temperature: true,
-                name: "MiniMax M2.7",
-            },
-            Self::MiniMaxM27Highspeed => ModelMetadata {
-                provider: Provider::MiniMax,
-                supports_temperature: true,
-                name: "MiniMax M2.7 Highspeed",
-            },
-            Self::MiniMaxM21CodingPlan => ModelMetadata {
-                provider: Provider::MiniMaxCodingPlan,
-                supports_temperature: true,
-                name: "MiniMax M2.1 (Coding Plan)",
-            },
-            Self::MiniMaxM25CodingPlan => ModelMetadata {
-                provider: Provider::MiniMaxCodingPlan,
-                supports_temperature: true,
-                name: "MiniMax M2.5 (Coding Plan)",
-            },
-
-            // Codex CLI
-            Self::Gpt5Codex => ModelMetadata {
-                provider: Provider::Codex,
-                supports_temperature: false,
-                name: "Codex GPT-5",
-            },
-            Self::Gpt5_1Codex => ModelMetadata {
-                provider: Provider::Codex,
-                supports_temperature: false,
-                name: "Codex GPT-5.1",
-            },
-            Self::Gpt5_2Codex => ModelMetadata {
-                provider: Provider::Codex,
-                supports_temperature: false,
-                name: "Codex GPT-5.2",
-            },
-            Self::CodexCli => ModelMetadata {
-                provider: Provider::Codex,
-                supports_temperature: false,
-                name: "Codex GPT-5.3",
-            },
-
-            // OpenCode CLI
-            Self::OpenCodeCli => ModelMetadata {
-                provider: Provider::OpenAI,
-                supports_temperature: false,
-                name: "OpenCode CLI",
-            },
-
-            // Gemini CLI
-            Self::GeminiCli => ModelMetadata {
-                provider: Provider::Google,
-                supports_temperature: false,
-                name: "Gemini CLI",
-            },
-            _ => panic!("unknown model metadata: {}", self.as_serialized_str()),
-        }
+        self.descriptor().metadata()
     }
 
     /// Get the provider for this model
@@ -894,26 +496,10 @@ impl ModelId {
         if let Some((provider_str, model_str)) = normalized.split_once(':')
             && let Some(provider) = Provider::from_canonical_str(provider_str)
         {
-            // Search for matching model (case-insensitive comparison)
-            for model in Self::all() {
-                if model.provider_matches(provider) {
-                    let serialized = model.as_serialized_str().to_lowercase();
-                    if serialized == model_str || model.as_str() == model_str {
-                        return Some(*model);
-                    }
-                }
-            }
+            return Self::for_provider_and_model(provider, model_str);
         }
 
-        // Fallback: try model-only lookup (legacy support, case-insensitive)
-        for model in Self::all() {
-            let serialized = model.as_serialized_str().to_lowercase();
-            if serialized == normalized || model.as_str() == normalized {
-                return Some(*model);
-            }
-        }
-
-        None
+        catalog::lookup_by_name(&normalized)
     }
 
     /// Check if this model supports temperature parameter
@@ -940,104 +526,7 @@ impl ModelId {
 
     /// Get the string representation used for API calls
     pub fn as_str(&self) -> &'static str {
-        match *self {
-            // GPT-5 series
-            Self::Gpt5 => "gpt-5",
-            Self::Gpt5Mini => "gpt-5-mini",
-            Self::Gpt5Nano => "gpt-5-nano",
-            Self::Gpt5Pro => "gpt-5-pro",
-            Self::Gpt5_1 => "gpt-5.1",
-            Self::Gpt5_2 => "gpt-5.2",
-
-            // Claude series (direct API)
-            Self::ClaudeOpus4_6 => "claude-opus-4-6",
-            Self::ClaudeSonnet4_5 => "claude-sonnet-4-5",
-            Self::ClaudeHaiku4_5 => "claude-haiku-4-5",
-
-            // Claude Code CLI (aliases for claude CLI tool)
-            Self::ClaudeCodeOpus => "opus",
-            Self::ClaudeCodeSonnet => "sonnet",
-            Self::ClaudeCodeHaiku => "haiku",
-
-            // DeepSeek series
-            Self::DeepseekChat => "deepseek-chat",
-            Self::DeepseekReasoner => "deepseek-reasoner",
-
-            // Google Gemini
-            Self::Gemini25Pro => "gemini-2.5-pro",
-            Self::Gemini25Flash => "gemini-2.5-flash",
-            Self::Gemini3Pro => "gemini-3-pro-preview",
-            Self::Gemini3Flash => "gemini-3-flash-preview",
-
-            // Groq
-            Self::GroqLlama4Scout => "meta-llama/llama-4-scout-17b-16e-instruct",
-            Self::GroqLlama4Maverick => "meta-llama/llama-4-maverick-17b-128e-instruct",
-
-            // X.AI
-            Self::Grok4 => "grok-4",
-            Self::Grok3Mini => "grok-3-mini",
-
-            // OpenRouter
-            Self::OpenRouterAuto => "openrouter/auto",
-            Self::OrClaudeOpus4_6 => "anthropic/claude-opus-4.6",
-            Self::OrGpt5 => "openai/gpt-5",
-            Self::OrGemini3Pro => "google/gemini-3-pro-preview",
-            Self::OrDeepseekV3_2 => "deepseek/deepseek-v3.2",
-            Self::OrGrok4 => "x-ai/grok-4",
-            Self::OrLlama4Maverick => "meta-llama/llama-4-maverick",
-            Self::OrQwen3Coder => "qwen/qwen3-coder",
-            Self::OrDevstral2 => "mistralai/devstral-2-2512",
-            Self::OrGlm4_7 => "z-ai/glm-4.7",
-            Self::OrKimiK2_5 => "moonshotai/kimi-k2.5",
-            Self::OrMinimaxM2_1 => "minimax/minimax-m2.1",
-
-            // Qwen
-            Self::Qwen3Max => "qwen3-max",
-            Self::Qwen3Plus => "qwen3-plus",
-
-            // Zai
-            Self::Glm5 => "glm-5",
-            Self::Glm5Turbo => "glm-5-turbo",
-            Self::Glm5Code => "glm-5",
-            Self::Glm4_7 => "glm-4.7",
-            Self::Glm5CodingPlan => "glm-5",
-            Self::Glm5TurboCodingPlan => "glm-5-turbo",
-            Self::Glm5CodeCodingPlan => "glm-5",
-            Self::Glm4_7CodingPlan => "glm-4.7",
-
-            // Moonshot
-            Self::KimiK2_5 => "kimi-k2.5",
-
-            // Doubao
-            Self::DoubaoPro => "doubao-pro-256k",
-
-            // Yi
-            Self::YiLightning => "yi-lightning",
-
-            // SiliconFlow
-            Self::SiliconFlowAuto => "deepseek-ai/DeepSeek-V3",
-
-            // Codex CLI
-            Self::Gpt5Codex => "gpt-5-codex",
-            Self::Gpt5_1Codex => "gpt-5.1-codex",
-            Self::Gpt5_2Codex => "gpt-5.2-codex",
-            Self::CodexCli => "gpt-5.3-codex",
-
-            // OpenCode CLI
-            Self::OpenCodeCli => "opencode",
-
-            // Gemini CLI
-            Self::GeminiCli => "gemini-2.5-pro",
-
-            // MiniMax
-            Self::MiniMaxM21 => "MiniMax-M2.1",
-            Self::MiniMaxM25 => "MiniMax-M2.5",
-            Self::MiniMaxM27 => "MiniMax-M2.7",
-            Self::MiniMaxM27Highspeed => "MiniMax-M2.7-highspeed",
-            Self::MiniMaxM21CodingPlan => "MiniMax-M2.1",
-            Self::MiniMaxM25CodingPlan => "MiniMax-M2.5",
-            _ => panic!("unknown model api name: {}", self.as_serialized_str()),
-        }
+        self.descriptor().api_name
     }
 
     /// Convert an API model name into an ModelId.
@@ -1047,34 +536,13 @@ impl ModelId {
             return None;
         }
 
-        if let Some(model) = Self::all()
-            .iter()
-            .find(|m| {
-                m.as_str().eq_ignore_ascii_case(normalized)
-                    || m.as_serialized_str().eq_ignore_ascii_case(normalized)
-            })
-            .copied()
-        {
+        if let Some(model) = catalog::lookup_by_name(normalized) {
             return Some(model);
         }
 
         match normalized.to_ascii_lowercase().as_str() {
-            "glm-5-turbo" => Some(Self::Glm5Turbo),
-            "glm-5-code" => Some(Self::Glm5Code),
-            "zai-coding-plan-glm-5" => Some(Self::Glm5CodingPlan),
-            "zai-coding-plan-glm-5-turbo" => Some(Self::Glm5TurboCodingPlan),
-            "zai-coding-plan-glm-5-code" => Some(Self::Glm5CodeCodingPlan),
-            "zai-coding-plan-glm-4-7" => Some(Self::Glm4_7CodingPlan),
-            "minimax-m2-1" | "minimax-m2.1" => Some(Self::MiniMaxM21),
-            "minimax-m2-5" | "minimax-m2.5" => Some(Self::MiniMaxM25),
-            "minimax-m2-7" | "minimax-m2.7" => Some(Self::MiniMaxM27),
-            "minimax-m2-7-highspeed" | "minimax-m2.7-highspeed" => Some(Self::MiniMaxM27Highspeed),
-            "minimax-coding-plan-m2-1" | "minimax-coding-plan-m2.1" => {
-                Some(Self::MiniMaxM21CodingPlan)
-            }
-            "minimax-coding-plan-m2-5" | "minimax-coding-plan-m2.5" => {
-                Some(Self::MiniMaxM25CodingPlan)
-            }
+            "gpt-5.4-codex" => Some(Self::Gpt5_4Codex),
+            "gpt-5.4-mini-codex" => Some(Self::Gpt5_4MiniCodex),
             "claude-sonnet-4-5-20250514" | "claude-sonnet-4-20250514" => {
                 Some(Self::ClaudeSonnet4_5)
             }
@@ -1104,6 +572,8 @@ impl ModelId {
         }
 
         let canonical = match normalized.as_str() {
+            "gpt-5.4-codex" => "gpt-5.4",
+            "gpt-5.4-mini-codex" => "gpt-5.4-mini",
             "glm5" => "glm-5",
             "glm5-turbo" => "glm-5-turbo",
             "glm5-code" => "glm-5-code",
@@ -1115,55 +585,10 @@ impl ModelId {
             value => value,
         };
 
-        match provider {
-            Provider::MiniMax => match canonical {
-                "minimax-m2-1" => Some(Self::MiniMaxM21),
-                "minimax-m2-5" => Some(Self::MiniMaxM25),
-                "minimax-m2-7" => Some(Self::MiniMaxM27),
-                "minimax-m2-7-highspeed" => Some(Self::MiniMaxM27Highspeed),
-                _ => None,
-            },
-            Provider::MiniMaxCodingPlan => match canonical {
-                "minimax-m2-1" => Some(Self::MiniMaxM21CodingPlan),
-                "minimax-m2-5" => Some(Self::MiniMaxM25CodingPlan),
-                _ => None,
-            },
-            Provider::Zai => match canonical {
-                "glm-5" => Some(Self::Glm5),
-                "glm-5-turbo" => Some(Self::Glm5Turbo),
-                "glm-5-code" => Some(Self::Glm5Code),
-                "glm-4-7" => Some(Self::Glm4_7),
-                _ => None,
-            },
-            Provider::ZaiCodingPlan => match canonical {
-                "glm-5" => Some(Self::Glm5CodingPlan),
-                "glm-5-turbo" => Some(Self::Glm5TurboCodingPlan),
-                "glm-5-code" => Some(Self::Glm5CodeCodingPlan),
-                "glm-4-7" => Some(Self::Glm4_7CodingPlan),
-                _ => None,
-            },
-            Provider::ClaudeCode => match canonical {
-                "claude-code-opus" | "opus" => Some(Self::ClaudeCodeOpus),
-                "claude-code-sonnet" | "sonnet" => Some(Self::ClaudeCodeSonnet),
-                "claude-code-haiku" | "haiku" => Some(Self::ClaudeCodeHaiku),
-                _ => None,
-            },
-            Provider::Codex => match canonical {
-                "gpt-5-codex" => Some(Self::Gpt5Codex),
-                "gpt-5.1-codex" => Some(Self::Gpt5_1Codex),
-                "gpt-5.2-codex" => Some(Self::Gpt5_2Codex),
-                "gpt-5.3-codex" => Some(Self::CodexCli),
-                _ => None,
-            },
-            _ => {
-                let parsed = Self::from_api_name(canonical)?;
-                if parsed.provider_matches(provider) {
-                    Some(parsed)
-                } else {
-                    None
-                }
-            }
-        }
+        catalog::lookup_for_provider(provider, canonical).or_else(|| {
+            let parsed = Self::from_api_name(canonical)?;
+            parsed.provider_matches(provider).then_some(parsed)
+        })
     }
 
     /// Remap this model into another provider when a provider-specific counterpart exists.
@@ -1172,19 +597,8 @@ impl ModelId {
             return Some(*self);
         }
 
-        let canonical = match *self {
-            Self::MiniMaxM21 | Self::MiniMaxM21CodingPlan => "minimax-m2-1",
-            Self::MiniMaxM25 | Self::MiniMaxM25CodingPlan => "minimax-m2-5",
-            Self::MiniMaxM27 => "minimax-m2-7",
-            Self::MiniMaxM27Highspeed => "minimax-m2-7-highspeed",
-            Self::Glm5 | Self::Glm5CodingPlan => "glm-5",
-            Self::Glm5Turbo | Self::Glm5TurboCodingPlan => "glm-5-turbo",
-            Self::Glm5Code | Self::Glm5CodeCodingPlan => "glm-5-code",
-            Self::Glm4_7 | Self::Glm4_7CodingPlan => "glm-4-7",
-            _ => return None,
-        };
-
-        Self::for_provider_and_model(provider, canonical)
+        let canonical_family = self.descriptor().canonical_family?;
+        catalog::lookup_by_canonical_family(provider, canonical_family)
     }
 
     /// Get the display name for UI
@@ -1196,7 +610,12 @@ impl ModelId {
     pub fn is_codex_cli(&self) -> bool {
         matches!(
             *self,
-            Self::Gpt5Codex | Self::Gpt5_1Codex | Self::Gpt5_2Codex | Self::CodexCli
+            Self::Gpt5_4Codex
+                | Self::Gpt5_4MiniCodex
+                | Self::Gpt5Codex
+                | Self::Gpt5_1Codex
+                | Self::Gpt5_2Codex
+                | Self::CodexCli
         )
     }
 
@@ -1229,76 +648,23 @@ impl ModelId {
     /// Get a same-provider fallback model (cheaper tier).
     /// Returns None if this is already the cheapest or no fallback exists.
     pub fn same_provider_fallback(&self) -> Option<Self> {
-        match *self {
-            // Anthropic: Opus -> Sonnet -> Haiku
-            Self::ClaudeOpus4_6 => Some(Self::ClaudeSonnet4_5),
-            Self::ClaudeSonnet4_5 => Some(Self::ClaudeHaiku4_5),
-            // OpenAI: Pro -> Gpt5 -> Mini -> Nano
-            Self::Gpt5Pro => Some(Self::Gpt5),
-            Self::Gpt5 => Some(Self::Gpt5Mini),
-            Self::Gpt5Mini => Some(Self::Gpt5Nano),
-            // DeepSeek: Reasoner -> Chat
-            Self::DeepseekReasoner => Some(Self::DeepseekChat),
-            // Gemini: Pro -> Flash (both generations)
-            Self::Gemini3Pro => Some(Self::Gemini3Flash),
-            Self::Gemini25Pro => Some(Self::Gemini25Flash),
-            // GLM: 5 -> 5 Turbo -> 5 Code -> 4.7
-            Self::Glm5 => Some(Self::Glm5Turbo),
-            Self::Glm5Turbo => Some(Self::Glm5Code),
-            Self::Glm5Code => Some(Self::Glm4_7),
-            Self::Glm5CodingPlan => Some(Self::Glm5TurboCodingPlan),
-            Self::Glm5TurboCodingPlan => Some(Self::Glm5CodeCodingPlan),
-            Self::Glm5CodeCodingPlan => Some(Self::Glm4_7CodingPlan),
-            // X.AI: Grok4 -> Grok3Mini
-            Self::Grok4 => Some(Self::Grok3Mini),
-            _ => None,
-        }
+        self.descriptor().same_provider_fallback
     }
 
     /// Get the OpenRouter equivalent of this model (if one exists).
     pub fn openrouter_equivalent(&self) -> Option<Self> {
-        match *self {
-            Self::ClaudeOpus4_6 | Self::ClaudeSonnet4_5 => Some(Self::OrClaudeOpus4_6),
-            Self::Gpt5 | Self::Gpt5Mini | Self::Gpt5Pro => Some(Self::OrGpt5),
-            Self::Gemini3Pro | Self::Gemini25Pro => Some(Self::OrGemini3Pro),
-            Self::DeepseekChat | Self::DeepseekReasoner => Some(Self::OrDeepseekV3_2),
-            Self::Grok4 | Self::Grok3Mini => Some(Self::OrGrok4),
-            Self::Glm5
-            | Self::Glm5Turbo
-            | Self::Glm5Code
-            | Self::Glm4_7
-            | Self::Glm5CodingPlan
-            | Self::Glm5TurboCodingPlan
-            | Self::Glm5CodeCodingPlan
-            | Self::Glm4_7CodingPlan => Some(Self::OrGlm4_7),
-            Self::KimiK2_5 => Some(Self::OrKimiK2_5),
-            Self::Qwen3Max | Self::Qwen3Plus => Some(Self::OrQwen3Coder),
-            Self::MiniMaxM21
-            | Self::MiniMaxM25
-            | Self::MiniMaxM27
-            | Self::MiniMaxM27Highspeed
-            | Self::MiniMaxM21CodingPlan
-            | Self::MiniMaxM25CodingPlan => Some(Self::OrMinimaxM2_1),
-            _ => None,
-        }
+        self.descriptor().openrouter_equivalent
     }
 
     /// Convert metadata to serializable DTO for frontend
     pub fn to_metadata_dto(&self) -> ModelMetadataDTO {
-        let metadata = self.metadata();
-        ModelMetadataDTO {
-            model: *self,
-            provider: metadata.provider,
-            supports_temperature: metadata.supports_temperature,
-            name: metadata.name.to_string(),
-        }
+        self.descriptor().metadata_dto()
     }
 
     /// Get all models with their metadata as DTOs
     pub fn all_with_metadata() -> Vec<ModelMetadataDTO> {
-        Self::all()
-            .iter()
-            .map(|model| model.to_metadata_dto())
+        catalog::all_descriptors()
+            .map(catalog::ModelDescriptor::metadata_dto)
             .collect()
     }
 }
@@ -1336,6 +702,8 @@ mod tests {
             Provider::MiniMaxCodingPlan
         );
         assert_eq!(ModelId::CodexCli.provider(), Provider::Codex);
+        assert_eq!(ModelId::Gpt5_4Codex.provider(), Provider::Codex);
+        assert_eq!(ModelId::Gpt5_4MiniCodex.provider(), Provider::Codex);
     }
 
     #[test]
@@ -1346,6 +714,8 @@ mod tests {
         assert!(!ModelId::Gpt5_1.supports_temperature());
         assert!(!ModelId::Gpt5_2.supports_temperature());
         assert!(!ModelId::Gpt5Codex.supports_temperature());
+        assert!(!ModelId::Gpt5_4Codex.supports_temperature());
+        assert!(!ModelId::Gpt5_4MiniCodex.supports_temperature());
         assert!(!ModelId::Gpt5_1Codex.supports_temperature());
         assert!(!ModelId::Gpt5_2Codex.supports_temperature());
         assert!(!ModelId::CodexCli.supports_temperature());
@@ -1363,6 +733,8 @@ mod tests {
     #[test]
     fn test_is_codex_cli() {
         assert!(ModelId::Gpt5Codex.is_codex_cli());
+        assert!(ModelId::Gpt5_4Codex.is_codex_cli());
+        assert!(ModelId::Gpt5_4MiniCodex.is_codex_cli());
         assert!(ModelId::Gpt5_1Codex.is_codex_cli());
         assert!(ModelId::Gpt5_2Codex.is_codex_cli());
         assert!(ModelId::CodexCli.is_codex_cli());
@@ -1388,6 +760,8 @@ mod tests {
         assert_eq!(ModelId::ClaudeSonnet4_5.as_str(), "claude-sonnet-4-5");
         assert_eq!(ModelId::ClaudeHaiku4_5.as_str(), "claude-haiku-4-5");
         assert_eq!(ModelId::Gpt5Codex.as_str(), "gpt-5-codex");
+        assert_eq!(ModelId::Gpt5_4Codex.as_str(), "gpt-5.4");
+        assert_eq!(ModelId::Gpt5_4MiniCodex.as_str(), "gpt-5.4-mini");
         assert_eq!(ModelId::Gpt5_1Codex.as_str(), "gpt-5.1-codex");
         assert_eq!(ModelId::Gpt5_2Codex.as_str(), "gpt-5.2-codex");
         assert_eq!(ModelId::CodexCli.as_str(), "gpt-5.3-codex");
@@ -1488,6 +862,8 @@ mod tests {
         assert_eq!(ModelId::ClaudeSonnet4_5.display_name(), "Claude Sonnet 4.5");
         assert_eq!(ModelId::ClaudeHaiku4_5.display_name(), "Claude Haiku 4.5");
         assert_eq!(ModelId::Gpt5Codex.display_name(), "Codex GPT-5");
+        assert_eq!(ModelId::Gpt5_4Codex.display_name(), "GPT-5.4");
+        assert_eq!(ModelId::Gpt5_4MiniCodex.display_name(), "GPT-5.4 Mini");
         assert_eq!(ModelId::Gpt5_1Codex.display_name(), "Codex GPT-5.1");
         assert_eq!(ModelId::Gpt5_2Codex.display_name(), "Codex GPT-5.2");
         assert_eq!(ModelId::CodexCli.display_name(), "Codex GPT-5.3");
@@ -1502,12 +878,14 @@ mod tests {
     #[test]
     fn test_all_models() {
         let models = ModelId::all();
-        assert_eq!(models.len(), 60);
+        assert_eq!(models.len(), 62);
         assert!(models.contains(&ModelId::Gpt5));
         assert!(models.contains(&ModelId::Gpt5_1));
         assert!(models.contains(&ModelId::ClaudeOpus4_6));
         assert!(models.contains(&ModelId::ClaudeSonnet4_5));
         assert!(models.contains(&ModelId::ClaudeHaiku4_5));
+        assert!(models.contains(&ModelId::Gpt5_4Codex));
+        assert!(models.contains(&ModelId::Gpt5_4MiniCodex));
         assert!(models.contains(&ModelId::Gpt5Codex));
         assert!(models.contains(&ModelId::Gpt5_1Codex));
         assert!(models.contains(&ModelId::Gpt5_2Codex));
@@ -1563,6 +941,12 @@ mod tests {
     #[test]
     fn test_build_model_specs_contains_codex_cli() {
         let specs = ModelId::build_model_specs();
+        assert!(specs.iter().any(|spec| spec.name == "gpt-5.4"
+            && spec.client_model == "gpt-5.4"
+            && spec.is_codex_cli));
+        assert!(specs.iter().any(|spec| spec.name == "gpt-5.4-mini"
+            && spec.client_model == "gpt-5.4-mini"
+            && spec.is_codex_cli));
         assert!(
             specs
                 .iter()
@@ -1688,6 +1072,11 @@ mod tests {
         );
 
         // CLI models have no fallback
+        assert_eq!(
+            ModelId::Gpt5_4Codex.same_provider_fallback(),
+            Some(ModelId::Gpt5_4MiniCodex)
+        );
+        assert_eq!(ModelId::Gpt5_4MiniCodex.same_provider_fallback(), None);
         assert_eq!(ModelId::CodexCli.same_provider_fallback(), None);
     }
 
@@ -1729,6 +1118,8 @@ mod tests {
         // OR models themselves have no OR equivalent
         assert_eq!(ModelId::OrClaudeOpus4_6.openrouter_equivalent(), None);
         // CLI models have no OR equivalent
+        assert_eq!(ModelId::Gpt5_4Codex.openrouter_equivalent(), None);
+        assert_eq!(ModelId::Gpt5_4MiniCodex.openrouter_equivalent(), None);
         assert_eq!(ModelId::CodexCli.openrouter_equivalent(), None);
     }
 
@@ -1746,6 +1137,11 @@ mod tests {
         );
         assert_eq!(ModelId::Gemini3Pro.canonical_id(), "google:gemini-3-pro");
         assert_eq!(ModelId::OrGpt5.canonical_id(), "openrouter:or-gpt-5");
+        assert_eq!(ModelId::Gpt5_4Codex.canonical_id(), "codex:gpt-5.4");
+        assert_eq!(
+            ModelId::Gpt5_4MiniCodex.canonical_id(),
+            "codex:gpt-5.4-mini"
+        );
         assert_eq!(ModelId::CodexCli.canonical_id(), "codex:gpt-5.3-codex");
         assert_eq!(
             ModelId::ClaudeCodeSonnet.canonical_id(),
@@ -1777,12 +1173,32 @@ mod tests {
             Some(ModelId::CodexCli)
         );
         assert_eq!(
+            ModelId::from_canonical_id("codex:gpt-5.4"),
+            Some(ModelId::Gpt5_4Codex)
+        );
+        assert_eq!(
+            ModelId::from_canonical_id("codex:gpt-5.4-mini"),
+            Some(ModelId::Gpt5_4MiniCodex)
+        );
+        assert_eq!(
+            ModelId::from_canonical_id("codex:gpt-5.4-codex"),
+            Some(ModelId::Gpt5_4Codex)
+        );
+        assert_eq!(
+            ModelId::from_canonical_id("codex:gpt-5.4-mini-codex"),
+            Some(ModelId::Gpt5_4MiniCodex)
+        );
+        assert_eq!(
             ModelId::from_canonical_id("anthropic:claude-code-sonnet"),
             Some(ModelId::ClaudeCodeSonnet)
         );
         assert_eq!(
             ModelId::from_canonical_id("openai:gpt-5.3-codex"),
             Some(ModelId::CodexCli)
+        );
+        assert_eq!(
+            ModelId::from_canonical_id("openai:gpt-5.4"),
+            Some(ModelId::Gpt5_4Codex)
         );
 
         // Test legacy model-only strings (fallback)
@@ -1852,14 +1268,14 @@ mod tests {
 
         let codex_ref = ModelRef {
             provider: Provider::OpenAI,
-            model: ModelId::CodexCli,
+            model: ModelId::Gpt5_4Codex,
         };
         assert!(codex_ref.validate().is_ok());
         assert_eq!(
             codex_ref.normalized(),
             ModelRef {
                 provider: Provider::Codex,
-                model: ModelId::CodexCli,
+                model: ModelId::Gpt5_4Codex,
             }
         );
     }
@@ -1976,11 +1392,48 @@ mod tests {
             Provider::ClaudeCode.flagship_model(),
             ModelId::ClaudeCodeOpus
         );
-        assert_eq!(Provider::Codex.flagship_model(), ModelId::CodexCli);
+        assert_eq!(Provider::Codex.flagship_model(), ModelId::Gpt5_4Codex);
         assert_eq!(
             Provider::OpenRouter.flagship_model(),
             ModelId::OrClaudeOpus4_6
         );
+    }
+
+    #[test]
+    fn test_provider_catalog_completeness() {
+        assert_eq!(Provider::all().len(), catalog::PROVIDER_CATALOGS.len());
+
+        for provider in Provider::all() {
+            let provider_catalog = catalog::provider_catalog(*provider)
+                .unwrap_or_else(|| panic!("missing provider catalog for {provider:?}"));
+            assert_eq!(provider_catalog.provider, *provider);
+            assert_eq!(provider_catalog.flagship.provider(), *provider);
+            assert!(!provider_catalog.models.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_catalog_lookup_round_trips_model_ids() {
+        for model in ModelId::all() {
+            let descriptor = catalog::descriptor(*model)
+                .unwrap_or_else(|| panic!("missing descriptor for {model:?}"));
+            assert_eq!(descriptor.id, *model);
+            assert_eq!(descriptor.provider, model.provider());
+            assert_eq!(
+                catalog::lookup_by_name(model.as_serialized_str()),
+                Some(*model)
+            );
+            let resolved = catalog::lookup_for_provider(model.provider(), model.as_str())
+                .unwrap_or_else(|| {
+                    panic!(
+                        "missing provider lookup for {} via {}",
+                        model.as_serialized_str(),
+                        model.as_str()
+                    )
+                });
+            assert_eq!(resolved.provider(), model.provider());
+            assert_eq!(resolved.as_str(), model.as_str());
+        }
     }
 
     #[test]

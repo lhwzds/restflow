@@ -8,9 +8,9 @@ use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
-    ModelId, AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole,
-    ChatSession, ChatSessionSource, ChatSessionSummary, HookContext, HookEvent, MemoryChunk,
-    MemorySearchQuery, MessageExecution, SteerMessage, SteerSource, TerminalSession,
+    AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession,
+    ChatSessionSource, ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery,
+    MessageExecution, ModelId, SteerMessage, SteerSource, TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};

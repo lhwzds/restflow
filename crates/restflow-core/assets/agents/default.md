@@ -148,7 +148,7 @@ Example — notify on task failure:
 - `claude-code-opus` / `claude-code-sonnet` / `claude-code-haiku`: Claude Code CLI
 - `claude-opus-4-6` / `claude-sonnet-4-5` / `claude-haiku-4-5`: Anthropic API
 - `gpt-5` / `gpt-5-mini` / `gpt-5-nano` / `gpt-5.1` / `gpt-5.2`: OpenAI API
-- `gpt-5-codex` / `gpt-5.1-codex` / `gpt-5.2-codex` / `gpt-5.3-codex`: Codex CLI
+- `gpt-5.4` / `gpt-5.4-mini` / `gpt-5-codex` / `gpt-5.1-codex` / `gpt-5.2-codex` / `gpt-5.3-codex`: Codex CLI
 - `deepseek-chat` / `deepseek-reasoner`: DeepSeek API
 - `gemini-2.5-pro` / `gemini-3-pro` / `gemini-3-flash`: Google API
 - `gemini-cli`: Gemini CLI

@@ -4,10 +4,10 @@
 //! APIs from restflow-storage with Rust types from our models.
 
 use crate::models::{
-    ModelId, AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
+    AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
     BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec,
     BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
-    BackgroundProgress, ChatSession,
+    BackgroundProgress, ChatSession, ModelId,
 };
 use anyhow::Result;
 use redb::Database;

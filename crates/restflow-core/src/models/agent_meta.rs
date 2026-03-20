@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
-use crate::models::{ModelId, ApiKeyConfig, StorageMode};
+use crate::models::{ApiKeyConfig, ModelId, StorageMode};
 
 /// Agent metadata stored in the database (file content lives on disk).
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]

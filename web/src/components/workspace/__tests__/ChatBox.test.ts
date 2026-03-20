@@ -48,7 +48,7 @@ describe('ChatBox', () => {
           { id: 'minimax-coding-plan-m2-5', name: 'MiniMax M2.5 Coding Plan', provider: 'minimax-coding-plan' },
           { id: 'glm-5-turbo', name: 'GLM-5 Turbo Coding Plan', provider: 'zai-coding-plan' },
           { id: 'claude-code-sonnet', name: 'Claude Code Sonnet', provider: 'claude-code' },
-          { id: 'gpt-5.3-codex', name: 'Codex GPT-5.3', provider: 'codex' },
+          { id: 'gpt-5.4', name: 'GPT-5.4', provider: 'codex' },
         ],
       },
       global: {

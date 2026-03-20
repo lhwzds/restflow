@@ -3,7 +3,7 @@
 //! Provides type-safe access to chat session storage, wrapping the byte-level
 //! API from restflow-storage with our Rust models.
 
-use crate::models::{ModelId, ChatSession, ChatSessionSource, ChatSessionSummary};
+use crate::models::{ChatSession, ChatSessionSource, ChatSessionSummary, ModelId};
 use anyhow::Result;
 use redb::Database;
 use restflow_storage::SimpleStorage;

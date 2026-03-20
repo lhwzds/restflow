@@ -4,6 +4,7 @@ pub mod agent_meta;
 pub mod ai_model;
 pub mod audit;
 pub mod background_agent;
+mod catalog;
 pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;

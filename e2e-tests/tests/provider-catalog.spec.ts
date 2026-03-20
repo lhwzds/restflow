@@ -38,7 +38,7 @@ const MOCK_MODELS: ModelMetadata[] = [
   { model: 'minimax-coding-plan-m2-5', provider: 'minimax-coding-plan', name: 'MiniMax M2.5 (Coding Plan)' },
   { model: 'zai-coding-plan-glm-5-turbo', provider: 'zai-coding-plan', name: 'GLM-5 Turbo (Coding Plan)' },
   { model: 'claude-code-sonnet', provider: 'claude-code', name: 'Claude Code Sonnet' },
-  { model: 'gpt-5.3-codex', provider: 'codex', name: 'Codex GPT-5.3' },
+  { model: 'gpt-5.4', provider: 'codex', name: 'GPT-5.4' },
   { model: 'minimax-m2-7', provider: 'minimax', name: 'MiniMax M2.7' },
 ]
 

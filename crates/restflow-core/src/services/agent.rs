@@ -266,7 +266,7 @@ async fn validate_agent_node(core: &Arc<AppCore>, agent: &AgentNode) -> Result<(
 mod tests {
     use super::*;
     use crate::models::{
-        ModelId, ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource,
+        ApiKeyConfig, ChannelSessionBinding, ChatSession, ChatSessionSource, ModelId,
         ValidationErrorResponse,
     };
     use crate::prompt_files;

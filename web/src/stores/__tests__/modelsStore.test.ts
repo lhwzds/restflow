@@ -16,10 +16,10 @@ describe('modelsStore getters', () => {
     store.$patch({
       models: [
         {
-          model: 'gpt-5.3-codex',
+          model: 'gpt-5.4',
           provider: 'codex',
           supports_temperature: false,
-          name: 'Codex GPT-5.3',
+          name: 'GPT-5.4',
         },
         {
           model: 'claude-code-sonnet',

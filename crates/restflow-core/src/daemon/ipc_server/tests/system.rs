@@ -198,7 +198,7 @@ async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_pr
             assert!(
                 models
                     .iter()
-                    .any(|model| model.model == crate::models::ModelId::CodexCli)
+                    .any(|model| model.model == crate::models::ModelId::Gpt5_4Codex)
             );
         }
         other => panic!("expected success response, got {other:?}"),

@@ -6,10 +6,10 @@
 use crate::AppCore;
 use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
-    ModelId, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
-    BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable, Hook, HookAction, HookEvent,
-    HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
+    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
+    BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundProgress,
+    ChatSession, ChatSessionSummary, Deliverable, Hook, HookAction, HookEvent, HookFilter,
+    MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, ModelId,
     Provider, SearchMode, Skill, SkillStatus, ToolTrace, ToolTraceEvent, ValidationError,
 };
 use crate::services::{

@@ -36,6 +36,8 @@ pub fn parse_model(input: &str) -> Result<ModelId> {
         "claude-code-haiku" | "haiku" => ModelId::ClaudeCodeHaiku,
         // Codex CLI (must use concrete model names)
         "gpt-5-codex" => ModelId::Gpt5Codex,
+        "gpt-5.4" | "gpt-5.4-codex" => ModelId::Gpt5_4Codex,
+        "gpt-5.4-mini" | "gpt-5.4-mini-codex" => ModelId::Gpt5_4MiniCodex,
         "gpt-5.1-codex" => ModelId::Gpt5_1Codex,
         "gpt-5.2-codex" => ModelId::Gpt5_2Codex,
         "gpt-5.3-codex" => ModelId::CodexCli,
@@ -235,6 +237,20 @@ mod tests {
         assert_eq!(
             parse_model("minimax-m2-7-highspeed").unwrap(),
             ModelId::MiniMaxM27Highspeed
+        );
+    }
+
+    #[test]
+    fn parse_model_accepts_codex_gpt54_variants() {
+        assert_eq!(parse_model("gpt-5.4").unwrap(), ModelId::Gpt5_4Codex);
+        assert_eq!(parse_model("gpt-5.4-codex").unwrap(), ModelId::Gpt5_4Codex);
+        assert_eq!(
+            parse_model("gpt-5.4-mini").unwrap(),
+            ModelId::Gpt5_4MiniCodex
+        );
+        assert_eq!(
+            parse_model("gpt-5.4-mini-codex").unwrap(),
+            ModelId::Gpt5_4MiniCodex
         );
     }
 }
