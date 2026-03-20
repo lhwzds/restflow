@@ -1,11 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AgentEditorPanel from '../AgentEditorPanel.vue'
+import { BackendError } from '@/api/http-client'
 
 const mockGetAgent = vi.fn()
 const mockUpdateAgent = vi.fn()
 const mockGetAvailableTools = vi.fn()
 const mockListSkills = vi.fn()
+const mockConfirm = vi.fn()
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -44,6 +46,12 @@ vi.mock('@/composables/useToast', () => ({
   }),
 }))
 
+vi.mock('@/composables/useConfirm', () => ({
+  useConfirm: () => ({
+    confirm: (...args: unknown[]) => mockConfirm(...args),
+  }),
+}))
+
 function baseAgent(overrides?: {
   tools?: string[] | null
   skills?: string[] | null
@@ -71,6 +79,7 @@ function baseAgent(overrides?: {
 describe('AgentEditorPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockConfirm.mockResolvedValue(true)
     mockUpdateAgent.mockResolvedValue(baseAgent())
     mockGetAvailableTools.mockResolvedValue([
       { name: 'bash', description: 'Tool: bash' },
@@ -243,5 +252,71 @@ describe('AgentEditorPanel', () => {
 
     expect(wrapper.text()).toContain('OpenAI API')
     expect(wrapper.text()).not.toContain('>openai<')
+  })
+
+  it('retries save with confirmation token after warning', async () => {
+    mockGetAgent.mockResolvedValue(baseAgent())
+    mockUpdateAgent
+      .mockRejectedValueOnce(
+        new BackendError({
+          code: 428,
+          kind: 'confirmation_required',
+          message: 'confirm',
+          details: {
+            assessment: {
+              status: 'warning',
+              warnings: [{ message: 'Provider is not configured.' }],
+              blockers: [],
+              requires_confirmation: true,
+              confirmation_token: 'token-1',
+            },
+          },
+        } as any),
+      )
+      .mockResolvedValueOnce({
+        ...baseAgent(),
+        agent: {
+          ...baseAgent().agent,
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        },
+      })
+
+    const wrapper = mount(AgentEditorPanel, {
+      props: {
+        agentId: 'agent-1',
+      },
+      global: {
+        stubs: {
+          Button: { template: '<button><slot /></button>' },
+          Input: { template: '<input />' },
+          Label: { template: '<label><slot /></label>' },
+          Textarea: { template: '<textarea />' },
+          Select: { template: '<div><slot /></div>' },
+          SelectTrigger: { template: '<div><slot /></div>' },
+          SelectValue: { template: '<div><slot /></div>' },
+          SelectContent: { template: '<div><slot /></div>' },
+          SelectItem: { template: '<div><slot /></div>' },
+        },
+      },
+    })
+
+    await flushPromises()
+    const saveButton = wrapper
+      .findAll('button')
+      .find((button) => button.text().includes('workspace.agent.save'))
+    await saveButton!.trigger('click')
+    await flushPromises()
+
+    expect(mockConfirm).toHaveBeenCalledOnce()
+    expect(mockUpdateAgent).toHaveBeenNthCalledWith(
+      2,
+      'agent-1',
+      expect.objectContaining({
+        confirmation_token: 'token-1',
+      }),
+    )
   })
 })

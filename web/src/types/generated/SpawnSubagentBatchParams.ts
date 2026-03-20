@@ -55,4 +55,12 @@ trace_session_id?: string,
 /**
  * Optional trace scope ID for context propagation (runtime-injected).
  */
-trace_scope_id?: string, };
+trace_scope_id?: string, 
+/**
+ * If true, validate and preview capability warnings/blockers without executing.
+ */
+preview: boolean, 
+/**
+ * Confirmation token returned by preview when warnings require explicit confirmation.
+ */
+confirmation_token?: string, };

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import ChatPanel from '../ChatPanel.vue'
+import { BackendError } from '@/api/http-client'
 import { useChatSession } from '@/composables/workspace/useChatSession'
 import { useChatStream } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
@@ -55,6 +56,7 @@ const mockSendStream = vi.fn()
 const mockCancelStream = vi.fn()
 const mockResetStream = vi.fn()
 const mockLoadModels = vi.fn()
+const mockConfirm = vi.fn()
 const mockGetAgentApi = vi.fn()
 const mockUpdateAgentApi = vi.fn()
 const mockModels: Array<{ model: string; name: string; provider: string }> = []
@@ -182,6 +184,12 @@ vi.mock('@/composables/useToast', () => ({
   }),
 }))
 
+vi.mock('@/composables/useConfirm', () => ({
+  useConfirm: () => ({
+    confirm: (...args: unknown[]) => mockConfirm(...args),
+  }),
+}))
+
 function createSession(model: string): SessionLike {
   return {
     id: 'session-1',
@@ -225,6 +233,7 @@ describe('ChatPanel', () => {
     mockDuration.value = 0
 
     mockModels.length = 0
+    mockConfirm.mockResolvedValue(true)
     mockLoadModels.mockImplementation(async () => {
       mockModels.splice(
         0,
@@ -417,6 +426,56 @@ describe('ChatPanel', () => {
         },
       },
     })
+  })
+
+  it('retries agent model persistence after confirmation warning', async () => {
+    mockUpdateSessionModel.mockResolvedValue({
+      ...mockCurrentSession.value!,
+      model: 'gpt-5',
+    })
+    mockUpdateAgentApi
+      .mockRejectedValueOnce(
+        new BackendError({
+          code: 428,
+          kind: 'confirmation_required',
+          message: 'confirm',
+          details: {
+            assessment: {
+              status: 'warning',
+              warnings: [{ message: 'Provider is not configured.' }],
+              blockers: [],
+              requires_confirmation: true,
+              confirmation_token: 'token-1',
+            },
+          },
+        } as any),
+      )
+      .mockResolvedValueOnce({
+        id: 'agent-1',
+        name: 'Agent One',
+        agent: {
+          model: 'gpt-5',
+          model_ref: {
+            provider: 'openai',
+            model: 'gpt-5',
+          },
+        },
+      })
+
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="chatbox-model-change"]').trigger('click')
+    await flushPromises()
+
+    expect(mockConfirm).toHaveBeenCalledOnce()
+    expect(mockUpdateAgentApi).toHaveBeenNthCalledWith(
+      2,
+      'agent-1',
+      expect.objectContaining({
+        confirmation_token: 'token-1',
+      }),
+    )
   })
 
   it('emits toolResult for failed tool calls with result payload', async () => {

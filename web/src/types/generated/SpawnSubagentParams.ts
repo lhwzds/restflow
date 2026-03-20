@@ -87,4 +87,12 @@ team?: string,
  *
  * To save a team without spawning, use `operation = "save_team"` and `team`.
  */
-save_as_team?: string, };
+save_as_team?: string, 
+/**
+ * If true, validate and preview capability warnings/blockers without executing.
+ */
+preview: boolean, 
+/**
+ * Confirmation token returned by preview when warnings require explicit confirmation.
+ */
+confirmation_token?: string, };

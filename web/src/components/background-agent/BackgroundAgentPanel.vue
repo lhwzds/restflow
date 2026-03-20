@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import MessageList from '@/components/chat/MessageList.vue'
 import AgentStatusBadge from './AgentStatusBadge.vue'
 import AgentOverviewOverlay from './AgentOverviewOverlay.vue'
+import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useBackgroundAgentStream } from '@/composables/workspace/useBackgroundAgentStream'
@@ -30,6 +31,10 @@ import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import {
+  formatOperationAssessment,
+  type OperationAssessment,
+} from '@/utils/operationAssessment'
 
 const props = defineProps<{
   agent: BackgroundAgent
@@ -41,6 +46,7 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
+const { confirm } = useConfirm()
 const store = useBackgroundAgentStore()
 const MEMORY_CHUNK_LIMIT = 200
 const MEMORY_FALLBACK_SESSION_LIMIT = 20
@@ -126,7 +132,14 @@ async function handleResume() {
 }
 
 async function handleRun() {
-  const response = await store.runAgentNow(props.agent.id)
+  const response = await store.runAgentNow(props.agent.id, async (assessment: OperationAssessment) =>
+    confirm({
+      title: 'Confirmation required',
+      description: formatOperationAssessment(assessment),
+      confirmText: 'Run anyway',
+      cancelText: 'Cancel',
+    }),
+  )
   if (store.error) {
     toast.error(store.error)
     return
