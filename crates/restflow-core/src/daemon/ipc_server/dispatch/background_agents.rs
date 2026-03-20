@@ -1,7 +1,55 @@
 use super::super::runtime::parse_background_agent_status;
 use super::super::*;
+use crate::daemon::request_mapper::to_contract;
+use crate::services::operation_assessment::{
+    assess_background_agent_control, assess_background_agent_create,
+    assess_background_agent_update, assessment_requires_confirmation, assessment_summary,
+    ensure_assessment_confirmed,
+};
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
+use restflow_traits::OperationAssessment;
+use restflow_traits::store::{
+    BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
+};
+use serde_json::json;
+
+fn assessment_details(assessment: &OperationAssessment) -> serde_json::Value {
+    json!({ "assessment": assessment })
+}
+
+fn maybe_preview_or_confirm(
+    assessment: OperationAssessment,
+    preview: bool,
+    confirmation_token: Option<String>,
+) -> std::result::Result<Option<IpcResponse>, anyhow::Error> {
+    if preview {
+        return Ok(Some(IpcResponse::success(json!({
+            "status": "preview",
+            "assessment": assessment,
+        }))));
+    }
+
+    if !assessment.blockers.is_empty() {
+        return Ok(Some(IpcResponse::error_with_details(
+            400,
+            assessment_summary(&assessment),
+            Some(assessment_details(&assessment)),
+        )));
+    }
+
+    if assessment_requires_confirmation(&assessment)
+        && ensure_assessment_confirmed(&assessment, confirmation_token.as_deref()).is_err()
+    {
+        return Ok(Some(IpcResponse::error_with_details(
+            428,
+            assessment_summary(&assessment),
+            Some(assessment_details(&assessment)),
+        )));
+    }
+
+    Ok(None)
+}
 
 fn resolve_background_agent_id(
     core: &Arc<AppCore>,
@@ -88,7 +136,50 @@ impl IpcServer {
     pub(super) async fn handle_create_background_agent(
         core: &Arc<AppCore>,
         spec: crate::models::BackgroundAgentSpec,
+        preview: bool,
+        confirmation_token: Option<String>,
     ) -> IpcResponse {
+        let assessment = match assess_background_agent_create(
+            core,
+            BackgroundAgentCreateRequest {
+                name: spec.name.clone(),
+                agent_id: spec.agent_id.clone(),
+                chat_session_id: spec.chat_session_id.clone(),
+                schedule: serde_json::to_value(&spec.schedule).ok(),
+                input: spec.input.clone(),
+                input_template: spec.input_template.clone(),
+                timeout_secs: spec.timeout_secs,
+                durability_mode: match spec.durability_mode.clone().map(to_contract).transpose() {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+                memory: match spec.memory.as_ref().map(serde_json::to_value).transpose() {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+                memory_scope: None,
+                resource_limits: match spec
+                    .resource_limits
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+            },
+        )
+        .await
+        {
+            Ok(assessment) => assessment,
+            Err(err) => return IpcResponse::error(500, err.to_string()),
+        };
+        match maybe_preview_or_confirm(assessment, preview, confirmation_token) {
+            Ok(Some(response)) => return response,
+            Ok(None) => {}
+            Err(err) => return IpcResponse::error(500, err.to_string()),
+        }
+
         match core.storage.background_agents.create_background_agent(spec) {
             Ok(task) => IpcResponse::success(task),
             Err(err) => IpcResponse::error(500, err.to_string()),
@@ -99,11 +190,81 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
         patch: crate::models::BackgroundAgentPatch,
+        preview: bool,
+        confirmation_token: Option<String>,
     ) -> IpcResponse {
         let resolved_id = match resolve_background_agent_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,
         };
+        let assessment = match assess_background_agent_update(
+            core,
+            BackgroundAgentUpdateRequest {
+                id: resolved_id.clone(),
+                name: patch.name.clone(),
+                description: patch.description.clone(),
+                agent_id: patch.agent_id.clone(),
+                chat_session_id: patch.chat_session_id.clone(),
+                input: patch.input.clone(),
+                input_template: patch.input_template.clone(),
+                schedule: match patch
+                    .schedule
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+                notification: match patch
+                    .notification
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+                execution_mode: match patch
+                    .execution_mode
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+                timeout_secs: patch.timeout_secs,
+                durability_mode: match patch.durability_mode.clone().map(to_contract).transpose() {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+                memory: match patch.memory.as_ref().map(serde_json::to_value).transpose() {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+                memory_scope: None,
+                resource_limits: match patch
+                    .resource_limits
+                    .as_ref()
+                    .map(serde_json::to_value)
+                    .transpose()
+                {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+            },
+        )
+        .await
+        {
+            Ok(assessment) => assessment,
+            Err(err) => return IpcResponse::error(500, err.to_string()),
+        };
+        match maybe_preview_or_confirm(assessment, preview, confirmation_token) {
+            Ok(Some(response)) => return response,
+            Ok(None) => {}
+            Err(err) => return IpcResponse::error(500, err.to_string()),
+        }
         match core
             .storage
             .background_agents
@@ -135,11 +296,33 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
         action: crate::models::BackgroundAgentControlAction,
+        preview: bool,
+        confirmation_token: Option<String>,
     ) -> IpcResponse {
         let resolved_id = match resolve_background_agent_id(core, &id) {
             Ok(id) => id,
             Err(response) => return response,
         };
+        let assessment = match assess_background_agent_control(
+            core,
+            BackgroundAgentControlRequest {
+                id: resolved_id.clone(),
+                action: match to_contract(action.clone()) {
+                    Ok(value) => value,
+                    Err(err) => return IpcResponse::error(500, err.to_string()),
+                },
+            },
+        )
+        .await
+        {
+            Ok(assessment) => assessment,
+            Err(err) => return IpcResponse::error(500, err.to_string()),
+        };
+        match maybe_preview_or_confirm(assessment, preview, confirmation_token) {
+            Ok(Some(response)) => return response,
+            Ok(None) => {}
+            Err(err) => return IpcResponse::error(500, err.to_string()),
+        }
         match core
             .storage
             .background_agents

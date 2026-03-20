@@ -6,12 +6,15 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::Result;
+use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 
 #[derive(Clone)]
 pub struct AgentCrudTool {
     store: Arc<dyn AgentStore>,
+    assessor: Option<Arc<dyn AgentOperationAssessor>>,
     allow_write: bool,
 }
 
@@ -19,8 +22,14 @@ impl AgentCrudTool {
     pub fn new(store: Arc<dyn AgentStore>) -> Self {
         Self {
             store,
+            assessor: None,
             allow_write: false,
         }
+    }
+
+    pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {
+        self.assessor = Some(assessor);
+        self
     }
 
     pub fn with_write(mut self, allow_write: bool) -> Self {
@@ -49,6 +58,10 @@ enum AgentAction {
     Create {
         name: String,
         agent: Value,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     Update {
         id: String,
@@ -56,6 +69,10 @@ enum AgentAction {
         name: Option<String>,
         #[serde(default)]
         agent: Option<Value>,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     Delete {
         id: String,
@@ -92,6 +109,14 @@ impl Tool for AgentCrudTool {
                 "agent": {
                     "type": "object",
                     "description": "Agent configuration (for create/update)"
+                },
+                "preview": {
+                    "type": "boolean",
+                    "description": "If true, validate and preview warnings/blockers without persisting changes."
+                },
+                "confirmation_token": {
+                    "type": "string",
+                    "description": "Confirmation token returned by preview when warnings require explicit confirmation."
                 }
             },
             "required": ["operation"]
@@ -112,9 +137,25 @@ impl Tool for AgentCrudTool {
                     .get_agent(&id)
                     .map_err(|e| ToolError::Tool(format!("Failed to get agent: {e}")))?,
             ),
-            AgentAction::Create { name, agent } => {
+            AgentAction::Create {
+                name,
+                agent,
+                preview,
+                confirmation_token,
+            } => {
                 self.write_guard()?;
                 let request = AgentCreateRequest { name, agent };
+                if let Some(assessor) = &self.assessor {
+                    let assessment = assessor.assess_agent_create(request.clone()).await?;
+                    if preview {
+                        return Ok(preview_output(assessment));
+                    }
+                    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
+                } else if preview {
+                    return Err(ToolError::Tool(
+                        "Agent operation preview is unavailable in this runtime.".to_string(),
+                    ));
+                }
                 ToolOutput::success(self.store.create_agent(request).map_err(|e| {
                     let message = e.to_string();
                     if message.contains("\"type\":\"validation_error\"") {
@@ -124,9 +165,26 @@ impl Tool for AgentCrudTool {
                     }
                 })?)
             }
-            AgentAction::Update { id, name, agent } => {
+            AgentAction::Update {
+                id,
+                name,
+                agent,
+                preview,
+                confirmation_token,
+            } => {
                 self.write_guard()?;
                 let request = AgentUpdateRequest { id, name, agent };
+                if let Some(assessor) = &self.assessor {
+                    let assessment = assessor.assess_agent_update(request.clone()).await?;
+                    if preview {
+                        return Ok(preview_output(assessment));
+                    }
+                    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
+                } else if preview {
+                    return Err(ToolError::Tool(
+                        "Agent operation preview is unavailable in this runtime.".to_string(),
+                    ));
+                }
                 ToolOutput::success(self.store.update_agent(request).map_err(|e| {
                     let message = e.to_string();
                     if message.contains("\"type\":\"validation_error\"") {

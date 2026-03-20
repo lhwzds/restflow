@@ -1,5 +1,6 @@
 use super::*;
 use restflow_tools::FileConfig;
+use restflow_traits::AgentOperationAssessor;
 
 /// Create a tool registry with all available tools including storage-backed tools.
 ///
@@ -28,6 +29,49 @@ pub fn create_tool_registry(
     accessor_id: Option<String>,
     agent_id: Option<String>,
     security_gate: Option<Arc<dyn SecurityGate>>,
+) -> anyhow::Result<ToolRegistry> {
+    create_tool_registry_with_assessor(
+        skill_storage,
+        memory_storage,
+        chat_storage,
+        channel_session_binding_storage,
+        tool_trace_storage,
+        kv_store_storage,
+        work_item_storage,
+        secret_storage,
+        config_storage,
+        agent_storage,
+        background_agent_storage,
+        trigger_storage,
+        terminal_storage,
+        deliverable_storage,
+        accessor_id,
+        agent_id,
+        security_gate,
+        None,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn create_tool_registry_with_assessor(
+    skill_storage: SkillStorage,
+    memory_storage: MemoryStorage,
+    chat_storage: ChatSessionStorage,
+    channel_session_binding_storage: ChannelSessionBindingStorage,
+    tool_trace_storage: ToolTraceStorage,
+    kv_store_storage: KvStoreStorage,
+    work_item_storage: WorkItemStorage,
+    secret_storage: SecretStorage,
+    config_storage: ConfigStorage,
+    agent_storage: AgentStorage,
+    background_agent_storage: BackgroundAgentStorage,
+    trigger_storage: TriggerStorage,
+    terminal_storage: TerminalSessionStorage,
+    deliverable_storage: crate::storage::DeliverableStorage,
+    accessor_id: Option<String>,
+    agent_id: Option<String>,
+    security_gate: Option<Arc<dyn SecurityGate>>,
+    assessor: Option<Arc<dyn AgentOperationAssessor>>,
 ) -> anyhow::Result<ToolRegistry> {
     let config_storage = Arc::new(config_storage);
     let agent_defaults = load_agent_defaults(&config_storage);
@@ -143,6 +187,21 @@ pub fn create_tool_registry(
         builder.with_skill_tool(skill_provider)
     };
 
+    let mut builder = if let Some(assessor) = assessor.clone() {
+        builder.with_agent_crud_and_assessor(agent_store, assessor.clone())
+    } else {
+        builder.with_agent_crud(agent_store)
+    };
+    builder = if let Some(assessor) = assessor.clone() {
+        builder.with_background_agent_and_kv_and_assessor(
+            background_agent_store,
+            kv_store.clone(),
+            assessor,
+        )
+    } else {
+        builder.with_background_agent_and_kv(background_agent_store, kv_store.clone())
+    };
+
     let mut registry = builder
         .with_telegram()?
         .with_discord()?
@@ -176,8 +235,6 @@ pub fn create_tool_registry(
         .with_auth_profile(auth_store)
         .with_secrets(Arc::new(secret_storage.clone()))
         .with_config(config_storage.clone())
-        .with_agent_crud(agent_store)
-        .with_background_agent_and_kv(background_agent_store, kv_store.clone())
         .with_marketplace(marketplace_store)
         .with_trigger(trigger_store)
         .with_terminal(terminal_store)
@@ -203,8 +260,12 @@ pub fn create_tool_registry(
         config_storage,
         tool_trace_storage,
     );
-    registry
-        .register(SpawnSubagentTool::new(subagent_manager.clone()).with_kv_store(kv_store.clone()));
+    let mut spawn_tool =
+        SpawnSubagentTool::new(subagent_manager.clone()).with_kv_store(kv_store.clone());
+    if let Some(assessor) = assessor.clone() {
+        spawn_tool = spawn_tool.with_assessor(assessor);
+    }
+    registry.register(spawn_tool);
     registry.register(WaitSubagentsTool::new(subagent_manager.clone()));
     registry.register(ListSubagentsTool::new(subagent_manager));
 

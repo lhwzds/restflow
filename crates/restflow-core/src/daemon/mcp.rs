@@ -27,6 +27,7 @@ use http::{
     header::{CONTENT_LENGTH, HeaderName},
 };
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
+use restflow_contracts::ErrorPayload;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -73,6 +74,8 @@ struct ConvertSessionToBackgroundAgentRequest {
     input: Option<String>,
     #[serde(default)]
     run_now: Option<bool>,
+    #[serde(default)]
+    confirmation_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -393,19 +396,77 @@ fn manifest_to_skill(manifest: SkillManifest, content: String) -> Skill {
 async fn api_convert_session_to_background_agent(
     State(state): State<DaemonHttpState>,
     Json(request): Json<ConvertSessionToBackgroundAgentRequest>,
-) -> std::result::Result<Json<BackgroundAgent>, (StatusCode, String)> {
+) -> std::result::Result<Json<BackgroundAgent>, (StatusCode, Json<ErrorPayload>)> {
     let session = state
         .core
         .storage
         .chat_sessions
         .get(&request.session_id)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorPayload::new(500, error.to_string(), None)),
+            )
+        })?
         .ok_or_else(|| {
             (
                 StatusCode::NOT_FOUND,
-                format!("Session not found: {}", request.session_id),
+                Json(ErrorPayload::not_found(&format!(
+                    "Session {}",
+                    request.session_id
+                ))),
             )
         })?;
+
+    let assessment =
+        crate::services::operation_assessment::assess_background_agent_convert_session(
+            &state.core,
+            restflow_traits::store::BackgroundAgentConvertSessionRequest {
+                session_id: request.session_id.clone(),
+                name: request.name.clone(),
+                schedule: None,
+                input: request.input.clone(),
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: request.run_now,
+            },
+        )
+        .await
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorPayload::new(500, error.to_string(), None)),
+            )
+        })?;
+    if !assessment.blockers.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorPayload::new(
+                400,
+                crate::services::operation_assessment::assessment_summary(&assessment),
+                Some(json!({ "assessment": assessment })),
+            )),
+        ));
+    }
+    if crate::services::operation_assessment::assessment_requires_confirmation(&assessment)
+        && crate::services::operation_assessment::ensure_assessment_confirmed(
+            &assessment,
+            request.confirmation_token.as_deref(),
+        )
+        .is_err()
+    {
+        return Err((
+            StatusCode::PRECONDITION_REQUIRED,
+            Json(ErrorPayload::new(
+                428,
+                crate::services::operation_assessment::assessment_summary(&assessment),
+                Some(json!({ "assessment": assessment })),
+            )),
+        ));
+    }
 
     let spec = build_convert_session_spec(
         &session,
@@ -415,25 +476,34 @@ async fn api_convert_session_to_background_agent(
             ..ConvertSessionSpecOptions::default()
         },
     )
-    .map_err(|error| (StatusCode::BAD_REQUEST, error.to_string()))?;
+    .map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorPayload::new(400, error.to_string(), None)),
+        )
+    })?;
 
     let agent = state
         .core
         .storage
         .background_agents
         .create_background_agent(spec)
-        .map_err(|error| (StatusCode::INTERNAL_SERVER_ERROR, error.to_string()))?;
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorPayload::new(500, error.to_string(), None)),
+            )
+        })?;
 
     if request.run_now.unwrap_or(false) {
-        let _ = IpcServer::process(
-            &state.core,
-            state.runtime_tool_registry.as_ref(),
-            IpcRequest::ControlBackgroundAgent {
-                id: agent.id.clone(),
-                action: "run_now".to_string(),
-            },
-        )
-        .await;
+        let _ = state
+            .core
+            .storage
+            .background_agents
+            .control_background_agent(
+                &agent.id,
+                crate::models::BackgroundAgentControlAction::RunNow,
+            );
     }
 
     Ok(Json(agent))

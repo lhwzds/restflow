@@ -119,6 +119,14 @@ pub(super) fn parameters_schema(available: &[SubagentDefSummary]) -> Value {
             "save_as_team": {
                 "type": "string",
                 "description": "Spawn-only convenience flag to save provided workers as a structural team during spawn. For save-only, use operation='save_team'."
+            },
+            "preview": {
+                "type": "boolean",
+                "description": "If true, validate capability warnings/blockers without executing."
+            },
+            "confirmation_token": {
+                "type": "string",
+                "description": "Confirmation token returned by preview when warnings require explicit confirmation."
             }
         }
     })

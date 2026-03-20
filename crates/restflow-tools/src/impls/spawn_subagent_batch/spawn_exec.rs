@@ -1,3 +1,4 @@
+use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 
@@ -158,10 +159,6 @@ pub(super) async fn spawn_batch(
         )));
     }
 
-    if let Some(team_name) = params.save_as_team.as_deref() {
-        save_team_specs(tool, team_name, &specs)?;
-    }
-
     let resolved_tasks =
         resolve_batch_tasks(&specs, params.task.as_deref(), params.tasks.as_deref())?;
 
@@ -204,6 +201,28 @@ pub(super) async fn spawn_batch(
                 request,
             });
         }
+    }
+
+    if let Some(assessor) = &tool.assessor {
+        let assessment = assessor
+            .assess_subagent_batch(
+                "spawn_subagent_batch",
+                prepared.iter().map(|item| item.request.clone()).collect(),
+                false,
+            )
+            .await?;
+        if params.preview {
+            return Ok(preview_output(assessment));
+        }
+        enforce_confirmation(&assessment, params.confirmation_token.as_deref())?;
+    } else if params.preview {
+        return Err(ToolError::Tool(
+            "Sub-agent capability preview is unavailable in this runtime.".to_string(),
+        ));
+    }
+
+    if let Some(team_name) = params.save_as_team.as_deref() {
+        save_team_specs(tool, team_name, &specs)?;
     }
 
     let mut spawned = Vec::with_capacity(prepared.len());

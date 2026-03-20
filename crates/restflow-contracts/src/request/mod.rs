@@ -18,11 +18,19 @@ pub enum IpcRequest {
     CreateAgent {
         name: String,
         agent: AgentNode,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     UpdateAgent {
         id: String,
         name: Option<String>,
         agent: Option<AgentNode>,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     DeleteAgent {
         id: String,
@@ -340,10 +348,18 @@ pub enum IpcRequest {
     },
     CreateBackgroundAgent {
         spec: BackgroundAgentSpec,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     UpdateBackgroundAgent {
         id: String,
         patch: BackgroundAgentPatch,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     DeleteBackgroundAgent {
         id: String,
@@ -351,6 +367,10 @@ pub enum IpcRequest {
     ControlBackgroundAgent {
         id: String,
         action: String,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     GetBackgroundAgentProgress {
         id: String,
@@ -1323,6 +1343,8 @@ mod tests {
                     inter_segment_pause_ms: 500,
                 }),
             },
+            preview: false,
+            confirmation_token: None,
         };
         assert_roundtrip(&request);
     }

@@ -1,54 +1,74 @@
+use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::store::BackgroundAgentControlRequest;
 
 use super::BackgroundAgentTool;
 
-fn execute_named_control(
+async fn execute_named_control(
     tool: &BackgroundAgentTool,
     id: String,
     action: &str,
     verb: &str,
+    preview: bool,
+    confirmation_token: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
+    let request = BackgroundAgentControlRequest {
+        id,
+        action: action.to_string(),
+    };
+    if action == "run_now" {
+        let assessment = tool
+            .assessor()?
+            .assess_background_agent_control(request.clone())
+            .await?;
+        if preview {
+            return Ok(preview_output(assessment));
+        }
+        enforce_confirmation(&assessment, confirmation_token.as_deref())?;
+    } else if preview {
+        return Err(ToolError::Tool(
+            "Preview is only supported for run_now control actions.".to_string(),
+        ));
+    }
     let result = tool
         .store
-        .control_background_agent(BackgroundAgentControlRequest {
-            id,
-            action: action.to_string(),
-        })
+        .control_background_agent(request)
         .map_err(|e| ToolError::Tool(format!("Failed to {verb} background agent: {e}.")))?;
     Ok(ToolOutput::success(result))
 }
 
-pub(super) fn execute_pause(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
-    execute_named_control(tool, id, "pause", "pause")
+pub(super) async fn execute_pause(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
+    execute_named_control(tool, id, "pause", "pause", false, None).await
 }
 
-pub(super) fn execute_start(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
-    execute_named_control(tool, id, "start", "start")
+pub(super) async fn execute_start(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
+    execute_named_control(tool, id, "start", "start", false, None).await
 }
 
-pub(super) fn execute_resume(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
-    execute_named_control(tool, id, "resume", "resume")
+pub(super) async fn execute_resume(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
+    execute_named_control(tool, id, "resume", "resume", false, None).await
 }
 
-pub(super) fn execute_stop(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
-    execute_named_control(tool, id, "stop", "stop")
+pub(super) async fn execute_stop(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
+    execute_named_control(tool, id, "stop", "stop", false, None).await
 }
 
-pub(super) fn execute_run(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
-    execute_named_control(tool, id, "run_now", "run")
+pub(super) async fn execute_run(
+    tool: &BackgroundAgentTool,
+    id: String,
+    preview: bool,
+    confirmation_token: Option<String>,
+) -> Result<ToolOutput> {
+    execute_named_control(tool, id, "run_now", "run", preview, confirmation_token).await
 }
 
-pub(super) fn execute_control(
+pub(super) async fn execute_control(
     tool: &BackgroundAgentTool,
     id: String,
     action: String,
+    preview: bool,
+    confirmation_token: Option<String>,
 ) -> Result<ToolOutput> {
-    tool.write_guard()?;
-    let result = tool
-        .store
-        .control_background_agent(BackgroundAgentControlRequest { id, action })
-        .map_err(|e| ToolError::Tool(format!("Failed to control background agent: {e}.")))?;
-    Ok(ToolOutput::success(result))
+    execute_named_control(tool, id, &action, "control", preview, confirmation_token).await
 }

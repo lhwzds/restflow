@@ -1,6 +1,7 @@
 //! Built-in tool implementations.
 
 // Shared utilities
+pub(crate) mod operation_assessment;
 pub(crate) mod path_utils;
 pub(crate) mod shared;
 pub(crate) mod team_template;

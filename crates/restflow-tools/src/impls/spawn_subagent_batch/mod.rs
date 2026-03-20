@@ -14,10 +14,13 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
+use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use crate::{Result, Tool, ToolError, ToolOutput};
+use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::KvStore;
-use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
+use restflow_traits::{SpawnRequest, SubagentManager, subagent::SubagentDefSummary};
 
+use self::resolve::build_inline_config;
 use types::SpawnSubagentBatchParams as ParsedSpawnSubagentBatchParams;
 pub use types::{BatchSubagentSpec, SpawnSubagentBatchOperation, SpawnSubagentBatchParams};
 
@@ -25,6 +28,7 @@ pub use types::{BatchSubagentSpec, SpawnSubagentBatchOperation, SpawnSubagentBat
 pub struct SpawnSubagentBatchTool {
     manager: Arc<dyn SubagentManager>,
     kv_store: Option<Arc<dyn KvStore>>,
+    assessor: Option<Arc<dyn AgentOperationAssessor>>,
 }
 
 impl SpawnSubagentBatchTool {
@@ -32,6 +36,7 @@ impl SpawnSubagentBatchTool {
         Self {
             manager,
             kv_store: None,
+            assessor: None,
         }
     }
 
@@ -40,9 +45,33 @@ impl SpawnSubagentBatchTool {
         self
     }
 
+    pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {
+        self.assessor = Some(assessor);
+        self
+    }
+
     fn available_agents(&self) -> Vec<SubagentDefSummary> {
         self.manager.list_callable()
     }
+}
+
+fn assessment_requests_for_specs(specs: &[BatchSubagentSpec]) -> Vec<SpawnRequest> {
+    specs
+        .iter()
+        .map(|spec| SpawnRequest {
+            agent_id: spec.agent.clone(),
+            inline: build_inline_config(spec),
+            task: "Structural team preview".to_string(),
+            timeout_secs: spec.timeout_secs,
+            max_iterations: None,
+            priority: None,
+            model: spec.model.clone(),
+            model_provider: spec.provider.clone(),
+            parent_execution_id: None,
+            trace_session_id: None,
+            trace_scope_id: None,
+        })
+        .collect()
 }
 
 #[async_trait]
@@ -79,6 +108,23 @@ impl Tool for SpawnSubagentBatchTool {
                     &specs,
                 )?;
                 validate::validate_structural_specs(self, &specs)?;
+                if let Some(assessor) = &self.assessor {
+                    let assessment = assessor
+                        .assess_subagent_batch(
+                            "save_team",
+                            assessment_requests_for_specs(&specs),
+                            true,
+                        )
+                        .await?;
+                    if params.preview {
+                        return Ok(preview_output(assessment));
+                    }
+                    enforce_confirmation(&assessment, params.confirmation_token.as_deref())?;
+                } else if params.preview {
+                    return Err(ToolError::Tool(
+                        "Sub-agent capability preview is unavailable in this runtime.".to_string(),
+                    ));
+                }
                 let payload = team::save_team_specs(self, team_name, &specs)?;
                 Ok(ToolOutput::success(serde_json::json!({
                     "operation": "save_team",

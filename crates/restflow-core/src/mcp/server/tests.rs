@@ -53,6 +53,15 @@ async fn create_test_server() -> (
     unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path()) };
     let db_path = temp_dir.path().join("test.db");
     let core = Arc::new(AppCore::new(db_path.to_str().unwrap()).await.unwrap());
+    let default_agent = core.storage.agents.resolve_default_agent().unwrap();
+    let mut configured_agent = default_agent.agent.clone();
+    configured_agent.model = Some(AIModel::Gpt5);
+    configured_agent.model_ref = Some(crate::models::ModelRef::from_model(AIModel::Gpt5));
+    configured_agent.api_key_config = Some(ApiKeyConfig::Direct("test_key".to_string()));
+    core.storage
+        .agents
+        .update_agent(default_agent.id.clone(), None, Some(configured_agent))
+        .unwrap();
     (
         RestFlowMcpServer::new(core.clone()),
         core,
@@ -1580,7 +1589,7 @@ async fn test_mcp_manage_background_agents_save_team_and_get_team_round_trip() {
         }),
     )
     .await;
-    assert!(!save.is_error.unwrap_or(false));
+    assert!(!save.is_error.unwrap_or(false), "{}", call_tool_text(&save));
     let save_value: serde_json::Value =
         serde_json::from_str(call_tool_text(&save)).expect("save_team response json");
     assert_eq!(save_value["operation"], "save_team");
@@ -1630,7 +1639,7 @@ async fn test_mcp_manage_background_agents_run_batch_accepts_runtime_inputs() {
         }),
     )
     .await;
-    assert!(!save.is_error.unwrap_or(false));
+    assert!(!save.is_error.unwrap_or(false), "{}", call_tool_text(&save));
 
     let run = call_tool_through_mcp(
         server,
@@ -1666,7 +1675,7 @@ async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
         }),
     )
     .await;
-    assert!(!create.is_error.unwrap_or(false));
+    assert!(!create.is_error.unwrap_or(false), "{}", call_tool_text(&create));
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
     let task_id = created["id"]
@@ -1713,7 +1722,7 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
         }),
     )
     .await;
-    assert!(!create.is_error.unwrap_or(false));
+    assert!(!create.is_error.unwrap_or(false), "{}", call_tool_text(&create));
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
     let task_id = created["id"]
@@ -1772,7 +1781,7 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
         }),
     )
     .await;
-    assert!(!create.is_error.unwrap_or(false));
+    assert!(!create.is_error.unwrap_or(false), "{}", call_tool_text(&create));
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
     let task_id = created["id"]
@@ -1812,7 +1821,7 @@ async fn test_mcp_manage_background_agents_list_deliverables_accepts_prefix() {
         }),
     )
     .await;
-    assert!(!create.is_error.unwrap_or(false));
+    assert!(!create.is_error.unwrap_or(false), "{}", call_tool_text(&create));
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
     let task_id = created["id"]

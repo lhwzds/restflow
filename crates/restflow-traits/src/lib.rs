@@ -8,6 +8,7 @@
 //! - 18+ store traits (MemoryStore, AgentStore, SessionStore, etc.)
 //! - Sub-agent data types and lookup traits
 
+pub mod assessment;
 pub mod batch_template;
 pub mod cache;
 pub mod defaults;
@@ -34,6 +35,12 @@ pub mod wrapper;
 
 // Error types
 pub use error::{Result as ToolResult, ToolError};
+
+// Assessment types
+pub use assessment::{
+    AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
+    OperationAssessmentIssue, OperationAssessmentStatus,
+};
 
 // Tool trait and core types
 pub use tool::{SecretResolver, Tool, ToolErrorCategory, ToolOutput, ToolSchema, check_security};

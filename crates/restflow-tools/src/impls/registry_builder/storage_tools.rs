@@ -23,6 +23,7 @@ use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
 use crate::impls::work_item::WorkItemTool;
 use crate::security::SecurityGate;
 use restflow_storage::{ConfigStorage, SecretStorage};
+use restflow_traits::AgentOperationAssessor;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
     AgentStore, AuthProfileStore, BackgroundAgentStore, DeliverableStore, DiagnosticsProvider,
@@ -147,6 +148,19 @@ impl ToolRegistryBuilder {
         self
     }
 
+    pub fn with_agent_crud_and_assessor(
+        mut self,
+        store: Arc<dyn AgentStore>,
+        assessor: Arc<dyn AgentOperationAssessor>,
+    ) -> Self {
+        self.registry.register(
+            AgentCrudTool::new(store)
+                .with_assessor(assessor)
+                .with_write(true),
+        );
+        self
+    }
+
     pub fn with_background_agent(mut self, store: Arc<dyn BackgroundAgentStore>) -> Self {
         self.registry
             .register(BackgroundAgentTool::new(store).with_write(true));
@@ -161,6 +175,21 @@ impl ToolRegistryBuilder {
         self.registry.register(
             BackgroundAgentTool::new(store)
                 .with_kv_store(kv_store)
+                .with_write(true),
+        );
+        self
+    }
+
+    pub fn with_background_agent_and_kv_and_assessor(
+        mut self,
+        store: Arc<dyn BackgroundAgentStore>,
+        kv_store: Arc<dyn KvStore>,
+        assessor: Arc<dyn AgentOperationAssessor>,
+    ) -> Self {
+        self.registry.register(
+            BackgroundAgentTool::new(store)
+                .with_kv_store(kv_store)
+                .with_assessor(assessor)
                 .with_write(true),
         );
         self

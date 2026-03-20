@@ -21,7 +21,6 @@ use crate::runtime::channel::{
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::runtime::trace::{RestflowTrace, TraceEvent, append_trace_event};
-use crate::services::tool_registry::create_tool_registry;
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     session::{PersistInteractiveTurnRequest, SessionService},

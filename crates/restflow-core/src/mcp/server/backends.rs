@@ -520,8 +520,12 @@ impl McpBackend for IpcBackend {
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent, String> {
         let spec = to_contract(spec).map_err(|e| e.to_string())?;
-        self.request_typed(IpcRequest::CreateBackgroundAgent { spec })
-            .await
+        self.request_typed(IpcRequest::CreateBackgroundAgent {
+            spec,
+            preview: false,
+            confirmation_token: None,
+        })
+        .await
     }
 
     async fn update_background_agent(
@@ -533,6 +537,8 @@ impl McpBackend for IpcBackend {
         self.request_typed(IpcRequest::UpdateBackgroundAgent {
             id: id.to_string(),
             patch,
+            preview: false,
+            confirmation_token: None,
         })
         .await
     }
@@ -553,6 +559,8 @@ impl McpBackend for IpcBackend {
         self.request_typed(IpcRequest::ControlBackgroundAgent {
             id: id.to_string(),
             action,
+            preview: false,
+            confirmation_token: None,
         })
         .await
     }

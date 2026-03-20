@@ -12,7 +12,10 @@ use crate::models::{
     HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
     Provider, SearchMode, Skill, SkillStatus, ToolTrace, ToolTraceEvent, ValidationError,
 };
-use crate::services::tool_registry::create_tool_registry;
+use crate::services::{
+    operation_assessment::OperationAssessorAdapter,
+    tool_registry::create_tool_registry_with_assessor,
+};
 use crate::storage::agent::StoredAgent;
 use crate::storage::{SecretStorage, SystemConfig};
 use restflow_ai::llm::{
@@ -169,7 +172,7 @@ pub trait McpBackend: Send + Sync {
 fn create_runtime_tool_registry_for_core(
     core: &Arc<AppCore>,
 ) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
-    create_tool_registry(
+    create_tool_registry_with_assessor(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
@@ -187,6 +190,7 @@ fn create_runtime_tool_registry_for_core(
         None,
         None,
         None,
+        Some(Arc::new(OperationAssessorAdapter::new(core.clone()))),
     )
 }
 

@@ -73,7 +73,7 @@ use self::config::{
 };
 use self::subagent_backend::create_subagent_manager;
 
-pub use self::assembly::create_tool_registry;
+pub use self::assembly::{create_tool_registry, create_tool_registry_with_assessor};
 
 #[cfg(test)]
 mod tests;

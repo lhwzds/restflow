@@ -1,6 +1,8 @@
+use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use serde_json::{Value, json};
 
 use crate::{Result, ToolError, ToolOutput};
+use restflow_traits::OperationAssessmentIntent;
 use restflow_traits::store::{
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
     BackgroundAgentMessageRequest, BackgroundAgentUpdateRequest,
@@ -10,12 +12,30 @@ use super::BackgroundAgentTool;
 use super::team::{delete_team, save_team_workers};
 use super::types::BackgroundBatchWorkerSpec;
 
-pub(super) fn execute_save_team(
+pub(super) async fn execute_save_team(
     tool: &BackgroundAgentTool,
     team: String,
     workers: Vec<BackgroundBatchWorkerSpec>,
+    preview: bool,
+    confirmation_token: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
+    let assessor = tool.assessor()?;
+    let assessment = assessor
+        .assess_background_agent_template(
+            "save_team",
+            OperationAssessmentIntent::Save,
+            workers
+                .iter()
+                .filter_map(|worker| worker.agent_id.clone())
+                .collect(),
+            true,
+        )
+        .await?;
+    if preview {
+        return Ok(preview_output(assessment));
+    }
+    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let store = tool.team_store()?;
     let payload = save_team_workers(store.as_ref(), &team, &workers, true)?;
     Ok(ToolOutput::success(json!({
@@ -35,7 +55,7 @@ pub(super) fn execute_delete_team(tool: &BackgroundAgentTool, team: String) -> R
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_create(
+pub(super) async fn execute_create(
     tool: &BackgroundAgentTool,
     name: String,
     agent_id: String,
@@ -48,29 +68,40 @@ pub(super) fn execute_create(
     memory: Option<Value>,
     memory_scope: Option<String>,
     resource_limits: Option<Value>,
+    preview: bool,
+    confirmation_token: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
+    let request = BackgroundAgentCreateRequest {
+        name,
+        agent_id,
+        chat_session_id,
+        schedule,
+        input,
+        input_template,
+        timeout_secs,
+        durability_mode,
+        memory,
+        memory_scope,
+        resource_limits,
+    };
+    let assessment = tool
+        .assessor()?
+        .assess_background_agent_create(request.clone())
+        .await?;
+    if preview {
+        return Ok(preview_output(assessment));
+    }
+    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let result = tool
         .store
-        .create_background_agent(BackgroundAgentCreateRequest {
-            name,
-            agent_id,
-            chat_session_id,
-            schedule,
-            input,
-            input_template,
-            timeout_secs,
-            durability_mode,
-            memory,
-            memory_scope,
-            resource_limits,
-        })
+        .create_background_agent(request)
         .map_err(|e| ToolError::Tool(format!("Failed to create background agent: {e}.")))?;
     Ok(ToolOutput::success(result))
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_convert_session(
+pub(super) async fn execute_convert_session(
     tool: &BackgroundAgentTool,
     session_id: String,
     name: Option<String>,
@@ -82,22 +113,33 @@ pub(super) fn execute_convert_session(
     memory_scope: Option<String>,
     resource_limits: Option<Value>,
     run_now: Option<bool>,
+    preview: bool,
+    confirmation_token: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
+    let request = BackgroundAgentConvertSessionRequest {
+        session_id,
+        name,
+        schedule,
+        input,
+        timeout_secs,
+        durability_mode,
+        memory,
+        memory_scope,
+        resource_limits,
+        run_now,
+    };
+    let assessment = tool
+        .assessor()?
+        .assess_background_agent_convert_session(request.clone())
+        .await?;
+    if preview {
+        return Ok(preview_output(assessment));
+    }
+    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let result = tool
         .store
-        .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
-            session_id,
-            name,
-            schedule,
-            input,
-            timeout_secs,
-            durability_mode,
-            memory,
-            memory_scope,
-            resource_limits,
-            run_now,
-        })
+        .convert_session_to_background_agent(request)
         .map_err(|e| {
             ToolError::Tool(format!(
                 "Failed to convert session into background agent: {e}."
@@ -107,7 +149,7 @@ pub(super) fn execute_convert_session(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_promote_to_background(
+pub(super) async fn execute_promote_to_background(
     tool: &BackgroundAgentTool,
     session_id: Option<String>,
     name: Option<String>,
@@ -119,6 +161,8 @@ pub(super) fn execute_promote_to_background(
     memory_scope: Option<String>,
     resource_limits: Option<Value>,
     run_now: Option<bool>,
+    preview: bool,
+    confirmation_token: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let session_id = session_id.ok_or_else(|| {
@@ -127,20 +171,29 @@ pub(super) fn execute_promote_to_background(
                 .to_string(),
         )
     })?;
+    let request = BackgroundAgentConvertSessionRequest {
+        session_id,
+        name,
+        schedule,
+        input,
+        timeout_secs,
+        durability_mode,
+        memory,
+        memory_scope,
+        resource_limits,
+        run_now,
+    };
+    let assessment = tool
+        .assessor()?
+        .assess_background_agent_convert_session(request.clone())
+        .await?;
+    if preview {
+        return Ok(preview_output(assessment));
+    }
+    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let result = tool
         .store
-        .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
-            session_id,
-            name,
-            schedule,
-            input,
-            timeout_secs,
-            durability_mode,
-            memory,
-            memory_scope,
-            resource_limits,
-            run_now,
-        })
+        .convert_session_to_background_agent(request)
         .map_err(|e| {
             ToolError::Tool(format!(
                 "Failed to promote session into background agent: {e}."
@@ -150,7 +203,7 @@ pub(super) fn execute_promote_to_background(
 }
 
 #[allow(clippy::too_many_arguments)]
-pub(super) fn execute_update(
+pub(super) async fn execute_update(
     tool: &BackgroundAgentTool,
     id: String,
     name: Option<String>,
@@ -167,27 +220,38 @@ pub(super) fn execute_update(
     memory: Option<Value>,
     memory_scope: Option<String>,
     resource_limits: Option<Value>,
+    preview: bool,
+    confirmation_token: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
+    let request = BackgroundAgentUpdateRequest {
+        id,
+        name,
+        description,
+        agent_id,
+        chat_session_id,
+        input,
+        input_template,
+        schedule,
+        notification,
+        execution_mode,
+        timeout_secs,
+        durability_mode,
+        memory,
+        memory_scope,
+        resource_limits,
+    };
+    let assessment = tool
+        .assessor()?
+        .assess_background_agent_update(request.clone())
+        .await?;
+    if preview {
+        return Ok(preview_output(assessment));
+    }
+    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let result = tool
         .store
-        .update_background_agent(BackgroundAgentUpdateRequest {
-            id,
-            name,
-            description,
-            agent_id,
-            chat_session_id,
-            input,
-            input_template,
-            schedule,
-            notification,
-            execution_mode,
-            timeout_secs,
-            durability_mode,
-            memory,
-            memory_scope,
-            resource_limits,
-        })
+        .update_background_agent(request)
         .map_err(|e| ToolError::Tool(format!("Failed to update background agent: {e}.")))?;
     Ok(ToolOutput::success(result))
 }

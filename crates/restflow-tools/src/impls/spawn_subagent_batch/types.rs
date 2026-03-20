@@ -163,6 +163,15 @@ pub struct SpawnSubagentBatchParams {
     #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub trace_scope_id: Option<String>,
+
+    /// If true, validate and preview capability warnings/blockers without executing.
+    #[serde(default)]
+    pub preview: bool,
+
+    /// Confirmation token returned by preview when warnings require explicit confirmation.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
+    pub confirmation_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

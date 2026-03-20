@@ -63,7 +63,12 @@ impl CoreAccess {
             CoreAccess::Remote(client) => {
                 let agent = to_contract(agent)?;
                 client
-                    .request_typed(IpcRequest::CreateAgent { name, agent })
+                    .request_typed(IpcRequest::CreateAgent {
+                        name,
+                        agent,
+                        preview: false,
+                        confirmation_token: None,
+                    })
                     .await
             }
         }
@@ -84,6 +89,8 @@ impl CoreAccess {
                         id: id.to_string(),
                         name,
                         agent,
+                        preview: false,
+                        confirmation_token: None,
                     })
                     .await
             }
@@ -200,7 +207,11 @@ impl CoreAccess {
             CoreAccess::Remote(client) => {
                 let spec = to_contract(spec)?;
                 client
-                    .request_typed(IpcRequest::CreateBackgroundAgent { spec })
+                    .request_typed(IpcRequest::CreateBackgroundAgent {
+                        spec,
+                        preview: false,
+                        confirmation_token: None,
+                    })
                     .await
             }
         }

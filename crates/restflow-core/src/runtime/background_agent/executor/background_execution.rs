@@ -493,19 +493,6 @@ impl AgentRuntimeExecutor {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn should_force_non_stream_for_all_cli_models() {
-        assert!(should_force_non_stream(AIModel::ClaudeCodeSonnet));
-        assert!(should_force_non_stream(AIModel::CodexCli));
-        assert!(should_force_non_stream(AIModel::GeminiCli));
-        assert!(should_force_non_stream(AIModel::OpenCodeCli));
-        assert!(!should_force_non_stream(AIModel::Gpt5));
-    }
-}
 #[async_trait]
 impl AgentExecutor for AgentRuntimeExecutor {
     /// Execute an agent with the given input.
@@ -727,5 +714,19 @@ impl AgentRuntimeExecutor {
             Some(state),
         )
         .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn should_force_non_stream_for_all_cli_models() {
+        assert!(should_force_non_stream(AIModel::ClaudeCodeSonnet));
+        assert!(should_force_non_stream(AIModel::CodexCli));
+        assert!(should_force_non_stream(AIModel::GeminiCli));
+        assert!(should_force_non_stream(AIModel::OpenCodeCli));
+        assert!(!should_force_non_stream(AIModel::Gpt5));
     }
 }

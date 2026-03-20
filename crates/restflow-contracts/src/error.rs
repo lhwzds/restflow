@@ -5,6 +5,7 @@ use serde_json::Value;
 #[serde(rename_all = "snake_case")]
 pub enum ErrorKind {
     Validation,
+    ConfirmationRequired,
     NotFound,
     Conflict,
     Unauthorized,
@@ -19,6 +20,7 @@ impl ErrorKind {
     pub fn from_code(code: i32) -> Self {
         match code {
             400 => Self::Validation,
+            428 => Self::ConfirmationRequired,
             401 => Self::Unauthorized,
             403 => Self::Forbidden,
             404 => Self::NotFound,
@@ -97,6 +99,7 @@ mod tests {
     fn error_kind_maps_from_code() {
         assert_eq!(ErrorKind::from_code(404), ErrorKind::NotFound);
         assert_eq!(ErrorKind::from_code(429), ErrorKind::RateLimit);
+        assert_eq!(ErrorKind::from_code(428), ErrorKind::ConfirmationRequired);
         assert_eq!(ErrorKind::from_code(-2), ErrorKind::Protocol);
     }
 }

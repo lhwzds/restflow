@@ -17,6 +17,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
+use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{
     BackgroundAgentStore, KvStore, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
 };
@@ -26,6 +27,7 @@ use types::BackgroundAgentAction;
 pub struct BackgroundAgentTool {
     store: Arc<dyn BackgroundAgentStore>,
     kv_store: Option<Arc<dyn KvStore>>,
+    assessor: Option<Arc<dyn AgentOperationAssessor>>,
     allow_write: bool,
 }
 
@@ -34,8 +36,14 @@ impl BackgroundAgentTool {
         Self {
             store,
             kv_store: None,
+            assessor: None,
             allow_write: false,
         }
+    }
+
+    pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {
+        self.assessor = Some(assessor);
+        self
     }
 
     pub fn with_write(mut self, allow_write: bool) -> Self {
@@ -62,6 +70,15 @@ impl BackgroundAgentTool {
         self.kv_store.clone().ok_or_else(|| {
             ToolError::Tool(
                 "Team storage is unavailable in this runtime. Use 'workers' directly.".to_string(),
+            )
+        })
+    }
+
+    fn assessor(&self) -> Result<Arc<dyn AgentOperationAssessor>> {
+        self.assessor.clone().ok_or_else(|| {
+            ToolError::Tool(
+                "Background-agent capability assessment is unavailable in this runtime."
+                    .to_string(),
             )
         })
     }
@@ -111,27 +128,40 @@ impl Tool for BackgroundAgentTool {
                 memory_scope,
                 resource_limits,
                 run_now,
-            } => batch::execute_run_batch(
-                self,
-                agent_id,
-                name,
-                input,
-                inputs,
-                workers,
+                preview,
+                confirmation_token,
+            } => {
+                batch::execute_run_batch(
+                    self,
+                    agent_id,
+                    name,
+                    input,
+                    inputs,
+                    workers,
+                    team,
+                    save_as_team,
+                    input_template,
+                    chat_session_id,
+                    schedule,
+                    timeout_secs,
+                    durability_mode,
+                    memory,
+                    memory_scope,
+                    resource_limits,
+                    run_now,
+                    preview,
+                    confirmation_token,
+                )
+                .await
+            }
+            BackgroundAgentAction::SaveTeam {
                 team,
-                save_as_team,
-                input_template,
-                chat_session_id,
-                schedule,
-                timeout_secs,
-                durability_mode,
-                memory,
-                memory_scope,
-                resource_limits,
-                run_now,
-            ),
-            BackgroundAgentAction::SaveTeam { team, workers } => {
-                handlers_write::execute_save_team(self, team, workers)
+                workers,
+                preview,
+                confirmation_token,
+            } => {
+                handlers_write::execute_save_team(self, team, workers, preview, confirmation_token)
+                    .await
             }
             BackgroundAgentAction::ListTeams => handlers_read::execute_list_teams(self),
             BackgroundAgentAction::GetTeam { team } => handlers_read::execute_get_team(self, team),
@@ -150,20 +180,27 @@ impl Tool for BackgroundAgentTool {
                 memory,
                 memory_scope,
                 resource_limits,
-            } => handlers_write::execute_create(
-                self,
-                name,
-                agent_id,
-                chat_session_id,
-                schedule,
-                input,
-                input_template,
-                timeout_secs,
-                durability_mode,
-                memory,
-                memory_scope,
-                resource_limits,
-            ),
+                preview,
+                confirmation_token,
+            } => {
+                handlers_write::execute_create(
+                    self,
+                    name,
+                    agent_id,
+                    chat_session_id,
+                    schedule,
+                    input,
+                    input_template,
+                    timeout_secs,
+                    durability_mode,
+                    memory,
+                    memory_scope,
+                    resource_limits,
+                    preview,
+                    confirmation_token,
+                )
+                .await
+            }
             BackgroundAgentAction::ConvertSession {
                 session_id,
                 name,
@@ -175,19 +212,26 @@ impl Tool for BackgroundAgentTool {
                 memory_scope,
                 resource_limits,
                 run_now,
-            } => handlers_write::execute_convert_session(
-                self,
-                session_id,
-                name,
-                schedule,
-                input,
-                timeout_secs,
-                durability_mode,
-                memory,
-                memory_scope,
-                resource_limits,
-                run_now,
-            ),
+                preview,
+                confirmation_token,
+            } => {
+                handlers_write::execute_convert_session(
+                    self,
+                    session_id,
+                    name,
+                    schedule,
+                    input,
+                    timeout_secs,
+                    durability_mode,
+                    memory,
+                    memory_scope,
+                    resource_limits,
+                    run_now,
+                    preview,
+                    confirmation_token,
+                )
+                .await
+            }
             BackgroundAgentAction::PromoteToBackground {
                 session_id,
                 name,
@@ -199,19 +243,26 @@ impl Tool for BackgroundAgentTool {
                 memory_scope,
                 resource_limits,
                 run_now,
-            } => handlers_write::execute_promote_to_background(
-                self,
-                session_id,
-                name,
-                schedule,
-                input,
-                timeout_secs,
-                durability_mode,
-                memory,
-                memory_scope,
-                resource_limits,
-                run_now,
-            ),
+                preview,
+                confirmation_token,
+            } => {
+                handlers_write::execute_promote_to_background(
+                    self,
+                    session_id,
+                    name,
+                    schedule,
+                    input,
+                    timeout_secs,
+                    durability_mode,
+                    memory,
+                    memory_scope,
+                    resource_limits,
+                    run_now,
+                    preview,
+                    confirmation_token,
+                )
+                .await
+            }
             BackgroundAgentAction::Update {
                 id,
                 name,
@@ -228,33 +279,47 @@ impl Tool for BackgroundAgentTool {
                 memory,
                 memory_scope,
                 resource_limits,
-            } => handlers_write::execute_update(
-                self,
-                id,
-                name,
-                description,
-                agent_id,
-                chat_session_id,
-                input,
-                input_template,
-                schedule,
-                notification,
-                execution_mode,
-                timeout_secs,
-                durability_mode,
-                memory,
-                memory_scope,
-                resource_limits,
-            ),
-            BackgroundAgentAction::Delete { id } => handlers_write::execute_delete(self, id),
-            BackgroundAgentAction::Pause { id } => control::execute_pause(self, id),
-            BackgroundAgentAction::Start { id } => control::execute_start(self, id),
-            BackgroundAgentAction::Resume { id } => control::execute_resume(self, id),
-            BackgroundAgentAction::Stop { id } => control::execute_stop(self, id),
-            BackgroundAgentAction::Run { id } => control::execute_run(self, id),
-            BackgroundAgentAction::Control { id, action } => {
-                control::execute_control(self, id, action)
+                preview,
+                confirmation_token,
+            } => {
+                handlers_write::execute_update(
+                    self,
+                    id,
+                    name,
+                    description,
+                    agent_id,
+                    chat_session_id,
+                    input,
+                    input_template,
+                    schedule,
+                    notification,
+                    execution_mode,
+                    timeout_secs,
+                    durability_mode,
+                    memory,
+                    memory_scope,
+                    resource_limits,
+                    preview,
+                    confirmation_token,
+                )
+                .await
             }
+            BackgroundAgentAction::Delete { id } => handlers_write::execute_delete(self, id),
+            BackgroundAgentAction::Pause { id } => control::execute_pause(self, id).await,
+            BackgroundAgentAction::Start { id } => control::execute_start(self, id).await,
+            BackgroundAgentAction::Resume { id } => control::execute_resume(self, id).await,
+            BackgroundAgentAction::Stop { id } => control::execute_stop(self, id).await,
+            BackgroundAgentAction::Run {
+                id,
+                preview,
+                confirmation_token,
+            } => control::execute_run(self, id, preview, confirmation_token).await,
+            BackgroundAgentAction::Control {
+                id,
+                action,
+                preview,
+                confirmation_token,
+            } => control::execute_control(self, id, action, preview, confirmation_token).await,
             BackgroundAgentAction::Progress { id, event_limit } => {
                 handlers_read::execute_progress(self, id, event_limit)
             }

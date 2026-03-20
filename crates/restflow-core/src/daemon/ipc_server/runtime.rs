@@ -1,4 +1,5 @@
 use super::*;
+use crate::services::operation_assessment::OperationAssessorAdapter;
 use thiserror::Error;
 
 #[derive(Debug, Error)]
@@ -24,10 +25,10 @@ impl ExecuteChatSessionError {
     }
 }
 
-pub(super) fn create_runtime_tool_registry(
+pub(super) fn create_runtime_tool_registry_with_assessment(
     core: &Arc<AppCore>,
 ) -> anyhow::Result<restflow_ai::tools::ToolRegistry> {
-    create_tool_registry(
+    crate::services::tool_registry::create_tool_registry_with_assessor(
         core.storage.skills.clone(),
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
@@ -45,6 +46,7 @@ pub(super) fn create_runtime_tool_registry(
         None,
         None,
         None,
+        Some(Arc::new(OperationAssessorAdapter::new(core.clone()))),
     )
 }
 
@@ -56,7 +58,8 @@ pub(super) fn get_runtime_tool_registry<'a>(
         return Ok(registry);
     }
 
-    let registry = create_runtime_tool_registry(core).map_err(|error| error.to_string())?;
+    let registry =
+        create_runtime_tool_registry_with_assessment(core).map_err(|error| error.to_string())?;
     let _ = runtime_tool_registry.set(registry);
     runtime_tool_registry
         .get()
@@ -404,7 +407,7 @@ pub(super) fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) ->
     Ok(agent.id.clone())
 }
 
-pub(super) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
+pub(crate) async fn build_auth_manager(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
     let config = AuthManagerConfig {
         auto_discover: false,
         ..AuthManagerConfig::default()

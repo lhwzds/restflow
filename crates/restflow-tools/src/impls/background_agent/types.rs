@@ -109,6 +109,10 @@ pub(super) enum BackgroundAgentAction {
         memory_scope: Option<String>,
         #[serde(default)]
         resource_limits: Option<Value>,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     ConvertSession {
         session_id: String,
@@ -130,6 +134,10 @@ pub(super) enum BackgroundAgentAction {
         resource_limits: Option<Value>,
         #[serde(default)]
         run_now: Option<bool>,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     PromoteToBackground {
         #[serde(default)]
@@ -152,6 +160,10 @@ pub(super) enum BackgroundAgentAction {
         resource_limits: Option<Value>,
         #[serde(default)]
         run_now: Option<bool>,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     Update {
         id: String,
@@ -183,6 +195,10 @@ pub(super) enum BackgroundAgentAction {
         memory_scope: Option<String>,
         #[serde(default)]
         resource_limits: Option<Value>,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     Delete {
         id: String,
@@ -224,10 +240,18 @@ pub(super) enum BackgroundAgentAction {
         resource_limits: Option<Value>,
         #[serde(default)]
         run_now: Option<bool>,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     SaveTeam {
         team: String,
         workers: Vec<BackgroundBatchWorkerSpec>,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     ListTeams,
     GetTeam {
@@ -239,6 +263,10 @@ pub(super) enum BackgroundAgentAction {
     Control {
         id: String,
         action: String,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     Progress {
         id: String,
@@ -284,5 +312,9 @@ pub(super) enum BackgroundAgentAction {
     },
     Run {
         id: String,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
 }
