@@ -275,6 +275,9 @@ async fn process_get_available_models_returns_all_configured_catalog_groups() {
                     crate::models::Provider::Codex,
                 ])
             );
+            assert!(models.iter().any(|model| {
+                model.model == crate::models::ModelId::MiniMaxM25CodingPlanHighspeed
+            }));
         }
         other => panic!("expected success response, got {other:?}"),
     }

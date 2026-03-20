@@ -36,6 +36,11 @@ const PROVIDER_DISPLAY_ORDER = [
 const MOCK_MODELS: ModelMetadata[] = [
   { model: 'gpt-5', provider: 'openai', name: 'GPT-5' },
   { model: 'minimax-coding-plan-m2-5', provider: 'minimax-coding-plan', name: 'MiniMax M2.5 (Coding Plan)' },
+  {
+    model: 'minimax-coding-plan-m2-5-highspeed',
+    provider: 'minimax-coding-plan',
+    name: 'MiniMax M2.5 Highspeed (Coding Plan)',
+  },
   { model: 'zai-coding-plan-glm-5-turbo', provider: 'zai-coding-plan', name: 'GLM-5 Turbo (Coding Plan)' },
   { model: 'claude-code-sonnet', provider: 'claude-code', name: 'Claude Code Sonnet' },
   { model: 'gpt-5.4', provider: 'codex', name: 'GPT-5.4' },
@@ -105,6 +110,7 @@ test.describe('Provider Catalog', () => {
       await expect(chatListbox).toContainText(label)
     }
     await expect(chatListbox).toContainText('MiniMax M2.7')
+    await expect(chatListbox).toContainText('MiniMax M2.5 Highspeed (Coding Plan)')
 
     await page.keyboard.press('Escape')
 
@@ -126,6 +132,16 @@ test.describe('Provider Catalog', () => {
     await createModelSelector.click()
     const createModelListbox = page.getByRole('listbox').last()
     await expect(createModelListbox).toContainText('MiniMax M2.7')
+    await page.keyboard.press('Escape')
+
+    await providerSelector.click()
+    const createProviderListbox = page.getByRole('listbox').last()
+    await expect(createProviderListbox).toContainText('MiniMax Coding Plan')
+    await page.getByRole('option', { name: 'MiniMax Coding Plan', exact: true }).click()
+
+    await createModelSelector.click()
+    const createCodingPlanListbox = page.getByRole('listbox').last()
+    await expect(createCodingPlanListbox).toContainText('MiniMax M2.5 Highspeed (Coding Plan)')
 
     await page.keyboard.press('Escape')
     await dialog.getByRole('button', { name: 'Cancel' }).click()
@@ -149,5 +165,15 @@ test.describe('Provider Catalog', () => {
     await editorModelSelector.click()
     const editorModelListbox = page.getByRole('listbox').last()
     await expect(editorModelListbox).toContainText('MiniMax M2.7')
+    await page.keyboard.press('Escape')
+
+    await editorProviderSelector.click()
+    const editorProviderListbox = page.getByRole('listbox').last()
+    await expect(editorProviderListbox).toContainText('MiniMax Coding Plan')
+    await page.getByRole('option', { name: 'MiniMax Coding Plan', exact: true }).click()
+
+    await editorModelSelector.click()
+    const editorCodingPlanListbox = page.getByRole('listbox').last()
+    await expect(editorCodingPlanListbox).toContainText('MiniMax M2.5 Highspeed (Coding Plan)')
   })
 })

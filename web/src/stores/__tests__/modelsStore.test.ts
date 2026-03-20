@@ -34,6 +34,12 @@ describe('modelsStore getters', () => {
           name: 'MiniMax M2.5 Coding Plan',
         },
         {
+          model: 'minimax-coding-plan-m2-5-highspeed',
+          provider: 'minimax-coding-plan',
+          supports_temperature: false,
+          name: 'MiniMax M2.5 Highspeed Coding Plan',
+        },
+        {
           model: 'glm-5-turbo',
           provider: 'zai-coding-plan',
           supports_temperature: true,
