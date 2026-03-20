@@ -112,7 +112,10 @@ mod tests {
     fn parse_provider_aliases_from_shared_model_provider() {
         assert_eq!(parse_provider_str("gpt"), Some(LlmProvider::OpenAI));
         assert_eq!(parse_provider_str("gemini"), Some(LlmProvider::Google));
-        assert_eq!(parse_provider_str("claude-code"), Some(LlmProvider::Anthropic));
+        assert_eq!(
+            parse_provider_str("claude-code"),
+            Some(LlmProvider::Anthropic)
+        );
         assert_eq!(parse_provider_str("codex"), Some(LlmProvider::OpenAI));
         assert_eq!(
             parse_provider_str("zai-coding"),

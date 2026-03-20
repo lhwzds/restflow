@@ -1,6 +1,6 @@
+use super::super::runtime::build_auth_manager;
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
-use super::super::runtime::build_auth_manager;
 use crate::daemon::request_mapper::to_contract;
 #[tokio::test]
 async fn process_get_system_info_returns_pid() {
@@ -58,19 +58,38 @@ async fn process_get_available_models_returns_openai_catalog_when_secret_exists(
         .expect("store openai key");
     let runtime_tool_registry = OnceLock::new();
 
-    let response = IpcServer::process(&core, &runtime_tool_registry, IpcRequest::GetAvailableModels).await;
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetAvailableModels,
+    )
+    .await;
 
     match response {
         IpcResponse::Success(value) => {
             let models: Vec<crate::models::ModelMetadataDTO> =
                 serde_json::from_value(value).expect("model catalog");
-            assert!(models.iter().any(|model| model.provider == crate::models::Provider::OpenAI));
-            assert!(models.iter().any(|model| model.model == crate::models::AIModel::Gpt5));
             assert!(
-                !models.iter().any(|model| model.provider == crate::models::Provider::OpenAI
-                    && model.model == crate::models::AIModel::CodexCli)
+                models
+                    .iter()
+                    .any(|model| model.provider == crate::models::Provider::OpenAI)
             );
-            assert!(!models.iter().any(|model| model.model == crate::models::AIModel::OpenCodeCli));
+            assert!(
+                models
+                    .iter()
+                    .any(|model| model.model == crate::models::AIModel::Gpt5)
+            );
+            assert!(
+                !models
+                    .iter()
+                    .any(|model| model.provider == crate::models::Provider::OpenAI
+                        && model.model == crate::models::AIModel::CodexCli)
+            );
+            assert!(
+                !models
+                    .iter()
+                    .any(|model| model.model == crate::models::AIModel::OpenCodeCli)
+            );
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -110,7 +129,12 @@ async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_pr
         .expect("add codex profile");
     let runtime_tool_registry = OnceLock::new();
 
-    let response = IpcServer::process(&core, &runtime_tool_registry, IpcRequest::GetAvailableModels).await;
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetAvailableModels,
+    )
+    .await;
 
     match response {
         IpcResponse::Success(value) => {
@@ -131,7 +155,11 @@ async fn process_get_available_models_returns_cli_provider_catalogs_from_auth_pr
                     .iter()
                     .any(|model| model.model == crate::models::AIModel::ClaudeCodeSonnet)
             );
-            assert!(models.iter().any(|model| model.model == crate::models::AIModel::CodexCli));
+            assert!(
+                models
+                    .iter()
+                    .any(|model| model.model == crate::models::AIModel::CodexCli)
+            );
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -184,8 +212,12 @@ async fn process_get_available_models_returns_all_configured_catalog_groups() {
         .expect("add codex profile");
 
     let runtime_tool_registry = OnceLock::new();
-    let response =
-        IpcServer::process(&core, &runtime_tool_registry, IpcRequest::GetAvailableModels).await;
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetAvailableModels,
+    )
+    .await;
 
     match response {
         IpcResponse::Success(value) => {

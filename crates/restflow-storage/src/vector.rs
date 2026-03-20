@@ -559,7 +559,10 @@ mod tests {
                 &[0.3, 0.1, 0.2],
                 10,
                 100,
-                &[String::from("deleted-chunk"), String::from("retained-chunk")],
+                &[
+                    String::from("deleted-chunk"),
+                    String::from("retained-chunk"),
+                ],
             )
             .unwrap();
 
