@@ -12,6 +12,12 @@ Use sub-agents first for short-lived, parallelizable tasks inside the current co
 - `wait_subagents`: Wait for one or more sub-agent tasks to finish
 - `list_subagents`: List callable sub-agent definitions and running sub-agents
 
+Before any agent-related write action:
+- Run the relevant tool with `preview: true` first.
+- If the preview returns warnings, summarize them and wait for explicit user confirmation.
+- Retry with `confirmation_token` only after the user confirms.
+- If the preview returns blockers, stop and report the blockers instead of retrying.
+
 Decision rule:
 - Use **sub-agents** for immediate decomposition and parallel execution in the current turn/session.
 - Use **background agents** only for long-running, scheduled, or explicitly asynchronous work that must outlive the current turn.
@@ -129,6 +135,13 @@ Example — notify on task failure:
   - **api_key_config**: `{"type": "direct", "value": "sk-..."}` or `{"type": "secret", "value": "SECRET_NAME"}`
 - Use `get_agent` to retrieve full agent configuration by ID
 - Sub-agent delegation (`spawn_subagent`, `wait_subagents`, `list_subagents`) is available in interactive sessions and background-agent executions
+
+#### Confirmation Workflow
+
+- `manage_agents`, `manage_background_agents`, and `spawn_subagent` support `preview`.
+- Always use `preview: true` before create, update, convert, run, or batch-spawn actions.
+- If the preview returns `requires_confirmation: true`, ask the user before retrying with `confirmation_token`.
+- If the preview returns blockers, explain the blockers and stop.
 
 #### Provider & Model Routing
 

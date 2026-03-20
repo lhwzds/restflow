@@ -31,6 +31,9 @@ Use this skill for agent inventory, configuration updates, and controlled lifecy
 
 2. Apply minimal updates.
 - Use `manage_agents` with the smallest required payload.
+- For create or update, call `manage_agents` with `preview: true` first.
+- If preview returns warnings, summarize them and wait for user confirmation before retrying with `confirmation_token`.
+- If preview returns blockers, stop and report them instead of forcing the change.
 - Preserve unrelated fields to avoid accidental behavior drift.
 
 3. Validate runtime compatibility.
