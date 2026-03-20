@@ -22,7 +22,6 @@ pub mod storage;
 mod template;
 
 pub use models::{
-    ModelId,
     ActiveTrigger,
     AgentCheckpoint,
     AgentExecuteResponse,
@@ -105,6 +104,7 @@ pub use models::{
     MessageAudit,
     MessageExecution,
     MessageTrace,
+    ModelId,
     ModelMetadataDTO,
     ModelRoutingConfig,
     ModelSwitchAudit,

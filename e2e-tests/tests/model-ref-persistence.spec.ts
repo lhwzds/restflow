@@ -42,7 +42,8 @@ test.describe('ModelRef Persistence', () => {
       'claude-code-sonnet',
       'minimax-coding-plan-m2-5',
       'zai-coding-plan-glm-5-turbo',
-      'gpt-5.3-codex',
+      'gpt-5.4',
+      'gpt-5.4-mini',
       'gpt-5-mini',
     ]
     const targetModel =

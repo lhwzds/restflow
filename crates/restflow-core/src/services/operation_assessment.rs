@@ -7,7 +7,7 @@ use sha2::{Digest, Sha256};
 
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
-use crate::models::{ModelId, AgentNode, ApiKeyConfig, ModelRef, Provider, ValidationError};
+use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
 use crate::storage::agent::StoredAgent;
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -285,7 +285,7 @@ async fn resolve_model_from_stored_credentials(
         .await
         .is_some()
     {
-        return Ok(Some(ModelId::CodexCli));
+        return Ok(Some(ModelId::Gpt5_4Codex));
     }
 
     let profile_order = [
@@ -336,7 +336,7 @@ fn default_model_for_provider(provider: Provider) -> ModelId {
         Provider::OpenAI => ModelId::Gpt5,
         Provider::Anthropic => ModelId::ClaudeOpus4_6,
         Provider::ClaudeCode => ModelId::ClaudeCodeOpus,
-        Provider::Codex => ModelId::CodexCli,
+        Provider::Codex => ModelId::Gpt5_4Codex,
         Provider::DeepSeek => ModelId::DeepseekChat,
         Provider::Google => ModelId::Gemini25Pro,
         Provider::Groq => ModelId::GroqLlama4Maverick,

@@ -1,6 +1,6 @@
 use super::*;
 use crate::daemon::request_mapper::to_contract;
-use crate::models::{ModelId, ApiKeyConfig};
+use crate::models::{ApiKeyConfig, ModelId};
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
 use restflow_storage::SimpleStorage;
 

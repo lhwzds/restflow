@@ -13,7 +13,7 @@ use crate::channel::{
     ChannelReplySender, ChannelRouter, ChannelType, InboundMessage, OutboundMessage,
 };
 use crate::models::{
-    ModelId, ChannelSessionBinding, ChatMessage, ChatSession, ChatSessionSource, MessageExecution,
+    ChannelSessionBinding, ChatMessage, ChatSession, ChatSessionSource, MessageExecution, ModelId,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};

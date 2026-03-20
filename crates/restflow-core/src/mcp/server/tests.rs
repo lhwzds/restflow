@@ -1,8 +1,8 @@
 use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
-    ModelId, AgentNode, ApiKeyConfig, BackgroundAgentSchedule, ChannelSessionBinding, ChatSession,
-    ChatSessionSource, Skill, SkillReference,
+    AgentNode, ApiKeyConfig, BackgroundAgentSchedule, ChannelSessionBinding, ChatSession,
+    ChatSessionSource, ModelId, Skill, SkillReference,
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;

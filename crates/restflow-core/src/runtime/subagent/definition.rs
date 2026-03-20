@@ -362,7 +362,7 @@ pub fn builtin_agents() -> Vec<AgentDefinition> {
 #[cfg(test)]
 mod tests {
     use super::{AgentDefinitionRegistry, builtin_agents};
-    use crate::models::{ModelId, AgentNode};
+    use crate::models::{AgentNode, ModelId};
     use crate::prompt_files::agents_dir_env_lock;
     use crate::runtime::subagent::definition::StorageBackedSubagentLookup;
     use crate::storage::{AgentStorage, agent::StoredAgent};

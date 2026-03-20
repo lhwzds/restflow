@@ -223,7 +223,11 @@ pub fn get_pricing(model_name: &str) -> Option<ModelPricing> {
 
     // CLI-based models (cost tracked externally) - check first to avoid prefix matching
     // codex-cli, claude-code CLI aliases
-    if model_name.contains("codex") || model_name == "gpt-5.3-codex" {
+    if model_name.contains("codex")
+        || model_name == "gpt-5.3-codex"
+        || model_name == "gpt-5.4"
+        || model_name == "gpt-5.4-mini"
+    {
         return None;
     }
     if model_name == "opus" || model_name == "sonnet" || model_name == "haiku" {
@@ -367,6 +371,8 @@ mod tests {
         assert!(get_pricing("opus").is_none());
         assert!(get_pricing("sonnet").is_none());
         assert!(get_pricing("gpt-5.3-codex").is_none());
+        assert!(get_pricing("gpt-5.4").is_none());
+        assert!(get_pricing("gpt-5.4-mini").is_none());
     }
 
     #[test]

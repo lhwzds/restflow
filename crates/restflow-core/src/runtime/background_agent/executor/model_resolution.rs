@@ -72,7 +72,7 @@ impl AgentRuntimeExecutor {
             Provider::OpenAI => ModelId::Gpt5,
             Provider::Anthropic => ModelId::ClaudeOpus4_6,
             Provider::ClaudeCode => ModelId::ClaudeCodeOpus,
-            Provider::Codex => ModelId::CodexCli,
+            Provider::Codex => ModelId::Gpt5_4Codex,
             Provider::DeepSeek => ModelId::DeepseekChat,
             Provider::Google => ModelId::Gemini25Pro,
             Provider::Groq => ModelId::GroqLlama4Maverick,
@@ -104,6 +104,8 @@ impl AgentRuntimeExecutor {
             | ModelId::Gpt5Pro
             | ModelId::Gpt5_1
             | ModelId::Gpt5_2
+            | ModelId::Gpt5_4Codex
+            | ModelId::Gpt5_4MiniCodex
             | ModelId::Gpt5Codex
             | ModelId::Gpt5_1Codex
             | ModelId::Gpt5_2Codex
@@ -130,7 +132,7 @@ impl AgentRuntimeExecutor {
             .await
             .is_some()
         {
-            return Ok(Some(ModelId::CodexCli));
+            return Ok(Some(ModelId::Gpt5_4Codex));
         }
 
         // Then try provider-specific auth profiles.
@@ -231,7 +233,7 @@ impl AgentRuntimeExecutor {
         agent_node: &AgentNode,
     ) -> Result<Arc<dyn LlmClient>> {
         if model.is_codex_cli() {
-            let mut client = CodexClient::new().with_model(model.as_serialized_str());
+            let mut client = CodexClient::new().with_model(model.as_str());
             if let Some(effort) = agent_node
                 .codex_cli_reasoning_effort
                 .as_deref()

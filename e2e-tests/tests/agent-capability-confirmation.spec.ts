@@ -78,9 +78,18 @@ test.describe('Agent capability confirmation', () => {
     const dialog = page.getByRole('dialog')
     await expect(dialog).toBeVisible()
     await dialog.locator('input').first().fill('Confirmed Agent')
+    const createResponse = page.waitForResponse((response) => {
+      if (!response.url().includes('/api/request')) {
+        return false
+      }
+      const request = response.request().postDataJSON()
+      return request?.type === 'CreateAgent'
+    })
     await dialog.getByRole('button', { name: 'Create' }).click()
+    await createResponse
 
     const confirmDialog = page.getByRole('alertdialog')
+    await expect(confirmDialog).toBeVisible()
     await expect(confirmDialog).toContainText('Provider is not configured.')
     await expect(confirmDialog.getByRole('button', { name: 'Create anyway' })).toBeVisible()
   })
@@ -117,9 +126,14 @@ test.describe('Agent capability confirmation', () => {
     await expect(dialog).toBeVisible()
     await dialog.locator('input').first().fill('Confirmed Background Agent')
     await dialog.locator('textarea').fill('Convert after confirmation')
+    const convertResponse = page.waitForResponse((response) =>
+      response.url().includes('/api/background-agents/convert-session'),
+    )
     await dialog.getByRole('button', { name: 'Convert' }).click()
+    await convertResponse
 
     const confirmDialog = page.getByRole('alertdialog')
+    await expect(confirmDialog).toBeVisible()
     await expect(confirmDialog).toContainText('Background agent provider needs confirmation.')
     await expect(confirmDialog.getByRole('button', { name: 'Create anyway' })).toBeVisible()
   })

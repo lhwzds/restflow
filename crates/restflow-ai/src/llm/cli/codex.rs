@@ -13,7 +13,7 @@ use crate::llm::client::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, StreamResult,
 };
 
-const DEFAULT_MODEL: &str = "gpt-5.3-codex";
+const DEFAULT_MODEL: &str = "gpt-5.4";
 const DEFAULT_REASONING_EFFORT: &str = "medium";
 const DEFAULT_EXECUTION_MODE: &str = "bypass";
 
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn test_build_cli_args_defaults_to_medium_reasoning_effort() {
-        let client = CodexClient::new().with_model("gpt-5.3-codex");
+        let client = CodexClient::new().with_model("gpt-5.4");
         let args = client.build_cli_args("hello");
 
         assert!(
@@ -299,7 +299,7 @@ mod tests {
     #[test]
     fn test_build_cli_args_with_reasoning_effort() {
         let client = CodexClient::new()
-            .with_model("gpt-5.3-codex")
+            .with_model("gpt-5.4")
             .with_reasoning_effort("xhigh");
         let args = client.build_cli_args("hello");
 
@@ -311,7 +311,7 @@ mod tests {
 
     #[test]
     fn test_build_cli_args_defaults_to_bypass_execution_mode() {
-        let client = CodexClient::new().with_model("gpt-5.3-codex");
+        let client = CodexClient::new().with_model("gpt-5.4");
         let args = client.build_cli_args("hello");
         assert!(
             args.iter()
@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn test_build_cli_args_with_bypass_execution_mode() {
         let client = CodexClient::new()
-            .with_model("gpt-5.3-codex")
+            .with_model("gpt-5.4")
             .with_execution_mode("bypass");
         let args = client.build_cli_args("hello");
         assert!(
@@ -335,7 +335,7 @@ mod tests {
 
     #[test]
     fn test_build_cli_args_inserts_double_dash_before_prompt() {
-        let client = CodexClient::new().with_model("gpt-5.3-codex");
+        let client = CodexClient::new().with_model("gpt-5.4");
         let prompt = "- starts-with-dash";
         let args = client.build_cli_args(prompt);
 

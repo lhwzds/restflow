@@ -1,7 +1,7 @@
 use crate::daemon::session_events::{ChatSessionEvent, publish_session_event};
 use crate::models::{
-    ModelId, ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionUpdate,
-    MessageExecution,
+    ChatMessage, ChatRole, ChatSession, ChatSessionSource, ChatSessionUpdate, MessageExecution,
+    ModelId,
 };
 use crate::runtime::background_agent::persist::persist_chat_session_memory;
 use crate::runtime::channel::hydrate_voice_message_metadata;
