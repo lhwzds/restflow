@@ -1,7 +1,5 @@
-use crate::models::ModelRef;
-use restflow_models::LlmProvider;
-
-use super::*;
+use crate::models::{ModelId, ModelRef, Provider};
+use restflow_models::{LlmProvider, catalog};
 
 #[test]
 fn test_provider() {
