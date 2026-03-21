@@ -5,8 +5,9 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, ToolTrace,
-    WorkItem, WorkItemPatch, WorkItemSpec,
+    ExecutionTimeline, ExecutionTraceEvent, ExecutionTraceQuery, ItemQuery, MemoryChunk,
+    MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem, WorkItemPatch,
+    WorkItemSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -114,12 +115,12 @@ pub trait CommandExecutor: Send + Sync {
         event_limit: Option<usize>,
     ) -> Result<BackgroundProgress>;
     async fn send_background_agent_message(&self, id: &str, message: &str) -> Result<()>;
-    async fn list_tool_traces(
+    async fn query_execution_traces(
         &self,
-        session_id: &str,
-        turn_id: Option<String>,
-        limit: Option<usize>,
-    ) -> Result<Vec<ToolTrace>>;
+        query: ExecutionTraceQuery,
+    ) -> Result<Vec<ExecutionTraceEvent>>;
+    async fn get_execution_timeline(&self, query: ExecutionTraceQuery)
+    -> Result<ExecutionTimeline>;
 
     // Shared Space operations
     async fn list_kv_store(&self, namespace: Option<&str>) -> Result<Vec<SharedEntry>>;

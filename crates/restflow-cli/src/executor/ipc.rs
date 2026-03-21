@@ -11,8 +11,9 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundMessage, BackgroundProgress, ChatSession, ChatSessionSummary,
-    Deliverable, ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry,
-    Skill, ToolTrace, WorkItem, WorkItemPatch, WorkItemSpec,
+    Deliverable, ExecutionTimeline, ExecutionTraceEvent, ExecutionTraceQuery, ItemQuery,
+    MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
+    WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -392,16 +393,20 @@ impl CommandExecutor for IpcExecutor {
         Ok(())
     }
 
-    async fn list_tool_traces(
+    async fn query_execution_traces(
         &self,
-        session_id: &str,
-        turn_id: Option<String>,
-        limit: Option<usize>,
-    ) -> Result<Vec<ToolTrace>> {
+        query: ExecutionTraceQuery,
+    ) -> Result<Vec<ExecutionTraceEvent>> {
         let mut client = self.client.lock().await;
-        client
-            .list_tool_traces(session_id.to_string(), turn_id, limit)
-            .await
+        client.query_execution_traces(query).await
+    }
+
+    async fn get_execution_timeline(
+        &self,
+        query: ExecutionTraceQuery,
+    ) -> Result<ExecutionTimeline> {
+        let mut client = self.client.lock().await;
+        client.get_execution_timeline(query).await
     }
 
     // Shared Space operations - not yet in IPC protocol

@@ -278,13 +278,24 @@ impl IpcServer {
             IpcRequest::GetSessionMessages { session_id, limit } => {
                 Self::handle_get_session_messages(core, session_id, limit).await
             }
-            IpcRequest::ListToolTraces {
-                session_id,
-                turn_id,
-                limit,
-            } => Self::handle_list_tool_traces(core, session_id, turn_id, limit).await,
             IpcRequest::QueryExecutionTraces { query } => match from_contract(query) {
                 Ok(query) => Self::handle_query_execution_traces(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::GetExecutionTimeline { query } => match from_contract(query) {
+                Ok(query) => Self::handle_get_execution_timeline(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::GetExecutionMetrics { query } => match from_contract(query) {
+                Ok(query) => Self::handle_get_execution_metrics(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::GetProviderHealth { query } => match from_contract(query) {
+                Ok(query) => Self::handle_get_provider_health(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::QueryExecutionLogs { query } => match from_contract(query) {
+                Ok(query) => Self::handle_query_execution_logs(core, query).await,
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::GetExecutionTraceStats { task_id } => {

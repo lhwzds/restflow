@@ -2,6 +2,9 @@ use super::super::runtime::{
     cancel_chat_stream, execute_chat_session, resolve_agent_id, steer_chat_stream,
 };
 use super::super::*;
+use crate::telemetry::{
+    get_execution_metrics, get_execution_timeline, get_provider_health, query_execution_logs,
+};
 use restflow_contracts::{ArchiveResponse, CancelResponse, DeleteResponse, SteerResponse};
 use uuid::Uuid;
 
@@ -337,32 +340,52 @@ impl IpcServer {
         IpcResponse::success(messages)
     }
 
-    pub(super) async fn handle_list_tool_traces(
-        core: &Arc<AppCore>,
-        session_id: String,
-        turn_id: Option<String>,
-        limit: Option<usize>,
-    ) -> IpcResponse {
-        let result = match turn_id {
-            Some(turn_id) => {
-                core.storage
-                    .tool_traces
-                    .list_by_session_turn(&session_id, &turn_id, limit)
-            }
-            None => core.storage.tool_traces.list_by_session(&session_id, limit),
-        };
-        match result {
-            Ok(events) => IpcResponse::success(events),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
     pub(super) async fn handle_query_execution_traces(
         core: &Arc<AppCore>,
         query: crate::models::ExecutionTraceQuery,
     ) -> IpcResponse {
         match core.storage.execution_traces.query(&query) {
             Ok(events) => IpcResponse::success(events),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_get_execution_timeline(
+        core: &Arc<AppCore>,
+        query: crate::models::ExecutionTraceQuery,
+    ) -> IpcResponse {
+        match get_execution_timeline(&core.storage.execution_traces, &query) {
+            Ok(timeline) => IpcResponse::success(timeline),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_get_execution_metrics(
+        core: &Arc<AppCore>,
+        query: crate::models::ExecutionMetricQuery,
+    ) -> IpcResponse {
+        match get_execution_metrics(&core.storage.telemetry_metric_samples, &query) {
+            Ok(response) => IpcResponse::success(response),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_get_provider_health(
+        core: &Arc<AppCore>,
+        query: crate::models::ProviderHealthQuery,
+    ) -> IpcResponse {
+        match get_provider_health(&core.storage.provider_health_snapshots, &query) {
+            Ok(response) => IpcResponse::success(response),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_query_execution_logs(
+        core: &Arc<AppCore>,
+        query: crate::models::ExecutionLogQuery,
+    ) -> IpcResponse {
+        match query_execution_logs(&core.storage.structured_execution_logs, &query) {
+            Ok(response) => IpcResponse::success(response),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }

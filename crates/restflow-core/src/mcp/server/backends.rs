@@ -270,28 +270,14 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn list_tool_traces(
+    async fn query_execution_traces(
         &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ToolTrace>, String> {
+        query: crate::models::ExecutionTraceQuery,
+    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
         self.core
             .storage
-            .tool_traces
-            .list_by_session(session_id, Some(limit))
-            .map_err(|e| e.to_string())
-    }
-
-    async fn list_tool_traces_by_turn(
-        &self,
-        session_id: &str,
-        turn_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ToolTrace>, String> {
-        self.core
-            .storage
-            .tool_traces
-            .list_by_session_turn(session_id, turn_id, Some(limit))
+            .execution_traces
+            .query(&query)
             .map_err(|e| e.to_string())
     }
 
@@ -622,31 +608,13 @@ impl McpBackend for IpcBackend {
         serde_json::from_value(result.result).map_err(|e| e.to_string())
     }
 
-    async fn list_tool_traces(
+    async fn query_execution_traces(
         &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ToolTrace>, String> {
-        self.request_typed(IpcRequest::ListToolTraces {
-            session_id: session_id.to_string(),
-            turn_id: None,
-            limit: Some(limit),
-        })
-        .await
-    }
-
-    async fn list_tool_traces_by_turn(
-        &self,
-        session_id: &str,
-        turn_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ToolTrace>, String> {
-        self.request_typed(IpcRequest::ListToolTraces {
-            session_id: session_id.to_string(),
-            turn_id: Some(turn_id.to_string()),
-            limit: Some(limit),
-        })
-        .await
+        query: crate::models::ExecutionTraceQuery,
+    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
+        let query = to_contract(query).map_err(|e| e.to_string())?;
+        self.request_typed(IpcRequest::QueryExecutionTraces { query })
+            .await
     }
 
     async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String> {

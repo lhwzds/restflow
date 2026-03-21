@@ -33,7 +33,7 @@ pub(super) fn create_runtime_tool_registry_with_assessment(
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
         core.storage.channel_session_bindings.clone(),
-        core.storage.tool_traces.clone(),
+        core.storage.execution_traces.clone(),
         core.storage.kv_store.clone(),
         core.storage.work_items.clone(),
         core.storage.secrets.clone(),
@@ -313,7 +313,6 @@ pub(super) async fn execute_chat_session(
             max_history: chat_max_session_history,
             input_mode: SessionInputMode::PersistedInSession,
             run_id: turn_id,
-            tool_trace_storage: core.storage.tool_traces.clone(),
             execution_trace_storage: core.storage.execution_traces.clone(),
             timeout_secs: None,
             emitter,
@@ -327,7 +326,7 @@ pub(super) async fn execute_chat_session(
 
     let original_persisted_input = persisted_input.clone();
     let (execution, final_persisted_input) = build_turn_persistence_payload(
-        &core.storage.tool_traces,
+        &core.storage.execution_traces,
         &session.id,
         &trace.turn_id,
         &original_persisted_input,
