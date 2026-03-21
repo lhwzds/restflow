@@ -1,4 +1,4 @@
-use restflow_models::{LlmProvider, ModelSpec};
+use restflow_models::{LlmProvider, ModelSpec, provider_meta};
 use restflow_traits::ModelProvider;
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -103,50 +103,12 @@ impl Provider {
     }
 
     pub fn api_key_env(&self) -> Option<&'static str> {
-        match *self {
-            Self::OpenAI => Some("OPENAI_API_KEY"),
-            Self::Anthropic => Some("ANTHROPIC_API_KEY"),
-            Self::ClaudeCode => None,
-            Self::Codex => None,
-            Self::DeepSeek => Some("DEEPSEEK_API_KEY"),
-            Self::Google => Some("GEMINI_API_KEY"),
-            Self::Groq => Some("GROQ_API_KEY"),
-            Self::OpenRouter => Some("OPENROUTER_API_KEY"),
-            Self::XAI => Some("XAI_API_KEY"),
-            Self::Qwen => Some("DASHSCOPE_API_KEY"),
-            Self::Zai => Some("ZAI_API_KEY"),
-            Self::ZaiCodingPlan => Some("ZAI_CODING_PLAN_API_KEY"),
-            Self::Moonshot => Some("MOONSHOT_API_KEY"),
-            Self::Doubao => Some("ARK_API_KEY"),
-            Self::Yi => Some("YI_API_KEY"),
-            Self::SiliconFlow => Some("SILICONFLOW_API_KEY"),
-            Self::MiniMax => Some("MINIMAX_API_KEY"),
-            Self::MiniMaxCodingPlan => Some("MINIMAX_CODING_PLAN_API_KEY"),
-        }
+        provider_meta(self.as_model_provider()).api_key_env
     }
 
     /// Convert Provider to LLM provider used by runtime factory.
     pub fn as_llm_provider(&self) -> LlmProvider {
-        match *self {
-            Self::OpenAI => LlmProvider::OpenAI,
-            Self::Anthropic => LlmProvider::Anthropic,
-            Self::ClaudeCode => LlmProvider::Anthropic,
-            Self::Codex => LlmProvider::OpenAI,
-            Self::DeepSeek => LlmProvider::DeepSeek,
-            Self::Google => LlmProvider::Google,
-            Self::Groq => LlmProvider::Groq,
-            Self::OpenRouter => LlmProvider::OpenRouter,
-            Self::XAI => LlmProvider::XAI,
-            Self::Qwen => LlmProvider::Qwen,
-            Self::Zai => LlmProvider::Zai,
-            Self::ZaiCodingPlan => LlmProvider::ZaiCodingPlan,
-            Self::Moonshot => LlmProvider::Moonshot,
-            Self::Doubao => LlmProvider::Doubao,
-            Self::Yi => LlmProvider::Yi,
-            Self::SiliconFlow => LlmProvider::SiliconFlow,
-            Self::MiniMax => LlmProvider::MiniMax,
-            Self::MiniMaxCodingPlan => LlmProvider::MiniMaxCodingPlan,
-        }
+        provider_meta(self.as_model_provider()).runtime_provider
     }
 
     /// Convert to shared provider identity used by cross-crate parsers.
@@ -200,7 +162,7 @@ impl Provider {
     /// Get the canonical provider identifier for use in canonical model IDs.
     /// Returns lowercase provider name (e.g., "openai", "anthropic").
     pub fn as_canonical_str(&self) -> &'static str {
-        self.as_model_provider().canonical_str()
+        provider_meta(self.as_model_provider()).canonical_name()
     }
 
     /// Parse a canonical provider string back to Provider.

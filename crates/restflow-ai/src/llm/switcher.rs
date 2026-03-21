@@ -8,7 +8,7 @@ use restflow_traits::llm::{LlmSwitcher, SwapResult};
 
 use super::factory::LlmClientFactory;
 use super::swappable::SwappableLlm;
-use restflow_models::LlmProvider;
+use restflow_models::{LlmProvider, provider_meta};
 
 /// Concrete implementation of [`LlmSwitcher`].
 pub struct LlmSwitcherImpl {
@@ -76,26 +76,7 @@ impl LlmSwitcher for LlmSwitcherImpl {
 /// Parse a provider string into `LlmProvider`.
 fn parse_provider_str(value: &str) -> Option<LlmProvider> {
     let provider = ModelProvider::parse_alias(value)?;
-    Some(match provider {
-        ModelProvider::OpenAI => LlmProvider::OpenAI,
-        ModelProvider::Anthropic => LlmProvider::Anthropic,
-        ModelProvider::ClaudeCode => LlmProvider::Anthropic,
-        ModelProvider::Codex => LlmProvider::OpenAI,
-        ModelProvider::DeepSeek => LlmProvider::DeepSeek,
-        ModelProvider::Google => LlmProvider::Google,
-        ModelProvider::Groq => LlmProvider::Groq,
-        ModelProvider::OpenRouter => LlmProvider::OpenRouter,
-        ModelProvider::XAI => LlmProvider::XAI,
-        ModelProvider::Qwen => LlmProvider::Qwen,
-        ModelProvider::Zai => LlmProvider::Zai,
-        ModelProvider::ZaiCodingPlan => LlmProvider::ZaiCodingPlan,
-        ModelProvider::Moonshot => LlmProvider::Moonshot,
-        ModelProvider::Doubao => LlmProvider::Doubao,
-        ModelProvider::Yi => LlmProvider::Yi,
-        ModelProvider::SiliconFlow => LlmProvider::SiliconFlow,
-        ModelProvider::MiniMax => LlmProvider::MiniMax,
-        ModelProvider::MiniMaxCodingPlan => LlmProvider::MiniMaxCodingPlan,
-    })
+    Some(provider_meta(provider).runtime_provider)
 }
 
 #[cfg(test)]
