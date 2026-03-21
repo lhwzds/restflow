@@ -1,10 +1,11 @@
+use restflow_models::provider_meta;
+
 use crate::auth::AuthProvider;
 
 use super::{ModelId, Provider};
 
 #[derive(Debug, Clone, Copy)]
-struct ProviderPolicy {
-    default_model: ModelId,
+struct ProviderAuthPolicy {
     auth_providers: &'static [AuthProvider],
 }
 
@@ -15,97 +16,79 @@ const AUTH_OPENAI_CODEX: &[AuthProvider] = &[AuthProvider::OpenAICodex];
 const AUTH_GOOGLE: &[AuthProvider] = &[AuthProvider::Google];
 const AUTH_OTHER: &[AuthProvider] = &[AuthProvider::Other];
 
-const OPENAI_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::Gpt5,
+const OPENAI_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OPENAI,
 };
 
-const ANTHROPIC_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::ClaudeOpus4_6,
+const ANTHROPIC_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_ANTHROPIC,
 };
 
-const CLAUDE_CODE_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::ClaudeCodeOpus,
+const CLAUDE_CODE_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_CLAUDE_CODE,
 };
 
-const CODEX_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::Gpt5_4Codex,
+const CODEX_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OPENAI_CODEX,
 };
 
-const DEEPSEEK_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::DeepseekChat,
+const DEEPSEEK_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const GOOGLE_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::Gemini25Pro,
+const GOOGLE_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_GOOGLE,
 };
 
-const GROQ_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::GroqLlama4Maverick,
+const GROQ_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const OPENROUTER_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::OpenRouterAuto,
+const OPENROUTER_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const XAI_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::Grok4,
+const XAI_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const QWEN_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::Qwen3Max,
+const QWEN_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const ZAI_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::Glm5,
+const ZAI_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const ZAI_CODING_PLAN_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::Glm5CodingPlan,
+const ZAI_CODING_PLAN_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const MOONSHOT_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::KimiK2_5,
+const MOONSHOT_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const DOUBAO_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::DoubaoPro,
+const DOUBAO_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const YI_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::YiLightning,
+const YI_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const SILICONFLOW_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::SiliconFlowAuto,
+const SILICONFLOW_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const MINIMAX_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::MiniMaxM27,
+const MINIMAX_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-const MINIMAX_CODING_PLAN_POLICY: ProviderPolicy = ProviderPolicy {
-    default_model: ModelId::MiniMaxM25CodingPlan,
+const MINIMAX_CODING_PLAN_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
     auth_providers: AUTH_OTHER,
 };
 
-fn provider_policy(provider: Provider) -> &'static ProviderPolicy {
+fn provider_auth_policy(provider: Provider) -> &'static ProviderAuthPolicy {
     match provider {
         Provider::OpenAI => &OPENAI_POLICY,
         Provider::Anthropic => &ANTHROPIC_POLICY,
@@ -129,11 +112,18 @@ fn provider_policy(provider: Provider) -> &'static ProviderPolicy {
 }
 
 pub(crate) fn provider_default_model(provider: Provider) -> ModelId {
-    provider_policy(provider).default_model
+    let serialized = provider_meta(provider.as_model_provider()).default_model_id;
+    ModelId::from_serialized_str(serialized).unwrap_or_else(|| {
+        panic!(
+            "missing default model '{}' for provider {}",
+            serialized,
+            provider.as_canonical_str()
+        )
+    })
 }
 
 pub(crate) fn provider_auth_providers(provider: Provider) -> &'static [AuthProvider] {
-    provider_policy(provider).auth_providers
+    provider_auth_policy(provider).auth_providers
 }
 
 #[cfg(test)]
