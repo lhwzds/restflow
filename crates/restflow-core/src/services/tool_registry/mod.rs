@@ -14,13 +14,12 @@ use crate::runtime::agent::tools::assembly::{
 };
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, ExecutionBackend};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
-use crate::runtime::trace::ToolTraceRunSink;
 use crate::services::adapters::*;
 use crate::storage::skill::SkillStorage;
 use crate::storage::{
     AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ChatSessionStorage,
     ConfigStorage, ExecutionTraceStorage, KvStoreStorage, MemoryStorage, SecretStorage,
-    TerminalSessionStorage, ToolTraceStorage, TriggerStorage, WorkItemStorage,
+    TerminalSessionStorage, TriggerStorage, WorkItemStorage,
 };
 use restflow_ai::AgentState;
 use restflow_ai::agent::{

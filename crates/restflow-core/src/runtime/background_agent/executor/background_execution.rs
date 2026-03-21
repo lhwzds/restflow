@@ -106,6 +106,23 @@ impl AgentRuntimeExecutor {
                 task_id,
             )
         });
+        let telemetry_context = {
+            let run_id = background_task_id.unwrap_or(agent_id.unwrap_or("background-run"));
+            let session_id = background_task_snapshot
+                .as_ref()
+                .map(|task| task.chat_session_id.trim().to_string())
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| run_id.to_string());
+            restflow_trace::TelemetryContext::new(restflow_trace::RestflowTrace::new(
+                run_id.to_string(),
+                session_id,
+                background_task_id.unwrap_or(run_id).to_string(),
+                agent_id.unwrap_or("unknown-agent").to_string(),
+            ))
+            .with_requested_model(model.as_serialized_str())
+            .with_effective_model(model.as_serialized_str())
+            .with_provider(model.provider().as_canonical_str())
+        };
         if max_tool_result_length < resource_limits.max_output_bytes {
             debug!(
                 model = ?model,
@@ -158,6 +175,11 @@ impl AgentRuntimeExecutor {
         if let Some(context) = execution_context.as_ref() {
             config = Self::apply_execution_context(config, context);
         }
+        config = config
+            .with_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
+                self.storage.as_ref(),
+            ))
+            .with_telemetry_context(telemetry_context);
         if let Some(task) = background_task_snapshot.as_ref() {
             let checkpoint_durability = match task.durability_mode {
                 DurabilityMode::Sync => CheckpointDurability::PerTurn,
@@ -620,6 +642,23 @@ impl AgentRuntimeExecutor {
         let input_owned = input.map(|value| value.to_string());
         let mut steer_rx = steer_rx;
         let shared_emitter = share_stream_emitter(emitter);
+        let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
+        let base_telemetry_context = {
+            let run_id = background_task_id.unwrap_or(agent_id);
+            restflow_trace::TelemetryContext::new(restflow_trace::RestflowTrace::new(
+                run_id.to_string(),
+                background_task
+                    .as_ref()
+                    .map(|task| task.chat_session_id.trim().to_string())
+                    .filter(|value| !value.is_empty())
+                    .unwrap_or_else(|| run_id.to_string()),
+                background_task_id.unwrap_or(run_id).to_string(),
+                agent_id.to_string(),
+            ))
+            .with_requested_model(primary_model.as_serialized_str())
+            .with_effective_model(primary_model.as_serialized_str())
+            .with_provider(primary_provider.as_canonical_str())
+        };
 
         loop {
             let input_ref = input_owned.as_deref();
@@ -627,22 +666,33 @@ impl AgentRuntimeExecutor {
             // Note: steer_rx is consumed on first execution attempt only.
             // Retries after this point won't have steering support.
             let mut previous_attempt_model: Option<ModelId> = None;
+            let telemetry_sink = telemetry_sink.clone();
+            let base_telemetry_context = base_telemetry_context.clone();
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
                 let previous_model = previous_attempt_model.replace(model);
-                let mut emitter = clone_shared_emitter(&shared_emitter);
+                let emitter = clone_shared_emitter(&shared_emitter);
                 let limits = resolved_resource_limits.clone();
+                let telemetry_sink = telemetry_sink.clone();
+                let telemetry_context = base_telemetry_context
+                    .clone()
+                    .with_effective_model(model.as_serialized_str());
                 async move {
-                    if let (Some(previous_model), Some(trace_emitter)) =
-                        (previous_model, emitter.as_mut())
+                    if let Some(previous_model) = previous_model
                         && previous_model != model
                     {
-                        trace_emitter
-                            .emit_model_switch(
-                                previous_model.as_serialized_str(),
-                                model.as_serialized_str(),
-                                Some("failover"),
+                        telemetry_sink
+                            .emit(
+                                restflow_trace::ExecutionEventEnvelope::from_telemetry_context(
+                                    &telemetry_context,
+                                    restflow_trace::ExecutionEvent::ModelSwitch {
+                                        from_model: previous_model.as_serialized_str().to_string(),
+                                        to_model: model.as_serialized_str().to_string(),
+                                        reason: Some("failover".to_string()),
+                                        success: true,
+                                    },
+                                ),
                             )
                             .await;
                     }

@@ -509,7 +509,7 @@ async fn test_execute_session_turn_enforces_skill_preflight_policy() {
             16,
             SessionInputMode::EphemeralInput,
             None,
-            None,
+            SessionTurnRuntimeOptions::default(),
         )
         .await;
 

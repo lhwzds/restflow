@@ -878,7 +878,6 @@ impl ChatDispatcher {
                 max_history: self.config.max_session_history,
                 input_mode,
                 run_id,
-                tool_trace_storage: self.storage.tool_traces.clone(),
                 execution_trace_storage: self.storage.execution_traces.clone(),
                 timeout_secs: self.config.response_timeout_secs,
                 emitter: None,
@@ -930,7 +929,7 @@ impl ChatDispatcher {
         );
 
         let (execution, final_persisted_input) = build_turn_persistence_payload(
-            &self.storage.tool_traces,
+            &self.storage.execution_traces,
             &session.id,
             &trace.turn_id,
             &persisted_input,
@@ -964,14 +963,12 @@ impl ChatDispatcher {
             warn!("Failed to save exchange to session: {}", e);
         } else {
             append_message_trace(
-                &self.storage.tool_traces,
                 &self.storage.execution_traces,
                 &trace,
                 "user",
                 &final_persisted_input,
             );
             append_message_trace(
-                &self.storage.tool_traces,
                 &self.storage.execution_traces,
                 &trace,
                 "assistant",

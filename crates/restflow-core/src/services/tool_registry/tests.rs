@@ -73,7 +73,7 @@ fn setup_storage() -> (
     MemoryStorage,
     ChatSessionStorage,
     ChannelSessionBindingStorage,
-    ToolTraceStorage,
+    ExecutionTraceStorage,
     KvStoreStorage,
     WorkItemStorage,
     SecretStorage,
@@ -102,7 +102,7 @@ fn setup_storage() -> (
     let memory_storage = MemoryStorage::new(db.clone()).unwrap();
     let chat_storage = ChatSessionStorage::new(db.clone()).unwrap();
     let channel_session_binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
-    let tool_trace_storage = ToolTraceStorage::new(db.clone()).unwrap();
+    let execution_trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
     let kv_store_storage =
         KvStoreStorage::new(restflow_storage::KvStoreStorage::new(db.clone()).unwrap());
     let work_item_storage = WorkItemStorage::new(db.clone()).unwrap();
@@ -133,7 +133,7 @@ fn setup_storage() -> (
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -278,7 +278,7 @@ fn test_create_tool_registry() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -295,7 +295,7 @@ fn test_create_tool_registry() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -357,7 +357,7 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -374,7 +374,7 @@ async fn test_spawn_subagent_returns_no_callable_error_without_agents() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -416,7 +416,7 @@ async fn test_manage_ops_session_summary_response_schema() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -439,7 +439,7 @@ async fn test_manage_ops_session_summary_response_schema() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -592,7 +592,7 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -610,7 +610,7 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -658,7 +658,7 @@ fn test_skill_provider_list_empty() {
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
-        _tool_trace_storage,
+        _execution_trace_storage,
         _kv_store_storage,
         _work_item_storage,
         _secret_storage,
@@ -683,7 +683,7 @@ fn test_skill_provider_with_data() {
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
-        _tool_trace_storage,
+        _execution_trace_storage,
         _kv_store_storage,
         _work_item_storage,
         _secret_storage,
@@ -738,7 +738,7 @@ fn test_agent_store_adapter_crud_flow() {
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
-        _tool_trace_storage,
+        _execution_trace_storage,
         _kv_store_storage,
         _work_item_storage,
         secret_storage,
@@ -875,7 +875,7 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
-        _tool_trace_storage,
+        _execution_trace_storage,
         _kv_store_storage,
         _work_item_storage,
         secret_storage,
@@ -933,7 +933,7 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
-        _tool_trace_storage,
+        _execution_trace_storage,
         _kv_store_storage,
         _work_item_storage,
         secret_storage,
@@ -1008,7 +1008,7 @@ fn test_task_store_adapter_background_agent_flow() {
         _memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
-        _tool_trace_storage,
+        _execution_trace_storage,
         _kv_store_storage,
         _work_item_storage,
         _secret_storage,
@@ -1167,7 +1167,7 @@ fn test_task_store_adapter_background_agent_flow() {
         },
     )
     .unwrap();
-    // Traces list is empty since no ToolTrace records were written
+    // Trace list is empty until execution telemetry writes canonical events
     assert!(traces.as_array().unwrap().is_empty() || traces.as_array().is_some());
 
     // Test read_background_agent_trace (DB-backed)
@@ -1194,7 +1194,7 @@ async fn test_marketplace_tool_list_and_uninstall() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1221,7 +1221,7 @@ async fn test_marketplace_tool_list_and_uninstall() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1265,7 +1265,7 @@ async fn test_trigger_tool_create_list_disable() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1283,7 +1283,7 @@ async fn test_trigger_tool_create_list_disable() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1342,7 +1342,7 @@ async fn test_terminal_tool_create_send_read_close() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1360,7 +1360,7 @@ async fn test_terminal_tool_create_send_read_close() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1439,7 +1439,7 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1457,7 +1457,7 @@ async fn test_security_query_tool_show_policy_and_check_permission() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1504,7 +1504,7 @@ async fn test_db_memory_store_adapter_crud() {
         memory_storage,
         _chat_storage,
         _channel_session_binding_storage,
-        _tool_trace_storage,
+        _execution_trace_storage,
         _kv_store_storage,
         _work_item_storage,
         _secret_storage,
@@ -1597,7 +1597,7 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1615,7 +1615,7 @@ async fn test_create_tool_registry_always_has_memory_tools() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1644,7 +1644,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1662,7 +1662,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage.clone(),
+        execution_trace_storage.clone(),
         kv_store_storage,
         work_item_storage,
         secret_storage.clone(),
@@ -1683,7 +1683,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         &service_registry,
         build_llm_factory(Some(&secret_storage)),
         Arc::new(config_storage),
-        tool_trace_storage,
+        execution_trace_storage,
     );
 
     let allowlist = vec![
@@ -1733,7 +1733,7 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1751,7 +1751,7 @@ async fn test_create_tool_registry_applies_security_gate_to_process_tool() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1798,7 +1798,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1812,14 +1812,14 @@ async fn test_create_subagent_manager_persists_execution_traces() {
     ) = setup_storage();
 
     let execution_trace_storage =
-        ExecutionTraceStorage::new(tool_trace_storage.db()).expect("execution trace storage");
+        ExecutionTraceStorage::new(execution_trace_storage.db()).expect("execution trace storage");
 
     let service_registry = create_tool_registry(
         skill_storage,
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage.clone(),
+        execution_trace_storage.clone(),
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1850,7 +1850,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         &service_registry,
         llm_factory,
         Arc::new(config_storage),
-        tool_trace_storage,
+        execution_trace_storage.clone(),
     );
 
     let handle = subagent_manager
@@ -1868,9 +1868,9 @@ async fn test_create_subagent_manager_persists_execution_traces() {
             priority: None,
             model: Some("mock-model".to_string()),
             model_provider: None,
-            parent_execution_id: None,
-            trace_session_id: None,
-            trace_scope_id: None,
+            parent_execution_id: Some("parent-run-1".to_string()),
+            trace_session_id: Some("session-trace-1".to_string()),
+            trace_scope_id: Some("scope-trace-1".to_string()),
         })
         .expect("spawn subagent");
 
@@ -1887,7 +1887,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
 
     let events = execution_trace_storage
         .query(&ExecutionTraceQuery {
-            task_id: Some(handle.id.clone()),
+            task_id: Some("scope-trace-1".to_string()),
             limit: Some(20),
             ..ExecutionTraceQuery::default()
         })
@@ -1904,6 +1904,37 @@ async fn test_create_subagent_manager_persists_execution_traces() {
         "expected lifecycle execution trace event for subagent {}",
         handle.id
     );
+    assert!(
+        events
+            .iter()
+            .any(|event| event.category == ExecutionTraceCategory::LlmCall),
+        "expected llm call execution trace event for subagent {}",
+        handle.id
+    );
+    let run_events = events
+        .iter()
+        .filter(|event| event.run_id.as_deref() == Some(handle.id.as_str()))
+        .collect::<Vec<_>>();
+    assert!(
+        !run_events.is_empty(),
+        "expected run-scoped execution trace events for subagent {}",
+        handle.id
+    );
+    assert!(
+        run_events
+            .iter()
+            .all(|event| event.parent_run_id.as_deref() == Some("parent-run-1"))
+    );
+    assert!(
+        run_events
+            .iter()
+            .all(|event| event.session_id.as_deref() == Some("session-trace-1"))
+    );
+    assert!(
+        run_events
+            .iter()
+            .all(|event| event.effective_model.as_deref() == Some("mock-model"))
+    );
 }
 
 #[tokio::test]
@@ -1913,7 +1944,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1931,7 +1962,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage.clone(),
+        execution_trace_storage.clone(),
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -1962,7 +1993,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
         &service_registry,
         llm_factory,
         Arc::new(config_storage),
-        tool_trace_storage,
+        execution_trace_storage,
     );
 
     let handle = subagent_manager
@@ -2000,7 +2031,7 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -2018,7 +2049,7 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage.clone(),
+        execution_trace_storage.clone(),
         kv_store_storage,
         work_item_storage,
         secret_storage.clone(),
@@ -2039,7 +2070,7 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
         &service_registry,
         build_llm_factory(Some(&secret_storage)),
         Arc::new(config_storage),
-        tool_trace_storage,
+        execution_trace_storage,
     );
 
     assert!(manager.orchestrator.is_some());

@@ -3,6 +3,10 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use futures::stream::FuturesOrdered;
+use restflow_trace::{
+    ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink,
+    TraceToolCallCompleted, TraceToolCallStart,
+};
 use serde_json::Value;
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
@@ -21,6 +25,16 @@ pub(crate) struct ToolInvocationContext<'a> {
     pub chat_session_id: Option<&'a str>,
     pub trace_session_id: Option<&'a str>,
     pub trace_scope_id: Option<&'a str>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ToolExecutionOptions<'a> {
+    pub tool_timeout: Duration,
+    pub yolo_mode: bool,
+    pub max_concurrency: usize,
+    pub telemetry_sink: Option<&'a Arc<dyn TelemetrySink>>,
+    pub telemetry_context: Option<&'a TelemetryContext>,
+    pub invocation: ToolInvocationContext<'a>,
 }
 
 impl AgentExecutor {
@@ -93,20 +107,10 @@ impl AgentExecutor {
         &self,
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
-        tool_timeout: Duration,
-        yolo_mode: bool,
-        max_tool_concurrency: usize,
-        context: ToolInvocationContext<'_>,
+        options: ToolExecutionOptions<'_>,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
-        self.execute_tools_parallel(
-            tool_calls,
-            emitter,
-            tool_timeout,
-            yolo_mode,
-            max_tool_concurrency,
-            context,
-        )
-        .await
+        self.execute_tools_parallel(tool_calls, emitter, options)
+            .await
     }
 
     pub(crate) async fn execute_tool_call(
@@ -247,11 +251,17 @@ impl AgentExecutor {
         &self,
         tool_calls: &[ToolCall],
         emitter: &mut dyn StreamEmitter,
-        tool_timeout: Duration,
-        yolo_mode: bool,
-        max_concurrency: usize,
-        context: ToolInvocationContext<'_>,
+        options: ToolExecutionOptions<'_>,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
+        let ToolExecutionOptions {
+            tool_timeout,
+            yolo_mode,
+            max_concurrency,
+            telemetry_sink,
+            telemetry_context,
+            invocation: context,
+        } = options;
+
         // 1. Emit start events for all tool calls upfront
         for call in tool_calls {
             let mut args = call.arguments.clone();
@@ -271,6 +281,20 @@ impl AgentExecutor {
             emitter
                 .emit_tool_call_start(&call.id, &call.name, &arguments)
                 .await;
+            if let (Some(telemetry_sink), Some(telemetry_context)) =
+                (telemetry_sink, telemetry_context)
+            {
+                telemetry_sink
+                    .emit(ExecutionEventEnvelope::from_telemetry_context(
+                        telemetry_context,
+                        ExecutionEvent::ToolCallStarted(TraceToolCallStart {
+                            tool_call_id: call.id.clone(),
+                            tool_name: call.name.clone(),
+                            input: Some(arguments.clone()),
+                        }),
+                    ))
+                    .await;
+            }
         }
 
         // 2. Spawn each tool as an independent Tokio task with semaphore-bounded concurrency
@@ -339,6 +363,30 @@ impl AgentExecutor {
             emitter
                 .emit_tool_call_result(&id, &name, &result_str, success)
                 .await;
+            if let (Some(telemetry_sink), Some(telemetry_context)) =
+                (telemetry_sink, telemetry_context)
+            {
+                let error = if success {
+                    None
+                } else {
+                    Some(result_str.clone())
+                };
+                telemetry_sink
+                    .emit(ExecutionEventEnvelope::from_telemetry_context(
+                        telemetry_context,
+                        ExecutionEvent::ToolCallCompleted(TraceToolCallCompleted {
+                            tool_call_id: id.clone(),
+                            tool_name: name.clone(),
+                            input_summary: None,
+                            output: Some(result_str.clone()),
+                            output_ref: None,
+                            success,
+                            duration_ms: None,
+                            error,
+                        }),
+                    ))
+                    .await;
+            }
             output.push((id, result));
 
             // Process any pending cancellation steer commands between tool completions

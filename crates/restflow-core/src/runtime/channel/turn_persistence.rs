@@ -1,13 +1,13 @@
 use crate::models::MessageExecution;
-use crate::storage::ToolTraceStorage;
+use crate::storage::ExecutionTraceStorage;
+use crate::telemetry::build_execution_steps;
 use tracing::warn;
 
-use super::tool_trace_emitter::build_execution_steps;
 use super::voice_transcript::enrich_voice_message_with_transcript;
 
-/// Build persisted turn payload (execution metadata + user input text) from tool traces.
+/// Build persisted turn payload (execution metadata + user input text) from execution traces.
 pub(crate) fn build_turn_persistence_payload(
-    tool_traces: &ToolTraceStorage,
+    execution_traces: &ExecutionTraceStorage,
     session_id: &str,
     turn_id: &str,
     input: &str,
@@ -15,31 +15,36 @@ pub(crate) fn build_turn_persistence_payload(
     iterations: u32,
 ) -> (MessageExecution, String) {
     let mut execution = MessageExecution::new().complete(duration_ms, iterations);
-    let traces = match tool_traces.list_by_session_turn(session_id, turn_id, None) {
-        Ok(traces) => traces,
+    let events = match execution_traces.query(&crate::models::ExecutionTraceQuery {
+        session_id: Some(session_id.to_string()),
+        turn_id: Some(turn_id.to_string()),
+        limit: Some(500),
+        ..crate::models::ExecutionTraceQuery::default()
+    }) {
+        Ok(events) => events,
         Err(error) => {
             warn!(
                 session_id = %session_id,
                 turn_id = %turn_id,
                 error = %error,
-                "Failed to load tool traces for turn persistence payload"
+                "Failed to load execution traces for turn persistence payload"
             );
             Vec::new()
         }
     };
-    for step in build_execution_steps(&traces) {
+    for step in build_execution_steps(&events) {
         execution.add_step(step);
     }
 
     let persisted_input =
-        enrich_voice_message_with_transcript(input, &traces).unwrap_or_else(|| input.to_string());
+        enrich_voice_message_with_transcript(input, &events).unwrap_or_else(|| input.to_string());
     (execution, persisted_input)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ToolCallCompletion, ToolTrace};
+    use crate::models::{ExecutionTraceEvent, ToolCallPhase, ToolCallTrace};
     use crate::storage::Storage;
     use serde_json::json;
     use tempfile::tempdir;
@@ -57,41 +62,56 @@ mod tests {
         let storage = Storage::new(db_path.to_str().expect("db path")).expect("storage");
 
         let session_id = "session-turn-persist";
-        let turn_id = "turn-1";
+        let turn_id = "run-turn-1";
         let file_path = "/tmp/voice-a.webm";
 
-        let start = ToolTrace::tool_call_started(
+        let trace = restflow_trace::RestflowTrace::new("turn-1", session_id, session_id, "agent-1");
+        let start = ExecutionTraceEvent::tool_call(
             session_id,
-            turn_id,
-            "call-1",
-            "transcribe",
-            Some(json!({"file_path": file_path}).to_string()),
-        );
-        let done = ToolTrace::tool_call_completed(
+            "agent-1",
+            ToolCallTrace {
+                phase: ToolCallPhase::Started,
+                tool_call_id: "call-1".to_string(),
+                tool_name: "transcribe".to_string(),
+                input: Some(json!({"file_path": file_path}).to_string()),
+                input_summary: None,
+                output: None,
+                output_ref: None,
+                success: None,
+                error: None,
+                duration_ms: None,
+            },
+        )
+        .with_trace_context(&trace);
+        let done = ExecutionTraceEvent::tool_call(
             session_id,
-            turn_id,
-            "call-1",
-            "transcribe",
-            ToolCallCompletion {
+            "agent-1",
+            ToolCallTrace {
+                phase: ToolCallPhase::Completed,
+                tool_call_id: "call-1".to_string(),
+                tool_name: "transcribe".to_string(),
+                input: None,
+                input_summary: None,
                 output: Some(json!({"text": "hello from transcript"}).to_string()),
                 output_ref: None,
-                success: true,
-                duration_ms: Some(35),
+                success: Some(true),
                 error: None,
+                duration_ms: Some(35),
             },
-        );
+        )
+        .with_trace_context(&trace);
         storage
-            .tool_traces
-            .append(&start)
+            .execution_traces
+            .store(&start)
             .expect("append start trace");
         storage
-            .tool_traces
-            .append(&done)
+            .execution_traces
+            .store(&done)
             .expect("append done trace");
 
         let input = voice_input(file_path);
         let (execution, persisted_input) = build_turn_persistence_payload(
-            &storage.tool_traces,
+            &storage.execution_traces,
             session_id,
             turn_id,
             &input,
@@ -117,10 +137,10 @@ mod tests {
         let storage = Storage::new(db_path.to_str().expect("db path")).expect("storage");
 
         let session_id = "session-turn-persist";
-        let turn_id = "turn-empty";
+        let turn_id = "run-turn-empty";
         let input = voice_input("/tmp/voice-x.webm");
         let (execution, persisted_input) = build_turn_persistence_payload(
-            &storage.tool_traces,
+            &storage.execution_traces,
             session_id,
             turn_id,
             &input,
@@ -141,41 +161,57 @@ mod tests {
         let storage = Storage::new(db_path.to_str().expect("db path")).expect("storage");
 
         let session_id = "session-turn-persist";
-        let turn_id = "turn-failed";
+        let turn_id = "run-turn-failed";
         let file_path = "/tmp/voice-failed.webm";
         let input = voice_input(file_path);
 
-        let start = ToolTrace::tool_call_started(
+        let trace =
+            restflow_trace::RestflowTrace::new("turn-failed", session_id, session_id, "agent-1");
+        let start = ExecutionTraceEvent::tool_call(
             session_id,
-            turn_id,
-            "call-2",
-            "transcribe",
-            Some(json!({"file_path": file_path}).to_string()),
-        );
-        let done = ToolTrace::tool_call_completed(
-            session_id,
-            turn_id,
-            "call-2",
-            "transcribe",
-            ToolCallCompletion {
+            "agent-1",
+            ToolCallTrace {
+                phase: ToolCallPhase::Started,
+                tool_call_id: "call-2".to_string(),
+                tool_name: "transcribe".to_string(),
+                input: Some(json!({"file_path": file_path}).to_string()),
+                input_summary: None,
                 output: None,
                 output_ref: None,
-                success: false,
-                duration_ms: Some(15),
-                error: Some("decode failed".to_string()),
+                success: None,
+                error: None,
+                duration_ms: None,
             },
-        );
+        )
+        .with_trace_context(&trace);
+        let done = ExecutionTraceEvent::tool_call(
+            session_id,
+            "agent-1",
+            ToolCallTrace {
+                phase: ToolCallPhase::Completed,
+                tool_call_id: "call-2".to_string(),
+                tool_name: "transcribe".to_string(),
+                input: None,
+                input_summary: None,
+                output: None,
+                output_ref: None,
+                success: Some(false),
+                error: Some("decode failed".to_string()),
+                duration_ms: Some(15),
+            },
+        )
+        .with_trace_context(&trace);
         storage
-            .tool_traces
-            .append(&start)
+            .execution_traces
+            .store(&start)
             .expect("append start trace");
         storage
-            .tool_traces
-            .append(&done)
+            .execution_traces
+            .store(&done)
             .expect("append done trace");
 
         let (execution, persisted_input) = build_turn_persistence_payload(
-            &storage.tool_traces,
+            &storage.execution_traces,
             session_id,
             turn_id,
             &input,

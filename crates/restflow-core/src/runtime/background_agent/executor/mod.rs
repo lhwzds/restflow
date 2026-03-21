@@ -235,6 +235,9 @@ impl AgentRuntimeExecutor {
             SubagentExecutionBridge {
                 llm_client_factory: Some(factory),
                 orchestrator: None,
+                telemetry_sink: Some(crate::telemetry::build_core_telemetry_sink(
+                    self.storage.as_ref(),
+                )),
             },
         )
         .await
@@ -371,6 +374,8 @@ mod model_resolution;
 mod preflight;
 mod session_execution;
 mod tooling;
+
+pub use session_execution::SessionTurnRuntimeOptions;
 
 #[cfg(test)]
 mod tests;

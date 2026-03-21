@@ -31,7 +31,7 @@ mod steer;
 mod streaming;
 mod tool_exec;
 pub use config::*;
-use tool_exec::ToolInvocationContext;
+use tool_exec::{ToolExecutionOptions, ToolInvocationContext};
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -40,6 +40,9 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use restflow_trace::{
+    ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink, TraceLlmCall,
+};
 use serde_json::Value;
 
 use crate::agent::context::{ContextDiscoveryConfig, WorkspaceContextCache};
@@ -92,6 +95,43 @@ fn save_tool_output(
     match fs::write(&path, content) {
         Ok(()) => Some(path),
         Err(_) => None,
+    }
+}
+
+impl AgentExecutor {
+    async fn emit_execution_event(
+        telemetry_sink: Option<&Arc<dyn TelemetrySink>>,
+        telemetry_context: Option<&TelemetryContext>,
+        event: ExecutionEvent,
+        effective_model: Option<&str>,
+    ) {
+        let (Some(telemetry_sink), Some(telemetry_context)) = (telemetry_sink, telemetry_context)
+        else {
+            return;
+        };
+        let mut envelope = ExecutionEventEnvelope::from_telemetry_context(telemetry_context, event);
+        if let Some(effective_model) = effective_model {
+            envelope = envelope.with_effective_model(effective_model.to_string());
+        }
+        telemetry_sink.emit(envelope).await;
+    }
+
+    fn resolve_telemetry_model(
+        current_model: String,
+        telemetry_context: Option<&TelemetryContext>,
+    ) -> String {
+        let normalized = current_model.trim();
+        if (normalized.is_empty() || normalized == "dynamic")
+            && let Some(context) = telemetry_context
+        {
+            if let Some(effective_model) = context.effective_model.as_ref() {
+                return effective_model.clone();
+            }
+            if let Some(requested_model) = context.requested_model.as_ref() {
+                return requested_model.clone();
+            }
+        }
+        current_model
     }
 }
 
@@ -444,9 +484,18 @@ impl AgentExecutor {
                             tier = ?tier,
                             "Switched model via router"
                         );
-                        emitter
-                            .emit_model_switch(&current_model, &target_model, Some("routing"))
-                            .await;
+                        Self::emit_execution_event(
+                            config.telemetry_sink.as_ref(),
+                            config.telemetry_context.as_ref(),
+                            ExecutionEvent::ModelSwitch {
+                                from_model: current_model.clone(),
+                                to_model: target_model.clone(),
+                                reason: Some("routing".to_string()),
+                                success: true,
+                            },
+                            Some(&target_model),
+                        )
+                        .await;
                     }
                 }
             }
@@ -517,19 +566,25 @@ impl AgentExecutor {
                 .as_ref()
                 .map(|switcher| switcher.current_model())
                 .unwrap_or_else(|| self.llm.model().to_string());
+            let emitted_model =
+                Self::resolve_telemetry_model(current_model, config.telemetry_context.as_ref());
             let usage = response.usage.as_ref();
-            emitter
-                .emit_llm_call(
-                    &current_model,
-                    usage.map(|value| value.prompt_tokens),
-                    usage.map(|value| value.completion_tokens),
-                    usage.map(|value| value.total_tokens),
-                    usage.and_then(|value| value.cost_usd),
-                    Some(llm_duration_ms),
-                    None,
-                    Some(request_message_count),
-                )
-                .await;
+            Self::emit_execution_event(
+                config.telemetry_sink.as_ref(),
+                config.telemetry_context.as_ref(),
+                ExecutionEvent::LlmCall(TraceLlmCall {
+                    model: emitted_model.clone(),
+                    input_tokens: usage.map(|value| value.prompt_tokens),
+                    output_tokens: usage.map(|value| value.completion_tokens),
+                    total_tokens: usage.map(|value| value.total_tokens),
+                    cost_usd: usage.and_then(|value| value.cost_usd),
+                    duration_ms: Some(llm_duration_ms),
+                    is_reasoning: None,
+                    message_count: Some(request_message_count),
+                }),
+                Some(&emitted_model),
+            )
+            .await;
 
             // Track token usage
             if let Some(usage) = &response.usage {
@@ -614,14 +669,18 @@ impl AgentExecutor {
                 .execute_tools_with_events(
                     &response.tool_calls,
                     emitter,
-                    config.tool_timeout,
-                    config.yolo_mode,
-                    config.max_tool_concurrency,
-                    ToolInvocationContext {
-                        parent_execution_id: Some(state.execution_id.as_str()),
-                        chat_session_id,
-                        trace_session_id,
-                        trace_scope_id,
+                    ToolExecutionOptions {
+                        tool_timeout: config.tool_timeout,
+                        yolo_mode: config.yolo_mode,
+                        max_concurrency: config.max_tool_concurrency,
+                        telemetry_sink: config.telemetry_sink.as_ref(),
+                        telemetry_context: config.telemetry_context.as_ref(),
+                        invocation: ToolInvocationContext {
+                            parent_execution_id: Some(state.execution_id.as_str()),
+                            chat_session_id,
+                            trace_session_id,
+                            trace_scope_id,
+                        },
                     },
                 )
                 .await;

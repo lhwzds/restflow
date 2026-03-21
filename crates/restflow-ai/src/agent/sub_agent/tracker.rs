@@ -7,9 +7,7 @@ use tokio::time::Duration;
 
 use crate::Result;
 use crate::error::AiError;
-use restflow_trace::RunTraceLifecycleSink;
-
-use super::trace::{RunTraceEmitterFactory, RunTraceSink};
+use restflow_trace::TelemetrySink;
 
 pub use restflow_traits::subagent::{
     SubagentCompletion, SubagentResult, SubagentState, SubagentStatus,
@@ -35,11 +33,8 @@ pub struct SubagentTracker {
     /// Lock to prevent TOCTOU race between running_count() check and register().
     spawn_lock: std::sync::Mutex<()>,
 
-    /// Optional lifecycle sink for persisting sub-agent run boundaries.
-    trace_lifecycle_sink: RwLock<Option<Arc<dyn RunTraceLifecycleSink>>>,
-
-    /// Optional emitter factory for streaming tool-call trace events.
-    trace_emitter_factory: RwLock<Option<Arc<dyn RunTraceEmitterFactory>>>,
+    /// Optional telemetry sink for structured execution events.
+    telemetry_sink: RwLock<Option<Arc<dyn TelemetrySink>>>,
 }
 
 impl SubagentTracker {
@@ -116,37 +111,19 @@ impl SubagentTracker {
             completion_tx,
             completion_rx: Mutex::new(completion_rx),
             spawn_lock: std::sync::Mutex::new(()),
-            trace_lifecycle_sink: RwLock::new(None),
-            trace_emitter_factory: RwLock::new(None),
+            telemetry_sink: RwLock::new(None),
         }
     }
 
-    /// Install or replace the trace sink used for spawned sub-agents.
-    pub fn set_run_trace_sink<T>(&self, sink: Arc<T>)
-    where
-        T: RunTraceSink + 'static,
-    {
-        let lifecycle_sink: Arc<dyn RunTraceLifecycleSink> = sink.clone();
-        let emitter_factory: Arc<dyn RunTraceEmitterFactory> = sink;
-
-        if let Ok(mut guard) = self.trace_lifecycle_sink.write() {
-            *guard = Some(lifecycle_sink);
-        }
-
-        if let Ok(mut guard) = self.trace_emitter_factory.write() {
-            *guard = Some(emitter_factory);
+    /// Install or replace the telemetry sink used for spawned sub-agents.
+    pub fn set_telemetry_sink(&self, sink: Arc<dyn TelemetrySink>) {
+        if let Ok(mut guard) = self.telemetry_sink.write() {
+            *guard = Some(sink);
         }
     }
 
-    pub(crate) fn trace_lifecycle_sink(&self) -> Option<Arc<dyn RunTraceLifecycleSink>> {
-        self.trace_lifecycle_sink
-            .read()
-            .ok()
-            .and_then(|guard| guard.clone())
-    }
-
-    pub(crate) fn trace_emitter_factory(&self) -> Option<Arc<dyn RunTraceEmitterFactory>> {
-        self.trace_emitter_factory
+    pub(crate) fn telemetry_sink(&self) -> Option<Arc<dyn TelemetrySink>> {
+        self.telemetry_sink
             .read()
             .ok()
             .and_then(|guard| guard.clone())
@@ -460,44 +437,11 @@ impl SubagentTracker {
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
-    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use tokio::sync::{mpsc, oneshot};
     use tokio::time::Duration;
 
     use super::*;
-    use crate::agent::{NullEmitter, StreamEmitter};
-    use restflow_trace::{
-        RunTraceContext, RunTraceOutcome, TraceEvent, TraceEventKind, TraceEventSink,
-    };
-
-    #[derive(Default)]
-    struct MockRunTraceSink {
-        started: AtomicUsize,
-        finished: AtomicUsize,
-        emitters_built: AtomicUsize,
-    }
-
-    impl TraceEventSink for MockRunTraceSink {
-        fn record_trace_event(&self, event: &TraceEvent) {
-            match event.kind {
-                TraceEventKind::RunStarted => {
-                    self.started.fetch_add(1, Ordering::Relaxed);
-                }
-                TraceEventKind::RunCompleted { .. } | TraceEventKind::RunFailed { .. } => {
-                    self.finished.fetch_add(1, Ordering::Relaxed);
-                }
-                _ => {}
-            }
-        }
-    }
-
-    impl RunTraceEmitterFactory for MockRunTraceSink {
-        fn build_run_emitter(&self, _context: &RunTraceContext) -> Box<dyn StreamEmitter> {
-            self.emitters_built.fetch_add(1, Ordering::Relaxed);
-            Box::new(NullEmitter)
-        }
-    }
 
     #[tokio::test]
     async fn mark_completed_does_not_overwrite_interrupted() {
@@ -790,43 +734,5 @@ mod tests {
         let result = result.result.expect("completed task payload");
         assert!(result.success);
         assert_eq!(result.output, "done");
-    }
-
-    #[tokio::test]
-    async fn set_run_trace_sink_installs_lifecycle_and_emitter_dependencies() {
-        let (tx, rx) = mpsc::channel(16);
-        let tracker = Arc::new(SubagentTracker::new(tx, rx));
-        let sink = Arc::new(MockRunTraceSink::default());
-        tracker.set_run_trace_sink(sink.clone());
-
-        let context = RunTraceContext {
-            run_id: "run-1".to_string(),
-            actor_id: "worker".to_string(),
-            parent_run_id: Some("parent-1".to_string()),
-            session_id: "session-1".to_string(),
-            scope_id: "scope-1".to_string(),
-        };
-
-        let lifecycle_sink = tracker
-            .trace_lifecycle_sink()
-            .expect("lifecycle sink should be installed");
-        lifecycle_sink.on_run_started(&context);
-        lifecycle_sink.on_run_finished(
-            &context,
-            &RunTraceOutcome {
-                success: true,
-                error: None,
-            },
-        );
-
-        let emitter_factory = tracker
-            .trace_emitter_factory()
-            .expect("emitter factory should be installed");
-        let mut emitter = emitter_factory.build_run_emitter(&context);
-        emitter.emit_complete().await;
-
-        assert_eq!(sink.started.load(Ordering::Relaxed), 1);
-        assert_eq!(sink.finished.load(Ordering::Relaxed), 1);
-        assert_eq!(sink.emitters_built.load(Ordering::Relaxed), 1);
     }
 }
