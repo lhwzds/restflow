@@ -30,6 +30,18 @@ lifecycle_count: bigint,
  */
 message_count: bigint, 
 /**
+ * Number of metric sample events.
+ */
+metric_sample_count: bigint, 
+/**
+ * Number of provider health events.
+ */
+provider_health_count: bigint, 
+/**
+ * Number of structured log events.
+ */
+log_record_count: bigint, 
+/**
  * Total tokens used.
  */
 total_tokens: bigint, 

@@ -3,4 +3,4 @@
 /**
  * Source of the execution trace event.
  */
-export type ExecutionTraceSource = "agent_executor" | "runtime" | "mcp_server" | "cli";
+export type ExecutionTraceSource = "agent_executor" | "runtime" | "mcp_server" | "cli" | "telemetry";

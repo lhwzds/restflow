@@ -3,7 +3,7 @@ import { defineComponent, h, ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { useChatStream } from '../useChatStream'
 import { cancelChatStream, openChatStream } from '@/api/chat-stream'
-import { listToolTraces } from '@/api/tool-traces'
+import { queryExecutionTraces } from '@/api/execution-traces'
 import type { StreamFrame } from '@/types/generated/StreamFrame'
 
 vi.mock('@/api/chat-stream', () => ({
@@ -11,8 +11,8 @@ vi.mock('@/api/chat-stream', () => ({
   openChatStream: vi.fn(),
 }))
 
-vi.mock('@/api/tool-traces', () => ({
-  listToolTraces: vi.fn(),
+vi.mock('@/api/execution-traces', () => ({
+  queryExecutionTraces: vi.fn(),
 }))
 
 async function* createFrames(frames: StreamFrame[]): AsyncGenerator<StreamFrame> {
@@ -30,7 +30,7 @@ async function flushPromises(turns = 20): Promise<void> {
 describe('useChatStream', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(listToolTraces).mockResolvedValue([])
+    vi.mocked(queryExecutionTraces).mockResolvedValue([])
   })
 
   function createHarness() {
@@ -79,7 +79,19 @@ describe('useChatStream', () => {
     expect(vm.stream.state.value.steps).toHaveLength(1)
     expect(vm.stream.state.value.steps[0]?.status).toBe('completed')
     expect(vm.stream.isStreaming.value).toBe(false)
-    expect(listToolTraces).toHaveBeenCalledWith('session-1', 'msg-1', 200)
+    expect(queryExecutionTraces).toHaveBeenCalledWith({
+      task_id: 'session-1',
+      run_id: null,
+      session_id: 'session-1',
+      turn_id: 'msg-1',
+      agent_id: null,
+      category: null,
+      source: null,
+      from_timestamp: null,
+      to_timestamp: null,
+      limit: 200,
+      offset: 0,
+    })
 
     wrapper.unmount()
   })

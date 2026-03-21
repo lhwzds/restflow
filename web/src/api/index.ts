@@ -9,7 +9,7 @@ export * from './hooks'
 export * from './marketplace'
 export * from './secrets'
 export * from './skills'
-export * from './tool-traces'
+export * from './execution-traces'
 export * from './voice'
 export {
   listBackgroundAgents,
