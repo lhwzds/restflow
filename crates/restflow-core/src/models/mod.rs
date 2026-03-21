@@ -21,7 +21,6 @@ pub mod skill_meta;
 pub mod steer;
 pub mod storage_mode;
 pub mod terminal_session;
-pub mod tool_trace;
 pub mod trigger;
 pub mod validation;
 pub mod webhook;
@@ -54,9 +53,12 @@ pub use work_item::{ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec
 
 // Export execution trace types (new naming)
 pub use execution_trace::{
-    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource,
-    ExecutionTraceStats, ExecutionTraceTimeRange, LifecycleTrace, LlmCallTrace, MessageTrace,
-    ModelSwitchTrace, ToolCallTrace,
+    ExecutionLogField, ExecutionLogQuery, ExecutionLogResponse, ExecutionMetricQuery,
+    ExecutionMetricsResponse, ExecutionTimeline, ExecutionTraceCategory, ExecutionTraceEvent,
+    ExecutionTraceQuery, ExecutionTraceSource, ExecutionTraceStats, ExecutionTraceTimeRange,
+    LifecycleTrace, LlmCallTrace, LogRecordTrace, MessageTrace, MetricDimension, MetricSampleTrace,
+    ModelSwitchTrace, ProviderHealthQuery, ProviderHealthResponse, ProviderHealthTrace,
+    ToolCallCompletion, ToolCallPhase, ToolCallTrace,
 };
 
 // Re-export audit types for backward compatibility (aliases to execution_trace)
@@ -86,6 +88,5 @@ pub use skill_marketplace::{
 pub use skill_meta::SkillMeta;
 pub use storage_mode::StorageMode;
 pub use terminal_session::{TerminalSession, TerminalStatus};
-pub use tool_trace::{ToolCallCompletion, ToolTrace, ToolTraceEvent};
 pub use trigger::{ActiveTrigger, AuthConfig, TriggerConfig};
 pub use validation::{ValidationError, ValidationErrorResponse, encode_validation_error};
