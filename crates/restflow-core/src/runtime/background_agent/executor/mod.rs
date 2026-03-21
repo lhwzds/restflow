@@ -6,7 +6,6 @@
 //! client, and executes the agent with the configured tools.
 
 use anyhow::{Result, anyhow};
-use async_trait::async_trait;
 use chrono::Utc;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -26,8 +25,8 @@ use crate::{
     storage::Storage,
 };
 use restflow_ai::agent::{
-    CheckpointDurability, ModelRoutingConfig as AiModelRoutingConfig,
-    ModelSwitcher as AiModelSwitcher, PromptFlags, SharedStreamEmitter, StreamEmitter,
+    CheckpointDurability, ModelRoutingConfig as AiModelRoutingConfig, PromptFlags,
+    SharedStreamEmitter, StreamEmitter,
 };
 use restflow_ai::llm::{CompletionRequest, Message};
 use restflow_ai::{
@@ -37,7 +36,8 @@ use restflow_ai::{
 };
 use restflow_models::LlmProvider;
 use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool};
-use restflow_traits::{ExecutionOutcome, ExecutionPlan, ReplySender};
+use restflow_traits::llm::{LlmSwitcher, SwapResult};
+use restflow_traits::{ExecutionOutcome, ExecutionPlan, ReplySender, ToolError};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tracing::{debug, info, warn};
@@ -147,24 +147,58 @@ struct RuntimeModelSwitcher {
     agent_node: AgentNode,
 }
 
-#[async_trait]
-impl AiModelSwitcher for RuntimeModelSwitcher {
+impl LlmSwitcher for RuntimeModelSwitcher {
     fn current_model(&self) -> String {
         self.swappable.current_model()
     }
 
-    async fn switch_model(&self, target_model: &str) -> std::result::Result<(), AiError> {
-        let model = ModelId::from_api_name(target_model)
-            .ok_or_else(|| AiError::Agent(format!("Unsupported routed model: {}", target_model)))?;
+    fn current_provider(&self) -> String {
+        self.swappable.current_provider()
+    }
+
+    fn available_models(&self) -> Vec<String> {
+        self.factory.available_models()
+    }
+
+    fn provider_for_model(&self, model: &str) -> Option<String> {
+        self.factory
+            .provider_for_model(model)
+            .map(|provider| provider.as_str().to_string())
+    }
+
+    fn resolve_api_key(&self, provider: &str) -> Option<String> {
+        let model_provider = restflow_traits::ModelProvider::parse_alias(provider)?;
+        self.factory
+            .resolve_api_key(restflow_models::provider_meta(model_provider).runtime_provider)
+    }
+
+    fn client_kind_for_model(&self, model: &str) -> Option<&'static str> {
+        self.factory
+            .client_kind_for_model(model)
+            .map(|kind| kind.as_str())
+    }
+
+    fn create_and_swap(
+        &self,
+        model: &str,
+        api_key: Option<&str>,
+    ) -> std::result::Result<SwapResult, ToolError> {
+        let model = ModelId::from_api_name(model)
+            .ok_or_else(|| ToolError::Tool(format!("Unsupported routed model: {}", model)))?;
         let client = AgentRuntimeExecutor::create_llm_client(
             self.factory.as_ref(),
             model,
-            None,
+            api_key,
             &self.agent_node,
         )
-        .map_err(|error| AiError::Agent(error.to_string()))?;
-        self.swappable.swap(client);
-        Ok(())
+        .map_err(|error| ToolError::Tool(error.to_string()))?;
+        let previous = self.swappable.swap(client.clone());
+        Ok(SwapResult {
+            previous_provider: previous.provider().to_string(),
+            previous_model: previous.model().to_string(),
+            new_provider: client.provider().to_string(),
+            new_model: client.model().to_string(),
+        })
     }
 }
 

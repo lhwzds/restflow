@@ -10,13 +10,13 @@ use restflow_traits::{
     DEFAULT_AGENT_COMPACT_PRESERVE_TOKENS, DEFAULT_AGENT_CONTEXT_WINDOW_TOKENS,
     DEFAULT_AGENT_LLM_TIMEOUT_SECS, DEFAULT_AGENT_MAX_ITERATIONS,
     DEFAULT_AGENT_MAX_TOOL_CONCURRENCY, DEFAULT_AGENT_MAX_TOOL_RESULT_LENGTH,
-    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_TOOL_TIMEOUT_SECS,
+    DEFAULT_AGENT_PRUNE_TOOL_MAX_CHARS, DEFAULT_AGENT_TOOL_TIMEOUT_SECS, llm::LlmSwitcher,
 };
 use serde_json::Value;
 
 use crate::agent::PromptFlags;
 use crate::agent::context::AgentContext;
-use crate::agent::model_router::{ModelRoutingConfig, ModelSwitcher};
+use crate::agent::model_router::ModelRoutingConfig;
 use crate::agent::resource::{ResourceLimits, ResourceUsage};
 use crate::agent::state::AgentState;
 use crate::agent::stuck::StuckDetectorConfig;
@@ -89,7 +89,7 @@ pub struct AgentConfig {
     /// Optional model routing configuration for dynamic tier-based switching.
     pub model_routing: Option<ModelRoutingConfig>,
     /// Optional model switcher used when model routing is enabled.
-    pub model_switcher: Option<Arc<dyn ModelSwitcher>>,
+    pub model_switcher: Option<Arc<dyn LlmSwitcher>>,
     /// Optional telemetry sink for execution-scoped events.
     pub telemetry_sink: Option<Arc<dyn TelemetrySink>>,
     /// Optional telemetry context shared across emitted events.
@@ -269,7 +269,7 @@ impl AgentConfig {
     }
 
     /// Set model switcher used by routing.
-    pub fn with_model_switcher(mut self, switcher: Arc<dyn ModelSwitcher>) -> Self {
+    pub fn with_model_switcher(mut self, switcher: Arc<dyn LlmSwitcher>) -> Self {
         self.model_switcher = Some(switcher);
         self
     }

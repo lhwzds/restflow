@@ -51,4 +51,28 @@ pub trait LlmSwitcher: Send + Sync {
         model: &str,
         api_key: Option<&str>,
     ) -> std::result::Result<SwapResult, ToolError>;
+
+    /// Switch to a new model using the switcher's built-in provider/api-key
+    /// resolution semantics.
+    fn switch_model(&self, model: &str) -> std::result::Result<SwapResult, ToolError> {
+        let provider_name = self
+            .provider_for_model(model)
+            .ok_or_else(|| ToolError::Tool(format!("Unknown model: {model}")))?;
+        let is_cli = self
+            .client_kind_for_model(model)
+            .map(|kind| kind != "http")
+            .unwrap_or(false);
+        let api_key = if is_cli {
+            self.resolve_api_key(&provider_name)
+        } else {
+            Some(self.resolve_api_key(&provider_name).ok_or_else(|| {
+                ToolError::Tool(format!(
+                    "No API key for provider '{}'. Set the key via manage_secrets tool (e.g., ANTHROPIC_API_KEY, OPENAI_API_KEY).",
+                    provider_name,
+                ))
+            })?)
+        };
+
+        self.create_and_swap(model, api_key.as_deref())
+    }
 }
