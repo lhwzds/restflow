@@ -949,7 +949,7 @@ mod tests {
         let output_path = temp_dir.path().join("trace-output.txt");
         std::fs::write(&output_path, "line-1\nline-2\nline-3\nline-4\n").unwrap();
 
-        let trace = restflow_trace::RestflowTrace::new("run-1", &session_id, &task_id, "agent-1");
+        let trace = restflow_telemetry::RestflowTrace::new("run-1", &session_id, &task_id, "agent-1");
         let event = crate::models::ExecutionTraceEvent::tool_call(
             task_id,
             "agent-1",

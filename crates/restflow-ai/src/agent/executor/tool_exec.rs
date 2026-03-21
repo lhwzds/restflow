@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use futures::StreamExt;
 use futures::stream::FuturesOrdered;
-use restflow_trace::{
+use restflow_telemetry::{
     ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink,
     TraceToolCallCompleted, TraceToolCallStart,
 };

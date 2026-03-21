@@ -1,4 +1,4 @@
-//! Shared run-trace primitives for RestFlow.
+//! Shared execution telemetry domain primitives for RestFlow.
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -460,7 +460,7 @@ impl RestflowTrace {
         Self::new(run_id, session_id, scope_id, actor_id).with_parent_run_id(parent_run_id)
     }
 
-    /// Build directly from a run-trace context.
+    /// Build directly from a run telemetry context.
     pub fn from_context(context: &RunTraceContext) -> Self {
         Self::from_run(
             context.run_id.clone(),

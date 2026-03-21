@@ -113,7 +113,7 @@ impl AgentRuntimeExecutor {
                 .map(|task| task.chat_session_id.trim().to_string())
                 .filter(|value| !value.is_empty())
                 .unwrap_or_else(|| run_id.to_string());
-            restflow_trace::TelemetryContext::new(restflow_trace::RestflowTrace::new(
+            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
                 run_id.to_string(),
                 session_id,
                 background_task_id.unwrap_or(run_id).to_string(),
@@ -645,7 +645,7 @@ impl AgentRuntimeExecutor {
         let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
         let base_telemetry_context = {
             let run_id = background_task_id.unwrap_or(agent_id);
-            restflow_trace::TelemetryContext::new(restflow_trace::RestflowTrace::new(
+            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
                 run_id.to_string(),
                 background_task
                     .as_ref()
@@ -684,9 +684,9 @@ impl AgentRuntimeExecutor {
                     {
                         telemetry_sink
                             .emit(
-                                restflow_trace::ExecutionEventEnvelope::from_telemetry_context(
+                                restflow_telemetry::ExecutionEventEnvelope::from_telemetry_context(
                                     &telemetry_context,
-                                    restflow_trace::ExecutionEvent::ModelSwitch {
+                                    restflow_telemetry::ExecutionEvent::ModelSwitch {
                                         from_model: previous_model.as_serialized_str().to_string(),
                                         to_model: model.as_serialized_str().to_string(),
                                         reason: Some("failover".to_string()),

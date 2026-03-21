@@ -12,7 +12,7 @@ use crate::tools::ToolResult;
 use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
-use restflow_trace::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
+use restflow_telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -425,7 +425,7 @@ impl TelemetrySink for CapturingTelemetrySink {
 }
 
 fn telemetry_context(model: &str) -> TelemetryContext {
-    TelemetryContext::new(restflow_trace::RestflowTrace::new(
+    TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
         "run-test",
         "session-test",
         "scope-test",

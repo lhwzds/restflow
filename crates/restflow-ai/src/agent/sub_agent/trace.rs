@@ -1,5 +1,5 @@
 use crate::agent::stream::StreamEmitter;
-pub use restflow_trace::{RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome};
+pub use restflow_telemetry::{RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome};
 
 /// AI-specific factory for wrapping a stream emitter with trace persistence.
 pub trait RunTraceEmitterFactory: Send + Sync {

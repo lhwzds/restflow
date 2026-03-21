@@ -18,7 +18,7 @@ tokio.workspace = true
 uuid.workspace = true
 tracing.workspace = true
 restflow-traits = { path = "../restflow-traits", features = ["http-client"] }
-restflow-trace = { workspace = true }
+restflow-telemetry = { workspace = true }
 restflow-sandbox = { workspace = true, optional = true }
 
 # AI-specific dependencies

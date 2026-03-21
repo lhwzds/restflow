@@ -40,7 +40,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use restflow_trace::{
+use restflow_telemetry::{
     ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink, TraceLlmCall,
 };
 use serde_json::Value;

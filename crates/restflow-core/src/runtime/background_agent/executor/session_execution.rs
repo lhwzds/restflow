@@ -7,7 +7,7 @@ fn should_force_non_stream(model: ModelId) -> bool {
 #[derive(Default)]
 pub struct SessionTurnRuntimeOptions {
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-    pub telemetry_context: Option<restflow_trace::TelemetryContext>,
+    pub telemetry_context: Option<restflow_telemetry::TelemetryContext>,
 }
 
 impl AgentRuntimeExecutor {
@@ -195,7 +195,7 @@ impl AgentRuntimeExecutor {
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<restflow_trace::TelemetryContext>,
+        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
@@ -240,7 +240,7 @@ impl AgentRuntimeExecutor {
         let execution_context =
             ExecutionContext::main(agent_id.unwrap_or(&session.agent_id), &session.id);
         let telemetry_context = telemetry_context.unwrap_or_else(|| {
-            restflow_trace::TelemetryContext::new(restflow_trace::RestflowTrace::new(
+            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
                 session.id.clone(),
                 session.id.clone(),
                 session.id.clone(),
@@ -365,7 +365,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<restflow_trace::TelemetryContext>,
+        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         let model_specs = ModelId::build_model_specs();
         let api_keys = self
@@ -426,7 +426,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
-        telemetry_context: Option<restflow_trace::TelemetryContext>,
+        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         if model.is_codex_cli() || agent_node.api_key_config.is_some() {
             return self
@@ -633,7 +633,7 @@ impl AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
-        telemetry_context: Option<restflow_trace::TelemetryContext>,
+        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         self.execute_session_turn_with_emitter_and_steer(
             session,
@@ -697,7 +697,7 @@ impl AgentRuntimeExecutor {
         let mut steer_rx = steer_rx;
         let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
         let base_telemetry_context = telemetry_context.unwrap_or_else(|| {
-            restflow_trace::TelemetryContext::new(restflow_trace::RestflowTrace::new(
+            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
                 session.id.clone(),
                 session.id.clone(),
                 session.id.clone(),
@@ -732,9 +732,9 @@ impl AgentRuntimeExecutor {
                     {
                         telemetry_sink
                             .emit(
-                                restflow_trace::ExecutionEventEnvelope::from_telemetry_context(
+                                restflow_telemetry::ExecutionEventEnvelope::from_telemetry_context(
                                     &telemetry_context,
-                                    restflow_trace::ExecutionEvent::ModelSwitch {
+                                    restflow_telemetry::ExecutionEvent::ModelSwitch {
                                         from_model: previous_model.as_serialized_str().to_string(),
                                         to_model: model.as_serialized_str().to_string(),
                                         reason: Some("failover".to_string()),

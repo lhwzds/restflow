@@ -6,7 +6,7 @@ use crate::telemetry::execution_event_to_trace_event;
 use anyhow::Result;
 use regex::Regex;
 use restflow_ai::agent::StreamEmitter;
-pub use restflow_trace::{
+pub use restflow_telemetry::{
     RestflowTrace, RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome, RunTraceSummary,
     RunTraceTimeline, TraceArtifactPreview, TraceEvent, TraceEventKind, TraceEventSink,
     TraceLlmCall, TraceMessage, TraceTimelineEvent, TraceTimelineSource, TraceToolCallCompleted,
@@ -74,7 +74,7 @@ pub fn append_trace_event(execution_trace_storage: &ExecutionTraceStorage, event
     }
 }
 
-pub fn append_restflow_trace_started(
+pub fn append_restflow_telemetry_started(
     execution_trace_storage: &ExecutionTraceStorage,
     trace: &RestflowTrace,
 ) {
@@ -84,7 +84,7 @@ pub fn append_restflow_trace_started(
     );
 }
 
-pub fn append_restflow_trace_completed(
+pub fn append_restflow_telemetry_completed(
     execution_trace_storage: &ExecutionTraceStorage,
     trace: &RestflowTrace,
     ai_duration_ms: Option<u64>,
@@ -95,7 +95,7 @@ pub fn append_restflow_trace_completed(
     );
 }
 
-pub fn append_restflow_trace_failed(
+pub fn append_restflow_telemetry_failed(
     execution_trace_storage: &ExecutionTraceStorage,
     trace: &RestflowTrace,
     error_text: &str,
@@ -111,7 +111,7 @@ pub fn append_restflow_trace_failed(
     );
 }
 
-pub fn append_restflow_trace_interrupted(
+pub fn append_restflow_telemetry_interrupted(
     execution_trace_storage: &ExecutionTraceStorage,
     trace: &RestflowTrace,
     reason: &str,
@@ -143,7 +143,7 @@ pub fn append_message_trace(
 ///
 /// Tool-call execution telemetry is emitted directly by `AgentExecutor` through
 /// `TelemetrySink`, so this adapter only preserves user-visible streaming.
-pub fn build_restflow_trace_emitter(
+pub fn build_restflow_telemetry_emitter(
     inner: Box<dyn StreamEmitter>,
     _execution_trace_storage: Option<ExecutionTraceStorage>,
     _trace: &RestflowTrace,

@@ -16,7 +16,7 @@ struct ToolRegistrySubagentBackend {
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
     llm_client_factory: Arc<dyn LlmClientFactory>,
-    telemetry_sink: Option<Arc<dyn restflow_trace::TelemetrySink>>,
+    telemetry_sink: Option<Arc<dyn restflow_telemetry::TelemetrySink>>,
 }
 
 #[async_trait::async_trait]
@@ -132,7 +132,7 @@ pub(super) fn build_service_subagent_manager(
             telemetry_metric_samples,
             provider_health_snapshots,
             structured_execution_logs,
-        )) as Arc<dyn restflow_trace::TelemetrySink>),
+        )) as Arc<dyn restflow_telemetry::TelemetrySink>),
         _ => {
             warn!("Failed to initialize core telemetry sink for service subagents");
             None

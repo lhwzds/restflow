@@ -3453,7 +3453,7 @@ dependencies = [
  "redb",
  "reqwest",
  "restflow-sandbox",
- "restflow-trace",
+ "restflow-telemetry",
  "restflow-traits",
  "serde",
  "serde_json",
@@ -3573,8 +3573,8 @@ dependencies = [
  "restflow-ai",
  "restflow-contracts",
  "restflow-storage",
+ "restflow-telemetry",
  "restflow-tools",
- "restflow-trace",
  "restflow-traits",
  "rmcp",
  "schemars",
@@ -3646,6 +3646,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "restflow-telemetry"
+version = "0.4.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "restflow-tools"
 version = "0.4.0"
 dependencies = [
@@ -3686,16 +3696,6 @@ dependencies = [
  "url",
  "urlencoding",
  "uuid",
-]
-
-[[package]]
-name = "restflow-trace"
-version = "0.4.0"
-dependencies = [
- "async-trait",
- "chrono",
- "serde",
- "serde_json",
 ]
 
 [[package]]

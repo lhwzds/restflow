@@ -7,7 +7,7 @@ use tokio::time::Duration;
 
 use crate::Result;
 use crate::error::AiError;
-use restflow_trace::TelemetrySink;
+use restflow_telemetry::TelemetrySink;
 
 pub use restflow_traits::subagent::{
     SubagentCompletion, SubagentResult, SubagentState, SubagentStatus,
