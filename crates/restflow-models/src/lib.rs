@@ -226,10 +226,27 @@ mod tests {
         let google = provider_meta(ModelProvider::Google);
         assert_eq!(google.runtime_provider, LlmProvider::Google);
         assert_eq!(google.api_key_env, Some("GEMINI_API_KEY"));
+        assert_eq!(google.models_dev_provider_ids, &["google"]);
 
         let claude_code = provider_meta(ModelProvider::ClaudeCode);
         assert_eq!(claude_code.runtime_provider, LlmProvider::Anthropic);
         assert_eq!(claude_code.api_key_env, None);
+        assert_eq!(
+            claude_code.models_dev_provider_ids,
+            &["claude-code", "anthropic"]
+        );
+    }
+
+    #[test]
+    fn provider_meta_exposes_models_dev_aliases() {
+        assert_eq!(
+            provider_meta(ModelProvider::Qwen).models_dev_provider_ids,
+            &["alibaba-cn", "alibaba"]
+        );
+        assert_eq!(
+            provider_meta(ModelProvider::Moonshot).models_dev_provider_ids,
+            &["moonshotai", "moonshotai-cn", "kimi-for-coding"]
+        );
     }
 
     #[test]
