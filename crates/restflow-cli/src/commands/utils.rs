@@ -98,26 +98,7 @@ pub fn parse_model(input: &str) -> Result<ModelId> {
 pub fn parse_provider(input: &str) -> Result<Provider> {
     let provider = ModelProvider::parse_alias(input)
         .ok_or_else(|| anyhow::anyhow!("Unknown provider: {input}"))?;
-    Ok(match provider {
-        ModelProvider::OpenAI => Provider::OpenAI,
-        ModelProvider::Anthropic => Provider::Anthropic,
-        ModelProvider::ClaudeCode => Provider::ClaudeCode,
-        ModelProvider::Codex => Provider::Codex,
-        ModelProvider::DeepSeek => Provider::DeepSeek,
-        ModelProvider::Google => Provider::Google,
-        ModelProvider::Groq => Provider::Groq,
-        ModelProvider::OpenRouter => Provider::OpenRouter,
-        ModelProvider::XAI => Provider::XAI,
-        ModelProvider::Qwen => Provider::Qwen,
-        ModelProvider::Zai => Provider::Zai,
-        ModelProvider::ZaiCodingPlan => Provider::ZaiCodingPlan,
-        ModelProvider::Moonshot => Provider::Moonshot,
-        ModelProvider::Doubao => Provider::Doubao,
-        ModelProvider::Yi => Provider::Yi,
-        ModelProvider::SiliconFlow => Provider::SiliconFlow,
-        ModelProvider::MiniMax => Provider::MiniMax,
-        ModelProvider::MiniMaxCodingPlan => Provider::MiniMaxCodingPlan,
-    })
+    Ok(Provider::from(provider))
 }
 
 pub fn parse_model_for_provider(provider: Provider, input: &str) -> Result<ModelId> {
@@ -142,26 +123,7 @@ pub fn parse_model_for_provider(provider: Provider, input: &str) -> Result<Model
 }
 
 fn provider_label(provider: Provider) -> &'static str {
-    match provider {
-        Provider::OpenAI => "openai",
-        Provider::Anthropic => "anthropic",
-        Provider::ClaudeCode => "claude-code",
-        Provider::Codex => "codex",
-        Provider::DeepSeek => "deepseek",
-        Provider::Google => "google",
-        Provider::Groq => "groq",
-        Provider::OpenRouter => "openrouter",
-        Provider::XAI => "xai",
-        Provider::Qwen => "qwen",
-        Provider::Zai => "zai",
-        Provider::ZaiCodingPlan => "zai-coding-plan",
-        Provider::Moonshot => "moonshot",
-        Provider::Doubao => "doubao",
-        Provider::Yi => "yi",
-        Provider::SiliconFlow => "siliconflow",
-        Provider::MiniMax => "minimax",
-        Provider::MiniMaxCodingPlan => "minimax-coding-plan",
-    }
+    provider.as_canonical_str()
 }
 
 pub fn slugify(input: &str) -> String {

@@ -17,7 +17,7 @@ keyring = { version = "3.6", optional = true, features = ["apple-native"] }
 # Internal dependencies
 restflow-contracts = { workspace = true }
 restflow-models = { workspace = true }
-restflow-traits = { workspace = true, features = ["ts"] }
+restflow-traits = { workspace = true, features = ["ts", "specta"] }
 restflow-telemetry = { workspace = true }
 restflow-ai = { path = "../restflow-ai" }
 restflow-tools = { workspace = true }

@@ -192,12 +192,12 @@ impl AgentRuntimeExecutor {
     ) -> HashMap<LlmProvider, String> {
         let mut keys = HashMap::new();
 
-        for provider in Provider::all() {
+        for provider in Provider::all().iter().copied() {
             if provider.api_key_env().is_none() {
                 continue;
             }
             if let Ok(key) = self
-                .resolve_api_key_for_model(*provider, agent_api_key_config, primary_provider)
+                .resolve_api_key_for_model(provider, agent_api_key_config, primary_provider)
                 .await
             {
                 keys.insert(provider.as_llm_provider(), key);

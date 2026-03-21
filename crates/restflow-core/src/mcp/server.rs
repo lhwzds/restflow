@@ -191,7 +191,7 @@ fn create_runtime_tool_registry_for_core(
 
 fn build_api_keys(secret_storage: Option<&SecretStorage>) -> HashMap<LlmProvider, String> {
     let mut keys = HashMap::new();
-    for provider in Provider::all() {
+    for provider in Provider::all().iter().copied() {
         let Some(env_name) = provider.api_key_env() else {
             continue;
         };
