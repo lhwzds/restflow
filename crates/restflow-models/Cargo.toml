@@ -1,0 +1,11 @@
+[package]
+name = "restflow-models"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+description = "Shared model and provider primitives for RestFlow"
+
+[dependencies]
+
+[lints.rust]
+dead_code = "allow"

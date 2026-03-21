@@ -3452,6 +3452,7 @@ dependencies = [
  "postcard",
  "redb",
  "reqwest",
+ "restflow-models",
  "restflow-sandbox",
  "restflow-telemetry",
  "restflow-traits",
@@ -3572,6 +3573,7 @@ dependencies = [
  "reqwest",
  "restflow-ai",
  "restflow-contracts",
+ "restflow-models",
  "restflow-storage",
  "restflow-telemetry",
  "restflow-tools",
@@ -3604,6 +3606,10 @@ dependencies = [
  "which",
  "zip",
 ]
+
+[[package]]
+name = "restflow-models"
+version = "0.4.0"
 
 [[package]]
 name = "restflow-sandbox"
