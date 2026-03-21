@@ -33,7 +33,7 @@ use super::broadcast_emitter::BroadcastStreamEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
 use crate::runtime::trace::{
-    RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
+    RestflowTrace, TraceEvent, append_trace_event, build_restflow_telemetry_emitter,
 };
 use restflow_traits::{
     DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
@@ -1260,7 +1260,7 @@ impl BackgroundAgentRunner {
             chrono::Utc::now().timestamp_millis(),
             uuid::Uuid::new_v4()
         );
-        let restflow_trace = RestflowTrace::new(
+        let restflow_telemetry = RestflowTrace::new(
             run_id,
             trace_session_id.clone(),
             task.id.clone(),
@@ -1269,7 +1269,7 @@ impl BackgroundAgentRunner {
         let execution_trace_storage = self.execution_trace_storage();
         append_trace_event(
             execution_trace_storage,
-            &TraceEvent::run_started(restflow_trace.clone()),
+            &TraceEvent::run_started(restflow_telemetry.clone()),
         );
 
         if resolved_input
@@ -1282,7 +1282,7 @@ impl BackgroundAgentRunner {
             append_trace_event(
                 execution_trace_storage,
                 &TraceEvent::run_failed(
-                    restflow_trace.clone(),
+                    restflow_telemetry.clone(),
                     error_msg.clone(),
                     Some(duration_ms.max(0) as u64),
                 ),
@@ -1339,10 +1339,10 @@ impl BackgroundAgentRunner {
                 Some(emitter) => emitter,
                 None => Box::new(NoopStreamEmitter),
             };
-            Some(build_restflow_trace_emitter(
+            Some(build_restflow_telemetry_emitter(
                 inner,
                 Some(execution_trace_storage.clone()),
-                &restflow_trace,
+                &restflow_telemetry,
             ))
         } else {
             broadcast_emitter
@@ -1491,7 +1491,7 @@ impl BackgroundAgentRunner {
                 append_trace_event(
                     execution_trace_storage,
                     &TraceEvent::run_interrupted(
-                        restflow_trace.clone(),
+                        restflow_telemetry.clone(),
                         "Stopped by user",
                         Some(duration_ms.max(0) as u64),
                     ),
@@ -1562,7 +1562,7 @@ impl BackgroundAgentRunner {
                         append_trace_event(
                             execution_trace_storage,
                             &TraceEvent::run_interrupted(
-                                restflow_trace.clone(),
+                                restflow_telemetry.clone(),
                                 "Paused by user",
                                 Some(duration_ms.max(0) as u64),
                             ),
@@ -1592,7 +1592,7 @@ impl BackgroundAgentRunner {
                         append_trace_event(
                             execution_trace_storage,
                             &TraceEvent::run_interrupted(
-                                restflow_trace.clone(),
+                                restflow_telemetry.clone(),
                                 "Stopped by user",
                                 Some(duration_ms.max(0) as u64),
                             ),
@@ -1625,7 +1625,7 @@ impl BackgroundAgentRunner {
                         append_trace_event(
                             execution_trace_storage,
                             &TraceEvent::run_interrupted(
-                                restflow_trace.clone(),
+                                restflow_telemetry.clone(),
                                 "Task deleted",
                                 Some(duration_ms.max(0) as u64),
                             ),
@@ -1670,7 +1670,7 @@ impl BackgroundAgentRunner {
                 append_trace_event(
                     execution_trace_storage,
                     &TraceEvent::run_completed(
-                        restflow_trace.clone(),
+                        restflow_telemetry.clone(),
                         Some(duration_ms.max(0) as u64),
                     ),
                 );
@@ -1751,7 +1751,7 @@ impl BackgroundAgentRunner {
                 append_trace_event(
                     execution_trace_storage,
                     &TraceEvent::run_failed(
-                        restflow_trace.clone(),
+                        restflow_telemetry.clone(),
                         error_msg.clone(),
                         Some(duration_ms.max(0) as u64),
                     ),
@@ -1799,7 +1799,7 @@ impl BackgroundAgentRunner {
                 append_trace_event(
                     execution_trace_storage,
                     &TraceEvent::run_failed(
-                        restflow_trace.clone(),
+                        restflow_telemetry.clone(),
                         error_msg.clone(),
                         Some(duration_ms.max(0) as u64),
                     ),

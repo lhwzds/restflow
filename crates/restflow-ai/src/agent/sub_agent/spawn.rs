@@ -11,7 +11,7 @@ use crate::agent::{AgentState, ResourceUsage};
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::{FilteredToolset, ToolRegistry};
-use restflow_trace::{
+use restflow_telemetry::{
     ExecutionEvent, ExecutionEventEnvelope, RestflowTrace, RunTraceContext, TelemetryContext,
     TelemetrySink,
 };
@@ -859,7 +859,7 @@ mod tests {
 
     use super::super::tracker::SubagentTracker;
     use super::*;
-    use restflow_trace::{ExecutionEvent, ExecutionEventEnvelope, TelemetrySink};
+    use restflow_telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetrySink};
     use restflow_traits::ToolError;
     use restflow_traits::subagent::{
         SpawnPriority, SubagentDefLookup, SubagentDefSummary, SubagentStatus,

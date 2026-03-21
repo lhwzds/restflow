@@ -1,10 +1,10 @@
 [package]
-name = "restflow-trace"
+name = "restflow-telemetry"
 version.workspace = true
 edition.workspace = true
 
 [lib]
-name = "restflow_trace"
+name = "restflow_telemetry"
 path = "src/lib.rs"
 
 [dependencies]

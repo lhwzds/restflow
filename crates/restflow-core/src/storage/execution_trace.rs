@@ -311,7 +311,7 @@ mod tests {
     fn test_query_filters_and_stats_include_telemetry_categories() {
         let storage = ExecutionTraceStorage::in_memory().unwrap();
         let base_trace =
-            restflow_trace::RestflowTrace::new("run-1", "session-1", "task-1", "agent-1");
+            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "task-1", "agent-1");
 
         let llm = ExecutionTraceEvent::llm_call(
             "task-1",

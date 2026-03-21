@@ -35,7 +35,7 @@ pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
 };
 pub use trace::{
-    RestflowTrace, append_message_trace, append_restflow_trace_completed,
-    append_restflow_trace_failed, append_restflow_trace_interrupted, append_restflow_trace_started,
-    build_restflow_trace_emitter,
+    RestflowTrace, append_message_trace, append_restflow_telemetry_completed,
+    append_restflow_telemetry_failed, append_restflow_telemetry_interrupted, append_restflow_telemetry_started,
+    build_restflow_telemetry_emitter,
 };

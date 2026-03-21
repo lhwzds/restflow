@@ -6,7 +6,7 @@ mod spawn;
 mod tracker;
 
 pub use manager::{SubagentDeps, SubagentManagerImpl};
-pub use restflow_trace::RunTraceContext;
+pub use restflow_telemetry::RunTraceContext;
 pub use spawn::{SubagentExecutionBridge, execute_subagent_once, spawn_subagent};
 pub use tracker::SubagentTracker;
 

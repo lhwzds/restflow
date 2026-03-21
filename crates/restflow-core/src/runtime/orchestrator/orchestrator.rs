@@ -12,7 +12,7 @@ use crate::runtime::background_agent::{
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
 use crate::runtime::orchestrator::modes::{background, interactive, subagent};
 use crate::runtime::trace::{
-    RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
+    RestflowTrace, TraceEvent, append_trace_event, build_restflow_telemetry_emitter,
 };
 use crate::storage::ExecutionTraceStorage;
 use restflow_ai::AgentState;
@@ -121,7 +121,7 @@ impl AgentOrchestratorImpl {
         );
 
         let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
-        let traced_emitter: Box<dyn StreamEmitter> = build_restflow_trace_emitter(
+        let traced_emitter: Box<dyn StreamEmitter> = build_restflow_telemetry_emitter(
             inner_emitter,
             Some(execution_trace_storage.clone()),
             &trace,
@@ -574,7 +574,7 @@ mod tests {
                 _emitter: Option<Box<dyn StreamEmitter>>,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
             ) -> Result<SessionExecutionResult> {
-                let trace = restflow_trace::RestflowTrace::new(
+                let trace = restflow_telemetry::RestflowTrace::new(
                     "run-traced-llm",
                     &_session.id,
                     &_session.id,

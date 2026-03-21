@@ -7,7 +7,7 @@
 //! - Metrics, provider health, and structured execution logs
 
 use chrono::Utc;
-use restflow_trace::RestflowTrace;
+use restflow_telemetry::RestflowTrace;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;

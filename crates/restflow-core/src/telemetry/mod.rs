@@ -1,10 +1,15 @@
+//! RestFlow execution telemetry implementation layer.
+//!
+//! This module owns product-specific projection, persistence, and query logic.
+//! The shared event domain lives in the `restflow-telemetry` crate.
+
 mod query;
 
 use std::sync::Arc;
 
 use anyhow::Result;
 use async_trait::async_trait;
-use restflow_trace::{
+use restflow_telemetry::{
     ExecutionEvent, ExecutionEventEnvelope, ExecutionLogRecord, ExecutionMetricSample,
     ProviderHealthChanged, TelemetrySink,
 };
@@ -814,7 +819,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
 }
 
 pub fn build_metric_sample_event(
-    trace: restflow_trace::RestflowTrace,
+    trace: restflow_telemetry::RestflowTrace,
     name: impl Into<String>,
     value: f64,
     unit: Option<String>,
@@ -828,7 +833,7 @@ pub fn build_metric_sample_event(
             unit,
             dimensions: dimensions
                 .into_iter()
-                .map(|dimension| restflow_trace::ExecutionMetricDimension {
+                .map(|dimension| restflow_telemetry::ExecutionMetricDimension {
                     key: dimension.key,
                     value: dimension.value,
                 })
@@ -838,7 +843,7 @@ pub fn build_metric_sample_event(
 }
 
 pub fn build_provider_health_event(
-    trace: restflow_trace::RestflowTrace,
+    trace: restflow_telemetry::RestflowTrace,
     provider: impl Into<String>,
     model: Option<String>,
     status: impl Into<String>,
@@ -858,7 +863,7 @@ pub fn build_provider_health_event(
 }
 
 pub fn build_log_record_event(
-    trace: restflow_trace::RestflowTrace,
+    trace: restflow_telemetry::RestflowTrace,
     level: impl Into<String>,
     message: impl Into<String>,
     fields: Vec<crate::models::ExecutionLogField>,
@@ -870,7 +875,7 @@ pub fn build_log_record_event(
             message: message.into(),
             fields: fields
                 .into_iter()
-                .map(|field| restflow_trace::ExecutionLogField {
+                .map(|field| restflow_telemetry::ExecutionLogField {
                     key: field.key,
                     value: field.value,
                 })
@@ -922,11 +927,11 @@ mod tests {
             storage.structured_execution_logs.clone(),
         );
         let trace =
-            restflow_trace::RestflowTrace::new("run-1", "session-1", "session-1", "agent-1");
+            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "session-1", "agent-1");
         sink.emit(
-            restflow_trace::ExecutionEventEnvelope::new(
+            restflow_telemetry::ExecutionEventEnvelope::new(
                 trace,
-                restflow_trace::ExecutionEvent::ModelSwitch {
+                restflow_telemetry::ExecutionEvent::ModelSwitch {
                     from_model: "minimax-coding-plan-m2-5-highspeed".to_string(),
                     to_model: "minimax-coding-plan-m2-5".to_string(),
                     reason: Some("failover".to_string()),
@@ -940,11 +945,11 @@ mod tests {
         .await;
 
         let llm_trace =
-            restflow_trace::RestflowTrace::new("run-1", "session-1", "session-1", "agent-1");
+            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "session-1", "agent-1");
         sink.emit(
-            restflow_trace::ExecutionEventEnvelope::new(
+            restflow_telemetry::ExecutionEventEnvelope::new(
                 llm_trace,
-                restflow_trace::ExecutionEvent::LlmCall(restflow_trace::TraceLlmCall {
+                restflow_telemetry::ExecutionEvent::LlmCall(restflow_telemetry::TraceLlmCall {
                     model: "minimax-coding-plan-m2-5".to_string(),
                     input_tokens: Some(120),
                     output_tokens: Some(30),
@@ -1072,7 +1077,7 @@ mod tests {
 
     #[test]
     fn projector_assigns_telemetry_source_categories() {
-        let trace = restflow_trace::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+        let trace = restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let event = build_metric_sample_event(trace, "latency_ms", 42.0, None, Vec::new());
         let projected = execution_event_to_trace_event(&event);
         assert_eq!(projected.category, ExecutionTraceCategory::MetricSample);

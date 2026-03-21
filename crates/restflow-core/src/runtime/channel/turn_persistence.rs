@@ -65,7 +65,7 @@ mod tests {
         let turn_id = "run-turn-1";
         let file_path = "/tmp/voice-a.webm";
 
-        let trace = restflow_trace::RestflowTrace::new("turn-1", session_id, session_id, "agent-1");
+        let trace = restflow_telemetry::RestflowTrace::new("turn-1", session_id, session_id, "agent-1");
         let start = ExecutionTraceEvent::tool_call(
             session_id,
             "agent-1",
@@ -166,7 +166,7 @@ mod tests {
         let input = voice_input(file_path);
 
         let trace =
-            restflow_trace::RestflowTrace::new("turn-failed", session_id, session_id, "agent-1");
+            restflow_telemetry::RestflowTrace::new("turn-failed", session_id, session_id, "agent-1");
         let start = ExecutionTraceEvent::tool_call(
             session_id,
             "agent-1",
