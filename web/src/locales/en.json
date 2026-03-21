@@ -301,6 +301,7 @@
     "marketplace": {
       "title": "Marketplace",
       "description": "Browse and install skills from marketplace providers.",
+      "refresh": "Refresh",
       "refreshInstalled": "Refresh Installed",
       "searchPlaceholder": "Search skills by name, tag, or author",
       "search": "Search",
