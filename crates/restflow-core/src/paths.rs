@@ -84,12 +84,6 @@ pub(crate) fn restflow_dir_env_lock() -> std::sync::MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-/// Ensure the RestFlow data directory exists and return its path.
-#[deprecated(note = "Use ensure_restflow_dir instead")]
-pub fn ensure_data_dir() -> Result<PathBuf> {
-    ensure_restflow_dir()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

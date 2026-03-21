@@ -7,7 +7,6 @@ mod derive;
 mod mapping;
 mod projector;
 mod query;
-mod resolution;
 mod sink;
 
 pub use derive::{
@@ -26,7 +25,6 @@ pub use query::{
     execution_trace_stats_for_events, get_execution_metrics, get_execution_timeline,
     get_provider_health, query_execution_logs,
 };
-pub use resolution::{ExecutionResolution, ModelSwitchRecord};
 pub use sink::{
     CoreTelemetrySink, ExecutionTraceSink, build_core_telemetry_sink,
     build_execution_trace_sink, emit_event, emit_message, emit_run_completed,

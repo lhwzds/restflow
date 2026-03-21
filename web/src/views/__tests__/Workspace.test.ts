@@ -4,6 +4,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import Workspace from '../Workspace.vue'
 
 const mockListAgents = vi.fn()
+const mockRouterPush = vi.fn()
 const mockCreateSession = vi.fn()
 const mockSelectSession = vi.fn()
 const mockFetchSummaries = vi.fn()
@@ -15,6 +16,12 @@ let mockBackgroundStore: any
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) => key,
+  }),
+}))
+
+vi.mock('vue-router', () => ({
+  useRouter: () => ({
+    push: (...args: unknown[]) => mockRouterPush(...args),
   }),
 }))
 
@@ -72,8 +79,9 @@ vi.mock('@/composables/workspace/useToolPanel', () => ({
 vi.mock('@/components/workspace/SessionList.vue', () => ({
   default: defineComponent({
     name: 'SessionList',
-    emits: ['newSession'],
-    template: '<button data-testid="new-session" @click="$emit(\'newSession\')">new</button>',
+    emits: ['newSession', 'viewRunTrace'],
+    template:
+      '<div><button data-testid="new-session" @click="$emit(\'newSession\')">new</button><button data-testid="view-run-trace" @click="$emit(\'viewRunTrace\', \'task-1\')">trace</button></div>',
   }),
 }))
 
@@ -153,6 +161,7 @@ function createSession(id: string) {
 describe('Workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockRouterPush.mockReset()
 
     mockStore = {
       summaries: [],
@@ -302,5 +311,43 @@ describe('Workspace', () => {
 
     expect(brand.text()).toContain('RestFlow')
     expect(safeZone.classes()).toContain('w-[5rem]')
+  })
+
+  it('navigates to run trace routes from session list actions', async () => {
+    const wrapper = mount(Workspace, {
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          Dialog: {
+            template: '<div><slot /></div>',
+          },
+          DialogContent: {
+            template: '<div><slot /></div>',
+          },
+          DialogHeader: {
+            template: '<div><slot /></div>',
+          },
+          DialogTitle: {
+            template: '<div><slot /></div>',
+          },
+          DialogFooter: {
+            template: '<div><slot /></div>',
+          },
+          Input: {
+            template: '<input />',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-testid="view-run-trace"]').trigger('click')
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-run',
+      params: { taskId: 'task-1' },
+    })
   })
 })

@@ -12,6 +12,8 @@ type BackgroundAgentSummary = {
 }
 
 test.describe('Background Agent Web Flow', () => {
+  test.describe.configure({ mode: 'serial' })
+
   async function openSessionMenu(page: Page, sessionRow: Locator) {
     const menuTrigger = sessionRow.locator('button').last()
 
@@ -45,7 +47,7 @@ test.describe('Background Agent Web Flow', () => {
     }
 
     const sessionRow = page.getByTestId(`session-row-${sessionId}`)
-    await expect(sessionRow).toBeVisible()
+    await expect(sessionRow).toBeVisible({ timeout: 15000 })
 
     const convertItem = await openSessionMenu(page, sessionRow)
     await expect(convertItem).toBeVisible()
@@ -75,5 +77,48 @@ test.describe('Background Agent Web Flow', () => {
         return agents.some((agent) => agent.chat_session_id === sessionId)
       })
       .toBe(true)
+  })
+
+  test('opens the background agent run trace view from the session menu', async ({ page }) => {
+    await goToWorkspace(page)
+    await page.getByRole('button', { name: 'New Session' }).click()
+
+    const sessions = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
+    const sessionId = [...sessions].sort((left, right) => right.updated_at - left.updated_at)[0]?.id
+    if (!sessionId) {
+      throw new Error('Failed to locate the newly created workspace session')
+    }
+
+    const sessionRow = page.getByTestId(`session-row-${sessionId}`)
+    await expect(sessionRow).toBeVisible({ timeout: 15000 })
+
+    const convertItem = await openSessionMenu(page, sessionRow)
+    await convertItem.click()
+
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await dialog.locator('input').first().fill(`Trace View ${Date.now()}`)
+    await dialog.locator('textarea').fill('Prepare a background task for run trace viewing')
+    await dialog.getByRole('button', { name: 'Convert' }).click()
+    await expect(dialog).not.toBeVisible()
+
+    const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
+      type: 'ListBackgroundAgents',
+      data: { status: null },
+    })
+    const taskId = agents.find((agent) => agent.chat_session_id === sessionId)?.id
+    if (!taskId) {
+      throw new Error('Failed to find background agent task after conversion')
+    }
+
+    await expect(sessionRow.getByText('background')).toBeVisible()
+    await sessionRow.hover()
+    await sessionRow.locator('button').last().click({ force: true })
+    await page.getByRole('menuitem', { name: 'View Run Trace', exact: true }).click()
+
+    await expect(page).toHaveURL(new RegExp(`/workspace/runs/${taskId}$`))
+    await expect(page.getByTestId('background-agent-run-view')).toBeVisible()
+    await expect(page.getByTestId('execution-telemetry-viewer')).toBeVisible()
+    await expect(page.getByText('No telemetry events yet')).toBeVisible()
   })
 })

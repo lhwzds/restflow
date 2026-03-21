@@ -8,6 +8,7 @@
  * - Right: Tool panel (chat mode only)
  */
 import { ref, computed, onMounted, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Settings, Moon, Sun, Bot, MessageSquare } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -42,6 +43,7 @@ import type { StreamStep } from '@/composables/workspace/useChatStream'
 const toast = useToast()
 const { t } = useI18n()
 const { confirm } = useConfirm()
+const router = useRouter()
 const chatSessionStore = useChatSessionStore()
 const backgroundAgentStore = useBackgroundAgentStore()
 const { isDark, toggleDark } = useTheme()
@@ -70,10 +72,10 @@ const createAgentDialogOpen = ref(false)
 
 const sessions = computed<SessionItem[]>(() => {
   const agentLookup = new Map(availableAgents.value.map((a) => [a.id, a.name]))
-  const backgroundSessionIds = new Set(
+  const backgroundTaskBySessionId = new Map(
     backgroundAgentStore.agents
-      .map((agent) => agent.chat_session_id.trim())
-      .filter((id) => id.length > 0),
+      .map((agent) => [agent.chat_session_id.trim(), agent.id] as const)
+      .filter(([id]) => id.length > 0),
   )
 
   return chatSessionStore.summaries.map((session: ChatSessionSummary) => ({
@@ -89,7 +91,8 @@ const sessions = computed<SessionItem[]>(() => {
     agentId: session.agent_id,
     agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
     sourceChannel: session.source_channel,
-    isBackgroundSession: backgroundSessionIds.has(session.id),
+    isBackgroundSession: backgroundTaskBySessionId.has(session.id),
+    backgroundTaskId: backgroundTaskBySessionId.get(session.id) ?? null,
   }))
 })
 
@@ -290,6 +293,13 @@ async function onRebuildSession(id: string, name: string) {
   }
 }
 
+function onViewRunTrace(taskId: string) {
+  void router.push({
+    name: 'workspace-run',
+    params: { taskId },
+  })
+}
+
 function onCreateAgent() {
   createAgentDialogOpen.value = true
 }
@@ -381,6 +391,7 @@ watch(selectedItemId, () => {
 
 onMounted(() => {
   void loadAgents()
+  void backgroundAgentStore.fetchAgents()
 })
 </script>
 
@@ -438,6 +449,7 @@ onMounted(() => {
           @delete="onDeleteSession"
           @convert-to-background-agent="onConvertToBackgroundAgent"
           @convert-to-workspace-session="onConvertToWorkspaceSession"
+          @view-run-trace="onViewRunTrace"
           @rebuild="onRebuildSession"
         />
 

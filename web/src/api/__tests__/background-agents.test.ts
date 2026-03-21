@@ -1,19 +1,34 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  getBackgroundAgent,
   listMemoryChunksByTag,
   listMemoryChunksForSession,
   listMemorySessions,
 } from '../background-agents'
-import { requestTyped } from '../http-client'
+import { requestOptional, requestTyped } from '../http-client'
 
 vi.mock('../http-client', () => ({
   fetchJson: vi.fn(),
+  requestOptional: vi.fn(),
   requestTyped: vi.fn(),
 }))
 
 describe('background-agents memory API', () => {
   beforeEach(() => {
     vi.mocked(requestTyped).mockReset()
+    vi.mocked(requestOptional).mockReset()
+  })
+
+  it('calls get background agent through optional daemon request', async () => {
+    vi.mocked(requestOptional).mockResolvedValueOnce(null)
+
+    const result = await getBackgroundAgent('task-1')
+
+    expect(requestOptional).toHaveBeenCalledWith({
+      type: 'GetBackgroundAgent',
+      data: { id: 'task-1' },
+    })
+    expect(result).toBeNull()
   })
 
   it('calls list memory sessions with agent_id', async () => {

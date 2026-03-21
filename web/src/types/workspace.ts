@@ -17,6 +17,8 @@ export interface SessionItem {
   sourceChannel?: ChatSessionSource | null
   /** Indicates the chat session is bound to a background agent task. */
   isBackgroundSession?: boolean
+  /** Background task ID when the session is bound to a background agent. */
+  backgroundTaskId?: string | null
   /** If true, this item represents a background agent, not a chat session */
   isBackgroundAgent?: boolean
 }

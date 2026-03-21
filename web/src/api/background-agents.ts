@@ -8,7 +8,7 @@ import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 import type { MemorySession } from '@/types/generated/MemorySession'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
-import { fetchJson, requestTyped } from './http-client'
+import { fetchJson, requestOptional, requestTyped } from './http-client'
 
 export type { BackgroundAgent, TaskEvent }
 
@@ -22,6 +22,13 @@ export async function listBackgroundAgents(): Promise<BackgroundAgent[]> {
   return requestTyped<BackgroundAgent[]>({
     type: 'ListBackgroundAgents',
     data: { status: null },
+  })
+}
+
+export async function getBackgroundAgent(id: string): Promise<BackgroundAgent | null> {
+  return requestOptional<BackgroundAgent>({
+    type: 'GetBackgroundAgent',
+    data: { id },
   })
 }
 
