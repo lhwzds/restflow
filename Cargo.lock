@@ -3610,6 +3610,9 @@ dependencies = [
 [[package]]
 name = "restflow-models"
 version = "0.4.0"
+dependencies = [
+ "restflow-traits",
+]
 
 [[package]]
 name = "restflow-sandbox"

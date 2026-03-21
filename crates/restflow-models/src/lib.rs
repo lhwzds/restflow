@@ -1,5 +1,9 @@
 //! Shared model/provider primitives used by runtime, core, and tools.
 
+mod provider_meta;
+
+pub use provider_meta::{ALL_PROVIDER_META, ProviderMeta, provider_meta};
+
 /// Concrete execution path used to satisfy an LLM request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ClientKind {
@@ -170,7 +174,9 @@ impl ModelSpec {
 
 #[cfg(test)]
 mod tests {
-    use super::{ClientKind, LlmProvider, ModelSpec};
+    use restflow_traits::ModelProvider;
+
+    use super::{ALL_PROVIDER_META, ClientKind, LlmProvider, ModelSpec, provider_meta};
 
     #[test]
     fn provider_base_urls_are_stable() {
@@ -212,5 +218,25 @@ mod tests {
         let spec = ModelSpec::new("glm-5", LlmProvider::Zai, "glm-5")
             .with_base_url("https://example.invalid");
         assert_eq!(spec.base_url.as_deref(), Some("https://example.invalid"));
+    }
+
+    #[test]
+    fn provider_meta_exposes_runtime_provider_and_env() {
+        let google = provider_meta(ModelProvider::Google);
+        assert_eq!(google.runtime_provider, LlmProvider::Google);
+        assert_eq!(google.api_key_env, Some("GEMINI_API_KEY"));
+
+        let claude_code = provider_meta(ModelProvider::ClaudeCode);
+        assert_eq!(claude_code.runtime_provider, LlmProvider::Anthropic);
+        assert_eq!(claude_code.api_key_env, None);
+    }
+
+    #[test]
+    fn provider_meta_catalog_stays_in_sync_with_model_provider() {
+        assert_eq!(ALL_PROVIDER_META.len(), 18);
+        assert_eq!(
+            provider_meta(ModelProvider::MiniMaxCodingPlan).canonical_name(),
+            "minimax-coding-plan"
+        );
     }
 }

@@ -6,6 +6,7 @@ edition.workspace = true
 description = "Shared model and provider primitives for RestFlow"
 
 [dependencies]
+restflow-traits = { workspace = true }
 
 [lints.rust]
 dead_code = "allow"

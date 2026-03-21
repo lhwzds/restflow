@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::error::{AiError, Result};
 use crate::llm::{LlmClient, LlmClientFactory, LlmProvider};
+use restflow_models::provider_meta;
 use restflow_traits::ModelProvider;
 
 pub(crate) fn resolve_llm_client(
@@ -216,26 +217,7 @@ fn parse_provider_selector(value: &str) -> Option<LlmProvider> {
     }
 
     let provider = ModelProvider::parse_alias(&normalized)?;
-    Some(match provider {
-        ModelProvider::OpenAI => LlmProvider::OpenAI,
-        ModelProvider::Anthropic => LlmProvider::Anthropic,
-        ModelProvider::ClaudeCode => LlmProvider::Anthropic,
-        ModelProvider::Codex => LlmProvider::OpenAI,
-        ModelProvider::DeepSeek => LlmProvider::DeepSeek,
-        ModelProvider::Google => LlmProvider::Google,
-        ModelProvider::Groq => LlmProvider::Groq,
-        ModelProvider::OpenRouter => LlmProvider::OpenRouter,
-        ModelProvider::XAI => LlmProvider::XAI,
-        ModelProvider::Qwen => LlmProvider::Qwen,
-        ModelProvider::Zai => LlmProvider::Zai,
-        ModelProvider::ZaiCodingPlan => LlmProvider::ZaiCodingPlan,
-        ModelProvider::Moonshot => LlmProvider::Moonshot,
-        ModelProvider::Doubao => LlmProvider::Doubao,
-        ModelProvider::Yi => LlmProvider::Yi,
-        ModelProvider::SiliconFlow => LlmProvider::SiliconFlow,
-        ModelProvider::MiniMax => LlmProvider::MiniMax,
-        ModelProvider::MiniMaxCodingPlan => LlmProvider::MiniMaxCodingPlan,
-    })
+    Some(provider_meta(provider).runtime_provider)
 }
 
 fn normalize_model_identifier(value: &str) -> String {
