@@ -963,8 +963,20 @@ impl ChatDispatcher {
             warn!("Failed to save exchange to session: {}", e);
         } else {
             let telemetry_sink = build_execution_trace_sink(&self.storage.execution_traces);
-            emit_message(&telemetry_sink, trace.clone(), "user", &final_persisted_input).await;
-            emit_message(&telemetry_sink, trace.clone(), "assistant", &structured_output).await;
+            emit_message(
+                &telemetry_sink,
+                trace.clone(),
+                "user",
+                &final_persisted_input,
+            )
+            .await;
+            emit_message(
+                &telemetry_sink,
+                trace.clone(),
+                "assistant",
+                &structured_output,
+            )
+            .await;
         }
 
         // 6. Send response (plain message without emoji prefix for AI chat)
@@ -1546,7 +1558,7 @@ mod tests {
         assert!(
             specs
                 .iter()
-                .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
+                .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli())
         );
     }
 

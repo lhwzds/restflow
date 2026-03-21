@@ -38,14 +38,10 @@ pub trait LlmSwitcher: Send + Sync {
     /// Resolve the API key for a provider name.
     fn resolve_api_key(&self, provider: &str) -> Option<String>;
 
-    /// Whether the model is a Codex CLI model.
-    fn is_codex_cli_model(&self, model: &str) -> bool;
-
-    /// Whether the model is an OpenCode CLI model.
-    fn is_opencode_cli_model(&self, model: &str) -> bool;
-
-    /// Whether the model is a Gemini CLI model.
-    fn is_gemini_cli_model(&self, model: &str) -> bool;
+    /// Return the concrete client kind for a known model.
+    ///
+    /// Known values are `http`, `codex-cli`, `opencode-cli`, and `gemini-cli`.
+    fn client_kind_for_model(&self, model: &str) -> Option<&'static str>;
 
     /// Create a new LLM client for the given model and swap the active client.
     ///

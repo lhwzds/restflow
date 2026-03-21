@@ -76,9 +76,15 @@ impl SwitchModelTool {
                     && !self.is_cli_scoped_model(model)
             }
             ProviderSelector::ClaudeCode => Self::is_claude_code_model(model),
-            ProviderSelector::OpenAICodex => self.switcher.is_codex_cli_model(model),
-            ProviderSelector::OpenCodeCli => self.switcher.is_opencode_cli_model(model),
-            ProviderSelector::GeminiCli => self.switcher.is_gemini_cli_model(model),
+            ProviderSelector::OpenAICodex => {
+                self.switcher.client_kind_for_model(model) == Some("codex-cli")
+            }
+            ProviderSelector::OpenCodeCli => {
+                self.switcher.client_kind_for_model(model) == Some("opencode-cli")
+            }
+            ProviderSelector::GeminiCli => {
+                self.switcher.client_kind_for_model(model) == Some("gemini-cli")
+            }
         }
     }
 
@@ -89,9 +95,10 @@ impl SwitchModelTool {
     }
 
     fn is_cli_scoped_model(&self, model: &str) -> bool {
-        self.switcher.is_codex_cli_model(model)
-            || self.switcher.is_opencode_cli_model(model)
-            || self.switcher.is_gemini_cli_model(model)
+        self.switcher
+            .client_kind_for_model(model)
+            .map(|kind| kind != "http")
+            .unwrap_or(false)
             || Self::is_claude_code_model(model)
     }
 
@@ -225,9 +232,11 @@ impl Tool for SwitchModelTool {
         let model_name = self.resolve_target_model(requested_provider, requested_model)?;
 
         let provider_name = self.resolve_provider_name(&model_name)?;
-        let is_cli = self.switcher.is_codex_cli_model(&model_name)
-            || self.switcher.is_opencode_cli_model(&model_name)
-            || self.switcher.is_gemini_cli_model(&model_name);
+        let is_cli = self
+            .switcher
+            .client_kind_for_model(&model_name)
+            .map(|kind| kind != "http")
+            .unwrap_or(false);
         let api_key = if is_cli {
             self.switcher.resolve_api_key(&provider_name)
         } else {
@@ -269,11 +278,11 @@ mod tests {
     use super::*;
     use restflow_ai::error::AiError;
     use restflow_ai::llm::{
-        CompletionRequest, CompletionResponse, FinishReason, LlmClient, LlmClientFactory,
-        LlmProvider, StreamResult, SwappableLlm, TokenUsage,
+        ClientKind, CompletionRequest, CompletionResponse, FinishReason, LlmClient,
+        LlmClientFactory, LlmProvider, StreamResult, SwappableLlm, TokenUsage,
     };
     type AiResult<T> = std::result::Result<T, AiError>;
-    use std::collections::{HashMap, HashSet};
+    use std::collections::HashMap;
     use std::sync::Mutex;
 
     struct MockClient {
@@ -318,9 +327,7 @@ mod tests {
         available: Vec<String>,
         providers: HashMap<String, LlmProvider>,
         api_keys: HashMap<LlmProvider, String>,
-        codex_models: HashSet<String>,
-        opencode_models: HashSet<String>,
-        gemini_models: HashSet<String>,
+        client_kinds: HashMap<String, ClientKind>,
         create_calls: Mutex<Vec<(String, Option<String>)>>,
     }
 
@@ -342,9 +349,10 @@ mod tests {
                     .into_iter()
                     .map(|(provider, key)| (provider, key.to_string()))
                     .collect(),
-                codex_models: codex_models.into_iter().map(normalize).collect(),
-                opencode_models: HashSet::new(),
-                gemini_models: HashSet::new(),
+                client_kinds: codex_models
+                    .into_iter()
+                    .map(|model| (normalize(model), ClientKind::CodexCli))
+                    .collect(),
                 create_calls: Mutex::new(Vec::new()),
             }
         }
@@ -382,16 +390,14 @@ mod tests {
             self.providers.get(&model.trim().to_lowercase()).copied()
         }
 
-        fn is_codex_cli_model(&self, model: &str) -> bool {
-            self.codex_models.contains(&model.trim().to_lowercase())
-        }
-
-        fn is_opencode_cli_model(&self, model: &str) -> bool {
-            self.opencode_models.contains(&model.trim().to_lowercase())
-        }
-
-        fn is_gemini_cli_model(&self, model: &str) -> bool {
-            self.gemini_models.contains(&model.trim().to_lowercase())
+        fn client_kind_for_model(&self, model: &str) -> Option<ClientKind> {
+            let normalized = model.trim().to_lowercase();
+            self.providers.contains_key(&normalized).then(|| {
+                self.client_kinds
+                    .get(&normalized)
+                    .copied()
+                    .unwrap_or(ClientKind::Http)
+            })
         }
     }
 
