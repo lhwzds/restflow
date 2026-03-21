@@ -1,10 +1,8 @@
-pub use restflow_models::{ModelMetadata, ModelMetadataDTO};
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
-use super::{Provider, ValidationError, model_id::ModelId};
+use super::{ModelId, Provider, ValidationError};
 
 /// Provider + model pair used by API and persistence layers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type)]

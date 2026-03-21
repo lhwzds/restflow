@@ -1,7 +1,6 @@
 pub mod agent;
 pub mod agent_execution;
 pub mod agent_meta;
-pub mod ai_model;
 pub mod audit;
 pub mod background_agent;
 pub mod channel_session_binding;
@@ -12,9 +11,7 @@ pub mod execution_console;
 pub mod execution_trace;
 pub mod hook;
 pub mod memory;
-pub mod model_id;
 pub mod model_ref;
-pub mod provider;
 mod provider_policy;
 pub mod security;
 pub mod shared_space;
@@ -29,6 +26,9 @@ pub mod trigger;
 pub mod validation;
 pub mod webhook;
 pub mod work_item;
+
+#[cfg(test)]
+mod model_tests;
 
 pub use agent::{
     AgentNode, ApiKeyConfig, CodexCliExecutionMode, ModelRoutingConfig, SkillPreflightPolicyMode,
@@ -55,10 +55,9 @@ pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
     SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
-pub use model_id::ModelId;
-pub use model_ref::{ModelMetadataDTO, ModelRef};
-pub use provider::Provider;
+pub use model_ref::ModelRef;
 pub(crate) use provider_policy::{provider_auth_providers, provider_default_model};
+pub use restflow_models::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 pub use work_item::{ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec};
