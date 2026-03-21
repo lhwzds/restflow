@@ -1253,15 +1253,51 @@ async fn test_run_with_emitter_emits_model_switch_for_routing() {
         current: Mutex<String>,
     }
 
-    #[async_trait]
-    impl crate::agent::ModelSwitcher for RecordingSwitcher {
+    impl restflow_traits::llm::LlmSwitcher for RecordingSwitcher {
         fn current_model(&self) -> String {
             self.current.lock().unwrap().clone()
         }
 
-        async fn switch_model(&self, target_model: &str) -> Result<()> {
-            *self.current.lock().unwrap() = target_model.to_string();
-            Ok(())
+        fn current_provider(&self) -> String {
+            "mock".to_string()
+        }
+
+        fn available_models(&self) -> Vec<String> {
+            vec!["gpt-5".to_string(), "gpt-5-pro".to_string()]
+        }
+
+        fn provider_for_model(&self, _model: &str) -> Option<String> {
+            Some("openai".to_string())
+        }
+
+        fn resolve_api_key(&self, _provider: &str) -> Option<String> {
+            Some("test-key".to_string())
+        }
+
+        fn client_kind_for_model(&self, _model: &str) -> Option<&'static str> {
+            Some("http")
+        }
+
+        fn create_and_swap(
+            &self,
+            model: &str,
+            _api_key: Option<&str>,
+        ) -> std::result::Result<restflow_traits::llm::SwapResult, restflow_traits::ToolError>
+        {
+            let previous_model = self.current();
+            *self.current.lock().unwrap() = model.to_string();
+            Ok(restflow_traits::llm::SwapResult {
+                previous_provider: "openai".to_string(),
+                previous_model,
+                new_provider: "openai".to_string(),
+                new_model: model.to_string(),
+            })
+        }
+    }
+
+    impl RecordingSwitcher {
+        fn current(&self) -> String {
+            self.current.lock().unwrap().clone()
         }
     }
 

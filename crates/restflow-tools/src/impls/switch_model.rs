@@ -86,12 +86,6 @@ impl SwitchModelTool {
         }
         Ok(model)
     }
-
-    fn resolve_provider_name(&self, model: &str) -> Result<String> {
-        self.switcher
-            .provider_for_model(model)
-            .ok_or_else(|| ToolError::Tool(format!("Unknown model: {model}")))
-    }
 }
 
 #[async_trait]
@@ -143,27 +137,7 @@ impl Tool for SwitchModelTool {
             .map(|value| value.to_string());
 
         let model_name = self.resolve_target_model(requested_provider, requested_model)?;
-
-        let provider_name = self.resolve_provider_name(&model_name)?;
-        let is_cli = self
-            .switcher
-            .client_kind_for_model(&model_name)
-            .map(|kind| kind != "http")
-            .unwrap_or(false);
-        let api_key = if is_cli {
-            self.switcher.resolve_api_key(&provider_name)
-        } else {
-            Some(self.switcher.resolve_api_key(&provider_name).ok_or_else(|| {
-                ToolError::Tool(format!(
-                    "No API key for provider '{}'. Set the key via manage_secrets tool (e.g., ANTHROPIC_API_KEY, OPENAI_API_KEY).",
-                    provider_name,
-                ))
-            })?)
-        };
-
-        let swap_result = self
-            .switcher
-            .create_and_swap(&model_name, api_key.as_deref())?;
+        let swap_result = self.switcher.switch_model(&model_name)?;
 
         let payload = json!({
             "switched": true,

@@ -164,7 +164,7 @@ impl AgentRuntimeExecutor {
         if let Some(model_routing) = agent_node.model_routing.as_ref() {
             config = config.with_model_routing(AiModelRoutingConfig::from(model_routing));
             if model_routing.enabled {
-                let switcher: Arc<dyn AiModelSwitcher> = Arc::new(RuntimeModelSwitcher {
+                let switcher: Arc<dyn LlmSwitcher> = Arc::new(RuntimeModelSwitcher {
                     swappable: swappable.clone(),
                     factory: factory.clone(),
                     agent_node: agent_node.clone(),

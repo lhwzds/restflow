@@ -41,7 +41,7 @@ use std::{
 };
 
 use restflow_telemetry::{
-    ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink, LlmCallPayload,
+    ExecutionEvent, ExecutionEventEnvelope, LlmCallPayload, TelemetryContext, TelemetrySink,
 };
 use serde_json::Value;
 
@@ -469,7 +469,7 @@ impl AgentExecutor {
                 let current_model = switcher.current_model();
                 let target_model = select_model(routing, tier, &current_model);
                 if target_model != current_model {
-                    if let Err(error) = switcher.switch_model(&target_model).await {
+                    if let Err(error) = switcher.switch_model(&target_model) {
                         debug!(
                             current_model = %current_model,
                             target_model = %target_model,

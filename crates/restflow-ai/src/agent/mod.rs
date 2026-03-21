@@ -33,7 +33,7 @@ pub use context::{
 };
 pub use deferred::{DeferredExecutionManager, DeferredStatus, DeferredToolCall};
 pub use executor::{AgentConfig, AgentExecutor, AgentResult, CheckpointDurability};
-pub use model_router::{ModelRoutingConfig, ModelSwitcher, TaskTier, classify_task, select_model};
+pub use model_router::{ModelRoutingConfig, TaskTier, classify_task, select_model};
 pub use prompt_flags::PromptFlags;
 pub use resource::{ResourceError, ResourceLimits, ResourceTracker, ResourceUsage};
 pub use state::{AgentState, AgentStatus};

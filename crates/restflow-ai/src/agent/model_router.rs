@@ -1,9 +1,6 @@
 //! Model routing helpers for choosing a model tier based on task complexity.
 
-use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-
-use crate::error::Result;
 
 /// Task complexity tier for model routing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -45,16 +42,6 @@ impl Default for ModelRoutingConfig {
             escalate_on_failure: true,
         }
     }
-}
-
-/// Runtime abstraction used by the executor to switch the active model.
-#[async_trait]
-pub trait ModelSwitcher: Send + Sync {
-    /// Return the currently active model identifier.
-    fn current_model(&self) -> String;
-
-    /// Switch to the target model identifier.
-    async fn switch_model(&self, target_model: &str) -> Result<()>;
 }
 
 /// Classify the complexity of a pending agent action.
