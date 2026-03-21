@@ -14,7 +14,7 @@ use crate::runtime::orchestrator::modes::{background, interactive, subagent};
 use crate::runtime::trace::{
     RestflowTrace, TraceEvent, append_trace_event, build_restflow_trace_emitter,
 };
-use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
+use crate::storage::ExecutionTraceStorage;
 use restflow_ai::AgentState;
 use restflow_ai::agent::{NullEmitter, StreamEmitter};
 use restflow_traits::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
@@ -32,7 +32,6 @@ pub struct InteractiveSessionRequest<'a> {
     pub max_history: usize,
     pub input_mode: SessionInputMode,
     pub run_id: String,
-    pub tool_trace_storage: ToolTraceStorage,
     pub execution_trace_storage: ExecutionTraceStorage,
     pub timeout_secs: Option<u64>,
     pub emitter: Option<Box<dyn StreamEmitter>>,
@@ -105,7 +104,6 @@ impl AgentOrchestratorImpl {
             max_history,
             input_mode,
             run_id,
-            tool_trace_storage,
             execution_trace_storage,
             timeout_secs,
             emitter,
@@ -118,15 +116,13 @@ impl AgentOrchestratorImpl {
             session.agent_id.clone(),
         );
         append_trace_event(
-            &tool_trace_storage,
-            Some(&execution_trace_storage),
+            &execution_trace_storage,
             &TraceEvent::run_started(trace.clone()),
         );
 
         let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
         let traced_emitter: Box<dyn StreamEmitter> = build_restflow_trace_emitter(
             inner_emitter,
-            tool_trace_storage.clone(),
             Some(execution_trace_storage.clone()),
             &trace,
         );
@@ -151,8 +147,7 @@ impl AgentOrchestratorImpl {
                     let duration_ms = started_at.elapsed().as_millis() as u64;
                     let error = InteractiveExecutionError::Timeout { timeout_secs };
                     append_trace_event(
-                        &tool_trace_storage,
-                        Some(&execution_trace_storage),
+                        &execution_trace_storage,
                         &TraceEvent::run_failed(
                             trace.clone(),
                             error.to_string(),
@@ -179,8 +174,7 @@ impl AgentOrchestratorImpl {
             Ok(result) => result.execution,
             Err(error) => {
                 append_trace_event(
-                    &tool_trace_storage,
-                    Some(&execution_trace_storage),
+                    &execution_trace_storage,
                     &TraceEvent::run_failed(
                         trace.clone(),
                         error.to_string(),
@@ -193,8 +187,7 @@ impl AgentOrchestratorImpl {
 
         let duration_ms = started_at.elapsed().as_millis() as u64;
         append_trace_event(
-            &tool_trace_storage,
-            Some(&execution_trace_storage),
+            &execution_trace_storage,
             &TraceEvent::run_completed(trace.clone(), Some(duration_ms)),
         );
 
@@ -369,14 +362,14 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::models::{
-        ChatSession, ExecutionTraceCategory, ExecutionTraceQuery, MemoryConfig, ModelId,
-        SteerMessage,
+        ChatSession, ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
+        LlmCallTrace, MemoryConfig, ModelId, ModelSwitchTrace, SteerMessage,
     };
     use crate::runtime::background_agent::{
         ExecutionResult, SessionExecutionResult, SessionInputMode,
     };
     use crate::runtime::orchestrator::kernel::ExecutionBackend;
-    use crate::storage::{ExecutionTraceStorage, ToolTraceStorage};
+    use crate::storage::ExecutionTraceStorage;
     use restflow_ai::AgentState;
     use restflow_ai::agent::StreamEmitter;
     use restflow_ai::llm::Message;
@@ -473,13 +466,12 @@ mod tests {
         }
     }
 
-    fn setup_trace_storages() -> (TempDir, ToolTraceStorage, ExecutionTraceStorage) {
+    fn setup_trace_storage() -> (TempDir, ExecutionTraceStorage) {
         let temp_dir = tempfile::tempdir().expect("tempdir");
         let db_path = temp_dir.path().join("orchestrator-trace.db");
         let db = Arc::new(Database::create(db_path).expect("db"));
         (
             temp_dir,
-            ToolTraceStorage::new(db.clone()).expect("tool trace storage"),
             ExecutionTraceStorage::new(db).expect("execution trace storage"),
         )
     }
@@ -524,7 +516,7 @@ mod tests {
             .expect("session lock")
             .replace(session.clone());
         let orchestrator = AgentOrchestratorImpl::new(backend);
-        let (_temp_dir, tool_trace_storage, execution_trace_storage) = setup_trace_storages();
+        let (_temp_dir, execution_trace_storage) = setup_trace_storage();
 
         let result = orchestrator
             .run_traced_interactive_session_turn(InteractiveSessionRequest {
@@ -533,8 +525,7 @@ mod tests {
                 max_history: 20,
                 input_mode: SessionInputMode::EphemeralInput,
                 run_id: "run-traced".to_string(),
-                tool_trace_storage: tool_trace_storage.clone(),
-                execution_trace_storage,
+                execution_trace_storage: execution_trace_storage.clone(),
                 timeout_secs: None,
                 emitter: None,
                 steer_rx: None,
@@ -542,18 +533,31 @@ mod tests {
             .await
             .expect("traced interactive run should succeed");
 
-        let events = tool_trace_storage
-            .list_by_session_turn(&session_id, "run-run-traced", None)
+        let events = execution_trace_storage
+            .query(&ExecutionTraceQuery {
+                task_id: Some(session_id),
+                run_id: Some("run-traced".to_string()),
+                ..ExecutionTraceQuery::default()
+            })
             .expect("trace list");
         assert_eq!(events.len(), 2);
+        let lifecycle_statuses = events
+            .iter()
+            .filter_map(|event| event.lifecycle.as_ref().map(|trace| trace.status.as_str()))
+            .collect::<Vec<_>>();
+        assert_eq!(lifecycle_statuses.len(), 2);
+        assert!(lifecycle_statuses.contains(&"run_started"));
+        assert!(lifecycle_statuses.contains(&"run_completed"));
         assert_eq!(result.execution.output, "interactive-output");
         assert!(result.duration_ms <= 1_000);
     }
 
     #[tokio::test]
     async fn run_traced_interactive_session_turn_persists_llm_and_model_switch_events() {
-        #[derive(Default)]
-        struct TraceBackend;
+        #[derive(Clone)]
+        struct TraceBackend {
+            execution_trace_storage: ExecutionTraceStorage,
+        }
 
         #[async_trait]
         impl ExecutionBackend for TraceBackend {
@@ -567,30 +571,51 @@ mod tests {
                 _user_input: &str,
                 _max_history: usize,
                 _input_mode: SessionInputMode,
-                mut emitter: Option<Box<dyn StreamEmitter>>,
+                _emitter: Option<Box<dyn StreamEmitter>>,
                 _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
             ) -> Result<SessionExecutionResult> {
-                if let Some(emitter) = emitter.as_mut() {
-                    emitter
-                        .emit_model_switch(
-                            "minimax-coding-plan-m2-5-highspeed",
-                            "minimax-coding-plan-m2-5",
-                            Some("failover"),
-                        )
-                        .await;
-                    emitter
-                        .emit_llm_call(
-                            "minimax-coding-plan-m2-5",
-                            Some(10),
-                            Some(5),
-                            Some(15),
-                            Some(0.01),
-                            Some(120),
-                            None,
-                            Some(2),
-                        )
-                        .await;
-                }
+                let trace = restflow_trace::RestflowTrace::new(
+                    "run-traced-llm",
+                    &_session.id,
+                    &_session.id,
+                    &_session.agent_id,
+                );
+                let model_switch = ExecutionTraceEvent::model_switch(
+                    _session.id.clone(),
+                    _session.agent_id.clone(),
+                    ModelSwitchTrace {
+                        from_model: "minimax-coding-plan-m2-5-highspeed".to_string(),
+                        to_model: "minimax-coding-plan-m2-5".to_string(),
+                        reason: Some("failover".to_string()),
+                        success: true,
+                    },
+                )
+                .with_trace_context(&trace)
+                .with_requested_model("minimax-coding-plan-m2-5-highspeed")
+                .with_effective_model("minimax-coding-plan-m2-5")
+                .with_provider("minimax-coding-plan");
+                self.execution_trace_storage.store(&model_switch)?;
+
+                let llm_call = ExecutionTraceEvent::llm_call(
+                    _session.id.clone(),
+                    _session.agent_id.clone(),
+                    LlmCallTrace {
+                        model: "minimax-coding-plan-m2-5".to_string(),
+                        input_tokens: Some(10),
+                        output_tokens: Some(5),
+                        total_tokens: Some(15),
+                        cost_usd: Some(0.01),
+                        duration_ms: Some(120),
+                        is_reasoning: None,
+                        message_count: Some(2),
+                    },
+                )
+                .with_trace_context(&trace)
+                .with_requested_model("minimax-coding-plan-m2-5-highspeed")
+                .with_effective_model("minimax-coding-plan-m2-5")
+                .with_provider("minimax-coding-plan");
+                self.execution_trace_storage.store(&llm_call)?;
+
                 Ok(SessionExecutionResult::new(
                     "done".to_string(),
                     1,
@@ -631,8 +656,10 @@ mod tests {
             }
         }
 
-        let orchestrator = AgentOrchestratorImpl::new(Arc::new(TraceBackend));
-        let (_temp_dir, tool_trace_storage, execution_trace_storage) = setup_trace_storages();
+        let (_temp_dir, execution_trace_storage) = setup_trace_storage();
+        let orchestrator = AgentOrchestratorImpl::new(Arc::new(TraceBackend {
+            execution_trace_storage: execution_trace_storage.clone(),
+        }));
         let mut session = ChatSession::new(
             "agent-a".to_string(),
             "minimax-coding-plan-m2-5-highspeed".to_string(),
@@ -647,7 +674,6 @@ mod tests {
                 max_history: 20,
                 input_mode: SessionInputMode::EphemeralInput,
                 run_id: "run-traced-llm".to_string(),
-                tool_trace_storage,
                 execution_trace_storage: execution_trace_storage.clone(),
                 timeout_secs: None,
                 emitter: None,
@@ -757,7 +783,7 @@ mod tests {
         }
 
         let orchestrator = AgentOrchestratorImpl::new(Arc::new(SlowBackend));
-        let (_temp_dir, tool_trace_storage, execution_trace_storage) = setup_trace_storages();
+        let (_temp_dir, execution_trace_storage) = setup_trace_storage();
         let mut session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
 
         let error = orchestrator
@@ -767,7 +793,6 @@ mod tests {
                 max_history: 20,
                 input_mode: SessionInputMode::EphemeralInput,
                 run_id: "run-timeout".to_string(),
-                tool_trace_storage,
                 execution_trace_storage,
                 timeout_secs: Some(0),
                 emitter: None,

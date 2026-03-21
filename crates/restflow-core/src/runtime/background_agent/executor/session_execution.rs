@@ -4,6 +4,12 @@ fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
 }
 
+#[derive(Default)]
+pub struct SessionTurnRuntimeOptions {
+    pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+    pub telemetry_context: Option<restflow_trace::TelemetryContext>,
+}
+
 impl AgentRuntimeExecutor {
     fn resolve_stored_agent_for_session(
         &self,
@@ -189,6 +195,7 @@ impl AgentRuntimeExecutor {
         factory: Arc<dyn LlmClientFactory>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        telemetry_context: Option<restflow_trace::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         let swappable = Arc::new(SwappableLlm::new(llm_client));
         let effective_tools = effective_main_agent_tool_names(agent_node.tools.as_deref());
@@ -232,6 +239,17 @@ impl AgentRuntimeExecutor {
         );
         let execution_context =
             ExecutionContext::main(agent_id.unwrap_or(&session.agent_id), &session.id);
+        let telemetry_context = telemetry_context.unwrap_or_else(|| {
+            restflow_trace::TelemetryContext::new(restflow_trace::RestflowTrace::new(
+                session.id.clone(),
+                session.id.clone(),
+                session.id.clone(),
+                agent_id.unwrap_or(&session.agent_id),
+            ))
+            .with_requested_model(model.as_serialized_str())
+            .with_effective_model(model.as_serialized_str())
+            .with_provider(model.provider().as_canonical_str())
+        });
 
         let mut config = ReActAgentConfig::new(user_input.to_string())
             .with_system_prompt(system_prompt.clone())
@@ -258,6 +276,11 @@ impl AgentRuntimeExecutor {
         }
         config = Self::apply_llm_timeout(config, agent_defaults.llm_timeout_secs);
         config = Self::apply_execution_context(config, &execution_context);
+        config = config
+            .with_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
+                self.storage.as_ref(),
+            ))
+            .with_telemetry_context(telemetry_context.clone());
 
         let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
@@ -342,6 +365,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        telemetry_context: Option<restflow_trace::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         let model_specs = ModelId::build_model_specs();
         let api_keys = self
@@ -384,6 +408,7 @@ impl AgentRuntimeExecutor {
             factory,
             agent_id,
             steer_rx,
+            telemetry_context,
         )
         .await
     }
@@ -401,6 +426,7 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         agent_id: Option<&str>,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        telemetry_context: Option<restflow_trace::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         if model.is_codex_cli() || agent_node.api_key_config.is_some() {
             return self
@@ -415,6 +441,7 @@ impl AgentRuntimeExecutor {
                     emitter,
                     agent_id,
                     steer_rx,
+                    telemetry_context,
                 )
                 .await;
         }
@@ -436,6 +463,7 @@ impl AgentRuntimeExecutor {
                     emitter,
                     agent_id,
                     steer_rx,
+                    telemetry_context,
                 )
                 .await;
         }
@@ -483,6 +511,7 @@ impl AgentRuntimeExecutor {
                     factory,
                     agent_id,
                     steer_rx.take(),
+                    telemetry_context.clone(),
                 )
                 .await
             {
@@ -585,8 +614,15 @@ impl AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
     ) -> Result<SessionExecutionResult> {
-        self.execute_session_turn_with_emitter(session, user_input, max_history, input_mode, None)
-            .await
+        self.execute_session_turn_with_emitter(
+            session,
+            user_input,
+            max_history,
+            input_mode,
+            None,
+            None,
+        )
+        .await
     }
 
     /// Execute a chat turn for an existing chat session with optional stream emitter.
@@ -597,6 +633,7 @@ impl AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
+        telemetry_context: Option<restflow_trace::TelemetryContext>,
     ) -> Result<SessionExecutionResult> {
         self.execute_session_turn_with_emitter_and_steer(
             session,
@@ -604,7 +641,10 @@ impl AgentRuntimeExecutor {
             max_history,
             input_mode,
             emitter,
-            None,
+            SessionTurnRuntimeOptions {
+                steer_rx: None,
+                telemetry_context,
+            },
         )
         .await
     }
@@ -618,8 +658,12 @@ impl AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        options: SessionTurnRuntimeOptions,
     ) -> Result<SessionExecutionResult> {
+        let SessionTurnRuntimeOptions {
+            steer_rx,
+            telemetry_context,
+        } = options;
         let stored_agent = self.resolve_stored_agent_for_session(session)?;
         let agent_node = stored_agent.agent.clone();
         // Prefer the session's model (user override) over the agent's default
@@ -651,28 +695,53 @@ impl AgentRuntimeExecutor {
         let agent_id = session.agent_id.clone();
         let shared_emitter = share_stream_emitter(emitter);
         let mut steer_rx = steer_rx;
+        let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
+        let base_telemetry_context = telemetry_context.unwrap_or_else(|| {
+            restflow_trace::TelemetryContext::new(restflow_trace::RestflowTrace::new(
+                session.id.clone(),
+                session.id.clone(),
+                session.id.clone(),
+                session.agent_id.clone(),
+            ))
+            .with_requested_model(primary_model.as_serialized_str())
+            .with_effective_model(primary_model.as_serialized_str())
+            .with_provider(primary_provider.as_canonical_str())
+        });
 
         loop {
             let node = agent_node.clone();
             let session_for_execution = session_snapshot.clone();
             let mut previous_attempt_model: Option<ModelId> = None;
+            let telemetry_sink = telemetry_sink.clone();
+            let base_telemetry_context = base_telemetry_context.clone();
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = node.clone();
                 let session_for_execution = session_for_execution.clone();
                 let agent_id = agent_id.clone();
                 let previous_model = previous_attempt_model.replace(model);
-                let mut emitter = clone_shared_emitter(&shared_emitter);
+                let emitter = clone_shared_emitter(&shared_emitter);
                 let steer_rx = steer_rx.take();
+                let telemetry_sink = telemetry_sink.clone();
+                let telemetry_context = base_telemetry_context
+                    .clone()
+                    .with_effective_model(model.as_serialized_str())
+                    .with_attempt(previous_attempt_model.map(|_| 2).unwrap_or(1));
                 async move {
-                    if let (Some(previous_model), Some(trace_emitter)) =
-                        (previous_model, emitter.as_mut())
+                    if let Some(previous_model) = previous_model
                         && previous_model != model
                     {
-                        trace_emitter
-                            .emit_model_switch(
-                                previous_model.as_serialized_str(),
-                                model.as_serialized_str(),
-                                Some("failover"),
+                        telemetry_sink
+                            .emit(
+                                restflow_trace::ExecutionEventEnvelope::from_telemetry_context(
+                                    &telemetry_context,
+                                    restflow_trace::ExecutionEvent::ModelSwitch {
+                                        from_model: previous_model.as_serialized_str().to_string(),
+                                        to_model: model.as_serialized_str().to_string(),
+                                        reason: Some("failover".to_string()),
+                                        success: true,
+                                    },
+                                )
+                                .with_effective_model(model.as_serialized_str().to_string()),
                             )
                             .await;
                     }
@@ -687,6 +756,7 @@ impl AgentRuntimeExecutor {
                         emitter,
                         Some(agent_id.as_str()),
                         steer_rx,
+                        Some(telemetry_context),
                     )
                     .await
                 }

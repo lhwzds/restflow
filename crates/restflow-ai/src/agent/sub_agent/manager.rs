@@ -92,6 +92,7 @@ impl SubagentManager for SubagentManagerImpl {
             SubagentExecutionBridge {
                 llm_client_factory: self.llm_client_factory.clone(),
                 orchestrator: self.orchestrator.clone(),
+                telemetry_sink: self.tracker.telemetry_sink(),
             },
         )
         .map_err(|error| ToolError::Tool(error.to_string()))

@@ -14,26 +14,6 @@ pub trait StreamEmitter: Send + Sync {
     async fn emit_thinking_delta(&mut self, text: &str);
     async fn emit_tool_call_start(&mut self, id: &str, name: &str, arguments: &str);
     async fn emit_tool_call_result(&mut self, id: &str, name: &str, result: &str, success: bool);
-    #[allow(clippy::too_many_arguments)]
-    async fn emit_llm_call(
-        &mut self,
-        _model: &str,
-        _input_tokens: Option<u32>,
-        _output_tokens: Option<u32>,
-        _total_tokens: Option<u32>,
-        _cost_usd: Option<f64>,
-        _duration_ms: Option<u64>,
-        _is_reasoning: Option<bool>,
-        _message_count: Option<u32>,
-    ) {
-    }
-    async fn emit_model_switch(
-        &mut self,
-        _from_model: &str,
-        _to_model: &str,
-        _reason: Option<&str>,
-    ) {
-    }
     async fn emit_complete(&mut self);
 }
 
@@ -146,38 +126,6 @@ impl StreamEmitter for SharedStreamEmitter {
         inner.emit_tool_call_result(id, name, result, success).await;
     }
 
-    #[allow(clippy::too_many_arguments)]
-    async fn emit_llm_call(
-        &mut self,
-        model: &str,
-        input_tokens: Option<u32>,
-        output_tokens: Option<u32>,
-        total_tokens: Option<u32>,
-        cost_usd: Option<f64>,
-        duration_ms: Option<u64>,
-        is_reasoning: Option<bool>,
-        message_count: Option<u32>,
-    ) {
-        let mut inner = self.inner.lock().await;
-        inner
-            .emit_llm_call(
-                model,
-                input_tokens,
-                output_tokens,
-                total_tokens,
-                cost_usd,
-                duration_ms,
-                is_reasoning,
-                message_count,
-            )
-            .await;
-    }
-
-    async fn emit_model_switch(&mut self, from_model: &str, to_model: &str, reason: Option<&str>) {
-        let mut inner = self.inner.lock().await;
-        inner.emit_model_switch(from_model, to_model, reason).await;
-    }
-
     async fn emit_complete(&mut self) {
         let mut inner = self.inner.lock().await;
         inner.emit_complete().await;
@@ -266,7 +214,7 @@ mod tests {
 
     struct CountingEmitter {
         tool_starts: Arc<AtomicUsize>,
-        model_switches: Arc<AtomicUsize>,
+        completed: Arc<AtomicUsize>,
     }
 
     #[async_trait]
@@ -288,16 +236,9 @@ mod tests {
         ) {
         }
 
-        async fn emit_model_switch(
-            &mut self,
-            _from_model: &str,
-            _to_model: &str,
-            _reason: Option<&str>,
-        ) {
-            self.model_switches.fetch_add(1, Ordering::SeqCst);
+        async fn emit_complete(&mut self) {
+            self.completed.fetch_add(1, Ordering::SeqCst);
         }
-
-        async fn emit_complete(&mut self) {}
     }
     use tokio::sync::mpsc;
 
@@ -407,25 +348,19 @@ mod tests {
     #[tokio::test]
     async fn test_shared_stream_emitter_reuses_inner_across_clones() {
         let tool_starts = Arc::new(AtomicUsize::new(0));
-        let model_switches = Arc::new(AtomicUsize::new(0));
+        let completed = Arc::new(AtomicUsize::new(0));
         let shared = SharedStreamEmitter::new(Box::new(CountingEmitter {
             tool_starts: Arc::clone(&tool_starts),
-            model_switches: Arc::clone(&model_switches),
+            completed: Arc::clone(&completed),
         }));
 
         let mut first = shared.clone();
         let mut second = shared.clone();
 
         first.emit_tool_call_start("call-1", "bash", "{}").await;
-        second
-            .emit_model_switch(
-                "minimax-coding-plan-m2-5-highspeed",
-                "minimax-coding-plan-m2-5",
-                Some("failover"),
-            )
-            .await;
+        second.emit_complete().await;
 
         assert_eq!(tool_starts.load(Ordering::SeqCst), 1);
-        assert_eq!(model_switches.load(Ordering::SeqCst), 1);
+        assert_eq!(completed.load(Ordering::SeqCst), 1);
     }
 }

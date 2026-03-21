@@ -16,7 +16,7 @@ pub fn create_tool_registry(
     memory_storage: MemoryStorage,
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
-    tool_trace_storage: ToolTraceStorage,
+    execution_trace_storage: ExecutionTraceStorage,
     kv_store_storage: KvStoreStorage,
     work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
@@ -35,7 +35,7 @@ pub fn create_tool_registry(
         memory_storage,
         chat_storage,
         channel_session_binding_storage,
-        tool_trace_storage,
+        execution_trace_storage,
         kv_store_storage,
         work_item_storage,
         secret_storage,
@@ -58,7 +58,7 @@ pub fn create_tool_registry_with_assessor(
     memory_storage: MemoryStorage,
     chat_storage: ChatSessionStorage,
     channel_session_binding_storage: ChannelSessionBindingStorage,
-    tool_trace_storage: ToolTraceStorage,
+    execution_trace_storage: ExecutionTraceStorage,
     kv_store_storage: KvStoreStorage,
     work_item_storage: WorkItemStorage,
     secret_storage: SecretStorage,
@@ -89,7 +89,7 @@ pub fn create_tool_registry_with_assessor(
         crate::storage::SessionStorage::new(
             chat_storage.clone(),
             channel_session_binding_storage,
-            tool_trace_storage.clone(),
+            execution_trace_storage.clone(),
         ),
         agent_storage.clone(),
         background_agent_storage.clone(),
@@ -258,7 +258,7 @@ pub fn create_tool_registry_with_assessor(
         &registry,
         llm_client_factory.clone(),
         config_storage,
-        tool_trace_storage,
+        execution_trace_storage,
     );
     let mut spawn_tool =
         SpawnSubagentTool::new(subagent_manager.clone()).with_kv_store(kv_store.clone());

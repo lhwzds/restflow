@@ -1,5 +1,5 @@
 use super::steer::parse_approval_resolution;
-use super::tool_exec::ToolInvocationContext;
+use super::tool_exec::{ToolExecutionOptions, ToolInvocationContext};
 use super::*;
 use crate::agent::ExecutionStep;
 use crate::agent::PromptFlags;
@@ -12,7 +12,9 @@ use crate::tools::ToolResult;
 use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
+use restflow_trace::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -370,8 +372,6 @@ struct CapturingEmitter {
     text: Arc<AsyncMutex<Vec<String>>>,
     tool_starts: Arc<AsyncMutex<Vec<ToolStartRecord>>>,
     tool_results: Arc<AsyncMutex<Vec<ToolResultRecord>>>,
-    llm_calls: Arc<AsyncMutex<Vec<LlmCallRecord>>>,
-    model_switches: Arc<AsyncMutex<Vec<ModelSwitchRecord>>>,
     completed: Arc<AtomicUsize>,
 }
 
@@ -381,11 +381,59 @@ impl CapturingEmitter {
             text: Arc::new(AsyncMutex::new(Vec::new())),
             tool_starts: Arc::new(AsyncMutex::new(Vec::new())),
             tool_results: Arc::new(AsyncMutex::new(Vec::new())),
-            llm_calls: Arc::new(AsyncMutex::new(Vec::new())),
-            model_switches: Arc::new(AsyncMutex::new(Vec::new())),
             completed: Arc::new(AtomicUsize::new(0)),
         }
     }
+}
+
+#[derive(Clone, Default)]
+struct CapturingTelemetrySink {
+    llm_calls: Arc<AsyncMutex<Vec<LlmCallRecord>>>,
+    model_switches: Arc<AsyncMutex<Vec<ModelSwitchRecord>>>,
+}
+
+#[async_trait]
+impl TelemetrySink for CapturingTelemetrySink {
+    async fn emit(&self, event: ExecutionEventEnvelope) {
+        match event.event {
+            ExecutionEvent::LlmCall(trace) => {
+                self.llm_calls.lock().await.push((
+                    trace.model,
+                    trace.input_tokens,
+                    trace.output_tokens,
+                    trace.total_tokens,
+                    trace.cost_usd,
+                    trace.duration_ms,
+                    trace.is_reasoning,
+                    trace.message_count,
+                ));
+            }
+            ExecutionEvent::ModelSwitch {
+                from_model,
+                to_model,
+                reason,
+                ..
+            } => {
+                self.model_switches
+                    .lock()
+                    .await
+                    .push((from_model, to_model, reason));
+            }
+            _ => {}
+        }
+    }
+}
+
+fn telemetry_context(model: &str) -> TelemetryContext {
+    TelemetryContext::new(restflow_trace::RestflowTrace::new(
+        "run-test",
+        "session-test",
+        "scope-test",
+        "agent-test",
+    ))
+    .with_requested_model(model)
+    .with_effective_model(model)
+    .with_provider("openai")
 }
 
 #[async_trait]
@@ -410,38 +458,6 @@ impl StreamEmitter for CapturingEmitter {
             name.to_string(),
             result.to_string(),
             success,
-        ));
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    async fn emit_llm_call(
-        &mut self,
-        model: &str,
-        input_tokens: Option<u32>,
-        output_tokens: Option<u32>,
-        total_tokens: Option<u32>,
-        cost_usd: Option<f64>,
-        duration_ms: Option<u64>,
-        is_reasoning: Option<bool>,
-        message_count: Option<u32>,
-    ) {
-        self.llm_calls.lock().await.push((
-            model.to_string(),
-            input_tokens,
-            output_tokens,
-            total_tokens,
-            cost_usd,
-            duration_ms,
-            is_reasoning,
-            message_count,
-        ));
-    }
-
-    async fn emit_model_switch(&mut self, from_model: &str, to_model: &str, reason: Option<&str>) {
-        self.model_switches.lock().await.push((
-            from_model.to_string(),
-            to_model.to_string(),
-            reason.map(str::to_string),
         ));
     }
 
@@ -1084,7 +1100,7 @@ async fn test_backward_compat_execute_streaming_emits_complete() {
 }
 
 #[tokio::test]
-async fn test_non_stream_run_with_emitter_emits_tool_trace() {
+async fn test_non_stream_run_with_emitter_emits_tool_events() {
     let responses = vec![
         CompletionResponse {
             content: None,
@@ -1119,9 +1135,15 @@ async fn test_non_stream_run_with_emitter_emits_tool_trace() {
     tools.register(EchoTool);
     let executor = AgentExecutor::new(llm, Arc::new(tools));
     let mut emitter = CapturingEmitter::new();
+    let telemetry_sink = CapturingTelemetrySink::default();
 
     let result = executor
-        .run_with_emitter(AgentConfig::new("non-stream trace"), &mut emitter)
+        .run_with_emitter(
+            AgentConfig::new("non-stream trace")
+                .with_telemetry_sink(Arc::new(telemetry_sink.clone()))
+                .with_telemetry_context(telemetry_context("mock-model")),
+            &mut emitter,
+        )
         .await
         .unwrap();
 
@@ -1129,13 +1151,13 @@ async fn test_non_stream_run_with_emitter_emits_tool_trace() {
     assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
     assert_eq!(emitter.tool_starts.lock().await.len(), 1);
     assert_eq!(emitter.tool_results.lock().await.len(), 1);
-    assert_eq!(emitter.llm_calls.lock().await.len(), 2);
+    assert_eq!(telemetry_sink.llm_calls.lock().await.len(), 2);
     let tool_result = emitter.tool_results.lock().await;
     assert!(tool_result[0].3);
 }
 
 #[tokio::test]
-async fn test_non_stream_run_from_state_with_emitter_emits_tool_trace() {
+async fn test_non_stream_run_from_state_with_emitter_emits_tool_events() {
     let responses = vec![
         CompletionResponse {
             content: None,
@@ -1163,9 +1185,16 @@ async fn test_non_stream_run_from_state_with_emitter_emits_tool_trace() {
     let mut state = AgentState::new("resume-exec".to_string(), 8);
     state.add_message(Message::system("system"));
     state.add_message(Message::user("resume"));
+    let telemetry_sink = CapturingTelemetrySink::default();
 
     let result = executor
-        .run_from_state_with_emitter(AgentConfig::new("unused-goal"), state, &mut emitter)
+        .run_from_state_with_emitter(
+            AgentConfig::new("unused-goal")
+                .with_telemetry_sink(Arc::new(telemetry_sink.clone()))
+                .with_telemetry_context(telemetry_context("mock-model")),
+            state,
+            &mut emitter,
+        )
         .await
         .unwrap();
 
@@ -1173,7 +1202,7 @@ async fn test_non_stream_run_from_state_with_emitter_emits_tool_trace() {
     assert_eq!(emitter.completed.load(Ordering::SeqCst), 1);
     assert_eq!(emitter.tool_starts.lock().await.len(), 1);
     assert_eq!(emitter.tool_results.lock().await.len(), 1);
-    assert_eq!(emitter.llm_calls.lock().await.len(), 2);
+    assert_eq!(telemetry_sink.llm_calls.lock().await.len(), 2);
 }
 
 #[tokio::test]
@@ -1193,14 +1222,20 @@ async fn test_non_stream_run_with_emitter_records_llm_usage() {
     let llm = Arc::new(MockLlmClient::new(vec![response]));
     let executor = AgentExecutor::new(llm, Arc::new(ToolRegistry::new()));
     let mut emitter = CapturingEmitter::new();
+    let telemetry_sink = CapturingTelemetrySink::default();
 
     let result = executor
-        .run_with_emitter(AgentConfig::new("non-stream llm trace"), &mut emitter)
+        .run_with_emitter(
+            AgentConfig::new("non-stream llm trace")
+                .with_telemetry_sink(Arc::new(telemetry_sink.clone()))
+                .with_telemetry_context(telemetry_context("mock-model")),
+            &mut emitter,
+        )
         .await
         .unwrap();
 
     assert!(result.success);
-    let llm_calls = emitter.llm_calls.lock().await;
+    let llm_calls = telemetry_sink.llm_calls.lock().await;
     assert_eq!(llm_calls.len(), 1);
     assert_eq!(llm_calls[0].0, "mock-model");
     assert_eq!(llm_calls[0].1, Some(10));
@@ -1243,6 +1278,7 @@ async fn test_run_with_emitter_emits_model_switch_for_routing() {
         current: Mutex::new("gpt-5".to_string()),
     });
     let mut emitter = CapturingEmitter::new();
+    let telemetry_sink = CapturingTelemetrySink::default();
 
     let result = executor
         .run_with_emitter(
@@ -1254,14 +1290,16 @@ async fn test_run_with_emitter_emits_model_switch_for_routing() {
                     complex_model: None,
                     escalate_on_failure: true,
                 })
-                .with_model_switcher(switcher),
+                .with_model_switcher(switcher)
+                .with_telemetry_sink(Arc::new(telemetry_sink.clone()))
+                .with_telemetry_context(telemetry_context("gpt-5")),
             &mut emitter,
         )
         .await
         .unwrap();
 
     assert!(result.success);
-    let switches = emitter.model_switches.lock().await;
+    let switches = telemetry_sink.model_switches.lock().await;
     assert_eq!(switches.len(), 1);
     assert_eq!(
         switches[0],
@@ -1566,10 +1604,14 @@ async fn test_parallel_tools_returns_results_in_submission_order() {
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            timeout,
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext::default(),
+            ToolExecutionOptions {
+                tool_timeout: timeout,
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext::default(),
+            },
         )
         .await;
 
@@ -1624,10 +1666,14 @@ async fn test_parallel_tools_true_concurrency() {
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            Duration::from_secs(10),
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext::default(),
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(10),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext::default(),
+            },
         )
         .await;
     let elapsed = start.elapsed();
@@ -1673,10 +1719,14 @@ async fn test_parallel_tools_panic_recovery() {
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            Duration::from_secs(10),
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext::default(),
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(10),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext::default(),
+            },
         )
         .await;
 
@@ -1731,10 +1781,14 @@ async fn test_parallel_tools_timeout_in_spawned_task() {
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            Duration::from_millis(200),
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext::default(),
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_millis(200),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext::default(),
+            },
         )
         .await;
 
@@ -1779,14 +1833,18 @@ async fn test_spawn_subagent_tool_call_injects_parent_execution_id() {
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            Duration::from_secs(5),
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext {
-                parent_execution_id: Some("exec-parent-1"),
-                chat_session_id: None,
-                trace_session_id: Some("session-main-1"),
-                trace_scope_id: Some("scope-main-1"),
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_execution_id: Some("exec-parent-1"),
+                    chat_session_id: None,
+                    trace_session_id: Some("session-main-1"),
+                    trace_scope_id: Some("scope-main-1"),
+                },
             },
         )
         .await;
@@ -1831,14 +1889,18 @@ async fn test_spawn_subagent_tool_call_preserves_explicit_parent_execution_id() 
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            Duration::from_secs(5),
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext {
-                parent_execution_id: Some("runtime-parent"),
-                chat_session_id: None,
-                trace_session_id: Some("runtime-session"),
-                trace_scope_id: Some("runtime-scope"),
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_execution_id: Some("runtime-parent"),
+                    chat_session_id: None,
+                    trace_session_id: Some("runtime-session"),
+                    trace_scope_id: Some("runtime-scope"),
+                },
             },
         )
         .await;
@@ -1878,14 +1940,18 @@ async fn test_spawn_subagent_tool_call_preserves_explicit_trace_context() {
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            Duration::from_secs(5),
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext {
-                parent_execution_id: Some("runtime-parent"),
-                chat_session_id: None,
-                trace_session_id: Some("runtime-session"),
-                trace_scope_id: Some("runtime-scope"),
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_execution_id: Some("runtime-parent"),
+                    chat_session_id: None,
+                    trace_session_id: Some("runtime-session"),
+                    trace_scope_id: Some("runtime-scope"),
+                },
             },
         )
         .await;
@@ -1922,14 +1988,18 @@ async fn test_promote_to_background_injects_chat_session_id() {
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            Duration::from_secs(5),
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext {
-                parent_execution_id: None,
-                chat_session_id: Some("session-main-1"),
-                trace_session_id: None,
-                trace_scope_id: None,
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_execution_id: None,
+                    chat_session_id: Some("session-main-1"),
+                    trace_session_id: None,
+                    trace_scope_id: None,
+                },
             },
         )
         .await;
@@ -1970,14 +2040,18 @@ async fn test_promote_to_background_keeps_explicit_session_id() {
         .execute_tools_parallel(
             &calls,
             &mut emitter,
-            Duration::from_secs(5),
-            false,
-            DEFAULT_MAX_TOOL_CONCURRENCY,
-            ToolInvocationContext {
-                parent_execution_id: None,
-                chat_session_id: Some("session-main-1"),
-                trace_session_id: None,
-                trace_scope_id: None,
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_execution_id: None,
+                    chat_session_id: Some("session-main-1"),
+                    trace_session_id: None,
+                    trace_scope_id: None,
+                },
             },
         )
         .await;

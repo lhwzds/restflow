@@ -3,13 +3,14 @@
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
     BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, DurabilityMode,
-    MemoryConfig, MemoryScope, ResourceLimits,
+    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, MemoryConfig, MemoryScope,
+    ResourceLimits,
 };
-use crate::runtime::trace::{list_run_trace_summaries, read_run_trace};
 use crate::services::background_agent_conversion::{
     ConvertSessionSpecOptions, build_convert_session_spec, default_conversion_schedule,
 };
 use crate::storage::{AgentStorage, BackgroundAgentStorage};
+use crate::telemetry::get_execution_timeline;
 use restflow_tools::ToolError;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
@@ -24,7 +25,7 @@ use restflow_traits::{
 };
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone)]
 pub struct BackgroundAgentStoreAdapter {
@@ -192,6 +193,124 @@ impl BackgroundAgentStoreAdapter {
             }
         }
         Ok(targets)
+    }
+
+    fn trace_query(task_id: &str, session_id: &str) -> ExecutionTraceQuery {
+        ExecutionTraceQuery {
+            task_id: Some(task_id.to_string()),
+            session_id: Some(session_id.to_string()),
+            ..ExecutionTraceQuery::default()
+        }
+    }
+
+    fn list_trace_events(
+        &self,
+        task_id: &str,
+        session_id: &str,
+    ) -> Result<Vec<ExecutionTraceEvent>, ToolError> {
+        self.storage
+            .execution_traces()
+            .query(&Self::trace_query(task_id, session_id))
+            .map_err(|e| ToolError::Tool(format!("failed to list traces: {}", e)))
+    }
+
+    fn event_run_id(event: &ExecutionTraceEvent) -> Option<String> {
+        event.run_id.clone().or_else(|| {
+            event
+                .turn_id
+                .as_deref()
+                .map(|turn_id| turn_id.strip_prefix("run-").unwrap_or(turn_id).to_string())
+        })
+    }
+
+    fn build_trace_summary(events: &[ExecutionTraceEvent]) -> Option<Value> {
+        let first = events.first()?;
+        let run_id = Self::event_run_id(first)?;
+        let turn_id = first
+            .turn_id
+            .clone()
+            .unwrap_or_else(|| format!("run-{run_id}"));
+        let session_id = first
+            .session_id
+            .clone()
+            .unwrap_or_else(|| first.task_id.clone());
+        let mut status = "running".to_string();
+        let mut started_at_ms = Some(first.timestamp);
+        let mut ended_at_ms = None;
+        let mut last_event_at_ms = first.timestamp;
+        let mut tool_call_count = 0usize;
+        let mut message_count = 0usize;
+        let mut llm_call_count = 0usize;
+
+        for event in events {
+            last_event_at_ms = last_event_at_ms.max(event.timestamp);
+            match event.category {
+                ExecutionTraceCategory::ToolCall => tool_call_count += 1,
+                ExecutionTraceCategory::Message => message_count += 1,
+                ExecutionTraceCategory::LlmCall => llm_call_count += 1,
+                ExecutionTraceCategory::Lifecycle => {
+                    if let Some(lifecycle) = event.lifecycle.as_ref() {
+                        status = lifecycle.status.clone();
+                        if lifecycle.status == "started" {
+                            started_at_ms = Some(event.timestamp);
+                        }
+                        if matches!(
+                            lifecycle.status.as_str(),
+                            "completed" | "failed" | "interrupted"
+                        ) {
+                            ended_at_ms = Some(event.timestamp);
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        Some(json!({
+            "trace_id": run_id,
+            "run_id": run_id,
+            "parent_run_id": first.parent_run_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "scope_id": first.task_id,
+            "actor_id": first.agent_id,
+            "status": status,
+            "started_at_ms": started_at_ms,
+            "ended_at_ms": ended_at_ms,
+            "last_event_at_ms": last_event_at_ms,
+            "event_count": events.len(),
+            "tool_call_count": tool_call_count,
+            "message_count": message_count,
+            "llm_call_count": llm_call_count,
+        }))
+    }
+
+    fn build_artifact_previews(events: &[ExecutionTraceEvent], line_limit: usize) -> Vec<Value> {
+        events
+            .iter()
+            .filter_map(|event| {
+                let tool_call = event.tool_call.as_ref()?;
+                let path = tool_call.output_ref.as_ref()?;
+                let content = std::fs::read_to_string(path).ok()?;
+                let all_lines = content.lines().map(ToOwned::to_owned).collect::<Vec<_>>();
+                let total_lines = all_lines.len();
+                let preview_lines = all_lines
+                    .into_iter()
+                    .rev()
+                    .take(line_limit)
+                    .collect::<Vec<_>>()
+                    .into_iter()
+                    .rev()
+                    .collect::<Vec<_>>();
+                Some(json!({
+                    "event_id": event.id,
+                    "tool_call_id": tool_call.tool_call_id,
+                    "path": path,
+                    "total_lines": total_lines,
+                    "lines": preview_lines,
+                }))
+            })
+            .collect()
     }
 }
 
@@ -419,45 +538,28 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
 
         let mut summaries = Vec::new();
         for (scope_id, session_id) in trace_targets {
-            let mut session_summaries = list_run_trace_summaries(
-                self.storage.tool_traces(),
-                self.storage.execution_traces(),
-                &session_id,
-                &scope_id,
-                limit,
-            )
-            .map_err(|e| ToolError::Tool(format!("failed to list traces: {}", e)))?;
-            summaries.append(&mut session_summaries);
+            let events = self.list_trace_events(&scope_id, &session_id)?;
+            let mut by_run = BTreeMap::<String, Vec<ExecutionTraceEvent>>::new();
+            for event in events {
+                let Some(run_id) = Self::event_run_id(&event) else {
+                    continue;
+                };
+                by_run.entry(run_id).or_default().push(event);
+            }
+            summaries.extend(
+                by_run
+                    .into_values()
+                    .filter_map(|events| Self::build_trace_summary(&events)),
+            );
         }
         summaries.sort_by(|a, b| {
-            b.last_event_at_ms
-                .cmp(&a.last_event_at_ms)
-                .then_with(|| b.trace.run_id.cmp(&a.trace.run_id))
+            b["last_event_at_ms"]
+                .as_i64()
+                .cmp(&a["last_event_at_ms"].as_i64())
+                .then_with(|| b["run_id"].as_str().cmp(&a["run_id"].as_str()))
         });
         summaries.truncate(limit);
-
-        let data = summaries
-            .into_iter()
-            .map(|summary| {
-                json!({
-                    "trace_id": summary.trace.run_id,
-                    "run_id": summary.trace.run_id,
-                    "parent_run_id": summary.trace.parent_run_id,
-                    "session_id": summary.trace.session_id,
-                    "turn_id": summary.trace.turn_id,
-                    "scope_id": summary.trace.scope_id,
-                    "actor_id": summary.trace.actor_id,
-                    "status": summary.status,
-                    "started_at_ms": summary.started_at_ms,
-                    "ended_at_ms": summary.ended_at_ms,
-                    "last_event_at_ms": summary.last_event_at_ms,
-                    "event_count": summary.event_count,
-                    "tool_call_count": summary.tool_call_count,
-                    "message_count": summary.message_count,
-                    "llm_call_count": summary.llm_call_count,
-                })
-            })
-            .collect::<Vec<_>>();
+        let data = summaries;
         Ok(Value::Array(data))
     }
 
@@ -474,54 +576,32 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .line_limit
             .unwrap_or(DEFAULT_BG_TRACE_LINE_LIMIT)
             .max(1);
-        let mut timeline = None;
-
         for (scope_id, session_id) in self.all_trace_targets()? {
-            if let Some(found) = read_run_trace(
-                self.storage.tool_traces(),
-                self.storage.execution_traces(),
-                &session_id,
-                &scope_id,
-                trace_id,
-                limit,
-            )
-            .map_err(|e| ToolError::Tool(format!("failed to read trace: {}", e)))?
-            {
-                timeline = Some(found);
-                break;
-            }
-        }
-
-        if timeline.is_none() {
-            for (scope_id, session_id) in self.all_trace_targets()? {
-                let maybe_run_id = self
-                    .storage
-                    .tool_traces()
-                    .list_by_session(&session_id, None)?
-                    .into_iter()
-                    .find(|trace| trace.id == trace_id)
-                    .and_then(|trace| trace.turn_id.strip_prefix("run-").map(str::to_string));
-                let Some(run_id) = maybe_run_id else {
-                    continue;
-                };
-                timeline = read_run_trace(
-                    self.storage.tool_traces(),
-                    self.storage.execution_traces(),
-                    &session_id,
-                    &scope_id,
-                    &run_id,
-                    limit,
-                )
+            let query = ExecutionTraceQuery {
+                task_id: Some(scope_id.clone()),
+                session_id: Some(session_id.clone()),
+                run_id: Some(trace_id.to_string()),
+                limit: Some(limit),
+                ..ExecutionTraceQuery::default()
+            };
+            let timeline = get_execution_timeline(self.storage.execution_traces(), &query)
                 .map_err(|e| ToolError::Tool(format!("failed to read trace: {}", e)))?;
-                if timeline.is_some() {
-                    break;
-                }
+            if timeline.events.is_empty() {
+                continue;
             }
+
+            let summary = Self::build_trace_summary(&timeline.events)
+                .ok_or_else(|| ToolError::Tool(format!("trace {} not found", trace_id)))?;
+            let artifact_previews = Self::build_artifact_previews(&timeline.events, limit);
+            return Ok(json!({
+                "trace_id": trace_id,
+                "summary": summary,
+                "timeline": timeline,
+                "artifact_previews": artifact_previews,
+            }));
         }
 
-        let timeline =
-            timeline.ok_or_else(|| ToolError::Tool(format!("trace {} not found", trace_id)))?;
-        serde_json::to_value(timeline).map_err(Into::into)
+        Err(ToolError::Tool(format!("trace {} not found", trace_id)))
     }
 }
 
@@ -863,38 +943,43 @@ mod tests {
                 resource_limits: None,
             })
             .unwrap();
+        let task_id = created["id"].as_str().unwrap().to_string();
         let session_id = created["chat_session_id"].as_str().unwrap().to_string();
 
         let output_path = temp_dir.path().join("trace-output.txt");
         std::fs::write(&output_path, "line-1\nline-2\nline-3\nline-4\n").unwrap();
 
-        let mut trace = crate::models::ToolTrace::tool_call_completed(
-            &session_id,
-            "run-run-1",
-            "call-1",
-            "bash",
-            crate::models::ToolCallCompletion {
+        let trace = restflow_trace::RestflowTrace::new("run-1", &session_id, &task_id, "agent-1");
+        let event = crate::models::ExecutionTraceEvent::tool_call(
+            task_id,
+            "agent-1",
+            crate::models::ToolCallTrace {
+                phase: crate::models::ToolCallPhase::Completed,
+                tool_call_id: "call-1".to_string(),
+                tool_name: "bash".to_string(),
+                input: None,
+                input_summary: None,
                 output: None,
                 output_ref: Some(output_path.to_string_lossy().to_string()),
-                success: true,
-                duration_ms: Some(8),
+                success: Some(true),
                 error: None,
+                duration_ms: Some(8),
             },
-        );
-        trace.id = "trace-id-1".to_string();
-        adapter.storage.tool_traces().append(&trace).unwrap();
+        )
+        .with_trace_context(&trace);
+        adapter.storage.execution_traces().store(&event).unwrap();
 
         let value = adapter
             .read_background_agent_trace(BackgroundAgentTraceReadRequest {
-                trace_id: "trace-id-1".to_string(),
+                trace_id: "run-1".to_string(),
                 line_limit: Some(2),
             })
             .unwrap();
 
-        assert_eq!(value["summary"]["trace"]["run_id"], "run-1");
-        assert_eq!(value["events"][0]["record_id"], "trace-id-1");
-        assert_eq!(value["events"][0]["artifact_preview"]["total_lines"], 4);
-        assert_eq!(value["events"][0]["artifact_preview"]["lines"][0], "line-3");
-        assert_eq!(value["events"][0]["artifact_preview"]["lines"][1], "line-4");
+        assert_eq!(value["summary"]["run_id"], "run-1");
+        assert_eq!(value["timeline"]["events"][0]["id"], event.id);
+        assert_eq!(value["artifact_previews"][0]["total_lines"], 4);
+        assert_eq!(value["artifact_previews"][0]["lines"][0], "line-3");
+        assert_eq!(value["artifact_previews"][0]["lines"][1], "line-4");
     }
 }

@@ -1,30 +1,30 @@
 //! Aggregated session-related storage wrappers.
 //!
-//! This groups the chat session, channel binding, and tool trace stores behind
+//! This groups the chat session, channel binding, and execution trace stores behind
 //! a single typed entrypoint so higher-level services do not have to wire each
 //! store independently.
 
 use crate::models::{ChannelSessionBinding, ChatSession, ChatSessionSource};
-use crate::storage::{ChannelSessionBindingStorage, ChatSessionStorage, ToolTraceStorage};
+use crate::storage::{ChannelSessionBindingStorage, ChatSessionStorage, ExecutionTraceStorage};
 use anyhow::Result;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SessionStorage {
     pub chat_sessions: ChatSessionStorage,
     pub channel_session_bindings: ChannelSessionBindingStorage,
-    pub tool_traces: ToolTraceStorage,
+    pub execution_traces: ExecutionTraceStorage,
 }
 
 impl SessionStorage {
     pub fn new(
         chat_sessions: ChatSessionStorage,
         channel_session_bindings: ChannelSessionBindingStorage,
-        tool_traces: ToolTraceStorage,
+        execution_traces: ExecutionTraceStorage,
     ) -> Self {
         Self {
             chat_sessions,
             channel_session_bindings,
-            tool_traces,
+            execution_traces,
         }
     }
 
@@ -112,7 +112,7 @@ impl SessionStorage {
     }
 
     pub fn delete_traces_by_session(&self, session_id: &str) -> Result<usize> {
-        self.tool_traces.delete_by_session(session_id)
+        self.execution_traces.delete_by_session(session_id)
     }
 
     pub fn ensure_binding_from_legacy_source(
@@ -173,7 +173,7 @@ fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ChannelSessionBinding, ToolTrace};
+    use crate::models::{ChannelSessionBinding, ExecutionTraceEvent, LifecycleTrace};
     use redb::Database;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -185,7 +185,7 @@ mod tests {
         let storage = SessionStorage::new(
             ChatSessionStorage::new(db.clone()).unwrap(),
             ChannelSessionBindingStorage::new(db.clone()).unwrap(),
-            ToolTraceStorage::new(db).unwrap(),
+            ExecutionTraceStorage::new(db).unwrap(),
         );
         (storage, dir)
     }
@@ -205,8 +205,25 @@ mod tests {
             ))
             .unwrap();
         storage
-            .tool_traces
-            .append(&ToolTrace::turn_started(&session.id, "turn-1"))
+            .execution_traces
+            .store(
+                &ExecutionTraceEvent::lifecycle(
+                    &session.id,
+                    "agent-1",
+                    LifecycleTrace {
+                        status: "running".to_string(),
+                        message: None,
+                        error: None,
+                        ai_duration_ms: None,
+                    },
+                )
+                .with_trace_context(&restflow_trace::RestflowTrace::new(
+                    "turn-1",
+                    &session.id,
+                    &session.id,
+                    "agent-1",
+                )),
+            )
             .unwrap();
 
         storage.cleanup_artifacts(&session.id).unwrap();
@@ -220,8 +237,12 @@ mod tests {
         );
         assert!(
             storage
-                .tool_traces
-                .list_by_session(&session.id, None)
+                .execution_traces
+                .query(&crate::models::ExecutionTraceQuery {
+                    session_id: Some(session.id.clone()),
+                    limit: Some(10),
+                    ..Default::default()
+                })
                 .unwrap()
                 .is_empty()
         );

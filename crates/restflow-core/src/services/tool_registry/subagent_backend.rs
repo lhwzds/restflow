@@ -16,6 +16,7 @@ struct ToolRegistrySubagentBackend {
     tool_registry: Arc<ToolRegistry>,
     config: SubagentConfig,
     llm_client_factory: Arc<dyn LlmClientFactory>,
+    telemetry_sink: Option<Arc<dyn restflow_trace::TelemetrySink>>,
 }
 
 #[async_trait::async_trait]
@@ -94,6 +95,7 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
             SubagentExecutionBridge {
                 llm_client_factory: Some(self.llm_client_factory.clone()),
                 orchestrator: None,
+                telemetry_sink: self.telemetry_sink.clone(),
             },
         )
         .await
@@ -106,21 +108,39 @@ pub(super) fn build_service_subagent_manager(
     base_registry: &ToolRegistry,
     llm_client_factory: Arc<dyn LlmClientFactory>,
     config_storage: Arc<ConfigStorage>,
-    tool_trace_storage: ToolTraceStorage,
+    execution_trace_storage: ExecutionTraceStorage,
 ) -> SubagentManagerImpl {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-    let execution_trace_storage = match ExecutionTraceStorage::new(tool_trace_storage.db()) {
-        Ok(storage) => Some(storage),
-        Err(error) => {
-            warn!(%error, "Failed to initialize execution trace storage for subagents");
+    let db = execution_trace_storage.db();
+    let telemetry_sink = match (
+        execution_trace_storage.clone(),
+        crate::storage::ChatSessionStorage::new(db.clone()),
+        crate::storage::TelemetryMetricSampleStorage::new(db.clone()),
+        crate::storage::ProviderHealthSnapshotStorage::new(db.clone()),
+        crate::storage::StructuredExecutionLogStorage::new(db),
+    ) {
+        (
+            execution_traces,
+            Ok(chat_sessions),
+            Ok(telemetry_metric_samples),
+            Ok(provider_health_snapshots),
+            Ok(structured_execution_logs),
+        ) => Some(Arc::new(crate::telemetry::CoreTelemetrySink::new(
+            execution_traces,
+            chat_sessions,
+            telemetry_metric_samples,
+            provider_health_snapshots,
+            structured_execution_logs,
+        )) as Arc<dyn restflow_trace::TelemetrySink>),
+        _ => {
+            warn!("Failed to initialize core telemetry sink for service subagents");
             None
         }
     };
-    tracker.set_run_trace_sink(Arc::new(ToolTraceRunSink::new(
-        tool_trace_storage,
-        execution_trace_storage,
-    )));
+    if let Some(sink) = telemetry_sink.clone() {
+        tracker.set_telemetry_sink(sink);
+    }
     let definitions = Arc::new(StorageBackedSubagentLookup::new(agent_storage));
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let subagent_config = load_subagent_config(&config_storage);
@@ -132,6 +152,7 @@ pub(super) fn build_service_subagent_manager(
             tool_registry: tool_registry.clone(),
             config: subagent_config.clone(),
             llm_client_factory: llm_client_factory.clone(),
+            telemetry_sink,
         },
     )));
     let subagent_deps = SubagentDeps {
@@ -151,13 +172,13 @@ pub(super) fn create_subagent_manager(
     base_registry: &ToolRegistry,
     llm_client_factory: Arc<dyn LlmClientFactory>,
     config_storage: Arc<ConfigStorage>,
-    tool_trace_storage: ToolTraceStorage,
+    execution_trace_storage: ExecutionTraceStorage,
 ) -> Arc<dyn restflow_traits::SubagentManager> {
     Arc::new(build_service_subagent_manager(
         agent_storage,
         base_registry,
         llm_client_factory,
         config_storage,
-        tool_trace_storage,
+        execution_trace_storage,
     ))
 }

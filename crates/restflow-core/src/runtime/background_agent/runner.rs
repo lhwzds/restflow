@@ -559,11 +559,6 @@ impl BackgroundAgentRunner {
         self.steer_registry.clone()
     }
 
-    /// Get the tool trace storage for persisting execution events.
-    fn tool_trace_storage(&self) -> crate::storage::ToolTraceStorage {
-        self.storage.tool_traces().clone()
-    }
-
     /// Get the execution trace storage for persisting runtime events.
     fn execution_trace_storage(&self) -> &crate::storage::ExecutionTraceStorage {
         self.storage.execution_traces()
@@ -1271,11 +1266,9 @@ impl BackgroundAgentRunner {
             task.id.clone(),
             task.agent_id.clone(),
         );
-        let tool_trace_storage = self.tool_trace_storage();
         let execution_trace_storage = self.execution_trace_storage();
         append_trace_event(
-            &tool_trace_storage,
-            Some(execution_trace_storage),
+            execution_trace_storage,
             &TraceEvent::run_started(restflow_trace.clone()),
         );
 
@@ -1287,8 +1280,7 @@ impl BackgroundAgentRunner {
             let reason = "Background task requires non-empty input or input_template";
             let error_msg = format!("Execution error: {}", reason);
             append_trace_event(
-                &tool_trace_storage,
-                Some(execution_trace_storage),
+                execution_trace_storage,
                 &TraceEvent::run_failed(
                     restflow_trace.clone(),
                     error_msg.clone(),
@@ -1349,7 +1341,6 @@ impl BackgroundAgentRunner {
             };
             Some(build_restflow_trace_emitter(
                 inner,
-                tool_trace_storage.clone(),
                 Some(execution_trace_storage.clone()),
                 &restflow_trace,
             ))
@@ -1498,8 +1489,7 @@ impl BackgroundAgentRunner {
                     task.name, duration_ms
                 );
                 append_trace_event(
-                    &tool_trace_storage,
-                    Some(execution_trace_storage),
+                    execution_trace_storage,
                     &TraceEvent::run_interrupted(
                         restflow_trace.clone(),
                         "Stopped by user",
@@ -1570,8 +1560,7 @@ impl BackgroundAgentRunner {
                             task.name, duration_ms
                         );
                         append_trace_event(
-                            &tool_trace_storage,
-                            Some(execution_trace_storage),
+                            execution_trace_storage,
                             &TraceEvent::run_interrupted(
                                 restflow_trace.clone(),
                                 "Paused by user",
@@ -1601,8 +1590,7 @@ impl BackgroundAgentRunner {
                             task.name, duration_ms
                         );
                         append_trace_event(
-                            &tool_trace_storage,
-                            Some(execution_trace_storage),
+                            execution_trace_storage,
                             &TraceEvent::run_interrupted(
                                 restflow_trace.clone(),
                                 "Stopped by user",
@@ -1635,8 +1623,7 @@ impl BackgroundAgentRunner {
                             task.name, duration_ms
                         );
                         append_trace_event(
-                            &tool_trace_storage,
-                            Some(execution_trace_storage),
+                            execution_trace_storage,
                             &TraceEvent::run_interrupted(
                                 restflow_trace.clone(),
                                 "Task deleted",
@@ -1681,8 +1668,7 @@ impl BackgroundAgentRunner {
                     task.name, duration_ms
                 );
                 append_trace_event(
-                    &tool_trace_storage,
-                    Some(execution_trace_storage),
+                    execution_trace_storage,
                     &TraceEvent::run_completed(
                         restflow_trace.clone(),
                         Some(duration_ms.max(0) as u64),
@@ -1763,8 +1749,7 @@ impl BackgroundAgentRunner {
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
                 append_trace_event(
-                    &tool_trace_storage,
-                    Some(execution_trace_storage),
+                    execution_trace_storage,
                     &TraceEvent::run_failed(
                         restflow_trace.clone(),
                         error_msg.clone(),
@@ -1812,8 +1797,7 @@ impl BackgroundAgentRunner {
                 };
                 error!("Task '{}' timed out", task.name);
                 append_trace_event(
-                    &tool_trace_storage,
-                    Some(execution_trace_storage),
+                    execution_trace_storage,
                     &TraceEvent::run_failed(
                         restflow_trace.clone(),
                         error_msg.clone(),

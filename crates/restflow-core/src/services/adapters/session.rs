@@ -165,7 +165,7 @@ mod tests {
         let session_storage = SessionStorage::new(
             crate::storage::ChatSessionStorage::new(db.clone()).unwrap(),
             crate::storage::ChannelSessionBindingStorage::new(db.clone()).unwrap(),
-            crate::storage::ToolTraceStorage::new(db.clone()).unwrap(),
+            crate::storage::ExecutionTraceStorage::new(db.clone()).unwrap(),
         );
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
         let background_agent_storage = BackgroundAgentStorage::new(db.clone()).unwrap();

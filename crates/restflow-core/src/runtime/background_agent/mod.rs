@@ -162,7 +162,7 @@ pub use events::{
     ChannelEventEmitter, ExecutionStats, NoopEventEmitter, StreamEventKind, TASK_STREAM_EVENT,
     TaskEventEmitter, TaskStreamEvent,
 };
-pub use executor::{AgentRuntimeExecutor, SessionInputMode};
+pub use executor::{AgentRuntimeExecutor, SessionInputMode, SessionTurnRuntimeOptions};
 pub use failover::{FailoverConfig, FailoverManager, ModelStatus, execute_with_failover};
 pub use heartbeat::{
     ChannelHeartbeatEmitter, HEARTBEAT_EVENT, HeartbeatEmitter, HeartbeatEvent, HeartbeatPulse,
