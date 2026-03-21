@@ -13,6 +13,7 @@ pub mod execution_console;
 pub mod execution_trace;
 pub mod hook;
 pub mod memory;
+pub mod model_id;
 pub mod model_ref;
 pub mod provider;
 mod provider_policy;
@@ -35,7 +36,6 @@ pub use agent::{
 };
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
-pub use ai_model::ModelId;
 pub use background_agent::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
     BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
@@ -56,6 +56,7 @@ pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
     SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
+pub use model_id::ModelId;
 pub use model_ref::{ModelMetadataDTO, ModelRef};
 pub use provider::Provider;
 pub(crate) use provider_policy::{provider_auth_providers, provider_default_model};

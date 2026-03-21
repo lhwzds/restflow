@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
-use super::{ai_model::ModelId, catalog};
+use super::{catalog, model_id::ModelId};
 
 macro_rules! define_provider_enum {
     ($($variant:ident => $rename:literal),+ $(,)?) => {

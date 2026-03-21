@@ -23,7 +23,7 @@ use std::sync::OnceLock;
 use restflow_models::ClientKind;
 
 use super::{
-    ai_model::ModelId,
+    model_id::ModelId,
     model_ref::{ModelMetadata, ModelMetadataDTO},
     provider::Provider,
 };
