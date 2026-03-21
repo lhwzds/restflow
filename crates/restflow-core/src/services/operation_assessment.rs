@@ -7,7 +7,9 @@ use sha2::{Digest, Sha256};
 
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
-use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
+use crate::models::{
+    AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError, provider_default_model,
+};
 use crate::storage::agent::StoredAgent;
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -324,34 +326,11 @@ async fn resolve_model_from_stored_credentials(
             continue;
         };
         if has_non_empty_secret(core, secret_name) {
-            return Ok(Some(default_model_for_provider(provider)));
+            return Ok(Some(provider_default_model(provider)));
         }
     }
 
     Ok(None)
-}
-
-fn default_model_for_provider(provider: Provider) -> ModelId {
-    match provider {
-        Provider::OpenAI => ModelId::Gpt5,
-        Provider::Anthropic => ModelId::ClaudeOpus4_6,
-        Provider::ClaudeCode => ModelId::ClaudeCodeOpus,
-        Provider::Codex => ModelId::Gpt5_4Codex,
-        Provider::DeepSeek => ModelId::DeepseekChat,
-        Provider::Google => ModelId::Gemini25Pro,
-        Provider::Groq => ModelId::GroqLlama4Maverick,
-        Provider::OpenRouter => ModelId::OpenRouterAuto,
-        Provider::XAI => ModelId::Grok4,
-        Provider::Qwen => ModelId::Qwen3Max,
-        Provider::Zai => ModelId::Glm5,
-        Provider::ZaiCodingPlan => ModelId::Glm5CodingPlan,
-        Provider::Moonshot => ModelId::KimiK2_5,
-        Provider::Doubao => ModelId::DoubaoPro,
-        Provider::Yi => ModelId::YiLightning,
-        Provider::SiliconFlow => ModelId::SiliconFlowAuto,
-        Provider::MiniMax => ModelId::MiniMaxM27,
-        Provider::MiniMaxCodingPlan => ModelId::MiniMaxM25CodingPlan,
-    }
 }
 
 fn to_assessment_model_ref(model_ref: ModelRef) -> AssessmentModelRef {
