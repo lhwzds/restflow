@@ -46,16 +46,10 @@ impl LlmSwitcher for LlmSwitcherImpl {
         self.factory.resolve_api_key(llm_provider)
     }
 
-    fn is_codex_cli_model(&self, model: &str) -> bool {
-        self.factory.is_codex_cli_model(model)
-    }
-
-    fn is_opencode_cli_model(&self, model: &str) -> bool {
-        self.factory.is_opencode_cli_model(model)
-    }
-
-    fn is_gemini_cli_model(&self, model: &str) -> bool {
-        self.factory.is_gemini_cli_model(model)
+    fn client_kind_for_model(&self, model: &str) -> Option<&'static str> {
+        self.factory
+            .client_kind_for_model(model)
+            .map(|kind| kind.as_str())
     }
 
     fn create_and_swap(

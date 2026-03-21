@@ -982,30 +982,18 @@ mod tests {
         let specs = ModelId::build_model_specs();
         assert!(specs.iter().any(|spec| spec.name == "gpt-5.4"
             && spec.client_model == "gpt-5.4"
-            && spec.is_codex_cli));
+            && spec.client_kind == restflow_models::ClientKind::CodexCli));
         assert!(specs.iter().any(|spec| spec.name == "gpt-5.4-mini"
             && spec.client_model == "gpt-5.4-mini"
-            && spec.is_codex_cli));
-        assert!(
-            specs
-                .iter()
-                .any(|spec| spec.name == "gpt-5-codex" && spec.is_codex_cli)
-        );
-        assert!(
-            specs
-                .iter()
-                .any(|spec| spec.name == "gpt-5.1-codex" && spec.is_codex_cli)
-        );
-        assert!(
-            specs
-                .iter()
-                .any(|spec| spec.name == "gpt-5.2-codex" && spec.is_codex_cli)
-        );
-        assert!(
-            specs
-                .iter()
-                .any(|spec| spec.name == "gpt-5.3-codex" && spec.is_codex_cli)
-        );
+            && spec.client_kind == restflow_models::ClientKind::CodexCli));
+        assert!(specs.iter().any(|spec| spec.name == "gpt-5-codex"
+            && spec.client_kind == restflow_models::ClientKind::CodexCli));
+        assert!(specs.iter().any(|spec| spec.name == "gpt-5.1-codex"
+            && spec.client_kind == restflow_models::ClientKind::CodexCli));
+        assert!(specs.iter().any(|spec| spec.name == "gpt-5.2-codex"
+            && spec.client_kind == restflow_models::ClientKind::CodexCli));
+        assert!(specs.iter().any(|spec| spec.name == "gpt-5.3-codex"
+            && spec.client_kind == restflow_models::ClientKind::CodexCli));
     }
 
     #[test]

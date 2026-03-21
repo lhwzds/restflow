@@ -1,5 +1,29 @@
 //! Shared model/provider primitives used by runtime, core, and tools.
 
+/// Concrete execution path used to satisfy an LLM request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ClientKind {
+    Http,
+    CodexCli,
+    OpenCodeCli,
+    GeminiCli,
+}
+
+impl ClientKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Http => "http",
+            Self::CodexCli => "codex-cli",
+            Self::OpenCodeCli => "opencode-cli",
+            Self::GeminiCli => "gemini-cli",
+        }
+    }
+
+    pub fn is_cli(&self) -> bool {
+        !matches!(self, Self::Http)
+    }
+}
+
 /// Runtime provider bucket used by the LLM factory layer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum LlmProvider {
@@ -73,9 +97,7 @@ pub struct ModelSpec {
     pub client_model: String,
     /// Override the provider's default base URL for this specific model.
     pub base_url: Option<String>,
-    pub is_codex_cli: bool,
-    pub is_opencode_cli: bool,
-    pub is_gemini_cli: bool,
+    pub client_kind: ClientKind,
 }
 
 impl ModelSpec {
@@ -89,9 +111,7 @@ impl ModelSpec {
             provider,
             client_model: client_model.into(),
             base_url: None,
-            is_codex_cli: false,
-            is_opencode_cli: false,
-            is_gemini_cli: false,
+            client_kind: ClientKind::Http,
         }
     }
 
@@ -107,9 +127,7 @@ impl ModelSpec {
             provider: LlmProvider::OpenAI,
             client_model: client_model.into(),
             base_url: None,
-            is_codex_cli: true,
-            is_opencode_cli: false,
-            is_gemini_cli: false,
+            client_kind: ClientKind::CodexCli,
         }
     }
 
@@ -119,9 +137,7 @@ impl ModelSpec {
             provider: LlmProvider::OpenAI,
             client_model: client_model.into(),
             base_url: None,
-            is_codex_cli: false,
-            is_opencode_cli: true,
-            is_gemini_cli: false,
+            client_kind: ClientKind::OpenCodeCli,
         }
     }
 
@@ -131,16 +147,30 @@ impl ModelSpec {
             provider: LlmProvider::Google,
             client_model: client_model.into(),
             base_url: None,
-            is_codex_cli: false,
-            is_opencode_cli: false,
-            is_gemini_cli: true,
+            client_kind: ClientKind::GeminiCli,
         }
+    }
+
+    pub fn is_codex_cli(&self) -> bool {
+        self.client_kind == ClientKind::CodexCli
+    }
+
+    pub fn is_opencode_cli(&self) -> bool {
+        self.client_kind == ClientKind::OpenCodeCli
+    }
+
+    pub fn is_gemini_cli(&self) -> bool {
+        self.client_kind == ClientKind::GeminiCli
+    }
+
+    pub fn is_cli(&self) -> bool {
+        self.client_kind.is_cli()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{LlmProvider, ModelSpec};
+    use super::{ClientKind, LlmProvider, ModelSpec};
 
     #[test]
     fn provider_base_urls_are_stable() {
@@ -155,19 +185,26 @@ mod tests {
     #[test]
     fn model_spec_builders_mark_cli_variants() {
         let codex = ModelSpec::codex("gpt-5.3-codex", "gpt-5.3-codex");
-        assert!(codex.is_codex_cli);
-        assert!(!codex.is_opencode_cli);
-        assert!(!codex.is_gemini_cli);
+        assert_eq!(codex.client_kind, ClientKind::CodexCli);
+        assert!(codex.is_codex_cli());
+        assert!(codex.is_cli());
 
         let opencode = ModelSpec::opencode("opencode-cli", "opencode-cli");
-        assert!(opencode.is_opencode_cli);
-        assert!(!opencode.is_codex_cli);
-        assert!(!opencode.is_gemini_cli);
+        assert_eq!(opencode.client_kind, ClientKind::OpenCodeCli);
+        assert!(opencode.is_opencode_cli());
+        assert!(opencode.is_cli());
 
         let gemini = ModelSpec::gemini_cli("gemini-cli", "gemini-cli");
-        assert!(gemini.is_gemini_cli);
-        assert!(!gemini.is_codex_cli);
-        assert!(!gemini.is_opencode_cli);
+        assert_eq!(gemini.client_kind, ClientKind::GeminiCli);
+        assert!(gemini.is_gemini_cli());
+        assert!(gemini.is_cli());
+    }
+
+    #[test]
+    fn new_model_specs_default_to_http_execution() {
+        let spec = ModelSpec::new("gpt-5", LlmProvider::OpenAI, "gpt-5");
+        assert_eq!(spec.client_kind, ClientKind::Http);
+        assert!(!spec.is_cli());
     }
 
     #[test]

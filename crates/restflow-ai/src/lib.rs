@@ -28,7 +28,7 @@ pub use llm::{
     LlmClient, LlmClientFactory, LlmSwitcherImpl, Message, OpenAIClient, OpenCodeClient, Role,
     SwappableLlm,
 };
-pub use restflow_models::{LlmProvider, ModelSpec};
+pub use restflow_models::{ClientKind, LlmProvider, ModelSpec};
 pub use steer::{SteerMessage, SteerSource};
 // Core tool abstractions
 pub use tools::{

@@ -853,8 +853,8 @@ mod tests {
 
     use crate::error::AiError;
     use crate::llm::{
-        CompletionRequest, CompletionResponse, FinishReason, LlmClient, LlmClientFactory,
-        LlmProvider, MockLlmClient, MockStep, StreamResult, TokenUsage,
+        ClientKind, CompletionRequest, CompletionResponse, FinishReason, LlmClient,
+        LlmClientFactory, LlmProvider, MockLlmClient, MockStep, StreamResult, TokenUsage,
     };
 
     use super::super::tracker::SubagentTracker;
@@ -1041,16 +1041,8 @@ mod tests {
             }
         }
 
-        fn is_codex_cli_model(&self, _model: &str) -> bool {
-            false
-        }
-
-        fn is_opencode_cli_model(&self, _model: &str) -> bool {
-            false
-        }
-
-        fn is_gemini_cli_model(&self, _model: &str) -> bool {
-            false
+        fn client_kind_for_model(&self, model: &str) -> Option<ClientKind> {
+            (model == self.model).then_some(ClientKind::Http)
         }
     }
 

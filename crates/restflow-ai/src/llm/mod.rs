@@ -20,7 +20,7 @@ pub use factory::{DefaultLlmClientFactory, LlmClientFactory};
 pub use http::{AnthropicClient, OpenAIClient};
 #[cfg(any(test, feature = "test-utils"))]
 pub use mock_client::{MockLlmClient, MockStep, MockStepKind};
-pub use restflow_models::{LlmProvider, ModelSpec};
+pub use restflow_models::{ClientKind, LlmProvider, ModelSpec};
 pub use retry::{LlmRetryConfig, RetryingLlmClient};
 pub use swappable::SwappableLlm;
 pub use switcher::LlmSwitcherImpl;

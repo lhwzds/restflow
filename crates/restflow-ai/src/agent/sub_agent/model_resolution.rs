@@ -261,7 +261,7 @@ fn normalize_model_identifier(value: &str) -> String {
 mod tests {
     use std::sync::Arc;
 
-    use crate::llm::{LlmClient, LlmProvider};
+    use crate::llm::{ClientKind, LlmClient, LlmProvider};
 
     use super::*;
 
@@ -303,16 +303,11 @@ mod tests {
                 .map(|_| LlmProvider::OpenAI)
         }
 
-        fn is_codex_cli_model(&self, _model: &str) -> bool {
-            false
-        }
-
-        fn is_opencode_cli_model(&self, _model: &str) -> bool {
-            false
-        }
-
-        fn is_gemini_cli_model(&self, _model: &str) -> bool {
-            false
+        fn client_kind_for_model(&self, model: &str) -> Option<ClientKind> {
+            self.models
+                .iter()
+                .any(|candidate| candidate.eq_ignore_ascii_case(model.trim()))
+                .then_some(ClientKind::Http)
         }
     }
 

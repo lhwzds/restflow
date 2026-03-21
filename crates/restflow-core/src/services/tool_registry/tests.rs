@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use futures::stream;
 use redb::Database;
 use restflow_ai::llm::{
-    CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
+    ClientKind, CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
 };
 use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
@@ -258,16 +258,8 @@ impl LlmClientFactory for TestLlmFactory {
         }
     }
 
-    fn is_codex_cli_model(&self, _model: &str) -> bool {
-        false
-    }
-
-    fn is_opencode_cli_model(&self, _model: &str) -> bool {
-        false
-    }
-
-    fn is_gemini_cli_model(&self, _model: &str) -> bool {
-        false
+    fn client_kind_for_model(&self, model: &str) -> Option<ClientKind> {
+        (model == self.model).then_some(ClientKind::Http)
     }
 }
 
