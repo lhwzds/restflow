@@ -13,6 +13,12 @@ const router = createRouter({
       component: () => import('../views/Workspace.vue'),
       meta: { titleKey: 'common.brandName' },
     },
+    {
+      path: '/workspace/runs/:taskId',
+      name: 'workspace-run',
+      component: () => import('../views/BackgroundAgentRunView.vue'),
+      meta: { titleKey: 'common.brandName' },
+    },
   ],
 })
 

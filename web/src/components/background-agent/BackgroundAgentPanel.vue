@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button'
 import MessageList from '@/components/chat/MessageList.vue'
 import AgentStatusBadge from './AgentStatusBadge.vue'
 import AgentOverviewOverlay from './AgentOverviewOverlay.vue'
+import ExecutionTelemetryViewer from '@/components/telemetry/ExecutionTelemetryViewer.vue'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
@@ -448,6 +449,8 @@ onMounted(() => {
         <span>{{ t('backgroundAgent.loadingHistory') }}</span>
       </div>
     </div>
+
+    <ExecutionTelemetryViewer :task-id="agent.id" class="shrink-0 border-t border-border" />
 
     <!-- Steer Input (only visible when agent is actively running/streaming) -->
     <div v-show="canSteer" class="shrink-0 px-4 pb-4">

@@ -7,8 +7,9 @@
  * detects show_panel tool calls for Canvas panel display.
  */
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Play, Pause, RotateCcw, XCircle } from 'lucide-vue-next'
+import { Play, Pause, RotateCcw, XCircle, Activity } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import MessageList from './MessageList.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
@@ -47,6 +48,7 @@ const emit = defineEmits<{
 const toast = useToast()
 const { confirm } = useConfirm()
 const { t } = useI18n()
+const router = useRouter()
 const chatSessionStore = useChatSessionStore()
 const backgroundAgentStore = useBackgroundAgentStore()
 const modelsStore = useModelsStore()
@@ -143,6 +145,14 @@ async function handleBgRun() {
 async function handleBgStop() {
   if (!linkedBgAgent.value) return
   await backgroundAgentStore.stopAgent(linkedBgAgent.value.id)
+}
+
+function handleOpenRunTrace() {
+  if (!linkedBgAgent.value) return
+  void router.push({
+    name: 'workspace-run',
+    params: { taskId: linkedBgAgent.value.id },
+  })
 }
 
 // Track processed tool call IDs to avoid duplicate emits
@@ -515,6 +525,17 @@ defineExpose({
       class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground"
     >
       <AgentStatusBadge :status="linkedBgAgent.status" />
+      <Button
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 px-2 text-xs"
+        data-testid="open-run-trace"
+        :title="t('backgroundAgent.openRunTrace')"
+        @click="handleOpenRunTrace"
+      >
+        <Activity :size="12" />
+        <span>{{ t('backgroundAgent.openRunTrace') }}</span>
+      </Button>
       <div class="flex-1" />
       <Button
         v-if="bgCanPause"

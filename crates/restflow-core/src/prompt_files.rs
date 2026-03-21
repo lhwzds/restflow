@@ -43,27 +43,6 @@ pub struct LoadedAgentPrompt {
     pub prompt_file: Option<String>,
 }
 
-/// Legacy lookup by agent ID only.
-///
-/// This only resolves legacy prompt files (`<agent_id>.md` or metadata-tagged files).
-/// New prompt loading should use [`load_agent_prompt_for_agent`].
-pub fn load_agent_prompt(agent_id: &str) -> Result<Option<String>> {
-    let id = validate_agent_id(agent_id)?;
-    let Some(path) = find_agent_prompt_path_by_id(id)? else {
-        return Ok(None);
-    };
-
-    let Some(content) = read_prompt_file_if_exists(&path)? else {
-        return Ok(None);
-    };
-    let parsed = parse_prompt_file_content(&content);
-    if parsed.body.trim().is_empty() {
-        Ok(None)
-    } else {
-        Ok(Some(parsed.body))
-    }
-}
-
 pub fn load_agent_prompt_for_agent(
     agent_id: &str,
     agent_name: &str,

@@ -3,6 +3,7 @@ import {
   Plus,
   MessageSquare,
   Check,
+  Activity,
   Loader2,
   MoreHorizontal,
   Pencil,
@@ -41,6 +42,7 @@ const emit = defineEmits<{
   delete: [id: string, name: string]
   convertToBackgroundAgent: [id: string, name: string]
   convertToWorkspaceSession: [id: string, name: string]
+  viewRunTrace: [taskId: string]
   rebuild: [id: string, name: string]
 }>()
 
@@ -195,6 +197,13 @@ const formatTime = (timestamp: number) => {
                   >
                     <Pencil :size="14" class="mr-2" />
                     {{ t('workspace.session.rename') }}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    v-if="session.isBackgroundSession && session.backgroundTaskId"
+                    @click="emit('viewRunTrace', session.backgroundTaskId)"
+                  >
+                    <Activity :size="14" class="mr-2" />
+                    {{ t('workspace.session.viewRunTrace') }}
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     v-if="session.isBackgroundSession"

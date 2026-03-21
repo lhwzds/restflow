@@ -64,10 +64,17 @@ const mockModels: Array<{ model: string; name: string; provider: string }> = []
 let chatBoxMountCount = 0
 const mockSteerChatStream = vi.fn()
 const mockSendChatMessageApi = vi.fn()
+const mockRouterPush = vi.fn()
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
     t: (key: string) => key,
+  }),
+}))
+
+vi.mock('vue-router', () => ({
+  useRouter: () => ({
+    push: (...args: unknown[]) => mockRouterPush(...args),
   }),
 }))
 
@@ -291,6 +298,7 @@ describe('ChatPanel', () => {
       },
     ] as any)
     mockSteerChatStream.mockResolvedValue(true)
+    mockRouterPush.mockReset()
     mockSendChatMessageApi.mockResolvedValue(mockCurrentSession.value)
     mockGetAgentApi.mockResolvedValue({
       id: 'agent-1',
@@ -499,6 +507,28 @@ describe('ChatPanel', () => {
       name: 'browser',
       status: 'failed',
       toolId: 'tool-1',
+    })
+  })
+
+  it('shows a run trace entry for linked background sessions', async () => {
+    vi.mocked(useBackgroundAgentStore).mockReturnValue({
+      agents: [],
+      fetchAgents: vi.fn(),
+      agentBySessionId: () => ({
+        id: 'task-1',
+        status: 'running',
+        chat_session_id: 'session-1',
+      }),
+    } as any)
+
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-run-trace"]').trigger('click')
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-run',
+      params: { taskId: 'task-1' },
     })
   })
 })

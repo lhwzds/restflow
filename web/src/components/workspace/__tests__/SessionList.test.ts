@@ -189,6 +189,7 @@ describe('SessionList', () => {
             agentName: 'Agent One',
             sourceChannel: 'workspace',
             isBackgroundSession: true,
+            backgroundTaskId: 'task-background',
           },
         ],
         currentSessionId: null,
@@ -227,6 +228,7 @@ describe('SessionList', () => {
     await findButton('workspace.session.rebuild').trigger('click')
     await findButton('workspace.session.rename').trigger('click')
     await findButton('workspace.session.convertToBackground').trigger('click')
+    await findButton('workspace.session.viewRunTrace').trigger('click')
     await findButton('workspace.session.convertToWorkspace').trigger('click')
     await findButton('workspace.session.archive').trigger('click')
     await findButton('workspace.session.delete').trigger('click')
@@ -237,6 +239,7 @@ describe('SessionList', () => {
     expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([
       ['session-workspace', 'Workspace Session'],
     ])
+    expect(wrapper.emitted('viewRunTrace')).toEqual([['task-background']])
     expect(wrapper.emitted('convertToWorkspaceSession')).toEqual([
       ['session-background', 'Focus Task'],
     ])
