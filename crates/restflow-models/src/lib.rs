@@ -5,10 +5,15 @@ mod model_id;
 mod model_metadata;
 mod provider;
 mod provider_meta;
+mod selector;
 
 pub use model_id::ModelId;
 pub use model_metadata::{ModelMetadata, ModelMetadataDTO};
 pub use provider::Provider;
+pub use selector::{
+    ProviderSelector, parse_model_reference, parse_provider_selector, resolve_available_model_name,
+    split_provider_qualified_model,
+};
 
 pub use provider_meta::{ALL_PROVIDER_META, ProviderMeta, provider_meta};
 

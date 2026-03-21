@@ -19,6 +19,7 @@ uuid = { workspace = true }
 
 # Crate dependencies
 restflow-traits = { workspace = true, features = ["http-client"] }
+restflow-models = { workspace = true }
 restflow-storage = { path = "../restflow-storage" }
 restflow-browser = { workspace = true }
 

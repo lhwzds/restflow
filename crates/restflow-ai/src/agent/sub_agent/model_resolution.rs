@@ -1,9 +1,10 @@
 use std::sync::Arc;
 
 use crate::error::{AiError, Result};
-use crate::llm::{LlmClient, LlmClientFactory, LlmProvider};
-use restflow_models::provider_meta;
-use restflow_traits::ModelProvider;
+use crate::llm::{LlmClient, LlmClientFactory};
+use restflow_models::{
+    parse_model_reference, parse_provider_selector, resolve_available_model_name,
+};
 
 pub(crate) fn resolve_llm_client(
     request_model: Option<&str>,
@@ -41,16 +42,30 @@ pub(crate) fn resolve_model_with_provider(
     let requested_provider = parse_provider_selector(provider_selector).ok_or_else(|| {
         AiError::Agent(format!(
             "Unknown provider for sub-agent: {provider_selector}. \
-Try one of: openai-codex, anthropic, deepseek, google, groq, openrouter, xai, qwen, zai, minimax."
+Try one of: openai-codex, anthropic, deepseek, google, groq, openrouter, xai, qwen, zai, minimax, opencode-cli, gemini-cli."
         ))
     })?;
-    let actual_provider = factory
-        .provider_for_model(&resolved_model)
-        .ok_or_else(|| AiError::Agent(format!("Unknown model for sub-agent: {resolved_model}")))?;
-    if actual_provider != requested_provider {
+    let provider_matches = parse_model_reference(&resolved_model)
+        .map(|model_id| requested_provider.matches_model(model_id))
+        .unwrap_or_else(|| {
+            factory
+                .provider_for_model(&resolved_model)
+                .zip(requested_provider.runtime_provider())
+                .map(|(actual, expected)| actual == expected)
+                .unwrap_or(false)
+        });
+    if !provider_matches {
+        let actual_provider = parse_model_reference(&resolved_model)
+            .map(|model_id| model_id.provider().as_canonical_str().to_string())
+            .or_else(|| {
+                factory
+                    .provider_for_model(&resolved_model)
+                    .map(|provider| provider.as_str().to_string())
+            })
+            .unwrap_or_else(|| "unknown".to_string());
         return Err(AiError::Agent(format!(
             "Model '{resolved_model}' does not belong to provider '{provider_selector}' (actual: '{}').",
-            actual_provider.as_str()
+            actual_provider
         )));
     }
 
@@ -72,45 +87,8 @@ fn resolve_model_name(model: &str, factory: &dyn LlmClientFactory) -> Result<Str
         )));
     }
 
-    if let Some(exact) = available
-        .iter()
-        .find(|candidate| candidate.eq_ignore_ascii_case(query))
-    {
-        return Ok(exact.clone());
-    }
-
-    if factory.provider_for_model(query).is_some() {
-        return Ok(query.to_string());
-    }
-
-    let normalized_query = normalize_model_identifier(query);
-    if normalized_query.is_empty() {
-        return Err(AiError::Agent(format!(
-            "Unknown model for sub-agent: {model}"
-        )));
-    }
-
-    let normalized_exact_matches: Vec<&String> = available
-        .iter()
-        .filter(|candidate| normalize_model_identifier(candidate) == normalized_query)
-        .collect();
-    if normalized_exact_matches.len() == 1 {
-        return Ok(normalized_exact_matches[0].clone());
-    }
-
-    if let Some((provider, model_name)) = query.split_once(':') {
-        let provider_joined = normalize_model_identifier(&format!("{provider}-{model_name}"));
-        let canonical_matches: Vec<&String> = available
-            .iter()
-            .filter(|candidate| normalize_model_identifier(candidate) == provider_joined)
-            .collect();
-        if canonical_matches.len() == 1 {
-            return Ok(canonical_matches[0].clone());
-        }
-    }
-
-    if let Some(alias_resolved) = resolve_model_alias(&normalized_query, &available) {
-        return Ok(alias_resolved);
+    if let Some(resolved) = resolve_available_model_name(query, &available) {
+        return Ok(resolved);
     }
 
     let suggestions = available
@@ -122,121 +100,6 @@ fn resolve_model_name(model: &str, factory: &dyn LlmClientFactory) -> Result<Str
     Err(AiError::Agent(format!(
         "Unknown model for sub-agent: {model}. Try one of: {suggestions}"
     )))
-}
-
-fn resolve_model_alias(normalized_query: &str, available: &[String]) -> Option<String> {
-    let mut normalized_available = available
-        .iter()
-        .map(|candidate| (normalize_model_identifier(candidate), candidate.clone()))
-        .collect::<Vec<(String, String)>>();
-
-    if matches!(
-        normalized_query,
-        "minimax-coding-plan" | "minimax-coding" | "coding-plan-minimax"
-    ) || normalized_query.starts_with("minimax-coding-plan")
-    {
-        let mut matches = normalized_available
-            .iter()
-            .filter(|(normalized, _)| normalized.starts_with("minimax-coding-plan-"))
-            .map(|(_, original)| original.clone())
-            .collect::<Vec<_>>();
-        if matches.is_empty() {
-            return None;
-        }
-        matches.sort();
-        return matches
-            .iter()
-            .find(|candidate| candidate.contains("m2-5"))
-            .cloned()
-            .or_else(|| matches.last().cloned());
-    }
-
-    if matches!(
-        normalized_query,
-        "glm5-coding-plan"
-            | "glm-5-coding-plan"
-            | "zai-coding-plan"
-            | "zai-coding-plan-glm5"
-            | "zai-coding-plan-glm-5"
-    ) && let Some(exact) = normalized_available
-        .iter()
-        .find(|(normalized, _)| normalized == "zai-coding-plan-glm-5")
-        .map(|(_, original)| original.clone())
-    {
-        return Some(exact);
-    }
-
-    if matches!(
-        normalized_query,
-        "glm5-turbo-coding-plan"
-            | "glm-5-turbo-coding-plan"
-            | "zai-coding-plan-glm5-turbo"
-            | "zai-coding-plan-glm-5-turbo"
-    ) && let Some(exact) = normalized_available
-        .iter()
-        .find(|(normalized, _)| normalized == "zai-coding-plan-glm-5-turbo")
-        .map(|(_, original)| original.clone())
-    {
-        return Some(exact);
-    }
-
-    if matches!(
-        normalized_query,
-        "glm5-coding-plan-code" | "glm-5-coding-plan-code"
-    ) && let Some(exact) = normalized_available
-        .iter()
-        .find(|(normalized, _)| normalized == "zai-coding-plan-glm-5-code")
-        .map(|(_, original)| original.clone())
-    {
-        return Some(exact);
-    }
-
-    let mut prefix_matches = normalized_available
-        .drain(..)
-        .filter(|(normalized, _)| normalized.starts_with(normalized_query))
-        .map(|(_, original)| original)
-        .collect::<Vec<_>>();
-    if prefix_matches.is_empty() {
-        return None;
-    }
-    prefix_matches.sort();
-    Some(prefix_matches[0].clone())
-}
-
-fn parse_provider_selector(value: &str) -> Option<LlmProvider> {
-    let normalized = normalize_model_identifier(value);
-    if matches!(
-        normalized.as_str(),
-        "openai-codex" | "codex" | "codex-cli" | "claude-code" | "gemini-cli"
-    ) {
-        return Some(match normalized.as_str() {
-            "claude-code" => LlmProvider::Anthropic,
-            "gemini-cli" => LlmProvider::Google,
-            _ => LlmProvider::OpenAI,
-        });
-    }
-
-    let provider = ModelProvider::parse_alias(&normalized)?;
-    Some(provider_meta(provider).runtime_provider)
-}
-
-fn normalize_model_identifier(value: &str) -> String {
-    let mut normalized = String::with_capacity(value.len());
-    let mut previous_dash = false;
-
-    for ch in value.trim().chars() {
-        if ch.is_ascii_alphanumeric() {
-            normalized.push(ch.to_ascii_lowercase());
-            previous_dash = false;
-            continue;
-        }
-        if !previous_dash {
-            normalized.push('-');
-            previous_dash = true;
-        }
-    }
-
-    normalized.trim_matches('-').to_string()
 }
 
 #[cfg(test)]
@@ -295,19 +158,25 @@ mod tests {
 
     #[test]
     fn parse_provider_selector_accepts_shared_aliases() {
-        assert_eq!(parse_provider_selector("gpt"), Some(LlmProvider::OpenAI));
-        assert_eq!(parse_provider_selector("gemini"), Some(LlmProvider::Google));
         assert_eq!(
-            parse_provider_selector("zhipu-coding-plan"),
-            Some(LlmProvider::ZaiCodingPlan)
+            parse_provider_selector("gpt").map(|selector| selector.label()),
+            Some("openai")
         );
         assert_eq!(
-            parse_provider_selector("minimax-coding"),
-            Some(LlmProvider::MiniMaxCodingPlan)
+            parse_provider_selector("gemini").map(|selector| selector.label()),
+            Some("google")
         );
         assert_eq!(
-            parse_provider_selector("openai-codex"),
-            Some(LlmProvider::OpenAI)
+            parse_provider_selector("zhipu-coding-plan").map(|selector| selector.label()),
+            Some("zai-coding-plan")
+        );
+        assert_eq!(
+            parse_provider_selector("minimax-coding").map(|selector| selector.label()),
+            Some("minimax-coding-plan")
+        );
+        assert_eq!(
+            parse_provider_selector("openai-codex").map(|selector| selector.label()),
+            Some("openai-codex")
         );
     }
 
