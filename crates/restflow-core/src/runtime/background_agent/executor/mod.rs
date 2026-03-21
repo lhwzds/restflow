@@ -15,7 +15,7 @@ use std::time::Duration;
 use crate::runtime::{AgentOrchestratorImpl, ExecutionContext};
 use crate::{
     ModelId, Provider,
-    auth::{AuthProfileManager, AuthProvider},
+    auth::{AuthProfileManager, resolve_model_from_credentials, secret_exists},
     models::{
         AgentCheckpoint, AgentNode, ApiKeyConfig, ChatMessage, ChatRole, ChatSession,
         DurabilityMode, MemoryConfig, SharedEntry, Skill, SteerMessage, Visibility,

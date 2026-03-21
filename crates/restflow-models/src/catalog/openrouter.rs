@@ -1,6 +1,8 @@
 use super::{ModelDescriptor, ProviderCatalog};
 use crate::{ModelId, Provider};
 
+const OPENROUTER_AUTO_ALIASES: &[&str] = &["openrouter"];
+
 pub const MODELS: &[ModelDescriptor] = &[
     ModelDescriptor::new(
         ModelId::OpenRouterAuto,
@@ -8,7 +10,8 @@ pub const MODELS: &[ModelDescriptor] = &[
         "openrouter/auto",
         "OpenRouter Auto",
         true,
-    ),
+    )
+    .with_aliases(OPENROUTER_AUTO_ALIASES),
     ModelDescriptor::new(
         ModelId::OrClaudeOpus4_6,
         Provider::OpenRouter,

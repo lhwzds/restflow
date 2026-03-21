@@ -1,28 +1,10 @@
 use super::*;
+use crate::auth::build_runtime_api_keys;
 
 pub(super) fn build_api_keys(
     secret_storage: Option<&SecretStorage>,
 ) -> HashMap<LlmProvider, String> {
-    let mut keys = HashMap::new();
-    for provider in Provider::all().iter().copied() {
-        let Some(env_name) = provider.api_key_env() else {
-            continue;
-        };
-        if let Some(storage) = secret_storage
-            && let Ok(Some(value)) = storage.get_secret(env_name)
-            && !value.trim().is_empty()
-        {
-            keys.insert(provider.as_llm_provider(), value);
-            continue;
-        }
-
-        if let Ok(value) = std::env::var(env_name)
-            && !value.trim().is_empty()
-        {
-            keys.insert(provider.as_llm_provider(), value);
-        }
-    }
-    keys
+    build_runtime_api_keys(secret_storage)
 }
 
 pub(super) fn build_llm_factory(

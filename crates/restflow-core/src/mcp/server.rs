@@ -4,6 +4,7 @@
 //! to AI assistants like Claude Code.
 
 use crate::AppCore;
+use crate::auth::build_runtime_api_keys;
 use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
@@ -11,7 +12,7 @@ use crate::models::{
     ChatSession, ChatSessionSummary, Deliverable, ExecutionTraceCategory, ExecutionTraceEvent,
     ExecutionTraceQuery, ExecutionTraceSource, Hook, HookAction, HookEvent, HookFilter,
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, ModelId,
-    Provider, SearchMode, Skill, SkillStatus, ValidationError,
+    SearchMode, Skill, SkillStatus, ValidationError,
 };
 use crate::services::{
     operation_assessment::OperationAssessorAdapter,
@@ -25,7 +26,6 @@ use restflow_ai::llm::{
 use restflow_ai::tools::Tool as RuntimeTool;
 pub(crate) use restflow_contracts::ToolDefinition as RuntimeToolDefinition;
 pub(crate) use restflow_contracts::ToolExecutionResult as RuntimeToolResult;
-use restflow_models::LlmProvider;
 use restflow_storage::ApiDefaults;
 use restflow_tools::SwitchModelTool;
 use restflow_traits::store::{
@@ -189,31 +189,8 @@ fn create_runtime_tool_registry_for_core(
     )
 }
 
-fn build_api_keys(secret_storage: Option<&SecretStorage>) -> HashMap<LlmProvider, String> {
-    let mut keys = HashMap::new();
-    for provider in Provider::all().iter().copied() {
-        let Some(env_name) = provider.api_key_env() else {
-            continue;
-        };
-        if let Some(storage) = secret_storage
-            && let Ok(Some(value)) = storage.get_secret(env_name)
-            && !value.trim().is_empty()
-        {
-            keys.insert(provider.as_llm_provider(), value);
-            continue;
-        }
-
-        if let Ok(value) = std::env::var(env_name)
-            && !value.trim().is_empty()
-        {
-            keys.insert(provider.as_llm_provider(), value);
-        }
-    }
-    keys
-}
-
 fn build_switch_model_tool(secret_storage: Option<&SecretStorage>) -> SwitchModelTool {
-    let api_keys = build_api_keys(secret_storage);
+    let api_keys = build_runtime_api_keys(secret_storage);
     let factory = Arc::new(DefaultLlmClientFactory::new(
         api_keys,
         ModelId::build_model_specs(),

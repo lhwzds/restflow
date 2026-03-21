@@ -430,7 +430,7 @@ async fn test_resolve_primary_model_uses_anthropic_opus_when_model_missing() {
 #[test]
 fn test_default_model_for_provider_uses_anthropic_opus() {
     assert_eq!(
-        AgentRuntimeExecutor::default_model_for_provider(Provider::Anthropic),
+        crate::models::provider_default_model(Provider::Anthropic),
         ModelId::ClaudeOpus4_6
     );
 }
@@ -438,7 +438,7 @@ fn test_default_model_for_provider_uses_anthropic_opus() {
 #[test]
 fn test_default_model_for_provider_uses_minimax_m27() {
     assert_eq!(
-        AgentRuntimeExecutor::default_model_for_provider(Provider::MiniMax),
+        crate::models::provider_default_model(Provider::MiniMax),
         ModelId::MiniMaxM27
     );
 }

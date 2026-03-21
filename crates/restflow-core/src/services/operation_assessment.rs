@@ -6,10 +6,11 @@ use restflow_traits::ModelProvider as SharedModelProvider;
 use sha2::{Digest, Sha256};
 
 use crate::AppCore;
-use crate::auth::{AuthManagerConfig, AuthProfileManager, AuthProvider};
-use crate::models::{
-    AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError, provider_default_model,
+use crate::auth::{
+    AuthManagerConfig, AuthProfileManager, provider_available as auth_provider_available,
+    resolve_model_from_credentials, secret_or_env_exists,
 };
+use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
 use crate::storage::agent::StoredAgent;
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -209,28 +210,12 @@ async fn build_auth(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
     Ok(manager)
 }
 
-fn has_non_empty_secret(core: &Arc<AppCore>, key: &str) -> bool {
-    if core
-        .storage
-        .secrets
-        .get_non_empty(key)
-        .ok()
-        .flatten()
-        .is_some()
-    {
-        return true;
-    }
-
-    std::env::var(key)
-        .ok()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false)
-}
-
 fn agent_has_local_credential(core: &Arc<AppCore>, agent: &AgentNode) -> bool {
     match agent.api_key_config.as_ref() {
         Some(ApiKeyConfig::Direct(value)) => !value.trim().is_empty(),
-        Some(ApiKeyConfig::Secret(secret_name)) => has_non_empty_secret(core, secret_name),
+        Some(ApiKeyConfig::Secret(secret_name)) => {
+            secret_or_env_exists(&core.storage.secrets, secret_name)
+        }
         None => false,
     }
 }
@@ -240,97 +225,20 @@ async fn provider_available(
     auth_manager: &AuthProfileManager,
     provider: Provider,
 ) -> bool {
-    match provider {
-        Provider::ClaudeCode => auth_manager
-            .get_available_profile(AuthProvider::ClaudeCode)
-            .await
-            .is_some(),
-        Provider::Codex => auth_manager
-            .get_available_profile(AuthProvider::OpenAICodex)
-            .await
-            .is_some(),
-        Provider::OpenAI => {
-            has_non_empty_secret(core, "OPENAI_API_KEY")
-                || auth_manager
-                    .get_available_profile(AuthProvider::OpenAI)
-                    .await
-                    .is_some()
-        }
-        Provider::Anthropic => {
-            has_non_empty_secret(core, "ANTHROPIC_API_KEY")
-                || auth_manager
-                    .get_available_profile(AuthProvider::Anthropic)
-                    .await
-                    .is_some()
-        }
-        Provider::Google => {
-            has_non_empty_secret(core, "GEMINI_API_KEY")
-                || has_non_empty_secret(core, "GOOGLE_API_KEY")
-                || auth_manager
-                    .get_available_profile(AuthProvider::Google)
-                    .await
-                    .is_some()
-        }
-        other => other
-            .api_key_env()
-            .map(|env_name| has_non_empty_secret(core, env_name))
-            .unwrap_or(false),
-    }
+    auth_provider_available(auth_manager, provider, |key| {
+        secret_or_env_exists(&core.storage.secrets, key)
+    })
+    .await
 }
 
 async fn resolve_model_from_stored_credentials(
     core: &Arc<AppCore>,
     auth_manager: &AuthProfileManager,
 ) -> Result<Option<ModelId>> {
-    if auth_manager
-        .get_available_profile(AuthProvider::OpenAICodex)
-        .await
-        .is_some()
-    {
-        return Ok(Some(ModelId::Gpt5_4Codex));
-    }
-
-    let profile_order = [
-        (AuthProvider::ClaudeCode, ModelId::ClaudeCodeOpus),
-        (AuthProvider::Anthropic, ModelId::ClaudeOpus4_6),
-        (AuthProvider::OpenAI, ModelId::Gpt5),
-        (AuthProvider::Google, ModelId::Gemini25Pro),
-    ];
-    for (provider, model) in profile_order {
-        if auth_manager.get_available_profile(provider).await.is_some() {
-            return Ok(Some(model));
-        }
-    }
-
-    const SECRET_PROVIDER_ORDER: [Provider; 16] = [
-        Provider::MiniMaxCodingPlan,
-        Provider::MiniMax,
-        Provider::ZaiCodingPlan,
-        Provider::Zai,
-        Provider::Anthropic,
-        Provider::OpenAI,
-        Provider::Google,
-        Provider::DeepSeek,
-        Provider::Groq,
-        Provider::OpenRouter,
-        Provider::XAI,
-        Provider::Qwen,
-        Provider::Moonshot,
-        Provider::Doubao,
-        Provider::Yi,
-        Provider::SiliconFlow,
-    ];
-
-    for provider in SECRET_PROVIDER_ORDER {
-        let Some(secret_name) = provider.api_key_env() else {
-            continue;
-        };
-        if has_non_empty_secret(core, secret_name) {
-            return Ok(Some(provider_default_model(provider)));
-        }
-    }
-
-    Ok(None)
+    Ok(resolve_model_from_credentials(auth_manager, |key| {
+        secret_or_env_exists(&core.storage.secrets, key)
+    })
+    .await)
 }
 
 fn to_assessment_model_ref(model_ref: ModelRef) -> AssessmentModelRef {

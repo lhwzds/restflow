@@ -129,6 +129,8 @@ fn test_from_api_name() {
         ModelId::from_api_name("gpt-5.4-codex"),
         Some(ModelId::Gpt5_4Codex)
     );
+    assert_eq!(ModelId::from_api_name("gpt-5-1"), Some(ModelId::Gpt5_1));
+    assert_eq!(ModelId::from_api_name("gpt-5-2"), Some(ModelId::Gpt5_2));
     assert_eq!(
         ModelId::from_api_name("gpt-5.4-mini-codex"),
         Some(ModelId::Gpt5_4MiniCodex)
@@ -148,6 +150,36 @@ fn test_from_api_name() {
     assert_eq!(
         ModelId::from_api_name("claude-haiku-4-preview"),
         Some(ModelId::ClaudeHaiku4_5)
+    );
+    assert_eq!(
+        ModelId::from_api_name("claude-code-opus"),
+        Some(ModelId::ClaudeCodeOpus)
+    );
+    assert_eq!(
+        ModelId::from_api_name("gemini-pro"),
+        Some(ModelId::Gemini25Pro)
+    );
+    assert_eq!(
+        ModelId::from_api_name("gemini-cli"),
+        Some(ModelId::GeminiCli)
+    );
+    assert_eq!(
+        ModelId::from_api_name("groq-scout"),
+        Some(ModelId::GroqLlama4Scout)
+    );
+    assert_eq!(ModelId::from_api_name("grok4"), Some(ModelId::Grok4));
+    assert_eq!(ModelId::from_api_name("qwen"), Some(ModelId::Qwen3Max));
+    assert_eq!(ModelId::from_api_name("glm-4-7"), Some(ModelId::Glm4_7));
+    assert_eq!(ModelId::from_api_name("moonshot"), Some(ModelId::KimiK2_5));
+    assert_eq!(ModelId::from_api_name("doubao"), Some(ModelId::DoubaoPro));
+    assert_eq!(ModelId::from_api_name("yi"), Some(ModelId::YiLightning));
+    assert_eq!(
+        ModelId::from_api_name("openrouter"),
+        Some(ModelId::OpenRouterAuto)
+    );
+    assert_eq!(
+        ModelId::from_api_name("siliconflow"),
+        Some(ModelId::SiliconFlowAuto)
     );
     assert_eq!(ModelId::from_api_name("nonexistent"), None);
 }
