@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use super::resolver::CredentialResolver;
 use crate::Provider;
+use crate::models::provider_auth_providers;
 
 const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -371,18 +372,7 @@ impl std::fmt::Display for AuthProvider {
 impl AuthProvider {
     /// Return compatible auth providers for a model provider, ordered by preference.
     pub fn compatible_with(provider: Provider) -> Vec<AuthProvider> {
-        match provider {
-            Provider::Anthropic => vec![AuthProvider::Anthropic],
-            Provider::ClaudeCode => vec![AuthProvider::ClaudeCode],
-            Provider::OpenAI => vec![AuthProvider::OpenAI],
-            Provider::Codex => vec![AuthProvider::OpenAICodex],
-            Provider::Google => vec![AuthProvider::Google],
-            Provider::MiniMax
-            | Provider::MiniMaxCodingPlan
-            | Provider::Zai
-            | Provider::ZaiCodingPlan => vec![AuthProvider::Other],
-            _ => vec![AuthProvider::Other],
-        }
+        provider_auth_providers(provider).to_vec()
     }
 }
 

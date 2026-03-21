@@ -68,26 +68,7 @@ impl AgentRuntimeExecutor {
     }
 
     pub(super) fn default_model_for_provider(provider: Provider) -> ModelId {
-        match provider {
-            Provider::OpenAI => ModelId::Gpt5,
-            Provider::Anthropic => ModelId::ClaudeOpus4_6,
-            Provider::ClaudeCode => ModelId::ClaudeCodeOpus,
-            Provider::Codex => ModelId::Gpt5_4Codex,
-            Provider::DeepSeek => ModelId::DeepseekChat,
-            Provider::Google => ModelId::Gemini25Pro,
-            Provider::Groq => ModelId::GroqLlama4Maverick,
-            Provider::OpenRouter => ModelId::OpenRouterAuto,
-            Provider::XAI => ModelId::Grok4,
-            Provider::Qwen => ModelId::Qwen3Max,
-            Provider::Zai => ModelId::Glm5,
-            Provider::ZaiCodingPlan => ModelId::Glm5CodingPlan,
-            Provider::Moonshot => ModelId::KimiK2_5,
-            Provider::Doubao => ModelId::DoubaoPro,
-            Provider::Yi => ModelId::YiLightning,
-            Provider::SiliconFlow => ModelId::SiliconFlowAuto,
-            Provider::MiniMax => ModelId::MiniMaxM27,
-            Provider::MiniMaxCodingPlan => ModelId::MiniMaxM25CodingPlan,
-        }
+        crate::models::provider_default_model(provider)
     }
 
     pub(super) fn context_window_for_model(model: ModelId) -> usize {

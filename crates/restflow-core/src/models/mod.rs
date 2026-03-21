@@ -12,6 +12,7 @@ pub mod deliverable;
 pub mod execution_trace;
 pub mod hook;
 pub mod memory;
+mod provider_policy;
 pub mod security;
 pub mod shared_space;
 pub mod skill;
@@ -47,6 +48,7 @@ pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
     SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
+pub(crate) use provider_policy::{provider_auth_providers, provider_default_model};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
 pub use work_item::{ItemQuery, ItemStatus, WorkItem, WorkItemPatch, WorkItemSpec};
