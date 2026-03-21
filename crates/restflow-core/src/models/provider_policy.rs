@@ -16,99 +16,122 @@ const AUTH_OPENAI_CODEX: &[AuthProvider] = &[AuthProvider::OpenAICodex];
 const AUTH_GOOGLE: &[AuthProvider] = &[AuthProvider::Google];
 const AUTH_OTHER: &[AuthProvider] = &[AuthProvider::Other];
 
-const OPENAI_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OPENAI,
-};
-
-const ANTHROPIC_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_ANTHROPIC,
-};
-
-const CLAUDE_CODE_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_CLAUDE_CODE,
-};
-
-const CODEX_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OPENAI_CODEX,
-};
-
-const DEEPSEEK_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const GOOGLE_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_GOOGLE,
-};
-
-const GROQ_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const OPENROUTER_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const XAI_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const QWEN_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const ZAI_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const ZAI_CODING_PLAN_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const MOONSHOT_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const DOUBAO_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const YI_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const SILICONFLOW_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const MINIMAX_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
-
-const MINIMAX_CODING_PLAN_POLICY: ProviderAuthPolicy = ProviderAuthPolicy {
-    auth_providers: AUTH_OTHER,
-};
+const ALL_PROVIDER_AUTH_POLICIES: &[(Provider, ProviderAuthPolicy)] = &[
+    (
+        Provider::OpenAI,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OPENAI,
+        },
+    ),
+    (
+        Provider::Anthropic,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_ANTHROPIC,
+        },
+    ),
+    (
+        Provider::ClaudeCode,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_CLAUDE_CODE,
+        },
+    ),
+    (
+        Provider::Codex,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OPENAI_CODEX,
+        },
+    ),
+    (
+        Provider::DeepSeek,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::Google,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_GOOGLE,
+        },
+    ),
+    (
+        Provider::Groq,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::OpenRouter,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::XAI,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::Qwen,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::Zai,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::ZaiCodingPlan,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::Moonshot,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::Doubao,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::Yi,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::SiliconFlow,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::MiniMax,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+    (
+        Provider::MiniMaxCodingPlan,
+        ProviderAuthPolicy {
+            auth_providers: AUTH_OTHER,
+        },
+    ),
+];
 
 fn provider_auth_policy(provider: Provider) -> &'static ProviderAuthPolicy {
-    match provider {
-        Provider::OpenAI => &OPENAI_POLICY,
-        Provider::Anthropic => &ANTHROPIC_POLICY,
-        Provider::ClaudeCode => &CLAUDE_CODE_POLICY,
-        Provider::Codex => &CODEX_POLICY,
-        Provider::DeepSeek => &DEEPSEEK_POLICY,
-        Provider::Google => &GOOGLE_POLICY,
-        Provider::Groq => &GROQ_POLICY,
-        Provider::OpenRouter => &OPENROUTER_POLICY,
-        Provider::XAI => &XAI_POLICY,
-        Provider::Qwen => &QWEN_POLICY,
-        Provider::Zai => &ZAI_POLICY,
-        Provider::ZaiCodingPlan => &ZAI_CODING_PLAN_POLICY,
-        Provider::Moonshot => &MOONSHOT_POLICY,
-        Provider::Doubao => &DOUBAO_POLICY,
-        Provider::Yi => &YI_POLICY,
-        Provider::SiliconFlow => &SILICONFLOW_POLICY,
-        Provider::MiniMax => &MINIMAX_POLICY,
-        Provider::MiniMaxCodingPlan => &MINIMAX_CODING_PLAN_POLICY,
-    }
+    ALL_PROVIDER_AUTH_POLICIES
+        .iter()
+        .find_map(|(candidate, policy)| (*candidate == provider).then_some(policy))
+        .unwrap_or_else(|| panic!("missing auth policy for {}", provider.as_canonical_str()))
 }
 
 pub(crate) fn provider_default_model(provider: Provider) -> ModelId {
@@ -121,7 +144,7 @@ pub(crate) fn provider_auth_providers(provider: Provider) -> &'static [AuthProvi
 
 #[cfg(test)]
 mod tests {
-    use super::{provider_auth_providers, provider_default_model};
+    use super::{ALL_PROVIDER_AUTH_POLICIES, provider_auth_providers, provider_default_model};
     use crate::auth::AuthProvider;
     use crate::models::{ModelId, Provider};
 
@@ -151,5 +174,10 @@ mod tests {
             provider_auth_providers(Provider::ZaiCodingPlan),
             &[AuthProvider::Other]
         );
+    }
+
+    #[test]
+    fn provider_auth_policy_table_stays_in_sync() {
+        assert_eq!(Provider::all().len(), ALL_PROVIDER_AUTH_POLICIES.len());
     }
 }
