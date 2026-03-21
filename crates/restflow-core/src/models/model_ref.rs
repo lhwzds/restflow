@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
-use super::{Provider, ValidationError, ai_model::ModelId};
+use super::{Provider, ValidationError, model_id::ModelId};
 
 /// Model metadata containing provider, temperature support, and display name
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
