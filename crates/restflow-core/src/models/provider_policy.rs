@@ -4,11 +4,6 @@ use crate::auth::AuthProvider;
 
 use super::{ModelId, Provider};
 
-#[derive(Debug, Clone, Copy)]
-struct ProviderAuthPolicy {
-    auth_providers: &'static [AuthProvider],
-}
-
 const AUTH_ANTHROPIC: &[AuthProvider] = &[AuthProvider::Anthropic];
 const AUTH_CLAUDE_CODE: &[AuthProvider] = &[AuthProvider::ClaudeCode];
 const AUTH_OPENAI: &[AuthProvider] = &[AuthProvider::OpenAI];
@@ -16,118 +11,28 @@ const AUTH_OPENAI_CODEX: &[AuthProvider] = &[AuthProvider::OpenAICodex];
 const AUTH_GOOGLE: &[AuthProvider] = &[AuthProvider::Google];
 const AUTH_OTHER: &[AuthProvider] = &[AuthProvider::Other];
 
-const ALL_PROVIDER_AUTH_POLICIES: &[(Provider, ProviderAuthPolicy)] = &[
-    (
-        Provider::OpenAI,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OPENAI,
-        },
-    ),
-    (
-        Provider::Anthropic,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_ANTHROPIC,
-        },
-    ),
-    (
-        Provider::ClaudeCode,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_CLAUDE_CODE,
-        },
-    ),
-    (
-        Provider::Codex,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OPENAI_CODEX,
-        },
-    ),
-    (
-        Provider::DeepSeek,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::Google,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_GOOGLE,
-        },
-    ),
-    (
-        Provider::Groq,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::OpenRouter,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::XAI,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::Qwen,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::Zai,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::ZaiCodingPlan,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::Moonshot,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::Doubao,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::Yi,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::SiliconFlow,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::MiniMax,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
-    (
-        Provider::MiniMaxCodingPlan,
-        ProviderAuthPolicy {
-            auth_providers: AUTH_OTHER,
-        },
-    ),
+const ALL_PROVIDER_AUTH_POLICIES: &[(Provider, &[AuthProvider])] = &[
+    (Provider::OpenAI, AUTH_OPENAI),
+    (Provider::Anthropic, AUTH_ANTHROPIC),
+    (Provider::ClaudeCode, AUTH_CLAUDE_CODE),
+    (Provider::Codex, AUTH_OPENAI_CODEX),
+    (Provider::DeepSeek, AUTH_OTHER),
+    (Provider::Google, AUTH_GOOGLE),
+    (Provider::Groq, AUTH_OTHER),
+    (Provider::OpenRouter, AUTH_OTHER),
+    (Provider::XAI, AUTH_OTHER),
+    (Provider::Qwen, AUTH_OTHER),
+    (Provider::Zai, AUTH_OTHER),
+    (Provider::ZaiCodingPlan, AUTH_OTHER),
+    (Provider::Moonshot, AUTH_OTHER),
+    (Provider::Doubao, AUTH_OTHER),
+    (Provider::Yi, AUTH_OTHER),
+    (Provider::SiliconFlow, AUTH_OTHER),
+    (Provider::MiniMax, AUTH_OTHER),
+    (Provider::MiniMaxCodingPlan, AUTH_OTHER),
 ];
 
-fn provider_auth_policy(provider: Provider) -> &'static ProviderAuthPolicy {
+fn provider_auth_policy(provider: Provider) -> &'static [AuthProvider] {
     ALL_PROVIDER_AUTH_POLICIES
         .iter()
         .find_map(|(candidate, policy)| (*candidate == provider).then_some(policy))
@@ -139,7 +44,7 @@ pub(crate) fn provider_default_model(provider: Provider) -> ModelId {
 }
 
 pub(crate) fn provider_auth_providers(provider: Provider) -> &'static [AuthProvider] {
-    provider_auth_policy(provider).auth_providers
+    provider_auth_policy(provider)
 }
 
 #[cfg(test)]
