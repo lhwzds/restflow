@@ -6,8 +6,9 @@ use restflow_traits::ModelProvider;
 use restflow_traits::ToolError;
 use restflow_traits::llm::{LlmSwitcher, SwapResult};
 
-use super::factory::{LlmClientFactory, LlmProvider};
+use super::factory::LlmClientFactory;
 use super::swappable::SwappableLlm;
+use restflow_models::LlmProvider;
 
 /// Concrete implementation of [`LlmSwitcher`].
 pub struct LlmSwitcherImpl {
@@ -106,7 +107,7 @@ fn parse_provider_str(value: &str) -> Option<LlmProvider> {
 #[cfg(test)]
 mod tests {
     use super::parse_provider_str;
-    use crate::llm::factory::LlmProvider;
+    use restflow_models::LlmProvider;
 
     #[test]
     fn parse_provider_aliases_from_shared_model_provider() {

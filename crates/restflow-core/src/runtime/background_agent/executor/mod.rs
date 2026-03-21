@@ -32,9 +32,10 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{CompletionRequest, Message};
 use restflow_ai::{
     AgentConfig as ReActAgentConfig, AgentExecutor as ReActAgentExecutor, AiError, CodexClient,
-    DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    ResourceLimits as AgentResourceLimits, SwappableLlm,
+    DefaultLlmClientFactory, LlmClient, LlmClientFactory, ResourceLimits as AgentResourceLimits,
+    SwappableLlm,
 };
+use restflow_models::LlmProvider;
 use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool};
 use restflow_traits::{ExecutionOutcome, ExecutionPlan, ReplySender};
 use tokio::sync::mpsc;

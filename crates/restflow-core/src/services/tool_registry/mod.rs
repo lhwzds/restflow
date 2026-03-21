@@ -27,9 +27,10 @@ use restflow_ai::agent::{
     SubagentManagerImpl, SubagentTracker, execute_subagent_once,
 };
 use restflow_ai::llm::{
-    CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmProvider,
-    LlmSwitcherImpl, SwappableLlm,
+    CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmSwitcherImpl,
+    SwappableLlm,
 };
+use restflow_models::LlmProvider;
 use restflow_storage::{AgentDefaults, ApiDefaults, SystemConfig};
 use restflow_tools::{
     ListSubagentsTool, ProcessTool, ReplyTool, SpawnSubagentTool, SwitchModelTool,

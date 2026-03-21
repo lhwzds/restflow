@@ -25,9 +25,10 @@ pub use agent::{
 pub use error::{AiError, Result};
 pub use llm::{
     AnthropicClient, ClaudeCodeClient, CodexClient, DefaultLlmClientFactory, GeminiCliClient,
-    LlmClient, LlmClientFactory, LlmProvider, LlmSwitcherImpl, Message, ModelSpec, OpenAIClient,
-    OpenCodeClient, Role, SwappableLlm,
+    LlmClient, LlmClientFactory, LlmSwitcherImpl, Message, OpenAIClient, OpenCodeClient, Role,
+    SwappableLlm,
 };
+pub use restflow_models::{LlmProvider, ModelSpec};
 pub use steer::{SteerMessage, SteerSource};
 // Core tool abstractions
 pub use tools::{

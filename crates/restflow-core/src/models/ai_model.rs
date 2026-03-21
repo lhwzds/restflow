@@ -1,4 +1,4 @@
-use restflow_ai::llm::{LlmProvider, ModelSpec};
+use restflow_models::{LlmProvider, ModelSpec};
 use restflow_traits::ModelProvider;
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
