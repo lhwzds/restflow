@@ -1,4 +1,4 @@
-use restflow_models::{LlmProvider, ModelSpec, provider_meta};
+use restflow_models::{ClientKind, LlmProvider, ModelSpec, provider_meta};
 use restflow_traits::ModelProvider;
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
@@ -376,21 +376,20 @@ impl ModelId {
 
     /// Convert ModelId to ModelSpec used by runtime LLM factory.
     pub fn as_model_spec(&self) -> ModelSpec {
+        let descriptor = self.descriptor();
         let provider = self.provider().as_llm_provider();
-        if self.is_opencode_cli() {
-            ModelSpec::opencode(self.as_serialized_str(), self.as_str())
-        } else if self.is_codex_cli() {
-            ModelSpec::codex(self.as_serialized_str(), self.as_str())
-        } else if self.is_gemini_cli() {
-            ModelSpec::gemini_cli(self.as_serialized_str(), self.as_str())
-        } else if matches!(self.provider(), Provider::ZaiCodingPlan)
-            || matches!(*self, Self::Glm5Code)
-        {
-            ModelSpec::new(self.as_serialized_str(), provider, self.as_str())
-                .with_base_url("https://api.z.ai/api/coding/paas/v4")
-        } else {
-            ModelSpec::new(self.as_serialized_str(), provider, self.as_str())
+        let mut spec = match descriptor.client_kind {
+            ClientKind::Http => ModelSpec::new(self.as_serialized_str(), provider, self.as_str()),
+            ClientKind::CodexCli => ModelSpec::codex(self.as_serialized_str(), self.as_str()),
+            ClientKind::OpenCodeCli => ModelSpec::opencode(self.as_serialized_str(), self.as_str()),
+            ClientKind::GeminiCli => ModelSpec::gemini_cli(self.as_serialized_str(), self.as_str()),
+        };
+
+        if let Some(base_url) = descriptor.base_url_override {
+            spec = spec.with_base_url(base_url);
         }
+
+        spec
     }
 
     /// Build the shared model catalog for dynamic model switching.
@@ -520,8 +519,6 @@ impl ModelId {
         }
 
         match normalized.to_ascii_lowercase().as_str() {
-            "gpt-5.4-codex" => Some(Self::Gpt5_4Codex),
-            "gpt-5.4-mini-codex" => Some(Self::Gpt5_4MiniCodex),
             "claude-sonnet-4-5-20250514" | "claude-sonnet-4-20250514" => {
                 Some(Self::ClaudeSonnet4_5)
             }
@@ -550,22 +547,8 @@ impl ModelId {
             return None;
         }
 
-        let canonical = match normalized.as_str() {
-            "gpt-5.4-codex" => "gpt-5.4",
-            "gpt-5.4-mini-codex" => "gpt-5.4-mini",
-            "glm5" => "glm-5",
-            "glm5-turbo" => "glm-5-turbo",
-            "glm5-code" => "glm-5-code",
-            "glm-4.7" => "glm-4-7",
-            "minimax-m2.1" => "minimax-m2-1",
-            "minimax-m2.5" => "minimax-m2-5",
-            "minimax-m2.7" => "minimax-m2-7",
-            "minimax-m2.7-highspeed" => "minimax-m2-7-highspeed",
-            value => value,
-        };
-
-        catalog::lookup_for_provider(provider, canonical).or_else(|| {
-            let parsed = Self::from_api_name(canonical)?;
+        catalog::lookup_for_provider(provider, &normalized).or_else(|| {
+            let parsed = Self::from_api_name(&normalized)?;
             parsed.provider_matches(provider).then_some(parsed)
         })
     }
@@ -587,41 +570,27 @@ impl ModelId {
 
     /// Check if this model uses the Codex CLI
     pub fn is_codex_cli(&self) -> bool {
-        matches!(
-            *self,
-            Self::Gpt5_4Codex
-                | Self::Gpt5_4MiniCodex
-                | Self::Gpt5Codex
-                | Self::Gpt5_1Codex
-                | Self::Gpt5_2Codex
-                | Self::CodexCli
-        )
+        self.descriptor().client_kind == ClientKind::CodexCli
     }
 
     /// Check if this model uses the Claude Code CLI
     pub fn is_claude_code(&self) -> bool {
-        matches!(
-            *self,
-            Self::ClaudeCodeOpus | Self::ClaudeCodeSonnet | Self::ClaudeCodeHaiku
-        )
+        self.provider() == Provider::ClaudeCode
     }
 
     /// Check if this model uses the OpenCode CLI
     pub fn is_opencode_cli(&self) -> bool {
-        matches!(*self, Self::OpenCodeCli)
+        self.descriptor().client_kind == ClientKind::OpenCodeCli
     }
 
     /// Check if this model uses the Gemini CLI
     pub fn is_gemini_cli(&self) -> bool {
-        matches!(*self, Self::GeminiCli)
+        self.descriptor().client_kind == ClientKind::GeminiCli
     }
 
     /// Check if this model is any CLI-based model (manages its own auth)
     pub fn is_cli_model(&self) -> bool {
-        self.is_codex_cli()
-            || self.is_opencode_cli()
-            || self.is_gemini_cli()
-            || self.is_claude_code()
+        self.descriptor().client_kind.is_cli() || self.is_claude_code()
     }
 
     /// Get a same-provider fallback model (cheaper tier).
@@ -777,6 +746,14 @@ mod tests {
     #[test]
     fn test_from_api_name() {
         assert_eq!(
+            ModelId::from_api_name("gpt-5.4-codex"),
+            Some(ModelId::Gpt5_4Codex)
+        );
+        assert_eq!(
+            ModelId::from_api_name("gpt-5.4-mini-codex"),
+            Some(ModelId::Gpt5_4MiniCodex)
+        );
+        assert_eq!(
             ModelId::from_api_name("claude-sonnet-4-5-20250514"),
             Some(ModelId::ClaudeSonnet4_5)
         );
@@ -820,6 +797,14 @@ mod tests {
         assert_eq!(
             ModelId::for_provider_and_model(Provider::ZaiCodingPlan, "glm5-turbo"),
             Some(ModelId::Glm5TurboCodingPlan)
+        );
+        assert_eq!(
+            ModelId::for_provider_and_model(Provider::Codex, "gpt-5.4-codex"),
+            Some(ModelId::Gpt5_4Codex)
+        );
+        assert_eq!(
+            ModelId::for_provider_and_model(Provider::Codex, "gpt-5.4-mini-codex"),
+            Some(ModelId::Gpt5_4MiniCodex)
         );
     }
 

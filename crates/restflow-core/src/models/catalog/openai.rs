@@ -1,5 +1,6 @@
 use super::{ModelDescriptor, ProviderCatalog};
 use crate::models::{ModelId, Provider};
+use restflow_models::ClientKind;
 
 pub const MODELS: &[ModelDescriptor] = &[
     ModelDescriptor::new(ModelId::Gpt5, Provider::OpenAI, "gpt-5", "GPT-5", false)
@@ -50,7 +51,8 @@ pub const MODELS: &[ModelDescriptor] = &[
         "opencode",
         "OpenCode CLI",
         false,
-    ),
+    )
+    .with_client_kind(ClientKind::OpenCodeCli),
 ];
 
 pub const CATALOG: ProviderCatalog = ProviderCatalog::new(Provider::OpenAI, ModelId::Gpt5, MODELS);

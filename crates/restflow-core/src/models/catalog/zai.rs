@@ -1,6 +1,7 @@
 use super::{ModelDescriptor, ProviderCatalog};
 use crate::models::{ModelId, Provider};
 
+const ZAI_CODING_BASE_URL: &str = "https://api.z.ai/api/coding/paas/v4";
 const GLM5_ALIASES: &[&str] = &["glm5"];
 const GLM5_TURBO_ALIASES: &[&str] = &["glm5-turbo"];
 const GLM5_CODE_ALIASES: &[&str] = &["glm5-code"];
@@ -31,6 +32,7 @@ pub const MODELS: &[ModelDescriptor] = &[
         true,
     )
     .with_aliases(GLM5_CODE_ALIASES)
+    .with_base_url_override(ZAI_CODING_BASE_URL)
     .with_canonical_family("glm-5-code")
     .with_same_provider_fallback(ModelId::Glm4_7)
     .with_openrouter_equivalent(ModelId::OrGlm4_7),
