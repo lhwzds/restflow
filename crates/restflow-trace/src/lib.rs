@@ -1,5 +1,6 @@
 //! Shared run-trace primitives for RestFlow.
 
+use async_trait::async_trait;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
@@ -22,9 +23,85 @@ pub struct RunTraceOutcome {
     pub error: Option<String>,
 }
 
+/// Shared execution telemetry context propagated through runtime and executors.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TelemetryContext {
+    pub trace: RestflowTrace,
+    #[serde(default)]
+    pub requested_model: Option<String>,
+    #[serde(default)]
+    pub effective_model: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub attempt: Option<u32>,
+}
+
+impl TelemetryContext {
+    pub fn new(trace: RestflowTrace) -> Self {
+        Self {
+            trace,
+            requested_model: None,
+            effective_model: None,
+            provider: None,
+            attempt: None,
+        }
+    }
+
+    pub fn with_requested_model(mut self, requested_model: impl Into<String>) -> Self {
+        self.requested_model = Some(requested_model.into());
+        self
+    }
+
+    pub fn with_effective_model(mut self, effective_model: impl Into<String>) -> Self {
+        self.effective_model = Some(effective_model.into());
+        self
+    }
+
+    pub fn with_provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider = Some(provider.into());
+        self
+    }
+
+    pub fn with_attempt(mut self, attempt: u32) -> Self {
+        self.attempt = Some(attempt);
+        self
+    }
+}
+
 /// Lifecycle recorder for traced runs.
 pub trait TraceEventSink: Send + Sync {
     fn record_trace_event(&self, event: &TraceEvent);
+}
+
+#[async_trait]
+pub trait TelemetrySink: Send + Sync {
+    async fn emit(&self, event: ExecutionEventEnvelope);
+}
+
+#[derive(Default)]
+pub struct CompositeTelemetrySink {
+    sinks: Vec<std::sync::Arc<dyn TelemetrySink>>,
+}
+
+impl CompositeTelemetrySink {
+    pub fn new(sinks: Vec<std::sync::Arc<dyn TelemetrySink>>) -> Self {
+        Self { sinks }
+    }
+
+    pub fn with_sink(mut self, sink: std::sync::Arc<dyn TelemetrySink>) -> Self {
+        self.sinks.push(sink);
+        self
+    }
+}
+
+#[async_trait]
+impl TelemetrySink for CompositeTelemetrySink {
+    async fn emit(&self, event: ExecutionEventEnvelope) {
+        for sink in &self.sinks {
+            sink.emit(event.clone()).await;
+        }
+    }
 }
 
 /// Lifecycle recorder for traced runs.
@@ -80,6 +157,141 @@ pub struct TraceToolCallCompleted {
     pub error: Option<String>,
 }
 
+/// Metric dimension payload carried by execution telemetry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionMetricDimension {
+    pub key: String,
+    pub value: String,
+}
+
+/// Metric sample payload carried by execution telemetry.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionMetricSample {
+    pub name: String,
+    pub value: f64,
+    pub unit: Option<String>,
+    #[serde(default)]
+    pub dimensions: Vec<ExecutionMetricDimension>,
+}
+
+/// Provider health payload carried by execution telemetry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderHealthChanged {
+    pub provider: String,
+    pub model: Option<String>,
+    pub status: String,
+    pub reason: Option<String>,
+    pub error_kind: Option<String>,
+}
+
+/// Structured log field payload carried by execution telemetry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionLogField {
+    pub key: String,
+    pub value: String,
+}
+
+/// Structured log record payload carried by execution telemetry.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionLogRecord {
+    pub level: String,
+    pub message: String,
+    #[serde(default)]
+    pub fields: Vec<ExecutionLogField>,
+}
+
+/// Unified execution telemetry event payload.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum ExecutionEvent {
+    RunStarted,
+    RunCompleted {
+        ai_duration_ms: Option<u64>,
+    },
+    RunFailed {
+        error: String,
+        ai_duration_ms: Option<u64>,
+    },
+    RunInterrupted {
+        reason: String,
+        ai_duration_ms: Option<u64>,
+    },
+    ModelSwitch {
+        from_model: String,
+        to_model: String,
+        reason: Option<String>,
+        success: bool,
+    },
+    LlmCall(TraceLlmCall),
+    ToolCallStarted(TraceToolCallStart),
+    ToolCallCompleted(TraceToolCallCompleted),
+    Message(TraceMessage),
+    MetricSample(ExecutionMetricSample),
+    ProviderHealthChanged(ProviderHealthChanged),
+    LogRecord(ExecutionLogRecord),
+}
+
+/// Unified execution telemetry envelope.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ExecutionEventEnvelope {
+    pub event_id: String,
+    pub occurred_at_ms: i64,
+    pub trace: RestflowTrace,
+    #[serde(default)]
+    pub requested_model: Option<String>,
+    #[serde(default)]
+    pub effective_model: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub attempt: Option<u32>,
+    pub event: ExecutionEvent,
+}
+
+impl ExecutionEventEnvelope {
+    pub fn new(trace: RestflowTrace, event: ExecutionEvent) -> Self {
+        let occurred_at_ms = Utc::now().timestamp_millis();
+        Self {
+            event_id: format!("{}-{occurred_at_ms}", trace.run_id),
+            occurred_at_ms,
+            trace,
+            requested_model: None,
+            effective_model: None,
+            provider: None,
+            attempt: None,
+            event,
+        }
+    }
+
+    pub fn with_requested_model(mut self, requested_model: impl Into<String>) -> Self {
+        self.requested_model = Some(requested_model.into());
+        self
+    }
+
+    pub fn with_effective_model(mut self, effective_model: impl Into<String>) -> Self {
+        self.effective_model = Some(effective_model.into());
+        self
+    }
+
+    pub fn with_provider(mut self, provider: impl Into<String>) -> Self {
+        self.provider = Some(provider.into());
+        self
+    }
+
+    pub fn with_attempt(mut self, attempt: u32) -> Self {
+        self.attempt = Some(attempt);
+        self
+    }
+
+    pub fn from_telemetry_context(context: &TelemetryContext, event: ExecutionEvent) -> Self {
+        let mut envelope = Self::new(context.trace.clone(), event);
+        envelope.requested_model = context.requested_model.clone();
+        envelope.effective_model = context.effective_model.clone();
+        envelope.provider = context.provider.clone();
+        envelope.attempt = context.attempt;
+        envelope
+    }
+}
+
 /// LLM-call payload carried by the canonical trace event schema.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TraceLlmCall {
@@ -126,7 +338,6 @@ pub enum TraceEventKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum TraceTimelineSource {
-    ToolTrace,
     ExecutionTrace,
 }
 
@@ -182,9 +393,9 @@ pub struct RestflowTrace {
     /// Optional parent run identifier for hierarchical traces (for example sub-agents).
     #[serde(default)]
     pub parent_run_id: Option<String>,
-    /// Session grouping key used by the legacy tool-trace storage.
+    /// Session grouping key used by execution telemetry projections.
     pub session_id: String,
-    /// Legacy run key stored in tool traces.
+    /// Stable turn identifier derived from the run id.
     pub turn_id: String,
     /// Neutral execution scope identifier used by execution traces.
     #[serde(alias = "execution_task_id")]
@@ -258,6 +469,40 @@ impl RestflowTrace {
             Some(context.session_id.clone()),
             Some(context.scope_id.clone()),
         )
+    }
+}
+
+impl TraceEvent {
+    pub fn to_execution_event_envelope(&self) -> ExecutionEventEnvelope {
+        let event = match &self.kind {
+            TraceEventKind::RunStarted => ExecutionEvent::RunStarted,
+            TraceEventKind::RunCompleted { ai_duration_ms } => ExecutionEvent::RunCompleted {
+                ai_duration_ms: *ai_duration_ms,
+            },
+            TraceEventKind::RunFailed {
+                error,
+                ai_duration_ms,
+            } => ExecutionEvent::RunFailed {
+                error: error.clone(),
+                ai_duration_ms: *ai_duration_ms,
+            },
+            TraceEventKind::RunInterrupted {
+                reason,
+                ai_duration_ms,
+            } => ExecutionEvent::RunInterrupted {
+                reason: reason.clone(),
+                ai_duration_ms: *ai_duration_ms,
+            },
+            TraceEventKind::ToolCallStarted(payload) => {
+                ExecutionEvent::ToolCallStarted(payload.clone())
+            }
+            TraceEventKind::ToolCallCompleted(payload) => {
+                ExecutionEvent::ToolCallCompleted(payload.clone())
+            }
+            TraceEventKind::LlmCall(payload) => ExecutionEvent::LlmCall(payload.clone()),
+            TraceEventKind::Message(payload) => ExecutionEvent::Message(payload.clone()),
+        };
+        ExecutionEventEnvelope::new(self.trace.clone(), event)
     }
 }
 

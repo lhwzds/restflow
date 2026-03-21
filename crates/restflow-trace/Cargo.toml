@@ -8,6 +8,7 @@ name = "restflow_trace"
 path = "src/lib.rs"
 
 [dependencies]
+async-trait = { workspace = true }
 chrono = { workspace = true }
 serde = { workspace = true }
 

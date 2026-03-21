@@ -19,6 +19,7 @@ pub mod services;
 pub mod skill_files;
 pub mod steer;
 pub mod storage;
+pub mod telemetry;
 mod template;
 
 pub use models::{
@@ -69,9 +70,15 @@ pub use models::{
     DurabilityMode,
     EnvVarRequirement,
     ExecutionDetails,
+    ExecutionLogField,
+    ExecutionLogQuery,
+    ExecutionLogResponse,
+    ExecutionMetricQuery,
+    ExecutionMetricsResponse,
     ExecutionMode,
     ExecutionStep,
     ExecutionStepInfo,
+    ExecutionTimeline,
     ExecutionTraceCategory,
     ExecutionTraceEvent,
     ExecutionTraceQuery,
@@ -93,6 +100,7 @@ pub use models::{
     LifecycleTrace,
     LlmCallAudit,
     LlmCallTrace,
+    LogRecordTrace,
     MemoryChunk,
     MemoryConfig,
     MemoryScope,
@@ -104,6 +112,8 @@ pub use models::{
     MessageAudit,
     MessageExecution,
     MessageTrace,
+    MetricDimension,
+    MetricSampleTrace,
     ModelId,
     ModelMetadataDTO,
     ModelRoutingConfig,
@@ -113,6 +123,9 @@ pub use models::{
     OsType,
     PendingApproval,
     Provider,
+    ProviderHealthQuery,
+    ProviderHealthResponse,
+    ProviderHealthTrace,
     ResourceLimits,
     ResumePayload,
     SearchMode,
@@ -146,6 +159,7 @@ pub use models::{
     ToolAction,
     ToolCallAudit,
     ToolCallInfo,
+    ToolCallPhase,
     ToolRule,
     TriggerConfig,
     UnifiedSearchQuery,

@@ -14,10 +14,12 @@ pub mod execution_trace;
 pub mod hook;
 pub mod kv_store;
 pub mod memory;
+pub mod provider_health_snapshot;
 pub mod session;
 pub mod skill;
+pub mod structured_execution_log;
+pub mod telemetry_metric_sample;
 pub mod terminal_session;
-pub mod tool_trace;
 pub mod trigger;
 pub mod work_item;
 
@@ -48,10 +50,12 @@ pub use execution_trace::ExecutionTraceStorage;
 pub use hook::HookStorage;
 pub use kv_store::KvStoreStorage;
 pub use memory::MemoryStorage;
+pub use provider_health_snapshot::ProviderHealthSnapshotStorage;
 pub use session::SessionStorage;
 pub use skill::SkillStorage;
+pub use structured_execution_log::StructuredExecutionLogStorage;
+pub use telemetry_metric_sample::TelemetryMetricSampleStorage;
 pub use terminal_session::TerminalSessionStorage;
-pub use tool_trace::ToolTraceStorage;
 pub use trigger::TriggerStorage;
 pub use work_item::WorkItemStorage;
 
@@ -73,7 +77,6 @@ pub struct Storage {
     pub memory: MemoryStorage,
     pub chat_sessions: ChatSessionStorage,
     pub channel_session_bindings: ChannelSessionBindingStorage,
-    pub tool_traces: ToolTraceStorage,
     pub sessions: SessionStorage,
     pub deliverables: DeliverableStorage,
     pub hooks: HookStorage,
@@ -82,6 +85,12 @@ pub struct Storage {
     pub pairing: PairingStorage,
     /// Primary execution trace storage.
     pub execution_traces: ExecutionTraceStorage,
+    /// Telemetry metric sample projection storage.
+    pub telemetry_metric_samples: TelemetryMetricSampleStorage,
+    /// Provider health projection storage.
+    pub provider_health_snapshots: ProviderHealthSnapshotStorage,
+    /// Structured execution log projection storage.
+    pub structured_execution_logs: StructuredExecutionLogStorage,
     /// Backward-compatible alias storage.
     pub audit: AuditStorage,
 }
@@ -127,11 +136,10 @@ impl Storage {
             &chat_sessions,
             &channel_session_bindings,
         )?;
-        let tool_traces = ToolTraceStorage::new(db.clone())?;
         let sessions = SessionStorage::new(
             chat_sessions.clone(),
             channel_session_bindings.clone(),
-            tool_traces.clone(),
+            ExecutionTraceStorage::new(db.clone())?,
         );
         let deliverables = DeliverableStorage::new(db.clone())?;
         let hooks = HookStorage::new(db.clone())?;
@@ -139,6 +147,9 @@ impl Storage {
         let checkpoints = CheckpointStorage::new(db.clone())?;
         let pairing = PairingStorage::new(db.clone())?;
         let execution_traces = ExecutionTraceStorage::new(db.clone())?;
+        let telemetry_metric_samples = TelemetryMetricSampleStorage::new(db.clone())?;
+        let provider_health_snapshots = ProviderHealthSnapshotStorage::new(db.clone())?;
+        let structured_execution_logs = StructuredExecutionLogStorage::new(db.clone())?;
         let audit = AuditStorage::new(db.clone())?;
 
         Ok(Self {
@@ -155,7 +166,6 @@ impl Storage {
             memory,
             chat_sessions,
             channel_session_bindings,
-            tool_traces,
             sessions,
             deliverables,
             hooks,
@@ -163,6 +173,9 @@ impl Storage {
             checkpoints,
             pairing,
             execution_traces,
+            telemetry_metric_samples,
+            provider_health_snapshots,
+            structured_execution_logs,
             audit,
         })
     }
