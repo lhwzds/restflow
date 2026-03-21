@@ -16,154 +16,102 @@ impl ProviderMeta {
     }
 }
 
-const OPENAI_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::OpenAI,
-    runtime_provider: LlmProvider::OpenAI,
-    api_key_env: Some("OPENAI_API_KEY"),
-};
-
-const ANTHROPIC_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Anthropic,
-    runtime_provider: LlmProvider::Anthropic,
-    api_key_env: Some("ANTHROPIC_API_KEY"),
-};
-
-const CLAUDE_CODE_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::ClaudeCode,
-    runtime_provider: LlmProvider::Anthropic,
-    api_key_env: None,
-};
-
-const CODEX_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Codex,
-    runtime_provider: LlmProvider::OpenAI,
-    api_key_env: None,
-};
-
-const DEEPSEEK_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::DeepSeek,
-    runtime_provider: LlmProvider::DeepSeek,
-    api_key_env: Some("DEEPSEEK_API_KEY"),
-};
-
-const GOOGLE_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Google,
-    runtime_provider: LlmProvider::Google,
-    api_key_env: Some("GEMINI_API_KEY"),
-};
-
-const GROQ_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Groq,
-    runtime_provider: LlmProvider::Groq,
-    api_key_env: Some("GROQ_API_KEY"),
-};
-
-const OPENROUTER_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::OpenRouter,
-    runtime_provider: LlmProvider::OpenRouter,
-    api_key_env: Some("OPENROUTER_API_KEY"),
-};
-
-const XAI_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::XAI,
-    runtime_provider: LlmProvider::XAI,
-    api_key_env: Some("XAI_API_KEY"),
-};
-
-const QWEN_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Qwen,
-    runtime_provider: LlmProvider::Qwen,
-    api_key_env: Some("DASHSCOPE_API_KEY"),
-};
-
-const ZAI_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Zai,
-    runtime_provider: LlmProvider::Zai,
-    api_key_env: Some("ZAI_API_KEY"),
-};
-
-const ZAI_CODING_PLAN_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::ZaiCodingPlan,
-    runtime_provider: LlmProvider::ZaiCodingPlan,
-    api_key_env: Some("ZAI_CODING_PLAN_API_KEY"),
-};
-
-const MOONSHOT_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Moonshot,
-    runtime_provider: LlmProvider::Moonshot,
-    api_key_env: Some("MOONSHOT_API_KEY"),
-};
-
-const DOUBAO_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Doubao,
-    runtime_provider: LlmProvider::Doubao,
-    api_key_env: Some("ARK_API_KEY"),
-};
-
-const YI_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::Yi,
-    runtime_provider: LlmProvider::Yi,
-    api_key_env: Some("YI_API_KEY"),
-};
-
-const SILICONFLOW_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::SiliconFlow,
-    runtime_provider: LlmProvider::SiliconFlow,
-    api_key_env: Some("SILICONFLOW_API_KEY"),
-};
-
-const MINIMAX_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::MiniMax,
-    runtime_provider: LlmProvider::MiniMax,
-    api_key_env: Some("MINIMAX_API_KEY"),
-};
-
-const MINIMAX_CODING_PLAN_META: ProviderMeta = ProviderMeta {
-    provider: ModelProvider::MiniMaxCodingPlan,
-    runtime_provider: LlmProvider::MiniMaxCodingPlan,
-    api_key_env: Some("MINIMAX_CODING_PLAN_API_KEY"),
-};
+pub const ALL_PROVIDER_META: &[ProviderMeta] = &[
+    ProviderMeta {
+        provider: ModelProvider::OpenAI,
+        runtime_provider: LlmProvider::OpenAI,
+        api_key_env: Some("OPENAI_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::Anthropic,
+        runtime_provider: LlmProvider::Anthropic,
+        api_key_env: Some("ANTHROPIC_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::ClaudeCode,
+        runtime_provider: LlmProvider::Anthropic,
+        api_key_env: None,
+    },
+    ProviderMeta {
+        provider: ModelProvider::Codex,
+        runtime_provider: LlmProvider::OpenAI,
+        api_key_env: None,
+    },
+    ProviderMeta {
+        provider: ModelProvider::DeepSeek,
+        runtime_provider: LlmProvider::DeepSeek,
+        api_key_env: Some("DEEPSEEK_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::Google,
+        runtime_provider: LlmProvider::Google,
+        api_key_env: Some("GEMINI_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::Groq,
+        runtime_provider: LlmProvider::Groq,
+        api_key_env: Some("GROQ_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::OpenRouter,
+        runtime_provider: LlmProvider::OpenRouter,
+        api_key_env: Some("OPENROUTER_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::XAI,
+        runtime_provider: LlmProvider::XAI,
+        api_key_env: Some("XAI_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::Qwen,
+        runtime_provider: LlmProvider::Qwen,
+        api_key_env: Some("DASHSCOPE_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::Zai,
+        runtime_provider: LlmProvider::Zai,
+        api_key_env: Some("ZAI_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::ZaiCodingPlan,
+        runtime_provider: LlmProvider::ZaiCodingPlan,
+        api_key_env: Some("ZAI_CODING_PLAN_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::Moonshot,
+        runtime_provider: LlmProvider::Moonshot,
+        api_key_env: Some("MOONSHOT_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::Doubao,
+        runtime_provider: LlmProvider::Doubao,
+        api_key_env: Some("ARK_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::Yi,
+        runtime_provider: LlmProvider::Yi,
+        api_key_env: Some("YI_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::SiliconFlow,
+        runtime_provider: LlmProvider::SiliconFlow,
+        api_key_env: Some("SILICONFLOW_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::MiniMax,
+        runtime_provider: LlmProvider::MiniMax,
+        api_key_env: Some("MINIMAX_API_KEY"),
+    },
+    ProviderMeta {
+        provider: ModelProvider::MiniMaxCodingPlan,
+        runtime_provider: LlmProvider::MiniMaxCodingPlan,
+        api_key_env: Some("MINIMAX_CODING_PLAN_API_KEY"),
+    },
+];
 
 pub fn provider_meta(provider: ModelProvider) -> &'static ProviderMeta {
-    match provider {
-        ModelProvider::OpenAI => &OPENAI_META,
-        ModelProvider::Anthropic => &ANTHROPIC_META,
-        ModelProvider::ClaudeCode => &CLAUDE_CODE_META,
-        ModelProvider::Codex => &CODEX_META,
-        ModelProvider::DeepSeek => &DEEPSEEK_META,
-        ModelProvider::Google => &GOOGLE_META,
-        ModelProvider::Groq => &GROQ_META,
-        ModelProvider::OpenRouter => &OPENROUTER_META,
-        ModelProvider::XAI => &XAI_META,
-        ModelProvider::Qwen => &QWEN_META,
-        ModelProvider::Zai => &ZAI_META,
-        ModelProvider::ZaiCodingPlan => &ZAI_CODING_PLAN_META,
-        ModelProvider::Moonshot => &MOONSHOT_META,
-        ModelProvider::Doubao => &DOUBAO_META,
-        ModelProvider::Yi => &YI_META,
-        ModelProvider::SiliconFlow => &SILICONFLOW_META,
-        ModelProvider::MiniMax => &MINIMAX_META,
-        ModelProvider::MiniMaxCodingPlan => &MINIMAX_CODING_PLAN_META,
-    }
+    ALL_PROVIDER_META
+        .iter()
+        .find(|meta| meta.provider == provider)
+        .unwrap_or_else(|| panic!("missing provider metadata for {provider:?}"))
 }
-
-pub const ALL_PROVIDER_META: &[ProviderMeta] = &[
-    OPENAI_META,
-    ANTHROPIC_META,
-    CLAUDE_CODE_META,
-    CODEX_META,
-    DEEPSEEK_META,
-    GOOGLE_META,
-    GROQ_META,
-    OPENROUTER_META,
-    XAI_META,
-    QWEN_META,
-    ZAI_META,
-    ZAI_CODING_PLAN_META,
-    MOONSHOT_META,
-    DOUBAO_META,
-    YI_META,
-    SILICONFLOW_META,
-    MINIMAX_META,
-    MINIMAX_CODING_PLAN_META,
-];

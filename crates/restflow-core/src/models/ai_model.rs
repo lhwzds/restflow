@@ -7,64 +7,62 @@ use ts_rs::TS;
 use super::catalog;
 use crate::models::ValidationError;
 
-/// AI model provider
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, TS, Type)]
-#[ts(export)]
-pub enum Provider {
-    #[serde(rename = "openai")]
-    #[ts(rename = "openai")]
-    OpenAI,
-    #[serde(rename = "anthropic")]
-    #[ts(rename = "anthropic")]
-    Anthropic,
-    #[serde(rename = "claude-code")]
-    #[ts(rename = "claude-code")]
-    ClaudeCode,
-    #[serde(rename = "codex")]
-    #[ts(rename = "codex")]
-    Codex,
-    #[serde(rename = "deepseek")]
-    #[ts(rename = "deepseek")]
-    DeepSeek,
-    #[serde(rename = "google")]
-    #[ts(rename = "google")]
-    Google,
-    #[serde(rename = "groq")]
-    #[ts(rename = "groq")]
-    Groq,
-    #[serde(rename = "openrouter")]
-    #[ts(rename = "openrouter")]
-    OpenRouter,
-    #[serde(rename = "xai")]
-    #[ts(rename = "xai")]
-    XAI,
-    #[serde(rename = "qwen")]
-    #[ts(rename = "qwen")]
-    Qwen,
-    #[serde(rename = "zai")]
-    #[ts(rename = "zai")]
-    Zai,
-    #[serde(rename = "zai-coding-plan")]
-    #[ts(rename = "zai-coding-plan")]
-    ZaiCodingPlan,
-    #[serde(rename = "moonshot")]
-    #[ts(rename = "moonshot")]
-    Moonshot,
-    #[serde(rename = "doubao")]
-    #[ts(rename = "doubao")]
-    Doubao,
-    #[serde(rename = "yi")]
-    #[ts(rename = "yi")]
-    Yi,
-    #[serde(rename = "siliconflow")]
-    #[ts(rename = "siliconflow")]
-    SiliconFlow,
-    #[serde(rename = "minimax")]
-    #[ts(rename = "minimax")]
-    MiniMax,
-    #[serde(rename = "minimax-coding-plan")]
-    #[ts(rename = "minimax-coding-plan")]
-    MiniMaxCodingPlan,
+macro_rules! define_provider_enum {
+    ($($variant:ident => $rename:literal),+ $(,)?) => {
+        /// AI model provider
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, TS, Type)]
+        #[ts(export)]
+        pub enum Provider {
+            $(
+                #[serde(rename = $rename)]
+                #[ts(rename = $rename)]
+                $variant,
+            )+
+        }
+
+        impl Provider {
+            pub fn all() -> &'static [Provider] {
+                &[
+                    $(Self::$variant,)+
+                ]
+            }
+
+            /// Convert to shared provider identity used by cross-crate parsers.
+            pub fn as_model_provider(&self) -> ModelProvider {
+                match *self {
+                    $(Self::$variant => ModelProvider::$variant,)+
+                }
+            }
+
+            /// Convert from shared provider identity.
+            pub fn from_model_provider(provider: ModelProvider) -> Self {
+                match provider {
+                    $(ModelProvider::$variant => Self::$variant,)+
+                }
+            }
+        }
+    };
+}
+
+define_provider_enum! {
+    OpenAI => "openai",
+    Anthropic => "anthropic",
+    ClaudeCode => "claude-code",
+    Codex => "codex",
+    DeepSeek => "deepseek",
+    Google => "google",
+    Groq => "groq",
+    OpenRouter => "openrouter",
+    XAI => "xai",
+    Qwen => "qwen",
+    Zai => "zai",
+    ZaiCodingPlan => "zai-coding-plan",
+    Moonshot => "moonshot",
+    Doubao => "doubao",
+    Yi => "yi",
+    SiliconFlow => "siliconflow",
+    MiniMax => "minimax",
+    MiniMaxCodingPlan => "minimax-coding-plan",
 }
 
 impl<'de> Deserialize<'de> for Provider {
@@ -79,29 +77,6 @@ impl<'de> Deserialize<'de> for Provider {
 }
 
 impl Provider {
-    pub fn all() -> &'static [Provider] {
-        &[
-            Self::OpenAI,
-            Self::Anthropic,
-            Self::ClaudeCode,
-            Self::Codex,
-            Self::DeepSeek,
-            Self::Google,
-            Self::Groq,
-            Self::OpenRouter,
-            Self::XAI,
-            Self::Qwen,
-            Self::Zai,
-            Self::ZaiCodingPlan,
-            Self::Moonshot,
-            Self::Doubao,
-            Self::Yi,
-            Self::SiliconFlow,
-            Self::MiniMax,
-            Self::MiniMaxCodingPlan,
-        ]
-    }
-
     pub fn api_key_env(&self) -> Option<&'static str> {
         provider_meta(self.as_model_provider()).api_key_env
     }
@@ -109,54 +84,6 @@ impl Provider {
     /// Convert Provider to LLM provider used by runtime factory.
     pub fn as_llm_provider(&self) -> LlmProvider {
         provider_meta(self.as_model_provider()).runtime_provider
-    }
-
-    /// Convert to shared provider identity used by cross-crate parsers.
-    pub fn as_model_provider(&self) -> ModelProvider {
-        match *self {
-            Self::OpenAI => ModelProvider::OpenAI,
-            Self::Anthropic => ModelProvider::Anthropic,
-            Self::ClaudeCode => ModelProvider::ClaudeCode,
-            Self::Codex => ModelProvider::Codex,
-            Self::DeepSeek => ModelProvider::DeepSeek,
-            Self::Google => ModelProvider::Google,
-            Self::Groq => ModelProvider::Groq,
-            Self::OpenRouter => ModelProvider::OpenRouter,
-            Self::XAI => ModelProvider::XAI,
-            Self::Qwen => ModelProvider::Qwen,
-            Self::Zai => ModelProvider::Zai,
-            Self::ZaiCodingPlan => ModelProvider::ZaiCodingPlan,
-            Self::Moonshot => ModelProvider::Moonshot,
-            Self::Doubao => ModelProvider::Doubao,
-            Self::Yi => ModelProvider::Yi,
-            Self::SiliconFlow => ModelProvider::SiliconFlow,
-            Self::MiniMax => ModelProvider::MiniMax,
-            Self::MiniMaxCodingPlan => ModelProvider::MiniMaxCodingPlan,
-        }
-    }
-
-    /// Convert from shared provider identity.
-    pub fn from_model_provider(provider: ModelProvider) -> Self {
-        match provider {
-            ModelProvider::OpenAI => Self::OpenAI,
-            ModelProvider::Anthropic => Self::Anthropic,
-            ModelProvider::ClaudeCode => Self::ClaudeCode,
-            ModelProvider::Codex => Self::Codex,
-            ModelProvider::DeepSeek => Self::DeepSeek,
-            ModelProvider::Google => Self::Google,
-            ModelProvider::Groq => Self::Groq,
-            ModelProvider::OpenRouter => Self::OpenRouter,
-            ModelProvider::XAI => Self::XAI,
-            ModelProvider::Qwen => Self::Qwen,
-            ModelProvider::Zai => Self::Zai,
-            ModelProvider::ZaiCodingPlan => Self::ZaiCodingPlan,
-            ModelProvider::Moonshot => Self::Moonshot,
-            ModelProvider::Doubao => Self::Doubao,
-            ModelProvider::Yi => Self::Yi,
-            ModelProvider::SiliconFlow => Self::SiliconFlow,
-            ModelProvider::MiniMax => Self::MiniMax,
-            ModelProvider::MiniMaxCodingPlan => Self::MiniMaxCodingPlan,
-        }
     }
 
     /// Get the canonical provider identifier for use in canonical model IDs.
@@ -1320,6 +1247,14 @@ mod tests {
             Some(Provider::ZaiCodingPlan)
         );
         assert_eq!(Provider::from_canonical_str("invalid"), None);
+    }
+
+    #[test]
+    fn test_provider_model_provider_round_trip() {
+        for provider in Provider::all() {
+            let shared = provider.as_model_provider();
+            assert_eq!(Provider::from_model_provider(shared), *provider);
+        }
     }
 
     #[test]
