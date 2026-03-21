@@ -3,8 +3,11 @@ import type { ExecutionTraceCategory } from "./ExecutionTraceCategory";
 import type { ExecutionTraceSource } from "./ExecutionTraceSource";
 import type { LifecycleTrace } from "./LifecycleTrace";
 import type { LlmCallTrace } from "./LlmCallTrace";
+import type { LogRecordTrace } from "./LogRecordTrace";
 import type { MessageTrace } from "./MessageTrace";
+import type { MetricSampleTrace } from "./MetricSampleTrace";
 import type { ModelSwitchTrace } from "./ModelSwitchTrace";
+import type { ProviderHealthTrace } from "./ProviderHealthTrace";
 import type { ToolCallTrace } from "./ToolCallTrace";
 
 /**
@@ -16,7 +19,7 @@ export type ExecutionTraceEvent = {
  */
 id: string, 
 /**
- * Task ID this event belongs to.
+ * Task or execution scope ID this event belongs to.
  */
 task_id: string, 
 /**
@@ -40,6 +43,38 @@ timestamp: number,
  */
 subflow_path: string[], 
 /**
+ * Run ID for trace grouping.
+ */
+run_id: string | null, 
+/**
+ * Parent run ID for nested traces.
+ */
+parent_run_id: string | null, 
+/**
+ * Session ID when applicable.
+ */
+session_id: string | null, 
+/**
+ * Turn ID when applicable.
+ */
+turn_id: string | null, 
+/**
+ * Requested model for this execution scope.
+ */
+requested_model: string | null, 
+/**
+ * Effective canonical model for this event or attempt.
+ */
+effective_model: string | null, 
+/**
+ * Provider for the requested/effective model.
+ */
+provider: string | null, 
+/**
+ * Attempt number for retries or failover.
+ */
+attempt: number | null, 
+/**
  * LLM call details (if category is LlmCall).
  */
 llm_call: LlmCallTrace | null, 
@@ -58,4 +93,16 @@ lifecycle: LifecycleTrace | null,
 /**
  * Message details (if category is Message).
  */
-message: MessageTrace | null, };
+message: MessageTrace | null, 
+/**
+ * Metric sample details (if category is MetricSample).
+ */
+metric_sample: MetricSampleTrace | null, 
+/**
+ * Provider health details (if category is ProviderHealth).
+ */
+provider_health: ProviderHealthTrace | null, 
+/**
+ * Structured log record details (if category is LogRecord).
+ */
+log_record: LogRecordTrace | null, };

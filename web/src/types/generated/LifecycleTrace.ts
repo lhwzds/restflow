@@ -15,4 +15,8 @@ message: string | null,
 /**
  * Error details if applicable.
  */
-error: string | null, };
+error: string | null, 
+/**
+ * AI execution duration in milliseconds when available.
+ */
+ai_duration_ms: bigint | null, };

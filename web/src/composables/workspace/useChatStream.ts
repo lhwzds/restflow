@@ -6,7 +6,8 @@
 
 import { ref, computed, onUnmounted, type ComputedRef } from 'vue'
 import { cancelChatStream, openChatStream } from '@/api/chat-stream'
-import { listToolTraces, type ToolTrace } from '@/api/tool-traces'
+import { queryExecutionTraces } from '@/api/execution-traces'
+import type { ExecutionTraceEvent } from '@/types/generated/ExecutionTraceEvent'
 import type { StreamFrame } from '@/types/generated/StreamFrame'
 import type { StepStatus } from '@/types/generated/StepStatus'
 
@@ -164,7 +165,19 @@ export function useChatStream(sessionId: () => string | null) {
     if (!sid) return
 
     try {
-      const events = await listToolTraces(sid, turnId, 200)
+      const events = await queryExecutionTraces({
+        task_id: sid,
+        run_id: null,
+        session_id: sid,
+        turn_id: turnId,
+        agent_id: null,
+        category: null,
+        source: null,
+        from_timestamp: null,
+        to_timestamp: null,
+        limit: 200,
+        offset: 0,
+      })
       if (disposed || state.value.messageId !== turnId) return
 
       const steps = buildStepsFromExecutionEvents(events)
@@ -176,54 +189,72 @@ export function useChatStream(sessionId: () => string | null) {
     }
   }
 
-  function buildStepsFromExecutionEvents(events: ToolTrace[]): StreamStep[] {
+  function buildStepsFromExecutionEvents(events: ExecutionTraceEvent[]): StreamStep[] {
     const sortedEvents = [...events].sort(
-      (a, b) => a.created_at - b.created_at || a.id.localeCompare(b.id),
+      (a, b) => a.timestamp - b.timestamp || a.id.localeCompare(b.id),
     )
     const steps: StreamStep[] = []
     const stepByToolId = new Map<string, StreamStep>()
 
     for (const event of sortedEvents) {
-      if (event.event_type === 'tool_call_started') {
-        const toolId = event.tool_call_id ?? event.id
+      if (event.category === 'tool_call' && event.tool_call?.phase === 'started') {
+        const toolId = event.tool_call.tool_call_id
         const step: StreamStep = {
           type: 'tool_call',
-          name: event.tool_name ?? 'tool',
-          displayName: formatToolDisplayName(event.tool_name ?? 'tool', event.input, null),
+          name: event.tool_call.tool_name ?? 'tool',
+          displayName: formatToolDisplayName(
+            event.tool_call.tool_name ?? 'tool',
+            event.tool_call.input ?? event.tool_call.input_summary ?? undefined,
+            null,
+          ),
           status: 'running',
           toolId,
-          arguments: event.input ?? undefined,
+          arguments: event.tool_call.input ?? event.tool_call.input_summary ?? undefined,
         }
         stepByToolId.set(toolId, step)
         steps.push(step)
         continue
       }
 
-      if (event.event_type === 'tool_call_completed') {
-        const toolId = event.tool_call_id ?? event.id
+      if (event.category === 'tool_call' && event.tool_call?.phase === 'completed') {
+        const toolId = event.tool_call.tool_call_id
         let step = stepByToolId.get(toolId)
         if (!step) {
           step = {
             type: 'tool_call',
-            name: event.tool_name ?? 'tool',
-            displayName: formatToolDisplayName(event.tool_name ?? 'tool', event.input, event.output),
+            name: event.tool_call.tool_name ?? 'tool',
+            displayName: formatToolDisplayName(
+              event.tool_call.tool_name ?? 'tool',
+              event.tool_call.input ?? event.tool_call.input_summary ?? undefined,
+              event.tool_call.output ?? event.tool_call.error ?? undefined,
+            ),
             status: 'running',
             toolId,
           }
           stepByToolId.set(toolId, step)
           steps.push(step)
         }
-        step.displayName = formatToolDisplayName(step.name, step.arguments, event.output ?? event.error)
-        step.status = event.success === false ? 'failed' : 'completed'
-        if (event.output) {
-          step.result = event.output
-        } else if (event.error) {
-          step.result = event.error
+        step.displayName = formatToolDisplayName(
+          step.name,
+          step.arguments,
+          event.tool_call.output ?? event.tool_call.error ?? undefined,
+        )
+        step.status = event.tool_call.success === false ? 'failed' : 'completed'
+        if (event.tool_call.output) {
+          step.result = event.tool_call.output
+        } else if (event.tool_call.error) {
+          step.result = event.tool_call.error
         }
         continue
       }
 
-      if (event.event_type === 'turn_failed' || event.event_type === 'turn_interrupted') {
+      if (
+        event.category === 'lifecycle' &&
+        (event.lifecycle?.status === 'turn_failed' ||
+          event.lifecycle?.status === 'run_failed' ||
+          event.lifecycle?.status === 'turn_interrupted' ||
+          event.lifecycle?.status === 'run_interrupted')
+      ) {
         for (const step of steps) {
           if (step.status === 'running') {
             step.status = 'failed'

@@ -3,4 +3,4 @@
 /**
  * Execution trace event category.
  */
-export type ExecutionTraceCategory = "llm_call" | "tool_call" | "model_switch" | "lifecycle" | "message";
+export type ExecutionTraceCategory = "llm_call" | "tool_call" | "model_switch" | "lifecycle" | "message" | "metric_sample" | "provider_health" | "log_record";

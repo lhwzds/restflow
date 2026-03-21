@@ -11,6 +11,18 @@ export type ExecutionTraceQuery = {
  */
 task_id: string | null, 
 /**
+ * Filter by run ID.
+ */
+run_id: string | null, 
+/**
+ * Filter by session ID.
+ */
+session_id: string | null, 
+/**
+ * Filter by turn ID.
+ */
+turn_id: string | null, 
+/**
  * Filter by agent ID.
  */
 agent_id: string | null, 

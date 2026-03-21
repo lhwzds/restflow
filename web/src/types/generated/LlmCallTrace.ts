@@ -5,7 +5,7 @@
  */
 export type LlmCallTrace = { 
 /**
- * Model used for the call.
+ * Canonical model used for the call.
  */
 model: string, 
 /**
