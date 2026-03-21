@@ -55,7 +55,7 @@ async fn available_providers(core: &Arc<AppCore>) -> Result<Vec<Provider>, Strin
     let _ = auth_manager.discover().await;
 
     let mut providers = Vec::new();
-    for provider in Provider::all() {
+    for provider in Provider::all().iter().copied() {
         let available = match provider {
             Provider::ClaudeCode => auth_manager
                 .get_available_profile(AuthProvider::ClaudeCode)
@@ -94,7 +94,7 @@ async fn available_providers(core: &Arc<AppCore>) -> Result<Vec<Provider>, Strin
         };
 
         if available {
-            providers.push(*provider);
+            providers.push(provider);
         }
     }
 

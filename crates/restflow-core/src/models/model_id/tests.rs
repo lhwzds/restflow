@@ -721,9 +721,9 @@ fn test_provider_from_canonical_str() {
 
 #[test]
 fn test_provider_model_provider_round_trip() {
-    for provider in Provider::all() {
+    for provider in Provider::all().iter().copied() {
         let shared = provider.as_model_provider();
-        assert_eq!(Provider::from_model_provider(shared), *provider);
+        assert_eq!(Provider::from_model_provider(shared), provider);
     }
 }
 
@@ -809,11 +809,11 @@ fn test_flagship_model() {
 fn test_provider_catalog_completeness() {
     assert_eq!(Provider::all().len(), catalog::PROVIDER_CATALOGS.len());
 
-    for provider in Provider::all() {
-        let provider_catalog = catalog::provider_catalog(*provider)
+    for provider in Provider::all().iter().copied() {
+        let provider_catalog = catalog::provider_catalog(provider)
             .unwrap_or_else(|| panic!("missing provider catalog for {provider:?}"));
-        assert_eq!(provider_catalog.provider, *provider);
-        assert_eq!(provider_catalog.flagship.provider(), *provider);
+        assert_eq!(provider_catalog.provider, provider);
+        assert_eq!(provider_catalog.flagship.provider(), provider);
         assert!(!provider_catalog.models.is_empty());
     }
 }

@@ -1,83 +1,87 @@
 //! Shared model/provider primitives for cross-crate normalization.
 
-/// Canonical model provider identity shared by runtime and tooling layers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ModelProvider {
-    OpenAI,
-    Anthropic,
-    ClaudeCode,
-    Codex,
-    DeepSeek,
-    Google,
-    Groq,
-    OpenRouter,
-    XAI,
-    Qwen,
-    Zai,
-    ZaiCodingPlan,
-    Moonshot,
-    Doubao,
-    Yi,
-    SiliconFlow,
-    MiniMax,
-    MiniMaxCodingPlan,
+use serde::{Deserialize, Deserializer, Serialize};
+
+macro_rules! define_model_provider {
+    ($($variant:ident => { canonical: $canonical:literal, key: $key:literal, aliases: [$($alias:literal),* $(,)?] }),+ $(,)?) => {
+        /// Canonical model provider identity shared by runtime and tooling layers.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+        #[cfg_attr(feature = "ts", derive(ts_rs::TS), ts(export))]
+        #[cfg_attr(feature = "specta", derive(specta::Type))]
+        pub enum ModelProvider {
+            $(
+                #[serde(rename = $canonical)]
+                #[cfg_attr(feature = "ts", ts(rename = $canonical))]
+                #[cfg_attr(feature = "specta", specta(rename = $canonical))]
+                $variant,
+            )+
+        }
+
+        impl ModelProvider {
+            /// Return all canonical providers in a stable order.
+            pub fn all() -> &'static [Self] {
+                &[
+                    $(Self::$variant,)+
+                ]
+            }
+
+            /// Return canonical provider string used by config and API payloads.
+            pub fn canonical_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $canonical,)+
+                }
+            }
+
+            /// Parse user input/provider aliases into canonical provider identity.
+            pub fn parse_alias(value: &str) -> Option<Self> {
+                let normalized: String = value
+                    .trim()
+                    .chars()
+                    .filter(|ch| ch.is_ascii_alphanumeric())
+                    .collect::<String>()
+                    .to_ascii_lowercase();
+
+                match normalized.as_str() {
+                    $(
+                        $key => Some(Self::$variant),
+                        $($alias => Some(Self::$variant),)*
+                    )+
+                    _ => None,
+                }
+            }
+        }
+    };
 }
 
-impl ModelProvider {
-    /// Return canonical provider string used by config and API payloads.
-    pub fn canonical_str(self) -> &'static str {
-        match self {
-            Self::OpenAI => "openai",
-            Self::Anthropic => "anthropic",
-            Self::ClaudeCode => "claude-code",
-            Self::Codex => "codex",
-            Self::DeepSeek => "deepseek",
-            Self::Google => "google",
-            Self::Groq => "groq",
-            Self::OpenRouter => "openrouter",
-            Self::XAI => "xai",
-            Self::Qwen => "qwen",
-            Self::Zai => "zai",
-            Self::ZaiCodingPlan => "zai-coding-plan",
-            Self::Moonshot => "moonshot",
-            Self::Doubao => "doubao",
-            Self::Yi => "yi",
-            Self::SiliconFlow => "siliconflow",
-            Self::MiniMax => "minimax",
-            Self::MiniMaxCodingPlan => "minimax-coding-plan",
-        }
-    }
+define_model_provider! {
+    OpenAI => { canonical: "openai", key: "openai", aliases: ["gpt"] },
+    Anthropic => { canonical: "anthropic", key: "anthropic", aliases: ["claude"] },
+    ClaudeCode => { canonical: "claude-code", key: "claudecode", aliases: ["claudecodecli"] },
+    Codex => { canonical: "codex", key: "codex", aliases: ["openaicodex", "openaicodexcli"] },
+    DeepSeek => { canonical: "deepseek", key: "deepseek", aliases: [] },
+    Google => { canonical: "google", key: "google", aliases: ["gemini"] },
+    Groq => { canonical: "groq", key: "groq", aliases: [] },
+    OpenRouter => { canonical: "openrouter", key: "openrouter", aliases: [] },
+    XAI => { canonical: "xai", key: "xai", aliases: ["xaiapi", "grok"] },
+    Qwen => { canonical: "qwen", key: "qwen", aliases: [] },
+    Zai => { canonical: "zai", key: "zai", aliases: ["zhipu"] },
+    ZaiCodingPlan => { canonical: "zai-coding-plan", key: "zaicodingplan", aliases: ["zaicoding", "zhipucodingplan"] },
+    Moonshot => { canonical: "moonshot", key: "moonshot", aliases: ["kimi"] },
+    Doubao => { canonical: "doubao", key: "doubao", aliases: ["ark"] },
+    Yi => { canonical: "yi", key: "yi", aliases: [] },
+    SiliconFlow => { canonical: "siliconflow", key: "siliconflow", aliases: [] },
+    MiniMax => { canonical: "minimax", key: "minimax", aliases: [] },
+    MiniMaxCodingPlan => { canonical: "minimax-coding-plan", key: "minimaxcodingplan", aliases: ["minimaxcoding"] },
+}
 
-    /// Parse user input/provider aliases into canonical provider identity.
-    pub fn parse_alias(value: &str) -> Option<Self> {
-        let normalized: String = value
-            .trim()
-            .chars()
-            .filter(|ch| ch.is_ascii_alphanumeric())
-            .collect::<String>()
-            .to_ascii_lowercase();
-
-        match normalized.as_str() {
-            "openai" | "gpt" => Some(Self::OpenAI),
-            "anthropic" | "claude" => Some(Self::Anthropic),
-            "claudecode" | "claudecodecli" => Some(Self::ClaudeCode),
-            "codex" | "openaicodex" | "openaicodexcli" => Some(Self::Codex),
-            "deepseek" => Some(Self::DeepSeek),
-            "google" | "gemini" => Some(Self::Google),
-            "groq" => Some(Self::Groq),
-            "openrouter" => Some(Self::OpenRouter),
-            "xai" | "xaiapi" | "grok" => Some(Self::XAI),
-            "qwen" => Some(Self::Qwen),
-            "zai" | "zhipu" => Some(Self::Zai),
-            "zaicodingplan" | "zaicoding" | "zhipucodingplan" => Some(Self::ZaiCodingPlan),
-            "moonshot" | "kimi" => Some(Self::Moonshot),
-            "doubao" | "ark" => Some(Self::Doubao),
-            "yi" => Some(Self::Yi),
-            "siliconflow" => Some(Self::SiliconFlow),
-            "minimax" => Some(Self::MiniMax),
-            "minimaxcodingplan" | "minimaxcoding" => Some(Self::MiniMaxCodingPlan),
-            _ => None,
-        }
+impl<'de> Deserialize<'de> for ModelProvider {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse_alias(&raw)
+            .ok_or_else(|| serde::de::Error::custom(format!("unknown provider: {raw}")))
     }
 }
 
@@ -126,5 +130,14 @@ mod tests {
             ModelProvider::MiniMaxCodingPlan.canonical_str(),
             "minimax-coding-plan"
         );
+    }
+
+    #[test]
+    fn deserialize_accepts_aliases() {
+        let parsed: ModelProvider = serde_json::from_str("\"gpt\"").unwrap();
+        assert_eq!(parsed, ModelProvider::OpenAI);
+
+        let parsed: ModelProvider = serde_json::from_str("\"openai-codex\"").unwrap();
+        assert_eq!(parsed, ModelProvider::Codex);
     }
 }
