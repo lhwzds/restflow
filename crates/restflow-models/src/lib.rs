@@ -226,11 +226,13 @@ mod tests {
         let google = provider_meta(ModelProvider::Google);
         assert_eq!(google.runtime_provider, LlmProvider::Google);
         assert_eq!(google.api_key_env, Some("GEMINI_API_KEY"));
+        assert_eq!(google.default_model_id, "gemini-2-5-pro");
         assert_eq!(google.models_dev_provider_ids, &["google"]);
 
         let claude_code = provider_meta(ModelProvider::ClaudeCode);
         assert_eq!(claude_code.runtime_provider, LlmProvider::Anthropic);
         assert_eq!(claude_code.api_key_env, None);
+        assert_eq!(claude_code.default_model_id, "claude-code-opus");
         assert_eq!(
             claude_code.models_dev_provider_ids,
             &["claude-code", "anthropic"]
@@ -246,6 +248,10 @@ mod tests {
         assert_eq!(
             provider_meta(ModelProvider::Moonshot).models_dev_provider_ids,
             &["moonshotai", "moonshotai-cn", "kimi-for-coding"]
+        );
+        assert_eq!(
+            provider_meta(ModelProvider::MiniMaxCodingPlan).default_model_id,
+            "minimax-coding-plan-m2-5"
         );
     }
 
