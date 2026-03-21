@@ -64,8 +64,8 @@ test.describe('Execution Telemetry', () => {
       type: 'GetProviderHealth',
       data: {
         query: {
-          provider: 'minimax-coding-plan',
-          model: 'minimax-coding-plan-m2-5-highspeed',
+          provider: '__telemetry_e2e_missing_provider__',
+          model: '__telemetry_e2e_missing_model__',
           limit: 20,
         },
       },

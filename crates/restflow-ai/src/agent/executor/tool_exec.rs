@@ -5,7 +5,7 @@ use futures::StreamExt;
 use futures::stream::FuturesOrdered;
 use restflow_telemetry::{
     ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink,
-    TraceToolCallCompleted, TraceToolCallStart,
+    ToolCallCompletedPayload, ToolCallStartedPayload,
 };
 use serde_json::Value;
 use tokio::sync::Semaphore;
@@ -287,7 +287,7 @@ impl AgentExecutor {
                 telemetry_sink
                     .emit(ExecutionEventEnvelope::from_telemetry_context(
                         telemetry_context,
-                        ExecutionEvent::ToolCallStarted(TraceToolCallStart {
+                        ExecutionEvent::ToolCallStarted(ToolCallStartedPayload {
                             tool_call_id: call.id.clone(),
                             tool_name: call.name.clone(),
                             input: Some(arguments.clone()),
@@ -374,7 +374,7 @@ impl AgentExecutor {
                 telemetry_sink
                     .emit(ExecutionEventEnvelope::from_telemetry_context(
                         telemetry_context,
-                        ExecutionEvent::ToolCallCompleted(TraceToolCallCompleted {
+                        ExecutionEvent::ToolCallCompleted(ToolCallCompletedPayload {
                             tool_call_id: id.clone(),
                             tool_name: name.clone(),
                             input_summary: None,

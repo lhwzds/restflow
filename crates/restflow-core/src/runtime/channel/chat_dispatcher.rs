@@ -25,9 +25,9 @@ use crate::runtime::orchestrator::{
     AgentOrchestratorImpl, InteractiveExecutionError, InteractiveSessionRequest,
 };
 use crate::runtime::output::{ensure_success_output, format_error_output};
-use crate::runtime::trace::append_message_trace;
 use crate::services::session::{PersistInteractiveTurnRequest, SessionService};
 use crate::storage::Storage;
+use crate::telemetry::{build_execution_trace_sink, emit_message};
 use restflow_storage::AgentDefaults;
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 
@@ -962,18 +962,9 @@ impl ChatDispatcher {
         if let Err(e) = persist_result {
             warn!("Failed to save exchange to session: {}", e);
         } else {
-            append_message_trace(
-                &self.storage.execution_traces,
-                &trace,
-                "user",
-                &final_persisted_input,
-            );
-            append_message_trace(
-                &self.storage.execution_traces,
-                &trace,
-                "assistant",
-                &structured_output,
-            );
+            let telemetry_sink = build_execution_trace_sink(&self.storage.execution_traces);
+            emit_message(&telemetry_sink, trace.clone(), "user", &final_persisted_input).await;
+            emit_message(&telemetry_sink, trace.clone(), "assistant", &structured_output).await;
         }
 
         // 6. Send response (plain message without emoji prefix for AI chat)

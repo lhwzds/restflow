@@ -11,12 +11,13 @@ use crate::runtime::background_agent::{
 };
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
 use crate::runtime::orchestrator::modes::{background, interactive, subagent};
-use crate::runtime::trace::{
-    RestflowTrace, TraceEvent, append_trace_event, build_restflow_telemetry_emitter,
+use crate::telemetry::{
+    build_execution_trace_sink, emit_run_completed, emit_run_failed, emit_run_started,
 };
 use crate::storage::ExecutionTraceStorage;
 use restflow_ai::AgentState;
 use restflow_ai::agent::{NullEmitter, StreamEmitter};
+use restflow_telemetry::RestflowTrace;
 use restflow_traits::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
 
 #[derive(Debug)]
@@ -115,17 +116,11 @@ impl AgentOrchestratorImpl {
             session.id.clone(),
             session.agent_id.clone(),
         );
-        append_trace_event(
-            &execution_trace_storage,
-            &TraceEvent::run_started(trace.clone()),
-        );
+        let telemetry_sink = build_execution_trace_sink(&execution_trace_storage);
+        emit_run_started(&telemetry_sink, trace.clone()).await;
 
         let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
-        let traced_emitter: Box<dyn StreamEmitter> = build_restflow_telemetry_emitter(
-            inner_emitter,
-            Some(execution_trace_storage.clone()),
-            &trace,
-        );
+        let traced_emitter: Box<dyn StreamEmitter> = inner_emitter;
 
         let started_at = Instant::now();
         let execution_result = if let Some(timeout_secs) = timeout_secs {
@@ -146,14 +141,13 @@ impl AgentOrchestratorImpl {
                 Err(_) => {
                     let duration_ms = started_at.elapsed().as_millis() as u64;
                     let error = InteractiveExecutionError::Timeout { timeout_secs };
-                    append_trace_event(
-                        &execution_trace_storage,
-                        &TraceEvent::run_failed(
-                            trace.clone(),
-                            error.to_string(),
-                            Some(duration_ms),
-                        ),
-                    );
+                    emit_run_failed(
+                        &telemetry_sink,
+                        trace.clone(),
+                        &error.to_string(),
+                        Some(duration_ms),
+                    )
+                    .await;
                     return Err(error);
                 }
             }
@@ -173,23 +167,19 @@ impl AgentOrchestratorImpl {
         let execution = match execution_result {
             Ok(result) => result.execution,
             Err(error) => {
-                append_trace_event(
-                    &execution_trace_storage,
-                    &TraceEvent::run_failed(
-                        trace.clone(),
-                        error.to_string(),
-                        Some(started_at.elapsed().as_millis() as u64),
-                    ),
-                );
+                emit_run_failed(
+                    &telemetry_sink,
+                    trace.clone(),
+                    &error.to_string(),
+                    Some(started_at.elapsed().as_millis() as u64),
+                )
+                .await;
                 return Err(error);
             }
         };
 
         let duration_ms = started_at.elapsed().as_millis() as u64;
-        append_trace_event(
-            &execution_trace_storage,
-            &TraceEvent::run_completed(trace.clone(), Some(duration_ms)),
-        );
+        emit_run_completed(&telemetry_sink, trace.clone(), Some(duration_ms)).await;
 
         Ok(TracedInteractiveExecutionResult {
             trace,

@@ -2,7 +2,11 @@
 
 use async_trait::async_trait;
 use chrono::Utc;
+use regex::Regex;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
+
+pub const DEFAULT_TELEMETRY_TEXT_LIMIT: usize = 10_000;
 
 /// Context describing a traced run execution.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,11 +73,6 @@ impl TelemetryContext {
     }
 }
 
-/// Lifecycle recorder for traced runs.
-pub trait TraceEventSink: Send + Sync {
-    fn record_trace_event(&self, event: &TraceEvent);
-}
-
 #[async_trait]
 pub trait TelemetrySink: Send + Sync {
     async fn emit(&self, event: ExecutionEventEnvelope);
@@ -104,49 +103,17 @@ impl TelemetrySink for CompositeTelemetrySink {
     }
 }
 
-/// Lifecycle recorder for traced runs.
-pub trait RunTraceLifecycleSink: TraceEventSink {
-    fn on_run_started(&self, context: &RunTraceContext) {
-        self.record_trace_event(&TraceEvent::run_started(RestflowTrace::from_context(
-            context,
-        )));
-    }
-
-    fn on_run_finished(&self, context: &RunTraceContext, outcome: &RunTraceOutcome) {
-        let trace = RestflowTrace::from_context(context);
-        let event = if outcome.success {
-            TraceEvent::run_completed(trace, None)
-        } else {
-            TraceEvent::run_failed(
-                trace,
-                outcome.error.as_deref().unwrap_or("Run execution failed"),
-                None,
-            )
-        };
-        self.record_trace_event(&event);
-    }
-}
-
-impl<T> RunTraceLifecycleSink for T where T: TraceEventSink + ?Sized {}
-
-/// Canonical event payload for one traced run lifecycle transition.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TraceEvent {
-    pub trace: RestflowTrace,
-    pub kind: TraceEventKind,
-}
-
-/// Tool-call start payload carried by the canonical trace event schema.
+/// Tool-call start payload carried by the canonical telemetry schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TraceToolCallStart {
+pub struct ToolCallStartedPayload {
     pub tool_call_id: String,
     pub tool_name: String,
     pub input: Option<String>,
 }
 
-/// Tool-call completion payload carried by the canonical trace event schema.
+/// Tool-call completion payload carried by the canonical telemetry schema.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TraceToolCallCompleted {
+pub struct ToolCallCompletedPayload {
     pub tool_call_id: String,
     pub tool_name: String,
     pub input_summary: Option<String>,
@@ -200,6 +167,27 @@ pub struct ExecutionLogRecord {
     pub fields: Vec<ExecutionLogField>,
 }
 
+/// LLM-call payload carried by the canonical telemetry schema.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LlmCallPayload {
+    pub model: String,
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+    pub cost_usd: Option<f64>,
+    pub duration_ms: Option<u64>,
+    pub is_reasoning: Option<bool>,
+    pub message_count: Option<u32>,
+}
+
+/// Message payload carried by the canonical telemetry schema.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessagePayload {
+    pub role: String,
+    pub content_preview: Option<String>,
+    pub tool_call_count: Option<u32>,
+}
+
 /// Unified execution telemetry event payload.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum ExecutionEvent {
@@ -221,10 +209,10 @@ pub enum ExecutionEvent {
         reason: Option<String>,
         success: bool,
     },
-    LlmCall(TraceLlmCall),
-    ToolCallStarted(TraceToolCallStart),
-    ToolCallCompleted(TraceToolCallCompleted),
-    Message(TraceMessage),
+    LlmCall(LlmCallPayload),
+    ToolCallStarted(ToolCallStartedPayload),
+    ToolCallCompleted(ToolCallCompletedPayload),
+    Message(MessagePayload),
     MetricSample(ExecutionMetricSample),
     ProviderHealthChanged(ProviderHealthChanged),
     LogRecord(ExecutionLogRecord),
@@ -290,48 +278,58 @@ impl ExecutionEventEnvelope {
         envelope.attempt = context.attempt;
         envelope
     }
-}
 
-/// LLM-call payload carried by the canonical trace event schema.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TraceLlmCall {
-    pub model: String,
-    pub input_tokens: Option<u32>,
-    pub output_tokens: Option<u32>,
-    pub total_tokens: Option<u32>,
-    pub cost_usd: Option<f64>,
-    pub duration_ms: Option<u64>,
-    pub is_reasoning: Option<bool>,
-    pub message_count: Option<u32>,
-}
+    pub fn run_started(trace: RestflowTrace) -> Self {
+        Self::new(trace, ExecutionEvent::RunStarted)
+    }
 
-/// Message payload carried by the canonical trace event schema.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TraceMessage {
-    pub role: String,
-    pub content_preview: Option<String>,
-    pub tool_call_count: Option<u32>,
-}
+    pub fn run_completed(trace: RestflowTrace, ai_duration_ms: Option<u64>) -> Self {
+        Self::new(trace, ExecutionEvent::RunCompleted { ai_duration_ms })
+    }
 
-/// Lifecycle event kinds emitted for a traced run.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub enum TraceEventKind {
-    RunStarted,
-    RunCompleted {
+    pub fn run_failed(
+        trace: RestflowTrace,
+        error: impl Into<String>,
         ai_duration_ms: Option<u64>,
-    },
-    RunFailed {
-        error: String,
+    ) -> Self {
+        Self::new(
+            trace,
+            ExecutionEvent::RunFailed {
+                error: error.into(),
+                ai_duration_ms,
+            },
+        )
+    }
+
+    pub fn run_interrupted(
+        trace: RestflowTrace,
+        reason: impl Into<String>,
         ai_duration_ms: Option<u64>,
-    },
-    RunInterrupted {
-        reason: String,
-        ai_duration_ms: Option<u64>,
-    },
-    ToolCallStarted(TraceToolCallStart),
-    ToolCallCompleted(TraceToolCallCompleted),
-    LlmCall(TraceLlmCall),
-    Message(TraceMessage),
+    ) -> Self {
+        Self::new(
+            trace,
+            ExecutionEvent::RunInterrupted {
+                reason: reason.into(),
+                ai_duration_ms,
+            },
+        )
+    }
+
+    pub fn message(
+        trace: RestflowTrace,
+        role: impl Into<String>,
+        content_preview: Option<String>,
+        tool_call_count: Option<u32>,
+    ) -> Self {
+        Self::new(
+            trace,
+            ExecutionEvent::Message(MessagePayload {
+                role: role.into(),
+                content_preview,
+                tool_call_count,
+            }),
+        )
+    }
 }
 
 /// Source storage for a timeline event returned by backend trace queries.
@@ -355,7 +353,7 @@ pub struct TraceTimelineEvent {
     pub record_id: Option<String>,
     pub timestamp_ms: i64,
     pub source: TraceTimelineSource,
-    pub event: TraceEvent,
+    pub event: ExecutionEventEnvelope,
     #[serde(default)]
     pub artifact_preview: Option<TraceArtifactPreview>,
 }
@@ -382,31 +380,20 @@ pub struct RunTraceTimeline {
 }
 
 /// Canonical RestFlow trace descriptor for one run.
-///
-/// `created_at_ms` captures trace metadata creation time.
-/// Callers should record AI execution duration independently and attach it to
-/// terminal events.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RestflowTrace {
-    /// Stable identifier for this traced run.
     pub run_id: String,
-    /// Optional parent run identifier for hierarchical traces (for example sub-agents).
     #[serde(default)]
     pub parent_run_id: Option<String>,
-    /// Session grouping key used by execution telemetry projections.
     pub session_id: String,
-    /// Stable turn identifier derived from the run id.
     pub turn_id: String,
-    /// Neutral execution scope identifier used by execution traces.
     #[serde(alias = "execution_task_id")]
     pub scope_id: String,
-    /// Logical actor executing this run.
     pub actor_id: String,
     pub created_at_ms: i64,
 }
 
 impl RestflowTrace {
-    /// Build a trace descriptor from explicit fields.
     pub fn new(
         run_id: impl Into<String>,
         session_id: impl Into<String>,
@@ -425,13 +412,11 @@ impl RestflowTrace {
         }
     }
 
-    /// Attach an explicit parent run relationship to this trace.
     pub fn with_parent_run_id(mut self, parent_run_id: Option<String>) -> Self {
         self.parent_run_id = parent_run_id;
         self
     }
 
-    /// Build from run metadata with sane defaults for missing session/scope.
     pub fn from_run(
         run_id: impl Into<String>,
         actor_id: impl Into<String>,
@@ -460,7 +445,6 @@ impl RestflowTrace {
         Self::new(run_id, session_id, scope_id, actor_id).with_parent_run_id(parent_run_id)
     }
 
-    /// Build directly from a run telemetry context.
     pub fn from_context(context: &RunTraceContext) -> Self {
         Self::from_run(
             context.run_id.clone(),
@@ -472,190 +456,57 @@ impl RestflowTrace {
     }
 }
 
-impl TraceEvent {
-    pub fn to_execution_event_envelope(&self) -> ExecutionEventEnvelope {
-        let event = match &self.kind {
-            TraceEventKind::RunStarted => ExecutionEvent::RunStarted,
-            TraceEventKind::RunCompleted { ai_duration_ms } => ExecutionEvent::RunCompleted {
-                ai_duration_ms: *ai_duration_ms,
-            },
-            TraceEventKind::RunFailed {
-                error,
-                ai_duration_ms,
-            } => ExecutionEvent::RunFailed {
-                error: error.clone(),
-                ai_duration_ms: *ai_duration_ms,
-            },
-            TraceEventKind::RunInterrupted {
-                reason,
-                ai_duration_ms,
-            } => ExecutionEvent::RunInterrupted {
-                reason: reason.clone(),
-                ai_duration_ms: *ai_duration_ms,
-            },
-            TraceEventKind::ToolCallStarted(payload) => {
-                ExecutionEvent::ToolCallStarted(payload.clone())
-            }
-            TraceEventKind::ToolCallCompleted(payload) => {
-                ExecutionEvent::ToolCallCompleted(payload.clone())
-            }
-            TraceEventKind::LlmCall(payload) => ExecutionEvent::LlmCall(payload.clone()),
-            TraceEventKind::Message(payload) => ExecutionEvent::Message(payload.clone()),
-        };
-        ExecutionEventEnvelope::new(self.trace.clone(), event)
+pub fn truncate_telemetry_text(value: &str, max_chars: usize) -> String {
+    let char_count = value.chars().count();
+    if char_count <= max_chars {
+        return value.to_string();
     }
+    let mut truncated = value.chars().take(max_chars).collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
-impl TraceEvent {
-    pub fn run_started(trace: RestflowTrace) -> Self {
-        Self {
-            trace,
-            kind: TraceEventKind::RunStarted,
-        }
-    }
+pub fn sanitize_telemetry_secrets(input: &str) -> String {
+    static SECRET_PATTERN: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(concat!(
+            r"(?i)(?:",
+            r"sk-[a-zA-Z0-9_-]{20,}",
+            r"|xoxb-[a-zA-Z0-9_-]{20,}",
+            r"|xoxp-[a-zA-Z0-9_-]{20,}",
+            r"|Bearer\s+[a-zA-Z0-9._\-/+=]{20,}",
+            r"|AKIA[0-9A-Z]{16}",
+            r"|ghp_[a-zA-Z0-9]{36,}",
+            r"|gho_[a-zA-Z0-9]{36,}",
+            r"|glpat-[a-zA-Z0-9_-]{20,}",
+            r#"|(?:api[_\-]?key|apikey|secret[_\-]?key|access[_\-]?token|auth[_\-]?token)\s*[=:]\s*["']?[a-zA-Z0-9._\-/+=]{8,}"#,
+            r")",
+        ))
+        .expect("invalid secret pattern regex")
+    });
+    SECRET_PATTERN.replace_all(input, "[REDACTED]").into_owned()
+}
 
-    pub fn run_completed(trace: RestflowTrace, ai_duration_ms: Option<u64>) -> Self {
-        Self {
-            trace,
-            kind: TraceEventKind::RunCompleted { ai_duration_ms },
-        }
+pub fn normalize_telemetry_preview(value: &str, max_chars: usize) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
     }
-
-    pub fn run_failed(
-        trace: RestflowTrace,
-        error: impl Into<String>,
-        ai_duration_ms: Option<u64>,
-    ) -> Self {
-        Self {
-            trace,
-            kind: TraceEventKind::RunFailed {
-                error: error.into(),
-                ai_duration_ms,
-            },
-        }
-    }
-
-    pub fn run_interrupted(
-        trace: RestflowTrace,
-        reason: impl Into<String>,
-        ai_duration_ms: Option<u64>,
-    ) -> Self {
-        Self {
-            trace,
-            kind: TraceEventKind::RunInterrupted {
-                reason: reason.into(),
-                ai_duration_ms,
-            },
-        }
-    }
-
-    pub fn tool_call_started(
-        trace: RestflowTrace,
-        tool_call_id: impl Into<String>,
-        tool_name: impl Into<String>,
-        input: Option<String>,
-    ) -> Self {
-        Self {
-            trace,
-            kind: TraceEventKind::ToolCallStarted(TraceToolCallStart {
-                tool_call_id: tool_call_id.into(),
-                tool_name: tool_name.into(),
-                input,
-            }),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn tool_call_completed(
-        trace: RestflowTrace,
-        tool_call_id: impl Into<String>,
-        tool_name: impl Into<String>,
-        input_summary: Option<String>,
-        output: Option<String>,
-        output_ref: Option<String>,
-        success: bool,
-        duration_ms: Option<u64>,
-        error: Option<String>,
-    ) -> Self {
-        Self {
-            trace,
-            kind: TraceEventKind::ToolCallCompleted(TraceToolCallCompleted {
-                tool_call_id: tool_call_id.into(),
-                tool_name: tool_name.into(),
-                input_summary,
-                output,
-                output_ref,
-                success,
-                duration_ms,
-                error,
-            }),
-        }
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn llm_call(
-        trace: RestflowTrace,
-        model: impl Into<String>,
-        input_tokens: Option<u32>,
-        output_tokens: Option<u32>,
-        total_tokens: Option<u32>,
-        cost_usd: Option<f64>,
-        duration_ms: Option<u64>,
-        is_reasoning: Option<bool>,
-        message_count: Option<u32>,
-    ) -> Self {
-        Self {
-            trace,
-            kind: TraceEventKind::LlmCall(TraceLlmCall {
-                model: model.into(),
-                input_tokens,
-                output_tokens,
-                total_tokens,
-                cost_usd,
-                duration_ms,
-                is_reasoning,
-                message_count,
-            }),
-        }
-    }
-
-    pub fn message(
-        trace: RestflowTrace,
-        role: impl Into<String>,
-        content_preview: Option<String>,
-        tool_call_count: Option<u32>,
-    ) -> Self {
-        Self {
-            trace,
-            kind: TraceEventKind::Message(TraceMessage {
-                role: role.into(),
-                content_preview,
-                tool_call_count,
-            }),
-        }
-    }
+    let sanitized = sanitize_telemetry_secrets(trimmed);
+    let normalized = match serde_json::from_str::<serde_json::Value>(&sanitized) {
+        Ok(json) => json.to_string(),
+        Err(_) => sanitized,
+    };
+    Some(truncate_telemetry_text(&normalized, max_chars))
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        RestflowTrace, RunTraceContext, RunTraceLifecycleSink, RunTraceOutcome, RunTraceSummary,
-        RunTraceTimeline, TraceArtifactPreview, TraceEvent, TraceEventKind, TraceEventSink,
-        TraceLlmCall, TraceMessage, TraceTimelineEvent, TraceTimelineSource,
-        TraceToolCallCompleted,
+        ExecutionEvent, ExecutionEventEnvelope, LlmCallPayload, MessagePayload, RestflowTrace,
+        RunTraceContext, RunTraceOutcome, RunTraceSummary, RunTraceTimeline,
+        ToolCallCompletedPayload, TraceArtifactPreview, TraceTimelineEvent, TraceTimelineSource,
+        normalize_telemetry_preview, sanitize_telemetry_secrets,
     };
-    use std::sync::Mutex;
-
-    #[derive(Default)]
-    struct RecordingSink {
-        events: Mutex<Vec<TraceEvent>>,
-    }
-
-    impl TraceEventSink for RecordingSink {
-        fn record_trace_event(&self, event: &TraceEvent) {
-            self.events.lock().expect("events lock").push(event.clone());
-        }
-    }
 
     #[test]
     fn new_uses_run_prefixed_turn_id() {
@@ -731,15 +582,16 @@ mod tests {
     }
 
     #[test]
-    fn trace_event_roundtrips_through_json() {
-        let event = TraceEvent::run_failed(
+    fn execution_event_envelope_roundtrips_through_json() {
+        let event = ExecutionEventEnvelope::run_failed(
             RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
             "boom",
             Some(123),
         );
 
         let json = serde_json::to_string(&event).expect("serialize event");
-        let restored: TraceEvent = serde_json::from_str(&json).expect("deserialize event");
+        let restored: ExecutionEventEnvelope =
+            serde_json::from_str(&json).expect("deserialize event");
 
         assert_eq!(restored, event);
     }
@@ -761,37 +613,25 @@ mod tests {
     }
 
     #[test]
-    fn trace_event_run_completed_preserves_duration() {
-        let event = TraceEvent::run_completed(
+    fn run_completed_preserves_duration() {
+        let event = ExecutionEventEnvelope::run_completed(
             RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
             Some(321),
         );
 
         assert_eq!(
-            event.kind,
-            TraceEventKind::RunCompleted {
+            event.event,
+            ExecutionEvent::RunCompleted {
                 ai_duration_ms: Some(321)
             }
         );
     }
 
     #[test]
-    fn trace_event_tool_call_completed_roundtrips_payload() {
-        let event = TraceEvent::tool_call_completed(
+    fn tool_call_completed_roundtrips_payload() {
+        let event = ExecutionEventEnvelope::new(
             RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
-            "call-1",
-            "bash",
-            Some("{\"cmd\":\"echo hi\"}".to_string()),
-            Some("{\"ok\":true}".to_string()),
-            Some("/tmp/output.txt".to_string()),
-            true,
-            Some(42),
-            None,
-        );
-
-        assert_eq!(
-            event.kind,
-            TraceEventKind::ToolCallCompleted(TraceToolCallCompleted {
+            ExecutionEvent::ToolCallCompleted(ToolCallCompletedPayload {
                 tool_call_id: "call-1".to_string(),
                 tool_name: "bash".to_string(),
                 input_summary: Some("{\"cmd\":\"echo hi\"}".to_string()),
@@ -800,13 +640,18 @@ mod tests {
                 success: true,
                 duration_ms: Some(42),
                 error: None,
-            })
+            }),
         );
+
+        let json = serde_json::to_string(&event).expect("serialize event");
+        let restored: ExecutionEventEnvelope =
+            serde_json::from_str(&json).expect("deserialize event");
+        assert_eq!(restored, event);
     }
 
     #[test]
-    fn trace_event_message_roundtrips_payload() {
-        let event = TraceEvent::message(
+    fn message_roundtrips_payload() {
+        let event = ExecutionEventEnvelope::message(
             RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
             "assistant",
             Some("hello".to_string()),
@@ -814,8 +659,8 @@ mod tests {
         );
 
         assert_eq!(
-            event.kind,
-            TraceEventKind::Message(TraceMessage {
+            event.event,
+            ExecutionEvent::Message(MessagePayload {
                 role: "assistant".to_string(),
                 content_preview: Some("hello".to_string()),
                 tool_call_count: Some(2),
@@ -824,22 +669,10 @@ mod tests {
     }
 
     #[test]
-    fn trace_event_llm_call_roundtrips_payload() {
-        let event = TraceEvent::llm_call(
+    fn llm_call_roundtrips_payload() {
+        let event = ExecutionEventEnvelope::new(
             RestflowTrace::new("run-1", "session-1", "task-1", "agent-1"),
-            "claude-sonnet",
-            Some(100),
-            Some(50),
-            Some(150),
-            Some(0.25),
-            Some(321),
-            Some(false),
-            Some(4),
-        );
-
-        assert_eq!(
-            event.kind,
-            TraceEventKind::LlmCall(TraceLlmCall {
+            ExecutionEvent::LlmCall(LlmCallPayload {
                 model: "claude-sonnet".to_string(),
                 input_tokens: Some(100),
                 output_tokens: Some(50),
@@ -848,44 +681,13 @@ mod tests {
                 duration_ms: Some(321),
                 is_reasoning: Some(false),
                 message_count: Some(4),
-            })
-        );
-    }
-
-    #[test]
-    fn lifecycle_sink_defaults_emit_started_and_failed_events() {
-        let sink = RecordingSink::default();
-        let context = RunTraceContext {
-            run_id: "run-5".to_string(),
-            actor_id: "worker".to_string(),
-            parent_run_id: Some("parent-5".to_string()),
-            session_id: "session-5".to_string(),
-            scope_id: "scope-5".to_string(),
-        };
-
-        sink.on_run_started(&context);
-        sink.on_run_finished(
-            &context,
-            &RunTraceOutcome {
-                success: false,
-                error: Some("boom".to_string()),
-            },
+            }),
         );
 
-        let events = sink.events.lock().expect("events lock");
-        assert_eq!(events.len(), 2);
-        assert!(matches!(events[0].kind, TraceEventKind::RunStarted));
-        assert!(matches!(
-            events[1].kind,
-            TraceEventKind::RunFailed {
-                error: ref e,
-                ai_duration_ms: None,
-            } if e == "boom"
-        ));
-        assert_eq!(events[0].trace.run_id, "run-5");
-        assert_eq!(events[0].trace.parent_run_id.as_deref(), Some("parent-5"));
-        assert_eq!(events[0].trace.session_id, "session-5");
-        assert_eq!(events[0].trace.scope_id, "scope-5");
+        let json = serde_json::to_string(&event).expect("serialize event");
+        let restored: ExecutionEventEnvelope =
+            serde_json::from_str(&json).expect("deserialize event");
+        assert_eq!(restored, event);
     }
 
     #[test]
@@ -907,16 +709,18 @@ mod tests {
                 record_id: Some("event-1".to_string()),
                 timestamp_ms: 200,
                 source: TraceTimelineSource::ExecutionTrace,
-                event: TraceEvent::llm_call(
+                event: ExecutionEventEnvelope::new(
                     trace,
-                    "gpt-5",
-                    Some(10),
-                    Some(20),
-                    Some(30),
-                    None,
-                    Some(123),
-                    None,
-                    Some(4),
+                    ExecutionEvent::LlmCall(LlmCallPayload {
+                        model: "gpt-5".to_string(),
+                        input_tokens: Some(10),
+                        output_tokens: Some(20),
+                        total_tokens: Some(30),
+                        cost_usd: None,
+                        duration_ms: Some(123),
+                        is_reasoning: None,
+                        message_count: Some(4),
+                    }),
                 ),
                 artifact_preview: Some(TraceArtifactPreview {
                     path: "/tmp/output.txt".to_string(),
@@ -929,5 +733,17 @@ mod tests {
         let json = serde_json::to_string(&timeline).expect("serialize timeline");
         let restored: RunTraceTimeline = serde_json::from_str(&json).expect("deserialize timeline");
         assert_eq!(restored, timeline);
+    }
+
+    #[test]
+    fn sanitize_telemetry_secrets_redacts_known_patterns() {
+        let sanitized = sanitize_telemetry_secrets("Authorization: Bearer sk-secret-secret-secret");
+        assert!(sanitized.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn normalize_telemetry_preview_trims_and_truncates() {
+        let preview = normalize_telemetry_preview("  hello world  ", 5).expect("preview");
+        assert_eq!(preview, "hello...");
     }
 }
