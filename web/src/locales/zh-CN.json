@@ -301,6 +301,7 @@
     "marketplace": {
       "title": "Marketplace",
       "description": "浏览并安装 marketplace provider 提供的技能。",
+      "refresh": "刷新",
       "refreshInstalled": "刷新已安装",
       "searchPlaceholder": "按名称、标签或作者搜索技能",
       "search": "搜索",
