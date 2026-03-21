@@ -1,5 +1,6 @@
 use super::{ModelDescriptor, ProviderCatalog};
 use crate::models::{ModelId, Provider};
+use restflow_models::ClientKind;
 
 pub const MODELS: &[ModelDescriptor] = &[
     ModelDescriptor::new(
@@ -40,7 +41,8 @@ pub const MODELS: &[ModelDescriptor] = &[
         "gemini-2.5-pro",
         "Gemini CLI",
         false,
-    ),
+    )
+    .with_client_kind(ClientKind::GeminiCli),
 ];
 
 pub const CATALOG: ProviderCatalog =

@@ -20,6 +20,8 @@ mod zai_coding_plan;
 use std::collections::HashMap;
 use std::sync::OnceLock;
 
+use restflow_models::ClientKind;
+
 use super::ai_model::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +35,8 @@ pub struct ModelDescriptor {
     pub canonical_family: Option<&'static str>,
     pub same_provider_fallback: Option<ModelId>,
     pub openrouter_equivalent: Option<ModelId>,
+    pub client_kind: ClientKind,
+    pub base_url_override: Option<&'static str>,
 }
 
 impl ModelDescriptor {
@@ -53,6 +57,8 @@ impl ModelDescriptor {
             canonical_family: None,
             same_provider_fallback: None,
             openrouter_equivalent: None,
+            client_kind: ClientKind::Http,
+            base_url_override: None,
         }
     }
 
@@ -73,6 +79,16 @@ impl ModelDescriptor {
 
     pub const fn with_openrouter_equivalent(mut self, model: ModelId) -> Self {
         self.openrouter_equivalent = Some(model);
+        self
+    }
+
+    pub const fn with_client_kind(mut self, client_kind: ClientKind) -> Self {
+        self.client_kind = client_kind;
+        self
+    }
+
+    pub const fn with_base_url_override(mut self, base_url: &'static str) -> Self {
+        self.base_url_override = Some(base_url);
         self
     }
 
