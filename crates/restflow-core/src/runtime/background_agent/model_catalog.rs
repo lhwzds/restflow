@@ -1,4 +1,5 @@
 use anyhow::{Context, Result};
+use restflow_models::provider_meta;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -305,26 +306,7 @@ fn model_id_candidates(model: ModelId) -> Vec<String> {
 }
 
 fn models_dev_provider_candidates(provider: Provider) -> &'static [&'static str] {
-    match provider {
-        Provider::OpenAI => &["openai"],
-        Provider::Anthropic => &["anthropic"],
-        Provider::ClaudeCode => &["claude-code", "anthropic"],
-        Provider::Codex => &["codex", "openai-codex", "openai"],
-        Provider::DeepSeek => &["deepseek"],
-        Provider::Google => &["google"],
-        Provider::Groq => &["groq"],
-        Provider::OpenRouter => &["openrouter"],
-        Provider::XAI => &["xai"],
-        Provider::Qwen => &["alibaba-cn", "alibaba"],
-        Provider::Zai => &["zai", "zhipuai"],
-        Provider::ZaiCodingPlan => &["zai-coding-plan", "zhipuai-coding-plan"],
-        Provider::Moonshot => &["moonshotai", "moonshotai-cn", "kimi-for-coding"],
-        Provider::Doubao => &["doubao", "doubao-cn", "ark"],
-        Provider::Yi => &["yi"],
-        Provider::SiliconFlow => &["siliconflow", "siliconflow-cn"],
-        Provider::MiniMax => &["minimax", "minimax-cn"],
-        Provider::MiniMaxCodingPlan => &["minimax-coding-plan", "minimax-cn-coding-plan"],
-    }
+    provider_meta(provider.as_model_provider()).models_dev_provider_ids
 }
 
 fn models_url() -> String {
