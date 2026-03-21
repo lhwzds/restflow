@@ -9,7 +9,8 @@ use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
 use restflow_core::models::{
-    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, TaskSchedule,
+    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, ExecutionTraceQuery,
+    TaskSchedule,
 };
 use restflow_core::services::background_agent_conversion::{
     ConvertSessionSpecOptions, MISSING_CONVERSION_INPUT_ERROR, build_convert_session_spec,
@@ -469,8 +470,13 @@ async fn show_run_log(
     };
 
     if let Some(run_id) = run_id {
-        let traces = executor
-            .list_tool_traces(&session_id, Some(run_id.to_string()), Some(limit))
+        let timeline = executor
+            .get_execution_timeline(ExecutionTraceQuery {
+                session_id: Some(session_id.clone()),
+                turn_id: Some(run_id.to_string()),
+                limit: Some(limit),
+                ..ExecutionTraceQuery::default()
+            })
             .await?;
 
         if format.is_json() {
@@ -478,27 +484,39 @@ async fn show_run_log(
                 "task_id": task_id,
                 "session_id": session_id,
                 "run_id": run_id,
-                "total_events": traces.len(),
-                "events": traces,
+                "total_events": timeline.events.len(),
+                "timeline": timeline,
             }));
         }
 
         println!("Task: {}", task_id);
         println!("Session: {}", session_id);
         println!("Run (turn_id): {}", run_id);
-        println!("Events: {} (showing up to {})", traces.len(), limit);
-        for trace in traces {
-            println!("{}", serde_json::to_string(&trace)?);
+        println!(
+            "Events: {} (showing up to {})",
+            timeline.events.len(),
+            limit
+        );
+        for event in timeline.events {
+            println!("{}", serde_json::to_string(&event)?);
         }
         return Ok(());
     }
 
-    let traces = executor.list_tool_traces(&session_id, None, None).await?;
     let mut seen = HashSet::new();
     let mut runs = Vec::new();
-    for trace in traces.iter().rev() {
-        if seen.insert(trace.turn_id.clone()) {
-            runs.push(trace.turn_id.clone());
+    let events = executor
+        .query_execution_traces(ExecutionTraceQuery {
+            session_id: Some(session_id.clone()),
+            ..ExecutionTraceQuery::default()
+        })
+        .await?;
+    for event in events {
+        let Some(turn_id) = event.turn_id else {
+            continue;
+        };
+        if seen.insert(turn_id.clone()) {
+            runs.push(turn_id);
         }
     }
 

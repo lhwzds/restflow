@@ -17,7 +17,7 @@ use restflow_core::runtime::{
     ChatDispatcherConfig, ChatSessionManager, MessageDebouncer, MessageHandlerConfig,
     MessageHandlerHandle, NoopHeartbeatEmitter, OrchestratingAgentExecutor, RunnerConfig,
     RunnerHandle, StorageBackedSubagentLookup, SubagentConfig, SubagentTracker, SystemStatus,
-    TelegramNotifier, ToolTraceRunSink,
+    TelegramNotifier,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
@@ -95,10 +95,9 @@ impl CliBackgroundAgentRunner {
         // Create subagent system components
         let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(100);
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
-        subagent_tracker.set_run_trace_sink(Arc::new(ToolTraceRunSink::new(
-            storage.tool_traces.clone(),
-            Some(storage.execution_traces.clone()),
-        )));
+        subagent_tracker.set_telemetry_sink(restflow_core::telemetry::build_core_telemetry_sink(
+            storage.as_ref(),
+        ));
         let subagent_definitions =
             Arc::new(StorageBackedSubagentLookup::new(storage.agents.clone()));
         let subagent_config = build_subagent_config(&system_config.agent);

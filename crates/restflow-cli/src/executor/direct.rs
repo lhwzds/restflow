@@ -7,7 +7,8 @@ use crate::setup;
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundProgress, Deliverable, SharedEntry, ToolTrace,
+    BackgroundAgentSpec, BackgroundProgress, Deliverable, ExecutionTimeline, ExecutionTraceEvent,
+    ExecutionTraceQuery, SharedEntry,
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
@@ -310,18 +311,25 @@ impl CommandExecutor for DirectExecutor {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn list_tool_traces(
+    async fn query_execution_traces(
         &self,
-        _session_id: &str,
-        _turn_id: Option<String>,
-        _limit: Option<usize>,
-    ) -> Result<Vec<ToolTrace>> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+        query: ExecutionTraceQuery,
+    ) -> Result<Vec<ExecutionTraceEvent>> {
+        self.core.storage.execution_traces.query(&query)
     }
 
-    // Shared Space operations - require daemon
+    async fn get_execution_timeline(
+        &self,
+        query: ExecutionTraceQuery,
+    ) -> Result<ExecutionTimeline> {
+        restflow_core::telemetry::get_execution_timeline(
+            &self.core.storage.execution_traces,
+            &query,
+        )
+    }
+
     async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
-        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
     async fn get_kv_store(&self, _key: &str) -> Result<Option<SharedEntry>> {

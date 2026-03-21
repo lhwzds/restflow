@@ -422,8 +422,7 @@ impl IpcServer {
             existing.abort();
             let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
             append_trace_event(
-                &core.storage.tool_traces,
-                Some(&core.storage.execution_traces),
+                &core.storage.execution_traces,
                 &TraceEvent::run_interrupted(
                     trace,
                     "replaced by a newer stream with the same stream_id",
@@ -449,8 +448,7 @@ impl IpcServer {
                 previous.abort();
                 let trace = resolve_chat_stream_trace(&core, &session_id, &previous_stream_id);
                 append_trace_event(
-                    &core.storage.tool_traces,
-                    Some(&core.storage.execution_traces),
+                    &core.storage.execution_traces,
                     &TraceEvent::run_interrupted(
                         trace,
                         "replaced by a newer stream for the same session",

@@ -8,9 +8,10 @@ use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
     BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundProgress,
-    ChatSession, ChatSessionSummary, Deliverable, Hook, HookAction, HookEvent, HookFilter,
+    ChatSession, ChatSessionSummary, Deliverable, ExecutionTraceCategory, ExecutionTraceEvent,
+    ExecutionTraceQuery, ExecutionTraceSource, Hook, HookAction, HookEvent, HookFilter,
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, ModelId,
-    Provider, SearchMode, Skill, SkillStatus, ToolTrace, ToolTraceEvent, ValidationError,
+    Provider, SearchMode, Skill, SkillStatus, ValidationError,
 };
 use crate::services::{
     operation_assessment::OperationAssessorAdapter,
@@ -142,17 +143,10 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<Vec<BackgroundMessage>, String>;
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String>;
 
-    async fn list_tool_traces(
+    async fn query_execution_traces(
         &self,
-        session_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ToolTrace>, String>;
-    async fn list_tool_traces_by_turn(
-        &self,
-        session_id: &str,
-        turn_id: &str,
-        limit: usize,
-    ) -> Result<Vec<crate::models::ToolTrace>, String>;
+        query: ExecutionTraceQuery,
+    ) -> Result<Vec<ExecutionTraceEvent>, String>;
     async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String>;
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
@@ -177,7 +171,7 @@ fn create_runtime_tool_registry_for_core(
         core.storage.memory.clone(),
         core.storage.chat_sessions.clone(),
         core.storage.channel_session_bindings.clone(),
-        core.storage.tool_traces.clone(),
+        core.storage.execution_traces.clone(),
         core.storage.kv_store.clone(),
         core.storage.work_items.clone(),
         core.storage.secrets.clone(),
@@ -275,24 +269,43 @@ fn stdio() -> (tokio::io::Stdin, tokio::io::Stdout) {
 }
 
 impl RestFlowMcpServer {
-    fn tool_trace_event_name(event: &ToolTraceEvent) -> &'static str {
-        match event {
-            ToolTraceEvent::TurnStarted => "turn_started",
-            ToolTraceEvent::ToolCallStarted => "tool_call_started",
-            ToolTraceEvent::ToolCallCompleted => "tool_call_completed",
-            ToolTraceEvent::TurnCompleted => "turn_completed",
-            ToolTraceEvent::TurnFailed => "turn_failed",
-            ToolTraceEvent::TurnInterrupted => "turn_interrupted",
+    fn execution_trace_event_name(event: &ExecutionTraceEvent) -> &'static str {
+        match event.category {
+            ExecutionTraceCategory::Lifecycle => match event
+                .lifecycle
+                .as_ref()
+                .map(|lifecycle| lifecycle.status.as_str())
+            {
+                Some("started") => "turn_started",
+                Some("completed") => "turn_completed",
+                Some("failed") => "turn_failed",
+                Some("interrupted") => "turn_interrupted",
+                _ => "lifecycle",
+            },
+            ExecutionTraceCategory::ToolCall => match event.tool_call.as_ref().map(|t| t.phase) {
+                Some(crate::models::ToolCallPhase::Started) => "tool_call_started",
+                Some(crate::models::ToolCallPhase::Completed) => "tool_call_completed",
+                None => "tool_call",
+            },
+            ExecutionTraceCategory::LlmCall => "llm_call",
+            ExecutionTraceCategory::ModelSwitch => "model_switch",
+            ExecutionTraceCategory::Message => "message",
+            ExecutionTraceCategory::MetricSample => "metric_sample",
+            ExecutionTraceCategory::ProviderHealth => "provider_health",
+            ExecutionTraceCategory::LogRecord => "log_record",
         }
     }
 
-    fn tool_trace_category_name(event: &ToolTraceEvent) -> &'static str {
-        match event {
-            ToolTraceEvent::ToolCallStarted | ToolTraceEvent::ToolCallCompleted => "tool",
-            ToolTraceEvent::TurnStarted
-            | ToolTraceEvent::TurnCompleted
-            | ToolTraceEvent::TurnFailed
-            | ToolTraceEvent::TurnInterrupted => "turn",
+    fn execution_trace_category_name(event: &ExecutionTraceEvent) -> &'static str {
+        match event.category {
+            ExecutionTraceCategory::ToolCall => "tool",
+            ExecutionTraceCategory::Lifecycle => "turn",
+            ExecutionTraceCategory::LlmCall => "llm",
+            ExecutionTraceCategory::ModelSwitch => "model",
+            ExecutionTraceCategory::Message => "message",
+            ExecutionTraceCategory::MetricSample => "metric",
+            ExecutionTraceCategory::ProviderHealth => "provider_health",
+            ExecutionTraceCategory::LogRecord => "log",
         }
     }
 
@@ -305,18 +318,28 @@ impl RestFlowMcpServer {
                     s.as_str(),
                     "turn"
                         | "tool"
+                        | "llm"
+                        | "model"
+                        | "message"
+                        | "metric"
+                        | "provider_health"
+                        | "log"
                         | "turn_started"
                         | "tool_call_started"
                         | "tool_call_completed"
                         | "turn_completed"
                         | "turn_failed"
                         | "turn_interrupted"
+                        | "llm_call"
+                        | "model_switch"
+                        | "metric_sample"
+                        | "log_record"
                 ) =>
             {
                 Ok(Some(s))
             }
             Some(s) => Err(format!(
-                "Unknown trace category: {}. Supported: turn, tool, turn_started, tool_call_started, tool_call_completed, turn_completed, turn_failed, turn_interrupted",
+                "Unknown trace category: {}. Supported: turn, tool, llm, model, message, metric, provider_health, log, turn_started, tool_call_started, tool_call_completed, turn_completed, turn_failed, turn_interrupted, llm_call, model_switch, metric_sample, log_record",
                 s
             )),
         }
@@ -343,42 +366,55 @@ impl RestFlowMcpServer {
         Ok(())
     }
 
-    fn trace_matches_category(trace: &ToolTrace, category: Option<&str>) -> bool {
+    fn trace_matches_category(trace: &ExecutionTraceEvent, category: Option<&str>) -> bool {
         let Some(category) = category else {
             return true;
         };
 
         match category {
-            "turn" => Self::tool_trace_category_name(&trace.event_type) == "turn",
-            "tool" => Self::tool_trace_category_name(&trace.event_type) == "tool",
-            event_type => Self::tool_trace_event_name(&trace.event_type) == event_type,
+            "turn" => Self::execution_trace_category_name(trace) == "turn",
+            "tool" => Self::execution_trace_category_name(trace) == "tool",
+            "llm" => Self::execution_trace_category_name(trace) == "llm",
+            "model" => Self::execution_trace_category_name(trace) == "model",
+            "message" => Self::execution_trace_category_name(trace) == "message",
+            "metric" => Self::execution_trace_category_name(trace) == "metric",
+            "provider_health" => Self::execution_trace_category_name(trace) == "provider_health",
+            "log" => Self::execution_trace_category_name(trace) == "log",
+            event_type => Self::execution_trace_event_name(trace) == event_type,
         }
     }
 
-    fn trace_matches_source(trace: &ToolTrace, source: Option<&str>) -> bool {
+    fn trace_matches_source(trace: &ExecutionTraceEvent, source: Option<&str>) -> bool {
         let Some(source) = source else {
             return true;
         };
 
-        trace
-            .tool_name
-            .as_deref()
-            .map(|name| name.trim().eq_ignore_ascii_case(source))
-            .unwrap_or(false)
+        match source {
+            "agent_executor" => trace.source == ExecutionTraceSource::AgentExecutor,
+            "runtime" => trace.source == ExecutionTraceSource::Runtime,
+            "mcp_server" => trace.source == ExecutionTraceSource::McpServer,
+            "cli" => trace.source == ExecutionTraceSource::Cli,
+            "telemetry" => trace.source == ExecutionTraceSource::Telemetry,
+            other => trace
+                .tool_call
+                .as_ref()
+                .map(|tool_call| tool_call.tool_name.trim().eq_ignore_ascii_case(other))
+                .unwrap_or(false),
+        }
     }
 
     fn trace_matches_time_range(
-        trace: &ToolTrace,
+        trace: &ExecutionTraceEvent,
         from_time_ms: Option<i64>,
         to_time_ms: Option<i64>,
     ) -> bool {
         if let Some(from) = from_time_ms
-            && trace.created_at < from
+            && trace.timestamp < from
         {
             return false;
         }
         if let Some(to) = to_time_ms
-            && trace.created_at > to
+            && trace.timestamp > to
         {
             return false;
         }
@@ -386,7 +422,7 @@ impl RestFlowMcpServer {
     }
 
     fn build_trace_stats(
-        traces: &[ToolTrace],
+        traces: &[ExecutionTraceEvent],
         limit: usize,
         offset: usize,
         tasks_scanned: usize,
@@ -408,28 +444,43 @@ impl RestFlowMcpServer {
         let mut created_at_max: Option<i64> = None;
 
         for trace in traces {
-            let event_name = Self::tool_trace_event_name(&trace.event_type).to_string();
+            let event_name = Self::execution_trace_event_name(trace).to_string();
             *by_event_type.entry(event_name).or_insert(0) += 1;
 
-            let category_name = Self::tool_trace_category_name(&trace.event_type).to_string();
+            let category_name = Self::execution_trace_category_name(trace).to_string();
             *by_category.entry(category_name).or_insert(0) += 1;
 
             if let Some(tool_name) = trace
-                .tool_name
-                .as_deref()
-                .map(str::trim)
+                .tool_call
+                .as_ref()
+                .map(|tool_call| tool_call.tool_name.trim())
                 .filter(|name| !name.is_empty())
             {
                 *by_tool.entry(tool_name.to_string()).or_insert(0) += 1;
             }
 
-            match trace.success {
+            match trace
+                .tool_call
+                .as_ref()
+                .and_then(|tool_call| tool_call.success)
+            {
                 Some(true) => success_true += 1,
                 Some(false) => success_false += 1,
                 None => success_unknown += 1,
             }
 
-            if let Some(duration_ms) = trace.duration_ms {
+            let duration_ms = trace
+                .tool_call
+                .as_ref()
+                .and_then(|tool_call| tool_call.duration_ms)
+                .or_else(|| {
+                    trace
+                        .llm_call
+                        .as_ref()
+                        .and_then(|llm_call| llm_call.duration_ms)
+                })
+                .and_then(|value| u64::try_from(value).ok());
+            if let Some(duration_ms) = duration_ms {
                 duration_total = duration_total.saturating_add(duration_ms);
                 duration_count += 1;
                 duration_min = Some(duration_min.map_or(duration_ms, |v| v.min(duration_ms)));
@@ -437,9 +488,9 @@ impl RestFlowMcpServer {
             }
 
             created_at_min =
-                Some(created_at_min.map_or(trace.created_at, |v| v.min(trace.created_at)));
+                Some(created_at_min.map_or(trace.timestamp, |v| v.min(trace.timestamp)));
             created_at_max =
-                Some(created_at_max.map_or(trace.created_at, |v| v.max(trace.created_at)));
+                Some(created_at_max.map_or(trace.timestamp, |v| v.max(trace.timestamp)));
         }
 
         let duration_avg = if duration_count > 0 {

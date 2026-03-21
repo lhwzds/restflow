@@ -261,14 +261,25 @@ pub enum IpcRequest {
         session_id: String,
         limit: Option<usize>,
     },
-    ListToolTraces {
-        session_id: String,
-        turn_id: Option<String>,
-        limit: Option<usize>,
-    },
     QueryExecutionTraces {
         #[serde(default)]
         query: ExecutionTraceQuery,
+    },
+    GetExecutionTimeline {
+        #[serde(default)]
+        query: ExecutionTraceQuery,
+    },
+    GetExecutionMetrics {
+        #[serde(default)]
+        query: ExecutionMetricQuery,
+    },
+    GetProviderHealth {
+        #[serde(default)]
+        query: ProviderHealthQuery,
+    },
+    QueryExecutionLogs {
+        #[serde(default)]
+        query: ExecutionLogQuery,
     },
     GetExecutionTraceStats {
         task_id: Option<String>,
@@ -1080,6 +1091,9 @@ pub enum ExecutionTraceCategory {
     ModelSwitch,
     Lifecycle,
     Message,
+    MetricSample,
+    ProviderHealth,
+    LogRecord,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1089,11 +1103,15 @@ pub enum ExecutionTraceSource {
     Runtime,
     McpServer,
     Cli,
+    Telemetry,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ExecutionTraceQuery {
     pub task_id: Option<String>,
+    pub run_id: Option<String>,
+    pub session_id: Option<String>,
+    pub turn_id: Option<String>,
     pub agent_id: Option<String>,
     pub category: Option<ExecutionTraceCategory>,
     pub source: Option<ExecutionTraceSource>,
@@ -1101,6 +1119,31 @@ pub struct ExecutionTraceQuery {
     pub to_timestamp: Option<i64>,
     pub limit: Option<usize>,
     pub offset: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExecutionMetricQuery {
+    pub task_id: Option<String>,
+    pub session_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub metric_name: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ProviderHealthQuery {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub limit: Option<usize>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct ExecutionLogQuery {
+    pub task_id: Option<String>,
+    pub session_id: Option<String>,
+    pub agent_id: Option<String>,
+    pub level: Option<String>,
+    pub limit: Option<usize>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]

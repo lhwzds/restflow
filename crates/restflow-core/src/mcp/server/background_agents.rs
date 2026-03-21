@@ -98,7 +98,12 @@ impl RestFlowMcpServer {
                     };
                     let traces = self
                         .backend
-                        .list_tool_traces(session_id, trace_fetch_limit)
+                        .query_execution_traces(ExecutionTraceQuery {
+                            task_id: Some(task.id.clone()),
+                            session_id: Some(session_id.to_string()),
+                            limit: Some(trace_fetch_limit),
+                            ..ExecutionTraceQuery::default()
+                        })
                         .await
                         .map_err(|e| format!("Failed to list traces: {}", e))?;
                     filtered_traces.extend(traces.into_iter().filter(|trace| {
@@ -112,13 +117,10 @@ impl RestFlowMcpServer {
                     }));
                 }
 
-                filtered_traces.sort_by(|a, b| {
-                    b.created_at
-                        .cmp(&a.created_at)
-                        .then_with(|| a.id.cmp(&b.id))
-                });
+                filtered_traces
+                    .sort_by(|a, b| b.timestamp.cmp(&a.timestamp).then_with(|| a.id.cmp(&b.id)));
                 let total = filtered_traces.len();
-                let events: Vec<ToolTrace> = filtered_traces
+                let events: Vec<ExecutionTraceEvent> = filtered_traces
                     .iter()
                     .skip(offset)
                     .take(limit)
@@ -161,18 +163,22 @@ impl RestFlowMcpServer {
                     .line_limit
                     .unwrap_or(defaults.background_trace_line_limit)
                     .max(1);
-                let parts: Vec<&str> = trace_id.splitn(2, ':').collect();
-                let traces = if parts.len() == 2 {
-                    self.backend
-                        .list_tool_traces_by_turn(parts[0], parts[1], limit)
-                        .await
-                        .map_err(|e| format!("Failed to read trace: {}", e))?
-                } else {
-                    self.backend
-                        .list_tool_traces(&trace_id, limit)
-                        .await
-                        .map_err(|e| format!("Failed to read trace: {}", e))?
+                let mut query = ExecutionTraceQuery {
+                    limit: Some(limit),
+                    ..ExecutionTraceQuery::default()
                 };
+                let parts: Vec<&str> = trace_id.splitn(2, ':').collect();
+                if parts.len() == 2 {
+                    query.session_id = Some(parts[0].to_string());
+                    query.turn_id = Some(parts[1].to_string());
+                } else {
+                    query.run_id = Some(trace_id.clone());
+                }
+                let traces = self
+                    .backend
+                    .query_execution_traces(query)
+                    .await
+                    .map_err(|e| format!("Failed to read trace: {}", e))?;
                 serde_json::json!({
                     "trace_id": trace_id,
                     "total": traces.len(),

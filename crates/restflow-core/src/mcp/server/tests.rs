@@ -1247,20 +1247,10 @@ impl McpBackend for MockBackend {
         Ok(Vec::new())
     }
 
-    async fn list_tool_traces(
+    async fn query_execution_traces(
         &self,
-        _session_id: &str,
-        _limit: usize,
-    ) -> Result<Vec<crate::models::ToolTrace>, String> {
-        Ok(Vec::new())
-    }
-
-    async fn list_tool_traces_by_turn(
-        &self,
-        _session_id: &str,
-        _turn_id: &str,
-        _limit: usize,
-    ) -> Result<Vec<crate::models::ToolTrace>, String> {
+        _query: crate::models::ExecutionTraceQuery,
+    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
         Ok(Vec::new())
     }
 
