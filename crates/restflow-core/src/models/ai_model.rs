@@ -1,181 +1,13 @@
-use restflow_models::{ClientKind, LlmProvider, ModelSpec, provider_meta};
-use restflow_traits::ModelProvider;
+use restflow_models::{ClientKind, ModelSpec};
 use serde::{Deserialize, Deserializer, Serialize};
 use specta::Type;
 use ts_rs::TS;
 
-use super::catalog;
-use crate::models::ValidationError;
-
-macro_rules! define_provider_enum {
-    ($($variant:ident => $rename:literal),+ $(,)?) => {
-        /// AI model provider
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, TS, Type)]
-        #[ts(export)]
-        pub enum Provider {
-            $(
-                #[serde(rename = $rename)]
-                #[ts(rename = $rename)]
-                $variant,
-            )+
-        }
-
-        impl Provider {
-            pub fn all() -> &'static [Provider] {
-                &[
-                    $(Self::$variant,)+
-                ]
-            }
-
-            /// Convert to shared provider identity used by cross-crate parsers.
-            pub fn as_model_provider(&self) -> ModelProvider {
-                match *self {
-                    $(Self::$variant => ModelProvider::$variant,)+
-                }
-            }
-
-            /// Convert from shared provider identity.
-            pub fn from_model_provider(provider: ModelProvider) -> Self {
-                match provider {
-                    $(ModelProvider::$variant => Self::$variant,)+
-                }
-            }
-        }
-    };
-}
-
-define_provider_enum! {
-    OpenAI => "openai",
-    Anthropic => "anthropic",
-    ClaudeCode => "claude-code",
-    Codex => "codex",
-    DeepSeek => "deepseek",
-    Google => "google",
-    Groq => "groq",
-    OpenRouter => "openrouter",
-    XAI => "xai",
-    Qwen => "qwen",
-    Zai => "zai",
-    ZaiCodingPlan => "zai-coding-plan",
-    Moonshot => "moonshot",
-    Doubao => "doubao",
-    Yi => "yi",
-    SiliconFlow => "siliconflow",
-    MiniMax => "minimax",
-    MiniMaxCodingPlan => "minimax-coding-plan",
-}
-
-impl<'de> Deserialize<'de> for Provider {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
-        Self::from_canonical_str(&raw)
-            .ok_or_else(|| serde::de::Error::custom(format!("unknown provider: {raw}")))
-    }
-}
-
-impl Provider {
-    pub fn api_key_env(&self) -> Option<&'static str> {
-        provider_meta(self.as_model_provider()).api_key_env
-    }
-
-    /// Convert Provider to LLM provider used by runtime factory.
-    pub fn as_llm_provider(&self) -> LlmProvider {
-        provider_meta(self.as_model_provider()).runtime_provider
-    }
-
-    /// Get the canonical provider identifier for use in canonical model IDs.
-    /// Returns lowercase provider name (e.g., "openai", "anthropic").
-    pub fn as_canonical_str(&self) -> &'static str {
-        provider_meta(self.as_model_provider()).canonical_name()
-    }
-
-    /// Parse a canonical provider string back to Provider.
-    /// Returns None if the string is not recognized.
-    pub fn from_canonical_str(s: &str) -> Option<Self> {
-        ModelProvider::parse_alias(s).map(Self::from_model_provider)
-    }
-
-    /// Get the best available model for this provider.
-    pub fn flagship_model(&self) -> ModelId {
-        catalog::provider_catalog(*self)
-            .map(|catalog| catalog.flagship)
-            .unwrap_or_else(|| panic!("missing provider catalog for {}", self.as_canonical_str()))
-    }
-}
-
-/// Model metadata containing provider, temperature support, and display name
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ModelMetadata {
-    pub provider: Provider,
-    pub supports_temperature: bool,
-    pub name: &'static str,
-}
-
-/// Serializable model metadata for transferring to frontend
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
-#[ts(export)]
-pub struct ModelMetadataDTO {
-    pub model: ModelId,
-    pub provider: Provider,
-    pub supports_temperature: bool,
-    pub name: String,
-}
-
-/// Provider + model pair used by API and persistence layers.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
-#[ts(export)]
-pub struct ModelRef {
-    pub provider: Provider,
-    pub model: ModelId,
-}
-
-impl ModelRef {
-    /// Build a consistent model reference from a model enum.
-    pub fn from_model(model: ModelId) -> Self {
-        Self {
-            provider: model.provider(),
-            model,
-        }
-    }
-
-    /// Validate that provider and model provider metadata are consistent.
-    pub fn validate(&self) -> Result<(), ValidationError> {
-        let normalized = self.normalized();
-        let expected_provider = normalized.model.provider();
-        if normalized.provider != expected_provider {
-            return Err(ValidationError::new(
-                "model_ref",
-                format!(
-                    "provider '{}' does not match model provider '{}'",
-                    normalized.provider.as_canonical_str(),
-                    expected_provider.as_canonical_str()
-                ),
-            ));
-        }
-        Ok(())
-    }
-
-    /// Return canonical ID in `provider:model` format.
-    pub fn canonical_id(&self) -> String {
-        let normalized = self.normalized();
-        format!(
-            "{}:{}",
-            normalized.provider.as_canonical_str(),
-            normalized.model.as_serialized_str()
-        )
-    }
-
-    /// Normalize legacy provider/model combinations into canonical provider identities.
-    pub fn normalized(&self) -> Self {
-        Self {
-            provider: ModelId::normalize_provider_for_model(self.model, self.provider),
-            model: self.model,
-        }
-    }
-}
+use super::{
+    catalog,
+    model_ref::{ModelMetadata, ModelMetadataDTO},
+    provider::Provider,
+};
 
 /// Canonical model identifier.
 ///
@@ -527,6 +359,9 @@ impl ModelId {
 
 #[cfg(test)]
 mod tests {
+    use crate::models::ModelRef;
+    use restflow_models::LlmProvider;
+
     use super::*;
 
     #[test]
