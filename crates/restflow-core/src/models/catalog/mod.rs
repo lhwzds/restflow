@@ -32,6 +32,7 @@ pub struct ModelDescriptor {
     pub display_name: &'static str,
     pub supports_temperature: bool,
     pub aliases: &'static [&'static str],
+    pub prefix_aliases: &'static [&'static str],
     pub canonical_family: Option<&'static str>,
     pub same_provider_fallback: Option<ModelId>,
     pub openrouter_equivalent: Option<ModelId>,
@@ -54,6 +55,7 @@ impl ModelDescriptor {
             display_name,
             supports_temperature,
             aliases: &[],
+            prefix_aliases: &[],
             canonical_family: None,
             same_provider_fallback: None,
             openrouter_equivalent: None,
@@ -64,6 +66,11 @@ impl ModelDescriptor {
 
     pub const fn with_aliases(mut self, aliases: &'static [&'static str]) -> Self {
         self.aliases = aliases;
+        self
+    }
+
+    pub const fn with_prefix_aliases(mut self, aliases: &'static [&'static str]) -> Self {
+        self.prefix_aliases = aliases;
         self
     }
 
@@ -188,7 +195,7 @@ pub fn descriptor(model: ModelId) -> Option<&'static ModelDescriptor> {
 
 pub fn lookup_by_name(name: &str) -> Option<ModelId> {
     let key = normalize_lookup_key(name)?;
-    NAME_LOOKUP
+    if let Some(model) = NAME_LOOKUP
         .get_or_init(|| {
             let mut lookup = HashMap::new();
             for descriptor in all_descriptors() {
@@ -206,6 +213,13 @@ pub fn lookup_by_name(name: &str) -> Option<ModelId> {
         })
         .get(&key)
         .copied()
+    {
+        return Some(model);
+    }
+
+    all_descriptors().find_map(|descriptor| {
+        descriptor_matches_prefix_alias(descriptor, &key).then_some(descriptor.id)
+    })
 }
 
 pub fn lookup_for_provider(provider: Provider, model: &str) -> Option<ModelId> {
@@ -234,6 +248,14 @@ fn descriptor_matches_lookup_key(descriptor: &ModelDescriptor, key: &str) -> boo
             .aliases
             .iter()
             .any(|alias| alias.eq_ignore_ascii_case(key))
+        || descriptor_matches_prefix_alias(descriptor, key)
+}
+
+fn descriptor_matches_prefix_alias(descriptor: &ModelDescriptor, key: &str) -> bool {
+    descriptor
+        .prefix_aliases
+        .iter()
+        .any(|alias| key.starts_with(alias))
 }
 
 fn register_lookup_key(lookup: &mut HashMap<String, ModelId>, raw: &str, model: ModelId) {

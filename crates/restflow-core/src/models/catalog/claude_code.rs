@@ -1,5 +1,6 @@
 use super::{ModelDescriptor, ProviderCatalog};
 use crate::models::{ModelId, Provider};
+use restflow_models::ClientKind;
 
 const OPUS_ALIASES: &[&str] = &["opus"];
 const SONNET_ALIASES: &[&str] = &["sonnet"];
@@ -13,7 +14,8 @@ pub const MODELS: &[ModelDescriptor] = &[
         "Claude Code Opus",
         true,
     )
-    .with_aliases(OPUS_ALIASES),
+    .with_aliases(OPUS_ALIASES)
+    .with_client_kind(ClientKind::ClaudeCodeCli),
     ModelDescriptor::new(
         ModelId::ClaudeCodeSonnet,
         Provider::ClaudeCode,
@@ -21,7 +23,8 @@ pub const MODELS: &[ModelDescriptor] = &[
         "Claude Code Sonnet",
         true,
     )
-    .with_aliases(SONNET_ALIASES),
+    .with_aliases(SONNET_ALIASES)
+    .with_client_kind(ClientKind::ClaudeCodeCli),
     ModelDescriptor::new(
         ModelId::ClaudeCodeHaiku,
         Provider::ClaudeCode,
@@ -29,7 +32,8 @@ pub const MODELS: &[ModelDescriptor] = &[
         "Claude Code Haiku",
         true,
     )
-    .with_aliases(HAIKU_ALIASES),
+    .with_aliases(HAIKU_ALIASES)
+    .with_client_kind(ClientKind::ClaudeCodeCli),
 ];
 
 pub const CATALOG: ProviderCatalog =

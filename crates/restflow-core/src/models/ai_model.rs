@@ -292,6 +292,24 @@ impl ModelId {
 }
 
 impl ModelId {
+    fn model_spec_named(&self, name: &str) -> ModelSpec {
+        let descriptor = self.descriptor();
+        let provider = self.provider().as_llm_provider();
+        let mut spec = match descriptor.client_kind {
+            ClientKind::Http => ModelSpec::new(name, provider, self.as_str()),
+            ClientKind::CodexCli => ModelSpec::codex(name, self.as_str()),
+            ClientKind::OpenCodeCli => ModelSpec::opencode(name, self.as_str()),
+            ClientKind::GeminiCli => ModelSpec::gemini_cli(name, self.as_str()),
+            ClientKind::ClaudeCodeCli => ModelSpec::claude_code(name, self.as_str()),
+        };
+
+        if let Some(base_url) = descriptor.base_url_override {
+            spec = spec.with_base_url(base_url);
+        }
+
+        spec
+    }
+
     fn descriptor(&self) -> &'static catalog::ModelDescriptor {
         catalog::descriptor(*self).unwrap_or_else(|| {
             panic!(
@@ -303,20 +321,7 @@ impl ModelId {
 
     /// Convert ModelId to ModelSpec used by runtime LLM factory.
     pub fn as_model_spec(&self) -> ModelSpec {
-        let descriptor = self.descriptor();
-        let provider = self.provider().as_llm_provider();
-        let mut spec = match descriptor.client_kind {
-            ClientKind::Http => ModelSpec::new(self.as_serialized_str(), provider, self.as_str()),
-            ClientKind::CodexCli => ModelSpec::codex(self.as_serialized_str(), self.as_str()),
-            ClientKind::OpenCodeCli => ModelSpec::opencode(self.as_serialized_str(), self.as_str()),
-            ClientKind::GeminiCli => ModelSpec::gemini_cli(self.as_serialized_str(), self.as_str()),
-        };
-
-        if let Some(base_url) = descriptor.base_url_override {
-            spec = spec.with_base_url(base_url);
-        }
-
-        spec
+        self.model_spec_named(self.as_serialized_str())
     }
 
     /// Build the shared model catalog for dynamic model switching.
@@ -327,8 +332,7 @@ impl ModelId {
 
             // Claude Code aliases are matched by `as_str()` at runtime as well.
             if model.is_claude_code() {
-                let provider = model.provider().as_llm_provider();
-                specs.push(ModelSpec::new(model.as_str(), provider, model.as_str()));
+                specs.push(model.model_spec_named(model.as_str()));
             }
         }
 
@@ -441,30 +445,7 @@ impl ModelId {
             return None;
         }
 
-        if let Some(model) = catalog::lookup_by_name(normalized) {
-            return Some(model);
-        }
-
-        match normalized.to_ascii_lowercase().as_str() {
-            "claude-sonnet-4-5-20250514" | "claude-sonnet-4-20250514" => {
-                Some(Self::ClaudeSonnet4_5)
-            }
-            "claude-opus-4-6-20260205" | "claude-opus-4-6-20250514" => Some(Self::ClaudeOpus4_6),
-            "claude-haiku-4-5-20250514" | "claude-haiku-4-20250514" => Some(Self::ClaudeHaiku4_5),
-            _ => {
-                if normalized.starts_with("claude-sonnet-4") {
-                    Some(Self::ClaudeSonnet4_5)
-                } else if normalized.starts_with("claude-opus-4-6")
-                    || normalized.starts_with("claude-opus-4")
-                {
-                    Some(Self::ClaudeOpus4_6)
-                } else if normalized.starts_with("claude-haiku-4") {
-                    Some(Self::ClaudeHaiku4_5)
-                } else {
-                    None
-                }
-            }
-        }
+        catalog::lookup_by_name(normalized)
     }
 
     /// Resolve a concrete model for a specific provider/model pair.
@@ -502,7 +483,7 @@ impl ModelId {
 
     /// Check if this model uses the Claude Code CLI
     pub fn is_claude_code(&self) -> bool {
-        self.provider() == Provider::ClaudeCode
+        self.descriptor().client_kind == ClientKind::ClaudeCodeCli
     }
 
     /// Check if this model uses the OpenCode CLI
@@ -517,7 +498,7 @@ impl ModelId {
 
     /// Check if this model is any CLI-based model (manages its own auth)
     pub fn is_cli_model(&self) -> bool {
-        self.descriptor().client_kind.is_cli() || self.is_claude_code()
+        self.descriptor().client_kind.is_cli()
     }
 
     /// Get a same-provider fallback model (cheaper tier).
@@ -688,6 +669,14 @@ mod tests {
             ModelId::from_api_name("claude-sonnet-4-20250514"),
             Some(ModelId::ClaudeSonnet4_5)
         );
+        assert_eq!(
+            ModelId::from_api_name("claude-opus-4-latest"),
+            Some(ModelId::ClaudeOpus4_6)
+        );
+        assert_eq!(
+            ModelId::from_api_name("claude-haiku-4-preview"),
+            Some(ModelId::ClaudeHaiku4_5)
+        );
         assert_eq!(ModelId::from_api_name("nonexistent"), None);
     }
 
@@ -732,6 +721,10 @@ mod tests {
         assert_eq!(
             ModelId::for_provider_and_model(Provider::Codex, "gpt-5.4-mini-codex"),
             Some(ModelId::Gpt5_4MiniCodex)
+        );
+        assert_eq!(
+            ModelId::for_provider_and_model(Provider::Anthropic, "claude-sonnet-4-preview"),
+            Some(ModelId::ClaudeSonnet4_5)
         );
     }
 
@@ -868,6 +861,9 @@ mod tests {
             && spec.client_kind == restflow_models::ClientKind::CodexCli));
         assert!(specs.iter().any(|spec| spec.name == "gpt-5.3-codex"
             && spec.client_kind == restflow_models::ClientKind::CodexCli));
+        assert!(specs.iter().any(|spec| spec.name == "opus"
+            && spec.client_model == "opus"
+            && spec.client_kind == restflow_models::ClientKind::ClaudeCodeCli));
     }
 
     #[test]

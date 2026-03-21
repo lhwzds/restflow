@@ -66,6 +66,11 @@ impl LlmClientFactory for DefaultLlmClientFactory {
                 }
                 Arc::new(c)
             }
+            ClientKind::ClaudeCodeCli => {
+                let key = api_key
+                    .ok_or_else(|| AiError::Llm("claude-code API key is required".to_string()))?;
+                Arc::new(ClaudeCodeClient::new(key).with_model(spec.client_model))
+            }
             ClientKind::Http => {
                 let key = api_key.ok_or_else(|| {
                     AiError::Llm(format!("{} API key is required", spec.provider.as_str()))
@@ -162,6 +167,7 @@ mod tests {
             vec![
                 ModelSpec::new("gpt-5", LlmProvider::OpenAI, "gpt-5"),
                 ModelSpec::codex("gpt-5.3-codex", "gpt-5.3-codex"),
+                ModelSpec::claude_code("claude-code-opus", "opus"),
             ],
         );
 
@@ -172,6 +178,10 @@ mod tests {
         assert_eq!(
             factory.client_kind_for_model("gpt-5.3-codex"),
             Some(ClientKind::CodexCli)
+        );
+        assert_eq!(
+            factory.client_kind_for_model("claude-code-opus"),
+            Some(ClientKind::ClaudeCodeCli)
         );
         assert_eq!(factory.client_kind_for_model("missing"), None);
     }

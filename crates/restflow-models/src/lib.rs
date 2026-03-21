@@ -11,6 +11,7 @@ pub enum ClientKind {
     CodexCli,
     OpenCodeCli,
     GeminiCli,
+    ClaudeCodeCli,
 }
 
 impl ClientKind {
@@ -20,6 +21,7 @@ impl ClientKind {
             Self::CodexCli => "codex-cli",
             Self::OpenCodeCli => "opencode-cli",
             Self::GeminiCli => "gemini-cli",
+            Self::ClaudeCodeCli => "claude-code-cli",
         }
     }
 
@@ -28,69 +30,49 @@ impl ClientKind {
     }
 }
 
-/// Runtime provider bucket used by the LLM factory layer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LlmProvider {
-    OpenAI,
-    Anthropic,
-    DeepSeek,
-    Google,
-    Groq,
-    OpenRouter,
-    XAI,
-    Qwen,
-    Zai,
-    ZaiCodingPlan,
-    Moonshot,
-    Doubao,
-    Yi,
-    SiliconFlow,
-    MiniMax,
-    MiniMaxCodingPlan,
+macro_rules! define_llm_provider_enum {
+    ($($variant:ident => { name: $name:literal, base_url: $base_url:literal }),+ $(,)?) => {
+        /// Runtime provider bucket used by the LLM factory layer.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum LlmProvider {
+            $(
+                $variant,
+            )+
+        }
+
+        impl LlmProvider {
+            pub fn as_str(&self) -> &'static str {
+                match self {
+                    $(Self::$variant => $name,)+
+                }
+            }
+
+            pub fn base_url(&self) -> &'static str {
+                match self {
+                    $(Self::$variant => $base_url,)+
+                }
+            }
+        }
+    };
 }
 
-impl LlmProvider {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::OpenAI => "openai",
-            Self::Anthropic => "anthropic",
-            Self::DeepSeek => "deepseek",
-            Self::Google => "google",
-            Self::Groq => "groq",
-            Self::OpenRouter => "openrouter",
-            Self::XAI => "xai",
-            Self::Qwen => "qwen",
-            Self::Zai => "zai",
-            Self::ZaiCodingPlan => "zai-coding-plan",
-            Self::Moonshot => "moonshot",
-            Self::Doubao => "doubao",
-            Self::Yi => "yi",
-            Self::SiliconFlow => "siliconflow",
-            Self::MiniMax => "minimax",
-            Self::MiniMaxCodingPlan => "minimax-coding-plan",
-        }
-    }
-
-    pub fn base_url(&self) -> &'static str {
-        match self {
-            Self::OpenAI => "https://api.openai.com/v1",
-            Self::Anthropic => "",
-            Self::DeepSeek => "https://api.deepseek.com/v1",
-            Self::Google => "https://generativelanguage.googleapis.com/v1beta/openai",
-            Self::Groq => "https://api.groq.com/openai/v1",
-            Self::OpenRouter => "https://openrouter.ai/api/v1",
-            Self::XAI => "https://api.x.ai/v1",
-            Self::Qwen => "https://dashscope.aliyuncs.com/compatible-mode/v1",
-            Self::Zai => "https://api.z.ai/api/paas/v4",
-            Self::ZaiCodingPlan => "https://api.z.ai/api/coding/paas/v4",
-            Self::Moonshot => "https://api.moonshot.cn/v1",
-            Self::Doubao => "https://ark.cn-beijing.volces.com/api/v3",
-            Self::Yi => "https://api.lingyiwanwu.com/v1",
-            Self::SiliconFlow => "https://api.siliconflow.cn/v1",
-            Self::MiniMax => "https://api.minimax.io",
-            Self::MiniMaxCodingPlan => "https://api.minimax.io",
-        }
-    }
+define_llm_provider_enum! {
+    OpenAI => { name: "openai", base_url: "https://api.openai.com/v1" },
+    Anthropic => { name: "anthropic", base_url: "" },
+    DeepSeek => { name: "deepseek", base_url: "https://api.deepseek.com/v1" },
+    Google => { name: "google", base_url: "https://generativelanguage.googleapis.com/v1beta/openai" },
+    Groq => { name: "groq", base_url: "https://api.groq.com/openai/v1" },
+    OpenRouter => { name: "openrouter", base_url: "https://openrouter.ai/api/v1" },
+    XAI => { name: "xai", base_url: "https://api.x.ai/v1" },
+    Qwen => { name: "qwen", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
+    Zai => { name: "zai", base_url: "https://api.z.ai/api/paas/v4" },
+    ZaiCodingPlan => { name: "zai-coding-plan", base_url: "https://api.z.ai/api/coding/paas/v4" },
+    Moonshot => { name: "moonshot", base_url: "https://api.moonshot.cn/v1" },
+    Doubao => { name: "doubao", base_url: "https://ark.cn-beijing.volces.com/api/v3" },
+    Yi => { name: "yi", base_url: "https://api.lingyiwanwu.com/v1" },
+    SiliconFlow => { name: "siliconflow", base_url: "https://api.siliconflow.cn/v1" },
+    MiniMax => { name: "minimax", base_url: "https://api.minimax.io" },
+    MiniMaxCodingPlan => { name: "minimax-coding-plan", base_url: "https://api.minimax.io" },
 }
 
 /// Runtime model specification consumed by the LLM factory.
@@ -155,6 +137,16 @@ impl ModelSpec {
         }
     }
 
+    pub fn claude_code(name: impl Into<String>, client_model: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            provider: LlmProvider::Anthropic,
+            client_model: client_model.into(),
+            base_url: None,
+            client_kind: ClientKind::ClaudeCodeCli,
+        }
+    }
+
     pub fn is_codex_cli(&self) -> bool {
         self.client_kind == ClientKind::CodexCli
     }
@@ -165,6 +157,10 @@ impl ModelSpec {
 
     pub fn is_gemini_cli(&self) -> bool {
         self.client_kind == ClientKind::GeminiCli
+    }
+
+    pub fn is_claude_code_cli(&self) -> bool {
+        self.client_kind == ClientKind::ClaudeCodeCli
     }
 
     pub fn is_cli(&self) -> bool {
@@ -204,6 +200,11 @@ mod tests {
         assert_eq!(gemini.client_kind, ClientKind::GeminiCli);
         assert!(gemini.is_gemini_cli());
         assert!(gemini.is_cli());
+
+        let claude_code = ModelSpec::claude_code("claude-code-opus", "opus");
+        assert_eq!(claude_code.client_kind, ClientKind::ClaudeCodeCli);
+        assert!(claude_code.is_claude_code_cli());
+        assert!(claude_code.is_cli());
     }
 
     #[test]
