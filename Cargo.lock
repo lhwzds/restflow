@@ -3612,6 +3612,9 @@ name = "restflow-models"
 version = "0.4.0"
 dependencies = [
  "restflow-traits",
+ "serde",
+ "specta",
+ "ts-rs",
 ]
 
 [[package]]
@@ -3719,6 +3722,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "specta",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",

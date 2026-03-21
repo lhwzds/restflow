@@ -112,14 +112,7 @@ fn provider_auth_policy(provider: Provider) -> &'static ProviderAuthPolicy {
 }
 
 pub(crate) fn provider_default_model(provider: Provider) -> ModelId {
-    let serialized = provider_meta(provider.as_model_provider()).default_model_id;
-    ModelId::from_serialized_str(serialized).unwrap_or_else(|| {
-        panic!(
-            "missing default model '{}' for provider {}",
-            serialized,
-            provider.as_canonical_str()
-        )
-    })
+    provider_meta(provider.as_model_provider()).default_model_id
 }
 
 pub(crate) fn provider_auth_providers(provider: Provider) -> &'static [AuthProvider] {
