@@ -20,18 +20,19 @@ use crate::runtime::channel::{
 };
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, InteractiveSessionRequest};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
-use crate::runtime::trace::{RestflowTrace, TraceEvent, append_trace_event};
 use crate::services::{
     agent as agent_service, config as config_service, secrets as secrets_service,
     session::{PersistInteractiveTurnRequest, SessionService},
     session_policy::SessionPolicyError,
     skills as skills_service,
 };
+use crate::telemetry::{build_execution_trace_sink, emit_run_interrupted};
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::Utc;
 use restflow_ai::agent::StreamEmitter;
 use restflow_ai::agent::{SubagentConfig, SubagentTracker};
+use restflow_telemetry::RestflowTrace;
 use restflow_storage::{AgentDefaults, AuthProfileStorage};
 use restflow_traits::DEFAULT_CHAT_MAX_SESSION_HISTORY;
 use restflow_traits::store::ReplySender;
@@ -418,17 +419,17 @@ impl IpcServer {
         };
 
         // Abort an existing stream with the same ID to avoid duplicate workers.
+        let telemetry_sink = build_execution_trace_sink(&core.storage.execution_traces);
         if let Some(existing) = active_chat_streams().lock().await.remove(&stream_id) {
             existing.abort();
             let trace = resolve_chat_stream_trace(&core, &session_id, &stream_id);
-            append_trace_event(
-                &core.storage.execution_traces,
-                &TraceEvent::run_interrupted(
-                    trace,
-                    "replaced by a newer stream with the same stream_id",
-                    None,
-                ),
-            );
+            emit_run_interrupted(
+                &telemetry_sink,
+                trace,
+                "replaced by a newer stream with the same stream_id",
+                None,
+            )
+            .await;
         }
         active_chat_stream_steers().lock().await.remove(&stream_id);
 
@@ -447,14 +448,13 @@ impl IpcServer {
             {
                 previous.abort();
                 let trace = resolve_chat_stream_trace(&core, &session_id, &previous_stream_id);
-                append_trace_event(
-                    &core.storage.execution_traces,
-                    &TraceEvent::run_interrupted(
-                        trace,
-                        "replaced by a newer stream for the same session",
-                        None,
-                    ),
-                );
+                emit_run_interrupted(
+                    &telemetry_sink,
+                    trace,
+                    "replaced by a newer stream for the same session",
+                    None,
+                )
+                .await;
             }
             active_chat_stream_steers()
                 .lock()

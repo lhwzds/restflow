@@ -10,7 +10,9 @@ path = "src/lib.rs"
 [dependencies]
 async-trait = { workspace = true }
 chrono = { workspace = true }
+regex = "1.11.1"
 serde = { workspace = true }
+serde_json = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

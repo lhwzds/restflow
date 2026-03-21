@@ -5,7 +5,6 @@ pub mod execution_context;
 pub mod orchestrator;
 mod output;
 pub mod subagent;
-pub mod trace;
 
 pub use agent::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListSubagentsTool,
@@ -34,8 +33,4 @@ pub use restflow_ai::agent::{
 pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
 };
-pub use trace::{
-    RestflowTrace, append_message_trace, append_restflow_telemetry_completed,
-    append_restflow_telemetry_failed, append_restflow_telemetry_interrupted, append_restflow_telemetry_started,
-    build_restflow_telemetry_emitter,
-};
+pub use restflow_telemetry::RestflowTrace;

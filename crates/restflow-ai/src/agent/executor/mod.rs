@@ -41,7 +41,7 @@ use std::{
 };
 
 use restflow_telemetry::{
-    ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink, TraceLlmCall,
+    ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink, LlmCallPayload,
 };
 use serde_json::Value;
 
@@ -572,7 +572,7 @@ impl AgentExecutor {
             Self::emit_execution_event(
                 config.telemetry_sink.as_ref(),
                 config.telemetry_context.as_ref(),
-                ExecutionEvent::LlmCall(TraceLlmCall {
+                ExecutionEvent::LlmCall(LlmCallPayload {
                     model: emitted_model.clone(),
                     input_tokens: usage.map(|value| value.prompt_tokens),
                     output_tokens: usage.map(|value| value.completion_tokens),

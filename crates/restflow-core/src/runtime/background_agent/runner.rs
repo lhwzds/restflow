@@ -19,8 +19,13 @@ use crate::performance::{
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::steer::SteerRegistry;
 use crate::storage::{BackgroundAgentStorage, MemoryStorage};
+use crate::telemetry::{
+    build_execution_trace_sink, emit_run_completed, emit_run_failed, emit_run_interrupted,
+    emit_run_started,
+};
 use anyhow::{Result, anyhow};
 use restflow_ai::agent::StreamEmitter;
+use restflow_telemetry::RestflowTrace;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -32,9 +37,6 @@ use tracing::{debug, error, info, warn};
 use super::broadcast_emitter::BroadcastStreamEmitter;
 use super::events::{NoopEventEmitter, TaskEventEmitter, TaskStreamEvent};
 use super::persist::MemoryPersister;
-use crate::runtime::trace::{
-    RestflowTrace, TraceEvent, append_trace_event, build_restflow_telemetry_emitter,
-};
 use restflow_traits::{
     DEFAULT_BACKGROUND_RUNNER_MAX_CONCURRENT_TASKS, DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
 };
@@ -1267,10 +1269,8 @@ impl BackgroundAgentRunner {
             task.agent_id.clone(),
         );
         let execution_trace_storage = self.execution_trace_storage();
-        append_trace_event(
-            execution_trace_storage,
-            &TraceEvent::run_started(restflow_telemetry.clone()),
-        );
+        let telemetry_sink = build_execution_trace_sink(execution_trace_storage);
+        emit_run_started(&telemetry_sink, restflow_telemetry.clone()).await;
 
         if resolved_input
             .as_deref()
@@ -1279,14 +1279,13 @@ impl BackgroundAgentRunner {
             let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
             let reason = "Background task requires non-empty input or input_template";
             let error_msg = format!("Execution error: {}", reason);
-            append_trace_event(
-                execution_trace_storage,
-                &TraceEvent::run_failed(
-                    restflow_telemetry.clone(),
-                    error_msg.clone(),
-                    Some(duration_ms.max(0) as u64),
-                ),
-            );
+            emit_run_failed(
+                &telemetry_sink,
+                restflow_telemetry.clone(),
+                &error_msg,
+                Some(duration_ms.max(0) as u64),
+            )
+            .await;
 
             error!("Task '{}' failed preflight: {}", task.name, reason);
             pump_cancel.cancel();
@@ -1339,11 +1338,7 @@ impl BackgroundAgentRunner {
                 Some(emitter) => emitter,
                 None => Box::new(NoopStreamEmitter),
             };
-            Some(build_restflow_telemetry_emitter(
-                inner,
-                Some(execution_trace_storage.clone()),
-                &restflow_telemetry,
-            ))
+            Some(inner)
         } else {
             broadcast_emitter
         };
@@ -1488,14 +1483,13 @@ impl BackgroundAgentRunner {
                     "Task '{}' stopped by user (duration={}ms)",
                     task.name, duration_ms
                 );
-                append_trace_event(
-                    execution_trace_storage,
-                    &TraceEvent::run_interrupted(
-                        restflow_telemetry.clone(),
-                        "Stopped by user",
-                        Some(duration_ms.max(0) as u64),
-                    ),
-                );
+                emit_run_interrupted(
+                    &telemetry_sink,
+                    restflow_telemetry.clone(),
+                    "Stopped by user",
+                    Some(duration_ms.max(0) as u64),
+                )
+                .await;
                 pump_cancel.cancel();
                 if let Some(pump) = message_pump.take() {
                     let _ = pump.await;
@@ -1559,14 +1553,13 @@ impl BackgroundAgentRunner {
                             "Task '{}' interrupted by pause request (duration={}ms)",
                             task.name, duration_ms
                         );
-                        append_trace_event(
-                            execution_trace_storage,
-                            &TraceEvent::run_interrupted(
-                                restflow_telemetry.clone(),
-                                "Paused by user",
-                                Some(duration_ms.max(0) as u64),
-                            ),
-                        );
+                        emit_run_interrupted(
+                            &telemetry_sink,
+                            restflow_telemetry.clone(),
+                            "Paused by user",
+                            Some(duration_ms.max(0) as u64),
+                        )
+                        .await;
                         self.event_emitter
                             .emit(TaskStreamEvent::interrupted(
                                 task_id,
@@ -1589,14 +1582,13 @@ impl BackgroundAgentRunner {
                             "Task '{}' stopped by user request (duration={}ms)",
                             task.name, duration_ms
                         );
-                        append_trace_event(
-                            execution_trace_storage,
-                            &TraceEvent::run_interrupted(
-                                restflow_telemetry.clone(),
-                                "Stopped by user",
-                                Some(duration_ms.max(0) as u64),
-                            ),
-                        );
+                        emit_run_interrupted(
+                            &telemetry_sink,
+                            restflow_telemetry.clone(),
+                            "Stopped by user",
+                            Some(duration_ms.max(0) as u64),
+                        )
+                        .await;
                         self.event_emitter
                             .emit(TaskStreamEvent::interrupted(
                                 task_id,
@@ -1622,14 +1614,13 @@ impl BackgroundAgentRunner {
                             "Task '{}' stopped because task record was deleted (duration={}ms)",
                             task.name, duration_ms
                         );
-                        append_trace_event(
-                            execution_trace_storage,
-                            &TraceEvent::run_interrupted(
-                                restflow_telemetry.clone(),
-                                "Task deleted",
-                                Some(duration_ms.max(0) as u64),
-                            ),
-                        );
+                        emit_run_interrupted(
+                            &telemetry_sink,
+                            restflow_telemetry.clone(),
+                            "Task deleted",
+                            Some(duration_ms.max(0) as u64),
+                        )
+                        .await;
                         self.event_emitter
                             .emit(TaskStreamEvent::interrupted(
                                 task_id,
@@ -1667,13 +1658,12 @@ impl BackgroundAgentRunner {
                     "Task '{}' completed successfully (duration={}ms)",
                     task.name, duration_ms
                 );
-                append_trace_event(
-                    execution_trace_storage,
-                    &TraceEvent::run_completed(
-                        restflow_telemetry.clone(),
-                        Some(duration_ms.max(0) as u64),
-                    ),
-                );
+                emit_run_completed(
+                    &telemetry_sink,
+                    restflow_telemetry.clone(),
+                    Some(duration_ms.max(0) as u64),
+                )
+                .await;
 
                 self.event_emitter
                     .emit(TaskStreamEvent::completed(
@@ -1748,14 +1738,13 @@ impl BackgroundAgentRunner {
                 // Execution error
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
-                append_trace_event(
-                    execution_trace_storage,
-                    &TraceEvent::run_failed(
-                        restflow_telemetry.clone(),
-                        error_msg.clone(),
-                        Some(duration_ms.max(0) as u64),
-                    ),
-                );
+                emit_run_failed(
+                    &telemetry_sink,
+                    restflow_telemetry.clone(),
+                    &error_msg,
+                    Some(duration_ms.max(0) as u64),
+                )
+                .await;
 
                 self.event_emitter
                     .emit(TaskStreamEvent::failed(
@@ -1796,14 +1785,13 @@ impl BackgroundAgentRunner {
                     "Task timed out".to_string()
                 };
                 error!("Task '{}' timed out", task.name);
-                append_trace_event(
-                    execution_trace_storage,
-                    &TraceEvent::run_failed(
-                        restflow_telemetry.clone(),
-                        error_msg.clone(),
-                        Some(duration_ms.max(0) as u64),
-                    ),
-                );
+                emit_run_failed(
+                    &telemetry_sink,
+                    restflow_telemetry.clone(),
+                    &error_msg,
+                    Some(duration_ms.max(0) as u64),
+                )
+                .await;
 
                 self.event_emitter
                     .emit(TaskStreamEvent::timeout(task_id, timeout_secs, duration_ms))
