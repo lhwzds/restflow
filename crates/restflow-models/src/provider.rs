@@ -50,6 +50,13 @@ impl Provider {
         provider_meta(self.0).api_key_env
     }
 
+    pub fn api_key_env_candidates(self) -> impl Iterator<Item = &'static str> {
+        let meta = provider_meta(self.0);
+        meta.api_key_env
+            .into_iter()
+            .chain(meta.api_key_env_aliases.iter().copied())
+    }
+
     /// Convert Provider to LLM provider used by runtime factory.
     pub fn as_llm_provider(self) -> LlmProvider {
         provider_meta(self.0).runtime_provider

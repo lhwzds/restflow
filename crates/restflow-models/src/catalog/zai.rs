@@ -5,7 +5,7 @@ const ZAI_CODING_BASE_URL: &str = "https://api.z.ai/api/coding/paas/v4";
 const GLM5_ALIASES: &[&str] = &["glm5"];
 const GLM5_TURBO_ALIASES: &[&str] = &["glm5-turbo"];
 const GLM5_CODE_ALIASES: &[&str] = &["glm5-code"];
-const GLM47_ALIASES: &[&str] = &["glm-4.7"];
+const GLM47_ALIASES: &[&str] = &["glm-4.7", "glm-4-7", "glm"];
 
 pub const MODELS: &[ModelDescriptor] = &[
     ModelDescriptor::new(ModelId::Glm5, Provider::Zai, "glm-5", "GLM-5", true)

@@ -17,82 +17,9 @@ pub fn format_timestamp(timestamp: Option<i64>) -> String {
 }
 
 pub fn parse_model(input: &str) -> Result<ModelId> {
-    let normalized = input.trim().to_lowercase();
-    let model = match normalized.as_str() {
-        // OpenAI GPT-5 series
-        "gpt-5" => ModelId::Gpt5,
-        "gpt-5-mini" => ModelId::Gpt5Mini,
-        "gpt-5-nano" => ModelId::Gpt5Nano,
-        "gpt-5-pro" => ModelId::Gpt5Pro,
-        "gpt-5.1" | "gpt-5-1" => ModelId::Gpt5_1,
-        "gpt-5.2" | "gpt-5-2" => ModelId::Gpt5_2,
-        // Anthropic Claude (direct API)
-        "claude-opus-4-6" => ModelId::ClaudeOpus4_6,
-        "claude-sonnet-4-5" => ModelId::ClaudeSonnet4_5,
-        "claude-haiku-4-5" => ModelId::ClaudeHaiku4_5,
-        // Claude Code CLI (accepts both full name and short alias)
-        "claude-code-opus" | "opus" => ModelId::ClaudeCodeOpus,
-        "claude-code-sonnet" | "sonnet" => ModelId::ClaudeCodeSonnet,
-        "claude-code-haiku" | "haiku" => ModelId::ClaudeCodeHaiku,
-        // Codex CLI (must use concrete model names)
-        "gpt-5-codex" => ModelId::Gpt5Codex,
-        "gpt-5.4" | "gpt-5.4-codex" => ModelId::Gpt5_4Codex,
-        "gpt-5.4-mini" | "gpt-5.4-mini-codex" => ModelId::Gpt5_4MiniCodex,
-        "gpt-5.1-codex" => ModelId::Gpt5_1Codex,
-        "gpt-5.2-codex" => ModelId::Gpt5_2Codex,
-        "gpt-5.3-codex" => ModelId::CodexCli,
-        // OpenCode CLI
-        "opencode" | "opencode-cli" => ModelId::OpenCodeCli,
-        // Gemini CLI
-        "gemini-cli" => ModelId::GeminiCli,
-        // DeepSeek
-        "deepseek-chat" => ModelId::DeepseekChat,
-        "deepseek-reasoner" => ModelId::DeepseekReasoner,
-        // Google Gemini
-        "gemini-2.5-pro" | "gemini-pro" => ModelId::Gemini25Pro,
-        "gemini-2.5-flash" | "gemini-flash" => ModelId::Gemini25Flash,
-        "gemini-3-pro" | "gemini-3-pro-preview" => ModelId::Gemini3Pro,
-        "gemini-3-flash" | "gemini-3-flash-preview" => ModelId::Gemini3Flash,
-        // Groq
-        "groq-scout" | "llama-4-scout" => ModelId::GroqLlama4Scout,
-        "groq-maverick" | "llama-4-maverick" => ModelId::GroqLlama4Maverick,
-        // X.AI
-        "grok-4" | "grok4" => ModelId::Grok4,
-        "grok-3-mini" | "grok3-mini" => ModelId::Grok3Mini,
-        // Qwen
-        "qwen3-max" | "qwen-max" | "qwen" => ModelId::Qwen3Max,
-        "qwen3-plus" | "qwen-plus" => ModelId::Qwen3Plus,
-        // MiniMax
-        "minimax-m2-1" => ModelId::MiniMaxM21,
-        "minimax-m2-5" => ModelId::MiniMaxM25,
-        "minimax-m2-7" | "minimax-m2.7" => ModelId::MiniMaxM27,
-        "minimax-m2-7-highspeed" | "minimax-m2.7-highspeed" => ModelId::MiniMaxM27Highspeed,
-        "minimax-coding-plan-m2-1" => ModelId::MiniMaxM21CodingPlan,
-        "minimax-coding-plan-m2-5" => ModelId::MiniMaxM25CodingPlan,
-        "minimax-coding-plan-m2-5-highspeed" => ModelId::MiniMaxM25CodingPlanHighspeed,
-        // Zai
-        "glm-5" | "glm5" => ModelId::Glm5,
-        "glm-5-turbo" | "glm5-turbo" => ModelId::Glm5Turbo,
-        "glm-5-code" | "glm5-code" => ModelId::Glm5Code,
-        "glm-4.7" | "glm-4-7" | "glm" => ModelId::Glm4_7,
-        "zai-coding-plan-glm-5" => ModelId::Glm5CodingPlan,
-        "zai-coding-plan-glm-5-turbo" => ModelId::Glm5TurboCodingPlan,
-        "zai-coding-plan-glm-5-code" => ModelId::Glm5CodeCodingPlan,
-        "zai-coding-plan-glm-4-7" => ModelId::Glm4_7CodingPlan,
-        // Moonshot
-        "kimi-k2.5" | "kimi-k2-5" | "kimi" | "moonshot" => ModelId::KimiK2_5,
-        // Doubao
-        "doubao-pro" | "doubao" => ModelId::DoubaoPro,
-        // Yi
-        "yi-lightning" | "yi" => ModelId::YiLightning,
-        // Aggregators
-        "openrouter" => ModelId::OpenRouterAuto,
-        "siliconflow" => ModelId::SiliconFlowAuto,
-        _ => ModelId::from_api_name(input)
-            .ok_or_else(|| anyhow::anyhow!("Unknown model: {input}"))?,
-    };
-
-    Ok(model)
+    ModelId::from_api_name(input)
+        .or_else(|| ModelId::from_canonical_id(input))
+        .ok_or_else(|| anyhow::anyhow!("Unknown model: {input}"))
 }
 
 pub fn parse_provider(input: &str) -> Result<Provider> {
@@ -227,5 +154,15 @@ mod tests {
             parse_model("gpt-5.4-mini-codex").unwrap(),
             ModelId::Gpt5_4MiniCodex
         );
+    }
+
+    #[test]
+    fn parse_model_uses_shared_catalog_aliases() {
+        assert_eq!(
+            parse_model("claude-code-opus").unwrap(),
+            ModelId::ClaudeCodeOpus
+        );
+        assert_eq!(parse_model("gemini-pro").unwrap(), ModelId::Gemini25Pro);
+        assert_eq!(parse_model("openrouter").unwrap(), ModelId::OpenRouterAuto);
     }
 }

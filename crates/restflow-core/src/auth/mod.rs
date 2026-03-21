@@ -8,6 +8,7 @@
 
 pub mod discoverer;
 pub mod manager;
+pub(crate) mod provider_access;
 pub mod refresh;
 pub mod resolver;
 pub mod types;
@@ -20,6 +21,10 @@ pub use discoverer::{
     DiscoveredProfile, DiscoveryResult, EnvVarDiscoverer,
 };
 pub use manager::{AuthManagerConfig, AuthProfileManager, ManagerSummary, ProfileUpdate};
+pub(crate) use provider_access::{
+    build_runtime_api_keys, provider_available, resolve_model_from_credentials, secret_exists,
+    secret_or_env_exists,
+};
 pub use refresh::{AnthropicRefresher, OAuthRefresher, RefreshedCredential};
 pub use resolver::CredentialResolver;
 pub use types::{

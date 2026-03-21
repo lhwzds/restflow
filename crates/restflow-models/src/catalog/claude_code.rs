@@ -1,9 +1,9 @@
 use super::{ModelDescriptor, ProviderCatalog};
 use crate::{ClientKind, ModelId, Provider};
 
-const OPUS_ALIASES: &[&str] = &["opus"];
-const SONNET_ALIASES: &[&str] = &["sonnet"];
-const HAIKU_ALIASES: &[&str] = &["haiku"];
+const OPUS_ALIASES: &[&str] = &["claude-code-opus", "opus"];
+const SONNET_ALIASES: &[&str] = &["claude-code-sonnet", "sonnet"];
+const HAIKU_ALIASES: &[&str] = &["claude-code-haiku", "haiku"];
 
 pub const MODELS: &[ModelDescriptor] = &[
     ModelDescriptor::new(

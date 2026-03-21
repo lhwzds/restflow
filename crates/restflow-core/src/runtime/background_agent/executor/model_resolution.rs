@@ -41,8 +41,10 @@ impl AgentRuntimeExecutor {
             ));
         };
 
-        if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
-            return Ok(secret_value);
+        for secret_name in provider.api_key_env_candidates() {
+            if let Some(secret_value) = self.storage.secrets.get_secret(secret_name)? {
+                return Ok(secret_value);
+            }
         }
 
         Err(anyhow!(
@@ -65,10 +67,6 @@ impl AgentRuntimeExecutor {
             None
         };
         self.resolve_api_key(provider, config).await
-    }
-
-    pub(super) fn default_model_for_provider(provider: Provider) -> ModelId {
-        crate::models::provider_default_model(provider)
     }
 
     pub(super) fn context_window_for_model(model: ModelId) -> usize {
@@ -101,70 +99,13 @@ impl AgentRuntimeExecutor {
         }
     }
 
-    pub(super) fn has_non_empty_secret(&self, name: &str) -> Result<bool> {
-        Ok(self.storage.secrets.get_non_empty(name)?.is_some())
-    }
-
     pub(super) async fn resolve_model_from_stored_credentials(&self) -> Result<Option<ModelId>> {
-        // Prefer Codex CLI model only when a dedicated OpenAI Codex profile exists.
-        if self
-            .auth_manager
-            .get_available_profile(AuthProvider::OpenAICodex)
-            .await
-            .is_some()
-        {
-            return Ok(Some(ModelId::Gpt5_4Codex));
-        }
-
-        // Then try provider-specific auth profiles.
-        let profile_order = [
-            (AuthProvider::ClaudeCode, ModelId::ClaudeCodeOpus),
-            (AuthProvider::Anthropic, ModelId::ClaudeOpus4_6),
-            (AuthProvider::OpenAI, ModelId::Gpt5),
-            (AuthProvider::Google, ModelId::Gemini25Pro),
-        ];
-        for (provider, model) in profile_order {
-            if self
-                .auth_manager
-                .get_available_profile(provider)
-                .await
-                .is_some()
-            {
-                return Ok(Some(model));
-            }
-        }
-
-        // Finally, fall back to explicit provider secrets in storage.
-        // Prefer coding-plan providers before regular providers when both exist.
-        const SECRET_PROVIDER_ORDER: [Provider; 16] = [
-            Provider::MiniMaxCodingPlan,
-            Provider::MiniMax,
-            Provider::ZaiCodingPlan,
-            Provider::Zai,
-            Provider::Anthropic,
-            Provider::OpenAI,
-            Provider::Google,
-            Provider::DeepSeek,
-            Provider::Groq,
-            Provider::OpenRouter,
-            Provider::XAI,
-            Provider::Qwen,
-            Provider::Moonshot,
-            Provider::Doubao,
-            Provider::Yi,
-            Provider::SiliconFlow,
-        ];
-
-        for provider in SECRET_PROVIDER_ORDER {
-            let Some(secret_name) = provider.api_key_env() else {
-                continue;
-            };
-            if self.has_non_empty_secret(secret_name)? {
-                return Ok(Some(Self::default_model_for_provider(provider)));
-            }
-        }
-
-        Ok(None)
+        Ok(
+            resolve_model_from_credentials(self.auth_manager.as_ref(), |key| {
+                secret_exists(&self.storage.secrets, key)
+            })
+            .await,
+        )
     }
 
     pub(super) async fn resolve_primary_model(&self, agent_node: &AgentNode) -> Result<ModelId> {

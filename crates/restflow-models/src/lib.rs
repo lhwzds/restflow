@@ -234,6 +234,7 @@ mod tests {
         let google = provider_meta(ModelProvider::Google);
         assert_eq!(google.runtime_provider, LlmProvider::Google);
         assert_eq!(google.api_key_env, Some("GEMINI_API_KEY"));
+        assert_eq!(google.api_key_env_aliases, &["GOOGLE_API_KEY"]);
         assert_eq!(google.default_model_id, ModelId::Gemini25Pro);
         assert_eq!(google.models_dev_provider_ids, &["google"]);
 
