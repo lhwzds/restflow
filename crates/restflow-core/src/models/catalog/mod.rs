@@ -22,7 +22,11 @@ use std::sync::OnceLock;
 
 use restflow_models::ClientKind;
 
-use super::ai_model::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
+use super::{
+    ai_model::ModelId,
+    model_ref::{ModelMetadata, ModelMetadataDTO},
+    provider::Provider,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ModelDescriptor {

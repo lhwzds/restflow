@@ -9,9 +9,12 @@ pub mod channel_session_binding;
 pub mod chat_session;
 pub mod checkpoint;
 pub mod deliverable;
+pub mod execution_console;
 pub mod execution_trace;
 pub mod hook;
 pub mod memory;
+pub mod model_ref;
+pub mod provider;
 mod provider_policy;
 pub mod security;
 pub mod shared_space;
@@ -32,7 +35,7 @@ pub use agent::{
 };
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
-pub use ai_model::{ModelId, ModelMetadataDTO, ModelRef, Provider};
+pub use ai_model::ModelId;
 pub use background_agent::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
     BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
@@ -43,11 +46,18 @@ pub use background_agent::{
 pub use channel_session_binding::ChannelSessionBinding;
 pub use checkpoint::{AgentCheckpoint, ResumePayload};
 pub use deliverable::{Deliverable, DeliverableType};
+pub use execution_console::{
+    ChildExecutionSessionQuery, ExecutionContainerKind, ExecutionContainerRef,
+    ExecutionContainerSummary, ExecutionSessionKind, ExecutionSessionListQuery,
+    ExecutionSessionSummary, ExecutionThread, ExecutionThreadQuery,
+};
 pub use hook::{Hook, HookAction, HookContext, HookEvent, HookFilter};
 pub use memory::{
     MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySession, MemorySource, MemoryStats,
     SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
+pub use model_ref::{ModelMetadataDTO, ModelRef};
+pub use provider::Provider;
 pub(crate) use provider_policy::{provider_auth_providers, provider_default_model};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
