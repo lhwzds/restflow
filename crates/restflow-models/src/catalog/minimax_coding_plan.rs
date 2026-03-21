@@ -2,7 +2,15 @@ use super::{ModelDescriptor, ProviderCatalog};
 use crate::{ModelId, Provider};
 
 const M21_ALIASES: &[&str] = &["minimax-coding-plan-m2.1", "minimax-m2-1", "minimax-m2.1"];
-const M25_ALIASES: &[&str] = &["minimax-coding-plan-m2.5", "minimax-m2-5", "minimax-m2.5"];
+const M25_ALIASES: &[&str] = &[
+    "minimax-coding-plan-m2.5",
+    "minimax-m2-5",
+    "minimax-m2.5",
+    "minimax-coding-plan",
+    "minimax-coding",
+    "coding-plan-minimax",
+    "minimax/coding-plan",
+];
 const M25_HIGHSPEED_ALIASES: &[&str] = &[
     "minimax-coding-plan-m2.5-highspeed",
     "minimax-m2-5-highspeed",

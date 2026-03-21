@@ -93,6 +93,11 @@ impl ModelId {
         self.metadata().provider
     }
 
+    /// Get the concrete execution path for this model.
+    pub fn client_kind(&self) -> ClientKind {
+        self.descriptor().client_kind
+    }
+
     /// Normalize a provider against model-specific canonical ownership.
     pub fn normalize_provider_for_model(model: ModelId, provider: Provider) -> Provider {
         if model.is_claude_code() && provider == Provider::Anthropic {
@@ -222,27 +227,27 @@ impl ModelId {
 
     /// Check if this model uses the Codex CLI
     pub fn is_codex_cli(&self) -> bool {
-        self.descriptor().client_kind == ClientKind::CodexCli
+        self.client_kind() == ClientKind::CodexCli
     }
 
     /// Check if this model uses the Claude Code CLI
     pub fn is_claude_code(&self) -> bool {
-        self.descriptor().client_kind == ClientKind::ClaudeCodeCli
+        self.client_kind() == ClientKind::ClaudeCodeCli
     }
 
     /// Check if this model uses the OpenCode CLI
     pub fn is_opencode_cli(&self) -> bool {
-        self.descriptor().client_kind == ClientKind::OpenCodeCli
+        self.client_kind() == ClientKind::OpenCodeCli
     }
 
     /// Check if this model uses the Gemini CLI
     pub fn is_gemini_cli(&self) -> bool {
-        self.descriptor().client_kind == ClientKind::GeminiCli
+        self.client_kind() == ClientKind::GeminiCli
     }
 
     /// Check if this model is any CLI-based model (manages its own auth)
     pub fn is_cli_model(&self) -> bool {
-        self.descriptor().client_kind.is_cli()
+        self.client_kind().is_cli()
     }
 
     /// Get a same-provider fallback model (cheaper tier).

@@ -6,7 +6,11 @@ use std::sync::Arc;
 
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
-use restflow_traits::{LlmSwitcher, ModelProvider};
+use restflow_models::{
+    ProviderSelector, parse_model_reference, parse_provider_selector, resolve_available_model_name,
+    split_provider_qualified_model,
+};
+use restflow_traits::LlmSwitcher;
 
 #[derive(Clone)]
 pub struct SwitchModelTool {
@@ -18,88 +22,10 @@ impl SwitchModelTool {
         Self { switcher }
     }
 
-    fn normalize_model(model: &str) -> String {
-        model.trim().to_lowercase()
-    }
-
-    fn normalize_provider(value: &str) -> String {
-        value
-            .trim()
-            .chars()
-            .filter(|ch| ch.is_ascii_alphanumeric())
-            .collect::<String>()
-            .to_lowercase()
-    }
-
-    fn parse_provider(value: &str) -> Option<ProviderSelector> {
-        let normalized = Self::normalize_provider(value);
-        match normalized.as_str() {
-            "claudecode" => Some(ProviderSelector::ClaudeCode),
-            "codex" | "codexcli" | "openaicodex" => Some(ProviderSelector::OpenAICodex),
-            "opencode" | "opencodecli" => Some(ProviderSelector::OpenCodeCli),
-            "geminicli" => Some(ProviderSelector::GeminiCli),
-            _ => ModelProvider::parse_alias(value)
-                .map(|provider| ProviderSelector::Api(provider.canonical_str())),
-        }
-    }
-
-    fn split_provider_qualified_model(value: &str) -> Option<(ProviderSelector, String)> {
-        for separator in [':', '/'] {
-            let Some((provider_raw, model_raw)) = value.split_once(separator) else {
-                continue;
-            };
-            if model_raw.trim().is_empty() {
-                continue;
-            }
-            if let Some(provider) = Self::parse_provider(provider_raw) {
-                return Some((provider, model_raw.trim().to_string()));
-            }
-        }
-        None
-    }
-
-    fn find_model_by_name<'a>(&self, available: &'a [String], requested: &str) -> Option<&'a str> {
-        let normalized = Self::normalize_model(requested);
-        available
-            .iter()
-            .find(|name| Self::normalize_model(name) == normalized)
-            .map(|name| name.as_str())
-    }
-
     fn model_matches_provider(&self, model: &str, provider: ProviderSelector) -> bool {
-        match provider {
-            ProviderSelector::Api(expected) => {
-                self.switcher
-                    .provider_for_model(model)
-                    .map(|p| p == expected)
-                    .unwrap_or(false)
-                    && !self.is_cli_scoped_model(model)
-            }
-            ProviderSelector::ClaudeCode => Self::is_claude_code_model(model),
-            ProviderSelector::OpenAICodex => {
-                self.switcher.client_kind_for_model(model) == Some("codex-cli")
-            }
-            ProviderSelector::OpenCodeCli => {
-                self.switcher.client_kind_for_model(model) == Some("opencode-cli")
-            }
-            ProviderSelector::GeminiCli => {
-                self.switcher.client_kind_for_model(model) == Some("gemini-cli")
-            }
-        }
-    }
-
-    fn is_claude_code_model(model: &str) -> bool {
-        let normalized = Self::normalize_model(model);
-        normalized.starts_with("claude-code-")
-            || matches!(normalized.as_str(), "opus" | "sonnet" | "haiku")
-    }
-
-    fn is_cli_scoped_model(&self, model: &str) -> bool {
-        self.switcher
-            .client_kind_for_model(model)
-            .map(|kind| kind != "http")
+        parse_model_reference(model)
+            .map(|model_id| provider.matches_model(model_id))
             .unwrap_or(false)
-            || Self::is_claude_code_model(model)
     }
 
     fn resolve_target_model(
@@ -116,15 +42,25 @@ impl SwitchModelTool {
         }
 
         let provider_raw = requested_provider.expect("requested_provider checked above");
-        let provider = Self::parse_provider(provider_raw).ok_or_else(|| {
+        let provider = parse_provider_selector(provider_raw).ok_or_else(|| {
             ToolError::Tool(format!(
                 "Unknown provider: {provider_raw}. Use provider names like openai, anthropic, minimax, minimax-coding-plan, zai, zai-coding-plan, claude-code, openai-codex, gemini-cli"
             ))
         })?;
 
         let model_raw = requested_model.expect("requested_model checked above");
+        if let Some(model) = resolve_available_model_name(model_raw, &available) {
+            if !self.model_matches_provider(&model, provider) {
+                return Err(ToolError::Tool(format!(
+                    "Model '{model_raw}' does not belong to provider '{}'",
+                    provider.label()
+                )));
+            }
+            return Ok(model);
+        }
+
         let model_candidate = if let Some((inline_provider, inline_model)) =
-            Self::split_provider_qualified_model(model_raw)
+            split_provider_qualified_model(model_raw)
         {
             if inline_provider != provider {
                 return Err(ToolError::Tool(format!(
@@ -132,52 +68,29 @@ impl SwitchModelTool {
                     provider.label()
                 )));
             }
-            inline_model
+            inline_model.to_string()
         } else {
             model_raw.to_string()
         };
 
-        let model = self
-            .find_model_by_name(&available, &model_candidate)
-            .ok_or_else(|| {
-                ToolError::Tool(format!(
-                    "Unknown model: '{model_candidate}'. Use manage_agents tool to list available models, or check the provider's documentation."
-                ))
-            })?;
-        if !self.model_matches_provider(model, provider) {
+        let model = resolve_available_model_name(&model_candidate, &available).ok_or_else(|| {
+            ToolError::Tool(format!(
+                "Unknown model: '{model_candidate}'. Use manage_agents tool to list available models, or check the provider's documentation."
+            ))
+        })?;
+        if !self.model_matches_provider(&model, provider) {
             return Err(ToolError::Tool(format!(
                 "Model '{model_raw}' does not belong to provider '{}'",
                 provider.label()
             )));
         }
-        Ok(model.to_string())
+        Ok(model)
     }
 
     fn resolve_provider_name(&self, model: &str) -> Result<String> {
         self.switcher
             .provider_for_model(model)
             .ok_or_else(|| ToolError::Tool(format!("Unknown model: {model}")))
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ProviderSelector {
-    Api(&'static str),
-    ClaudeCode,
-    OpenAICodex,
-    OpenCodeCli,
-    GeminiCli,
-}
-
-impl ProviderSelector {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Api(name) => name,
-            Self::ClaudeCode => "claude-code",
-            Self::OpenAICodex => "openai-codex",
-            Self::OpenCodeCli => "opencode-cli",
-            Self::GeminiCli => "gemini-cli",
-        }
     }
 }
 
@@ -652,6 +565,38 @@ mod tests {
         assert!(output.success);
         assert_eq!(llm.current_model(), "gpt-5.3-codex");
         assert_eq!(factory.calls(), vec![("gpt-5.3-codex".to_string(), None)]);
+    }
+
+    #[tokio::test]
+    async fn execute_supports_shared_catalog_aliases_for_coding_plan_models() {
+        let factory = Arc::new(MockFactory::new(
+            vec!["minimax-coding-plan-m2-1", "minimax-coding-plan-m2-5"],
+            vec![
+                ("minimax-coding-plan-m2-1", LlmProvider::MiniMaxCodingPlan),
+                ("minimax-coding-plan-m2-5", LlmProvider::MiniMaxCodingPlan),
+            ],
+            vec![(LlmProvider::MiniMaxCodingPlan, "minimax-key")],
+            vec![],
+        ));
+        let (tool, llm) = build_tool(factory.clone());
+
+        let output = tool
+            .execute(json!({
+                "provider": "minimax-coding-plan",
+                "model": "minimax/coding-plan"
+            }))
+            .await
+            .expect("switch should resolve shared alias");
+
+        assert!(output.success);
+        assert_eq!(llm.current_model(), "minimax-coding-plan-m2-5");
+        assert_eq!(
+            factory.calls(),
+            vec![(
+                "minimax-coding-plan-m2-5".to_string(),
+                Some("minimax-key".to_string())
+            )]
+        );
     }
 
     #[test]

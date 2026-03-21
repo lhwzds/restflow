@@ -2,9 +2,29 @@ use super::{ModelDescriptor, ProviderCatalog};
 use crate::{ModelId, Provider};
 
 const ZAI_CODING_BASE_URL: &str = "https://api.z.ai/api/coding/paas/v4";
-const GLM5_ALIASES: &[&str] = &["glm5", "zai-coding-plan-glm-5"];
-const GLM5_TURBO_ALIASES: &[&str] = &["glm5-turbo", "zai-coding-plan-glm-5-turbo"];
-const GLM5_CODE_ALIASES: &[&str] = &["glm5-code", "zai-coding-plan-glm-5-code"];
+const GLM5_ALIASES: &[&str] = &[
+    "glm5",
+    "glm5 coding plan",
+    "glm-5 coding plan",
+    "zai-coding-plan",
+    "zai-coding-plan-glm5",
+    "zai-coding-plan-glm-5",
+];
+const GLM5_TURBO_ALIASES: &[&str] = &[
+    "glm5-turbo",
+    "glm5 turbo coding plan",
+    "glm-5 turbo coding plan",
+    "glm-5-turbo coding plan",
+    "zai-coding-plan-glm5-turbo",
+    "zai-coding-plan-glm-5-turbo",
+];
+const GLM5_CODE_ALIASES: &[&str] = &[
+    "glm5-code",
+    "glm5 coding plan code",
+    "glm-5 coding plan code",
+    "glm-5 coding-plan code",
+    "zai-coding-plan-glm-5-code",
+];
 const GLM47_ALIASES: &[&str] = &["glm-4.7", "zai-coding-plan-glm-4-7"];
 
 pub const MODELS: &[ModelDescriptor] = &[
