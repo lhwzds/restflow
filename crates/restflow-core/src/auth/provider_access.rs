@@ -1,37 +1,13 @@
 use std::collections::HashMap;
 
-use crate::models::{ModelId, Provider, provider_default_model};
+use crate::models::{
+    ModelId, Provider, profile_provider_resolution_order, provider_default_model,
+    secret_provider_resolution_order,
+};
 use crate::storage::SecretStorage;
 use restflow_models::LlmProvider;
 
 use super::{AuthProfileManager, AuthProvider};
-
-const PROFILE_PROVIDER_ORDER: &[(AuthProvider, Provider)] = &[
-    (AuthProvider::OpenAICodex, Provider::Codex),
-    (AuthProvider::ClaudeCode, Provider::ClaudeCode),
-    (AuthProvider::Anthropic, Provider::Anthropic),
-    (AuthProvider::OpenAI, Provider::OpenAI),
-    (AuthProvider::Google, Provider::Google),
-];
-
-const SECRET_PROVIDER_ORDER: &[Provider] = &[
-    Provider::MiniMaxCodingPlan,
-    Provider::MiniMax,
-    Provider::ZaiCodingPlan,
-    Provider::Zai,
-    Provider::Anthropic,
-    Provider::OpenAI,
-    Provider::Google,
-    Provider::DeepSeek,
-    Provider::Groq,
-    Provider::OpenRouter,
-    Provider::XAI,
-    Provider::Qwen,
-    Provider::Moonshot,
-    Provider::Doubao,
-    Provider::Yi,
-    Provider::SiliconFlow,
-];
 
 pub(crate) fn secret_exists(storage: &SecretStorage, key: &str) -> bool {
     storage.get_non_empty(key).ok().flatten().is_some()
@@ -104,7 +80,7 @@ pub(crate) async fn resolve_model_from_credentials<F>(
 where
     F: Fn(&str) -> bool,
 {
-    for (auth_provider, provider) in PROFILE_PROVIDER_ORDER {
+    for (auth_provider, provider) in profile_provider_resolution_order() {
         if auth_manager
             .get_available_profile(*auth_provider)
             .await
@@ -114,7 +90,7 @@ where
         }
     }
 
-    for provider in SECRET_PROVIDER_ORDER {
+    for provider in secret_provider_resolution_order() {
         if provider_has_secret(*provider, &has_secret) {
             return Some(provider_default_model(*provider));
         }

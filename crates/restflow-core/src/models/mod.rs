@@ -56,7 +56,10 @@ pub use memory::{
     SearchMode, SourceTypeFilter, UnifiedSearchQuery,
 };
 pub use model_ref::ModelRef;
-pub(crate) use provider_policy::{provider_auth_providers, provider_default_model};
+pub(crate) use provider_policy::{
+    profile_provider_resolution_order, provider_auth_providers, provider_default_model,
+    provider_display_order, secret_provider_resolution_order,
+};
 pub use restflow_models::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
 pub use steer::{SteerMessage, SteerSource};
 pub use webhook::{WebhookConfig, WebhookRateLimiter, WebhookRequest, WebhookResponse};
