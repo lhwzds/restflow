@@ -26,7 +26,9 @@ mod terminals;
 mod work_items;
 
 use super::*;
-use crate::daemon::request_mapper::{from_contract, invalid_request_response};
+use crate::daemon::request_mapper::{
+    from_contract, invalid_request_response, invalid_validation_response,
+};
 
 impl IpcServer {
     pub(crate) async fn process(
@@ -44,11 +46,11 @@ impl IpcServer {
                 agent,
                 preview,
                 confirmation_token,
-            } => match from_contract(agent) {
+            } => match crate::models::AgentNode::try_from(agent) {
                 Ok(agent) => {
                     Self::handle_create_agent(core, name, agent, preview, confirmation_token).await
                 }
-                Err(err) => invalid_request_response(err),
+                Err(errors) => invalid_validation_response(errors),
             },
             IpcRequest::UpdateAgent {
                 id,
@@ -57,9 +59,9 @@ impl IpcServer {
                 preview,
                 confirmation_token,
             } => {
-                let agent = match agent.map(from_contract).transpose() {
+                let agent = match agent.map(crate::models::AgentNode::try_from).transpose() {
                     Ok(agent) => agent,
-                    Err(err) => return invalid_request_response(err),
+                    Err(errors) => return invalid_validation_response(errors),
                 };
                 Self::handle_update_agent(core, id, name, agent, preview, confirmation_token).await
             }
@@ -475,10 +477,14 @@ impl IpcServer {
                 Self::handle_execute_tool(core, runtime_tool_registry, name, input).await
             }
             IpcRequest::ListMcpServers => Self::handle_list_mcp_servers().await,
-            IpcRequest::BuildAgentSystemPrompt { agent_node } => match from_contract(agent_node) {
-                Ok(agent_node) => Self::handle_build_agent_system_prompt(core, agent_node).await,
-                Err(err) => invalid_request_response(err),
-            },
+            IpcRequest::BuildAgentSystemPrompt { agent_node } => {
+                match crate::models::AgentNode::try_from(agent_node) {
+                    Ok(agent_node) => {
+                        Self::handle_build_agent_system_prompt(core, agent_node).await
+                    }
+                    Err(errors) => invalid_validation_response(errors),
+                }
+            }
             IpcRequest::Shutdown => Self::handle_shutdown().await,
         }
     }
