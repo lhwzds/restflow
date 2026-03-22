@@ -8,6 +8,7 @@
 import { ref, watch, nextTick, onMounted } from 'vue'
 import {
   Wrench,
+  Activity,
   ChevronDown,
   ChevronRight,
   Check,
@@ -24,6 +25,8 @@ import VoiceMessageBubble from '@/components/chat/VoiceMessageBubble.vue'
 import { readMediaFile } from '@/api/voice'
 import { useToast } from '@/composables/useToast'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import type { ExecutionStepInfo } from '@/types/generated/ExecutionStepInfo'
+import type { StepStatus } from '@/types/generated/StepStatus'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 import { extractVoiceFilePath, extractVoiceTranscript } from './voiceMessageContent'
 
@@ -54,13 +57,13 @@ const emit = defineEmits<{
 const toast = useToast()
 
 const scrollContainer = ref<HTMLElement | null>(null)
-const expandedToolCalls = ref<Set<number>>(new Set())
+const expandedToolCalls = ref<Set<string>>(new Set())
 
-function toggleToolCall(index: number) {
-  if (expandedToolCalls.value.has(index)) {
-    expandedToolCalls.value.delete(index)
+function toggleToolCall(key: string) {
+  if (expandedToolCalls.value.has(key)) {
+    expandedToolCalls.value.delete(key)
   } else {
-    expandedToolCalls.value.add(index)
+    expandedToolCalls.value.add(key)
   }
 }
 
@@ -88,6 +91,75 @@ async function copyMessage(content: string) {
   } catch {
     toast.error('Failed to copy')
   }
+}
+
+function normalizeStepStatus(status: string): StepStatus {
+  switch (status) {
+    case 'completed':
+    case 'failed':
+    case 'pending':
+    case 'running':
+      return status
+    default:
+      return 'completed'
+  }
+}
+
+function persistedStepKey(messageId: string, index: number): string {
+  return `persisted:${messageId}:${index}`
+}
+
+function streamStepKey(index: number): string {
+  return `stream:${index}`
+}
+
+function isToolStep(step: Pick<StreamStep, 'type'>): boolean {
+  return step.type === 'tool_call'
+}
+
+function formatDurationLabel(durationMs: bigint | number | null | undefined): string | null {
+  if (durationMs == null) return null
+  return `${(Number(durationMs) / 1000).toFixed(1)}s`
+}
+
+function buildPersistedStep(messageId: string, step: ExecutionStepInfo, index: number): StreamStep {
+  const metadata = {
+    persisted_execution_step: true,
+    message_id: messageId,
+    step_index: index,
+    step_type: step.step_type,
+    name: step.name,
+    status: step.status,
+    duration_ms: step.duration_ms == null ? null : Number(step.duration_ms),
+  }
+
+  return {
+    type: step.step_type === 'tool_call' ? 'tool_call' : step.step_type,
+    name: step.name,
+    displayName: step.name,
+    status: normalizeStepStatus(step.status),
+    toolId: step.step_type === 'tool_call' ? `persisted-${messageId}-${index}` : undefined,
+    arguments: JSON.stringify(metadata),
+    result: JSON.stringify(
+      {
+        ...metadata,
+        note:
+          step.step_type === 'tool_call'
+            ? 'Detailed persisted tool payload is not available yet.'
+            : 'Persisted execution step summary.',
+      },
+      null,
+      2,
+    ),
+  }
+}
+
+function persistedSteps(message: ChatMessage): StreamStep[] {
+  if (message.role !== 'assistant' || !message.execution?.steps?.length) {
+    return []
+  }
+
+  return message.execution.steps.map((step, index) => buildPersistedStep(message.id, step, index))
 }
 
 /** Cache for blob URLs loaded from persistent storage */
@@ -175,7 +247,73 @@ onMounted(() => {
     <div class="max-w-[48rem] mx-auto space-y-4">
       <!-- Saved Messages -->
       <div v-for="(msg, idx) in messages" :key="msg.id || idx" class="group relative">
+        <div v-if="persistedSteps(msg).length" class="mb-2 space-y-2">
+          <div
+            v-for="(step, si) in persistedSteps(msg)"
+            :key="persistedStepKey(msg.id, si)"
+            :data-testid="`persisted-step-${msg.id}-${si}`"
+            class="bg-background mr-auto max-w-[90%] rounded-lg border border-border overflow-hidden"
+          >
+            <button
+              class="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
+              @click="toggleToolCall(persistedStepKey(msg.id, si))"
+            >
+              <Loader2
+                v-if="step.status === 'running'"
+                :size="12"
+                class="animate-spin text-primary shrink-0"
+              />
+              <Check
+                v-else-if="step.status === 'completed'"
+                :size="12"
+                class="text-green-500 shrink-0"
+              />
+              <X v-else-if="step.status === 'failed'" :size="12" class="text-red-500 shrink-0" />
+
+              <Wrench v-if="isToolStep(step)" :size="12" class="text-muted-foreground shrink-0" />
+              <Activity v-else :size="12" class="text-muted-foreground shrink-0" />
+              <span class="font-mono truncate flex-1">{{ step.displayName || step.name }}</span>
+              <span
+                v-if="formatDurationLabel(msg.execution?.steps?.[si]?.duration_ms)"
+                class="text-muted-foreground"
+              >
+                {{ formatDurationLabel(msg.execution?.steps?.[si]?.duration_ms) }}
+              </span>
+
+              <Button
+                v-if="canViewStep(step)"
+                :data-testid="`persisted-step-view-${msg.id}-${si}`"
+                variant="ghost"
+                size="sm"
+                class="h-5 px-1.5 text-[10px] gap-1"
+                @click.stop="emit('viewToolResult', step)"
+              >
+                <PanelRight :size="10" />
+                View
+              </Button>
+
+              <ChevronDown
+                v-if="expandedToolCalls.has(persistedStepKey(msg.id, si))"
+                :size="12"
+                class="text-muted-foreground shrink-0"
+              />
+              <ChevronRight v-else :size="12" class="text-muted-foreground shrink-0" />
+            </button>
+
+            <div
+              v-if="expandedToolCalls.has(persistedStepKey(msg.id, si)) && step.result"
+              class="px-3 py-2 border-t border-border bg-muted/30"
+            >
+              <pre
+                class="text-[11px] font-mono whitespace-pre-wrap break-words max-h-48 overflow-auto"
+                >{{ step.result }}</pre
+              >
+            </div>
+          </div>
+        </div>
+
         <div
+          :data-testid="`chat-message-${msg.id}`"
           :class="[
             'p-4 rounded-lg',
             msg.role === 'user'
@@ -212,29 +350,6 @@ onMounted(() => {
           <!-- Regular message -->
           <StreamingMarkdown v-else :content="msg.content || ''" />
 
-          <!-- Persisted tool steps -->
-          <div
-            v-if="msg.role === 'assistant' && msg.execution?.steps?.length"
-            class="mt-3 space-y-1"
-          >
-            <div
-              v-for="(step, si) in msg.execution.steps"
-              :key="si"
-              class="text-xs border border-border rounded-md px-2 py-1.5 flex items-center gap-2"
-            >
-              <Check
-                v-if="step.status === 'completed'"
-                :size="12"
-                class="text-green-500 shrink-0"
-              />
-              <X v-else-if="step.status === 'failed'" :size="12" class="text-red-500 shrink-0" />
-              <Wrench :size="12" class="text-muted-foreground shrink-0" />
-              <span class="font-mono truncate flex-1">{{ step.name }}</span>
-              <span v-if="step.duration_ms" class="text-muted-foreground">
-                {{ (Number(step.duration_ms) / 1000).toFixed(1) }}s
-              </span>
-            </div>
-          </div>
         </div>
         <!-- Hover action buttons -->
         <div
@@ -278,24 +393,18 @@ onMounted(() => {
           Thinking...
         </div>
 
-        <!-- Streaming content -->
-        <StreamingMarkdown
-          v-if="streamContent"
-          :content="streamContent"
-          :is-streaming="isStreaming"
-        />
-
         <!-- Tool call steps -->
         <div v-if="steps.length > 0" class="mt-3 space-y-1">
           <div
             v-for="(step, idx) in steps"
             :key="idx"
+            :data-testid="`stream-step-${idx}`"
             class="text-xs border border-border rounded-md overflow-hidden"
           >
             <!-- Tool call header -->
             <button
               class="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-muted/50 transition-colors"
-              @click="toggleToolCall(idx)"
+              @click="toggleToolCall(streamStepKey(idx))"
             >
               <!-- Status icon -->
               <Loader2
@@ -329,7 +438,7 @@ onMounted(() => {
 
               <!-- Expand chevron -->
               <ChevronDown
-                v-if="expandedToolCalls.has(idx)"
+                v-if="expandedToolCalls.has(streamStepKey(idx))"
                 :size="12"
                 class="text-muted-foreground shrink-0"
               />
@@ -338,7 +447,7 @@ onMounted(() => {
 
             <!-- Expanded result -->
             <div
-              v-if="expandedToolCalls.has(idx) && step.result"
+              v-if="expandedToolCalls.has(streamStepKey(idx)) && step.result"
               class="px-2 py-1.5 border-t border-border bg-muted/30"
             >
               <pre
@@ -348,6 +457,14 @@ onMounted(() => {
             </div>
           </div>
         </div>
+
+        <!-- Streaming content -->
+        <StreamingMarkdown
+          v-if="streamContent"
+          :content="streamContent"
+          :is-streaming="isStreaming"
+          :class="{ 'mt-3': steps.length > 0 }"
+        />
       </div>
 
       <!-- Typing indicator -->

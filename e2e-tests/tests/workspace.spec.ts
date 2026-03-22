@@ -1,5 +1,9 @@
 import { test, expect } from '@playwright/test'
-import { goToWorkspace } from './helpers'
+import { goToWorkspace, requestIpc } from './helpers'
+
+type SessionSummary = {
+  id: string
+}
 
 /**
  * Workspace Layout E2E Tests
@@ -10,8 +14,36 @@ import { goToWorkspace } from './helpers'
  * - Right: Canvas panel (shown on demand)
  */
 test.describe('Workspace Layout', () => {
+  async function openFreshWorkspaceSession(page: import('@playwright/test').Page) {
+    const beforeSessions = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
+    const beforeIds = new Set(beforeSessions.map((session) => session.id))
+
+    await page.getByRole('button', { name: 'New Session' }).click()
+
+    await expect
+      .poll(async () => {
+        const sessions = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
+        const created = sessions.find((session) => !beforeIds.has(session.id))
+        return created?.id ?? null
+      })
+      .not.toBeNull()
+
+    await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible({
+      timeout: 15000,
+    })
+
+    const afterSessions = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
+    const created = afterSessions.find((session) => !beforeIds.has(session.id))
+    if (!created) {
+      throw new Error('Failed to locate the newly created workspace session')
+    }
+
+    return created.id
+  }
+
   test.beforeEach(async ({ page }) => {
     await goToWorkspace(page)
+    await openFreshWorkspaceSession(page)
   })
 
   test('renders three-column layout', async ({ page }) => {
@@ -81,6 +113,67 @@ test.describe('Workspace Layout', () => {
 
     // Hints should NOT be visible in expanded mode
     await expect(page.locator('text=Shift+Enter')).not.toBeVisible()
+  })
+
+  test('shows persisted tool steps inline in chat and opens the detail panel', async ({ page }) => {
+    const sessionId = await openFreshWorkspaceSession(page)
+    const userMessageId = `e2e-user-${Date.now()}`
+    const assistantMessageId = `e2e-assistant-${Date.now()}`
+
+    await requestIpc(page, {
+      type: 'AppendMessage',
+      data: {
+        session_id: sessionId,
+        message: {
+          id: userMessageId,
+          role: 'user',
+          content: 'Find the latest release notes',
+          timestamp: Date.now(),
+          execution: null,
+        },
+      },
+    })
+
+    await requestIpc(page, {
+      type: 'AppendMessage',
+      data: {
+        session_id: sessionId,
+        message: {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: 'I found the release notes and summarized the changes.',
+          timestamp: Date.now() + 1,
+          execution: {
+            steps: [
+              {
+                step_type: 'tool_call',
+                name: 'web_search',
+                status: 'completed',
+                duration_ms: 1200,
+              },
+            ],
+            duration_ms: 1500,
+            tokens_used: 42,
+            cost_usd: null,
+            input_tokens: null,
+            output_tokens: null,
+            status: 'completed',
+          },
+        },
+      },
+    })
+
+    await page.goto(`/workspace/sessions/${sessionId}`)
+    await page.waitForLoadState('domcontentloaded')
+
+    const persistedStep = page.getByTestId(`persisted-step-${assistantMessageId}-0`)
+    await expect(persistedStep).toBeVisible()
+    await expect(page.getByTestId(`chat-message-${assistantMessageId}`)).toBeVisible()
+
+    await page.getByTestId(`persisted-step-view-${assistantMessageId}-0`).click()
+
+    await expect(page.getByTestId('generic-json-panel')).toBeVisible()
+    await expect(page.locator('text=Detailed persisted tool payload is not available yet.')).toBeVisible()
   })
 })
 

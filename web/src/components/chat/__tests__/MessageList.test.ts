@@ -155,7 +155,7 @@ describe('MessageList', () => {
     expect(wrapper.text()).toContain('legacy transcript')
   })
 
-  it('renders persisted execution steps for assistant messages', () => {
+  it('renders persisted execution steps before the assistant message bubble', () => {
     const wrapper = mount(MessageList, {
       props: {
         messages: [
@@ -204,10 +204,71 @@ describe('MessageList', () => {
     })
 
     const text = wrapper.text()
+    expect(wrapper.get('[data-testid="persisted-step-msg-1-0"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="persisted-step-msg-1-1"]')).toBeTruthy()
     expect(text).toContain('web_search')
     expect(text).toContain('transcribe')
+    expect(text.indexOf('web_search')).toBeLessThan(text.indexOf('Here is the result.'))
     expect(text).toContain('1.2s')
-    expect(text).not.toContain('View')
+    expect(wrapper.get('[data-testid="persisted-step-view-msg-1-0"]')).toBeTruthy()
+  })
+
+  it('emits persisted tool step details for the right-side panel', async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-persisted-tool',
+            role: 'assistant',
+            content: 'Completed tool execution.',
+            timestamp: 1n,
+            execution: {
+              steps: [
+                {
+                  step_type: 'tool_call',
+                  name: 'bash',
+                  status: 'completed',
+                  duration_ms: 850n,
+                },
+              ],
+              duration_ms: 900n,
+              tokens_used: 10,
+              cost_usd: null,
+              input_tokens: null,
+              output_tokens: null,
+              status: 'completed',
+            },
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    await wrapper.get('[data-testid="persisted-step-view-msg-persisted-tool-0"]').trigger('click')
+
+    const emittedView = wrapper.emitted('viewToolResult') ?? wrapper.emitted('view-tool-result')
+    expect(emittedView).toBeTruthy()
+    expect(emittedView?.[0]?.[0]).toMatchObject({
+      type: 'tool_call',
+      name: 'bash',
+      toolId: 'persisted-msg-persisted-tool-0',
+      status: 'completed',
+    })
+    const emittedStep = emittedView?.[0]?.[0] as StreamStep
+    expect(JSON.parse(emittedStep.result ?? '{}') as Record<string, unknown>).toMatchObject({
+      persisted_execution_step: true,
+      message_id: 'msg-persisted-tool',
+      step_type: 'tool_call',
+      duration_ms: 850,
+    })
   })
 
   it('hides copy and retry actions when action flags are disabled', () => {

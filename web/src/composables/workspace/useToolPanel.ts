@@ -89,6 +89,10 @@ function toPanelType(toolName: string): ToolPanelType {
   return TOOL_PANEL_MAP[toolName] ?? 'generic'
 }
 
+function isPersistedExecutionStepData(data: Record<string, unknown>): boolean {
+  return data.persisted_execution_step === true
+}
+
 function toTitle(
   toolName: string,
   panelType: ToolPanelType,
@@ -150,8 +154,9 @@ export function useToolPanel() {
     const parsedArgs = parseResult(step.arguments)
     // Merge arguments into data so toTitle can access fields like `url`
     const data = { ...parsedArgs, ...parsedResult }
-    const panelType = toPanelType(step.name)
-    const title = toTitle(step.name, panelType, data)
+    const persistedStep = isPersistedExecutionStepData(data)
+    const panelType = persistedStep ? 'generic' : toPanelType(step.name)
+    const title = persistedStep ? `${step.name} details` : toTitle(step.name, panelType, data)
 
     appendEntry({
       toolId: step.toolId,
