@@ -10,83 +10,13 @@ mod selector;
 pub use model_id::ModelId;
 pub use model_metadata::{ModelMetadata, ModelMetadataDTO};
 pub use provider::Provider;
+pub use restflow_traits::{ClientKind, LlmProvider};
 pub use selector::{
     ProviderSelector, parse_model_reference, parse_provider_selector, resolve_available_model_name,
     split_provider_qualified_model,
 };
 
 pub use provider_meta::{ALL_PROVIDER_META, ProviderMeta, provider_meta};
-
-/// Concrete execution path used to satisfy an LLM request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum ClientKind {
-    Http,
-    CodexCli,
-    OpenCodeCli,
-    GeminiCli,
-    ClaudeCodeCli,
-}
-
-impl ClientKind {
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::Http => "http",
-            Self::CodexCli => "codex-cli",
-            Self::OpenCodeCli => "opencode-cli",
-            Self::GeminiCli => "gemini-cli",
-            Self::ClaudeCodeCli => "claude-code-cli",
-        }
-    }
-
-    pub fn is_cli(&self) -> bool {
-        !matches!(self, Self::Http)
-    }
-}
-
-macro_rules! define_llm_provider_enum {
-    ($($variant:ident => { name: $name:literal, base_url: $base_url:literal }),+ $(,)?) => {
-        /// Runtime provider bucket used by the LLM factory layer.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-        pub enum LlmProvider {
-            $(
-                $variant,
-            )+
-        }
-
-        impl LlmProvider {
-            pub fn as_str(&self) -> &'static str {
-                match self {
-                    $(Self::$variant => $name,)+
-                }
-            }
-
-            pub fn base_url(&self) -> &'static str {
-                match self {
-                    $(Self::$variant => $base_url,)+
-                }
-            }
-        }
-    };
-}
-
-define_llm_provider_enum! {
-    OpenAI => { name: "openai", base_url: "https://api.openai.com/v1" },
-    Anthropic => { name: "anthropic", base_url: "" },
-    DeepSeek => { name: "deepseek", base_url: "https://api.deepseek.com/v1" },
-    Google => { name: "google", base_url: "https://generativelanguage.googleapis.com/v1beta/openai" },
-    Groq => { name: "groq", base_url: "https://api.groq.com/openai/v1" },
-    OpenRouter => { name: "openrouter", base_url: "https://openrouter.ai/api/v1" },
-    XAI => { name: "xai", base_url: "https://api.x.ai/v1" },
-    Qwen => { name: "qwen", base_url: "https://dashscope.aliyuncs.com/compatible-mode/v1" },
-    Zai => { name: "zai", base_url: "https://api.z.ai/api/paas/v4" },
-    ZaiCodingPlan => { name: "zai-coding-plan", base_url: "https://api.z.ai/api/coding/paas/v4" },
-    Moonshot => { name: "moonshot", base_url: "https://api.moonshot.cn/v1" },
-    Doubao => { name: "doubao", base_url: "https://ark.cn-beijing.volces.com/api/v3" },
-    Yi => { name: "yi", base_url: "https://api.lingyiwanwu.com/v1" },
-    SiliconFlow => { name: "siliconflow", base_url: "https://api.siliconflow.cn/v1" },
-    MiniMax => { name: "minimax", base_url: "https://api.minimax.io" },
-    MiniMaxCodingPlan => { name: "minimax-coding-plan", base_url: "https://api.minimax.io" },
-}
 
 /// Runtime model specification consumed by the LLM factory.
 #[derive(Debug, Clone)]

@@ -34,9 +34,8 @@ use restflow_ai::{
     DefaultLlmClientFactory, LlmClient, LlmClientFactory, ResourceLimits as AgentResourceLimits,
     SwappableLlm,
 };
-use restflow_models::LlmProvider;
 use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool};
-use restflow_traits::llm::{LlmSwitcher, SwapResult};
+use restflow_traits::llm::{LlmProvider, LlmSwitcher, SwapResult};
 use restflow_traits::{ExecutionOutcome, ExecutionPlan, ReplySender, ToolError};
 use tokio::sync::mpsc;
 use tokio::time::sleep;
@@ -160,22 +159,16 @@ impl LlmSwitcher for RuntimeModelSwitcher {
         self.factory.available_models()
     }
 
-    fn provider_for_model(&self, model: &str) -> Option<String> {
-        self.factory
-            .provider_for_model(model)
-            .map(|provider| provider.as_str().to_string())
+    fn provider_for_model(&self, model: &str) -> Option<LlmProvider> {
+        self.factory.provider_for_model(model)
     }
 
-    fn resolve_api_key(&self, provider: &str) -> Option<String> {
-        let model_provider = restflow_traits::ModelProvider::parse_alias(provider)?;
-        self.factory
-            .resolve_api_key(restflow_models::provider_meta(model_provider).runtime_provider)
+    fn resolve_api_key(&self, provider: LlmProvider) -> Option<String> {
+        self.factory.resolve_api_key(provider)
     }
 
-    fn client_kind_for_model(&self, model: &str) -> Option<&'static str> {
-        self.factory
-            .client_kind_for_model(model)
-            .map(|kind| kind.as_str())
+    fn client_kind_for_model(&self, model: &str) -> Option<restflow_traits::ClientKind> {
+        self.factory.client_kind_for_model(model)
     }
 
     fn create_and_swap(
