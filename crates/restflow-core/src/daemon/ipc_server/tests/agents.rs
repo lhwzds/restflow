@@ -1,6 +1,7 @@
 use super::*;
 use crate::daemon::request_mapper::to_contract;
 use crate::models::{ApiKeyConfig, ModelId};
+use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
 use restflow_storage::SimpleStorage;
 
@@ -621,6 +622,42 @@ async fn process_create_agent_requires_confirmation_for_unconfigured_provider() 
             assert!(details["assessment"]["confirmation_token"].is_string());
         }
         other => panic!("expected confirmation_required response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_agent_rejects_invalid_wire_model_ref() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateAgent {
+            name: "invalid-agent".to_string(),
+            agent: ContractAgentNode {
+                model: None,
+                model_ref: Some(WireModelRef {
+                    provider: "unknown-provider".to_string(),
+                    model: "gpt-5".to_string(),
+                }),
+                ..ContractAgentNode::default()
+            },
+            preview: false,
+            confirmation_token: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            let details = error.details.expect("validation details");
+            assert_eq!(details["type"], "validation_error");
+            assert_eq!(details["errors"][0]["field"], "model_ref.provider");
+        }
+        other => panic!("expected validation error, got {other:?}"),
     }
 }
 

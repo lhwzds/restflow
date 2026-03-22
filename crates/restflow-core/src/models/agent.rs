@@ -4,6 +4,12 @@
 
 use crate::models::{ModelId, ModelRef};
 use crate::{AppCore, models::ValidationError};
+use restflow_contracts::request::{
+    AgentNode as ContractAgentNode, ApiKeyConfig as ContractApiKeyConfig,
+    CodexCliExecutionMode as ContractCodexCliExecutionMode,
+    ModelRoutingConfig as ContractModelRoutingConfig,
+    SkillPreflightPolicyMode as ContractSkillPreflightPolicyMode,
+};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::HashMap;
@@ -154,6 +160,153 @@ pub struct AgentNode {
     #[ts(optional)]
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_routing: Option<ModelRoutingConfig>,
+}
+
+fn parse_contract_model(field: &str, value: &str) -> Result<ModelId, ValidationError> {
+    let normalized = value.trim();
+    if normalized.is_empty() {
+        return Err(ValidationError::new(field, "must not be empty"));
+    }
+
+    ModelId::from_api_name(normalized)
+        .or_else(|| ModelId::from_canonical_id(normalized))
+        .or_else(|| ModelId::from_serialized_str(normalized))
+        .ok_or_else(|| ValidationError::new(field, format!("unknown model '{}'", value)))
+}
+
+impl From<CodexCliExecutionMode> for ContractCodexCliExecutionMode {
+    fn from(value: CodexCliExecutionMode) -> Self {
+        match value {
+            CodexCliExecutionMode::Safe => Self::Safe,
+            CodexCliExecutionMode::Bypass => Self::Bypass,
+        }
+    }
+}
+
+impl From<SkillPreflightPolicyMode> for ContractSkillPreflightPolicyMode {
+    fn from(value: SkillPreflightPolicyMode) -> Self {
+        match value {
+            SkillPreflightPolicyMode::Off => Self::Off,
+            SkillPreflightPolicyMode::Warn => Self::Warn,
+            SkillPreflightPolicyMode::Enforce => Self::Enforce,
+        }
+    }
+}
+
+impl From<ApiKeyConfig> for ContractApiKeyConfig {
+    fn from(value: ApiKeyConfig) -> Self {
+        match value {
+            ApiKeyConfig::Direct(secret) => Self::Direct(secret),
+            ApiKeyConfig::Secret(secret) => Self::Secret(secret),
+        }
+    }
+}
+
+impl From<ModelRoutingConfig> for ContractModelRoutingConfig {
+    fn from(value: ModelRoutingConfig) -> Self {
+        Self {
+            enabled: value.enabled,
+            routine_model: value.routine_model,
+            moderate_model: value.moderate_model,
+            complex_model: value.complex_model,
+            escalate_on_failure: value.escalate_on_failure,
+        }
+    }
+}
+
+impl From<AgentNode> for ContractAgentNode {
+    fn from(value: AgentNode) -> Self {
+        Self {
+            model: value
+                .model
+                .map(|model| model.as_serialized_str().to_string()),
+            model_ref: value.model_ref.map(Into::into),
+            prompt: value.prompt,
+            temperature: value.temperature,
+            codex_cli_reasoning_effort: value.codex_cli_reasoning_effort,
+            codex_cli_execution_mode: value.codex_cli_execution_mode.map(Into::into),
+            api_key_config: value.api_key_config.map(Into::into),
+            tools: value.tools,
+            skills: value.skills,
+            skill_variables: value.skill_variables,
+            skill_preflight_policy_mode: value.skill_preflight_policy_mode.map(Into::into),
+            model_routing: value.model_routing.map(Into::into),
+        }
+    }
+}
+
+impl TryFrom<ContractAgentNode> for AgentNode {
+    type Error = Vec<ValidationError>;
+
+    fn try_from(value: ContractAgentNode) -> Result<Self, Self::Error> {
+        let mut errors = Vec::new();
+
+        let model = match value.model {
+            Some(model) => match parse_contract_model("model", &model) {
+                Ok(model) => Some(model),
+                Err(error) => {
+                    errors.push(error);
+                    None
+                }
+            },
+            None => None,
+        };
+
+        let model_ref = match value.model_ref {
+            Some(model_ref) => match ModelRef::try_from(model_ref) {
+                Ok(model_ref) => Some(model_ref),
+                Err(error) => {
+                    errors.push(error);
+                    None
+                }
+            },
+            None => None,
+        };
+
+        let mut agent = Self {
+            model,
+            model_ref,
+            prompt: value.prompt,
+            temperature: value.temperature,
+            codex_cli_reasoning_effort: value.codex_cli_reasoning_effort,
+            codex_cli_execution_mode: match value.codex_cli_execution_mode {
+                Some(ContractCodexCliExecutionMode::Safe) => Some(CodexCliExecutionMode::Safe),
+                Some(ContractCodexCliExecutionMode::Bypass) => Some(CodexCliExecutionMode::Bypass),
+                Some(ContractCodexCliExecutionMode::Unknown) | None => None,
+            },
+            api_key_config: value.api_key_config.map(|config| match config {
+                ContractApiKeyConfig::Direct(secret) => ApiKeyConfig::Direct(secret),
+                ContractApiKeyConfig::Secret(secret) => ApiKeyConfig::Secret(secret),
+            }),
+            tools: value.tools,
+            skills: value.skills,
+            skill_variables: value.skill_variables,
+            skill_preflight_policy_mode: value.skill_preflight_policy_mode.map(|mode| match mode {
+                ContractSkillPreflightPolicyMode::Off => SkillPreflightPolicyMode::Off,
+                ContractSkillPreflightPolicyMode::Warn => SkillPreflightPolicyMode::Warn,
+                ContractSkillPreflightPolicyMode::Enforce => SkillPreflightPolicyMode::Enforce,
+            }),
+            model_routing: value.model_routing.map(|routing| ModelRoutingConfig {
+                enabled: routing.enabled,
+                routine_model: routing.routine_model,
+                moderate_model: routing.moderate_model,
+                complex_model: routing.complex_model,
+                escalate_on_failure: routing.escalate_on_failure,
+            }),
+        };
+
+        if errors.is_empty()
+            && let Err(error) = agent.normalize_model_fields()
+        {
+            errors.push(error);
+        }
+
+        if errors.is_empty() {
+            Ok(agent)
+        } else {
+            Err(errors)
+        }
+    }
 }
 
 impl AgentNode {
@@ -543,6 +696,7 @@ impl AgentNode {
 mod tests {
     use super::*;
     use crate::models::Provider;
+    use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
 
     #[test]
     fn with_codex_cli_reasoning_effort_sets_trimmed_value() {
@@ -779,6 +933,55 @@ mod tests {
             ..AgentNode::new()
         };
         let errors = node.validate().expect_err("expected validation error");
+        assert!(errors.iter().any(|error| error.field == "model_ref"));
+    }
+
+    #[test]
+    fn contract_agent_node_round_trips_through_explicit_conversion() {
+        let agent = AgentNode::with_model_ref(ModelRef {
+            provider: Provider::Anthropic,
+            model: ModelId::ClaudeCodeSonnet,
+        })
+        .with_prompt("Base prompt")
+        .with_codex_cli_execution_mode(CodexCliExecutionMode::Safe);
+
+        let contract: ContractAgentNode = agent.clone().into();
+        let decoded = AgentNode::try_from(contract).expect("agent should decode");
+
+        assert_eq!(decoded.model, Some(ModelId::ClaudeCodeSonnet));
+        assert_eq!(
+            decoded.model_ref,
+            Some(ModelRef {
+                provider: Provider::ClaudeCode,
+                model: ModelId::ClaudeCodeSonnet,
+            })
+        );
+        assert_eq!(decoded.prompt.as_deref(), Some("Base prompt"));
+    }
+
+    #[test]
+    fn contract_agent_node_rejects_unknown_model() {
+        let errors = AgentNode::try_from(ContractAgentNode {
+            model: Some("missing-model".to_string()),
+            ..ContractAgentNode::default()
+        })
+        .expect_err("unknown model should fail");
+
+        assert!(errors.iter().any(|error| error.field == "model"));
+    }
+
+    #[test]
+    fn contract_agent_node_rejects_conflicting_model_and_model_ref() {
+        let errors = AgentNode::try_from(ContractAgentNode {
+            model: Some("gpt-5".to_string()),
+            model_ref: Some(WireModelRef {
+                provider: "anthropic".to_string(),
+                model: "claude-sonnet-4-5".to_string(),
+            }),
+            ..ContractAgentNode::default()
+        })
+        .expect_err("conflicting model fields should fail");
+
         assert!(errors.iter().any(|error| error.field == "model_ref"));
     }
 }

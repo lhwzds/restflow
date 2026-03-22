@@ -61,7 +61,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::create_agent(core, name, agent).await,
             CoreAccess::Remote(client) => {
-                let agent = to_contract(agent)?;
+                let agent = restflow_contracts::request::AgentNode::from(agent);
                 client
                     .request_typed(IpcRequest::CreateAgent {
                         name,
@@ -83,7 +83,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => agent_service::update_agent(core, id, name, agent).await,
             CoreAccess::Remote(client) => {
-                let agent = agent.map(to_contract).transpose()?;
+                let agent = agent.map(restflow_contracts::request::AgentNode::from);
                 client
                     .request_typed(IpcRequest::UpdateAgent {
                         id: id.to_string(),

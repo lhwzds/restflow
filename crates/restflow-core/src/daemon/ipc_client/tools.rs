@@ -1,14 +1,12 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-use crate::daemon::request_mapper::to_contract;
-#[cfg(unix)]
 use restflow_contracts::PromptResponse;
 
 #[cfg(unix)]
 impl IpcClient {
     pub async fn build_agent_system_prompt(&mut self, agent_node: AgentNode) -> Result<String> {
-        let agent_node = to_contract(agent_node)?;
+        let agent_node = restflow_contracts::request::AgentNode::from(agent_node);
         let resp: PromptResponse = self
             .request_typed(IpcRequest::BuildAgentSystemPrompt { agent_node })
             .await?;

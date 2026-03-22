@@ -2,6 +2,7 @@ use super::super::runtime::build_auth_manager;
 use super::*;
 use crate::auth::{AuthProvider, Credential, CredentialSource};
 use crate::daemon::request_mapper::to_contract;
+use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
 #[tokio::test]
 async fn process_get_system_info_returns_pid() {
     let (core, _temp) = create_test_core().await;
@@ -46,6 +47,38 @@ async fn process_build_agent_system_prompt_returns_prompt_payload() {
             assert!(prompt.contains("Base prompt"));
         }
         other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_build_agent_system_prompt_rejects_invalid_model_ref() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::BuildAgentSystemPrompt {
+            agent_node: ContractAgentNode {
+                model_ref: Some(WireModelRef {
+                    provider: "openai".to_string(),
+                    model: "missing-model".to_string(),
+                }),
+                ..ContractAgentNode::default()
+            },
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            let details = error.details.expect("validation details");
+            assert_eq!(details["type"], "validation_error");
+            assert_eq!(details["errors"][0]["field"], "model_ref.model");
+        }
+        other => panic!("expected validation error, got {other:?}"),
     }
 }
 
