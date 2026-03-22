@@ -32,6 +32,54 @@ const ALL_PROVIDER_AUTH_POLICIES: &[(Provider, &[AuthProvider])] = &[
     (Provider::MiniMaxCodingPlan, AUTH_OTHER),
 ];
 
+const DISPLAY_PROVIDER_ORDER: &[Provider] = &[
+    Provider::OpenAI,
+    Provider::MiniMaxCodingPlan,
+    Provider::ZaiCodingPlan,
+    Provider::ClaudeCode,
+    Provider::Codex,
+    Provider::Anthropic,
+    Provider::Google,
+    Provider::DeepSeek,
+    Provider::Groq,
+    Provider::OpenRouter,
+    Provider::XAI,
+    Provider::Qwen,
+    Provider::Zai,
+    Provider::Moonshot,
+    Provider::Doubao,
+    Provider::Yi,
+    Provider::SiliconFlow,
+    Provider::MiniMax,
+];
+
+const PROFILE_PROVIDER_RESOLUTION_ORDER: &[(AuthProvider, Provider)] = &[
+    (AuthProvider::OpenAICodex, Provider::Codex),
+    (AuthProvider::ClaudeCode, Provider::ClaudeCode),
+    (AuthProvider::Anthropic, Provider::Anthropic),
+    (AuthProvider::OpenAI, Provider::OpenAI),
+    (AuthProvider::Google, Provider::Google),
+];
+
+const SECRET_PROVIDER_RESOLUTION_ORDER: &[Provider] = &[
+    Provider::MiniMaxCodingPlan,
+    Provider::MiniMax,
+    Provider::ZaiCodingPlan,
+    Provider::Zai,
+    Provider::Anthropic,
+    Provider::OpenAI,
+    Provider::Google,
+    Provider::DeepSeek,
+    Provider::Groq,
+    Provider::OpenRouter,
+    Provider::XAI,
+    Provider::Qwen,
+    Provider::Moonshot,
+    Provider::Doubao,
+    Provider::Yi,
+    Provider::SiliconFlow,
+];
+
 fn provider_auth_policy(provider: Provider) -> &'static [AuthProvider] {
     ALL_PROVIDER_AUTH_POLICIES
         .iter()
@@ -47,9 +95,28 @@ pub(crate) fn provider_auth_providers(provider: Provider) -> &'static [AuthProvi
     provider_auth_policy(provider)
 }
 
+pub(crate) fn provider_display_order(provider: Provider) -> usize {
+    DISPLAY_PROVIDER_ORDER
+        .iter()
+        .position(|candidate| *candidate == provider)
+        .unwrap_or(usize::MAX)
+}
+
+pub(crate) fn profile_provider_resolution_order() -> &'static [(AuthProvider, Provider)] {
+    PROFILE_PROVIDER_RESOLUTION_ORDER
+}
+
+pub(crate) fn secret_provider_resolution_order() -> &'static [Provider] {
+    SECRET_PROVIDER_RESOLUTION_ORDER
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{ALL_PROVIDER_AUTH_POLICIES, provider_auth_providers, provider_default_model};
+    use super::{
+        ALL_PROVIDER_AUTH_POLICIES, DISPLAY_PROVIDER_ORDER, provider_auth_providers,
+        provider_default_model, provider_display_order, profile_provider_resolution_order,
+        secret_provider_resolution_order,
+    };
     use crate::auth::AuthProvider;
     use crate::models::{ModelId, Provider};
 
@@ -84,5 +151,27 @@ mod tests {
     #[test]
     fn provider_auth_policy_table_stays_in_sync() {
         assert_eq!(Provider::all().len(), ALL_PROVIDER_AUTH_POLICIES.len());
+    }
+
+    #[test]
+    fn provider_display_order_places_coding_first() {
+        assert!(provider_display_order(Provider::OpenAI) < provider_display_order(Provider::Anthropic));
+        assert!(
+            provider_display_order(Provider::MiniMaxCodingPlan)
+                < provider_display_order(Provider::DeepSeek)
+        );
+        assert_eq!(Provider::all().len(), DISPLAY_PROVIDER_ORDER.len());
+    }
+
+    #[test]
+    fn provider_resolution_orders_match_expected_prefixes() {
+        assert_eq!(
+            profile_provider_resolution_order()[0],
+            (AuthProvider::OpenAICodex, Provider::Codex)
+        );
+        assert_eq!(
+            secret_provider_resolution_order()[0],
+            Provider::MiniMaxCodingPlan
+        );
     }
 }
