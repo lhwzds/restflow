@@ -1,3 +1,4 @@
+use restflow_contracts::request::WireModelRef;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
@@ -53,6 +54,43 @@ impl ModelRef {
         Self {
             provider: ModelId::normalize_provider_for_model(self.model, self.provider),
             model: self.model,
+        }
+    }
+}
+
+impl TryFrom<WireModelRef> for ModelRef {
+    type Error = ValidationError;
+
+    fn try_from(value: WireModelRef) -> Result<Self, Self::Error> {
+        let provider = Provider::from_canonical_str(&value.provider).ok_or_else(|| {
+            ValidationError::new(
+                "model_ref.provider",
+                format!("unknown provider '{}'", value.provider),
+            )
+        })?;
+        let model = ModelId::for_provider_and_model(provider, &value.model)
+            .or_else(|| ModelId::from_api_name(&value.model))
+            .or_else(|| ModelId::from_canonical_id(&value.model))
+            .or_else(|| ModelId::from_serialized_str(&value.model))
+            .ok_or_else(|| {
+                ValidationError::new(
+                    "model_ref.model",
+                    format!("unknown model '{}'", value.model),
+                )
+            })?;
+
+        let model_ref = Self { provider, model }.normalized();
+        model_ref.validate()?;
+        Ok(model_ref)
+    }
+}
+
+impl From<ModelRef> for WireModelRef {
+    fn from(value: ModelRef) -> Self {
+        let normalized = value.normalized();
+        Self {
+            provider: normalized.provider.as_canonical_str().to_string(),
+            model: normalized.model.as_serialized_str().to_string(),
         }
     }
 }

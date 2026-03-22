@@ -1290,8 +1290,10 @@ async fn test_run_with_emitter_emits_model_switch_for_routing() {
             Ok(restflow_traits::llm::SwapResult {
                 previous_provider: "openai".to_string(),
                 previous_model,
+                previous_runtime_provider: Some(LlmProvider::OpenAI),
                 new_provider: "openai".to_string(),
                 new_model: model.to_string(),
+                new_runtime_provider: LlmProvider::OpenAI,
             })
         }
     }

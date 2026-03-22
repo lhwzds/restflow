@@ -186,11 +186,14 @@ impl LlmSwitcher for RuntimeModelSwitcher {
         )
         .map_err(|error| ToolError::Tool(error.to_string()))?;
         let previous = self.swappable.swap(client.clone());
+        let previous_runtime_provider = self.factory.provider_for_model(previous.model());
         Ok(SwapResult {
             previous_provider: previous.provider().to_string(),
             previous_model: previous.model().to_string(),
+            previous_runtime_provider,
             new_provider: client.provider().to_string(),
             new_model: client.model().to_string(),
+            new_runtime_provider: model.provider().as_llm_provider(),
         })
     }
 }

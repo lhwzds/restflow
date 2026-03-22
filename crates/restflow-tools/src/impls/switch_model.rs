@@ -10,7 +10,7 @@ use restflow_models::{
     ProviderSelector, parse_model_reference, parse_provider_selector, resolve_available_model_name,
     split_provider_qualified_model,
 };
-use restflow_traits::LlmSwitcher;
+use restflow_traits::{LlmProvider, LlmSwitcher};
 
 #[derive(Clone)]
 pub struct SwitchModelTool {
@@ -147,10 +147,12 @@ impl Tool for SwitchModelTool {
             },
             "from": {
                 "provider": swap_result.previous_provider,
+                "runtime_provider": swap_result.previous_runtime_provider.map(LlmProvider::as_str),
                 "model": swap_result.previous_model
             },
             "to": {
                 "provider": swap_result.new_provider,
+                "runtime_provider": swap_result.new_runtime_provider.as_str(),
                 "model": swap_result.new_model
             },
             "reason": reason

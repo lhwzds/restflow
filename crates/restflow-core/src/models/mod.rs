@@ -57,8 +57,9 @@ pub use memory::{
 };
 pub use model_ref::ModelRef;
 pub(crate) use provider_policy::{
-    profile_provider_resolution_order, provider_auth_providers, provider_default_model,
-    provider_display_order, secret_provider_resolution_order,
+    profile_provider_resolution_order, provider_access_profiles, provider_allows_secret_env,
+    provider_auth_providers, provider_default_model, provider_display_order,
+    secret_provider_resolution_order,
 };
 pub use restflow_models::{ModelId, ModelMetadata, ModelMetadataDTO, Provider};
 pub use steer::{SteerMessage, SteerSource};

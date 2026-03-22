@@ -50,18 +50,24 @@ impl LlmSwitcher for LlmSwitcherImpl {
         model: &str,
         api_key: Option<&str>,
     ) -> std::result::Result<SwapResult, ToolError> {
+        let new_runtime_provider = self.factory.provider_for_model(model).ok_or_else(|| {
+            ToolError::Tool(format!("Unknown runtime provider for model '{model}'"))
+        })?;
         let client = self
             .factory
             .create_client(model, api_key)
             .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         let previous = self.llm.swap(client.clone());
+        let previous_runtime_provider = self.factory.provider_for_model(previous.model());
 
         Ok(SwapResult {
             previous_provider: previous.provider().to_string(),
             previous_model: previous.model().to_string(),
+            previous_runtime_provider,
             new_provider: client.provider().to_string(),
             new_model: client.model().to_string(),
+            new_runtime_provider,
         })
     }
 }

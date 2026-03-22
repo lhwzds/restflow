@@ -1,4 +1,5 @@
 use crate::models::{ModelId, ModelRef, Provider};
+use restflow_contracts::request::WireModelRef;
 use restflow_models::{LlmProvider, catalog};
 
 #[test]
@@ -687,6 +688,59 @@ fn test_model_ref_validate_accepts_legacy_cli_provider_pairs() {
             model: ModelId::Gpt5_4Codex,
         }
     );
+}
+
+#[test]
+fn test_model_ref_try_from_wire_normalizes_legacy_provider_pairs() {
+    let wire = WireModelRef {
+        provider: "anthropic".to_string(),
+        model: "claude-code-sonnet".to_string(),
+    };
+
+    let model_ref = ModelRef::try_from(wire).expect("wire model ref should parse");
+    assert_eq!(
+        model_ref,
+        ModelRef {
+            provider: Provider::ClaudeCode,
+            model: ModelId::ClaudeCodeSonnet,
+        }
+    );
+}
+
+#[test]
+fn test_model_ref_into_wire_uses_canonical_values() {
+    let wire: WireModelRef = ModelRef {
+        provider: Provider::Anthropic,
+        model: ModelId::ClaudeCodeSonnet,
+    }
+    .into();
+
+    assert_eq!(wire.provider, "claude-code");
+    assert_eq!(wire.model, "claude-code-sonnet");
+}
+
+#[test]
+fn test_model_ref_try_from_wire_rejects_unknown_provider() {
+    let error = ModelRef::try_from(WireModelRef {
+        provider: "unknown".to_string(),
+        model: "gpt-5".to_string(),
+    })
+    .expect_err("unknown provider should fail");
+
+    assert_eq!(error.field, "model_ref.provider");
+    assert!(error.message.contains("unknown provider"));
+}
+
+#[test]
+fn test_model_ref_try_from_wire_rejects_unknown_model() {
+    let error = ModelRef::try_from(WireModelRef {
+        provider: "openai".to_string(),
+        model: "missing-model".to_string(),
+    })
+    .expect_err("unknown model should fail");
+
+    assert_eq!(error.field, "model_ref.model");
+    assert!(error.message.contains("unknown model"));
 }
 
 #[test]

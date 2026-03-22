@@ -11,6 +11,12 @@ const AUTH_OPENAI_CODEX: &[AuthProvider] = &[AuthProvider::OpenAICodex];
 const AUTH_GOOGLE: &[AuthProvider] = &[AuthProvider::Google];
 const AUTH_OTHER: &[AuthProvider] = &[AuthProvider::Other];
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProviderAccessPolicy {
+    auth_profiles: &'static [AuthProvider],
+    allow_secret_env: bool,
+}
+
 const ALL_PROVIDER_AUTH_POLICIES: &[(Provider, &[AuthProvider])] = &[
     (Provider::OpenAI, AUTH_OPENAI),
     (Provider::Anthropic, AUTH_ANTHROPIC),
@@ -80,11 +86,64 @@ const SECRET_PROVIDER_RESOLUTION_ORDER: &[Provider] = &[
     Provider::SiliconFlow,
 ];
 
+const ACCESS_SECRET_ONLY: ProviderAccessPolicy = ProviderAccessPolicy {
+    auth_profiles: &[],
+    allow_secret_env: true,
+};
+const ACCESS_OPENAI: ProviderAccessPolicy = ProviderAccessPolicy {
+    auth_profiles: AUTH_OPENAI,
+    allow_secret_env: true,
+};
+const ACCESS_ANTHROPIC: ProviderAccessPolicy = ProviderAccessPolicy {
+    auth_profiles: AUTH_ANTHROPIC,
+    allow_secret_env: true,
+};
+const ACCESS_GOOGLE: ProviderAccessPolicy = ProviderAccessPolicy {
+    auth_profiles: AUTH_GOOGLE,
+    allow_secret_env: true,
+};
+const ACCESS_CLAUDE_CODE: ProviderAccessPolicy = ProviderAccessPolicy {
+    auth_profiles: AUTH_CLAUDE_CODE,
+    allow_secret_env: false,
+};
+const ACCESS_OPENAI_CODEX: ProviderAccessPolicy = ProviderAccessPolicy {
+    auth_profiles: AUTH_OPENAI_CODEX,
+    allow_secret_env: false,
+};
+
+const ALL_PROVIDER_ACCESS_POLICIES: &[(Provider, ProviderAccessPolicy)] = &[
+    (Provider::OpenAI, ACCESS_OPENAI),
+    (Provider::Anthropic, ACCESS_ANTHROPIC),
+    (Provider::ClaudeCode, ACCESS_CLAUDE_CODE),
+    (Provider::Codex, ACCESS_OPENAI_CODEX),
+    (Provider::DeepSeek, ACCESS_SECRET_ONLY),
+    (Provider::Google, ACCESS_GOOGLE),
+    (Provider::Groq, ACCESS_SECRET_ONLY),
+    (Provider::OpenRouter, ACCESS_SECRET_ONLY),
+    (Provider::XAI, ACCESS_SECRET_ONLY),
+    (Provider::Qwen, ACCESS_SECRET_ONLY),
+    (Provider::Zai, ACCESS_SECRET_ONLY),
+    (Provider::ZaiCodingPlan, ACCESS_SECRET_ONLY),
+    (Provider::Moonshot, ACCESS_SECRET_ONLY),
+    (Provider::Doubao, ACCESS_SECRET_ONLY),
+    (Provider::Yi, ACCESS_SECRET_ONLY),
+    (Provider::SiliconFlow, ACCESS_SECRET_ONLY),
+    (Provider::MiniMax, ACCESS_SECRET_ONLY),
+    (Provider::MiniMaxCodingPlan, ACCESS_SECRET_ONLY),
+];
+
 fn provider_auth_policy(provider: Provider) -> &'static [AuthProvider] {
     ALL_PROVIDER_AUTH_POLICIES
         .iter()
         .find_map(|(candidate, policy)| (*candidate == provider).then_some(policy))
         .unwrap_or_else(|| panic!("missing auth policy for {}", provider.as_canonical_str()))
+}
+
+fn provider_access_policy(provider: Provider) -> ProviderAccessPolicy {
+    ALL_PROVIDER_ACCESS_POLICIES
+        .iter()
+        .find_map(|(candidate, policy)| (*candidate == provider).then_some(*policy))
+        .unwrap_or_else(|| panic!("missing access policy for {}", provider.as_canonical_str()))
 }
 
 pub(crate) fn provider_default_model(provider: Provider) -> ModelId {
@@ -93,6 +152,14 @@ pub(crate) fn provider_default_model(provider: Provider) -> ModelId {
 
 pub(crate) fn provider_auth_providers(provider: Provider) -> &'static [AuthProvider] {
     provider_auth_policy(provider)
+}
+
+pub(crate) fn provider_access_profiles(provider: Provider) -> &'static [AuthProvider] {
+    provider_access_policy(provider).auth_profiles
+}
+
+pub(crate) fn provider_allows_secret_env(provider: Provider) -> bool {
+    provider_access_policy(provider).allow_secret_env
 }
 
 pub(crate) fn provider_display_order(provider: Provider) -> usize {
@@ -113,8 +180,9 @@ pub(crate) fn secret_provider_resolution_order() -> &'static [Provider] {
 #[cfg(test)]
 mod tests {
     use super::{
-        ALL_PROVIDER_AUTH_POLICIES, DISPLAY_PROVIDER_ORDER, provider_auth_providers,
-        provider_default_model, provider_display_order, profile_provider_resolution_order,
+        ALL_PROVIDER_ACCESS_POLICIES, ALL_PROVIDER_AUTH_POLICIES, DISPLAY_PROVIDER_ORDER,
+        profile_provider_resolution_order, provider_access_profiles, provider_allows_secret_env,
+        provider_auth_providers, provider_default_model, provider_display_order,
         secret_provider_resolution_order,
     };
     use crate::auth::AuthProvider;
@@ -154,8 +222,21 @@ mod tests {
     }
 
     #[test]
+    fn provider_access_policy_table_stays_in_sync() {
+        assert_eq!(Provider::all().len(), ALL_PROVIDER_ACCESS_POLICIES.len());
+        assert_eq!(
+            provider_access_profiles(Provider::Codex),
+            &[AuthProvider::OpenAICodex]
+        );
+        assert!(!provider_allows_secret_env(Provider::Codex));
+        assert!(provider_allows_secret_env(Provider::OpenAI));
+    }
+
+    #[test]
     fn provider_display_order_places_coding_first() {
-        assert!(provider_display_order(Provider::OpenAI) < provider_display_order(Provider::Anthropic));
+        assert!(
+            provider_display_order(Provider::OpenAI) < provider_display_order(Provider::Anthropic)
+        );
         assert!(
             provider_display_order(Provider::MiniMaxCodingPlan)
                 < provider_display_order(Provider::DeepSeek)
