@@ -35,7 +35,7 @@
     "@xterm/xterm": "^6.0.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dompurify": "^3.2.7",
+    "dompurify": "^3.3.3",
     "lucide-vue-next": "^0.563.0",
     "marked": "^17.0.2",
     "pinia": "^3.0.4",
