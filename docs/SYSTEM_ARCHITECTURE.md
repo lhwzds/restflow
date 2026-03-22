@@ -100,6 +100,104 @@ Storage
 - Owns all persistence updates.
 - Owns channel/session binding and policy enforcement.
 
+### Model and Provider Ownership
+
+Provider/model ownership is intentionally split from daemon runtime ownership:
+
+- `restflow-traits` owns canonical provider identity and runtime switching contracts.
+- `restflow-models` owns shared provider metadata, model catalog, selectors, and runtime model specs.
+- `restflow-ai` owns client construction and hot-swapping mechanics.
+- `restflow-core` owns daemon-specific pairing and auth policy.
+
+#### Shared Ownership Map
+
+`restflow-traits` owns cross-crate identities and runtime switching contracts:
+
+- `ModelProvider`: canonical provider identity
+- `ClientKind`: concrete execution path
+- `LlmProvider`: runtime provider bucket used by the LLM factory
+- `LlmSwitcher`: runtime model switching interface used by tools and background execution
+
+`restflow-models` owns shared model/provider data and parsing logic:
+
+- `Provider`: API-facing wrapper around `ModelProvider`
+- `ProviderMeta`: runtime provider mapping, API key envs, default model, and external aliases
+- `ModelId`
+- `ModelMetadata` and `ModelMetadataDTO`
+- `catalog/`: provider-specific model descriptors and aliases
+- `selector.rs`: shared provider selector parsing and model resolution helpers
+- `ModelSpec`: runtime model specification consumed by the LLM factory
+
+`restflow-ai` owns runtime execution mechanics:
+
+- `SwappableLlm`: active client holder with hot-swap support
+- `LlmClientFactory`: concrete client creation
+- `LlmSwitcherImpl`: bridge from runtime execution to the shared `LlmSwitcher` trait
+
+`restflow-core` owns daemon-specific policy and pairing logic:
+
+- `ModelRef`: pair/validation wrapper used by daemon-side models
+- `auth/provider_access.rs`: availability resolution, credential-driven default model selection, runtime key lookup
+- `models/provider_policy.rs`: auth preference ordering
+- display-only policy such as provider sort order
+
+#### Concept Boundaries
+
+The following types are intentionally distinct:
+
+- `ModelProvider`: business/provider identity
+- `Provider`: transport/API-facing wrapper for `ModelProvider`
+- `LlmProvider`: runtime backend bucket used by the LLM factory
+- `ClientKind`: concrete execution path
+
+Examples:
+
+- `ClaudeCode` is a canonical provider identity, but its runtime provider bucket is `Anthropic`.
+- `Codex` is a canonical provider identity, but its runtime provider bucket is `OpenAI`.
+- Two models can share the same `LlmProvider` while using different `ClientKind` values.
+
+#### Runtime Switching Flow
+
+```text
+Tool or runtime consumer
+  -> LlmSwitcher
+      -> provider_for_model(model)
+      -> client_kind_for_model(model)
+      -> resolve_api_key(provider)
+      -> create_and_swap(model, api_key)
+          -> LlmClientFactory
+          -> SwappableLlm
+```
+
+Design intent:
+
+- `LlmSwitcher` is the cross-crate switching contract.
+- `SwappableLlm` remains in `restflow-ai` because hot-swapping the active client is a runtime concern, not a catalog concern.
+
+#### Contributor Rules
+
+When adding or changing a provider/model:
+
+1. Add or update the canonical provider in `restflow-traits/src/model.rs`.
+2. Update shared provider metadata in `restflow-models/src/provider_meta.rs`.
+3. Add or update descriptors and aliases under `restflow-models/src/catalog/`.
+4. Update auth policy in `restflow-core` only if authentication behavior changes.
+5. Regenerate frontend types if any `#[derive(TS)]` shape changed.
+
+Review guidance:
+
+- If a change adds an alias table to CLI, tool, or agent code, first check whether it belongs in `restflow-models`.
+- If a change introduces another provider enum, it is almost certainly the wrong abstraction.
+- If a change touches runtime switching, prefer extending `LlmSwitcher` instead of adding a parallel switching trait.
+
+#### Current Non-Goals
+
+These pieces intentionally remain outside the shared model crate:
+
+- auth profile ordering and credential availability logic
+- daemon/UI display-only provider ordering
+- concrete LLM client implementations and runtime swap mechanics
+
 ## 6. Deployment Model
 
 ## Local Development
