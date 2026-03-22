@@ -197,4 +197,23 @@ describe('useToolPanel', () => {
     expect(panel.state.value.data.stdout).toBe('hello')
     expect(panel.state.value.data.raw).toBe('not-json')
   })
+
+  it('forces persisted execution step details into the generic inspector', () => {
+    const panel = useToolPanel()
+
+    panel.handleToolResult(
+      createStep({
+        name: 'web_search',
+        toolId: 'persisted-tool-1',
+        arguments:
+          '{"persisted_execution_step":true,"message_id":"msg-1","step_type":"tool_call"}',
+        result:
+          '{"persisted_execution_step":true,"status":"completed","duration_ms":1200,"note":"Detailed persisted tool payload is not available yet."}',
+      }),
+    )
+
+    expect(panel.state.value.panelType).toBe('generic')
+    expect(panel.state.value.title).toBe('web_search details')
+    expect(panel.state.value.data.persisted_execution_step).toBe(true)
+  })
 })
