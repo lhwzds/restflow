@@ -93,7 +93,7 @@ pub use subagent::{
 };
 
 // LLM switching
-pub use llm::{LlmSwitcher, SwapResult};
+pub use llm::{ClientKind, LlmProvider, LlmSwitcher, SwapResult};
 
 // Shared model/provider normalization
 pub use model::ModelProvider;

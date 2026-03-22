@@ -13,6 +13,7 @@ use crate::tools::{Tool, ToolErrorCategory, ToolOutput};
 use async_trait::async_trait;
 use futures::{StreamExt, stream};
 use restflow_telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
+use restflow_traits::{ClientKind, LlmProvider};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -1266,16 +1267,16 @@ async fn test_run_with_emitter_emits_model_switch_for_routing() {
             vec!["gpt-5".to_string(), "gpt-5-pro".to_string()]
         }
 
-        fn provider_for_model(&self, _model: &str) -> Option<String> {
-            Some("openai".to_string())
+        fn provider_for_model(&self, _model: &str) -> Option<LlmProvider> {
+            Some(LlmProvider::OpenAI)
         }
 
-        fn resolve_api_key(&self, _provider: &str) -> Option<String> {
+        fn resolve_api_key(&self, _provider: LlmProvider) -> Option<String> {
             Some("test-key".to_string())
         }
 
-        fn client_kind_for_model(&self, _model: &str) -> Option<&'static str> {
-            Some("http")
+        fn client_kind_for_model(&self, _model: &str) -> Option<ClientKind> {
+            Some(ClientKind::Http)
         }
 
         fn create_and_swap(

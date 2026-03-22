@@ -2,13 +2,11 @@
 
 use std::sync::Arc;
 
-use restflow_traits::ModelProvider;
 use restflow_traits::ToolError;
-use restflow_traits::llm::{LlmSwitcher, SwapResult};
+use restflow_traits::llm::{ClientKind, LlmProvider, LlmSwitcher, SwapResult};
 
 use super::factory::LlmClientFactory;
 use super::swappable::SwappableLlm;
-use restflow_models::{LlmProvider, provider_meta};
 
 /// Concrete implementation of [`LlmSwitcher`].
 pub struct LlmSwitcherImpl {
@@ -35,21 +33,16 @@ impl LlmSwitcher for LlmSwitcherImpl {
         self.factory.available_models()
     }
 
-    fn provider_for_model(&self, model: &str) -> Option<String> {
-        self.factory
-            .provider_for_model(model)
-            .map(|p| p.as_str().to_string())
+    fn provider_for_model(&self, model: &str) -> Option<LlmProvider> {
+        self.factory.provider_for_model(model)
     }
 
-    fn resolve_api_key(&self, provider: &str) -> Option<String> {
-        let llm_provider = parse_provider_str(provider)?;
-        self.factory.resolve_api_key(llm_provider)
+    fn resolve_api_key(&self, provider: LlmProvider) -> Option<String> {
+        self.factory.resolve_api_key(provider)
     }
 
-    fn client_kind_for_model(&self, model: &str) -> Option<&'static str> {
-        self.factory
-            .client_kind_for_model(model)
-            .map(|kind| kind.as_str())
+    fn client_kind_for_model(&self, model: &str) -> Option<ClientKind> {
+        self.factory.client_kind_for_model(model)
     }
 
     fn create_and_swap(
@@ -70,36 +63,5 @@ impl LlmSwitcher for LlmSwitcherImpl {
             new_provider: client.provider().to_string(),
             new_model: client.model().to_string(),
         })
-    }
-}
-
-/// Parse a provider string into `LlmProvider`.
-fn parse_provider_str(value: &str) -> Option<LlmProvider> {
-    let provider = ModelProvider::parse_alias(value)?;
-    Some(provider_meta(provider).runtime_provider)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_provider_str;
-    use restflow_models::LlmProvider;
-
-    #[test]
-    fn parse_provider_aliases_from_shared_model_provider() {
-        assert_eq!(parse_provider_str("gpt"), Some(LlmProvider::OpenAI));
-        assert_eq!(parse_provider_str("gemini"), Some(LlmProvider::Google));
-        assert_eq!(
-            parse_provider_str("claude-code"),
-            Some(LlmProvider::Anthropic)
-        );
-        assert_eq!(parse_provider_str("codex"), Some(LlmProvider::OpenAI));
-        assert_eq!(
-            parse_provider_str("zai-coding"),
-            Some(LlmProvider::ZaiCodingPlan)
-        );
-        assert_eq!(
-            parse_provider_str("minimaxcodingplan"),
-            Some(LlmProvider::MiniMaxCodingPlan)
-        );
     }
 }
