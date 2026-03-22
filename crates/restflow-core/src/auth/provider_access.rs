@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
 use crate::models::{
-    ModelId, Provider, profile_provider_resolution_order, provider_default_model,
-    secret_provider_resolution_order,
+    ModelId, Provider, profile_provider_resolution_order, provider_access_profiles,
+    provider_allows_secret_env, provider_default_model, secret_provider_resolution_order,
 };
 use crate::storage::SecretStorage;
 use restflow_models::LlmProvider;
 
-use super::{AuthProfileManager, AuthProvider};
+use super::AuthProfileManager;
 
 pub(crate) fn secret_exists(storage: &SecretStorage, key: &str) -> bool {
     storage.get_non_empty(key).ok().flatten().is_some()
@@ -39,38 +39,21 @@ pub(crate) async fn provider_available<F>(
 where
     F: Fn(&str) -> bool,
 {
-    match provider {
-        Provider::ClaudeCode => auth_manager
-            .get_available_profile(AuthProvider::ClaudeCode)
-            .await
-            .is_some(),
-        Provider::Codex => auth_manager
-            .get_available_profile(AuthProvider::OpenAICodex)
-            .await
-            .is_some(),
-        Provider::OpenAI => {
-            provider_has_secret(provider, &has_secret)
-                || auth_manager
-                    .get_available_profile(AuthProvider::OpenAI)
-                    .await
-                    .is_some()
-        }
-        Provider::Anthropic => {
-            provider_has_secret(provider, &has_secret)
-                || auth_manager
-                    .get_available_profile(AuthProvider::Anthropic)
-                    .await
-                    .is_some()
-        }
-        Provider::Google => {
-            provider_has_secret(provider, &has_secret)
-                || auth_manager
-                    .get_available_profile(AuthProvider::Google)
-                    .await
-                    .is_some()
-        }
-        other => provider_has_secret(other, &has_secret),
+    if provider_allows_secret_env(provider) && provider_has_secret(provider, &has_secret) {
+        return true;
     }
+
+    for auth_provider in provider_access_profiles(provider) {
+        if auth_manager
+            .get_available_profile(*auth_provider)
+            .await
+            .is_some()
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 pub(crate) async fn resolve_model_from_credentials<F>(
@@ -137,6 +120,7 @@ pub(crate) fn build_runtime_api_keys(
 mod tests {
     use std::sync::Arc;
 
+    use crate::auth::AuthProvider;
     use redb::Database;
     use tempfile::TempDir;
     use uuid::Uuid;
@@ -201,6 +185,49 @@ mod tests {
         })
         .await;
         assert!(available);
+    }
+
+    #[tokio::test]
+    async fn provider_available_accepts_openai_profile_without_secret() {
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        manager
+            .add_profile(create_test_profile(
+                &secrets,
+                "OpenAI",
+                AuthProvider::OpenAI,
+            ))
+            .await
+            .unwrap();
+
+        let available = provider_available(&manager, Provider::OpenAI, |key| {
+            secret_exists(secrets.as_ref(), key)
+        })
+        .await;
+        assert!(available);
+    }
+
+    #[tokio::test]
+    async fn provider_available_requires_dedicated_codex_profile() {
+        let (secrets, _dir) = create_test_secrets();
+        let manager = AuthProfileManager::new(secrets.clone());
+        manager
+            .add_profile(create_test_profile(
+                &secrets,
+                "OpenAI",
+                AuthProvider::OpenAI,
+            ))
+            .await
+            .unwrap();
+        secrets
+            .set_secret("OPENAI_API_KEY", "openai-key", None)
+            .unwrap();
+
+        let available = provider_available(&manager, Provider::Codex, |key| {
+            secret_exists(secrets.as_ref(), key)
+        })
+        .await;
+        assert!(!available);
     }
 
     #[tokio::test]

@@ -79,14 +79,18 @@ define_llm_provider_enum! {
 /// Result of a successful model swap.
 #[derive(Debug, Clone)]
 pub struct SwapResult {
-    /// Previous provider name.
+    /// Previous provider label reported by the active client.
     pub previous_provider: String,
     /// Previous model name.
     pub previous_model: String,
-    /// New provider name.
+    /// Previous runtime provider bucket, when known.
+    pub previous_runtime_provider: Option<LlmProvider>,
+    /// New provider label reported by the active client.
     pub new_provider: String,
     /// New model name.
     pub new_model: String,
+    /// New runtime provider bucket.
+    pub new_runtime_provider: LlmProvider,
 }
 
 /// Runtime LLM model switching.
@@ -97,8 +101,14 @@ pub trait LlmSwitcher: Send + Sync {
     /// Current model name.
     fn current_model(&self) -> String;
 
-    /// Current provider name.
+    /// Current provider label reported by the active client.
     fn current_provider(&self) -> String;
+
+    /// Current runtime provider bucket, when it can be derived from the active model.
+    fn current_runtime_provider(&self) -> Option<LlmProvider> {
+        let current_model = self.current_model();
+        self.provider_for_model(&current_model)
+    }
 
     /// List all available model names.
     fn available_models(&self) -> Vec<String>;
@@ -202,8 +212,10 @@ mod tests {
             Ok(SwapResult {
                 previous_provider: "openai".to_string(),
                 previous_model,
+                previous_runtime_provider: Some(LlmProvider::OpenAI),
                 new_provider: "openai".to_string(),
                 new_model: model.to_string(),
+                new_runtime_provider: LlmProvider::OpenAI,
             })
         }
     }
@@ -224,5 +236,14 @@ mod tests {
         let switcher = MockSwitcher::new(ClientKind::CodexCli, None);
         let result = switcher.switch_model("gpt-5").unwrap();
         assert_eq!(result.new_model, "gpt-5");
+    }
+
+    #[test]
+    fn current_runtime_provider_defaults_to_model_lookup() {
+        let switcher = MockSwitcher::new(ClientKind::Http, Some("test-key"));
+        assert_eq!(
+            switcher.current_runtime_provider(),
+            Some(LlmProvider::OpenAI)
+        );
     }
 }

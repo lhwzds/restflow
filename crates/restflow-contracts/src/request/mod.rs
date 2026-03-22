@@ -458,17 +458,19 @@ pub enum ApiKeyConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ModelRef {
+pub struct WireModelRef {
     pub provider: String,
     pub model: String,
 }
+
+pub type ModelRef = WireModelRef;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AgentNode {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model_ref: Option<ModelRef>,
+    pub model_ref: Option<WireModelRef>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1326,7 +1328,7 @@ mod tests {
     fn sample_agent_node() -> AgentNode {
         AgentNode {
             model: Some("gpt-5".to_string()),
-            model_ref: Some(ModelRef {
+            model_ref: Some(WireModelRef {
                 provider: "openai".to_string(),
                 model: "gpt-5".to_string(),
             }),
@@ -1350,6 +1352,18 @@ mod tests {
                 escalate_on_failure: true,
             }),
         }
+    }
+
+    #[test]
+    fn wire_model_ref_alias_round_trips() {
+        let model_ref = WireModelRef {
+            provider: "openai".to_string(),
+            model: "gpt-5".to_string(),
+        };
+        assert_roundtrip(&model_ref);
+
+        let legacy_alias: ModelRef = model_ref.clone();
+        assert_eq!(legacy_alias, model_ref);
     }
 
     #[test]
