@@ -16,7 +16,7 @@ pub use operation::{
 pub use request::IpcRequest;
 pub use response::ResponseEnvelope;
 pub use stream::StreamEnvelope;
-pub use tool::{ToolDefinition, ToolExecutionResult};
+pub use tool::{ToolDefinition, ToolErrorCategory, ToolExecutionResult};
 
 #[cfg(test)]
 mod tests {

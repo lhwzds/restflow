@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use restflow_contracts::request::AgentNode as ContractAgentNode;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -101,7 +102,7 @@ pub trait MemoryManager: Send + Sync {
 #[derive(Clone, Debug, Deserialize)]
 pub struct AgentCreateRequest {
     pub name: String,
-    pub agent: Value,
+    pub agent: ContractAgentNode,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -110,7 +111,7 @@ pub struct AgentUpdateRequest {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
-    pub agent: Option<Value>,
+    pub agent: Option<ContractAgentNode>,
 }
 
 pub trait AgentStore: Send + Sync {

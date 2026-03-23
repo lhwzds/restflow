@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
+use restflow_contracts::request::AgentNode as ContractAgentNode;
 use restflow_storage::AuthProfileStorage;
 use restflow_traits::ModelProvider as SharedModelProvider;
 use sha2::{Digest, Sha256};
@@ -283,12 +284,9 @@ fn build_confirmation_token(assessment: &OperationAssessment) -> String {
     hex::encode(hasher.finalize())
 }
 
-fn parse_agent_node(value: serde_json::Value) -> Result<AgentNode> {
-    let mut agent: AgentNode = serde_json::from_value(value)?;
-    agent
-        .normalize_model_fields()
-        .map_err(|error| anyhow!(error.message))?;
-    Ok(agent)
+fn parse_agent_node(value: ContractAgentNode) -> Result<AgentNode> {
+    AgentNode::try_from_contract_node(value)
+        .map_err(|errors| anyhow!(crate::models::encode_validation_error(errors)))
 }
 
 async fn load_agent(core: &Arc<AppCore>, id_or_prefix: &str) -> Result<StoredAgent> {
@@ -711,4 +709,131 @@ pub async fn assess_subagent_batch(
     }
 
     Ok(finalize_assessment(assessment))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::prompt_files;
+    use restflow_contracts::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
+    use tempfile::tempdir;
+
+    struct AgentsDirEnvGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl AgentsDirEnvGuard {
+        fn new() -> Self {
+            Self {
+                _lock: prompt_files::agents_dir_env_lock(),
+            }
+        }
+    }
+
+    impl Drop for AgentsDirEnvGuard {
+        fn drop(&mut self) {
+            unsafe { std::env::remove_var(prompt_files::AGENTS_DIR_ENV) };
+        }
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    async fn create_test_core_isolated() -> (
+        Arc<AppCore>,
+        tempfile::TempDir,
+        tempfile::TempDir,
+        AgentsDirEnvGuard,
+    ) {
+        let env_guard = AgentsDirEnvGuard::new();
+        let temp_db = tempdir().expect("temp db");
+        let temp_agents = tempdir().expect("temp agents");
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path()) };
+        let db_path = temp_db.path().join("test.db");
+        let core = Arc::new(
+            AppCore::new(db_path.to_str().expect("db path"))
+                .await
+                .unwrap(),
+        );
+        (core, temp_db, temp_agents, env_guard)
+    }
+
+    #[tokio::test]
+    async fn assess_agent_create_accepts_valid_contract_agent_node() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let assessment = assess_agent_create(
+            &core,
+            AgentCreateRequest {
+                name: "Typed Agent".to_string(),
+                agent: ContractAgentNode {
+                    model_ref: Some(WireModelRef {
+                        provider: "openai".to_string(),
+                        model: "gpt-5-mini".to_string(),
+                    }),
+                    api_key_config: Some(ContractApiKeyConfig::Direct("test-key".to_string())),
+                    prompt: Some("hello".to_string()),
+                    ..ContractAgentNode::default()
+                },
+            },
+        )
+        .await
+        .expect("assessment should succeed");
+
+        assert_eq!(assessment.status, OperationAssessmentStatus::Ok);
+        assert_eq!(
+            assessment
+                .effective_model_ref
+                .as_ref()
+                .map(|model_ref| model_ref.provider.as_str()),
+            Some("openai")
+        );
+    }
+
+    #[tokio::test]
+    async fn assess_agent_create_rejects_invalid_model_ref() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let error = assess_agent_create(
+            &core,
+            AgentCreateRequest {
+                name: "Bad Agent".to_string(),
+                agent: ContractAgentNode {
+                    model_ref: Some(WireModelRef {
+                        provider: "openai".to_string(),
+                        model: "claude-sonnet-4".to_string(),
+                    }),
+                    ..ContractAgentNode::default()
+                },
+            },
+        )
+        .await
+        .expect_err("invalid model_ref should fail");
+
+        let message = error.to_string();
+        assert!(message.contains("validation_error"));
+        assert!(message.contains("model_ref"));
+    }
+
+    #[tokio::test]
+    async fn assess_agent_update_rejects_conflicting_model_fields() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let error = assess_agent_update(
+            &core,
+            AgentUpdateRequest {
+                id: "agent-1".to_string(),
+                name: None,
+                agent: Some(ContractAgentNode {
+                    model: Some("gpt-5-mini".to_string()),
+                    model_ref: Some(WireModelRef {
+                        provider: "anthropic".to_string(),
+                        model: "claude-sonnet-4".to_string(),
+                    }),
+                    ..ContractAgentNode::default()
+                }),
+            },
+        )
+        .await
+        .expect_err("conflicting model fields should fail");
+
+        let message = error.to_string();
+        assert!(message.contains("validation_error"));
+        assert!(message.contains("model_ref"));
+    }
 }

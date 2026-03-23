@@ -6,6 +6,5 @@ edition.workspace = true
 description = "Shared transport and boundary contracts for RestFlow"
 
 [dependencies]
-restflow-traits = { workspace = true }
 serde = { workspace = true, features = ["derive"] }
 serde_json = { workspace = true }

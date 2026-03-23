@@ -4,6 +4,7 @@ use crate::services::operation_assessment::{
     ensure_assessment_confirmed,
 };
 use restflow_contracts::OkResponse;
+use restflow_contracts::request::AgentNode as ContractAgentNode;
 use restflow_traits::OperationAssessment;
 use restflow_traits::store::{AgentCreateRequest, AgentUpdateRequest};
 use serde_json::json;
@@ -71,10 +72,7 @@ impl IpcServer {
             core,
             AgentCreateRequest {
                 name: name.clone(),
-                agent: match serde_json::to_value(&agent) {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
+                agent: ContractAgentNode::from(agent.clone()),
             },
         )
         .await
@@ -107,10 +105,7 @@ impl IpcServer {
             AgentUpdateRequest {
                 id: id.clone(),
                 name: name.clone(),
-                agent: match agent.as_ref().map(serde_json::to_value).transpose() {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
+                agent: agent.clone().map(ContractAgentNode::from),
             },
         )
         .await

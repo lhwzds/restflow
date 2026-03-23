@@ -2,6 +2,7 @@
 
 use crate::storage::skill::SkillStorage;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, SecretStorage};
+use restflow_contracts::request::AgentNode as ContractAgentNode;
 use restflow_tools::ToolError;
 use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 use serde_json::{Value, json};
@@ -34,13 +35,9 @@ impl AgentStoreAdapter {
         }
     }
 
-    fn parse_agent_node(value: Value) -> Result<crate::models::AgentNode, ToolError> {
-        let mut agent: crate::models::AgentNode = serde_json::from_value(value)
-            .map_err(|e| ToolError::Tool(format!("Invalid agent payload: {}", e)))?;
-        agent.normalize_model_fields().map_err(|error| {
-            ToolError::Tool(crate::models::encode_validation_error(vec![error]))
-        })?;
-        Ok(agent)
+    fn parse_agent_node(value: ContractAgentNode) -> Result<crate::models::AgentNode, ToolError> {
+        crate::models::AgentNode::try_from_contract_node(value)
+            .map_err(|errors| ToolError::Tool(crate::models::encode_validation_error(errors)))
     }
 
     fn validate_agent_node(&self, agent: &crate::models::AgentNode) -> Result<(), ToolError> {
@@ -189,6 +186,7 @@ impl AgentStore for AgentStoreAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
     use restflow_traits::store::AgentStore;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -259,10 +257,9 @@ mod tests {
     #[test]
     fn test_create_and_list_agents() {
         let (adapter, _dir, _guard) = setup();
-        let agent_json = serde_json::to_value(crate::models::AgentNode::default()).unwrap();
         let request = AgentCreateRequest {
             name: "Test Agent".to_string(),
-            agent: agent_json,
+            agent: ContractAgentNode::default(),
         };
         adapter.create_agent(request).unwrap();
 
@@ -274,11 +271,10 @@ mod tests {
     #[test]
     fn test_get_agent() {
         let (adapter, _dir, _guard) = setup();
-        let agent_json = serde_json::to_value(crate::models::AgentNode::default()).unwrap();
         let created = adapter
             .create_agent(AgentCreateRequest {
                 name: "Getter".to_string(),
-                agent: agent_json,
+                agent: ContractAgentNode::default(),
             })
             .unwrap();
         let id = created["id"].as_str().unwrap();
@@ -297,11 +293,10 @@ mod tests {
     #[test]
     fn test_delete_agent() {
         let (adapter, _dir, _guard) = setup();
-        let agent_json = serde_json::to_value(crate::models::AgentNode::default()).unwrap();
         let created = adapter
             .create_agent(AgentCreateRequest {
                 name: "To Delete".to_string(),
-                agent: agent_json,
+                agent: ContractAgentNode::default(),
             })
             .unwrap();
         let id = created["id"].as_str().unwrap();
@@ -313,11 +308,10 @@ mod tests {
     #[test]
     fn test_update_agent_name() {
         let (adapter, _dir, _guard) = setup();
-        let agent_json = serde_json::to_value(crate::models::AgentNode::default()).unwrap();
         let created = adapter
             .create_agent(AgentCreateRequest {
                 name: "Original".to_string(),
-                agent: agent_json,
+                agent: ContractAgentNode::default(),
             })
             .unwrap();
         let id = created["id"].as_str().unwrap().to_string();
@@ -335,18 +329,65 @@ mod tests {
     #[test]
     fn test_validate_unknown_tool_rejected() {
         let (adapter, _dir, _guard) = setup();
-        let agent = crate::models::AgentNode {
-            tools: Some(vec!["nonexistent_tool".to_string()]),
-            ..Default::default()
-        };
-        let agent_json = serde_json::to_value(agent).unwrap();
-
         let result = adapter.create_agent(AgentCreateRequest {
             name: "Bad Tools".to_string(),
-            agent: agent_json,
+            agent: ContractAgentNode {
+                tools: Some(vec!["nonexistent_tool".to_string()]),
+                ..ContractAgentNode::default()
+            },
         });
         assert!(result.is_err());
         let err_msg = format!("{:?}", result.unwrap_err());
         assert!(err_msg.contains("unknown tool"));
+    }
+
+    #[test]
+    fn test_create_agent_rejects_invalid_model_ref() {
+        let (adapter, _dir, _guard) = setup();
+        let result = adapter.create_agent(AgentCreateRequest {
+            name: "Bad Model Ref".to_string(),
+            agent: ContractAgentNode {
+                model_ref: Some(WireModelRef {
+                    provider: "openai".to_string(),
+                    model: "claude-sonnet-4".to_string(),
+                }),
+                ..ContractAgentNode::default()
+            },
+        });
+
+        let error = result.expect_err("expected invalid model_ref");
+        let message = error.to_string();
+        assert!(message.contains("validation_error"));
+        assert!(message.contains("model_ref"));
+    }
+
+    #[test]
+    fn test_update_agent_rejects_conflicting_model_fields() {
+        let (adapter, _dir, _guard) = setup();
+        let created = adapter
+            .create_agent(AgentCreateRequest {
+                name: "Conflict".to_string(),
+                agent: ContractAgentNode::default(),
+            })
+            .expect("create agent");
+        let id = created["id"].as_str().expect("agent id").to_string();
+
+        let result = adapter.update_agent(AgentUpdateRequest {
+            id,
+            name: None,
+            agent: Some(ContractAgentNode {
+                model: Some("gpt-5-mini".to_string()),
+                model_ref: Some(WireModelRef {
+                    provider: "anthropic".to_string(),
+                    model: "claude-sonnet-4".to_string(),
+                }),
+                ..ContractAgentNode::default()
+            }),
+        });
+
+        let error = result.expect_err("expected conflicting model fields");
+        let message = error.to_string();
+        assert!(message.contains("validation_error"));
+        assert!(message.contains("model_ref"));
     }
 }

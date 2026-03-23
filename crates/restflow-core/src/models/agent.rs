@@ -315,6 +315,11 @@ impl AgentNode {
         Self::default()
     }
 
+    /// Decode a contract agent payload into the canonical core model.
+    pub fn try_from_contract_node(value: ContractAgentNode) -> Result<Self, Vec<ValidationError>> {
+        Self::try_from(value)
+    }
+
     /// Create a new agent with a specific model
     pub fn with_model(model: ModelId) -> Self {
         Self {

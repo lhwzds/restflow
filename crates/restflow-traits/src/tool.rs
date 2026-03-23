@@ -1,6 +1,7 @@
 //! Tool trait and types for AI agent tools.
 
 use async_trait::async_trait;
+pub use restflow_contracts::ToolErrorCategory;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::Arc;
@@ -63,16 +64,6 @@ pub struct ToolOutput {
     pub error_category: Option<ToolErrorCategory>,
     pub retryable: Option<bool>,
     pub retry_after_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub enum ToolErrorCategory {
-    Network,
-    Auth,
-    Config,
-    Execution,
-    RateLimit,
-    NotFound,
 }
 
 impl ToolOutput {
