@@ -11,45 +11,153 @@ use crate::models::{
 
 /// Build persisted execution steps from unified execution-trace events.
 pub fn build_execution_steps(events: &[ExecutionTraceEvent]) -> Vec<ExecutionStepInfo> {
-    let mut tool_events = events
-        .iter()
-        .filter_map(|event| {
-            if event.category != ExecutionTraceCategory::ToolCall {
-                return None;
-            }
-            let tool_call = event.tool_call.as_ref()?;
-            if tool_call.phase != ToolCallPhase::Completed {
-                return None;
-            }
-            Some((event.timestamp, &event.id, tool_call))
-        })
-        .collect::<Vec<_>>();
-    tool_events.sort_by(|left, right| left.0.cmp(&right.0).then_with(|| left.1.cmp(right.1)));
+    let mut sorted_events = events.iter().collect::<Vec<_>>();
+    sorted_events.sort_by(|left, right| {
+        left.timestamp
+            .cmp(&right.timestamp)
+            .then_with(|| left.id.cmp(&right.id))
+    });
 
-    tool_events
-        .into_iter()
-        .map(|(_, _, tool_call)| {
-            let status = if tool_call.success == Some(false) {
-                "failed"
-            } else {
-                "completed"
-            };
-            let tool_name = if tool_call.tool_name.trim().is_empty() {
-                "unknown_tool"
-            } else {
-                tool_call.tool_name.as_str()
-            };
-            let mut step =
-                ExecutionStepInfo::new("tool_call", tool_name.to_string()).with_status(status);
-            if let Some(duration_ms) = tool_call
-                .duration_ms
-                .and_then(|value| u64::try_from(value).ok())
-            {
-                step = step.with_duration(duration_ms);
+    let mut steps = Vec::new();
+    for event in sorted_events {
+        match event.category {
+            ExecutionTraceCategory::ToolCall => {
+                let Some(tool_call) = event.tool_call.as_ref() else {
+                    continue;
+                };
+                if tool_call.phase != ToolCallPhase::Completed {
+                    continue;
+                }
+                steps.push(build_tool_call_step(tool_call));
             }
-            step
-        })
-        .collect()
+            ExecutionTraceCategory::LlmCall => {
+                let Some(llm_call) = event.llm_call.as_ref() else {
+                    continue;
+                };
+                steps.push(build_llm_call_step(event, llm_call));
+            }
+            ExecutionTraceCategory::ModelSwitch => {
+                let Some(model_switch) = event.model_switch.as_ref() else {
+                    continue;
+                };
+                steps.push(build_model_switch_step(model_switch));
+            }
+            ExecutionTraceCategory::Lifecycle => {
+                let Some(lifecycle) = event.lifecycle.as_ref() else {
+                    continue;
+                };
+                if let Some(step) = build_lifecycle_step(lifecycle) {
+                    steps.push(step);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    steps
+}
+
+fn build_tool_call_step(tool_call: &ToolCallTrace) -> ExecutionStepInfo {
+    let status = if tool_call.success == Some(false) {
+        "failed"
+    } else {
+        "completed"
+    };
+    let tool_name = if tool_call.tool_name.trim().is_empty() {
+        "unknown_tool"
+    } else {
+        tool_call.tool_name.as_str()
+    };
+    let mut step = ExecutionStepInfo::new("tool_call", tool_name.to_string()).with_status(status);
+    if let Some(duration_ms) = to_duration_ms(tool_call.duration_ms) {
+        step = step.with_duration(duration_ms);
+    }
+    step
+}
+
+fn build_llm_call_step(
+    event: &ExecutionTraceEvent,
+    llm_call: &crate::models::LlmCallTrace,
+) -> ExecutionStepInfo {
+    let model_candidates = [
+        llm_call.model.as_str(),
+        event.effective_model.as_deref().unwrap_or_default(),
+        event.requested_model.as_deref().unwrap_or_default(),
+    ];
+    let model_name = first_non_empty(&model_candidates).unwrap_or("llm");
+
+    let mut step =
+        ExecutionStepInfo::new("llm_call", model_name.to_string()).with_status("completed");
+    if let Some(duration_ms) = to_duration_ms(llm_call.duration_ms) {
+        step = step.with_duration(duration_ms);
+    }
+    step
+}
+
+fn build_model_switch_step(model_switch: &ModelSwitchTrace) -> ExecutionStepInfo {
+    let from_model = if model_switch.from_model.trim().is_empty() {
+        "unknown"
+    } else {
+        model_switch.from_model.as_str()
+    };
+    let to_model = if model_switch.to_model.trim().is_empty() {
+        "unknown"
+    } else {
+        model_switch.to_model.as_str()
+    };
+    let status = if model_switch.success {
+        "completed"
+    } else {
+        "failed"
+    };
+
+    ExecutionStepInfo::new("model_switch", format!("{from_model} -> {to_model}"))
+        .with_status(status)
+}
+
+fn build_lifecycle_step(lifecycle: &LifecycleTrace) -> Option<ExecutionStepInfo> {
+    let status = match lifecycle.status.as_str() {
+        "run_failed" | "turn_failed" => "failed",
+        "run_interrupted" | "turn_interrupted" => "failed",
+        _ => return None,
+    };
+
+    let mut name = lifecycle.status.clone();
+    if let Some(error) = first_non_empty(&[
+        lifecycle.error.as_deref().unwrap_or_default(),
+        lifecycle.message.as_deref().unwrap_or_default(),
+    ]) {
+        name.push_str(": ");
+        name.push_str(&truncate_step_name(error, 72));
+    }
+
+    let mut step = ExecutionStepInfo::new("lifecycle", name).with_status(status);
+    if let Some(duration_ms) = to_duration_ms(lifecycle.ai_duration_ms) {
+        step = step.with_duration(duration_ms);
+    }
+    Some(step)
+}
+
+fn to_duration_ms(value: Option<i64>) -> Option<u64> {
+    value.and_then(|duration_ms| u64::try_from(duration_ms).ok())
+}
+
+fn first_non_empty<'a>(values: &'a [&'a str]) -> Option<&'a str> {
+    values
+        .iter()
+        .copied()
+        .find(|value| !value.trim().is_empty())
+        .map(str::trim)
+}
+
+fn truncate_step_name(value: &str, max_chars: usize) -> String {
+    let trimmed = value.trim();
+    let truncated = trimmed.chars().take(max_chars).collect::<String>();
+    if trimmed.chars().count() > max_chars {
+        format!("{truncated}...")
+    } else {
+        truncated
+    }
 }
 
 pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> ExecutionTraceEvent {
@@ -298,4 +406,118 @@ pub fn build_log_record_event(
                 .collect(),
         }),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::build_execution_steps;
+    use crate::models::{
+        ExecutionTraceEvent, LifecycleTrace, LlmCallTrace, ModelSwitchTrace, ToolCallPhase,
+        ToolCallTrace,
+    };
+
+    #[test]
+    fn build_execution_steps_includes_non_tool_events_in_time_order() {
+        let mut run_started = ExecutionTraceEvent::lifecycle(
+            "session-1",
+            "agent-1",
+            LifecycleTrace {
+                status: "run_started".to_string(),
+                message: Some("run started".to_string()),
+                error: None,
+                ai_duration_ms: None,
+            },
+        );
+        run_started.id = "evt-1".to_string();
+        run_started.timestamp = 10;
+
+        let mut llm_call = ExecutionTraceEvent::llm_call(
+            "session-1",
+            "agent-1",
+            LlmCallTrace {
+                model: "gpt-5".to_string(),
+                input_tokens: Some(10),
+                output_tokens: Some(20),
+                total_tokens: Some(30),
+                cost_usd: Some(0.02),
+                duration_ms: Some(450),
+                is_reasoning: Some(false),
+                message_count: Some(2),
+            },
+        );
+        llm_call.id = "evt-2".to_string();
+        llm_call.timestamp = 20;
+
+        let mut model_switch = ExecutionTraceEvent::model_switch(
+            "session-1",
+            "agent-1",
+            ModelSwitchTrace {
+                from_model: "gpt-4".to_string(),
+                to_model: "gpt-5".to_string(),
+                reason: Some("failover".to_string()),
+                success: true,
+            },
+        );
+        model_switch.id = "evt-3".to_string();
+        model_switch.timestamp = 30;
+
+        let mut tool_completed = ExecutionTraceEvent::tool_call(
+            "session-1",
+            "agent-1",
+            ToolCallTrace {
+                phase: ToolCallPhase::Completed,
+                tool_call_id: "tool-1".to_string(),
+                tool_name: "web_search".to_string(),
+                input: None,
+                input_summary: Some("{\"query\":\"latest\"}".to_string()),
+                output: Some("{\"items\":[]}".to_string()),
+                output_ref: None,
+                success: Some(true),
+                error: None,
+                duration_ms: Some(1200),
+            },
+        );
+        tool_completed.id = "evt-4".to_string();
+        tool_completed.timestamp = 40;
+
+        let mut run_failed = ExecutionTraceEvent::lifecycle(
+            "session-1",
+            "agent-1",
+            LifecycleTrace {
+                status: "run_failed".to_string(),
+                message: Some("run failed".to_string()),
+                error: Some("upstream timeout".to_string()),
+                ai_duration_ms: Some(2400),
+            },
+        );
+        run_failed.id = "evt-5".to_string();
+        run_failed.timestamp = 50;
+
+        let steps = build_execution_steps(&[
+            tool_completed,
+            run_failed,
+            model_switch,
+            llm_call,
+            run_started,
+        ]);
+
+        assert_eq!(steps.len(), 4);
+        assert_eq!(steps[0].step_type, "llm_call");
+        assert_eq!(steps[0].name, "gpt-5");
+        assert_eq!(steps[0].duration_ms, Some(450));
+
+        assert_eq!(steps[1].step_type, "model_switch");
+        assert_eq!(steps[1].name, "gpt-4 -> gpt-5");
+        assert_eq!(steps[1].status, "completed");
+
+        assert_eq!(steps[2].step_type, "tool_call");
+        assert_eq!(steps[2].name, "web_search");
+        assert_eq!(steps[2].duration_ms, Some(1200));
+
+        assert_eq!(steps[3].step_type, "lifecycle");
+        assert_eq!(steps[3].status, "failed");
+        assert!(steps[3].name.contains("run_failed"));
+        assert!(steps[3].name.contains("upstream timeout"));
+        assert_eq!(steps[3].duration_ms, Some(2400));
+    }
 }

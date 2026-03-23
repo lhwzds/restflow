@@ -271,6 +271,73 @@ describe('MessageList', () => {
     })
   })
 
+  it('emits persisted non-tool execution step details for the right-side panel', async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [
+          {
+            id: 'msg-persisted-llm',
+            role: 'assistant',
+            content: 'Model selection completed.',
+            timestamp: 1n,
+            execution: {
+              steps: [
+                {
+                  step_type: 'llm_call',
+                  name: 'gpt-5',
+                  status: 'completed',
+                  duration_ms: 420n,
+                },
+                {
+                  step_type: 'model_switch',
+                  name: 'gpt-4 -> gpt-5',
+                  status: 'completed',
+                  duration_ms: null,
+                },
+              ],
+              duration_ms: 900n,
+              tokens_used: 10,
+              cost_usd: null,
+              input_tokens: null,
+              output_tokens: null,
+              status: 'completed',
+            },
+          },
+        ],
+        isStreaming: false,
+        streamContent: '',
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.get('[data-testid="persisted-step-msg-persisted-llm-0"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="persisted-step-view-msg-persisted-llm-0"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="persisted-step-view-msg-persisted-llm-1"]')).toBeTruthy()
+
+    await wrapper.get('[data-testid="persisted-step-view-msg-persisted-llm-1"]').trigger('click')
+
+    const emittedView = wrapper.emitted('viewToolResult') ?? wrapper.emitted('view-tool-result')
+    expect(emittedView).toBeTruthy()
+    expect(emittedView?.[0]?.[0]).toMatchObject({
+      type: 'model_switch',
+      name: 'gpt-4 -> gpt-5',
+      toolId: 'persisted-msg-persisted-llm-1',
+      status: 'completed',
+    })
+    const emittedStep = emittedView?.[0]?.[0] as StreamStep
+    expect(JSON.parse(emittedStep.result ?? '{}') as Record<string, unknown>).toMatchObject({
+      persisted_execution_step: true,
+      message_id: 'msg-persisted-llm',
+      step_type: 'model_switch',
+    })
+  })
+
   it('hides copy and retry actions when action flags are disabled', () => {
     const wrapper = mount(MessageList, {
       props: {

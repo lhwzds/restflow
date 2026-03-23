@@ -205,8 +205,7 @@ describe('useToolPanel', () => {
       createStep({
         name: 'web_search',
         toolId: 'persisted-tool-1',
-        arguments:
-          '{"persisted_execution_step":true,"message_id":"msg-1","step_type":"tool_call"}',
+        arguments: '{"persisted_execution_step":true,"message_id":"msg-1","step_type":"tool_call"}',
         result:
           '{"persisted_execution_step":true,"status":"completed","duration_ms":1200,"note":"Detailed persisted tool payload is not available yet."}',
       }),
@@ -214,6 +213,27 @@ describe('useToolPanel', () => {
 
     expect(panel.state.value.panelType).toBe('generic')
     expect(panel.state.value.title).toBe('web_search details')
+    expect(panel.state.value.data.persisted_execution_step).toBe(true)
+  })
+
+  it('opens persisted non-tool execution steps in the generic inspector', () => {
+    const panel = useToolPanel()
+
+    panel.handleToolResult(
+      createStep({
+        type: 'model_switch',
+        name: 'gpt-4 -> gpt-5',
+        toolId: undefined,
+        arguments:
+          '{"persisted_execution_step":true,"message_id":"msg-2","step_index":1,"step_type":"model_switch"}',
+        result:
+          '{"persisted_execution_step":true,"status":"completed","note":"Persisted execution step summary."}',
+      }),
+    )
+
+    expect(panel.state.value.panelType).toBe('generic')
+    expect(panel.state.value.toolId).toBe('persisted-msg-2-1')
+    expect(panel.state.value.title).toBe('model_switch: gpt-4 -> gpt-5')
     expect(panel.state.value.data.persisted_execution_step).toBe(true)
   })
 })

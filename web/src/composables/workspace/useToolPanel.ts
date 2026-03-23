@@ -111,6 +111,29 @@ function toTitle(
   return toolName || 'Tool Result'
 }
 
+function toStepEntryId(step: StreamStep, data: Record<string, unknown>): string {
+  if (step.toolId) return step.toolId
+
+  if (isPersistedExecutionStepData(data)) {
+    const messageId =
+      typeof data.message_id === 'string' && data.message_id.length > 0 ? data.message_id : 'step'
+    const stepIndex =
+      typeof data.step_index === 'number' && Number.isFinite(data.step_index)
+        ? data.step_index
+        : 'unknown'
+    return `persisted-${messageId}-${stepIndex}`
+  }
+
+  return `${step.type || 'step'}-${step.name || 'unknown'}-${Date.now()}`
+}
+
+function toPersistedStepTitle(step: StreamStep): string {
+  if (step.type === 'tool_call') {
+    return `${step.name || 'Tool'} details`
+  }
+  return `${step.type || 'step'}: ${step.name || 'details'}`
+}
+
 export function useToolPanel() {
   const state = ref<ToolPanelState>(createInitialState())
 
@@ -148,18 +171,24 @@ export function useToolPanel() {
   }
 
   function handleToolResult(step: StreamStep) {
-    if (step.type !== 'tool_call' || !step.toolId || !step.name) return
+    if (!step.name) return
 
     const parsedResult = parseResult(step.result)
     const parsedArgs = parseResult(step.arguments)
     // Merge arguments into data so toTitle can access fields like `url`
     const data = { ...parsedArgs, ...parsedResult }
     const persistedStep = isPersistedExecutionStepData(data)
-    const panelType = persistedStep ? 'generic' : toPanelType(step.name)
-    const title = persistedStep ? `${step.name} details` : toTitle(step.name, panelType, data)
+    const toolId = toStepEntryId(step, data)
+    const panelType =
+      persistedStep || step.type !== 'tool_call' ? 'generic' : toPanelType(step.name)
+    const title = persistedStep
+      ? toPersistedStepTitle(step)
+      : panelType === 'generic' && step.type !== 'tool_call'
+        ? toPersistedStepTitle(step)
+        : toTitle(step.name, panelType, data)
 
     appendEntry({
-      toolId: step.toolId,
+      toolId,
       toolName: step.name,
       panelType,
       title,

@@ -68,11 +68,7 @@ function toggleToolCall(key: string) {
 }
 
 function canViewStep(step: StreamStep): boolean {
-  return (
-    step.type === 'tool_call' &&
-    (step.status === 'completed' || step.status === 'failed') &&
-    !!step.result
-  )
+  return (step.status === 'completed' || step.status === 'failed') && !!step.result
 }
 
 function isLastAssistantMessage(idx: number): boolean {
@@ -123,6 +119,7 @@ function formatDurationLabel(durationMs: bigint | number | null | undefined): st
 }
 
 function buildPersistedStep(messageId: string, step: ExecutionStepInfo, index: number): StreamStep {
+  const toolId = `persisted-${messageId}-${index}`
   const metadata = {
     persisted_execution_step: true,
     message_id: messageId,
@@ -138,7 +135,7 @@ function buildPersistedStep(messageId: string, step: ExecutionStepInfo, index: n
     name: step.name,
     displayName: step.name,
     status: normalizeStepStatus(step.status),
-    toolId: step.step_type === 'tool_call' ? `persisted-${messageId}-${index}` : undefined,
+    toolId,
     arguments: JSON.stringify(metadata),
     result: JSON.stringify(
       {
@@ -349,7 +346,6 @@ onMounted(() => {
           </div>
           <!-- Regular message -->
           <StreamingMarkdown v-else :content="msg.content || ''" />
-
         </div>
         <!-- Hover action buttons -->
         <div
