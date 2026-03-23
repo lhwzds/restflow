@@ -13,6 +13,7 @@ use redb::Database;
 use restflow_ai::llm::{
     ClientKind, CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
 };
+use restflow_contracts::request::AgentNode as ContractAgentNode;
 use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
@@ -796,7 +797,7 @@ fn test_agent_store_adapter_crud_flow() {
         &adapter,
         AgentCreateRequest {
             name: "Ops Agent".to_string(),
-            agent: serde_json::to_value(base_node).unwrap(),
+            agent: ContractAgentNode::from(base_node),
         },
     )
     .unwrap();
@@ -820,12 +821,16 @@ fn test_agent_store_adapter_crud_flow() {
         AgentUpdateRequest {
             id: agent_id.clone(),
             name: Some("Ops Agent Updated".to_string()),
-            agent: Some(serde_json::json!({
-                "model": "gpt-5-mini",
-                "prompt": "Updated prompt",
-                "tools": ["manage_background_agents", "manage_agents"],
-                "skills": ["ops-skill", "trace-skill"]
-            })),
+            agent: Some(ContractAgentNode {
+                model: Some("gpt-5-mini".to_string()),
+                prompt: Some("Updated prompt".to_string()),
+                tools: Some(vec![
+                    "manage_background_agents".to_string(),
+                    "manage_agents".to_string(),
+                ]),
+                skills: Some(vec!["ops-skill".to_string(), "trace-skill".to_string()]),
+                ..ContractAgentNode::default()
+            }),
         },
     )
     .unwrap();
@@ -897,9 +902,10 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
         &adapter,
         AgentCreateRequest {
             name: "Invalid".to_string(),
-            agent: serde_json::json!({
-                "tools": ["unknown_tool"]
-            }),
+            agent: ContractAgentNode {
+                tools: Some(vec!["unknown_tool".to_string()]),
+                ..ContractAgentNode::default()
+            },
         },
     )
     .expect_err("expected validation error");
@@ -955,10 +961,11 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
         &adapter,
         AgentCreateRequest {
             name: "Task Owner".to_string(),
-            agent: serde_json::json!({
-                "model": "claude-sonnet-4-5",
-                "prompt": "owner"
-            }),
+            agent: ContractAgentNode {
+                model: Some("claude-sonnet-4-5".to_string()),
+                prompt: Some("owner".to_string()),
+                ..ContractAgentNode::default()
+            },
         },
     )
     .unwrap();

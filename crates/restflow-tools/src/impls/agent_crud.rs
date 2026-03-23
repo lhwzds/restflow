@@ -1,6 +1,7 @@
 //! Agent CRUD tool for managing stored agents.
 
 use async_trait::async_trait;
+use restflow_contracts::request::AgentNode as ContractAgentNode;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -45,6 +46,11 @@ impl AgentCrudTool {
                 "Write access to agents is disabled. Available read-only operations: list, get. To modify agents, the user must grant write permissions.".to_string(),
             ))
         }
+    }
+
+    fn parse_contract_agent(value: Value) -> Result<ContractAgentNode> {
+        serde_json::from_value(value)
+            .map_err(|e| ToolError::Tool(format!("Invalid agent payload: {e}")))
     }
 }
 
@@ -144,7 +150,10 @@ impl Tool for AgentCrudTool {
                 confirmation_token,
             } => {
                 self.write_guard()?;
-                let request = AgentCreateRequest { name, agent };
+                let request = AgentCreateRequest {
+                    name,
+                    agent: Self::parse_contract_agent(agent)?,
+                };
                 if let Some(assessor) = &self.assessor {
                     let assessment = assessor.assess_agent_create(request.clone()).await?;
                     if preview {
@@ -173,7 +182,11 @@ impl Tool for AgentCrudTool {
                 confirmation_token,
             } => {
                 self.write_guard()?;
-                let request = AgentUpdateRequest { id, name, agent };
+                let request = AgentUpdateRequest {
+                    id,
+                    name,
+                    agent: agent.map(Self::parse_contract_agent).transpose()?,
+                };
                 if let Some(assessor) = &self.assessor {
                     let assessment = assessor.assess_agent_update(request.clone()).await?;
                     if preview {
@@ -211,6 +224,7 @@ impl Tool for AgentCrudTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
 
     struct MockStore;
 
@@ -292,5 +306,75 @@ mod tests {
             .await
             .expect_err("expected validation error");
         assert!(err.to_string().contains("\"type\":\"validation_error\""));
+    }
+
+    struct CapturingStore {
+        captured_model: Arc<Mutex<Option<Option<String>>>>,
+    }
+
+    impl AgentStore for CapturingStore {
+        fn list_agents(&self) -> Result<Value> {
+            Ok(json!([]))
+        }
+
+        fn get_agent(&self, _id: &str) -> Result<Value> {
+            Ok(json!({}))
+        }
+
+        fn create_agent(&self, request: AgentCreateRequest) -> Result<Value> {
+            *self.captured_model.lock().expect("captured model lock") = Some(request.agent.model);
+            Ok(json!({"id": "agent-1"}))
+        }
+
+        fn update_agent(&self, _request: AgentUpdateRequest) -> Result<Value> {
+            Ok(json!({"id": "agent-1"}))
+        }
+
+        fn delete_agent(&self, _id: &str) -> Result<Value> {
+            Ok(json!({}))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_parses_agent_payload_into_contract_request() {
+        let captured_model = Arc::new(Mutex::new(None));
+        let tool = AgentCrudTool::new(Arc::new(CapturingStore {
+            captured_model: captured_model.clone(),
+        }))
+        .with_write(true);
+
+        let output = tool
+            .execute(json!({
+                "operation": "create",
+                "name": "Agent",
+                "agent": {
+                    "model": "gpt-5-mini"
+                }
+            }))
+            .await
+            .expect("create succeeds");
+
+        assert!(output.success);
+        assert_eq!(
+            *captured_model.lock().expect("captured model lock"),
+            Some(Some("gpt-5-mini".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn test_create_rejects_invalid_agent_payload_before_store_call() {
+        let tool = AgentCrudTool::new(Arc::new(MockStore)).with_write(true);
+        let err = tool
+            .execute(json!({
+                "operation": "create",
+                "name": "Agent",
+                "agent": {
+                    "temperature": "hot"
+                }
+            }))
+            .await
+            .expect_err("invalid payload should be rejected");
+
+        assert!(err.to_string().contains("Invalid agent payload"));
     }
 }

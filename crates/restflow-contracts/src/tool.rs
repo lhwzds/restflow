@@ -1,6 +1,15 @@
-use restflow_traits::tool::ToolErrorCategory;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ToolErrorCategory {
+    Network,
+    Auth,
+    Config,
+    Execution,
+    RateLimit,
+    NotFound,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolDefinition {
