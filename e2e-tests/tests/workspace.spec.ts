@@ -175,6 +175,60 @@ test.describe('Workspace Layout', () => {
     await expect(page.getByTestId('generic-json-panel')).toBeVisible()
     await expect(page.locator('text=Detailed persisted tool payload is not available yet.')).toBeVisible()
   })
+
+  test('shows persisted non-tool execution steps inline and opens generic detail view', async ({
+    page,
+  }) => {
+    const sessionId = await openFreshWorkspaceSession(page)
+    const assistantMessageId = `e2e-assistant-llm-${Date.now()}`
+
+    await requestIpc(page, {
+      type: 'AppendMessage',
+      data: {
+        session_id: sessionId,
+        message: {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: 'Execution summary is available.',
+          timestamp: Date.now(),
+          execution: {
+            steps: [
+              {
+                step_type: 'llm_call',
+                name: 'gpt-5',
+                status: 'completed',
+                duration_ms: 420,
+              },
+              {
+                step_type: 'model_switch',
+                name: 'gpt-4 -> gpt-5',
+                status: 'completed',
+                duration_ms: null,
+              },
+            ],
+            duration_ms: 600,
+            tokens_used: 21,
+            cost_usd: null,
+            input_tokens: null,
+            output_tokens: null,
+            status: 'completed',
+          },
+        },
+      },
+    })
+
+    await page.goto(`/workspace/sessions/${sessionId}`)
+    await page.waitForLoadState('domcontentloaded')
+
+    await expect(page.getByTestId(`persisted-step-${assistantMessageId}-0`)).toBeVisible()
+    await expect(page.getByTestId(`persisted-step-${assistantMessageId}-1`)).toBeVisible()
+
+    await page.getByTestId(`persisted-step-view-${assistantMessageId}-1`).click()
+
+    await expect(page.getByTestId('generic-json-panel')).toBeVisible()
+    await expect(page.locator('text=Persisted execution step summary.')).toBeVisible()
+    await expect(page.getByText('model_switch: gpt-4 -> gpt-5')).toBeVisible()
+  })
 })
 
 test.describe('Session List', () => {
@@ -183,6 +237,8 @@ test.describe('Session List', () => {
   })
 
   test('shows session list state', async ({ page }) => {
+    await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
+
     const sessionRows = page.locator('[data-testid^="session-row-"]')
     const rowCount = await sessionRows.count()
 
