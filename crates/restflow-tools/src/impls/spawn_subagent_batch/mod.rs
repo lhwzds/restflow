@@ -17,10 +17,11 @@ use std::sync::Arc;
 use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_traits::AgentOperationAssessor;
+use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::store::KvStore;
 use restflow_traits::{SpawnRequest, SubagentManager, subagent::SubagentDefSummary};
 
-use self::resolve::build_inline_config;
+use self::resolve::preview_request_from_spec;
 use types::SpawnSubagentBatchParams as ParsedSpawnSubagentBatchParams;
 pub use types::{BatchSubagentSpec, SpawnSubagentBatchOperation, SpawnSubagentBatchParams};
 
@@ -55,21 +56,14 @@ impl SpawnSubagentBatchTool {
     }
 }
 
-fn assessment_requests_for_specs(specs: &[BatchSubagentSpec]) -> Vec<SpawnRequest> {
+fn assessment_requests_for_specs(
+    tool: &SpawnSubagentBatchTool,
+    specs: &[BatchSubagentSpec],
+) -> Result<Vec<SpawnRequest>> {
     specs
         .iter()
-        .map(|spec| SpawnRequest {
-            agent_id: spec.agent.clone(),
-            inline: build_inline_config(spec),
-            task: "Structural team preview".to_string(),
-            timeout_secs: spec.timeout_secs,
-            max_iterations: None,
-            priority: None,
-            model: spec.model.clone(),
-            model_provider: spec.provider.clone(),
-            parent_execution_id: None,
-            trace_session_id: None,
-            trace_scope_id: None,
+        .map(|spec| {
+            spawn_request_from_contract(&tool.available_agents(), preview_request_from_spec(spec))
         })
         .collect()
 }
@@ -112,7 +106,7 @@ impl Tool for SpawnSubagentBatchTool {
                     let assessment = assessor
                         .assess_subagent_batch(
                             "save_team",
-                            assessment_requests_for_specs(&specs),
+                            assessment_requests_for_specs(self, &specs)?,
                             true,
                         )
                         .await?;

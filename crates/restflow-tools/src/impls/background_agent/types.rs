@@ -1,3 +1,8 @@
+use restflow_contracts::request::{
+    DurabilityMode as ContractDurabilityMode, ExecutionMode as ContractExecutionMode,
+    MemoryConfig as ContractMemoryConfig, NotificationConfig as ContractNotificationConfig,
+    ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -20,17 +25,17 @@ pub(super) struct BackgroundBatchWorkerSpec {
     #[serde(default)]
     pub chat_session_id: Option<String>,
     #[serde(default)]
-    pub schedule: Option<Value>,
+    pub schedule: Option<ContractTaskSchedule>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     #[serde(default)]
-    pub durability_mode: Option<String>,
+    pub durability_mode: Option<ContractDurabilityMode>,
     #[serde(default)]
-    pub memory: Option<Value>,
+    pub memory: Option<ContractMemoryConfig>,
     #[serde(default)]
     pub memory_scope: Option<String>,
     #[serde(default)]
-    pub resource_limits: Option<Value>,
+    pub resource_limits: Option<ContractResourceLimits>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,17 +49,17 @@ pub(super) struct StoredBackgroundBatchWorkerSpec {
     #[serde(default)]
     pub chat_session_id: Option<String>,
     #[serde(default)]
-    pub schedule: Option<Value>,
+    pub schedule: Option<ContractTaskSchedule>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     #[serde(default)]
-    pub durability_mode: Option<String>,
+    pub durability_mode: Option<ContractDurabilityMode>,
     #[serde(default)]
-    pub memory: Option<Value>,
+    pub memory: Option<ContractMemoryConfig>,
     #[serde(default)]
     pub memory_scope: Option<String>,
     #[serde(default)]
-    pub resource_limits: Option<Value>,
+    pub resource_limits: Option<ContractResourceLimits>,
 }
 
 pub(super) fn workers_schema() -> Value {
@@ -94,7 +99,7 @@ pub(super) enum BackgroundAgentAction {
         #[serde(default)]
         chat_session_id: Option<String>,
         #[serde(default)]
-        schedule: Option<Value>,
+        schedule: Option<ContractTaskSchedule>,
         #[serde(default)]
         input: Option<String>,
         #[serde(default)]
@@ -102,13 +107,13 @@ pub(super) enum BackgroundAgentAction {
         #[serde(default)]
         timeout_secs: Option<u64>,
         #[serde(default)]
-        durability_mode: Option<String>,
+        durability_mode: Option<ContractDurabilityMode>,
         #[serde(default)]
-        memory: Option<Value>,
+        memory: Option<ContractMemoryConfig>,
         #[serde(default)]
         memory_scope: Option<String>,
         #[serde(default)]
-        resource_limits: Option<Value>,
+        resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         preview: bool,
         #[serde(default)]
@@ -119,19 +124,19 @@ pub(super) enum BackgroundAgentAction {
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
-        schedule: Option<Value>,
+        schedule: Option<ContractTaskSchedule>,
         #[serde(default)]
         input: Option<String>,
         #[serde(default)]
         timeout_secs: Option<u64>,
         #[serde(default)]
-        durability_mode: Option<String>,
+        durability_mode: Option<ContractDurabilityMode>,
         #[serde(default)]
-        memory: Option<Value>,
+        memory: Option<ContractMemoryConfig>,
         #[serde(default)]
         memory_scope: Option<String>,
         #[serde(default)]
-        resource_limits: Option<Value>,
+        resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         run_now: Option<bool>,
         #[serde(default)]
@@ -145,19 +150,19 @@ pub(super) enum BackgroundAgentAction {
         #[serde(default)]
         name: Option<String>,
         #[serde(default)]
-        schedule: Option<Value>,
+        schedule: Option<ContractTaskSchedule>,
         #[serde(default)]
         input: Option<String>,
         #[serde(default)]
         timeout_secs: Option<u64>,
         #[serde(default)]
-        durability_mode: Option<String>,
+        durability_mode: Option<ContractDurabilityMode>,
         #[serde(default)]
-        memory: Option<Value>,
+        memory: Option<ContractMemoryConfig>,
         #[serde(default)]
         memory_scope: Option<String>,
         #[serde(default)]
-        resource_limits: Option<Value>,
+        resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         run_now: Option<bool>,
         #[serde(default)]
@@ -180,21 +185,21 @@ pub(super) enum BackgroundAgentAction {
         #[serde(default)]
         input_template: Option<String>,
         #[serde(default)]
-        schedule: Option<Value>,
+        schedule: Option<ContractTaskSchedule>,
         #[serde(default)]
-        notification: Option<Value>,
+        notification: Option<ContractNotificationConfig>,
         #[serde(default)]
-        execution_mode: Option<Value>,
+        execution_mode: Option<ContractExecutionMode>,
         #[serde(default)]
         timeout_secs: Option<u64>,
         #[serde(default)]
-        durability_mode: Option<String>,
+        durability_mode: Option<ContractDurabilityMode>,
         #[serde(default)]
-        memory: Option<Value>,
+        memory: Option<ContractMemoryConfig>,
         #[serde(default)]
         memory_scope: Option<String>,
         #[serde(default)]
-        resource_limits: Option<Value>,
+        resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         preview: bool,
         #[serde(default)]
@@ -227,17 +232,17 @@ pub(super) enum BackgroundAgentAction {
         #[serde(default)]
         chat_session_id: Option<String>,
         #[serde(default)]
-        schedule: Option<Value>,
+        schedule: Option<ContractTaskSchedule>,
         #[serde(default)]
         timeout_secs: Option<u64>,
         #[serde(default)]
-        durability_mode: Option<String>,
+        durability_mode: Option<ContractDurabilityMode>,
         #[serde(default)]
-        memory: Option<Value>,
+        memory: Option<ContractMemoryConfig>,
         #[serde(default)]
         memory_scope: Option<String>,
         #[serde(default)]
-        resource_limits: Option<Value>,
+        resource_limits: Option<ContractResourceLimits>,
         #[serde(default)]
         run_now: Option<bool>,
         #[serde(default)]

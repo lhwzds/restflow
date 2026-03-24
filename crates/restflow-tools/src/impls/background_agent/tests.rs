@@ -445,6 +445,49 @@ async fn test_invalid_input_message() {
 }
 
 #[tokio::test]
+async fn test_create_accepts_typed_background_agent_payloads() {
+    let tool = writable_tool();
+    let output = tool
+        .execute(json!({
+            "operation": "create",
+            "name": "Scheduled Task",
+            "agent_id": "agent-1",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            },
+            "durability_mode": "async",
+            "memory": {},
+            "resource_limits": {}
+        }))
+        .await
+        .unwrap();
+    assert!(output.success);
+}
+
+#[tokio::test]
+async fn test_create_rejects_invalid_durability_mode_payload() {
+    let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
+    let output = tool
+        .execute(json!({
+            "operation": "create",
+            "name": "Broken Task",
+            "agent_id": "agent-1",
+            "durability_mode": "broken"
+        }))
+        .await
+        .expect("tool should return structured error output");
+    assert!(!output.success);
+    assert!(
+        output
+            .error
+            .expect("expected error")
+            .contains("Invalid input")
+    );
+}
+
+#[tokio::test]
 async fn test_convert_session_operation() {
     let tool = writable_tool();
     let output = tool

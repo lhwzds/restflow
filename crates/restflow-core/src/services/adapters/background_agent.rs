@@ -1,13 +1,14 @@
 //! BackgroundAgentStore adapter backed by BackgroundAgentStorage.
 
+use crate::boundary::background_agent::{
+    convert_session_request_to_options, create_request_to_spec, update_request_to_patch,
+};
 use crate::models::{
-    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessageSource, DurabilityMode,
-    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, MemoryConfig, MemoryScope,
-    ResourceLimits,
+    BackgroundAgentControlAction, BackgroundAgentStatus, BackgroundMessageSource,
+    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
 };
 use crate::services::background_agent_conversion::{
-    ConvertSessionSpecOptions, build_convert_session_spec, default_conversion_schedule,
+    ConvertSessionSpecOptions, build_convert_session_spec,
 };
 use crate::storage::{AgentStorage, BackgroundAgentStorage};
 use crate::telemetry::get_execution_timeline;
@@ -23,7 +24,6 @@ use restflow_traits::{
     DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT,
     DEFAULT_BG_TRACE_LIST_LIMIT,
 };
-use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashSet};
 
@@ -84,63 +84,6 @@ impl BackgroundAgentStoreAdapter {
                 "Unknown message source: {}",
                 value
             ))),
-        }
-    }
-
-    fn parse_optional_value<T: DeserializeOwned>(
-        field: &str,
-        value: Option<Value>,
-    ) -> Result<Option<T>, ToolError> {
-        match value {
-            Some(value) => serde_json::from_value(value)
-                .map(Some)
-                .map_err(|e| ToolError::Tool(format!("Invalid {}: {}", field, e))),
-            None => Ok(None),
-        }
-    }
-
-    fn parse_memory_scope(value: Option<&str>) -> Result<Option<MemoryScope>, ToolError> {
-        match value.map(|scope| scope.trim().to_lowercase()) {
-            None => Ok(None),
-            Some(scope) if scope.is_empty() => Ok(None),
-            Some(scope) if scope == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
-            Some(scope) if scope == "per_background_agent" => {
-                Ok(Some(MemoryScope::PerBackgroundAgent))
-            }
-            Some(scope) => Err(ToolError::Tool(format!("Unknown memory_scope: {}", scope))),
-        }
-    }
-
-    fn parse_durability_mode(value: Option<&str>) -> Result<Option<DurabilityMode>, ToolError> {
-        match value.map(|mode| mode.trim().to_lowercase()) {
-            None => Ok(None),
-            Some(mode) if mode.is_empty() => Ok(None),
-            Some(mode) if mode == "sync" => Ok(Some(DurabilityMode::Sync)),
-            Some(mode) if mode == "async" => Ok(Some(DurabilityMode::Async)),
-            Some(mode) if mode == "exit" => Ok(Some(DurabilityMode::Exit)),
-            Some(mode) => Err(ToolError::Tool(format!(
-                "Unknown durability_mode: {}",
-                mode
-            ))),
-        }
-    }
-
-    fn merge_memory_scope(
-        memory: Option<MemoryConfig>,
-        memory_scope: Option<String>,
-    ) -> Result<Option<MemoryConfig>, ToolError> {
-        let parsed_scope = Self::parse_memory_scope(memory_scope.as_deref())?;
-        match (memory, parsed_scope) {
-            (Some(mut memory), Some(scope)) => {
-                memory.memory_scope = scope;
-                Ok(Some(memory))
-            }
-            (Some(memory), None) => Ok(Some(memory)),
-            (None, Some(scope)) => Ok(Some(MemoryConfig {
-                memory_scope: scope,
-                ..MemoryConfig::default()
-            })),
-            (None, None) => Ok(None),
         }
     }
 
@@ -320,31 +263,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentCreateRequest,
     ) -> restflow_tools::Result<Value> {
         let resolved_agent_id = self.resolve_agent_id(&request.agent_id)?;
-        let schedule =
-            Self::parse_optional_value::<BackgroundAgentSchedule>("schedule", request.schedule)?
-                .unwrap_or_default();
-        let memory = Self::parse_optional_value("memory", request.memory)?;
-        let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
-        let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
-        let resource_limits: Option<ResourceLimits> =
-            Self::parse_optional_value("resource_limits", request.resource_limits)?;
-        let task = self.storage.create_background_agent(BackgroundAgentSpec {
-            name: request.name,
-            agent_id: resolved_agent_id,
-            chat_session_id: request.chat_session_id,
-            description: None,
-            input: request.input,
-            input_template: request.input_template,
-            schedule,
-            notification: None,
-            execution_mode: None,
-            timeout_secs: request.timeout_secs,
-            memory,
-            durability_mode,
-            resource_limits,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })?;
+        let spec = create_request_to_spec(request, resolved_agent_id)?;
+        let task = self.storage.create_background_agent(spec)?;
         Ok(serde_json::to_value(task)?)
     }
 
@@ -362,28 +282,21 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
             .chat_sessions()
             .get(session_id)?
             .ok_or_else(|| ToolError::Tool(format!("Session not found: {}", session_id)))?;
-        let schedule =
-            Self::parse_optional_value::<BackgroundAgentSchedule>("schedule", request.schedule)?
-                .unwrap_or_else(default_conversion_schedule);
-        let memory = Self::parse_optional_value("memory", request.memory)?;
-        let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
-        let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
-        let resource_limits: Option<ResourceLimits> =
-            Self::parse_optional_value("resource_limits", request.resource_limits)?;
+        let boundary = convert_session_request_to_options(request)?;
 
         let spec = build_convert_session_spec(
             &session,
             ConvertSessionSpecOptions {
-                name: request.name,
+                name: boundary.name,
                 description: None,
-                schedule: Some(schedule),
-                input: request.input,
+                schedule: Some(boundary.schedule),
+                input: boundary.input,
                 notification: None,
                 execution_mode: None,
-                timeout_secs: request.timeout_secs,
-                memory,
-                durability_mode,
-                resource_limits,
+                timeout_secs: boundary.timeout_secs,
+                memory: boundary.memory,
+                durability_mode: boundary.durability_mode,
+                resource_limits: boundary.resource_limits,
                 prerequisites: Vec::new(),
                 continuation: None,
             },
@@ -391,7 +304,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         .map_err(|e| ToolError::Tool(e.to_string()))?;
 
         let mut task = self.storage.create_background_agent(spec)?;
-        let run_now = request.run_now.unwrap_or(true);
+        let run_now = boundary.run_now;
         if run_now {
             task = self
                 .storage
@@ -412,35 +325,13 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentUpdateRequest,
     ) -> restflow_tools::Result<Value> {
+        let resolved_id = self.resolve_task_id(&request.id)?;
         let resolved_agent_id = request
             .agent_id
             .as_deref()
             .map(|id| self.resolve_agent_id(id))
             .transpose()?;
-        let memory = Self::parse_optional_value("memory", request.memory)?;
-        let memory = Self::merge_memory_scope(memory, request.memory_scope)?;
-        let durability_mode = Self::parse_durability_mode(request.durability_mode.as_deref())?;
-        let resource_limits: Option<ResourceLimits> =
-            Self::parse_optional_value("resource_limits", request.resource_limits)?;
-        let patch = BackgroundAgentPatch {
-            name: request.name,
-            description: request.description,
-            agent_id: resolved_agent_id,
-            chat_session_id: request.chat_session_id,
-            input: request.input,
-            input_template: request.input_template,
-            schedule: Self::parse_optional_value("schedule", request.schedule)?,
-            notification: Self::parse_optional_value("notification", request.notification)?,
-            execution_mode: Self::parse_optional_value("execution_mode", request.execution_mode)?,
-            timeout_secs: request.timeout_secs,
-            memory,
-            durability_mode,
-            resource_limits,
-            prerequisites: None,
-            continuation: None,
-        };
-
-        let resolved_id = self.resolve_task_id(&request.id)?;
+        let patch = update_request_to_patch(request, resolved_agent_id)?;
         let task = self.storage.update_background_agent(&resolved_id, patch)?;
         Ok(serde_json::to_value(task)?)
     }
@@ -609,6 +500,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
 mod tests {
     use super::*;
     use crate::prompt_files;
+    use restflow_contracts::request::DurabilityMode as ContractDurabilityMode;
     use restflow_traits::store::BackgroundAgentStore;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -725,7 +617,7 @@ mod tests {
                 schedule: None,
                 input: None,
                 timeout_secs: Some(120),
-                durability_mode: Some("async".to_string()),
+                durability_mode: Some(ContractDurabilityMode::Async),
                 memory: None,
                 memory_scope: None,
                 resource_limits: None,
@@ -949,7 +841,8 @@ mod tests {
         let output_path = temp_dir.path().join("trace-output.txt");
         std::fs::write(&output_path, "line-1\nline-2\nline-3\nline-4\n").unwrap();
 
-        let trace = restflow_telemetry::RestflowTrace::new("run-1", &session_id, &task_id, "agent-1");
+        let trace =
+            restflow_telemetry::RestflowTrace::new("run-1", &session_id, &task_id, "agent-1");
         let event = crate::models::ExecutionTraceEvent::tool_call(
             task_id,
             "agent-1",

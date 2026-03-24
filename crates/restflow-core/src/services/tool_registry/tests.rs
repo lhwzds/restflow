@@ -13,7 +13,9 @@ use redb::Database;
 use restflow_ai::llm::{
     ClientKind, CompletionRequest, CompletionResponse, FinishReason, StreamChunk, StreamResult,
 };
-use restflow_contracts::request::AgentNode as ContractAgentNode;
+use restflow_contracts::request::{
+    AgentNode as ContractAgentNode, DurabilityMode as ContractDurabilityMode,
+};
 use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
@@ -1042,7 +1044,7 @@ fn test_task_store_adapter_background_agent_flow() {
             input: Some("Run periodic checks".to_string()),
             input_template: Some("Template {{task.id}}".to_string()),
             timeout_secs: Some(1800),
-            durability_mode: Some("async".to_string()),
+            durability_mode: Some(ContractDurabilityMode::Async),
             memory: None,
             memory_scope: Some("per_background_agent".to_string()),
             resource_limits: None,
@@ -1082,7 +1084,7 @@ fn test_task_store_adapter_background_agent_flow() {
             notification: None,
             execution_mode: None,
             timeout_secs: Some(900),
-            durability_mode: Some("sync".to_string()),
+            durability_mode: Some(ContractDurabilityMode::Sync),
             memory: None,
             memory_scope: Some("shared_agent".to_string()),
             resource_limits: None,

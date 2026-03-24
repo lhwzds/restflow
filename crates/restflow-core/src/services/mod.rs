@@ -3,6 +3,7 @@ pub mod agent;
 pub mod background_agent_conversion;
 pub mod cleanup;
 pub mod config;
+pub mod execution_console;
 pub mod operation_assessment;
 pub mod secrets;
 pub mod session;

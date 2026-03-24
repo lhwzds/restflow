@@ -1,4 +1,8 @@
 use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
+use restflow_contracts::request::{
+    DurabilityMode as ContractDurabilityMode, MemoryConfig as ContractMemoryConfig,
+    ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
+};
 use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -175,12 +179,12 @@ pub(super) async fn execute_run_batch(
     save_as_team: Option<String>,
     input_template: Option<String>,
     chat_session_id: Option<String>,
-    schedule: Option<Value>,
+    schedule: Option<ContractTaskSchedule>,
     timeout_secs: Option<u64>,
-    durability_mode: Option<String>,
-    memory: Option<Value>,
+    durability_mode: Option<ContractDurabilityMode>,
+    memory: Option<ContractMemoryConfig>,
     memory_scope: Option<String>,
-    resource_limits: Option<Value>,
+    resource_limits: Option<ContractResourceLimits>,
     run_now: Option<bool>,
     preview: bool,
     confirmation_token: Option<String>,

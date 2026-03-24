@@ -3,10 +3,11 @@ use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 
 use crate::{Result, ToolError, ToolOutput};
-use restflow_traits::{SpawnRequest, SubagentCompletion, SubagentResult, SubagentStatus};
+use restflow_traits::boundary::subagent::spawn_request_from_contract;
+use restflow_traits::{SubagentCompletion, SubagentResult, SubagentStatus};
 
 use super::SpawnSubagentBatchTool;
-use super::resolve::{build_inline_config, resolve_agent_id};
+use super::resolve::spawn_request_from_spec;
 use super::team::{load_team_specs, save_team_specs};
 use super::types::{
     BatchSubagentSpec, PreparedSpawnRequest, SpawnFailure, SpawnSubagentBatchParams, SpawnedTask,
@@ -166,13 +167,6 @@ pub(super) async fn spawn_batch(
     for (spec_index, (spec, instance_tasks)) in
         specs.iter().zip(resolved_tasks.into_iter()).enumerate()
     {
-        let inline = build_inline_config(spec);
-        let agent_id = spec
-            .agent
-            .as_deref()
-            .map(|requested| resolve_agent_id(tool, requested))
-            .transpose()?;
-
         for (instance_index, task) in instance_tasks.into_iter().enumerate() {
             if instance_index > u32::MAX as usize {
                 return Err(ToolError::Tool(format!(
@@ -182,19 +176,10 @@ pub(super) async fn spawn_batch(
             }
             let instance_index = instance_index as u32;
 
-            let request = SpawnRequest {
-                agent_id: agent_id.clone(),
-                inline: inline.clone(),
-                task,
-                timeout_secs: spec.timeout_secs.or(params.timeout_secs),
-                max_iterations: None,
-                priority: None,
-                model: spec.model.clone(),
-                model_provider: spec.provider.clone(),
-                parent_execution_id: params.parent_execution_id.clone(),
-                trace_session_id: params.trace_session_id.clone(),
-                trace_scope_id: params.trace_scope_id.clone(),
-            };
+            let request = spawn_request_from_contract(
+                &tool.available_agents(),
+                spawn_request_from_spec(spec, task, &params),
+            )?;
             prepared.push(PreparedSpawnRequest {
                 spec_index,
                 instance_index,

@@ -3,6 +3,7 @@ use super::ipc_protocol::IpcRequest;
 use super::launcher::ensure_daemon_running;
 use super::request_mapper::to_contract;
 use crate::AppCore;
+use crate::boundary::background_agent::core_spec_to_contract;
 use crate::models::{
     AgentNode, BackgroundAgent, BackgroundAgentSpec, BackgroundAgentStatus, Skill,
 };
@@ -205,7 +206,7 @@ impl CoreAccess {
         match self {
             CoreAccess::Local(core) => core.storage.background_agents.create_background_agent(spec),
             CoreAccess::Remote(client) => {
-                let spec = to_contract(spec)?;
+                let spec = core_spec_to_contract(spec)?;
                 client
                     .request_typed(IpcRequest::CreateBackgroundAgent {
                         spec,

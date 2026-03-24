@@ -162,18 +162,6 @@ pub struct AgentNode {
     pub model_routing: Option<ModelRoutingConfig>,
 }
 
-fn parse_contract_model(field: &str, value: &str) -> Result<ModelId, ValidationError> {
-    let normalized = value.trim();
-    if normalized.is_empty() {
-        return Err(ValidationError::new(field, "must not be empty"));
-    }
-
-    ModelId::from_api_name(normalized)
-        .or_else(|| ModelId::from_canonical_id(normalized))
-        .or_else(|| ModelId::from_serialized_str(normalized))
-        .ok_or_else(|| ValidationError::new(field, format!("unknown model '{}'", value)))
-}
-
 impl From<CodexCliExecutionMode> for ContractCodexCliExecutionMode {
     fn from(value: CodexCliExecutionMode) -> Self {
         match value {
@@ -214,101 +202,6 @@ impl From<ModelRoutingConfig> for ContractModelRoutingConfig {
     }
 }
 
-impl From<AgentNode> for ContractAgentNode {
-    fn from(value: AgentNode) -> Self {
-        Self {
-            model: value
-                .model
-                .map(|model| model.as_serialized_str().to_string()),
-            model_ref: value.model_ref.map(Into::into),
-            prompt: value.prompt,
-            temperature: value.temperature,
-            codex_cli_reasoning_effort: value.codex_cli_reasoning_effort,
-            codex_cli_execution_mode: value.codex_cli_execution_mode.map(Into::into),
-            api_key_config: value.api_key_config.map(Into::into),
-            tools: value.tools,
-            skills: value.skills,
-            skill_variables: value.skill_variables,
-            skill_preflight_policy_mode: value.skill_preflight_policy_mode.map(Into::into),
-            model_routing: value.model_routing.map(Into::into),
-        }
-    }
-}
-
-impl TryFrom<ContractAgentNode> for AgentNode {
-    type Error = Vec<ValidationError>;
-
-    fn try_from(value: ContractAgentNode) -> Result<Self, Self::Error> {
-        let mut errors = Vec::new();
-
-        let model = match value.model {
-            Some(model) => match parse_contract_model("model", &model) {
-                Ok(model) => Some(model),
-                Err(error) => {
-                    errors.push(error);
-                    None
-                }
-            },
-            None => None,
-        };
-
-        let model_ref = match value.model_ref {
-            Some(model_ref) => match ModelRef::try_from(model_ref) {
-                Ok(model_ref) => Some(model_ref),
-                Err(error) => {
-                    errors.push(error);
-                    None
-                }
-            },
-            None => None,
-        };
-
-        let mut agent = Self {
-            model,
-            model_ref,
-            prompt: value.prompt,
-            temperature: value.temperature,
-            codex_cli_reasoning_effort: value.codex_cli_reasoning_effort,
-            codex_cli_execution_mode: match value.codex_cli_execution_mode {
-                Some(ContractCodexCliExecutionMode::Safe) => Some(CodexCliExecutionMode::Safe),
-                Some(ContractCodexCliExecutionMode::Bypass) => Some(CodexCliExecutionMode::Bypass),
-                Some(ContractCodexCliExecutionMode::Unknown) | None => None,
-            },
-            api_key_config: value.api_key_config.map(|config| match config {
-                ContractApiKeyConfig::Direct(secret) => ApiKeyConfig::Direct(secret),
-                ContractApiKeyConfig::Secret(secret) => ApiKeyConfig::Secret(secret),
-            }),
-            tools: value.tools,
-            skills: value.skills,
-            skill_variables: value.skill_variables,
-            skill_preflight_policy_mode: value.skill_preflight_policy_mode.map(|mode| match mode {
-                ContractSkillPreflightPolicyMode::Off => SkillPreflightPolicyMode::Off,
-                ContractSkillPreflightPolicyMode::Warn => SkillPreflightPolicyMode::Warn,
-                ContractSkillPreflightPolicyMode::Enforce => SkillPreflightPolicyMode::Enforce,
-            }),
-            model_routing: value.model_routing.map(|routing| ModelRoutingConfig {
-                enabled: routing.enabled,
-                routine_model: routing.routine_model,
-                moderate_model: routing.moderate_model,
-                complex_model: routing.complex_model,
-                escalate_on_failure: routing.escalate_on_failure,
-            }),
-        };
-
-        if errors.is_empty()
-            && let Err(error) = agent.normalize_model_fields()
-        {
-            errors.push(error);
-        }
-
-        if errors.is_empty() {
-            Ok(agent)
-        } else {
-            Err(errors)
-        }
-    }
-}
-
 impl AgentNode {
     /// Create a new agent with default settings (no model specified)
     pub fn new() -> Self {
@@ -317,7 +210,7 @@ impl AgentNode {
 
     /// Decode a contract agent payload into the canonical core model.
     pub fn try_from_contract_node(value: ContractAgentNode) -> Result<Self, Vec<ValidationError>> {
-        Self::try_from(value)
+        crate::boundary::agent::agent_from_contract(value)
     }
 
     /// Create a new agent with a specific model

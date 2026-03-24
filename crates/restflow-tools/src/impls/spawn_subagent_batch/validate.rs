@@ -1,30 +1,11 @@
 use crate::{Result, ToolError};
 use restflow_traits::RuntimeTaskPayload;
+use restflow_traits::boundary::subagent::spawn_request_from_contract;
 
 use super::SpawnSubagentBatchTool;
-use super::resolve::{build_inline_config, resolve_agent_id};
+use super::resolve::preview_request_from_spec;
 use super::team::structural_count;
 use super::types::BatchSubagentSpec;
-
-pub(super) fn validate_model_provider(
-    model: &Option<String>,
-    provider: &Option<String>,
-) -> Result<()> {
-    let has_model = model
-        .as_ref()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
-    let has_provider = provider
-        .as_ref()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
-    if has_model != has_provider {
-        return Err(ToolError::Tool(
-            "Model override requires both 'model' and 'provider' fields.".to_string(),
-        ));
-    }
-    Ok(())
-}
 
 pub(super) fn total_instances(specs: &[BatchSubagentSpec]) -> Result<usize> {
     let mut total: usize = 0;
@@ -110,15 +91,8 @@ pub(super) fn validate_structural_specs(
 ) -> Result<()> {
     let _ = total_instances(specs)?;
     for spec in specs {
-        if spec.agent.is_some() && build_inline_config(spec).is_some() {
-            return Err(ToolError::Tool(
-                "Inline temporary-subagent fields cannot be combined with 'agent'.".to_string(),
-            ));
-        }
-        validate_model_provider(&spec.model, &spec.provider)?;
-        if let Some(requested) = spec.agent.as_deref() {
-            let _ = resolve_agent_id(tool, requested)?;
-        }
+        let _ =
+            spawn_request_from_contract(&tool.available_agents(), preview_request_from_spec(spec))?;
     }
     Ok(())
 }

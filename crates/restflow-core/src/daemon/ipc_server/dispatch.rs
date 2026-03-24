@@ -26,6 +26,7 @@ mod terminals;
 mod work_items;
 
 use super::*;
+use crate::boundary::background_agent::{contract_patch_to_core, contract_spec_to_core};
 use crate::daemon::request_mapper::{
     from_contract, invalid_request_response, invalid_validation_response,
 };
@@ -280,6 +281,21 @@ impl IpcServer {
             IpcRequest::GetSessionMessages { session_id, limit } => {
                 Self::handle_get_session_messages(core, session_id, limit).await
             }
+            IpcRequest::ListExecutionContainers => {
+                Self::handle_list_execution_containers(core).await
+            }
+            IpcRequest::ListExecutionSessions { query } => match from_contract(query) {
+                Ok(query) => Self::handle_list_execution_sessions(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::GetExecutionThread { query } => match from_contract(query) {
+                Ok(query) => Self::handle_get_execution_thread(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::ListChildExecutionSessions { query } => match from_contract(query) {
+                Ok(query) => Self::handle_list_child_execution_sessions(core, query).await,
+                Err(err) => invalid_request_response(err),
+            },
             IpcRequest::QueryExecutionTraces { query } => match from_contract(query) {
                 Ok(query) => Self::handle_query_execution_traces(core, query).await,
                 Err(err) => invalid_request_response(err),
@@ -393,7 +409,7 @@ impl IpcServer {
                 spec,
                 preview,
                 confirmation_token,
-            } => match from_contract(spec) {
+            } => match contract_spec_to_core(spec) {
                 Ok(spec) => {
                     Self::handle_create_background_agent(core, spec, preview, confirmation_token)
                         .await
@@ -405,7 +421,7 @@ impl IpcServer {
                 patch,
                 preview,
                 confirmation_token,
-            } => match from_contract(patch) {
+            } => match contract_patch_to_core(patch) {
                 Ok(patch) => {
                     Self::handle_update_background_agent(
                         core,

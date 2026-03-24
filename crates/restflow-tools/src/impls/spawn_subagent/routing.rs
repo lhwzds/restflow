@@ -4,7 +4,12 @@ use tokio::time::{Duration, timeout};
 use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use crate::impls::spawn_subagent_batch::{SpawnSubagentBatchOperation, SpawnSubagentBatchTool};
 use crate::{Result, Tool, ToolError, ToolOutput};
-use restflow_traits::{InlineSubagentConfig, SpawnRequest, SubagentCompletion, SubagentStatus};
+use restflow_contracts::request::{
+    InlineSubagentConfig as ContractInlineSubagentConfig,
+    SubagentSpawnRequest as ContractSubagentSpawnRequest,
+};
+use restflow_traits::boundary::subagent::spawn_request_from_contract;
+use restflow_traits::{SubagentCompletion, SubagentStatus};
 
 use super::{SpawnSubagentParams, SpawnSubagentTool};
 
@@ -45,105 +50,8 @@ fn completion_output(
     output
 }
 
-fn normalize_identifier(value: &str) -> String {
-    let mut normalized = String::with_capacity(value.len());
-    let mut previous_dash = false;
-
-    for ch in value.trim().chars() {
-        if ch.is_ascii_alphanumeric() {
-            normalized.push(ch.to_ascii_lowercase());
-            previous_dash = false;
-            continue;
-        }
-        if !previous_dash {
-            normalized.push('-');
-            previous_dash = true;
-        }
-    }
-
-    normalized.trim_matches('-').to_string()
-}
-
-fn resolve_agent_id(tool: &SpawnSubagentTool, requested: &str) -> Result<String> {
-    let query = requested.trim();
-    if query.is_empty() {
-        return Err(ToolError::Tool("Agent name must not be empty".to_string()));
-    }
-
-    let available = tool.available_agents();
-    if available.is_empty() {
-        return Err(ToolError::Tool(
-            "No callable sub-agents available. Create an agent first.".to_string(),
-        ));
-    }
-
-    if let Some(found) = available.iter().find(|agent| agent.id == query) {
-        return Ok(found.id.clone());
-    }
-
-    if let Some(found) = available
-        .iter()
-        .find(|agent| agent.id.eq_ignore_ascii_case(query))
-    {
-        return Ok(found.id.clone());
-    }
-
-    let exact_name_matches: Vec<_> = available
-        .iter()
-        .filter(|agent| agent.name.eq_ignore_ascii_case(query))
-        .collect();
-    if exact_name_matches.len() == 1 {
-        return Ok(exact_name_matches[0].id.clone());
-    }
-    if exact_name_matches.len() > 1 {
-        let ids = exact_name_matches
-            .iter()
-            .map(|agent| agent.id.clone())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(ToolError::Tool(format!(
-            "Ambiguous agent name '{}'. Matching IDs: {}",
-            query, ids
-        )));
-    }
-
-    let normalized_query = normalize_identifier(query);
-    let normalized_matches: Vec<_> = available
-        .iter()
-        .filter(|agent| {
-            normalize_identifier(&agent.id) == normalized_query
-                || normalize_identifier(&agent.name) == normalized_query
-        })
-        .collect();
-    if normalized_matches.len() == 1 {
-        return Ok(normalized_matches[0].id.clone());
-    }
-    if normalized_matches.len() > 1 {
-        let ids = normalized_matches
-            .iter()
-            .map(|agent| agent.id.clone())
-            .collect::<Vec<_>>()
-            .join(", ");
-        return Err(ToolError::Tool(format!(
-            "Ambiguous agent identifier '{}'. Matching IDs: {}",
-            query, ids
-        )));
-    }
-
-    let suggestions = available
-        .iter()
-        .take(8)
-        .map(|agent| format!("{} ({})", agent.name, agent.id))
-        .collect::<Vec<_>>()
-        .join(", ");
-    Err(ToolError::Tool(format!(
-        "Unknown agent '{}'. Available agents: {}",
-        query, suggestions
-    )))
-}
-
-fn build_inline_config(params: &SpawnSubagentParams) -> Option<InlineSubagentConfig> {
-    let config = InlineSubagentConfig {
+fn build_inline_config(params: &SpawnSubagentParams) -> Option<ContractInlineSubagentConfig> {
+    let config = ContractInlineSubagentConfig {
         name: params.inline_name.clone(),
         system_prompt: params.inline_system_prompt.clone(),
         allowed_tools: params.inline_allowed_tools.clone(),
@@ -177,6 +85,25 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn build_contract_request(
+    params: &SpawnSubagentParams,
+    task: String,
+) -> ContractSubagentSpawnRequest {
+    ContractSubagentSpawnRequest {
+        agent_id: params.agent.clone(),
+        inline: build_inline_config(params),
+        task,
+        timeout_secs: params.timeout_secs,
+        max_iterations: None,
+        priority: None,
+        model: params.model.clone(),
+        model_provider: params.provider.clone(),
+        parent_execution_id: params.parent_execution_id.clone(),
+        trace_session_id: params.trace_session_id.clone(),
+        trace_scope_id: params.trace_scope_id.clone(),
+    }
 }
 
 fn resolve_batch_team(params: &SpawnSubagentParams) -> Result<Option<String>> {
@@ -258,49 +185,13 @@ pub(super) async fn execute(
             .await;
     }
 
-    let task = normalize_optional_text(params.task.as_deref())
-        .ok_or_else(|| ToolError::Tool("Single spawn requires non-empty 'task'.".to_string()))?;
-
-    let inline_config = build_inline_config(&params);
-    if params.agent.is_some() && inline_config.is_some() {
-        return Err(ToolError::Tool(
-            "Inline temporary-subagent fields cannot be combined with 'agent'.".to_string(),
-        ));
-    }
-    let agent_id = params
-        .agent
-        .as_deref()
-        .map(|requested| resolve_agent_id(tool, requested))
-        .transpose()?;
-    let has_model = params
-        .model
-        .as_ref()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
-    let has_provider = params
-        .provider
-        .as_ref()
-        .map(|value| !value.trim().is_empty())
-        .unwrap_or(false);
-    if has_model != has_provider {
-        return Err(ToolError::Tool(
-            "Model override requires both 'model' and 'provider' fields.".to_string(),
-        ));
-    }
-
-    let request = SpawnRequest {
-        agent_id,
-        inline: inline_config,
-        task,
-        timeout_secs: params.timeout_secs,
-        max_iterations: None,
-        priority: None,
-        model: params.model.clone(),
-        model_provider: params.provider.clone(),
-        parent_execution_id: params.parent_execution_id.clone(),
-        trace_session_id: params.trace_session_id.clone(),
-        trace_scope_id: params.trace_scope_id.clone(),
-    };
+    let request = spawn_request_from_contract(
+        &tool.available_agents(),
+        build_contract_request(
+            &params,
+            normalize_optional_text(params.task.as_deref()).unwrap_or_default(),
+        ),
+    )?;
 
     if let Some(assessor) = &tool.assessor {
         let assessment = assessor

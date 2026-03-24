@@ -1,4 +1,5 @@
 pub mod auth;
+pub(crate) mod boundary;
 pub mod channel;
 pub mod daemon;
 pub mod features;
@@ -61,6 +62,7 @@ pub use models::{
     ChatSessionMetadata,
     ChatSessionSummary,
     ChatSessionUpdate,
+    ChildExecutionSessionQuery,
     CliExecutionConfig,
     CodexCliExecutionMode,
     CommandPattern,
@@ -69,6 +71,9 @@ pub use models::{
     DeliverableType,
     DurabilityMode,
     EnvVarRequirement,
+    ExecutionContainerKind,
+    ExecutionContainerRef,
+    ExecutionContainerSummary,
     ExecutionDetails,
     ExecutionLogField,
     ExecutionLogQuery,
@@ -76,8 +81,13 @@ pub use models::{
     ExecutionMetricQuery,
     ExecutionMetricsResponse,
     ExecutionMode,
+    ExecutionSessionKind,
+    ExecutionSessionListQuery,
+    ExecutionSessionSummary,
     ExecutionStep,
     ExecutionStepInfo,
+    ExecutionThread,
+    ExecutionThreadQuery,
     ExecutionTimeline,
     ExecutionTraceCategory,
     ExecutionTraceEvent,
