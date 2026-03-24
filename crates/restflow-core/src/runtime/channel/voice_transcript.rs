@@ -313,7 +313,8 @@ mod tests {
     #[test]
     fn enriches_voice_message_with_matching_transcript() {
         let input = voice_message("/tmp/voice-a.webm");
-        let trace = restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+        let trace =
+            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let start = ExecutionTraceEvent::tool_call(
             "task-1",
             "agent-1",
@@ -358,7 +359,8 @@ mod tests {
     #[test]
     fn does_not_enrich_when_file_path_does_not_match() {
         let input = voice_message("/tmp/voice-a.webm");
-        let trace = restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+        let trace =
+            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let start = ExecutionTraceEvent::tool_call(
             "task-1",
             "agent-1",
@@ -406,7 +408,8 @@ mod tests {
             .expect("write output ref");
 
         let input = voice_message("/tmp/voice-a.webm");
-        let trace = restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
+        let trace =
+            restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let start = ExecutionTraceEvent::tool_call(
             "task-1",
             "agent-1",

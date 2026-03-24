@@ -11,10 +11,10 @@ use crate::runtime::background_agent::{
 };
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
 use crate::runtime::orchestrator::modes::{background, interactive, subagent};
+use crate::storage::ExecutionTraceStorage;
 use crate::telemetry::{
     build_execution_trace_sink, emit_run_completed, emit_run_failed, emit_run_started,
 };
-use crate::storage::ExecutionTraceStorage;
 use restflow_ai::AgentState;
 use restflow_ai::agent::{NullEmitter, StreamEmitter};
 use restflow_telemetry::RestflowTrace;

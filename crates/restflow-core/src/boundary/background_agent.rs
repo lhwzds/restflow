@@ -16,8 +16,8 @@ use restflow_traits::store::{
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
     BackgroundAgentUpdateRequest,
 };
-use serde::de::DeserializeOwned;
 use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 pub(crate) struct ConvertSessionRequestOptions {
     pub(crate) name: Option<String>,

@@ -30,7 +30,7 @@ pub use restflow_ai::agent::{
     SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig, SubagentResult,
     SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
 };
+pub use restflow_telemetry::RestflowTrace;
 pub use subagent::{
     AgentDefinition, AgentDefinitionRegistry, StorageBackedSubagentLookup, builtin_agents,
 };
-pub use restflow_telemetry::RestflowTrace;

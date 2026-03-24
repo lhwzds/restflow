@@ -16,8 +16,8 @@ use crate::storage::{
 use super::derive::derive_projection_events;
 use super::mapping::execution_event_to_trace_event;
 use super::projector::{
-    ExecutionTraceProjector, MetricsProjector, ProviderHealthProjector,
-    SessionProjectionProjector, StructuredLogProjector, TelemetryProjector,
+    ExecutionTraceProjector, MetricsProjector, ProviderHealthProjector, SessionProjectionProjector,
+    StructuredLogProjector, TelemetryProjector,
 };
 
 #[derive(Clone)]
