@@ -11,6 +11,12 @@ import { useI18n } from 'vue-i18n'
 import { Play, Pause, RotateCcw, XCircle, PanelRight, Send, Loader2, Cog } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import MessageList from '@/components/chat/MessageList.vue'
+import {
+  buildChatThreadItems,
+  buildExecutionThreadItems,
+  type ThreadItem,
+  type ThreadSelection,
+} from '@/components/chat/threadItems'
 import AgentStatusBadge from './AgentStatusBadge.vue'
 import AgentOverviewOverlay from './AgentOverviewOverlay.vue'
 import ExecutionTelemetryViewer from '@/components/telemetry/ExecutionTelemetryViewer.vue'
@@ -27,22 +33,29 @@ import {
   listMemorySessions,
   steerTask,
 } from '@/api/background-agents'
+import { BackendError } from '@/api/http-client'
+import { getExecutionThread } from '@/api/execution-console'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 import {
   formatOperationAssessment,
   type OperationAssessment,
 } from '@/utils/operationAssessment'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   agent: BackgroundAgent
-}>()
+  selectedRunId?: string | null
+}>(), {
+  selectedRunId: null,
+})
 
 const emit = defineEmits<{
   refresh: []
+  selectThreadItem: [selection: ThreadSelection]
 }>()
 
 const { t } = useI18n()
@@ -65,6 +78,8 @@ let loadVersion = 0
 // Event history
 const events = ref<TaskEvent[]>([])
 const isLoadingEvents = ref(false)
+const executionThread = ref<ExecutionThread | null>(null)
+const isLoadingThread = ref(false)
 
 // Persisted long-term memory for this background agent
 const memoryChunks = ref<MemoryChunk[]>([])
@@ -97,6 +112,18 @@ const timelineMessages = computed<ChatMessage[]>(() =>
   }),
 )
 const timelineSteps = computed<StreamStep[]>(() => [])
+const threadItems = computed<ThreadItem[]>(() => {
+  if (executionThread.value) {
+    return buildExecutionThreadItems(executionThread.value)
+  }
+
+  return buildChatThreadItems({
+    messages: timelineMessages.value,
+    steps: timelineSteps.value,
+    isStreaming: isStreaming.value,
+    streamContent: showLiveStreamBubble.value ? outputText.value : '',
+  })
+})
 const showInitialEmptyState = computed(
   () =>
     timelineMessages.value.length === 0 &&
@@ -189,6 +216,36 @@ async function loadEvents() {
   } finally {
     if (version === loadVersion) {
       isLoadingEvents.value = false
+    }
+  }
+}
+
+async function loadExecutionThread() {
+  const version = loadVersion
+  isLoadingThread.value = true
+
+  try {
+    const thread = await getExecutionThread({
+      session_id: null,
+      run_id: props.selectedRunId,
+      task_id: props.selectedRunId ? null : props.agent.id,
+    })
+
+    if (version !== loadVersion) return
+    executionThread.value = thread
+  } catch (err) {
+    if (version !== loadVersion) return
+
+    if (err instanceof BackendError && err.code === 404) {
+      executionThread.value = null
+      return
+    }
+
+    console.warn('Failed to load execution thread:', err)
+    executionThread.value = null
+  } finally {
+    if (version === loadVersion) {
+      isLoadingThread.value = false
     }
   }
 }
@@ -298,14 +355,19 @@ function formatRelativeTime(timestamp: number): string {
   return new Date(timestamp).toLocaleDateString()
 }
 
+function handleThreadItemSelection(selection: ThreadSelection) {
+  emit('selectThreadItem', selection)
+}
+
 // Reload events when agent changes
 watch(
-  () => props.agent.id,
+  () => [props.agent.id, props.selectedRunId] as const,
   () => {
     loadVersion++
     streamTaskId.value = null
     reset()
     loadEvents()
+    loadExecutionThread()
     loadMemoryConversation()
   },
 )
@@ -315,6 +377,7 @@ watch(
   (completedAt, previousCompletedAt) => {
     if (completedAt && completedAt !== previousCompletedAt) {
       loadEvents()
+      loadExecutionThread()
       loadMemoryConversation()
     }
   },
@@ -322,12 +385,13 @@ watch(
 
 onMounted(() => {
   loadEvents()
+  loadExecutionThread()
   loadMemoryConversation()
 })
 </script>
 
 <template>
-  <div class="relative flex-1 flex flex-col min-w-0 overflow-hidden">
+  <div class="relative flex-1 flex flex-col min-w-0 overflow-hidden" data-testid="background-agent-panel">
     <!-- Header (mirrors ChatHeader style) -->
     <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground">
       <Cog :size="12" class="text-blue-500 shrink-0" />
@@ -407,8 +471,10 @@ onMounted(() => {
         :stream-content="showLiveStreamBubble ? outputText : ''"
         :stream-thinking="showLiveStreamBubble ? t('backgroundAgent.thinking') : ''"
         :steps="timelineSteps"
+        :thread-items="threadItems"
         :enable-copy-action="false"
         :enable-regenerate-action="false"
+        @select-thread-item="handleThreadItemSelection"
       />
 
       <div
@@ -442,7 +508,7 @@ onMounted(() => {
       </div>
 
       <div
-        v-if="isLoadingEvents"
+        v-if="isLoadingEvents || isLoadingThread"
         class="absolute left-4 top-4 inline-flex items-center gap-2 rounded-md border border-border bg-background/90 px-2 py-1 text-xs text-muted-foreground pointer-events-none"
       >
         <Loader2 :size="12" class="animate-spin" />
@@ -450,7 +516,12 @@ onMounted(() => {
       </div>
     </div>
 
-    <ExecutionTelemetryViewer :task-id="agent.id" class="shrink-0 border-t border-border" />
+    <ExecutionTelemetryViewer
+      :task-id="agent.id"
+      :run-id="selectedRunId"
+      :hide-timeline="true"
+      class="shrink-0 border-t border-border"
+    />
 
     <!-- Steer Input (only visible when agent is actively running/streaming) -->
     <div v-show="canSteer" class="shrink-0 px-4 pb-4">

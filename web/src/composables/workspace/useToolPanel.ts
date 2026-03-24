@@ -1,5 +1,6 @@
 import { computed, ref } from 'vue'
 import type { StreamStep } from './useChatStream'
+import type { ThreadSelection } from '@/components/chat/threadItems'
 
 export type ToolPanelType =
   | 'canvas'
@@ -34,6 +35,14 @@ export interface ToolPanelState {
   step: StreamStep
   history: ToolPanelHistoryEntry[]
   historyIndex: number
+}
+
+function stringifyData(value: Record<string, unknown>): string {
+  return JSON.stringify(
+    value,
+    (_key, current) => (typeof current === 'bigint' ? current.toString() : current),
+    2,
+  )
 }
 
 const TOOL_PANEL_MAP: Record<string, ToolPanelType> = {
@@ -134,6 +143,19 @@ function toPersistedStepTitle(step: StreamStep): string {
   return `${step.type || 'step'}: ${step.name || 'details'}`
 }
 
+function toSyntheticStep(selection: ThreadSelection): StreamStep {
+  return (
+    selection.step ?? {
+      type: selection.kind,
+      name: selection.toolName ?? selection.title,
+      displayName: selection.title,
+      status: 'completed',
+      toolId: selection.id,
+      result: stringifyData(selection.data),
+    }
+  )
+}
+
 export function useToolPanel() {
   const state = ref<ToolPanelState>(createInitialState())
 
@@ -220,6 +242,25 @@ export function useToolPanel() {
     })
   }
 
+  function handleThreadSelection(selection: ThreadSelection) {
+    if (selection.kind === 'step' && selection.step) {
+      handleToolResult(selection.step)
+      return
+    }
+
+    const step = toSyntheticStep(selection)
+    appendEntry({
+      toolId: selection.id,
+      toolName: selection.toolName ?? step.name ?? selection.title,
+      panelType: 'generic',
+      title: selection.title,
+      data: selection.data,
+      step,
+      timestamp: Date.now(),
+      status: step.status === 'failed' ? 'failed' : 'completed',
+    })
+  }
+
   function navigateHistory(direction: 'prev' | 'next') {
     const history = state.value.history
     if (history.length === 0) return
@@ -268,6 +309,7 @@ export function useToolPanel() {
     canNavigatePrev,
     canNavigateNext,
     handleToolResult,
+    handleThreadSelection,
     handleShowPanelResult,
     showPanel,
     navigateHistory,

@@ -23,6 +23,23 @@ export interface SessionItem {
   isBackgroundAgent?: boolean
 }
 
+export interface BackgroundRunItem {
+  id: string
+  title: string
+  status: string
+  updatedAt: number
+  runId?: string | null
+}
+
+export interface BackgroundTaskFolder {
+  taskId: string
+  name: string
+  status: string
+  updatedAt: number
+  expanded: boolean
+  runs: BackgroundRunItem[]
+}
+
 export interface AgentFile {
   id: string
   name: string

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { defineComponent, ref } from 'vue'
+import { defineComponent, reactive, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import Workspace from '../Workspace.vue'
 
@@ -9,6 +9,12 @@ const mockCreateSession = vi.fn()
 const mockSelectSession = vi.fn()
 const mockFetchSummaries = vi.fn()
 const mockFetchBackgroundAgents = vi.fn()
+const mockListExecutionSessions = vi.fn()
+const mockRoute = reactive<{ name: string; params: Record<string, string>; query: Record<string, string> }>({
+  name: 'workspace',
+  params: {},
+  query: {},
+})
 
 let mockStore: any
 let mockBackgroundStore: any
@@ -23,11 +29,16 @@ vi.mock('vue-router', () => ({
   useRouter: () => ({
     push: (...args: unknown[]) => mockRouterPush(...args),
   }),
+  useRoute: () => mockRoute,
 }))
 
 vi.mock('@/api/agents', () => ({
   listAgents: (...args: unknown[]) => mockListAgents(...args),
   deleteAgent: vi.fn(),
+}))
+
+vi.mock('@/api/execution-console', () => ({
+  listExecutionSessions: (...args: unknown[]) => mockListExecutionSessions(...args),
 }))
 
 vi.mock('@/stores/chatSessionStore', () => ({
@@ -70,6 +81,7 @@ vi.mock('@/composables/workspace/useToolPanel', () => ({
     canNavigateNext: ref(false),
     handleShowPanelResult: vi.fn(),
     handleToolResult: vi.fn(),
+    handleThreadSelection: vi.fn(),
     clearHistory: vi.fn(),
     closePanel: vi.fn(),
     navigateHistory: vi.fn(),
@@ -162,6 +174,11 @@ describe('Workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRouterPush.mockReset()
+    mockRoute.name = 'workspace'
+    mockRoute.params = {}
+    mockRoute.query = {}
+    mockListExecutionSessions.mockReset()
+    mockListExecutionSessions.mockResolvedValue([])
 
     mockStore = {
       summaries: [],
@@ -178,6 +195,11 @@ describe('Workspace', () => {
     mockBackgroundStore = {
       agents: [],
       fetchAgents: mockFetchBackgroundAgents,
+      agentBySessionId: vi.fn(
+        (sessionId: string) =>
+          mockBackgroundStore.agents.find((agent: any) => agent.chat_session_id === sessionId) ??
+          null,
+      ),
     }
 
     mockListAgents.mockResolvedValue([

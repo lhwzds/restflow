@@ -5,10 +5,10 @@
  * Main application layout with three columns:
  * - Left: Session/Agent sidebar
  * - Center: Chat panel or agent editor
- * - Right: Tool panel (chat mode only)
+ * - Right: Tool panel / inspector (session mode only)
  */
 import { ref, computed, onMounted, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Settings, Moon, Sun, Bot, MessageSquare } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -34,15 +34,24 @@ import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { confirmDelete, useConfirm } from '@/composables/useConfirm'
 import { deleteAgent as deleteAgentApi, listAgents } from '@/api/agents'
+import { listExecutionSessions } from '@/api/execution-console'
 import { rebuildExternalChatSession } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
-import type { AgentFile, SessionItem, WorkspaceAgentModelSelection } from '@/types/workspace'
+import type {
+  AgentFile,
+  BackgroundTaskFolder,
+  SessionItem,
+  WorkspaceAgentModelSelection,
+} from '@/types/workspace'
 import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
+import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
+import type { ThreadSelection } from '@/components/chat/threadItems'
 
 const toast = useToast()
 const { t } = useI18n()
 const { confirm } = useConfirm()
+const route = useRoute()
 const router = useRouter()
 const chatSessionStore = useChatSessionStore()
 const backgroundAgentStore = useBackgroundAgentStore()
@@ -57,6 +66,8 @@ const selectedAgentId = ref<string | null>(null)
 
 const selectedItemId = ref<string | null>(null)
 const isSending = computed(() => chatSessionStore.isSending)
+const expandedBackgroundTaskIds = ref<Set<string>>(new Set())
+const backgroundRunsByTaskId = ref<Record<string, ExecutionSessionSummary[]>>({})
 
 const toolPanel = useToolPanel()
 
@@ -94,6 +105,48 @@ const sessions = computed<SessionItem[]>(() => {
     isBackgroundSession: backgroundTaskBySessionId.has(session.id),
     backgroundTaskId: backgroundTaskBySessionId.get(session.id) ?? null,
   }))
+})
+
+const currentBackgroundTaskId = computed(() => {
+  const selectedSessionId = selectedItemId.value
+  if (!selectedSessionId) return null
+  return backgroundAgentStore.agentBySessionId(selectedSessionId)?.id ?? null
+})
+
+const currentBackgroundRunId = computed<string | null>(() => {
+  const value = route.query.runId
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null
+})
+
+const backgroundFolders = computed<BackgroundTaskFolder[]>(() =>
+  backgroundAgentStore.agents.map((agent) => ({
+    taskId: agent.id,
+    name: agent.name,
+    status: agent.status,
+    updatedAt: agent.updated_at,
+    expanded: expandedBackgroundTaskIds.value.has(agent.id),
+    runs: (backgroundRunsByTaskId.value[agent.id] ?? []).map((session) => ({
+      id: session.id,
+      title: session.title,
+      status: session.status,
+      updatedAt: session.updated_at,
+      runId: session.run_id,
+    })),
+  })),
+)
+
+const routeSessionId = computed(() => {
+  if (route.name !== 'workspace-session') {
+    return ''
+  }
+  return String(route.params.sessionId ?? '').trim()
+})
+
+const routeTaskId = computed(() => {
+  if (route.name !== 'workspace-run') {
+    return ''
+  }
+  return String(route.params.taskId ?? '').trim()
 })
 
 function isExternallyManagedSession(sessionId: string): boolean {
@@ -138,19 +191,46 @@ async function onNewSession() {
 
   selectedItemId.value = session.id
   await chatSessionStore.selectSession(session.id)
+  await router.push({ name: 'workspace-session', params: { sessionId: session.id } })
 }
 
 async function onSelectItem(id: string) {
+  sidebarMode.value = 'sessions'
   selectedItemId.value = id
   await chatSessionStore.selectSession(id)
+
+  const taskId = backgroundAgentStore.agentBySessionId(id)?.id
+  if (taskId) {
+    await router.push({ name: 'workspace-run', params: { taskId } })
+    return
+  }
+
+  await router.push({ name: 'workspace-session', params: { sessionId: id } })
 }
 
 function onSwitchToSessions() {
   sidebarMode.value = 'sessions'
+  if (selectedItemId.value) {
+    const taskId = backgroundAgentStore.agentBySessionId(selectedItemId.value)?.id
+    if (taskId) {
+      void router.push({
+        name: 'workspace-run',
+        params: { taskId },
+      })
+      return
+    }
+    void router.push({
+      name: 'workspace-session',
+      params: { sessionId: selectedItemId.value },
+    })
+    return
+  }
+  void router.push({ name: 'workspace' })
 }
 
 function onSwitchToAgents() {
   sidebarMode.value = 'agents'
+  void router.push({ name: 'workspace' })
   if (!selectedAgentId.value && availableAgents.value.length > 0) {
     selectedAgentId.value = availableAgents.value[0]?.id ?? null
   }
@@ -159,6 +239,7 @@ function onSwitchToAgents() {
 function onSelectAgent(agentId: string) {
   selectedAgentId.value = agentId
   sidebarMode.value = 'agents'
+  void router.push({ name: 'workspace' })
 }
 
 function onShowPanel(resultJson: string) {
@@ -167,6 +248,52 @@ function onShowPanel(resultJson: string) {
 
 function onToolResult(step: StreamStep) {
   toolPanel.handleToolResult(step)
+}
+
+function onThreadSelection(selection: ThreadSelection) {
+  toolPanel.handleThreadSelection(selection)
+}
+
+async function loadBackgroundRuns(taskId: string) {
+  const runs = await listExecutionSessions({
+    container: {
+      kind: 'background_task',
+      id: taskId,
+    },
+  })
+  backgroundRunsByTaskId.value = {
+    ...backgroundRunsByTaskId.value,
+    [taskId]: runs,
+  }
+}
+
+async function onToggleBackgroundTask(taskId: string) {
+  const next = new Set(expandedBackgroundTaskIds.value)
+  if (next.has(taskId)) {
+    next.delete(taskId)
+    expandedBackgroundTaskIds.value = next
+    return
+  }
+
+  next.add(taskId)
+  expandedBackgroundTaskIds.value = next
+  if (!backgroundRunsByTaskId.value[taskId]) {
+    try {
+      await loadBackgroundRuns(taskId)
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : t('backgroundAgent.runTraceDescription')
+      toast.error(message)
+    }
+  }
+}
+
+async function onSelectBackgroundRun(taskId: string, runId: string | null) {
+  await router.push({
+    name: 'workspace-run',
+    params: { taskId },
+    query: runId ? { runId } : undefined,
+  })
 }
 
 async function onDeleteSession(id: string, name: string) {
@@ -183,6 +310,7 @@ async function onDeleteSession(id: string, name: string) {
     if (selectedItemId.value === id) {
       selectedItemId.value = null
       await chatSessionStore.selectSession(null)
+      await router.push({ name: 'workspace' })
     }
   } else {
     toast.error(t('workspace.session.deleteFailed'))
@@ -201,6 +329,7 @@ async function onArchiveSession(id: string, _name: string) {
     if (selectedItemId.value === id) {
       selectedItemId.value = null
       await chatSessionStore.selectSession(null)
+      await router.push({ name: 'workspace' })
     }
   } else {
     toast.error(t('workspace.session.archiveFailed'))
@@ -263,6 +392,7 @@ async function onConvertToWorkspaceSession(id: string, name: string) {
   await chatSessionStore.fetchSummaries()
   if (selectedItemId.value === id) {
     await chatSessionStore.selectSession(id)
+    await router.push({ name: 'workspace-session', params: { sessionId: id } })
   }
 }
 
@@ -379,7 +509,7 @@ function resolveAgentDeleteErrorMessage(error: unknown): string {
 watch(
   () => chatSessionStore.currentSessionId,
   (newId) => {
-    if (newId) {
+    if (newId && !routeTaskId.value) {
       selectedItemId.value = newId
     }
   },
@@ -389,14 +519,42 @@ watch(selectedItemId, () => {
   toolPanel.clearHistory()
 })
 
+watch(
+  [routeSessionId, routeTaskId, () => backgroundAgentStore.agents],
+  async ([sessionId, taskId]) => {
+    if (sidebarMode.value !== 'agents') {
+      sidebarMode.value = 'sessions'
+    }
+
+    if (taskId) {
+      const targetAgent = backgroundAgentStore.agents.find((agent) => agent.id === taskId) ?? null
+      const boundSessionId = targetAgent?.chat_session_id?.trim()
+      if (boundSessionId) {
+        selectedItemId.value = boundSessionId
+        await chatSessionStore.selectSession(boundSessionId)
+      } else {
+        selectedItemId.value = null
+      }
+      return
+    }
+
+    if (sessionId) {
+      selectedItemId.value = sessionId
+      await chatSessionStore.selectSession(sessionId)
+    }
+  },
+  { immediate: true },
+)
+
 onMounted(() => {
   void loadAgents()
+  void chatSessionStore.fetchSummaries()
   void backgroundAgentStore.fetchAgents()
 })
 </script>
 
 <template>
-  <div class="h-screen flex bg-background">
+  <div class="h-screen flex bg-background" data-testid="workspace-shell">
     <SettingsPanel v-if="showSettings" class="flex-1" @back="showSettings = false" />
 
     <div v-show="!showSettings" class="flex flex-1 min-w-0">
@@ -441,6 +599,9 @@ onMounted(() => {
           v-if="sidebarMode === 'sessions'"
           :sessions="sessions"
           :current-session-id="selectedItemId"
+          :background-folders="backgroundFolders"
+          :current-background-task-id="currentBackgroundTaskId"
+          :current-background-run-id="currentBackgroundRunId"
           class="flex-1 min-h-0"
           @select="onSelectItem"
           @new-session="onNewSession"
@@ -451,6 +612,8 @@ onMounted(() => {
           @convert-to-workspace-session="onConvertToWorkspaceSession"
           @view-run-trace="onViewRunTrace"
           @rebuild="onRebuildSession"
+          @toggle-background-task="onToggleBackgroundTask"
+          @select-background-run="onSelectBackgroundRun"
         />
 
         <AgentList
@@ -491,6 +654,7 @@ onMounted(() => {
         class="flex-1 min-w-0"
         @show-panel="onShowPanel"
         @tool-result="onToolResult"
+        @thread-selection="onThreadSelection"
       />
 
       <AgentEditorPanel
@@ -501,7 +665,11 @@ onMounted(() => {
       />
 
       <ToolPanel
-        v-if="sidebarMode === 'sessions' && toolPanel.visible.value && toolPanel.activeEntry.value"
+        v-if="
+          sidebarMode === 'sessions' &&
+          toolPanel.visible.value &&
+          toolPanel.activeEntry.value
+        "
         :panel-type="toolPanel.state.value.panelType"
         :title="toolPanel.state.value.title"
         :tool-name="toolPanel.state.value.toolName"
