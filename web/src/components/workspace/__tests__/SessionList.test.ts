@@ -12,7 +12,7 @@ describe('SessionList', () => {
   it('strips channel session prefix from displayed chat session names', () => {
     const wrapper = mount(SessionList, {
       props: {
-        sessions: [
+        workspaceSessions: [
           {
             id: 'session-channel',
             name: 'channel:7686400336',
@@ -74,7 +74,7 @@ describe('SessionList', () => {
   it('shows a background tag for sessions linked to background agents', () => {
     const wrapper = mount(SessionList, {
       props: {
-        sessions: [
+        workspaceSessions: [
           {
             id: 'session-bg',
             name: 'Bound Session',
@@ -119,7 +119,7 @@ describe('SessionList', () => {
   it('uses the background tag instead of source tags when a session is marked as background', () => {
     const wrapper = mount(SessionList, {
       props: {
-        sessions: [
+        workspaceSessions: [
           {
             id: 'session-bg-telegram',
             name: 'Background Task Session',
@@ -164,7 +164,7 @@ describe('SessionList', () => {
   it('emits session actions from list controls', async () => {
     const wrapper = mount(SessionList, {
       props: {
-        sessions: [
+        workspaceSessions: [
           {
             id: 'session-channel',
             name: 'channel:7686400336',
@@ -250,7 +250,7 @@ describe('SessionList', () => {
   it('renders a larger menu trigger hit area for session actions', () => {
     const wrapper = mount(SessionList, {
       props: {
-        sessions: [
+        workspaceSessions: [
           {
             id: 'session-workspace',
             name: 'Workspace Session',
@@ -296,7 +296,7 @@ describe('SessionList', () => {
   it('renders background folders and emits toggle/select events', async () => {
     const wrapper = mount(SessionList, {
       props: {
-        sessions: [],
+        workspaceSessions: [],
         currentSessionId: null,
         backgroundFolders: [
           {
@@ -352,5 +352,70 @@ describe('SessionList', () => {
 
     expect(wrapper.emitted('toggleBackgroundTask')).toEqual([['task-1']])
     expect(wrapper.emitted('selectBackgroundRun')).toEqual([['task-1', 'run-1']])
+  })
+
+  it('renders external channel folders and emits toggle/select events', async () => {
+    const wrapper = mount(SessionList, {
+      props: {
+        workspaceSessions: [],
+        currentSessionId: 'external-session-1',
+        externalFolders: [
+          {
+            containerId: 'telegram:conversation-1',
+            name: 'conversation-1',
+            subtitle: 'Latest external session',
+            status: 'active',
+            updatedAt: Date.now(),
+            expanded: true,
+            sourceChannel: 'telegram',
+            sessions: [
+              {
+                id: 'external-session-1',
+                name: 'channel:123456',
+                status: 'completed',
+                updatedAt: Date.now(),
+                agentName: 'Agent One',
+                sourceChannel: 'telegram',
+              },
+            ],
+          },
+        ],
+      },
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenu: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuTrigger: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuContent: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuItem: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('External Channels')
+    expect(wrapper.get('[data-testid="external-folder-telegram:conversation-1"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="external-session-external-session-1"]')).toBeTruthy()
+
+    await wrapper
+      .get('[data-testid="external-folder-telegram:conversation-1"]')
+      .find('button')
+      .trigger('click')
+    await wrapper.get('[data-testid="external-session-external-session-1"]').trigger('click')
+
+    expect(wrapper.emitted('toggleExternalChannel')).toEqual([['telegram:conversation-1']])
+    expect(wrapper.emitted('select')).toEqual([['external-session-1']])
   })
 })

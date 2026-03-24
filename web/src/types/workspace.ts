@@ -12,8 +12,10 @@ export interface SessionItem {
   name: string
   status: SessionStatus
   updatedAt: number
+  subtitle?: string | null
   agentId?: string
   agentName?: string
+  containerId?: string | null
   sourceChannel?: ChatSessionSource | null
   /** Indicates the chat session is bound to a background agent task. */
   isBackgroundSession?: boolean
@@ -34,10 +36,22 @@ export interface BackgroundRunItem {
 export interface BackgroundTaskFolder {
   taskId: string
   name: string
+  subtitle?: string | null
   status: string
   updatedAt: number
   expanded: boolean
   runs: BackgroundRunItem[]
+}
+
+export interface ExternalChannelFolder {
+  containerId: string
+  name: string
+  subtitle?: string | null
+  status?: string | null
+  updatedAt: number
+  expanded: boolean
+  sourceChannel?: ChatSessionSource | null
+  sessions: SessionItem[]
 }
 
 export interface AgentFile {

@@ -22,7 +22,7 @@ const router = createRouter({
     {
       path: '/workspace/runs/:taskId',
       name: 'workspace-run',
-      component: () => import('../views/BackgroundAgentRunView.vue'),
+      component: () => import('../views/Workspace.vue'),
       meta: { titleKey: 'common.brandName' },
     },
   ],

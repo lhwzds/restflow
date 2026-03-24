@@ -5,10 +5,12 @@ import Workspace from '../Workspace.vue'
 
 const mockListAgents = vi.fn()
 const mockRouterPush = vi.fn()
+const mockRouterReplace = vi.fn()
 const mockCreateSession = vi.fn()
 const mockSelectSession = vi.fn()
 const mockFetchSummaries = vi.fn()
 const mockFetchBackgroundAgents = vi.fn()
+const mockListExecutionContainers = vi.fn()
 const mockListExecutionSessions = vi.fn()
 const mockRoute = reactive<{ name: string; params: Record<string, string>; query: Record<string, string> }>({
   name: 'workspace',
@@ -28,6 +30,7 @@ vi.mock('vue-i18n', () => ({
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     push: (...args: unknown[]) => mockRouterPush(...args),
+    replace: (...args: unknown[]) => mockRouterReplace(...args),
   }),
   useRoute: () => mockRoute,
 }))
@@ -38,6 +41,7 @@ vi.mock('@/api/agents', () => ({
 }))
 
 vi.mock('@/api/execution-console', () => ({
+  listExecutionContainers: (...args: unknown[]) => mockListExecutionContainers(...args),
   listExecutionSessions: (...args: unknown[]) => mockListExecutionSessions(...args),
 }))
 
@@ -122,6 +126,13 @@ vi.mock('@/components/chat/ChatPanel.vue', () => ({
   }),
 }))
 
+vi.mock('@/components/workspace/WorkspaceRunPanel.vue', () => ({
+  default: defineComponent({
+    name: 'WorkspaceRunPanel',
+    template: '<div data-testid="workspace-run-panel" />',
+  }),
+}))
+
 vi.mock('@/components/tool-panel/ToolPanel.vue', () => ({
   default: defineComponent({
     name: 'ToolPanel',
@@ -174,10 +185,28 @@ describe('Workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockRouterPush.mockReset()
+    mockRouterReplace.mockReset()
     mockRoute.name = 'workspace'
     mockRoute.params = {}
     mockRoute.query = {}
+    mockListExecutionContainers.mockReset()
     mockListExecutionSessions.mockReset()
+    mockListExecutionContainers.mockResolvedValue([
+      {
+        id: 'workspace',
+        kind: 'workspace',
+        title: 'Workspace',
+        subtitle: 'Local sessions',
+        updated_at: 1,
+        status: null,
+        session_count: 0,
+        latest_session_id: null,
+        latest_run_id: null,
+        agent_id: null,
+        source_channel: 'workspace',
+        source_conversation_id: null,
+      },
+    ])
     mockListExecutionSessions.mockResolvedValue([])
 
     mockStore = {
@@ -371,5 +400,43 @@ describe('Workspace', () => {
       name: 'workspace-run',
       params: { taskId: 'task-1' },
     })
+  })
+
+  it('renders the embedded run panel in workspace run routes', async () => {
+    mockRoute.name = 'workspace-run'
+    mockRoute.params = { taskId: 'task-1' }
+
+    const wrapper = mount(Workspace, {
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          Dialog: {
+            template: '<div><slot /></div>',
+          },
+          DialogContent: {
+            template: '<div><slot /></div>',
+          },
+          DialogHeader: {
+            template: '<div><slot /></div>',
+          },
+          DialogTitle: {
+            template: '<div><slot /></div>',
+          },
+          DialogFooter: {
+            template: '<div><slot /></div>',
+          },
+          Input: {
+            template: '<input />',
+          },
+        },
+      },
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="workspace-run-panel"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(false)
   })
 })
