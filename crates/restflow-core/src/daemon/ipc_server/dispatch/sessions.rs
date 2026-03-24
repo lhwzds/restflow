@@ -41,6 +41,7 @@ impl IpcServer {
             }
             Err(
                 ExecutionThreadError::SessionNotFound(_)
+                | ExecutionThreadError::SessionHasNoRuns(_)
                 | ExecutionThreadError::RunNotFound(_)
                 | ExecutionThreadError::TaskNotFound(_)
                 | ExecutionThreadError::TaskHasNoRuns(_),

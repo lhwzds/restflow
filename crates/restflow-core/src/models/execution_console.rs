@@ -17,9 +17,9 @@ pub enum ExecutionContainerKind {
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionSessionKind {
-    WorkspaceSession,
+    WorkspaceRun,
     BackgroundRun,
-    ExternalSession,
+    ExternalRun,
     SubagentRun,
 }
 
