@@ -42,6 +42,12 @@ export interface ThreadItem {
   expandable: boolean
 }
 
+interface ThreadEnvelope {
+  item: ThreadItem
+  sortTime: number
+  sortId: string
+}
+
 function normalizeStepStatus(status: string): StepStatus {
   switch (status) {
     case 'completed':
@@ -72,6 +78,18 @@ function stringifyData(value: unknown): string {
     (_key, current) => (typeof current === 'bigint' ? current.toString() : current),
     2,
   )
+}
+
+function buildMessageSelectionData(message: ChatMessage): Record<string, unknown> {
+  return {
+    message_id: message.id,
+    role: message.role,
+    content: message.content,
+    timestamp: message.timestamp.toString(),
+    execution: message.execution,
+    media: message.media ?? null,
+    transcript: message.transcript ?? null,
+  }
 }
 
 function buildPersistedSelection(messageId: string, step: ExecutionStepInfo, index: number): ThreadSelection {
@@ -134,29 +152,13 @@ function buildMessageSelection(message: ChatMessage): ThreadSelection {
     id: `message-${message.id}`,
     kind: 'message',
     title: `${message.role} message`,
-    data: {
-      message_id: message.id,
-      role: message.role,
-      content: message.content,
-      timestamp: message.timestamp.toString(),
-      execution: message.execution,
-      media: message.media ?? null,
-      transcript: message.transcript ?? null,
-    },
+    data: buildMessageSelectionData(message),
     step: {
       type: 'message',
       name: `${message.role} message`,
       status: 'completed',
       toolId: `message-${message.id}`,
-      result: stringifyData({
-        message_id: message.id,
-        role: message.role,
-        content: message.content,
-        timestamp: message.timestamp.toString(),
-        execution: message.execution,
-        media: message.media ?? null,
-        transcript: message.transcript ?? null,
-      }),
+      result: stringifyData(buildMessageSelectionData(message)),
     },
   }
 }
@@ -213,6 +215,12 @@ function buildStreamingAssistantItem(content: string): ThreadItem {
   }
 
   return buildMessageItem(message)
+}
+
+function toSortTime(timestamp: number | bigint | null | undefined): number {
+  if (timestamp == null) return 0
+  const value = typeof timestamp === 'bigint' ? Number(timestamp) : timestamp
+  return Number.isFinite(value) ? value : 0
 }
 
 function toNonToolKind(type: string): ThreadItemKind {
@@ -341,6 +349,41 @@ function buildEventSelection(event: ExecutionTraceEvent): ThreadSelection {
   }
 }
 
+function buildCanonicalEventSelection(
+  event: ExecutionTraceEvent,
+  message: ChatMessage | null,
+): ThreadSelection {
+  if (!message) {
+    return buildEventSelection(event)
+  }
+
+  const safeEvent = {
+    ...event,
+    subflow_path: [...event.subflow_path],
+  }
+
+  return {
+    id: event.id,
+    kind: 'event',
+    title: eventTitle(event),
+    toolName: event.tool_call?.tool_name ?? undefined,
+    data: {
+      event: safeEvent,
+      message: buildMessageSelectionData(message),
+    },
+    step: {
+      type: event.category,
+      name: event.tool_call?.tool_name ?? eventTitle(event),
+      status: normalizeStepStatus(eventStatus(event) ?? 'completed'),
+      toolId: event.id,
+      result: stringifyData({
+        event: safeEvent,
+        message: buildMessageSelectionData(message),
+      }),
+    },
+  }
+}
+
 function mapEventKind(event: ExecutionTraceEvent): ThreadItemKind | null {
   switch (event.category) {
     case 'message':
@@ -371,16 +414,19 @@ function buildEventMessage(event: ExecutionTraceEvent): ChatMessage {
   }
 }
 
-function buildExecutionEventItem(event: ExecutionTraceEvent): ThreadItem | null {
+function buildExecutionEventItem(
+  event: ExecutionTraceEvent,
+  matchedMessage: ChatMessage | null = null,
+): ThreadItem | null {
   const kind = mapEventKind(event)
   if (!kind) return null
 
   if (kind === 'message') {
-    const message = buildEventMessage(event)
+    const message = matchedMessage ?? buildEventMessage(event)
     return {
       ...buildMessageItem(message),
       id: event.id,
-      selection: buildEventSelection(event),
+      selection: buildCanonicalEventSelection(event, matchedMessage),
       timestampLabel: formatTimestampLabel(event.timestamp),
     }
   }
@@ -434,32 +480,182 @@ function buildChildRunItem(session: ExecutionSessionSummary): ThreadItem {
   }
 }
 
+function normalizeComparableText(value: string): string {
+  return value.replace(/\s+/g, ' ').trim()
+}
+
+function previewMatchesMessage(message: ChatMessage, preview: string | null | undefined): boolean {
+  if (!preview) return true
+
+  const normalizedPreview = normalizeComparableText(preview).replace(/[.…]+$/g, '')
+  if (!normalizedPreview) return true
+
+  const normalizedContent = normalizeComparableText(message.content)
+  if (!normalizedContent) return false
+
+  return (
+    normalizedContent.includes(normalizedPreview) ||
+    normalizedContent.startsWith(normalizedPreview) ||
+    normalizedPreview.includes(normalizedContent.slice(0, normalizedPreview.length))
+  )
+}
+
+function resolveMessageMatches(
+  events: ExecutionTraceEvent[],
+  messages: ChatMessage[],
+): {
+  matchedByEventId: Map<string, ChatMessage>
+  unmatchedMessages: ChatMessage[]
+} {
+  const matchedByEventId = new Map<string, ChatMessage>()
+  const usedMessageIndexes = new Set<number>()
+  const sortedMessages = [...messages].sort((left, right) => {
+    const delta = toSortTime(left.timestamp) - toSortTime(right.timestamp)
+    return delta !== 0 ? delta : left.id.localeCompare(right.id)
+  })
+
+  let cursor = 0
+
+  function findMatchIndex(role: string, preview: string | null | undefined): number {
+    const scan = (start: number, requirePreview: boolean): number => {
+      for (let index = start; index < sortedMessages.length; index += 1) {
+        if (usedMessageIndexes.has(index)) continue
+        const candidate = sortedMessages[index]
+        if (!candidate) continue
+        if (candidate.role !== role) continue
+        if (!requirePreview || previewMatchesMessage(candidate, preview)) {
+          return index
+        }
+      }
+      return -1
+    }
+
+    const withPreviewAfterCursor = scan(cursor, true)
+    if (withPreviewAfterCursor >= 0) return withPreviewAfterCursor
+
+    const withPreviewAnywhere = scan(0, true)
+    if (withPreviewAnywhere >= 0) return withPreviewAnywhere
+
+    const sameRoleAfterCursor = scan(cursor, false)
+    if (sameRoleAfterCursor >= 0) return sameRoleAfterCursor
+
+    return scan(0, false)
+  }
+
+  for (const event of events) {
+    if (event.category !== 'message' || !event.message?.role) continue
+
+    const matchIndex = findMatchIndex(event.message.role, event.message.content_preview)
+    if (matchIndex < 0) continue
+
+    usedMessageIndexes.add(matchIndex)
+    matchedByEventId.set(event.id, sortedMessages[matchIndex]!)
+    cursor = matchIndex + 1
+  }
+
+  const unmatchedMessages = sortedMessages.filter((_message, index) => !usedMessageIndexes.has(index))
+  return {
+    matchedByEventId,
+    unmatchedMessages,
+  }
+}
+
+function buildChildRunEnvelope(session: ExecutionSessionSummary): ThreadEnvelope {
+  return {
+    item: buildChildRunItem(session),
+    sortTime: toSortTime(session.started_at ?? session.updated_at),
+    sortId: `child-run-${session.id}`,
+  }
+}
+
+function appendLiveOverlays(items: ThreadItem[], steps: StreamStep[] | undefined, streamContent: string | undefined) {
+  if (steps?.length) {
+    steps.forEach((step, index) => {
+      items.push(buildStreamStepItem(step, index))
+    })
+  }
+
+  if (streamContent) {
+    items.push(buildStreamingAssistantItem(streamContent))
+  }
+}
+
 export function buildExecutionThreadItems(thread: ExecutionThread | null): ThreadItem[] {
   if (!thread) return []
 
-  const items = thread.timeline.events
-    .map(buildExecutionEventItem)
-    .filter((item): item is ThreadItem => item !== null)
+  const envelopes: ThreadEnvelope[] = thread.timeline.events
+    .map((event) => {
+      const item = buildExecutionEventItem(event)
+      if (!item) return null
+      return {
+        item,
+        sortTime: toSortTime(event.timestamp),
+        sortId: event.id,
+      }
+    })
+    .filter((entry): entry is ThreadEnvelope => entry !== null)
 
   for (const child of thread.child_sessions) {
-    items.push(buildChildRunItem(child))
+    envelopes.push(buildChildRunEnvelope(child))
   }
 
-  items.sort((left, right) => {
-    const leftTime = left.selection?.data?.event && typeof (left.selection.data.event as ExecutionTraceEvent).timestamp === 'number'
-      ? (left.selection.data.event as ExecutionTraceEvent).timestamp
-      : left.kind === 'child_run_link'
-        ? Number((thread.child_sessions.find((session) => `child-run-${session.id}` === left.id)?.started_at ?? 0))
-        : 0
-    const rightTime = right.selection?.data?.event && typeof (right.selection.data.event as ExecutionTraceEvent).timestamp === 'number'
-      ? (right.selection.data.event as ExecutionTraceEvent).timestamp
-      : right.kind === 'child_run_link'
-        ? Number((thread.child_sessions.find((session) => `child-run-${session.id}` === right.id)?.started_at ?? 0))
-        : 0
-
-    if (leftTime !== rightTime) return leftTime - rightTime
-    return left.id.localeCompare(right.id)
+  envelopes.sort((left, right) => {
+    if (left.sortTime !== right.sortTime) return left.sortTime - right.sortTime
+    return left.sortId.localeCompare(right.sortId)
   })
 
+  return envelopes.map((entry) => entry.item)
+}
+
+export function buildSessionThreadItems(input: {
+  thread: ExecutionThread | null
+  messages: ChatMessage[]
+  steps?: StreamStep[]
+  streamContent?: string
+}): ThreadItem[] {
+  if (!input.thread || (input.thread.timeline.events.length === 0 && input.thread.child_sessions.length === 0)) {
+    return buildChatThreadItems({
+      messages: input.messages,
+      steps: input.steps,
+      streamContent: input.streamContent,
+    })
+  }
+
+  const sortedEvents = [...input.thread.timeline.events].sort((left, right) => {
+    if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp
+    return left.id.localeCompare(right.id)
+  })
+  const { matchedByEventId, unmatchedMessages } = resolveMessageMatches(sortedEvents, input.messages)
+  const envelopes: ThreadEnvelope[] = []
+
+  for (const event of sortedEvents) {
+    const item = buildExecutionEventItem(event, matchedByEventId.get(event.id) ?? null)
+    if (!item) continue
+    envelopes.push({
+      item,
+      sortTime: toSortTime(event.timestamp),
+      sortId: event.id,
+    })
+  }
+
+  for (const message of unmatchedMessages) {
+    envelopes.push({
+      item: buildMessageItem(message),
+      sortTime: toSortTime(message.timestamp),
+      sortId: `message-${message.id}`,
+    })
+  }
+
+  for (const child of input.thread.child_sessions) {
+    envelopes.push(buildChildRunEnvelope(child))
+  }
+
+  envelopes.sort((left, right) => {
+    if (left.sortTime !== right.sortTime) return left.sortTime - right.sortTime
+    return left.sortId.localeCompare(right.sortId)
+  })
+
+  const items = envelopes.map((entry) => entry.item)
+  appendLiveOverlays(items, input.steps, input.streamContent)
   return items
 }

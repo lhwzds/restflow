@@ -27,13 +27,16 @@ import {
   subscribeSessionEvents,
   type UnlistenFn,
 } from '@/api/chat-session'
+import { getExecutionThread } from '@/api/execution-console'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { ModelId } from '@/types/generated/ModelId'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 import type { ThreadSelection } from './threadItems'
+import { buildSessionThreadItems, type ThreadItem } from './threadItems'
 import {
   extractOperationAssessment,
   formatOperationAssessment,
@@ -88,6 +91,8 @@ const chatBoxKey = computed(() => {
 
 // Messages from store
 const messages = computed<ChatMessage[]>(() => chatMessages.value)
+const executionThread = ref<ExecutionThread | null>(null)
+let executionThreadLoadVersion = 0
 
 // Stream state
 const isStreaming = computed(() => chatStream.isStreaming.value)
@@ -95,6 +100,14 @@ const isExecuting = computed(() => isSending.value || isStreaming.value)
 const streamContent = computed(() => chatStream.state.value.content)
 const streamThinking = computed(() => chatStream.state.value.thinking)
 const streamSteps = computed(() => chatStream.state.value.steps)
+const threadItems = computed<ThreadItem[]>(() =>
+  buildSessionThreadItems({
+    thread: executionThread.value,
+    messages: messages.value,
+    steps: streamSteps.value,
+    streamContent: streamContent.value,
+  }),
+)
 
 // Token stats from stream
 const inputTokens = computed(() => chatStream.state.value.inputTokens)
@@ -212,6 +225,44 @@ watch(
   { immediate: true },
 )
 
+async function loadExecutionThreadForSession(sessionId: string | null) {
+  const requestVersion = ++executionThreadLoadVersion
+
+  if (!sessionId) {
+    executionThread.value = null
+    return
+  }
+
+  try {
+    const thread = await getExecutionThread({
+      session_id: sessionId,
+      run_id: null,
+      task_id: null,
+    })
+
+    if (requestVersion !== executionThreadLoadVersion) return
+    executionThread.value = thread
+  } catch (error) {
+    if (requestVersion !== executionThreadLoadVersion) return
+
+    if (error instanceof BackendError && error.code === 404) {
+      executionThread.value = null
+      return
+    }
+
+    console.warn('Failed to load execution thread for session:', error)
+    executionThread.value = null
+  }
+}
+
+watch(
+  () => chatSessionStore.currentSessionId,
+  (sessionId) => {
+    void loadExecutionThreadForSession(sessionId)
+  },
+  { immediate: true },
+)
+
 async function syncSessionFromBackend() {
   const sessionId = chatSessionStore.currentSessionId
   if (!sessionId) return
@@ -219,6 +270,7 @@ async function syncSessionFromBackend() {
   const refreshed = await chatSessionStore.refreshSession(sessionId)
   if (refreshed) {
     chatSessionStore.updateSessionLocally(refreshed)
+    await loadExecutionThreadForSession(sessionId)
     // Clear stream content after persisted messages are loaded to prevent
     // showing both the streaming message and the persisted message.
     chatStream.reset()
@@ -500,7 +552,12 @@ onMounted(async () => {
         const sessionId = event.session_id
         // Refresh if it's the currently viewed session
         if (sessionId === chatSessionStore.currentSessionId) {
-          chatSessionStore.refreshSession(sessionId)
+          void chatSessionStore.refreshSession(sessionId).then((session) => {
+            if (session) {
+              chatSessionStore.updateSessionLocally(session)
+            }
+            return loadExecutionThreadForSession(sessionId)
+          })
         }
         // Also refresh summaries so the sidebar stays up to date
         chatSessionStore.fetchSummaries()
@@ -593,6 +650,7 @@ defineExpose({
       :stream-content="streamContent"
       :stream-thinking="streamThinking"
       :steps="streamSteps"
+      :thread-items="threadItems"
       :voice-audio-urls="voiceAudioUrls"
       @view-tool-result="onViewToolResult"
       @select-thread-item="onSelectThreadItem"
