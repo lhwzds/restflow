@@ -3,6 +3,6 @@ import type { ModelId } from "./ModelId";
 import type { Provider } from "./Provider";
 
 /**
- * Serializable model metadata for transferring to frontend
+ * Serializable model metadata for transferring to frontend.
  */
 export type ModelMetadataDTO = { model: ModelId, provider: Provider, supports_temperature: boolean, name: string, };
