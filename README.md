@@ -6,7 +6,6 @@
 **Background AI agent workers**
 
 [![Site](https://img.shields.io/badge/site-restflow.ai-black)](https://restflow.ai)
-[![Demo](https://img.shields.io/badge/demo-demo.restflow.ai-brightgreen)](https://demo.restflow.ai)
 [![Docs](https://img.shields.io/badge/docs-restflow.ai%2Fdocs-blue)](https://restflow.ai/docs/)
 [![Release](https://img.shields.io/github/v/release/lhwzds/restflow?label=latest)](https://github.com/lhwzds/restflow/releases/latest)
 [![Rust](https://img.shields.io/badge/rust-1.85%2B-dea584)](https://www.rust-lang.org/)
@@ -71,7 +70,6 @@ restflow auth add --provider claude-code --key <your-token>
 ## Links
 
 - Site: [restflow.ai](https://restflow.ai)
-- Demo: [demo.restflow.ai](https://demo.restflow.ai)
 - Docs: [restflow.ai/docs](https://restflow.ai/docs/)
 - Releases: [GitHub Releases](https://github.com/lhwzds/restflow/releases/latest)
 
