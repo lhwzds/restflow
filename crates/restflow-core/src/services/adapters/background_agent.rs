@@ -1,14 +1,15 @@
 //! BackgroundAgentStore adapter backed by BackgroundAgentStorage.
 
 use crate::boundary::background_agent::{
-    convert_session_request_to_options, create_request_to_spec, update_request_to_patch,
+    convert_session_request_to_options, create_request_to_spec, resolve_agent_id_alias,
+    update_request_to_patch,
 };
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentStatus, BackgroundMessageSource,
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
 };
 use crate::services::background_agent_conversion::{
-    ConvertSessionSpecOptions, build_convert_session_spec,
+    build_convert_session_spec, ConvertSessionSpecOptions,
 };
 use crate::storage::{AgentStorage, BackgroundAgentStorage};
 use crate::telemetry::get_execution_timeline;
@@ -24,7 +25,7 @@ use restflow_traits::{
     DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT,
     DEFAULT_BG_TRACE_LIST_LIMIT,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone)]
@@ -88,11 +89,12 @@ impl BackgroundAgentStoreAdapter {
     }
 
     fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
-        let trimmed = id_or_prefix.trim();
-        if trimmed.eq_ignore_ascii_case("default") {
-            return Ok(self.agent_storage.resolve_default_agent_id()?);
-        }
-        Ok(self.agent_storage.resolve_existing_agent_id(trimmed)?)
+        resolve_agent_id_alias(
+            id_or_prefix,
+            || self.agent_storage.resolve_default_agent_id(),
+            |trimmed| self.agent_storage.resolve_existing_agent_id(trimmed),
+        )
+        .map_err(Into::into)
     }
 
     fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {

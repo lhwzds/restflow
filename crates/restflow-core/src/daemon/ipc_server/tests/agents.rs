@@ -53,6 +53,22 @@ fn background_agent_spec(name: &str) -> crate::models::BackgroundAgentSpec {
     }
 }
 
+fn configure_default_agent(core: &Arc<AppCore>) -> String {
+    let default_id = core.storage.agents.resolve_default_agent_id().unwrap();
+    core.storage
+        .agents
+        .update_agent(
+            default_id.clone(),
+            None,
+            Some(
+                AgentNode::with_model(ModelId::Gpt5)
+                    .with_api_key(ApiKeyConfig::Direct("test-key".to_string())),
+            ),
+        )
+        .unwrap();
+    default_id
+}
+
 fn raw_background_agent_storage(core: &Arc<AppCore>) -> restflow_storage::BackgroundAgentStorage {
     restflow_storage::BackgroundAgentStorage::new(core.storage.get_db()).unwrap()
 }
@@ -283,6 +299,72 @@ async fn process_update_background_agent_resolves_unique_prefix() {
                 serde_json::from_value(value).expect("background agent");
             assert_eq!(updated.id, task.id);
             assert_eq!(updated.description.as_deref(), Some("updated description"));
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_background_agent_accepts_default_agent_alias() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let default_agent_id = configure_default_agent(&core);
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateBackgroundAgent {
+            spec: to_contract(crate::models::BackgroundAgentSpec {
+                agent_id: "default".to_string(),
+                ..background_agent_spec("ipc-default-alias")
+            })
+            .expect("contract spec"),
+            preview: false,
+            confirmation_token: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let created: crate::models::BackgroundAgent =
+                serde_json::from_value(value).expect("background agent");
+            assert_eq!(created.agent_id, default_agent_id);
+            assert_eq!(created.name, "ipc-default-alias");
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_update_background_agent_accepts_default_agent_alias() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let default_agent_id = configure_default_agent(&core);
+    let task = insert_background_agent_with_id(&core, "update-default-agent");
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::UpdateBackgroundAgent {
+            id: task.id.clone(),
+            patch: to_contract(crate::models::BackgroundAgentPatch {
+                agent_id: Some("default".to_string()),
+                ..Default::default()
+            })
+            .expect("contract patch"),
+            preview: false,
+            confirmation_token: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let updated: crate::models::BackgroundAgent =
+                serde_json::from_value(value).expect("background agent");
+            assert_eq!(updated.id, task.id);
+            assert_eq!(updated.agent_id, default_agent_id);
         }
         other => panic!("expected success response, got {other:?}"),
     }

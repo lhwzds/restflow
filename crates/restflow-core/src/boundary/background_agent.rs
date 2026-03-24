@@ -16,8 +16,8 @@ use restflow_traits::store::{
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
     BackgroundAgentUpdateRequest,
 };
-use serde::Serialize;
 use serde::de::DeserializeOwned;
+use serde::Serialize;
 
 pub(crate) struct ConvertSessionRequestOptions {
     pub(crate) name: Option<String>,
@@ -46,6 +46,47 @@ pub(crate) fn contract_patch_to_core(
     patch: ContractBackgroundAgentPatch,
 ) -> anyhow::Result<BackgroundAgentPatch> {
     from_contract(patch)
+}
+
+pub(crate) fn resolve_agent_id_alias<E, ResolveDefault, ResolveExisting>(
+    id_or_alias: &str,
+    resolve_default: ResolveDefault,
+    resolve_existing: ResolveExisting,
+) -> Result<String, E>
+where
+    ResolveDefault: FnOnce() -> Result<String, E>,
+    ResolveExisting: FnOnce(&str) -> Result<String, E>,
+{
+    let trimmed = id_or_alias.trim();
+    if trimmed.eq_ignore_ascii_case("default") {
+        resolve_default()
+    } else {
+        resolve_existing(trimmed)
+    }
+}
+
+pub(crate) fn resolve_spec_agent_id<E, ResolveAgentId>(
+    mut spec: BackgroundAgentSpec,
+    mut resolve_agent_id: ResolveAgentId,
+) -> Result<BackgroundAgentSpec, E>
+where
+    ResolveAgentId: FnMut(&str) -> Result<String, E>,
+{
+    spec.agent_id = resolve_agent_id(&spec.agent_id)?;
+    Ok(spec)
+}
+
+pub(crate) fn resolve_patch_agent_id<E, ResolveAgentId>(
+    mut patch: BackgroundAgentPatch,
+    mut resolve_agent_id: ResolveAgentId,
+) -> Result<BackgroundAgentPatch, E>
+where
+    ResolveAgentId: FnMut(&str) -> Result<String, E>,
+{
+    if let Some(agent_id) = patch.agent_id.as_deref() {
+        patch.agent_id = Some(resolve_agent_id(agent_id)?);
+    }
+    Ok(patch)
 }
 
 pub(crate) fn core_patch_to_contract(
@@ -327,5 +368,31 @@ mod tests {
             spec.memory.expect("memory").memory_scope,
             MemoryScope::PerBackgroundAgent
         );
+    }
+
+    #[test]
+    fn resolve_agent_id_alias_accepts_default_alias() {
+        let resolved = resolve_agent_id_alias(
+            " default ",
+            || Ok::<_, &'static str>("agent-default".to_string()),
+            |_| Err("should not use explicit resolver"),
+        )
+        .expect("default alias should resolve");
+
+        assert_eq!(resolved, "agent-default");
+    }
+
+    #[test]
+    fn resolve_patch_agent_id_resolves_present_alias() {
+        let patch = resolve_patch_agent_id(
+            BackgroundAgentPatch {
+                agent_id: Some("default".to_string()),
+                ..BackgroundAgentPatch::default()
+            },
+            |value| Ok::<_, &'static str>(format!("resolved:{value}")),
+        )
+        .expect("patch should resolve alias");
+
+        assert_eq!(patch.agent_id.as_deref(), Some("resolved:default"));
     }
 }
