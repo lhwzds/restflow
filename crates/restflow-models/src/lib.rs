@@ -117,8 +117,8 @@ mod tests {
     use ts_rs::TS;
 
     use super::{
-        ALL_PROVIDER_META, ClientKind, LlmProvider, ModelId, ModelMetadataDTO, ModelSpec,
-        Provider, provider_meta,
+        ALL_PROVIDER_META, ClientKind, LlmProvider, ModelId, ModelMetadataDTO, ModelSpec, Provider,
+        provider_meta,
     };
 
     #[test]
