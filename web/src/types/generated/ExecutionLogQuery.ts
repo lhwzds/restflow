@@ -3,4 +3,4 @@
 /**
  * Query for structured execution logs.
  */
-export type ExecutionLogQuery = { task_id: string | null, session_id: string | null, agent_id: string | null, level: string | null, limit: number | null, };
+export type ExecutionLogQuery = { task_id: string | null, run_id: string | null, session_id: string | null, agent_id: string | null, level: string | null, limit: number | null, };

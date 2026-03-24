@@ -32,6 +32,10 @@ pub fn get_execution_metrics(
                 .as_ref()
                 .is_none_or(|value| event.task_id == *value)
             && query
+                .run_id
+                .as_ref()
+                .is_none_or(|value| event.run_id.as_ref() == Some(value))
+            && query
                 .session_id
                 .as_ref()
                 .is_none_or(|value| event.session_id.as_ref() == Some(value))
@@ -90,6 +94,10 @@ pub fn query_execution_logs(
                 .task_id
                 .as_ref()
                 .is_none_or(|value| event.task_id == *value)
+            && query
+                .run_id
+                .as_ref()
+                .is_none_or(|value| event.run_id.as_ref() == Some(value))
             && query
                 .session_id
                 .as_ref()

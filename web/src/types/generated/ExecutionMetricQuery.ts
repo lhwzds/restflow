@@ -3,4 +3,4 @@
 /**
  * Query for metric samples.
  */
-export type ExecutionMetricQuery = { task_id: string | null, session_id: string | null, agent_id: string | null, metric_name: string | null, limit: number | null, };
+export type ExecutionMetricQuery = { task_id: string | null, run_id: string | null, session_id: string | null, agent_id: string | null, metric_name: string | null, limit: number | null, };

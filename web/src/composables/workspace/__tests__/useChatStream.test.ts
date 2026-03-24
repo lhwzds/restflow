@@ -82,6 +82,7 @@ describe('useChatStream', () => {
     expect(queryExecutionTraces).toHaveBeenCalledWith({
       task_id: 'session-1',
       run_id: null,
+      parent_run_id: null,
       session_id: 'session-1',
       turn_id: 'msg-1',
       agent_id: null,

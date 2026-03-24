@@ -15,6 +15,10 @@ task_id: string | null,
  */
 run_id: string | null, 
 /**
+ * Filter by parent run ID.
+ */
+parent_run_id: string | null, 
+/**
  * Filter by session ID.
  */
 session_id: string | null, 

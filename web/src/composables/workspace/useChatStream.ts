@@ -168,6 +168,7 @@ export function useChatStream(sessionId: () => string | null) {
       const events = await queryExecutionTraces({
         task_id: sid,
         run_id: null,
+        parent_run_id: null,
         session_id: sid,
         turn_id: turnId,
         agent_id: null,

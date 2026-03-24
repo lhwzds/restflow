@@ -540,6 +540,8 @@ pub struct ExecutionTraceQuery {
     pub task_id: Option<String>,
     /// Filter by run ID.
     pub run_id: Option<String>,
+    /// Filter by parent run ID.
+    pub parent_run_id: Option<String>,
     /// Filter by session ID.
     pub session_id: Option<String>,
     /// Filter by turn ID.
@@ -615,6 +617,7 @@ pub struct ExecutionTimeline {
 #[ts(export)]
 pub struct ExecutionMetricQuery {
     pub task_id: Option<String>,
+    pub run_id: Option<String>,
     pub session_id: Option<String>,
     pub agent_id: Option<String>,
     pub metric_name: Option<String>,
@@ -649,6 +652,7 @@ pub struct ProviderHealthResponse {
 #[ts(export)]
 pub struct ExecutionLogQuery {
     pub task_id: Option<String>,
+    pub run_id: Option<String>,
     pub session_id: Option<String>,
     pub agent_id: Option<String>,
     pub level: Option<String>,

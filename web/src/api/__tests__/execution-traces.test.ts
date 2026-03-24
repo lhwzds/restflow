@@ -27,6 +27,7 @@ describe('execution-traces api', () => {
     await getExecutionTimeline({
       task_id: 'session-1',
       run_id: null,
+      parent_run_id: null,
       session_id: 'session-1',
       turn_id: null,
       agent_id: null,
@@ -62,6 +63,7 @@ describe('execution-traces api', () => {
     await queryExecutionTraces({
       task_id: 'task-1',
       run_id: null,
+      parent_run_id: null,
       session_id: null,
       turn_id: null,
       agent_id: null,
@@ -74,6 +76,7 @@ describe('execution-traces api', () => {
     })
     await getExecutionMetrics({
       task_id: 'task-1',
+      run_id: null,
       session_id: null,
       agent_id: null,
       metric_name: 'llm_total_tokens',
@@ -86,6 +89,7 @@ describe('execution-traces api', () => {
     })
     await queryExecutionLogs({
       task_id: 'task-1',
+      run_id: null,
       session_id: null,
       agent_id: null,
       level: 'warn',
