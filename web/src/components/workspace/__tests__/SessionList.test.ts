@@ -292,4 +292,65 @@ describe('SessionList', () => {
 
     expect(triggerButton).toBeDefined()
   })
+
+  it('renders background folders and emits toggle/select events', async () => {
+    const wrapper = mount(SessionList, {
+      props: {
+        sessions: [],
+        currentSessionId: null,
+        backgroundFolders: [
+          {
+            taskId: 'task-1',
+            name: 'Daily Digest',
+            status: 'completed',
+            updatedAt: Date.now(),
+            expanded: true,
+            runs: [
+              {
+                id: 'run-summary-1',
+                title: 'Run #1',
+                status: 'completed',
+                updatedAt: Date.now(),
+                runId: 'run-1',
+              },
+            ],
+          },
+        ],
+        currentBackgroundTaskId: 'task-1',
+        currentBackgroundRunId: 'run-1',
+      },
+      global: {
+        stubs: {
+          Button: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenu: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuTrigger: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuContent: {
+            template: '<div><slot /></div>',
+          },
+          DropdownMenuItem: {
+            template: '<button><slot /></button>',
+          },
+          DropdownMenuSeparator: {
+            template: '<div />',
+          },
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Background Agents')
+    expect(wrapper.get('[data-testid="background-folder-task-1"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="background-run-task-1-run-1"]')).toBeTruthy()
+
+    await wrapper.get('[data-testid="background-folder-task-1"]').find('button').trigger('click')
+    await wrapper.get('[data-testid="background-run-task-1-run-1"]').trigger('click')
+
+    expect(wrapper.emitted('toggleBackgroundTask')).toEqual([['task-1']])
+    expect(wrapper.emitted('selectBackgroundRun')).toEqual([['task-1', 'run-1']])
+  })
 })

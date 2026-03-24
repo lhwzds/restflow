@@ -33,6 +33,7 @@ import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { ModelId } from '@/types/generated/ModelId'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import type { ThreadSelection } from './threadItems'
 import {
   extractOperationAssessment,
   formatOperationAssessment,
@@ -43,6 +44,7 @@ import { buildVoiceMessageContent } from './voiceMessageContent'
 const emit = defineEmits<{
   showPanel: [resultJson: string]
   toolResult: [step: StreamStep]
+  threadSelection: [selection: ThreadSelection]
 }>()
 
 const toast = useToast()
@@ -153,6 +155,10 @@ function handleOpenRunTrace() {
     name: 'workspace-run',
     params: { taskId: linkedBgAgent.value.id },
   })
+}
+
+function onSelectThreadItem(selection: ThreadSelection) {
+  emit('threadSelection', selection)
 }
 
 // Track processed tool call IDs to avoid duplicate emits
@@ -589,6 +595,7 @@ defineExpose({
       :steps="streamSteps"
       :voice-audio-urls="voiceAudioUrls"
       @view-tool-result="onViewToolResult"
+      @select-thread-item="onSelectThreadItem"
       @regenerate="handleRegenerate"
     />
 

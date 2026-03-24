@@ -240,10 +240,17 @@ test.describe('Session List', () => {
     await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
 
     const sessionRows = page.locator('[data-testid^="session-row-"]')
+    const backgroundFolders = page.locator('[data-testid^="background-folder-"]')
     const rowCount = await sessionRows.count()
+    const folderCount = await backgroundFolders.count()
 
     if (rowCount > 0) {
       await expect(sessionRows.first()).toBeVisible()
+      return
+    }
+
+    if (folderCount > 0) {
+      await expect(backgroundFolders.first()).toBeVisible()
       return
     }
 

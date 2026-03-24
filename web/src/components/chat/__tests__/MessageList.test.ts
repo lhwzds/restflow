@@ -3,6 +3,7 @@ import { mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 import MessageList from '../MessageList.vue'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
+import type { ThreadItem } from '../threadItems'
 
 const toastSuccess = vi.fn()
 const toastError = vi.fn()
@@ -530,5 +531,76 @@ describe('MessageList', () => {
     await copyButton!.trigger('click')
 
     expect(toastError).toHaveBeenCalledWith('Failed to copy')
+  })
+
+  it('renders unified thread items in order and emits thread selection', async () => {
+    const threadItems: ThreadItem[] = [
+      {
+        id: 'event-1',
+        kind: 'tool_call',
+        title: 'web_search',
+        summary: 'Searching docs',
+        body: '{"ok":true}',
+        status: 'completed',
+        selection: {
+          id: 'event-1',
+          kind: 'event',
+          title: 'web_search',
+          data: { event_id: 'event-1' },
+        },
+        expandable: true,
+      },
+      {
+        id: 'message-1',
+        kind: 'message',
+        title: 'assistant',
+        message: {
+          id: 'message-1',
+          role: 'assistant',
+          content: 'Found it.',
+          timestamp: 1n,
+          execution: null,
+        },
+        selection: {
+          id: 'message-1',
+          kind: 'message',
+          title: 'assistant message',
+          data: { message_id: 'message-1' },
+        },
+        expandable: false,
+      },
+    ]
+
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        isStreaming: false,
+        streamContent: '',
+        threadItems,
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    const text = wrapper.text()
+    expect(text.indexOf('web_search')).toBeLessThan(text.indexOf('Found it.'))
+
+    await wrapper.get('[data-testid="thread-item-view-event-1"]').trigger('click')
+
+    expect(wrapper.emitted('selectThreadItem')).toEqual([
+      [
+        {
+          id: 'event-1',
+          kind: 'event',
+          title: 'web_search',
+          data: { event_id: 'event-1' },
+        },
+      ],
+    ])
   })
 })

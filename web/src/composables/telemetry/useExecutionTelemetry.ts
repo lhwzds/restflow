@@ -15,7 +15,7 @@ function toErrorMessage(error: unknown): string {
   return 'Unknown telemetry error'
 }
 
-export function useExecutionTelemetry(taskId: Ref<string>) {
+export function useExecutionTelemetry(taskId: Ref<string>, runId?: Ref<string | null>) {
   const timeline = ref<ExecutionTimeline | null>(null)
   const metrics = ref<ExecutionMetricsResponse | null>(null)
   const logs = ref<ExecutionLogResponse | null>(null)
@@ -32,9 +32,10 @@ export function useExecutionTelemetry(taskId: Ref<string>) {
 
   async function refresh() {
     const currentTaskId = taskId.value.trim()
+    const currentRunId = runId?.value?.trim() || null
     const version = ++loadVersion
 
-    if (!currentTaskId) {
+    if (!currentTaskId && !currentRunId) {
       timeline.value = null
       metrics.value = null
       logs.value = null
@@ -57,7 +58,8 @@ export function useExecutionTelemetry(taskId: Ref<string>) {
     const [timelineResult, metricsResult, logsResult] = await Promise.allSettled([
       getExecutionTimeline({
         task_id: currentTaskId,
-        run_id: null,
+        run_id: currentRunId,
+        parent_run_id: null,
         session_id: null,
         turn_id: null,
         agent_id: null,
@@ -70,6 +72,7 @@ export function useExecutionTelemetry(taskId: Ref<string>) {
       }),
       getExecutionMetrics({
         task_id: currentTaskId,
+        run_id: currentRunId,
         session_id: null,
         agent_id: null,
         metric_name: null,
@@ -77,6 +80,7 @@ export function useExecutionTelemetry(taskId: Ref<string>) {
       }),
       queryExecutionLogs({
         task_id: currentTaskId,
+        run_id: currentRunId,
         session_id: null,
         agent_id: null,
         level: null,
@@ -116,9 +120,13 @@ export function useExecutionTelemetry(taskId: Ref<string>) {
     isLoadingLogs.value = false
   }
 
-  watch(taskId, () => {
-    void refresh()
-  }, { immediate: true })
+  watch(
+    [taskId, ...(runId ? [runId] : [])],
+    () => {
+      void refresh()
+    },
+    { immediate: true },
+  )
 
   return {
     timeline,

@@ -7,10 +7,13 @@ import type { ExecutionTraceEvent } from '@/types/generated/ExecutionTraceEvent'
 
 const props = defineProps<{
   taskId: string
+  runId?: string | null
+  hideTimeline?: boolean
 }>()
 
 const { t } = useI18n()
-const activeTab = ref('timeline')
+const activeTab = ref(props.hideTimeline ? 'metrics' : 'timeline')
+const runIdRef = computed(() => props.runId ?? null)
 const {
   timeline,
   metrics,
@@ -21,7 +24,7 @@ const {
   timelineError,
   metricsError,
   logsError,
-} = useExecutionTelemetry(toRef(props, 'taskId'))
+} = useExecutionTelemetry(toRef(props, 'taskId'), runIdRef)
 
 const stats = computed(() => timeline.value?.stats ?? null)
 const timelineEvents = computed(() => timeline.value?.events ?? [])
@@ -147,9 +150,13 @@ function eventSummary(event: ExecutionTraceEvent): string | null {
     </div>
 
     <div class="px-4 pb-4">
-      <Tabs v-model:model-value="activeTab" default-value="timeline">
+      <Tabs v-model:model-value="activeTab" :default-value="hideTimeline ? 'metrics' : 'timeline'">
         <TabsList class="w-full justify-start">
-          <TabsTrigger value="timeline" data-testid="execution-telemetry-tab-timeline">
+          <TabsTrigger
+            v-if="!hideTimeline"
+            value="timeline"
+            data-testid="execution-telemetry-tab-timeline"
+          >
             {{ t('backgroundAgent.timelineTab') }}
           </TabsTrigger>
           <TabsTrigger value="metrics" data-testid="execution-telemetry-tab-metrics">
@@ -160,7 +167,7 @@ function eventSummary(event: ExecutionTraceEvent): string | null {
           </TabsTrigger>
         </TabsList>
 
-        <TabsContent value="timeline" class="mt-3">
+        <TabsContent v-if="!hideTimeline" value="timeline" class="mt-3">
           <div v-if="isLoadingTimeline" class="text-sm text-muted-foreground">
             {{ t('backgroundAgent.loadingRun') }}
           </div>

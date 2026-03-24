@@ -2,10 +2,9 @@
 /**
  * MessageList Component
  *
- * Renders chat messages with streaming support, tool call display,
- * and auto-scroll behavior.
+ * Renders a unified thread containing messages and execution summary items.
  */
-import { ref, watch, nextTick, onMounted } from 'vue'
+import { computed, ref, watch, nextTick, onMounted } from 'vue'
 import {
   Wrench,
   Activity,
@@ -25,9 +24,12 @@ import VoiceMessageBubble from '@/components/chat/VoiceMessageBubble.vue'
 import { readMediaFile } from '@/api/voice'
 import { useToast } from '@/composables/useToast'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
-import type { ExecutionStepInfo } from '@/types/generated/ExecutionStepInfo'
-import type { StepStatus } from '@/types/generated/StepStatus'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
+import {
+  buildChatThreadItems,
+  type ThreadItem,
+  type ThreadSelection,
+} from './threadItems'
 import { extractVoiceFilePath, extractVoiceTranscript } from './voiceMessageContent'
 
 const props = withDefaults(
@@ -40,44 +42,120 @@ const props = withDefaults(
     voiceAudioUrls?: Map<string, { blobUrl: string; duration: number }>
     enableCopyAction?: boolean
     enableRegenerateAction?: boolean
+    threadItems?: ThreadItem[]
   }>(),
   {
     streamThinking: '',
     steps: () => [],
     enableCopyAction: true,
     enableRegenerateAction: true,
+    threadItems: undefined,
   },
 )
 
 const emit = defineEmits<{
   viewToolResult: [step: StreamStep]
   regenerate: []
+  selectThreadItem: [selection: ThreadSelection]
 }>()
 
 const toast = useToast()
-
 const scrollContainer = ref<HTMLElement | null>(null)
-const expandedToolCalls = ref<Set<string>>(new Set())
+const expandedItems = ref<Set<string>>(new Set())
+const loadedMediaUrls = ref<Map<string, { blobUrl: string; duration: number }>>(new Map())
+const loadingMediaPaths = ref<Set<string>>(new Set())
 
-function toggleToolCall(key: string) {
-  if (expandedToolCalls.value.has(key)) {
-    expandedToolCalls.value.delete(key)
+const renderedItems = computed<ThreadItem[]>(() =>
+  props.threadItems ??
+  buildChatThreadItems({
+    messages: props.messages,
+    steps: props.steps,
+    isStreaming: props.isStreaming,
+    streamContent: props.streamContent,
+  }),
+)
+
+function toggleItem(id: string) {
+  if (expandedItems.value.has(id)) {
+    expandedItems.value.delete(id)
   } else {
-    expandedToolCalls.value.add(key)
+    expandedItems.value.add(id)
   }
 }
 
-function canViewStep(step: StreamStep): boolean {
-  return (step.status === 'completed' || step.status === 'failed') && !!step.result
+function isExpanded(id: string): boolean {
+  return expandedItems.value.has(id)
 }
 
-function isLastAssistantMessage(idx: number): boolean {
-  for (let i = props.messages.length - 1; i >= 0; i--) {
+function canExpand(item: ThreadItem): boolean {
+  return item.expandable && !!item.body
+}
+
+function canInspect(item: ThreadItem): boolean {
+  return !!item.selection
+}
+
+function emitSelection(item: ThreadItem) {
+  if (!item.selection) return
+  emit('selectThreadItem', item.selection)
+  if (item.selection.kind === 'step' && item.selection.step) {
+    emit('viewToolResult', item.selection.step)
+  }
+}
+
+function isMessageItem(item: ThreadItem): item is ThreadItem & { message: ChatMessage } {
+  return item.kind === 'message' && !!item.message
+}
+
+function isLastAssistantMessage(messageId: string): boolean {
+  for (let i = props.messages.length - 1; i >= 0; i -= 1) {
     if (props.messages[i]?.role === 'assistant') {
-      return i === idx
+      return props.messages[i]?.id === messageId
     }
   }
   return false
+}
+
+function itemRoleLabel(item: ThreadItem): string {
+  const role = item.message?.role
+  if (role === 'user') return 'You'
+  if (role === 'assistant') return 'Assistant'
+  return 'System'
+}
+
+function itemKindLabel(item: ThreadItem): string {
+  switch (item.kind) {
+    case 'tool_call':
+      return 'Tool'
+    case 'llm_call':
+      return 'LLM'
+    case 'model_switch':
+      return 'Model Switch'
+    case 'lifecycle':
+      return 'Lifecycle'
+    case 'log_record':
+      return 'Log'
+    case 'child_run_link':
+      return 'Child Run'
+    default:
+      return 'Event'
+  }
+}
+
+function persistedStepIds(item: ThreadItem): { row: string; action: string } | null {
+  const data = item.selection?.data
+  if (!data || data.persisted_execution_step !== true) return null
+
+  const messageId = typeof data.message_id === 'string' ? data.message_id : item.id
+  const stepIndex =
+    typeof data.step_index === 'number' && Number.isFinite(data.step_index)
+      ? data.step_index
+      : 0
+
+  return {
+    row: `persisted-step-${messageId}-${stepIndex}`,
+    action: `persisted-step-view-${messageId}-${stepIndex}`,
+  }
 }
 
 async function copyMessage(content: string) {
@@ -88,81 +166,6 @@ async function copyMessage(content: string) {
     toast.error('Failed to copy')
   }
 }
-
-function normalizeStepStatus(status: string): StepStatus {
-  switch (status) {
-    case 'completed':
-    case 'failed':
-    case 'pending':
-    case 'running':
-      return status
-    default:
-      return 'completed'
-  }
-}
-
-function persistedStepKey(messageId: string, index: number): string {
-  return `persisted:${messageId}:${index}`
-}
-
-function streamStepKey(index: number): string {
-  return `stream:${index}`
-}
-
-function isToolStep(step: Pick<StreamStep, 'type'>): boolean {
-  return step.type === 'tool_call'
-}
-
-function formatDurationLabel(durationMs: bigint | number | null | undefined): string | null {
-  if (durationMs == null) return null
-  return `${(Number(durationMs) / 1000).toFixed(1)}s`
-}
-
-function buildPersistedStep(messageId: string, step: ExecutionStepInfo, index: number): StreamStep {
-  const toolId = `persisted-${messageId}-${index}`
-  const metadata = {
-    persisted_execution_step: true,
-    message_id: messageId,
-    step_index: index,
-    step_type: step.step_type,
-    name: step.name,
-    status: step.status,
-    duration_ms: step.duration_ms == null ? null : Number(step.duration_ms),
-  }
-
-  return {
-    type: step.step_type === 'tool_call' ? 'tool_call' : step.step_type,
-    name: step.name,
-    displayName: step.name,
-    status: normalizeStepStatus(step.status),
-    toolId,
-    arguments: JSON.stringify(metadata),
-    result: JSON.stringify(
-      {
-        ...metadata,
-        note:
-          step.step_type === 'tool_call'
-            ? 'Detailed persisted tool payload is not available yet.'
-            : 'Persisted execution step summary.',
-      },
-      null,
-      2,
-    ),
-  }
-}
-
-function persistedSteps(message: ChatMessage): StreamStep[] {
-  if (message.role !== 'assistant' || !message.execution?.steps?.length) {
-    return []
-  }
-
-  return message.execution.steps.map((step, index) => buildPersistedStep(message.id, step, index))
-}
-
-/** Cache for blob URLs loaded from persistent storage */
-const loadedMediaUrls = ref<Map<string, { blobUrl: string; duration: number }>>(new Map())
-/** Tracks file paths currently being loaded to avoid duplicate requests */
-const loadingMediaPaths = ref<Set<string>>(new Set())
 
 function getVoiceFilePath(msg: ChatMessage): string | null {
   if (msg.role !== 'user') return null
@@ -177,16 +180,13 @@ function getVoiceAudio(msg: ChatMessage): { blobUrl: string; duration: number } 
   const filePath = getVoiceFilePath(msg)
   if (!filePath) return null
   const structuredDuration = msg.media?.media_type === 'voice' ? (msg.media.duration_sec ?? 0) : 0
-  // Check in-memory cache first (fresh recordings from this session)
   const cached = props.voiceAudioUrls?.get(filePath)
   if (cached) return { ...cached, duration: cached.duration || structuredDuration }
-  // Check persistent storage cache (loaded from disk after page reload)
   const loaded = loadedMediaUrls.value.get(filePath)
   if (loaded) return { ...loaded, duration: loaded.duration || structuredDuration }
-  // Trigger async load if not already loading
   if (!loadingMediaPaths.value.has(filePath)) {
     loadingMediaPaths.value.add(filePath)
-    loadMediaFromDisk(filePath)
+    void loadMediaFromDisk(filePath)
   }
   return null
 }
@@ -204,7 +204,7 @@ async function loadMediaFromDisk(filePath: string) {
     const base64 = await readMediaFile(filePath)
     const binary = atob(base64)
     const bytes = new Uint8Array(binary.length)
-    for (let i = 0; i < binary.length; i++) {
+    for (let i = 0; i < binary.length; i += 1) {
       bytes[i] = binary.charCodeAt(i)
     }
     const ext = filePath.split('.').pop()?.toLowerCase() ?? 'webm'
@@ -213,7 +213,7 @@ async function loadMediaFromDisk(filePath: string) {
     const blobUrl = URL.createObjectURL(blob)
     loadedMediaUrls.value.set(filePath, { blobUrl, duration: 0 })
   } catch {
-    // File not found or not readable — silently ignore
+    // Ignore unreadable persisted media.
   } finally {
     loadingMediaPaths.value.delete(filePath)
   }
@@ -225,9 +225,8 @@ function scrollToBottom() {
   }
 }
 
-// Auto-scroll when new messages arrive or streaming content updates
 watch(
-  () => [props.messages.length, props.streamContent],
+  () => [renderedItems.value.length, props.streamContent, props.streamThinking],
   async () => {
     await nextTick()
     scrollToBottom()
@@ -235,248 +234,179 @@ watch(
 )
 
 onMounted(() => {
-  nextTick(() => scrollToBottom())
+  void nextTick(() => scrollToBottom())
 })
 </script>
 
 <template>
   <div ref="scrollContainer" class="flex-1 overflow-auto px-4 py-4">
-    <div class="max-w-[48rem] mx-auto space-y-4">
-      <!-- Saved Messages -->
-      <div v-for="(msg, idx) in messages" :key="msg.id || idx" class="group relative">
-        <div v-if="persistedSteps(msg).length" class="mb-2 space-y-2">
-          <div
-            v-for="(step, si) in persistedSteps(msg)"
-            :key="persistedStepKey(msg.id, si)"
-            :data-testid="`persisted-step-${msg.id}-${si}`"
-            class="bg-background mr-auto max-w-[90%] rounded-lg border border-border overflow-hidden"
-          >
-            <button
-              class="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left"
-              @click="toggleToolCall(persistedStepKey(msg.id, si))"
-            >
-              <Loader2
-                v-if="step.status === 'running'"
-                :size="12"
-                class="animate-spin text-primary shrink-0"
-              />
-              <Check
-                v-else-if="step.status === 'completed'"
-                :size="12"
-                class="text-green-500 shrink-0"
-              />
-              <X v-else-if="step.status === 'failed'" :size="12" class="text-red-500 shrink-0" />
-
-              <Wrench v-if="isToolStep(step)" :size="12" class="text-muted-foreground shrink-0" />
-              <Activity v-else :size="12" class="text-muted-foreground shrink-0" />
-              <span class="font-mono truncate flex-1">{{ step.displayName || step.name }}</span>
-              <span
-                v-if="formatDurationLabel(msg.execution?.steps?.[si]?.duration_ms)"
-                class="text-muted-foreground"
-              >
-                {{ formatDurationLabel(msg.execution?.steps?.[si]?.duration_ms) }}
-              </span>
-
-              <Button
-                v-if="canViewStep(step)"
-                :data-testid="`persisted-step-view-${msg.id}-${si}`"
-                variant="ghost"
-                size="sm"
-                class="h-5 px-1.5 text-[10px] gap-1"
-                @click.stop="emit('viewToolResult', step)"
-              >
-                <PanelRight :size="10" />
-                View
-              </Button>
-
-              <ChevronDown
-                v-if="expandedToolCalls.has(persistedStepKey(msg.id, si))"
-                :size="12"
-                class="text-muted-foreground shrink-0"
-              />
-              <ChevronRight v-else :size="12" class="text-muted-foreground shrink-0" />
-            </button>
-
-            <div
-              v-if="expandedToolCalls.has(persistedStepKey(msg.id, si)) && step.result"
-              class="px-3 py-2 border-t border-border bg-muted/30"
-            >
-              <pre
-                class="text-[11px] font-mono whitespace-pre-wrap break-words max-h-48 overflow-auto"
-                >{{ step.result }}</pre
-              >
-            </div>
-          </div>
-        </div>
-
+    <div class="mx-auto max-w-[48rem] space-y-4">
+      <div v-for="item in renderedItems" :key="item.id" class="group relative">
         <div
-          :data-testid="`chat-message-${msg.id}`"
-          :class="[
-            'p-4 rounded-lg',
-            msg.role === 'user'
-              ? 'bg-primary/10 ml-auto max-w-[80%]'
-              : 'bg-muted mr-auto max-w-[90%]',
-          ]"
+          v-if="!isMessageItem(item)"
+          :data-testid="persistedStepIds(item)?.row ?? `thread-item-${item.id}`"
+          class="bg-background mr-auto max-w-[90%] overflow-hidden rounded-lg border border-border"
         >
-          <div class="text-xs text-muted-foreground mb-1">
-            {{ msg.role === 'user' ? 'You' : msg.role === 'assistant' ? 'Assistant' : 'System' }}
-          </div>
-          <!-- Voice message: show audio player/loading + transcript -->
-          <div v-if="getVoiceFilePath(msg)" class="space-y-2">
-            <VoiceMessageBubble
-              v-if="getVoiceAudio(msg)"
-              :blob-url="getVoiceAudio(msg)!.blobUrl"
-              :duration="getVoiceAudio(msg)!.duration"
+          <button
+            class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
+            @click="canExpand(item) ? toggleItem(item.id) : undefined"
+          >
+            <Loader2
+              v-if="item.status === 'running'"
+              :size="12"
+              class="shrink-0 animate-spin text-primary"
             />
-            <div
-              v-else-if="loadingMediaPaths.has(getVoiceFilePath(msg)!)"
-              class="flex items-center gap-2 text-xs text-muted-foreground py-1"
-            >
-              <Loader2 :size="12" class="animate-spin" />
-              Loading voice message...
-            </div>
-            <div v-else class="text-xs text-muted-foreground py-1">Voice message unavailable.</div>
+            <Check
+              v-else-if="item.status === 'completed'"
+              :size="12"
+              class="shrink-0 text-green-500"
+            />
+            <X
+              v-else-if="item.status === 'failed'"
+              :size="12"
+              class="shrink-0 text-red-500"
+            />
+            <Activity v-else-if="item.kind !== 'tool_call'" :size="12" class="shrink-0 text-muted-foreground" />
+            <Wrench v-else :size="12" class="shrink-0 text-muted-foreground" />
 
-            <div
-              v-if="getVoiceTranscript(msg)"
-              class="text-sm leading-relaxed whitespace-pre-wrap text-foreground"
-            >
-              {{ getVoiceTranscript(msg) }}
+            <div class="min-w-0 flex-1">
+              <div class="flex items-center gap-2">
+                <span class="truncate font-mono text-sm">{{ item.title }}</span>
+                <span class="rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  {{ itemKindLabel(item) }}
+                </span>
+              </div>
+              <div v-if="item.summary" class="mt-0.5 truncate text-xs text-muted-foreground">
+                {{ item.summary }}
+              </div>
+              <div class="mt-1 flex flex-wrap gap-2 text-[11px] text-muted-foreground">
+                <span v-if="item.durationLabel">{{ item.durationLabel }}</span>
+                <span v-if="item.timestampLabel">{{ item.timestampLabel }}</span>
+              </div>
             </div>
+
+            <Button
+              v-if="canInspect(item)"
+              :data-testid="persistedStepIds(item)?.action ?? `thread-item-view-${item.id}`"
+              variant="ghost"
+              size="sm"
+              class="h-5 gap-1 px-1.5 text-[10px]"
+              @click.stop="emitSelection(item)"
+            >
+              <PanelRight :size="10" />
+              View
+            </Button>
+
+            <ChevronDown
+              v-if="canExpand(item) && isExpanded(item.id)"
+              :size="12"
+              class="shrink-0 text-muted-foreground"
+            />
+            <ChevronRight
+              v-else-if="canExpand(item)"
+              :size="12"
+              class="shrink-0 text-muted-foreground"
+            />
+          </button>
+
+          <div v-if="canExpand(item) && isExpanded(item.id)" class="border-t border-border bg-muted/30 px-3 py-2">
+            <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono">{{ item.body }}</pre>
           </div>
-          <!-- Regular message -->
-          <StreamingMarkdown v-else :content="msg.content || ''" />
-        </div>
-        <!-- Hover action buttons -->
-        <div
-          :class="[
-            'absolute -bottom-2 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1 z-10',
-            msg.role === 'user' ? 'right-2' : 'left-2',
-          ]"
-        >
-          <Button
-            v-if="props.enableCopyAction && msg.content"
-            variant="outline"
-            size="sm"
-            class="h-6 px-2 text-[10px] bg-background"
-            @click="copyMessage(msg.content)"
-          >
-            <Copy :size="10" class="mr-1" />
-            Copy
-          </Button>
-          <Button
-            v-if="props.enableRegenerateAction && isLastAssistantMessage(idx) && !isStreaming"
-            variant="outline"
-            size="sm"
-            class="h-6 px-2 text-[10px] bg-background"
-            @click="emit('regenerate')"
-          >
-            <RefreshCw :size="10" class="mr-1" />
-            Retry
-          </Button>
-        </div>
-      </div>
-
-      <!-- Streaming Response (in-progress) -->
-      <div v-if="isStreaming || streamContent" class="bg-muted mr-auto max-w-[90%] p-4 rounded-lg">
-        <div class="text-xs text-muted-foreground mb-1">Assistant</div>
-
-        <!-- Thinking indicator -->
-        <div
-          v-if="streamThinking && !streamContent"
-          class="text-sm text-muted-foreground italic mb-2"
-        >
-          Thinking...
         </div>
 
-        <!-- Tool call steps -->
-        <div v-if="steps.length > 0" class="mt-3 space-y-1">
+        <template v-else>
           <div
-            v-for="(step, idx) in steps"
-            :key="idx"
-            :data-testid="`stream-step-${idx}`"
-            class="text-xs border border-border rounded-md overflow-hidden"
+            :data-testid="`chat-message-${item.message.id}`"
+            :class="[
+              'rounded-lg p-4',
+              item.message.role === 'user'
+                ? 'ml-auto max-w-[80%] bg-primary/10'
+                : 'mr-auto max-w-[90%] bg-muted',
+            ]"
           >
-            <!-- Tool call header -->
-            <button
-              class="w-full flex items-center gap-2 px-2 py-1.5 hover:bg-muted/50 transition-colors"
-              @click="toggleToolCall(streamStepKey(idx))"
-            >
-              <!-- Status icon -->
-              <Loader2
-                v-if="step.status === 'running'"
-                :size="12"
-                class="animate-spin text-primary shrink-0"
-              />
-              <Check
-                v-else-if="step.status === 'completed'"
-                :size="12"
-                class="text-green-500 shrink-0"
-              />
-              <X v-else-if="step.status === 'failed'" :size="12" class="text-red-500 shrink-0" />
-
-              <Wrench :size="12" class="text-muted-foreground shrink-0" />
-              <span class="font-mono truncate flex-1 text-left">{{
-                step.displayName || step.name
-              }}</span>
-
-              <!-- View button for completed tool results -->
-              <Button
-                v-if="canViewStep(step)"
-                variant="ghost"
-                size="sm"
-                class="h-5 px-1.5 text-[10px] gap-1"
-                @click.stop="emit('viewToolResult', step)"
-              >
-                <PanelRight :size="10" />
-                View
-              </Button>
-
-              <!-- Expand chevron -->
-              <ChevronDown
-                v-if="expandedToolCalls.has(streamStepKey(idx))"
-                :size="12"
-                class="text-muted-foreground shrink-0"
-              />
-              <ChevronRight v-else :size="12" class="text-muted-foreground shrink-0" />
-            </button>
-
-            <!-- Expanded result -->
-            <div
-              v-if="expandedToolCalls.has(streamStepKey(idx)) && step.result"
-              class="px-2 py-1.5 border-t border-border bg-muted/30"
-            >
-              <pre
-                class="text-[11px] font-mono whitespace-pre-wrap break-words max-h-48 overflow-auto"
-                >{{ step.result }}</pre
-              >
+            <div class="mb-1 text-xs text-muted-foreground">
+              {{ itemRoleLabel(item) }}
             </div>
-          </div>
-        </div>
 
-        <!-- Streaming content -->
-        <StreamingMarkdown
-          v-if="streamContent"
-          :content="streamContent"
-          :is-streaming="isStreaming"
-          :class="{ 'mt-3': steps.length > 0 }"
-        />
+            <div v-if="getVoiceFilePath(item.message)" class="space-y-2">
+              <VoiceMessageBubble
+                v-if="getVoiceAudio(item.message)"
+                :blob-url="getVoiceAudio(item.message)!.blobUrl"
+                :duration="getVoiceAudio(item.message)!.duration"
+              />
+              <div
+                v-else-if="loadingMediaPaths.has(getVoiceFilePath(item.message)!)"
+                class="flex items-center gap-2 py-1 text-xs text-muted-foreground"
+              >
+                <Loader2 :size="12" class="animate-spin" />
+                Loading voice message...
+              </div>
+              <div v-else class="py-1 text-xs text-muted-foreground">Voice message unavailable.</div>
+
+              <div
+                v-if="getVoiceTranscript(item.message)"
+                class="whitespace-pre-wrap text-sm leading-relaxed text-foreground"
+              >
+                {{ getVoiceTranscript(item.message) }}
+              </div>
+            </div>
+            <StreamingMarkdown v-else :content="item.message.content || ''" />
+          </div>
+
+          <div
+            :class="[
+              'absolute -bottom-2 z-10 flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100',
+              item.message.role === 'user' ? 'right-2' : 'left-2',
+            ]"
+          >
+            <Button
+              v-if="item.selection"
+              variant="outline"
+              size="sm"
+              class="h-6 gap-1 bg-background px-2 text-[10px]"
+              @click="emitSelection(item)"
+            >
+              <PanelRight :size="10" class="mr-1" />
+              Details
+            </Button>
+            <Button
+              v-if="enableCopyAction && item.message.content"
+              variant="outline"
+              size="sm"
+              class="h-6 bg-background px-2 text-[10px]"
+              @click="copyMessage(item.message.content)"
+            >
+              <Copy :size="10" class="mr-1" />
+              Copy
+            </Button>
+            <Button
+              v-if="enableRegenerateAction && isLastAssistantMessage(item.message.id) && !isStreaming"
+              variant="outline"
+              size="sm"
+              class="h-6 bg-background px-2 text-[10px]"
+              @click="emit('regenerate')"
+            >
+              <RefreshCw :size="10" class="mr-1" />
+              Retry
+            </Button>
+          </div>
+        </template>
       </div>
 
-      <!-- Typing indicator -->
+      <div v-if="streamThinking && !streamContent" class="text-sm italic text-muted-foreground">
+        {{ streamThinking }}
+      </div>
+
       <div
         v-if="isStreaming && !streamContent && !streamThinking"
-        class="flex items-center gap-2 text-muted-foreground p-2"
+        class="flex items-center gap-2 p-2 text-muted-foreground"
       >
-        <div
-          class="animate-spin h-4 w-4 border-2 border-primary border-t-transparent rounded-full"
-        />
+        <div class="h-4 w-4 animate-spin rounded-full border-2 border-primary border-t-transparent" />
         <span class="text-sm">Processing...</span>
       </div>
 
-      <!-- Empty state -->
       <div
-        v-if="messages.length === 0 && !isStreaming && !streamContent"
+        v-if="renderedItems.length === 0 && !isStreaming && !streamContent"
         class="flex flex-col items-center justify-center py-20 text-muted-foreground"
       >
         <MessageSquarePlus :size="32" class="mb-3 opacity-50" />

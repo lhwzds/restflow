@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { useToolPanel } from '../useToolPanel'
 import type { StreamStep } from '../useChatStream'
+import type { ThreadSelection } from '@/components/chat/threadItems'
 
 function createStep(overrides: Partial<StreamStep> = {}): StreamStep {
   return {
@@ -235,5 +236,26 @@ describe('useToolPanel', () => {
     expect(panel.state.value.toolId).toBe('persisted-msg-2-1')
     expect(panel.state.value.title).toBe('model_switch: gpt-4 -> gpt-5')
     expect(panel.state.value.data.persisted_execution_step).toBe(true)
+  })
+
+  it('opens message metadata through thread selection', () => {
+    const panel = useToolPanel()
+    const selection: ThreadSelection = {
+      id: 'message-1',
+      kind: 'message',
+      title: 'assistant message',
+      data: {
+        message_id: 'message-1',
+        role: 'assistant',
+        content: 'Hello',
+      },
+    }
+
+    panel.handleThreadSelection(selection)
+
+    expect(panel.state.value.panelType).toBe('generic')
+    expect(panel.state.value.title).toBe('assistant message')
+    expect(panel.state.value.data.message_id).toBe('message-1')
+    expect(panel.state.value.step.result).toContain('"content": "Hello"')
   })
 })
