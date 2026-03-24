@@ -1,7 +1,8 @@
 use super::super::runtime::parse_background_agent_status;
 use super::super::*;
 use crate::boundary::background_agent::{
-    core_patch_to_update_request, core_spec_to_create_request,
+    core_patch_to_update_request, core_spec_to_create_request, resolve_agent_id_alias,
+    resolve_patch_agent_id, resolve_spec_agent_id,
 };
 use crate::daemon::request_mapper::to_contract;
 use crate::services::operation_assessment::{
@@ -11,8 +12,8 @@ use crate::services::operation_assessment::{
 };
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
-use restflow_traits::OperationAssessment;
 use restflow_traits::store::BackgroundAgentControlRequest;
+use restflow_traits::OperationAssessment;
 use serde_json::json;
 
 fn assessment_details(assessment: &OperationAssessment) -> serde_json::Value {
@@ -69,6 +70,18 @@ fn resolve_background_agent_id(
         )),
         Err(ResolveTaskIdError::Internal(err)) => Err(IpcResponse::error(500, err.to_string())),
     }
+}
+
+fn resolve_agent_id(
+    core: &Arc<AppCore>,
+    id_or_alias: &str,
+) -> std::result::Result<String, IpcResponse> {
+    resolve_agent_id_alias(
+        id_or_alias,
+        || core.storage.agents.resolve_default_agent_id(),
+        |trimmed| core.storage.agents.resolve_existing_agent_id(trimmed),
+    )
+    .map_err(|err| IpcResponse::error(400, err.to_string()))
 }
 
 impl IpcServer {
@@ -140,6 +153,10 @@ impl IpcServer {
         preview: bool,
         confirmation_token: Option<String>,
     ) -> IpcResponse {
+        let spec = match resolve_spec_agent_id(spec, |agent_id| resolve_agent_id(core, agent_id)) {
+            Ok(spec) => spec,
+            Err(response) => return response,
+        };
         let assessment = match assess_background_agent_create(
             core,
             match core_spec_to_create_request(&spec) {
@@ -173,6 +190,11 @@ impl IpcServer {
     ) -> IpcResponse {
         let resolved_id = match resolve_background_agent_id(core, &id) {
             Ok(id) => id,
+            Err(response) => return response,
+        };
+        let patch = match resolve_patch_agent_id(patch, |agent_id| resolve_agent_id(core, agent_id))
+        {
+            Ok(patch) => patch,
             Err(response) => return response,
         };
         let assessment = match assess_background_agent_update(
