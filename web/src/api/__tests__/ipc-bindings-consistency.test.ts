@@ -1,6 +1,6 @@
 /// <reference types="node" />
 
-import { readdirSync, readFileSync } from 'fs'
+import { existsSync, readdirSync, readFileSync } from 'fs'
 import path from 'path'
 import { fileURLToPath } from 'url'
 import { describe, expect, it } from 'vitest'
@@ -48,7 +48,11 @@ describe('web transport consistency', () => {
   it('does not ship removed tauri compatibility files in source', () => {
     expect(readdirSync(path.resolve(SRC_DIR, 'api'))).not.toContain('tauri-client.ts')
     expect(readdirSync(path.resolve(SRC_DIR, 'api'))).not.toContain('bindings.ts')
-    expect(readdirSync(path.resolve(SRC_DIR, 'mocks'))).not.toContain('tauri-ipc.ts')
+
+    const mocksDir = path.resolve(SRC_DIR, 'mocks')
+    if (existsSync(mocksDir)) {
+      expect(readdirSync(mocksDir)).not.toContain('tauri-ipc.ts')
+    }
   })
 
   it('does not reference removed tauri internals in application or test code', () => {
