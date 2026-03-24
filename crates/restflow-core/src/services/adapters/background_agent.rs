@@ -9,7 +9,7 @@ use crate::models::{
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
 };
 use crate::services::background_agent_conversion::{
-    build_convert_session_spec, ConvertSessionSpecOptions,
+    ConvertSessionSpecOptions, build_convert_session_spec,
 };
 use crate::storage::{AgentStorage, BackgroundAgentStorage};
 use crate::telemetry::get_execution_timeline;
@@ -25,7 +25,7 @@ use restflow_traits::{
     DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT,
     DEFAULT_BG_TRACE_LIST_LIMIT,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashSet};
 
 #[derive(Clone)]

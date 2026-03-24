@@ -12,8 +12,8 @@ use crate::services::operation_assessment::{
 };
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
-use restflow_traits::store::BackgroundAgentControlRequest;
 use restflow_traits::OperationAssessment;
+use restflow_traits::store::BackgroundAgentControlRequest;
 use serde_json::json;
 
 fn assessment_details(assessment: &OperationAssessment) -> serde_json::Value {
