@@ -63,7 +63,7 @@ impl ExecutionTraceStorage {
 
         let mut events = Vec::new();
         let offset = query.offset.unwrap_or(0);
-        let limit = query.limit.unwrap_or(100);
+        let limit = query.limit.unwrap_or(usize::MAX);
 
         for (_, bytes) in raw_entries {
             if let Ok(event) = serde_json::from_slice::<ExecutionTraceEvent>(&bytes) {
@@ -74,6 +74,11 @@ impl ExecutionTraceStorage {
                 }
                 if let Some(ref run_id) = query.run_id
                     && event.run_id.as_deref() != Some(run_id.as_str())
+                {
+                    continue;
+                }
+                if let Some(ref parent_run_id) = query.parent_run_id
+                    && event.parent_run_id.as_deref() != Some(parent_run_id.as_str())
                 {
                     continue;
                 }
@@ -120,6 +125,14 @@ impl ExecutionTraceStorage {
         events.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         let events: Vec<_> = events.into_iter().skip(offset).take(limit).collect();
         Ok(events)
+    }
+
+    /// List all stored execution trace events without filtering.
+    pub fn list_all(&self) -> Result<Vec<ExecutionTraceEvent>> {
+        self.query(&ExecutionTraceQuery {
+            limit: Some(usize::MAX),
+            ..ExecutionTraceQuery::default()
+        })
     }
 
     /// Get a single execution trace event by event ID.

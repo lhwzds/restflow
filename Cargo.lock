@@ -3529,7 +3529,6 @@ dependencies = [
 name = "restflow-contracts"
 version = "0.4.0"
 dependencies = [
- "restflow-traits",
  "serde",
  "serde_json",
 ]
@@ -3693,6 +3692,8 @@ dependencies = [
  "reqwest",
  "restflow-ai",
  "restflow-browser",
+ "restflow-contracts",
+ "restflow-models",
  "restflow-sandbox",
  "restflow-storage",
  "restflow-traits",
@@ -3720,6 +3721,7 @@ dependencies = [
  "chrono",
  "lsp-types",
  "reqwest",
+ "restflow-contracts",
  "serde",
  "serde_json",
  "specta",
