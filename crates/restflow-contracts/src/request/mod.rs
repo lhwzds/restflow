@@ -261,6 +261,16 @@ pub enum IpcRequest {
         session_id: String,
         limit: Option<usize>,
     },
+    ListExecutionContainers,
+    ListExecutionSessions {
+        query: ExecutionSessionListQuery,
+    },
+    GetExecutionThread {
+        query: ExecutionThreadQuery,
+    },
+    ListChildExecutionSessions {
+        query: ChildExecutionSessionQuery,
+    },
     QueryExecutionTraces {
         #[serde(default)]
         query: ExecutionTraceQuery,
@@ -491,6 +501,52 @@ pub struct AgentNode {
     pub skill_preflight_policy_mode: Option<SkillPreflightPolicyMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_routing: Option<ModelRoutingConfig>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct InlineSubagentConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_tools: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_iterations: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SpawnPriority {
+    Low,
+    #[default]
+    Normal,
+    High,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct SubagentSpawnRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inline: Option<InlineSubagentConfig>,
+    pub task: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_secs: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_iterations: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<SpawnPriority>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model_provider: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_execution_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_session_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_scope_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -1112,6 +1168,7 @@ pub enum ExecutionTraceSource {
 pub struct ExecutionTraceQuery {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
+    pub parent_run_id: Option<String>,
     pub session_id: Option<String>,
     pub turn_id: Option<String>,
     pub agent_id: Option<String>,
@@ -1123,9 +1180,41 @@ pub struct ExecutionTraceQuery {
     pub offset: Option<usize>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionContainerKind {
+    Workspace,
+    BackgroundTask,
+    ExternalChannel,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionContainerRef {
+    pub kind: ExecutionContainerKind,
+    pub id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionSessionListQuery {
+    pub container: ExecutionContainerRef,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ChildExecutionSessionQuery {
+    pub parent_run_id: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ExecutionThreadQuery {
+    pub session_id: Option<String>,
+    pub run_id: Option<String>,
+    pub task_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ExecutionMetricQuery {
     pub task_id: Option<String>,
+    pub run_id: Option<String>,
     pub session_id: Option<String>,
     pub agent_id: Option<String>,
     pub metric_name: Option<String>,
@@ -1142,6 +1231,7 @@ pub struct ProviderHealthQuery {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ExecutionLogQuery {
     pub task_id: Option<String>,
+    pub run_id: Option<String>,
     pub session_id: Option<String>,
     pub agent_id: Option<String>,
     pub level: Option<String>,
@@ -1364,6 +1454,30 @@ mod tests {
 
         let legacy_alias: ModelRef = model_ref.clone();
         assert_eq!(legacy_alias, model_ref);
+    }
+
+    #[test]
+    fn subagent_spawn_request_round_trips() {
+        let request = SubagentSpawnRequest {
+            agent_id: Some("coder".to_string()),
+            inline: Some(InlineSubagentConfig {
+                name: Some("Temp".to_string()),
+                system_prompt: Some("You are focused.".to_string()),
+                allowed_tools: Some(vec!["bash".to_string()]),
+                max_iterations: Some(3),
+            }),
+            task: "Write code".to_string(),
+            timeout_secs: Some(30),
+            max_iterations: Some(5),
+            priority: Some(SpawnPriority::High),
+            model: Some("gpt-5.4-codex".to_string()),
+            model_provider: Some("openai-codex".to_string()),
+            parent_execution_id: Some("exec-1".to_string()),
+            trace_session_id: Some("session-1".to_string()),
+            trace_scope_id: Some("scope-1".to_string()),
+        };
+
+        assert_roundtrip(&request);
     }
 
     #[test]

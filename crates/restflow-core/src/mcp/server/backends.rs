@@ -1,4 +1,5 @@
 use super::*;
+use crate::boundary::background_agent::{core_patch_to_contract, core_spec_to_contract};
 use crate::daemon::tool_result_mapper::to_tool_execution_result;
 
 fn resolve_task_id(
@@ -505,7 +506,7 @@ impl McpBackend for IpcBackend {
         &self,
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent, String> {
-        let spec = to_contract(spec).map_err(|e| e.to_string())?;
+        let spec = core_spec_to_contract(spec).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::CreateBackgroundAgent {
             spec,
             preview: false,
@@ -519,7 +520,7 @@ impl McpBackend for IpcBackend {
         id: &str,
         patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent, String> {
-        let patch = to_contract(patch).map_err(|e| e.to_string())?;
+        let patch = core_patch_to_contract(patch).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::UpdateBackgroundAgent {
             id: id.to_string(),
             patch,

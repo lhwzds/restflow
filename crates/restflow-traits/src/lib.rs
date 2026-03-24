@@ -10,6 +10,7 @@
 
 pub mod assessment;
 pub mod batch_template;
+pub mod boundary;
 pub mod cache;
 pub mod defaults;
 pub mod error;

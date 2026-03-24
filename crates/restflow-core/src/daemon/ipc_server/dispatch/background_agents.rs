@@ -1,5 +1,8 @@
 use super::super::runtime::parse_background_agent_status;
 use super::super::*;
+use crate::boundary::background_agent::{
+    core_patch_to_update_request, core_spec_to_create_request,
+};
 use crate::daemon::request_mapper::to_contract;
 use crate::services::operation_assessment::{
     assess_background_agent_control, assess_background_agent_create,
@@ -9,9 +12,7 @@ use crate::services::operation_assessment::{
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
 use restflow_traits::OperationAssessment;
-use restflow_traits::store::{
-    BackgroundAgentControlRequest, BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
-};
+use restflow_traits::store::BackgroundAgentControlRequest;
 use serde_json::json;
 
 fn assessment_details(assessment: &OperationAssessment) -> serde_json::Value {
@@ -141,32 +142,9 @@ impl IpcServer {
     ) -> IpcResponse {
         let assessment = match assess_background_agent_create(
             core,
-            BackgroundAgentCreateRequest {
-                name: spec.name.clone(),
-                agent_id: spec.agent_id.clone(),
-                chat_session_id: spec.chat_session_id.clone(),
-                schedule: serde_json::to_value(&spec.schedule).ok(),
-                input: spec.input.clone(),
-                input_template: spec.input_template.clone(),
-                timeout_secs: spec.timeout_secs,
-                durability_mode: match spec.durability_mode.clone().map(to_contract).transpose() {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
-                memory: match spec.memory.as_ref().map(serde_json::to_value).transpose() {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
-                memory_scope: None,
-                resource_limits: match spec
-                    .resource_limits
-                    .as_ref()
-                    .map(serde_json::to_value)
-                    .transpose()
-                {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
+            match core_spec_to_create_request(&spec) {
+                Ok(request) => request,
+                Err(err) => return IpcResponse::error(500, err.to_string()),
             },
         )
         .await
@@ -199,60 +177,9 @@ impl IpcServer {
         };
         let assessment = match assess_background_agent_update(
             core,
-            BackgroundAgentUpdateRequest {
-                id: resolved_id.clone(),
-                name: patch.name.clone(),
-                description: patch.description.clone(),
-                agent_id: patch.agent_id.clone(),
-                chat_session_id: patch.chat_session_id.clone(),
-                input: patch.input.clone(),
-                input_template: patch.input_template.clone(),
-                schedule: match patch
-                    .schedule
-                    .as_ref()
-                    .map(serde_json::to_value)
-                    .transpose()
-                {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
-                notification: match patch
-                    .notification
-                    .as_ref()
-                    .map(serde_json::to_value)
-                    .transpose()
-                {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
-                execution_mode: match patch
-                    .execution_mode
-                    .as_ref()
-                    .map(serde_json::to_value)
-                    .transpose()
-                {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
-                timeout_secs: patch.timeout_secs,
-                durability_mode: match patch.durability_mode.clone().map(to_contract).transpose() {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
-                memory: match patch.memory.as_ref().map(serde_json::to_value).transpose() {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
-                memory_scope: None,
-                resource_limits: match patch
-                    .resource_limits
-                    .as_ref()
-                    .map(serde_json::to_value)
-                    .transpose()
-                {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
+            match core_patch_to_update_request(resolved_id.clone(), &patch) {
+                Ok(request) => request,
+                Err(err) => return IpcResponse::error(500, err.to_string()),
             },
         )
         .await

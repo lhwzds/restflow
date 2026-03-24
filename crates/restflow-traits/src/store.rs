@@ -10,7 +10,12 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use restflow_contracts::request::AgentNode as ContractAgentNode;
+use restflow_contracts::request::{
+    AgentNode as ContractAgentNode, DurabilityMode as ContractDurabilityMode,
+    ExecutionMode as ContractExecutionMode, MemoryConfig as ContractMemoryConfig,
+    NotificationConfig as ContractNotificationConfig, ResourceLimits as ContractResourceLimits,
+    TaskSchedule as ContractTaskSchedule,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -131,7 +136,7 @@ pub struct BackgroundAgentCreateRequest {
     #[serde(default)]
     pub chat_session_id: Option<String>,
     #[serde(default)]
-    pub schedule: Option<Value>,
+    pub schedule: Option<ContractTaskSchedule>,
     #[serde(default)]
     pub input: Option<String>,
     #[serde(default)]
@@ -139,13 +144,13 @@ pub struct BackgroundAgentCreateRequest {
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     #[serde(default)]
-    pub durability_mode: Option<String>,
+    pub durability_mode: Option<ContractDurabilityMode>,
     #[serde(default)]
-    pub memory: Option<Value>,
+    pub memory: Option<ContractMemoryConfig>,
     #[serde(default)]
     pub memory_scope: Option<String>,
     #[serde(default)]
-    pub resource_limits: Option<Value>,
+    pub resource_limits: Option<ContractResourceLimits>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -154,19 +159,19 @@ pub struct BackgroundAgentConvertSessionRequest {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
-    pub schedule: Option<Value>,
+    pub schedule: Option<ContractTaskSchedule>,
     #[serde(default)]
     pub input: Option<String>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     #[serde(default)]
-    pub durability_mode: Option<String>,
+    pub durability_mode: Option<ContractDurabilityMode>,
     #[serde(default)]
-    pub memory: Option<Value>,
+    pub memory: Option<ContractMemoryConfig>,
     #[serde(default)]
     pub memory_scope: Option<String>,
     #[serde(default)]
-    pub resource_limits: Option<Value>,
+    pub resource_limits: Option<ContractResourceLimits>,
     #[serde(default)]
     pub run_now: Option<bool>,
 }
@@ -187,21 +192,21 @@ pub struct BackgroundAgentUpdateRequest {
     #[serde(default)]
     pub input_template: Option<String>,
     #[serde(default)]
-    pub schedule: Option<Value>,
+    pub schedule: Option<ContractTaskSchedule>,
     #[serde(default)]
-    pub notification: Option<Value>,
+    pub notification: Option<ContractNotificationConfig>,
     #[serde(default)]
-    pub execution_mode: Option<Value>,
+    pub execution_mode: Option<ContractExecutionMode>,
     #[serde(default)]
     pub timeout_secs: Option<u64>,
     #[serde(default)]
-    pub durability_mode: Option<String>,
+    pub durability_mode: Option<ContractDurabilityMode>,
     #[serde(default)]
-    pub memory: Option<Value>,
+    pub memory: Option<ContractMemoryConfig>,
     #[serde(default)]
     pub memory_scope: Option<String>,
     #[serde(default)]
-    pub resource_limits: Option<Value>,
+    pub resource_limits: Option<ContractResourceLimits>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

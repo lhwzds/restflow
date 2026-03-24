@@ -1,6 +1,8 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
+use crate::boundary::background_agent::{core_patch_to_contract, core_spec_to_contract};
+#[cfg(unix)]
 use crate::daemon::request_mapper::to_contract;
 #[cfg(unix)]
 use restflow_contracts::DeleteWithIdResponse;
@@ -24,7 +26,7 @@ impl IpcClient {
         &mut self,
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent> {
-        let spec = to_contract(spec)?;
+        let spec = core_spec_to_contract(spec)?;
         self.request_typed(IpcRequest::CreateBackgroundAgent {
             spec,
             preview: false,
@@ -38,7 +40,7 @@ impl IpcClient {
         id: String,
         patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent> {
-        let patch = to_contract(patch)?;
+        let patch = core_patch_to_contract(patch)?;
         self.request_typed(IpcRequest::UpdateBackgroundAgent {
             id,
             patch,
