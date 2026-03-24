@@ -2,6 +2,7 @@ use super::super::runtime::{
     cancel_chat_stream, execute_chat_session, resolve_agent_id, steer_chat_stream,
 };
 use super::super::*;
+use crate::services::execution_console::{ExecutionConsoleService, ExecutionThreadError};
 use crate::telemetry::{
     get_execution_metrics, get_execution_timeline, get_provider_health, query_execution_logs,
 };
@@ -9,6 +10,56 @@ use restflow_contracts::{ArchiveResponse, CancelResponse, DeleteResponse, SteerR
 use uuid::Uuid;
 
 impl IpcServer {
+    pub(super) async fn handle_list_execution_containers(core: &Arc<AppCore>) -> IpcResponse {
+        let service = ExecutionConsoleService::from_storage(&core.storage);
+        match service.list_execution_containers() {
+            Ok(containers) => IpcResponse::success(containers),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_list_execution_sessions(
+        core: &Arc<AppCore>,
+        query: crate::models::ExecutionSessionListQuery,
+    ) -> IpcResponse {
+        let service = ExecutionConsoleService::from_storage(&core.storage);
+        match service.list_execution_sessions(&query) {
+            Ok(sessions) => IpcResponse::success(sessions),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_get_execution_thread(
+        core: &Arc<AppCore>,
+        query: crate::models::ExecutionThreadQuery,
+    ) -> IpcResponse {
+        let service = ExecutionConsoleService::from_storage(&core.storage);
+        match service.get_execution_thread(&query) {
+            Ok(thread) => IpcResponse::success(thread),
+            Err(ExecutionThreadError::InvalidQuery) => {
+                IpcResponse::error(400, ExecutionThreadError::InvalidQuery.to_string())
+            }
+            Err(
+                ExecutionThreadError::SessionNotFound(_)
+                | ExecutionThreadError::RunNotFound(_)
+                | ExecutionThreadError::TaskNotFound(_)
+                | ExecutionThreadError::TaskHasNoRuns(_),
+            ) => IpcResponse::not_found("ExecutionThread"),
+            Err(ExecutionThreadError::Internal(err)) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_list_child_execution_sessions(
+        core: &Arc<AppCore>,
+        query: crate::models::ChildExecutionSessionQuery,
+    ) -> IpcResponse {
+        let service = ExecutionConsoleService::from_storage(&core.storage);
+        match service.list_child_execution_sessions(&query.parent_run_id) {
+            Ok(sessions) => IpcResponse::success(sessions),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
     pub(super) async fn handle_list_sessions(core: &Arc<AppCore>) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
         match core.storage.chat_sessions.list() {
