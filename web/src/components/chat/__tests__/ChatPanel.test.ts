@@ -11,6 +11,7 @@ import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage } from '@/api/chat-session'
+import { getExecutionThread } from '@/api/execution-console'
 
 type SessionLike = {
   id: string
@@ -65,6 +66,8 @@ let chatBoxMountCount = 0
 const mockSteerChatStream = vi.fn()
 const mockSendChatMessageApi = vi.fn()
 const mockRouterPush = vi.fn()
+const mockGetExecutionThread = vi.fn()
+let lastMessageListProps: Record<string, unknown> | null = null
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -79,10 +82,48 @@ vi.mock('vue-router', () => ({
 }))
 
 vi.mock('@/components/chat/MessageList.vue', () => ({
-  default: {
+  default: defineComponent({
     name: 'MessageList',
-    template: '<div data-testid="message-list" />',
-  },
+    props: {
+      messages: {
+        type: Array,
+        default: () => [],
+      },
+      threadItems: {
+        type: Array,
+        default: undefined,
+      },
+      isStreaming: {
+        type: Boolean,
+        default: false,
+      },
+      streamContent: {
+        type: String,
+        default: '',
+      },
+      streamThinking: {
+        type: String,
+        default: '',
+      },
+      steps: {
+        type: Array,
+        default: () => [],
+      },
+    },
+    setup(props) {
+      return () => {
+        lastMessageListProps = {
+          messages: props.messages,
+          threadItems: props.threadItems,
+          isStreaming: props.isStreaming,
+          streamContent: props.streamContent,
+          streamThinking: props.streamThinking,
+          steps: props.steps,
+        }
+        return h('div', { 'data-testid': 'message-list' })
+      }
+    },
+  }),
 }))
 
 vi.mock('@/components/background-agent/AgentStatusBadge.vue', () => ({
@@ -182,6 +223,10 @@ vi.mock('@/api/chat-stream', () => ({
   steerChatStream: vi.fn(),
 }))
 
+vi.mock('@/api/execution-console', () => ({
+  getExecutionThread: vi.fn(),
+}))
+
 vi.mock('@/composables/useToast', () => ({
   useToast: () => ({
     success: vi.fn(),
@@ -219,6 +264,7 @@ describe('ChatPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     chatBoxMountCount = 0
+    lastMessageListProps = null
 
     mockCurrentSession.value = createSession('gpt-4')
     mockMessages.value = []
@@ -326,6 +372,15 @@ describe('ChatPanel', () => {
     vi.mocked(updateAgent).mockImplementation(mockUpdateAgentApi)
     vi.mocked(steerChatStream).mockImplementation(mockSteerChatStream)
     vi.mocked(sendChatMessage).mockImplementation(mockSendChatMessageApi)
+    mockGetExecutionThread.mockResolvedValue({
+      focus: {},
+      timeline: {
+        events: [],
+        stats: {},
+      },
+      child_sessions: [],
+    })
+    vi.mocked(getExecutionThread).mockImplementation(mockGetExecutionThread)
   })
 
   it('syncs selected model when current session model changes with same id', async () => {
@@ -530,5 +585,147 @@ describe('ChatPanel', () => {
       name: 'workspace-run',
       params: { taskId: 'task-1' },
     })
+  })
+
+  it('loads canonical execution thread for the current session and passes unified items to MessageList', async () => {
+    mockMessages.value = [
+      {
+        id: 'msg-user-1',
+        role: 'user',
+        content: 'Find the latest release notes',
+        timestamp: 1000n,
+        execution: null,
+      },
+      {
+        id: 'msg-assistant-1',
+        role: 'assistant',
+        content: 'I found the release notes and summarized the changes in detail.',
+        timestamp: 3000n,
+        execution: null,
+      },
+    ]
+    mockGetExecutionThread.mockResolvedValue({
+      focus: {},
+      timeline: {
+        events: [
+          {
+            id: 'event-user-1',
+            task_id: 'task-1',
+            agent_id: 'agent-1',
+            category: 'message',
+            source: 'agent_executor',
+            timestamp: 1000,
+            subflow_path: [],
+            run_id: null,
+            parent_run_id: null,
+            session_id: 'session-1',
+            turn_id: 'turn-1',
+            requested_model: 'gpt-5',
+            effective_model: 'gpt-5',
+            provider: 'openai',
+            attempt: 1,
+            llm_call: null,
+            tool_call: null,
+            model_switch: null,
+            lifecycle: null,
+            message: {
+              role: 'user',
+              content_preview: 'Find the latest release notes',
+              tool_call_count: null,
+            },
+            metric_sample: null,
+            provider_health: null,
+            log_record: null,
+          },
+          {
+            id: 'event-tool-1',
+            task_id: 'task-1',
+            agent_id: 'agent-1',
+            category: 'tool_call',
+            source: 'agent_executor',
+            timestamp: 2000,
+            subflow_path: [],
+            run_id: null,
+            parent_run_id: null,
+            session_id: 'session-1',
+            turn_id: 'turn-1',
+            requested_model: 'gpt-5',
+            effective_model: 'gpt-5',
+            provider: 'openai',
+            attempt: 1,
+            llm_call: null,
+            tool_call: {
+              tool_name: 'web_search',
+              phase: 'completed',
+              input_summary: 'release notes',
+              output_ref: null,
+              error: null,
+            },
+            model_switch: null,
+            lifecycle: null,
+            message: null,
+            metric_sample: null,
+            provider_health: null,
+            log_record: null,
+          },
+          {
+            id: 'event-assistant-1',
+            task_id: 'task-1',
+            agent_id: 'agent-1',
+            category: 'message',
+            source: 'agent_executor',
+            timestamp: 3000,
+            subflow_path: [],
+            run_id: null,
+            parent_run_id: null,
+            session_id: 'session-1',
+            turn_id: 'turn-1',
+            requested_model: 'gpt-5',
+            effective_model: 'gpt-5',
+            provider: 'openai',
+            attempt: 1,
+            llm_call: null,
+            tool_call: null,
+            model_switch: null,
+            lifecycle: null,
+            message: {
+              role: 'assistant',
+              content_preview: 'I found the release notes',
+              tool_call_count: 1,
+            },
+            metric_sample: null,
+            provider_health: null,
+            log_record: null,
+          },
+        ],
+        stats: {},
+      },
+      child_sessions: [],
+    } as any)
+
+    mount(ChatPanel)
+    await flushPromises()
+
+    expect(getExecutionThread).toHaveBeenCalledWith({
+      session_id: 'session-1',
+      run_id: null,
+      task_id: null,
+    })
+    expect(lastMessageListProps?.threadItems).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: 'event-tool-1',
+          kind: 'tool_call',
+          title: 'web_search',
+        }),
+        expect.objectContaining({
+          kind: 'message',
+          message: expect.objectContaining({
+            id: 'msg-assistant-1',
+            content: 'I found the release notes and summarized the changes in detail.',
+          }),
+        }),
+      ]),
+    )
   })
 })

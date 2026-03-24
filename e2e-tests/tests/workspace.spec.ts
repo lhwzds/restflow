@@ -229,6 +229,211 @@ test.describe('Workspace Layout', () => {
     await expect(page.locator('text=Persisted execution step summary.')).toBeVisible()
     await expect(page.getByText('model_switch: gpt-4 -> gpt-5')).toBeVisible()
   })
+
+  test('renders canonical session thread order while preserving full chat message content', async ({
+    page,
+  }) => {
+    const sessionId = await openFreshWorkspaceSession(page)
+    const userMessageId = `e2e-thread-user-${Date.now()}`
+    const assistantMessageId = `e2e-thread-assistant-${Date.now()}`
+
+    await requestIpc(page, {
+      type: 'AppendMessage',
+      data: {
+        session_id: sessionId,
+        message: {
+          id: userMessageId,
+          role: 'user',
+          content: 'Find the latest release notes',
+          timestamp: Date.now(),
+          execution: null,
+        },
+      },
+    })
+
+    await requestIpc(page, {
+      type: 'AppendMessage',
+      data: {
+        session_id: sessionId,
+        message: {
+          id: assistantMessageId,
+          role: 'assistant',
+          content: 'I found the release notes and summarized the changes in detail.',
+          timestamp: Date.now() + 1,
+          execution: null,
+        },
+      },
+    })
+
+    await page.route('**/api/request', async (route) => {
+      const payload = route.request().postDataJSON() as
+        | { type?: string; data?: { query?: { session_id?: string | null } } }
+        | undefined
+
+      if (
+        payload?.type === 'GetExecutionThread' &&
+        payload.data?.query?.session_id === sessionId
+      ) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: {
+              focus: {
+                id: 'focus-1',
+                title: 'Session focus',
+                subtitle: null,
+                status: 'completed',
+                source_kind: 'workspace_session',
+                container_id: sessionId,
+                task_id: null,
+                run_id: null,
+                parent_run_id: null,
+                session_id: sessionId,
+                agent_id: 'agent-1',
+                requested_model: 'gpt-5',
+                effective_model: 'gpt-5',
+                provider: 'openai',
+                started_at: Date.now(),
+                ended_at: null,
+                updated_at: Date.now(),
+              },
+              timeline: {
+                events: [
+                  {
+                    id: 'event-user-1',
+                    task_id: 'task-1',
+                    agent_id: 'agent-1',
+                    category: 'message',
+                    source: 'agent_executor',
+                    timestamp: Date.now(),
+                    subflow_path: [],
+                    run_id: null,
+                    parent_run_id: null,
+                    session_id: sessionId,
+                    turn_id: 'turn-1',
+                    requested_model: 'gpt-5',
+                    effective_model: 'gpt-5',
+                    provider: 'openai',
+                    attempt: 1,
+                    llm_call: null,
+                    tool_call: null,
+                    model_switch: null,
+                    lifecycle: null,
+                    message: {
+                      role: 'user',
+                      content_preview: 'Find the latest release notes',
+                      tool_call_count: null,
+                    },
+                    metric_sample: null,
+                    provider_health: null,
+                    log_record: null,
+                  },
+                  {
+                    id: 'event-tool-1',
+                    task_id: 'task-1',
+                    agent_id: 'agent-1',
+                    category: 'tool_call',
+                    source: 'agent_executor',
+                    timestamp: Date.now() + 1,
+                    subflow_path: [],
+                    run_id: null,
+                    parent_run_id: null,
+                    session_id: sessionId,
+                    turn_id: 'turn-1',
+                    requested_model: 'gpt-5',
+                    effective_model: 'gpt-5',
+                    provider: 'openai',
+                    attempt: 1,
+                    llm_call: null,
+                    tool_call: {
+                      tool_name: 'web_search',
+                      phase: 'completed',
+                      input_summary: 'release notes',
+                      output_ref: null,
+                      error: null,
+                    },
+                    model_switch: null,
+                    lifecycle: null,
+                    message: null,
+                    metric_sample: null,
+                    provider_health: null,
+                    log_record: null,
+                  },
+                  {
+                    id: 'event-assistant-1',
+                    task_id: 'task-1',
+                    agent_id: 'agent-1',
+                    category: 'message',
+                    source: 'agent_executor',
+                    timestamp: Date.now() + 2,
+                    subflow_path: [],
+                    run_id: null,
+                    parent_run_id: null,
+                    session_id: sessionId,
+                    turn_id: 'turn-1',
+                    requested_model: 'gpt-5',
+                    effective_model: 'gpt-5',
+                    provider: 'openai',
+                    attempt: 1,
+                    llm_call: null,
+                    tool_call: null,
+                    model_switch: null,
+                    lifecycle: null,
+                    message: {
+                      role: 'assistant',
+                      content_preview: 'I found the release notes',
+                      tool_call_count: 1,
+                    },
+                    metric_sample: null,
+                    provider_health: null,
+                    log_record: null,
+                  },
+                ],
+                stats: {
+                  total_events: 3,
+                  by_category: {},
+                  time_range: null,
+                  top_requested_models: [],
+                  top_effective_models: [],
+                  top_providers: [],
+                  avg_llm_latency_ms: null,
+                  avg_tool_latency_ms: null,
+                },
+              },
+              child_sessions: [],
+            },
+          }),
+        })
+        return
+      }
+
+      await route.continue()
+    })
+
+    await page.goto(`/workspace/sessions/${sessionId}`)
+    await page.waitForLoadState('domcontentloaded')
+
+    await expect(page.getByTestId('thread-item-view-event-tool-1')).toBeVisible()
+    await expect(page.getByTestId(`chat-message-${assistantMessageId}`)).toBeVisible()
+    await expect(
+      page.getByText('I found the release notes and summarized the changes in detail.'),
+    ).toBeVisible()
+
+    const toolRow = page.getByTestId('thread-item-event-tool-1')
+    const assistantRow = page.getByTestId(`chat-message-${assistantMessageId}`)
+    const toolAppearsBeforeAssistant = await toolRow.evaluate(
+      (toolNode, assistantTestId) => {
+        const assistantNode = document.querySelector(`[data-testid="${assistantTestId}"]`)
+        if (!assistantNode) return false
+        return Boolean(toolNode.compareDocumentPosition(assistantNode) & Node.DOCUMENT_POSITION_FOLLOWING)
+      },
+      `chat-message-${assistantMessageId}`,
+    )
+
+    expect(toolAppearsBeforeAssistant).toBe(true)
+  })
 })
 
 test.describe('Session List', () => {
