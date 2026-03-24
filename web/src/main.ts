@@ -17,28 +17,13 @@ import { syncDocumentTitle } from './plugins/page-title'
 import router from './router'
 import './style.scss'
 
-async function enableMocking() {
-  if (import.meta.env.VITE_DEMO_MODE === 'true') {
-    const { worker } = await import('./mocks/browser')
-    await worker.start({
-      onUnhandledRequest: 'bypass',
-      quiet: true,
-      serviceWorker: {
-        url: '/mockServiceWorker.js',
-      },
-    })
-  }
-}
+const app = createApp(App)
+const pinia = createPinia()
 
-enableMocking().then(async () => {
-  const app = createApp(App)
-  const pinia = createPinia()
+pinia.use(preloadPlugin)
 
-  pinia.use(preloadPlugin)
-
-  app.use(pinia)
-  app.use(i18n)
-  app.use(router)
-  syncDocumentTitle(router, i18n)
-  app.mount('#app')
-})
+app.use(pinia)
+app.use(i18n)
+app.use(router)
+syncDocumentTitle(router, i18n)
+app.mount('#app')

@@ -36,11 +36,6 @@ function detectInitialLocale(): SupportedLocale {
     return savedLocale
   }
 
-  // Default to English in demo mode
-  if (import.meta.env.VITE_DEMO_MODE === 'true') {
-    return 'en'
-  }
-
   return DEFAULT_LOCALE
 }
 
