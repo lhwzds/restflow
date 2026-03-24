@@ -26,6 +26,7 @@ import AgentEditorPanel from '@/components/workspace/AgentEditorPanel.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
 import ToolPanel from '@/components/tool-panel/ToolPanel.vue'
+import WorkspaceRunPanel from '@/components/workspace/WorkspaceRunPanel.vue'
 import ConvertToBackgroundAgentDialog from '@/components/workspace/ConvertToBackgroundAgentDialog.vue'
 import CreateAgentDialog from '@/components/workspace/CreateAgentDialog.vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
@@ -34,17 +35,18 @@ import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { confirmDelete, useConfirm } from '@/composables/useConfirm'
 import { deleteAgent as deleteAgentApi, listAgents } from '@/api/agents'
-import { listExecutionSessions } from '@/api/execution-console'
+import { listExecutionContainers, listExecutionSessions } from '@/api/execution-console'
 import { rebuildExternalChatSession } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
 import type {
   AgentFile,
   BackgroundTaskFolder,
+  ExternalChannelFolder,
   SessionItem,
   WorkspaceAgentModelSelection,
 } from '@/types/workspace'
-import type { ChatSessionSummary } from '@/types/generated/ChatSessionSummary'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
+import type { ExecutionContainerSummary } from '@/types/generated/ExecutionContainerSummary'
 import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ThreadSelection } from '@/components/chat/threadItems'
 
@@ -66,8 +68,12 @@ const selectedAgentId = ref<string | null>(null)
 
 const selectedItemId = ref<string | null>(null)
 const isSending = computed(() => chatSessionStore.isSending)
+const executionContainers = ref<ExecutionContainerSummary[]>([])
+const workspaceSessionsById = ref<Record<string, ExecutionSessionSummary>>({})
 const expandedBackgroundTaskIds = ref<Set<string>>(new Set())
 const backgroundRunsByTaskId = ref<Record<string, ExecutionSessionSummary[]>>({})
+const expandedExternalContainerIds = ref<Set<string>>(new Set())
+const externalSessionsByContainerId = ref<Record<string, ExecutionSessionSummary[]>>({})
 
 const toolPanel = useToolPanel()
 
@@ -81,37 +87,63 @@ const convertSessionName = ref('')
 
 const createAgentDialogOpen = ref(false)
 
-const sessions = computed<SessionItem[]>(() => {
-  const agentLookup = new Map(availableAgents.value.map((a) => [a.id, a.name]))
-  const backgroundTaskBySessionId = new Map(
-    backgroundAgentStore.agents
-      .map((agent) => [agent.chat_session_id.trim(), agent.id] as const)
-      .filter(([id]) => id.length > 0),
-  )
+function normalizeSessionStatus(status: string, isSelected: boolean): SessionItem['status'] {
+  if (isSelected && isSending.value) {
+    return 'running'
+  }
 
-  return chatSessionStore.summaries.map((session: ChatSessionSummary) => ({
-    id: session.id,
-    name: session.name,
-    status:
-      session.id === selectedItemId.value && isSending.value
-        ? 'running'
-        : session.message_count > 0
-          ? 'completed'
-          : 'pending',
-    updatedAt: Number(session.updated_at),
-    agentId: session.agent_id,
-    agentName: agentLookup.get(session.agent_id) ?? session.agent_id,
-    sourceChannel: session.source_channel,
-    isBackgroundSession: backgroundTaskBySessionId.has(session.id),
-    backgroundTaskId: backgroundTaskBySessionId.get(session.id) ?? null,
-  }))
-})
+  switch (status) {
+    case 'running':
+      return 'running'
+    case 'failed':
+    case 'interrupted':
+    case 'error':
+      return 'failed'
+    case 'pending':
+      return 'pending'
+    default:
+      return 'completed'
+  }
+}
 
-const currentBackgroundTaskId = computed(() => {
-  const selectedSessionId = selectedItemId.value
-  if (!selectedSessionId) return null
-  return backgroundAgentStore.agentBySessionId(selectedSessionId)?.id ?? null
-})
+function agentNameForId(agentId: string | null | undefined): string | undefined {
+  if (!agentId) return undefined
+  return availableAgents.value.find((agent) => agent.id === agentId)?.name ?? agentId
+}
+
+function toSessionItem(summary: ExecutionSessionSummary): SessionItem {
+  return {
+    id: summary.session_id ?? summary.id,
+    name: summary.title,
+    subtitle: summary.subtitle ?? null,
+    status: normalizeSessionStatus(summary.status, selectedItemId.value === (summary.session_id ?? summary.id)),
+    updatedAt: summary.updated_at,
+    agentId: summary.agent_id ?? undefined,
+    agentName: agentNameForId(summary.agent_id),
+    containerId: summary.container_id,
+    sourceChannel: summary.source_channel ?? null,
+  }
+}
+
+const workspaceContainer = computed(
+  () => executionContainers.value.find((container) => container.kind === 'workspace') ?? null,
+)
+
+const backgroundTaskContainers = computed(() =>
+  executionContainers.value.filter((container) => container.kind === 'background_task'),
+)
+
+const externalChannelContainers = computed(() =>
+  executionContainers.value.filter((container) => container.kind === 'external_channel'),
+)
+
+const workspaceSessions = computed<SessionItem[]>(() =>
+  Object.values(workspaceSessionsById.value)
+    .sort((left, right) => right.updated_at - left.updated_at || left.id.localeCompare(right.id))
+    .map((session) => toSessionItem(session)),
+)
+
+const currentBackgroundTaskId = computed(() => routeTaskId.value || null)
 
 const currentBackgroundRunId = computed<string | null>(() => {
   const value = route.query.runId
@@ -119,19 +151,35 @@ const currentBackgroundRunId = computed<string | null>(() => {
 })
 
 const backgroundFolders = computed<BackgroundTaskFolder[]>(() =>
-  backgroundAgentStore.agents.map((agent) => ({
-    taskId: agent.id,
-    name: agent.name,
-    status: agent.status,
-    updatedAt: agent.updated_at,
-    expanded: expandedBackgroundTaskIds.value.has(agent.id),
-    runs: (backgroundRunsByTaskId.value[agent.id] ?? []).map((session) => ({
+  backgroundTaskContainers.value.map((container) => ({
+    taskId: container.id,
+    name: container.title,
+    subtitle: container.subtitle ?? null,
+    status: container.status ?? 'idle',
+    updatedAt: container.updated_at,
+    expanded: expandedBackgroundTaskIds.value.has(container.id),
+    runs: (backgroundRunsByTaskId.value[container.id] ?? []).map((session) => ({
       id: session.id,
       title: session.title,
       status: session.status,
       updatedAt: session.updated_at,
       runId: session.run_id,
     })),
+  })),
+)
+
+const externalFolders = computed<ExternalChannelFolder[]>(() =>
+  externalChannelContainers.value.map((container) => ({
+    containerId: container.id,
+    name: container.title,
+    subtitle: container.subtitle ?? null,
+    status: container.status ?? null,
+    updatedAt: container.updated_at,
+    expanded: expandedExternalContainerIds.value.has(container.id),
+    sourceChannel: container.source_channel ?? null,
+    sessions: (externalSessionsByContainerId.value[container.id] ?? []).map((session) =>
+      toSessionItem(session),
+    ),
   })),
 )
 
@@ -150,7 +198,9 @@ const routeTaskId = computed(() => {
 })
 
 function isExternallyManagedSession(sessionId: string): boolean {
-  const target = sessions.value.find((item) => item.id === sessionId)
+  const target =
+    workspaceSessions.value.find((item) => item.id === sessionId) ??
+    externalFolders.value.flatMap((folder) => folder.sessions).find((item) => item.id === sessionId)
   return !!target?.sourceChannel && target.sourceChannel !== 'workspace'
 }
 
@@ -191,6 +241,7 @@ async function onNewSession() {
 
   selectedItemId.value = session.id
   await chatSessionStore.selectSession(session.id)
+  await refreshNavigationProjection()
   await router.push({ name: 'workspace-session', params: { sessionId: session.id } })
 }
 
@@ -198,27 +249,15 @@ async function onSelectItem(id: string) {
   sidebarMode.value = 'sessions'
   selectedItemId.value = id
   await chatSessionStore.selectSession(id)
-
-  const taskId = backgroundAgentStore.agentBySessionId(id)?.id
-  if (taskId) {
-    await router.push({ name: 'workspace-run', params: { taskId } })
-    return
-  }
-
   await router.push({ name: 'workspace-session', params: { sessionId: id } })
 }
 
 function onSwitchToSessions() {
   sidebarMode.value = 'sessions'
+  if (routeTaskId.value) {
+    return
+  }
   if (selectedItemId.value) {
-    const taskId = backgroundAgentStore.agentBySessionId(selectedItemId.value)?.id
-    if (taskId) {
-      void router.push({
-        name: 'workspace-run',
-        params: { taskId },
-      })
-      return
-    }
     void router.push({
       name: 'workspace-session',
       params: { sessionId: selectedItemId.value },
@@ -254,6 +293,32 @@ function onThreadSelection(selection: ThreadSelection) {
   toolPanel.handleThreadSelection(selection)
 }
 
+async function loadExecutionContainersProjection() {
+  executionContainers.value = await listExecutionContainers()
+}
+
+async function loadWorkspaceSessionsProjection() {
+  const container = workspaceContainer.value
+  if (!container) {
+    workspaceSessionsById.value = {}
+    return
+  }
+
+  const sessions = await listExecutionSessions({
+    container: {
+      kind: 'workspace',
+      id: container.id,
+    },
+  })
+
+  workspaceSessionsById.value = Object.fromEntries(sessions.map((session) => [session.id, session]))
+}
+
+async function refreshNavigationProjection() {
+  await loadExecutionContainersProjection()
+  await loadWorkspaceSessionsProjection()
+}
+
 async function loadBackgroundRuns(taskId: string) {
   const runs = await listExecutionSessions({
     container: {
@@ -264,6 +329,20 @@ async function loadBackgroundRuns(taskId: string) {
   backgroundRunsByTaskId.value = {
     ...backgroundRunsByTaskId.value,
     [taskId]: runs,
+  }
+}
+
+async function loadExternalSessions(containerId: string) {
+  const sessions = await listExecutionSessions({
+    container: {
+      kind: 'external_channel',
+      id: containerId,
+    },
+  })
+
+  externalSessionsByContainerId.value = {
+    ...externalSessionsByContainerId.value,
+    [containerId]: sessions,
   }
 }
 
@@ -288,12 +367,39 @@ async function onToggleBackgroundTask(taskId: string) {
   }
 }
 
+async function onToggleExternalChannel(containerId: string) {
+  const next = new Set(expandedExternalContainerIds.value)
+  if (next.has(containerId)) {
+    next.delete(containerId)
+    expandedExternalContainerIds.value = next
+    return
+  }
+
+  next.add(containerId)
+  expandedExternalContainerIds.value = next
+  if (!externalSessionsByContainerId.value[containerId]) {
+    try {
+      await loadExternalSessions(containerId)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('workspace.noSessions')
+      toast.error(message)
+    }
+  }
+}
+
 async function onSelectBackgroundRun(taskId: string, runId: string | null) {
-  await router.push({
+  const location = {
     name: 'workspace-run',
     params: { taskId },
     query: runId ? { runId } : undefined,
-  })
+  }
+
+  if (routeTaskId.value === taskId) {
+    await router.replace(location)
+    return
+  }
+
+  await router.push(location)
 }
 
 async function onDeleteSession(id: string, name: string) {
@@ -306,6 +412,7 @@ async function onDeleteSession(id: string, name: string) {
 
   const success = await chatSessionStore.deleteSession(id)
   if (success) {
+    await refreshNavigationProjection()
     toast.success(t('workspace.session.deleteSuccess'))
     if (selectedItemId.value === id) {
       selectedItemId.value = null
@@ -325,6 +432,7 @@ async function onArchiveSession(id: string, _name: string) {
 
   const success = await chatSessionStore.archiveSession(id)
   if (success) {
+    await refreshNavigationProjection()
     toast.success(t('workspace.session.archiveSuccess'))
     if (selectedItemId.value === id) {
       selectedItemId.value = null
@@ -352,6 +460,7 @@ async function submitRename() {
 
   const result = await chatSessionStore.renameSession(renameSessionId.value, trimmed)
   if (result) {
+    await refreshNavigationProjection()
     toast.success(t('workspace.session.renameSuccess'))
   }
   renameDialogOpen.value = false
@@ -390,6 +499,7 @@ async function onConvertToWorkspaceSession(id: string, name: string) {
 
   toast.success(t('workspace.session.convertToWorkspaceSuccess'))
   await chatSessionStore.fetchSummaries()
+  await refreshNavigationProjection()
   if (selectedItemId.value === id) {
     await chatSessionStore.selectSession(id)
     await router.push({ name: 'workspace-session', params: { sessionId: id } })
@@ -414,6 +524,7 @@ async function onRebuildSession(id: string, name: string) {
   try {
     const rebuilt = await rebuildExternalChatSession(id)
     await chatSessionStore.fetchSummaries()
+    await refreshNavigationProjection()
     selectedItemId.value = rebuilt.id
     await chatSessionStore.selectSession(rebuilt.id)
     toast.success(t('workspace.session.rebuildSuccess'))
@@ -459,6 +570,7 @@ async function onDeleteAgent(id: string, name: string) {
 
     toast.success(t('workspace.agent.deleteSuccess'))
     await chatSessionStore.fetchSummaries()
+    await refreshNavigationProjection()
   } catch (error) {
     toast.error(resolveAgentDeleteErrorMessage(error))
   }
@@ -506,6 +618,55 @@ function resolveAgentDeleteErrorMessage(error: unknown): string {
   return message || t('workspace.agent.deleteFailed')
 }
 
+function externalContainerKey(source: SessionItem['sourceChannel']): string | null {
+  switch (source) {
+    case 'telegram':
+      return 'telegram'
+    case 'discord':
+      return 'discord'
+    case 'slack':
+      return 'slack'
+    case 'external_legacy':
+      return 'external'
+    default:
+      return null
+  }
+}
+
+async function ensureExternalContainerForSession(sessionId: string) {
+  const loadedContainerId = Object.entries(externalSessionsByContainerId.value).find(([, sessions]) =>
+    sessions.some((session) => (session.session_id ?? session.id) === sessionId),
+  )?.[0]
+
+  if (loadedContainerId) {
+    const next = new Set(expandedExternalContainerIds.value)
+    next.add(loadedContainerId)
+    expandedExternalContainerIds.value = next
+    return
+  }
+
+  const currentSession = chatSessionStore.currentSession
+  const source = currentSession?.source_channel
+  const key = externalContainerKey(source)
+  if (!currentSession || !key) {
+    return
+  }
+
+  const conversationId = currentSession.source_conversation_id?.trim() || currentSession.id
+  const containerId = `${key}:${conversationId}`
+  const next = new Set(expandedExternalContainerIds.value)
+  next.add(containerId)
+  expandedExternalContainerIds.value = next
+
+  if (!externalSessionsByContainerId.value[containerId]) {
+    try {
+      await loadExternalSessions(containerId)
+    } catch (error) {
+      console.warn('Failed to load external container sessions:', error)
+    }
+  }
+}
+
 watch(
   () => chatSessionStore.currentSessionId,
   (newId) => {
@@ -515,25 +676,29 @@ watch(
   },
 )
 
-watch(selectedItemId, () => {
+watch([selectedItemId, routeTaskId], () => {
   toolPanel.clearHistory()
 })
 
 watch(
-  [routeSessionId, routeTaskId, () => backgroundAgentStore.agents],
+  [routeSessionId, routeTaskId],
   async ([sessionId, taskId]) => {
     if (sidebarMode.value !== 'agents') {
       sidebarMode.value = 'sessions'
     }
 
     if (taskId) {
-      const targetAgent = backgroundAgentStore.agents.find((agent) => agent.id === taskId) ?? null
-      const boundSessionId = targetAgent?.chat_session_id?.trim()
-      if (boundSessionId) {
-        selectedItemId.value = boundSessionId
-        await chatSessionStore.selectSession(boundSessionId)
-      } else {
-        selectedItemId.value = null
+      selectedItemId.value = null
+      const next = new Set(expandedBackgroundTaskIds.value)
+      next.add(taskId)
+      expandedBackgroundTaskIds.value = next
+
+      if (!backgroundRunsByTaskId.value[taskId]) {
+        try {
+          await loadBackgroundRuns(taskId)
+        } catch (error) {
+          console.warn('Failed to load background runs for task route:', error)
+        }
       }
       return
     }
@@ -541,15 +706,26 @@ watch(
     if (sessionId) {
       selectedItemId.value = sessionId
       await chatSessionStore.selectSession(sessionId)
+      await ensureExternalContainerForSession(sessionId)
+      return
     }
+
+    selectedItemId.value = chatSessionStore.currentSessionId
   },
   { immediate: true },
 )
 
+watch(convertDialogOpen, (open, previous) => {
+  if (previous && !open) {
+    void refreshNavigationProjection()
+  }
+})
+
 onMounted(() => {
   void loadAgents()
-  void chatSessionStore.fetchSummaries()
   void backgroundAgentStore.fetchAgents()
+  void chatSessionStore.fetchSummaries()
+  void refreshNavigationProjection()
 })
 </script>
 
@@ -597,9 +773,10 @@ onMounted(() => {
 
         <SessionList
           v-if="sidebarMode === 'sessions'"
-          :sessions="sessions"
+          :workspace-sessions="workspaceSessions"
           :current-session-id="selectedItemId"
           :background-folders="backgroundFolders"
+          :external-folders="externalFolders"
           :current-background-task-id="currentBackgroundTaskId"
           :current-background-run-id="currentBackgroundRunId"
           class="flex-1 min-h-0"
@@ -614,6 +791,7 @@ onMounted(() => {
           @rebuild="onRebuildSession"
           @toggle-background-task="onToggleBackgroundTask"
           @select-background-run="onSelectBackgroundRun"
+          @toggle-external-channel="onToggleExternalChannel"
         />
 
         <AgentList
@@ -649,8 +827,18 @@ onMounted(() => {
         </div>
       </div>
 
+      <WorkspaceRunPanel
+        v-if="sidebarMode === 'sessions' && routeTaskId"
+        :task-id="routeTaskId"
+        :selected-run-id="currentBackgroundRunId"
+        class="flex-1 min-w-0"
+        @refresh="refreshNavigationProjection"
+        @select-run="onSelectBackgroundRun(routeTaskId, $event)"
+        @select-thread-item="onThreadSelection"
+      />
+
       <ChatPanel
-        v-if="sidebarMode === 'sessions'"
+        v-else-if="sidebarMode === 'sessions'"
         class="flex-1 min-w-0"
         @show-panel="onShowPanel"
         @tool-result="onToolResult"

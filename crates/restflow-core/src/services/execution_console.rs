@@ -79,7 +79,6 @@ impl ExecutionConsoleService {
         containers.push(self.build_workspace_container(&workspace_sessions));
 
         for task in background_tasks {
-            let runs = self.list_background_task_runs(&task)?;
             containers.push(ExecutionContainerSummary {
                 id: task.id.clone(),
                 kind: ExecutionContainerKind::BackgroundTask,
@@ -87,9 +86,9 @@ impl ExecutionConsoleService {
                 subtitle: task.description.clone(),
                 updated_at: task.updated_at,
                 status: Some(task.status.as_str().to_string()),
-                session_count: runs.len() as u32,
-                latest_session_id: runs.first().and_then(|run| run.session_id.clone()),
-                latest_run_id: runs.first().and_then(|run| run.run_id.clone()),
+                session_count: task.success_count + task.failure_count,
+                latest_session_id: Some(task.chat_session_id.clone()),
+                latest_run_id: None,
                 agent_id: Some(task.agent_id.clone()),
                 source_channel: None,
                 source_conversation_id: None,
@@ -110,8 +109,7 @@ impl ExecutionConsoleService {
                 status: Some("active".to_string()),
                 session_count: group.sessions.len() as u32,
                 latest_session_id: latest_session.map(|session| session.id.clone()),
-                latest_run_id: latest_session
-                    .and_then(|session| self.latest_run_id_for_session(&session.id).ok().flatten()),
+                latest_run_id: None,
                 agent_id: latest_session.map(|session| session.agent_id.clone()),
                 source_channel: Some(group.source_channel),
                 source_conversation_id: Some(group.conversation_id),
@@ -249,8 +247,7 @@ impl ExecutionConsoleService {
             status: None,
             session_count: sessions.len() as u32,
             latest_session_id: latest.map(|session| session.id.clone()),
-            latest_run_id: latest
-                .and_then(|session| self.latest_run_id_for_session(&session.id).ok().flatten()),
+            latest_run_id: None,
             agent_id: None,
             source_channel: Some(ChatSessionSource::Workspace),
             source_conversation_id: None,
@@ -260,11 +257,19 @@ impl ExecutionConsoleService {
     fn load_session_contexts(&self) -> Result<Vec<SessionContext>> {
         let sessions = self.storage.chat_sessions.list()?;
         let session_policy = SessionPolicy::from_storage(&self.storage);
+        let mut bound_tasks_by_session_id = HashMap::new();
+        for task in self.storage.background_agents.list_tasks()? {
+            let trimmed_session_id = task.chat_session_id.trim();
+            if trimmed_session_id.is_empty() {
+                continue;
+            }
+            bound_tasks_by_session_id.insert(trimmed_session_id.to_string(), task);
+        }
         let mut contexts = Vec::with_capacity(sessions.len());
 
         for session in sessions {
             let source = session_policy.effective_source(&session)?;
-            let bound_task = session_policy.bound_background_task(&session.id)?;
+            let bound_task = bound_tasks_by_session_id.get(&session.id).cloned();
             contexts.push(SessionContext {
                 session,
                 source,
@@ -283,7 +288,7 @@ impl ExecutionConsoleService {
                 ctx.source.source == ChatSessionSource::Workspace && ctx.bound_task.is_none()
             })
             .map(|ctx| {
-                self.build_session_summary(
+                self.build_navigation_session_summary(
                     &ctx.session,
                     WORKSPACE_CONTAINER_ID,
                     ExecutionSessionKind::WorkspaceSession,
@@ -377,7 +382,7 @@ impl ExecutionConsoleService {
                     ) == container_id
             })
             .map(|ctx| {
-                self.build_session_summary(
+                self.build_navigation_session_summary(
                     &ctx.session,
                     container_id,
                     ExecutionSessionKind::ExternalSession,
@@ -458,6 +463,60 @@ impl ExecutionConsoleService {
         })
     }
 
+    fn build_navigation_session_summary(
+        &self,
+        session: &ChatSession,
+        container_id: &str,
+        kind: ExecutionSessionKind,
+        source: Option<EffectiveSessionSource>,
+    ) -> Result<ExecutionSessionSummary> {
+        let conversation_id = source
+            .as_ref()
+            .and_then(|value| value.conversation_id.clone());
+        let subtitle = conversation_id
+            .clone()
+            .or_else(|| session.skill_id.clone())
+            .or_else(|| {
+                session
+                    .messages
+                    .last()
+                    .map(|message| truncate_text(&message.content, 72))
+            });
+        let source_channel = source
+            .as_ref()
+            .map(|value| value.source)
+            .or(session.source_channel);
+        let source_conversation_id =
+            conversation_id.or_else(|| session.source_conversation_id.clone());
+        let status = if session.messages.is_empty() {
+            "pending".to_string()
+        } else {
+            "completed".to_string()
+        };
+
+        Ok(ExecutionSessionSummary {
+            id: session.id.clone(),
+            kind,
+            container_id: container_id.to_string(),
+            title: session.name.clone(),
+            subtitle,
+            status,
+            updated_at: session.updated_at,
+            started_at: Some(session.created_at),
+            ended_at: None,
+            session_id: Some(session.id.clone()),
+            run_id: None,
+            task_id: None,
+            parent_run_id: None,
+            agent_id: Some(session.agent_id.clone()),
+            source_channel,
+            source_conversation_id,
+            effective_model: Some(session.model.clone()),
+            provider: None,
+            event_count: 0,
+        })
+    }
+
     fn build_run_summary(
         &self,
         run_id: &str,
@@ -532,15 +591,6 @@ impl ExecutionConsoleService {
             entry.sessions.push(context.session.clone());
         }
         groups
-    }
-
-    fn latest_run_id_for_session(&self, session_id: &str) -> Result<Option<String>> {
-        let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
-            session_id: Some(session_id.to_string()),
-            limit: Some(usize::MAX),
-            ..ExecutionTraceQuery::default()
-        })?;
-        Ok(latest_top_level_run_id(&events))
     }
 
     fn get_session_thread(
@@ -847,6 +897,67 @@ mod tests {
             containers
                 .iter()
                 .any(|container| container.id == "telegram:chat-42")
+        );
+    }
+
+    #[test]
+    fn excludes_background_bound_sessions_from_workspace_projection() {
+        let storage = create_storage();
+        let service = ExecutionConsoleService::from_storage(&storage);
+
+        let mut workspace = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+        workspace.name = "Workspace Session".to_string();
+        storage
+            .chat_sessions
+            .create(&workspace)
+            .expect("workspace session");
+
+        let task = storage
+            .background_agents
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Digest".to_string(),
+                description: None,
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                input: Some("digest".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: Some(NotificationConfig::default()),
+                execution_mode: Some(ExecutionMode::default()),
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("task");
+
+        let containers = service.list_execution_containers().expect("containers");
+        let workspace_container = containers
+            .iter()
+            .find(|container| container.id == WORKSPACE_CONTAINER_ID)
+            .expect("workspace container");
+        assert!(workspace_container.session_count >= 1);
+
+        let sessions = service
+            .list_execution_sessions(&ExecutionSessionListQuery {
+                container: ExecutionContainerRef {
+                    kind: ExecutionContainerKind::Workspace,
+                    id: WORKSPACE_CONTAINER_ID.to_string(),
+                },
+            })
+            .expect("workspace sessions");
+
+        assert!(
+            sessions
+                .iter()
+                .any(|session| session.session_id.as_deref() == Some(workspace.id.as_str()))
+        );
+        assert!(
+            sessions
+                .iter()
+                .all(|session| session.session_id.as_deref() != Some(task.chat_session_id.as_str()))
         );
     }
 

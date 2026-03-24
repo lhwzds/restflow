@@ -1,9 +1,16 @@
+import type { ExecutionContainerSummary } from '@/types/generated/ExecutionContainerSummary'
 import type { ChildExecutionSessionQuery } from '@/types/generated/ChildExecutionSessionQuery'
 import type { ExecutionSessionListQuery } from '@/types/generated/ExecutionSessionListQuery'
 import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 import type { ExecutionThreadQuery } from '@/types/generated/ExecutionThreadQuery'
 import { requestTyped } from './http-client'
+
+export async function listExecutionContainers(): Promise<ExecutionContainerSummary[]> {
+  return requestTyped<ExecutionContainerSummary[]>({
+    type: 'ListExecutionContainers',
+  })
+}
 
 export async function listExecutionSessions(
   query: ExecutionSessionListQuery,

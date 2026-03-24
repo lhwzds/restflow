@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   getExecutionThread,
   listChildExecutionSessions,
+  listExecutionContainers,
   listExecutionSessions,
 } from '../execution-console'
 import { requestTyped } from '../http-client'
@@ -36,6 +37,16 @@ describe('execution-console api', () => {
           },
         },
       },
+    })
+  })
+
+  it('lists execution containers', async () => {
+    vi.mocked(requestTyped).mockResolvedValue([])
+
+    await listExecutionContainers()
+
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ListExecutionContainers',
     })
   })
 

@@ -104,8 +104,6 @@ test.describe("Background Agent Web Flow", () => {
     await convertButton.click();
     await expect(dialog).not.toBeVisible();
 
-    await expect(sessionRow.getByText("background")).toBeVisible();
-
     await expect
       .poll(async () => {
         const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
@@ -116,9 +114,20 @@ test.describe("Background Agent Web Flow", () => {
         return agents.some((agent) => agent.chat_session_id === sessionId);
       })
       .toBe(true);
+
+    const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
+      type: "ListBackgroundAgents",
+      data: { status: null },
+    });
+    const taskId = agents.find((agent) => agent.chat_session_id === sessionId)?.id;
+    if (!taskId) {
+      throw new Error("Failed to find background agent task after conversion");
+    }
+
+    await expect(page.getByTestId(`background-folder-${taskId}`)).toBeVisible();
   });
 
-  test("opens the background agent run trace view from the session menu", async ({
+  test("opens the background agent run trace view from the chat header", async ({
     page,
   }) => {
     await goToWorkspace(page);
@@ -150,16 +159,17 @@ test.describe("Background Agent Web Flow", () => {
       throw new Error("Failed to find background agent task after conversion");
     }
 
-    await expect(sessionRow.getByText("background")).toBeVisible();
-    await sessionRow.hover();
-    await sessionRow.locator("button").last().click({ force: true });
-    await page
-      .getByRole("menuitem", { name: "View Run Trace", exact: true })
-      .click();
+    await expect(
+      page.getByRole("button", { name: "Open Run Trace", exact: true }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Open Run Trace", exact: true }).click();
 
     await expect(page).toHaveURL(new RegExp(`/workspace/runs/${taskId}$`));
     await page.waitForLoadState("domcontentloaded");
-    await expect(page.getByTestId("background-agent-run-view")).toBeVisible({
+    await expect(page.getByTestId("workspace-shell")).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByTestId("workspace-run-panel")).toBeVisible({
       timeout: 15000,
     });
     await expect(page.getByTestId("background-agent-panel")).toBeVisible({
