@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import {
   Plus,
-  MessageSquare,
   Check,
   Activity,
   Loader2,
@@ -15,6 +14,7 @@ import {
   ChevronDown,
   ChevronRight,
   Radio,
+  MessageSquare,
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
@@ -30,48 +30,48 @@ import { TIME_THRESHOLDS, TIME_UNITS } from '@/constants'
 import type {
   BackgroundTaskFolder,
   ExternalChannelFolder,
-  SessionItem,
+  RunListItem,
+  WorkspaceSessionFolder,
 } from '@/types/workspace'
 import type { ChatSessionSource } from '@/types/generated/ChatSessionSource'
 
-withDefaults(
+const props = withDefaults(
   defineProps<{
-    workspaceSessions: SessionItem[]
-    currentSessionId: string | null
+    workspaceFolders: WorkspaceSessionFolder[]
     backgroundFolders?: BackgroundTaskFolder[]
     externalFolders?: ExternalChannelFolder[]
-    currentBackgroundTaskId?: string | null
-    currentBackgroundRunId?: string | null
+    currentContainerId?: string | null
+    currentRunId?: string | null
   }>(),
   {
     backgroundFolders: () => [],
     externalFolders: () => [],
-    currentBackgroundTaskId: null,
-    currentBackgroundRunId: null,
+    currentContainerId: null,
+    currentRunId: null,
   },
 )
 
 const { t } = useI18n()
 
 const emit = defineEmits<{
-  select: [id: string]
   newSession: []
+  selectContainer: [kind: 'workspace' | 'background_task' | 'external_channel', containerId: string]
+  selectRun: [runId: string]
   rename: [id: string, currentName: string]
   archive: [id: string, name: string]
   delete: [id: string, name: string]
   convertToBackgroundAgent: [id: string, name: string]
   convertToWorkspaceSession: [id: string, name: string]
-  viewRunTrace: [taskId: string]
   rebuild: [id: string, name: string]
+  toggleWorkspaceFolder: [containerId: string]
   toggleBackgroundTask: [taskId: string]
-  selectBackgroundRun: [taskId: string, runId: string | null]
   toggleExternalChannel: [containerId: string]
 }>()
 
 const DISPLAY_PREFIXES = ['channel:', 'background:']
 
-function displaySessionName(session: SessionItem): string {
-  const trimmedName = session.name.trimStart()
+function displayLabel(name: string): string {
+  const trimmedName = name.trimStart()
   const normalized = trimmedName.toLowerCase()
 
   for (const prefix of DISPLAY_PREFIXES) {
@@ -80,14 +80,10 @@ function displaySessionName(session: SessionItem): string {
     }
 
     const displayName = trimmedName.slice(prefix.length).trim()
-    return displayName || session.name
+    return displayName || name
   }
 
-  return session.name
-}
-
-function isExternallyManagedSession(session: SessionItem): boolean {
-  return !!session.sourceChannel && session.sourceChannel !== 'workspace'
+  return name
 }
 
 function sourceLabel(source: ChatSessionSource | null | undefined): string | null {
@@ -109,18 +105,6 @@ function sourceLabel(source: ChatSessionSource | null | undefined): string | nul
   }
 }
 
-function sessionTagLabel(session: SessionItem): string | null {
-  if (session.isBackgroundSession) {
-    return t('workspace.background')
-  }
-
-  return sourceLabel(session.sourceChannel)
-}
-
-function hasSessionTag(session: SessionItem): boolean {
-  return sessionTagLabel(session) !== null
-}
-
 function formatTime(timestamp: number) {
   const date = new Date(timestamp)
   const now = new Date()
@@ -134,8 +118,22 @@ function formatTime(timestamp: number) {
   return date.toLocaleDateString()
 }
 
-function backgroundRunKey(taskId: string, runId: string | null | undefined): string {
-  return `${taskId}:${runId ?? 'latest'}`
+function normalizeStatusIcon(status: string) {
+  if (status === 'running') return Loader2
+  if (status === 'completed') return Check
+  return Activity
+}
+
+function runKey(containerId: string, run: RunListItem): string {
+  return `${containerId}:${run.runId ?? run.id}`
+}
+
+function isRunSelected(runId: string | null | undefined): boolean {
+  return !!runId && props.currentRunId === runId
+}
+
+function isContainerSelected(containerId: string): boolean {
+  return props.currentContainerId === containerId && !props.currentRunId
 }
 </script>
 
@@ -153,50 +151,39 @@ function backgroundRunKey(taskId: string, runId: string | null | undefined): str
         Workspace Sessions
       </div>
       <div
-        v-for="session in workspaceSessions"
-        :key="session.id"
-        :data-testid="`session-row-${session.id}`"
-        :class="
-          cn(
-            'group relative w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-muted/50',
-            currentSessionId === session.id && 'bg-muted',
-          )
-        "
-        @click="emit('select', session.id)"
+        v-for="folder in workspaceFolders"
+        :key="folder.containerId"
+        :data-testid="`workspace-folder-${folder.containerId}`"
       >
-        <div class="flex items-start gap-2">
-          <div class="mt-0.5">
-            <Loader2
-              v-if="session.status === 'running'"
-              :size="14"
-              class="animate-spin text-primary"
-            />
-            <Check v-else-if="session.status === 'completed'" :size="14" class="text-green-500" />
-            <MessageSquare v-else :size="14" class="text-muted-foreground" />
-          </div>
-
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-sm">{{ displaySessionName(session) }}</div>
+        <div
+          :class="
+            cn(
+              'flex items-start gap-2 px-3 py-2 transition-colors hover:bg-muted/50',
+              isContainerSelected(folder.containerId) && 'bg-muted',
+            )
+          "
+        >
+          <button
+            class="mt-0.5 shrink-0 text-muted-foreground"
+            :aria-label="folder.expanded ? 'Collapse workspace folder' : 'Expand workspace folder'"
+            @click="emit('toggleWorkspaceFolder', folder.containerId)"
+          >
+            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="14" />
+          </button>
+          <MessageSquare :size="14" class="mt-0.5 shrink-0 text-muted-foreground" />
+          <button
+            class="min-w-0 flex-1 text-left"
+            @click="emit('selectContainer', 'workspace', folder.containerId)"
+          >
+            <div class="truncate text-sm">{{ displayLabel(folder.name) }}</div>
             <div class="truncate text-xs text-muted-foreground">
-              <span
-                v-if="sessionTagLabel(session)"
-                class="inline-flex items-center rounded border border-border px-1 py-0 text-[10px] uppercase tracking-wide"
-              >
-                {{ sessionTagLabel(session) }}
-              </span>
-              <span v-if="session.agentName">
-                <span v-if="hasSessionTag(session)"> · </span>
-                {{ session.agentName }}
-              </span>
-              <span v-else-if="!hasSessionTag(session)">
-                {{ t('common.unknownAgent') }}
-              </span>
+              <span v-if="folder.agentName">{{ folder.agentName }}</span>
+              <span v-else>{{ t('common.unknownAgent') }}</span>
             </div>
             <div class="text-xs text-muted-foreground">
-              {{ formatTime(session.updatedAt) }}
+              {{ folder.subtitle || formatTime(folder.updatedAt) }}
             </div>
-          </div>
-
+          </button>
           <div class="shrink-0 self-start" @click.stop>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
@@ -207,64 +194,76 @@ function backgroundRunKey(taskId: string, runId: string | null | undefined): str
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" class="w-48">
-                <template v-if="isExternallyManagedSession(session)">
-                  <DropdownMenuItem
-                    @click="emit('rebuild', session.id, displaySessionName(session))"
-                  >
-                    <RotateCcw :size="14" class="mr-2" />
-                    {{ t('workspace.session.rebuild') }}
-                  </DropdownMenuItem>
-                </template>
-                <template v-else>
-                  <DropdownMenuItem
-                    @click="emit('rename', session.id, displaySessionName(session))"
-                  >
-                    <Pencil :size="14" class="mr-2" />
-                    {{ t('workspace.session.rename') }}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    v-if="session.isBackgroundSession && session.backgroundTaskId"
-                    @click="emit('viewRunTrace', session.backgroundTaskId)"
-                  >
-                    <Activity :size="14" class="mr-2" />
-                    {{ t('workspace.session.viewRunTrace') }}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    v-if="session.isBackgroundSession"
-                    @click="
-                      emit('convertToWorkspaceSession', session.id, displaySessionName(session))
-                    "
-                  >
-                    <ArrowLeftFromLine :size="14" class="mr-2" />
-                    {{ t('workspace.session.convertToWorkspace') }}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    v-else
-                    @click="
-                      emit('convertToBackgroundAgent', session.id, displaySessionName(session))
-                    "
-                  >
-                    <ArrowRightFromLine :size="14" class="mr-2" />
-                    {{ t('workspace.session.convertToBackground') }}
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    @click="emit('archive', session.id, displaySessionName(session))"
-                  >
-                    <Archive :size="14" class="mr-2" />
-                    {{ t('workspace.session.archive') }}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    class="text-destructive focus:text-destructive"
-                    @click="emit('delete', session.id, displaySessionName(session))"
-                  >
-                    <Trash2 :size="14" class="mr-2" />
-                    {{ t('workspace.session.delete') }}
-                  </DropdownMenuItem>
-                </template>
+                <DropdownMenuItem
+                  @click="emit('rename', folder.sessionId, displayLabel(folder.name))"
+                >
+                  <Pencil :size="14" class="mr-2" />
+                  {{ t('workspace.session.rename') }}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  @click="emit('convertToBackgroundAgent', folder.sessionId, displayLabel(folder.name))"
+                >
+                  <ArrowRightFromLine :size="14" class="mr-2" />
+                  {{ t('workspace.session.convertToBackground') }}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  @click="emit('archive', folder.sessionId, displayLabel(folder.name))"
+                >
+                  <Archive :size="14" class="mr-2" />
+                  {{ t('workspace.session.archive') }}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  class="text-destructive focus:text-destructive"
+                  @click="emit('delete', folder.sessionId, displayLabel(folder.name))"
+                >
+                  <Trash2 :size="14" class="mr-2" />
+                  {{ t('workspace.session.delete') }}
+                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+        </div>
+
+        <div v-if="folder.expanded" class="pb-1">
+          <button
+            v-for="run in folder.runs"
+            :key="runKey(folder.containerId, run)"
+            :data-testid="`workspace-run-${folder.containerId}-${run.runId ?? 'latest'}`"
+            :class="
+              cn(
+                'flex w-full items-start gap-2 px-9 py-2 text-left transition-colors hover:bg-muted/50',
+                isRunSelected(run.runId) && 'bg-muted',
+              )
+            "
+            @click="run.runId && emit('selectRun', run.runId)"
+          >
+            <component
+              :is="normalizeStatusIcon(run.status)"
+              :size="12"
+              :class="
+                cn(
+                  'mt-0.5 shrink-0 text-muted-foreground',
+                  run.status === 'running' && 'animate-spin text-primary',
+                  run.status === 'completed' && 'text-green-500',
+                )
+              "
+            />
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-sm">{{ run.title }}</div>
+              <div class="text-xs text-muted-foreground">
+                {{ formatTime(run.updatedAt) }}
+              </div>
+            </div>
+          </button>
+          <button
+            v-if="folder.runs.length === 0"
+            class="w-full px-9 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+            data-testid="workspace-run-empty"
+            @click="emit('selectContainer', 'workspace', folder.containerId)"
+          >
+            No runs yet
+          </button>
         </div>
       </div>
 
@@ -277,62 +276,87 @@ function backgroundRunKey(taskId: string, runId: string | null | undefined): str
         v-for="folder in backgroundFolders"
         :key="folder.taskId"
         :data-testid="`background-folder-${folder.taskId}`"
-        class="border-y border-transparent"
       >
-        <button
-          class="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
-          @click="emit('toggleBackgroundTask', folder.taskId)"
+        <div
+          :class="
+            cn(
+              'flex items-start gap-2 px-3 py-2 transition-colors hover:bg-muted/50',
+              isContainerSelected(folder.taskId) && 'bg-muted',
+            )
+          "
         >
-          <component
-            :is="folder.expanded ? ChevronDown : ChevronRight"
-            :size="14"
+          <button
             class="mt-0.5 shrink-0 text-muted-foreground"
-          />
-          <Loader2
-            v-if="folder.status === 'running'"
+            :aria-label="folder.expanded ? 'Collapse background folder' : 'Expand background folder'"
+            @click="emit('toggleBackgroundTask', folder.taskId)"
+          >
+            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="14" />
+          </button>
+          <component
+            :is="normalizeStatusIcon(folder.status)"
             :size="14"
-            class="mt-0.5 shrink-0 animate-spin text-primary"
+            :class="
+              cn(
+                'mt-0.5 shrink-0 text-muted-foreground',
+                folder.status === 'running' && 'animate-spin text-primary',
+                folder.status === 'completed' && 'text-green-500',
+              )
+            "
           />
-          <Check
-            v-else-if="folder.status === 'completed'"
-            :size="14"
-            class="mt-0.5 shrink-0 text-green-500"
-          />
-          <Activity v-else :size="14" class="mt-0.5 shrink-0 text-muted-foreground" />
-          <div class="min-w-0 flex-1">
+          <button
+            class="min-w-0 flex-1 text-left"
+            @click="emit('selectContainer', 'background_task', folder.taskId)"
+          >
             <div class="truncate text-sm">{{ folder.name }}</div>
             <div class="truncate text-xs text-muted-foreground">
               {{ folder.subtitle || formatTime(folder.updatedAt) }}
             </div>
+          </button>
+          <div v-if="folder.chatSessionId" class="shrink-0 self-start" @click.stop>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <button
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
+                >
+                  <MoreHorizontal :size="14" class="text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-48">
+                <DropdownMenuItem
+                  @click="emit('convertToWorkspaceSession', folder.chatSessionId, folder.name)"
+                >
+                  <ArrowLeftFromLine :size="14" class="mr-2" />
+                  {{ t('workspace.session.convertToWorkspace') }}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-        </button>
+        </div>
 
         <div v-if="folder.expanded" class="pb-1">
           <button
             v-for="run in folder.runs"
-            :key="backgroundRunKey(folder.taskId, run.runId)"
+            :key="runKey(folder.taskId, run)"
             :data-testid="`background-run-${folder.taskId}-${run.runId ?? 'latest'}`"
             :class="
               cn(
                 'flex w-full items-start gap-2 px-9 py-2 text-left transition-colors hover:bg-muted/50',
-                currentBackgroundTaskId === folder.taskId &&
-                  currentBackgroundRunId === (run.runId ?? null) &&
-                  'bg-muted',
+                isRunSelected(run.runId) && 'bg-muted',
               )
             "
-            @click="emit('selectBackgroundRun', folder.taskId, run.runId ?? null)"
+            @click="run.runId && emit('selectRun', run.runId)"
           >
-            <Loader2
-              v-if="run.status === 'running'"
+            <component
+              :is="normalizeStatusIcon(run.status)"
               :size="12"
-              class="mt-0.5 shrink-0 animate-spin text-primary"
+              :class="
+                cn(
+                  'mt-0.5 shrink-0 text-muted-foreground',
+                  run.status === 'running' && 'animate-spin text-primary',
+                  run.status === 'completed' && 'text-green-500',
+                )
+              "
             />
-            <Check
-              v-else-if="run.status === 'completed'"
-              :size="12"
-              class="mt-0.5 shrink-0 text-green-500"
-            />
-            <Activity v-else :size="12" class="mt-0.5 shrink-0 text-muted-foreground" />
             <div class="min-w-0 flex-1">
               <div class="truncate text-sm">{{ run.title }}</div>
               <div class="text-xs text-muted-foreground">
@@ -340,13 +364,14 @@ function backgroundRunKey(taskId: string, runId: string | null | undefined): str
               </div>
             </div>
           </button>
-          <div
+          <button
             v-if="folder.runs.length === 0"
-            class="px-9 py-2 text-xs text-muted-foreground"
+            class="w-full px-9 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
             data-testid="background-run-empty"
+            @click="emit('selectContainer', 'background_task', folder.taskId)"
           >
             No runs yet
-          </div>
+          </button>
         </div>
       </div>
 
@@ -359,109 +384,103 @@ function backgroundRunKey(taskId: string, runId: string | null | undefined): str
         v-for="folder in externalFolders"
         :key="folder.containerId"
         :data-testid="`external-folder-${folder.containerId}`"
-        class="border-y border-transparent"
       >
-        <button
-          class="flex w-full items-start gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
-          @click="emit('toggleExternalChannel', folder.containerId)"
+        <div
+          :class="
+            cn(
+              'flex items-start gap-2 px-3 py-2 transition-colors hover:bg-muted/50',
+              isContainerSelected(folder.containerId) && 'bg-muted',
+            )
+          "
         >
-          <component
-            :is="folder.expanded ? ChevronDown : ChevronRight"
-            :size="14"
+          <button
             class="mt-0.5 shrink-0 text-muted-foreground"
-          />
+            :aria-label="folder.expanded ? 'Collapse external folder' : 'Expand external folder'"
+            @click="emit('toggleExternalChannel', folder.containerId)"
+          >
+            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="14" />
+          </button>
           <Radio :size="14" class="mt-0.5 shrink-0 text-muted-foreground" />
-          <div class="min-w-0 flex-1">
-            <div class="truncate text-sm">{{ folder.name }}</div>
+          <button
+            class="min-w-0 flex-1 text-left"
+            @click="emit('selectContainer', 'external_channel', folder.containerId)"
+          >
+            <div class="truncate text-sm">{{ displayLabel(folder.name) }}</div>
             <div class="truncate text-xs text-muted-foreground">
               {{ sourceLabel(folder.sourceChannel) || folder.subtitle || formatTime(folder.updatedAt) }}
             </div>
+          </button>
+          <div v-if="folder.latestSessionId" class="shrink-0 self-start" @click.stop>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <button
+                  class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
+                >
+                  <MoreHorizontal :size="14" class="text-muted-foreground" />
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-48">
+                <DropdownMenuItem
+                  @click="emit('rebuild', folder.latestSessionId, displayLabel(folder.name))"
+                >
+                  <RotateCcw :size="14" class="mr-2" />
+                  {{ t('workspace.session.rebuild') }}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-        </button>
+        </div>
 
         <div v-if="folder.expanded" class="pb-1">
-          <div
-            v-for="session in folder.sessions"
-            :key="session.id"
-            :data-testid="`external-session-${session.id}`"
+          <button
+            v-for="run in folder.runs"
+            :key="runKey(folder.containerId, run)"
+            :data-testid="`external-run-${folder.containerId}-${run.runId ?? 'latest'}`"
             :class="
               cn(
-                'group relative w-full cursor-pointer px-9 py-2 text-left transition-colors hover:bg-muted/50',
-                currentSessionId === session.id && 'bg-muted',
+                'flex w-full items-start gap-2 px-9 py-2 text-left transition-colors hover:bg-muted/50',
+                isRunSelected(run.runId) && 'bg-muted',
               )
             "
-            @click="emit('select', session.id)"
+            @click="run.runId && emit('selectRun', run.runId)"
           >
-            <div class="flex items-start gap-2">
-              <div class="mt-0.5">
-                <Loader2
-                  v-if="session.status === 'running'"
-                  :size="12"
-                  class="animate-spin text-primary"
-                />
-                <Check
-                  v-else-if="session.status === 'completed'"
-                  :size="12"
-                  class="text-green-500"
-                />
-                <MessageSquare v-else :size="12" class="text-muted-foreground" />
-              </div>
-
-              <div class="min-w-0 flex-1">
-                <div class="truncate text-sm">{{ displaySessionName(session) }}</div>
-                <div class="truncate text-xs text-muted-foreground">
-                  <span v-if="sourceLabel(session.sourceChannel)">
-                    {{ sourceLabel(session.sourceChannel) }}
-                  </span>
-                  <span v-if="session.agentName">
-                    <span v-if="sourceLabel(session.sourceChannel)"> · </span>
-                    {{ session.agentName }}
-                  </span>
-                </div>
-                <div class="text-xs text-muted-foreground">
-                  {{ formatTime(session.updatedAt) }}
-                </div>
-              </div>
-
-              <div class="shrink-0 self-start" @click.stop>
-                <DropdownMenu>
-                  <DropdownMenuTrigger as-child>
-                    <button
-                      class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
-                    >
-                      <MoreHorizontal :size="14" class="text-muted-foreground" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" class="w-48">
-                    <DropdownMenuItem
-                      @click="emit('rebuild', session.id, displaySessionName(session))"
-                    >
-                      <RotateCcw :size="14" class="mr-2" />
-                      {{ t('workspace.session.rebuild') }}
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
+            <component
+              :is="normalizeStatusIcon(run.status)"
+              :size="12"
+              :class="
+                cn(
+                  'mt-0.5 shrink-0 text-muted-foreground',
+                  run.status === 'running' && 'animate-spin text-primary',
+                  run.status === 'completed' && 'text-green-500',
+                )
+              "
+            />
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-sm">{{ run.title }}</div>
+              <div class="text-xs text-muted-foreground">
+                {{ formatTime(run.updatedAt) }}
               </div>
             </div>
-          </div>
-          <div
-            v-if="folder.sessions.length === 0"
-            class="px-9 py-2 text-xs text-muted-foreground"
-            data-testid="external-session-empty"
+          </button>
+          <button
+            v-if="folder.runs.length === 0"
+            class="w-full px-9 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
+            data-testid="external-run-empty"
+            @click="emit('selectContainer', 'external_channel', folder.containerId)"
           >
-            No sessions yet
-          </div>
+            No runs yet
+          </button>
         </div>
       </div>
 
       <div
         v-if="
-          workspaceSessions.length === 0 &&
+          workspaceFolders.length === 0 &&
           backgroundFolders.length === 0 &&
           externalFolders.length === 0
         "
         data-testid="session-empty-state"
-        class="px-3 py-8 text-center text-sm text-muted-foreground"
+        class="px-3 py-6 text-sm text-muted-foreground"
       >
         {{ t('workspace.noSessions') }}
       </div>

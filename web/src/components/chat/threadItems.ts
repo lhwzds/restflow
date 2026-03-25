@@ -46,6 +46,7 @@ interface ThreadEnvelope {
   item: ThreadItem
   sortTime: number
   sortId: string
+  sequence: number
 }
 
 function normalizeStepStatus(status: string): StepStatus {
@@ -565,6 +566,7 @@ function buildChildRunEnvelope(session: ExecutionSessionSummary): ThreadEnvelope
     item: buildChildRunItem(session),
     sortTime: toSortTime(session.started_at ?? session.updated_at),
     sortId: `child-run-${session.id}`,
+    sequence: Number.MAX_SAFE_INTEGER,
   }
 }
 
@@ -584,13 +586,14 @@ export function buildExecutionThreadItems(thread: ExecutionThread | null): Threa
   if (!thread) return []
 
   const envelopes: ThreadEnvelope[] = thread.timeline.events
-    .map((event) => {
+    .map((event, index) => {
       const item = buildExecutionEventItem(event)
       if (!item) return null
       return {
         item,
         sortTime: toSortTime(event.timestamp),
         sortId: event.id,
+        sequence: index,
       }
     })
     .filter((entry): entry is ThreadEnvelope => entry !== null)
@@ -601,6 +604,7 @@ export function buildExecutionThreadItems(thread: ExecutionThread | null): Threa
 
   envelopes.sort((left, right) => {
     if (left.sortTime !== right.sortTime) return left.sortTime - right.sortTime
+    if (left.sequence !== right.sequence) return left.sequence - right.sequence
     return left.sortId.localeCompare(right.sortId)
   })
 
@@ -621,20 +625,18 @@ export function buildSessionThreadItems(input: {
     })
   }
 
-  const sortedEvents = [...input.thread.timeline.events].sort((left, right) => {
-    if (left.timestamp !== right.timestamp) return left.timestamp - right.timestamp
-    return left.id.localeCompare(right.id)
-  })
-  const { matchedByEventId, unmatchedMessages } = resolveMessageMatches(sortedEvents, input.messages)
+  const canonicalEvents = [...input.thread.timeline.events]
+  const { matchedByEventId, unmatchedMessages } = resolveMessageMatches(canonicalEvents, input.messages)
   const envelopes: ThreadEnvelope[] = []
 
-  for (const event of sortedEvents) {
+  for (const event of canonicalEvents) {
     const item = buildExecutionEventItem(event, matchedByEventId.get(event.id) ?? null)
     if (!item) continue
     envelopes.push({
       item,
       sortTime: toSortTime(event.timestamp),
       sortId: event.id,
+      sequence: envelopes.length,
     })
   }
 
@@ -643,6 +645,7 @@ export function buildSessionThreadItems(input: {
       item: buildMessageItem(message),
       sortTime: toSortTime(message.timestamp),
       sortId: `message-${message.id}`,
+      sequence: envelopes.length,
     })
   }
 
@@ -652,6 +655,7 @@ export function buildSessionThreadItems(input: {
 
   envelopes.sort((left, right) => {
     if (left.sortTime !== right.sortTime) return left.sortTime - right.sortTime
+    if (left.sequence !== right.sequence) return left.sequence - right.sequence
     return left.sortId.localeCompare(right.sortId)
   })
 

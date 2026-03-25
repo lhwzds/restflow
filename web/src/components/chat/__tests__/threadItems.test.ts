@@ -256,4 +256,96 @@ describe('threadItems', () => {
       'msg-assistant-legacy',
     ])
   })
+
+  it('preserves backend event order when multiple canonical events share the same timestamp', () => {
+    const items = buildSessionThreadItems({
+      thread: {
+        focus: {} as any,
+        timeline: {
+          events: [
+            {
+              id: 'event-tool',
+              task_id: 'task-1',
+              agent_id: 'agent-1',
+              category: 'tool_call',
+              source: 'agent_executor',
+              timestamp: 2000,
+              subflow_path: [],
+              run_id: 'run-1',
+              parent_run_id: null,
+              session_id: 'session-1',
+              turn_id: 'turn-1',
+              requested_model: 'gpt-5',
+              effective_model: 'gpt-5',
+              provider: 'openai',
+              attempt: 1,
+              llm_call: null,
+              tool_call: {
+                tool_call_id: 'tool-call-1',
+                tool_name: 'web_search',
+                phase: 'completed',
+                input: null,
+                input_summary: 'release notes',
+                output: null,
+                output_ref: null,
+                success: true,
+                error: null,
+                duration_ms: 1200n,
+              },
+              model_switch: null,
+              lifecycle: null,
+              message: null,
+              metric_sample: null,
+              provider_health: null,
+              log_record: null,
+            },
+            {
+              id: 'event-assistant',
+              task_id: 'task-1',
+              agent_id: 'agent-1',
+              category: 'message',
+              source: 'agent_executor',
+              timestamp: 2000,
+              subflow_path: [],
+              run_id: 'run-1',
+              parent_run_id: null,
+              session_id: 'session-1',
+              turn_id: 'turn-1',
+              requested_model: 'gpt-5',
+              effective_model: 'gpt-5',
+              provider: 'openai',
+              attempt: 1,
+              llm_call: null,
+              tool_call: null,
+              model_switch: null,
+              lifecycle: null,
+              message: {
+                role: 'assistant',
+                content_preview: 'I found the release notes',
+                tool_call_count: 1,
+              },
+              metric_sample: null,
+              provider_health: null,
+              log_record: null,
+            },
+          ],
+          stats: {} as any,
+        },
+        child_sessions: [],
+      },
+      messages: [
+        {
+          id: 'msg-assistant-1',
+          role: 'assistant',
+          content: 'I found the release notes and summarized the changes in detail.',
+          timestamp: 2000n,
+          execution: null,
+        },
+      ],
+      steps: [],
+      streamContent: '',
+    })
+
+    expect(items.map((item) => item.id)).toEqual(['event-tool', 'event-assistant'])
+  })
 })

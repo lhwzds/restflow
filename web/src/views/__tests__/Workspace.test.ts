@@ -12,6 +12,7 @@ const mockFetchSummaries = vi.fn()
 const mockFetchBackgroundAgents = vi.fn()
 const mockListExecutionContainers = vi.fn()
 const mockListExecutionSessions = vi.fn()
+const mockGetExecutionThread = vi.fn()
 const mockRoute = reactive<{ name: string; params: Record<string, string>; query: Record<string, string> }>({
   name: 'workspace',
   params: {},
@@ -43,6 +44,7 @@ vi.mock('@/api/agents', () => ({
 vi.mock('@/api/execution-console', () => ({
   listExecutionContainers: (...args: unknown[]) => mockListExecutionContainers(...args),
   listExecutionSessions: (...args: unknown[]) => mockListExecutionSessions(...args),
+  getExecutionThread: (...args: unknown[]) => mockGetExecutionThread(...args),
 }))
 
 vi.mock('@/stores/chatSessionStore', () => ({
@@ -95,9 +97,9 @@ vi.mock('@/composables/workspace/useToolPanel', () => ({
 vi.mock('@/components/workspace/SessionList.vue', () => ({
   default: defineComponent({
     name: 'SessionList',
-    emits: ['newSession', 'viewRunTrace'],
+    emits: ['newSession', 'selectRun', 'selectContainer'],
     template:
-      '<div><button data-testid="new-session" @click="$emit(\'newSession\')">new</button><button data-testid="view-run-trace" @click="$emit(\'viewRunTrace\', \'task-1\')">trace</button></div>',
+      '<div><button data-testid="new-session" @click="$emit(\'newSession\')">new</button><button data-testid="select-run" @click="$emit(\'selectRun\', \'run-1\')">run</button><button data-testid="select-container" @click="$emit(\'selectContainer\', \'workspace\', \'session-1\')">container</button></div>',
   }),
 }))
 
@@ -122,14 +124,8 @@ vi.mock('@/components/workspace/AgentEditorPanel.vue', () => ({
 vi.mock('@/components/chat/ChatPanel.vue', () => ({
   default: defineComponent({
     name: 'ChatPanel',
+    emits: ['threadLoaded'],
     template: '<div data-testid="chat-panel" />',
-  }),
-}))
-
-vi.mock('@/components/workspace/WorkspaceRunPanel.vue', () => ({
-  default: defineComponent({
-    name: 'WorkspaceRunPanel',
-    template: '<div data-testid="workspace-run-panel" />',
   }),
 }))
 
@@ -181,6 +177,36 @@ function createSession(id: string) {
   }
 }
 
+function mountWorkspace() {
+  return mount(Workspace, {
+    global: {
+      stubs: {
+        Button: {
+          template: '<button><slot /></button>',
+        },
+        Dialog: {
+          template: '<div><slot /></div>',
+        },
+        DialogContent: {
+          template: '<div><slot /></div>',
+        },
+        DialogHeader: {
+          template: '<div><slot /></div>',
+        },
+        DialogTitle: {
+          template: '<div><slot /></div>',
+        },
+        DialogFooter: {
+          template: '<div><slot /></div>',
+        },
+        Input: {
+          template: '<input />',
+        },
+      },
+    },
+  })
+}
+
 describe('Workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -189,25 +215,49 @@ describe('Workspace', () => {
     mockRoute.name = 'workspace'
     mockRoute.params = {}
     mockRoute.query = {}
-    mockListExecutionContainers.mockReset()
-    mockListExecutionSessions.mockReset()
+
     mockListExecutionContainers.mockResolvedValue([
       {
-        id: 'workspace',
+        id: 'session-1',
         kind: 'workspace',
-        title: 'Workspace',
-        subtitle: 'Local sessions',
+        title: 'Workspace Session',
+        subtitle: 'Latest reply',
         updated_at: 1,
-        status: null,
+        status: 'completed',
         session_count: 0,
-        latest_session_id: null,
+        latest_session_id: 'session-1',
         latest_run_id: null,
-        agent_id: null,
+        agent_id: 'agent-1',
         source_channel: 'workspace',
         source_conversation_id: null,
       },
     ])
     mockListExecutionSessions.mockResolvedValue([])
+    mockGetExecutionThread.mockResolvedValue({
+      focus: {
+        id: 'run-1',
+        kind: 'workspace_run',
+        container_id: 'session-1',
+        title: 'Run #1',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 1,
+        started_at: 1,
+        ended_at: 2,
+        session_id: 'session-1',
+        run_id: 'run-1',
+        task_id: null,
+        parent_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+        effective_model: 'gpt-5',
+        provider: null,
+        event_count: 2,
+      },
+      timeline: { events: [], stats: {} },
+      child_sessions: [],
+    })
 
     mockStore = {
       summaries: [],
@@ -224,11 +274,7 @@ describe('Workspace', () => {
     mockBackgroundStore = {
       agents: [],
       fetchAgents: mockFetchBackgroundAgents,
-      agentBySessionId: vi.fn(
-        (sessionId: string) =>
-          mockBackgroundStore.agents.find((agent: any) => agent.chat_session_id === sessionId) ??
-          null,
-      ),
+      agentBySessionId: vi.fn(() => null),
     }
 
     mockListAgents.mockResolvedValue([
@@ -242,72 +288,26 @@ describe('Workspace', () => {
     mockCreateSession.mockResolvedValue(createSession('session-new'))
     mockSelectSession.mockResolvedValue(undefined)
     mockFetchSummaries.mockResolvedValue(undefined)
+    mockFetchBackgroundAgents.mockResolvedValue(undefined)
   })
 
   it('creates and selects a new session immediately when clicking new session', async () => {
-    const wrapper = mount(Workspace, {
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          Dialog: {
-            template: '<div><slot /></div>',
-          },
-          DialogContent: {
-            template: '<div><slot /></div>',
-          },
-          DialogHeader: {
-            template: '<div><slot /></div>',
-          },
-          DialogTitle: {
-            template: '<div><slot /></div>',
-          },
-          DialogFooter: {
-            template: '<div><slot /></div>',
-          },
-          Input: {
-            template: '<input />',
-          },
-        },
-      },
-    })
+    const wrapper = mountWorkspace()
 
     await flushPromises()
     await wrapper.get('[data-testid="new-session"]').trigger('click')
+    await flushPromises()
 
     expect(mockCreateSession).toHaveBeenCalledWith('agent-1', 'gpt-5')
     expect(mockSelectSession).toHaveBeenCalledWith('session-new')
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-session',
+      params: { sessionId: 'session-new' },
+    })
   })
 
   it('switches to agent tab, opens editor, and can switch back to sessions', async () => {
-    const wrapper = mount(Workspace, {
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          Dialog: {
-            template: '<div><slot /></div>',
-          },
-          DialogContent: {
-            template: '<div><slot /></div>',
-          },
-          DialogHeader: {
-            template: '<div><slot /></div>',
-          },
-          DialogTitle: {
-            template: '<div><slot /></div>',
-          },
-          DialogFooter: {
-            template: '<div><slot /></div>',
-          },
-          Input: {
-            template: '<input />',
-          },
-        },
-      },
-    })
+    const wrapper = mountWorkspace()
 
     await flushPromises()
 
@@ -327,34 +327,7 @@ describe('Workspace', () => {
   })
 
   it('renders brand area with traffic-lights safe zone in sidebar top bar', async () => {
-    const wrapper = mount(Workspace, {
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          Dialog: {
-            template: '<div><slot /></div>',
-          },
-          DialogContent: {
-            template: '<div><slot /></div>',
-          },
-          DialogHeader: {
-            template: '<div><slot /></div>',
-          },
-          DialogTitle: {
-            template: '<div><slot /></div>',
-          },
-          DialogFooter: {
-            template: '<div><slot /></div>',
-          },
-          Input: {
-            template: '<input />',
-          },
-        },
-      },
-    })
-
+    const wrapper = mountWorkspace()
     await flushPromises()
 
     const brand = wrapper.get('[data-testid="workspace-brand"]')
@@ -364,79 +337,74 @@ describe('Workspace', () => {
     expect(safeZone.classes()).toContain('w-[5rem]')
   })
 
-  it('navigates to run trace routes from session list actions', async () => {
-    const wrapper = mount(Workspace, {
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          Dialog: {
-            template: '<div><slot /></div>',
-          },
-          DialogContent: {
-            template: '<div><slot /></div>',
-          },
-          DialogHeader: {
-            template: '<div><slot /></div>',
-          },
-          DialogTitle: {
-            template: '<div><slot /></div>',
-          },
-          DialogFooter: {
-            template: '<div><slot /></div>',
-          },
-          Input: {
-            template: '<input />',
-          },
-        },
-      },
-    })
-
+  it('navigates to canonical run route from the session list', async () => {
+    const wrapper = mountWorkspace()
     await flushPromises()
-    await wrapper.get('[data-testid="view-run-trace"]').trigger('click')
+
+    await wrapper.get('[data-testid="select-run"]').trigger('click')
 
     expect(mockRouterPush).toHaveBeenCalledWith({
-      name: 'workspace-run',
-      params: { taskId: 'task-1' },
+      name: 'workspace-run-id',
+      params: { runId: 'run-1' },
     })
   })
 
-  it('renders the embedded run panel in workspace run routes', async () => {
+  it('redirects legacy task routes to canonical run routes and keeps chat panel mounted', async () => {
     mockRoute.name = 'workspace-run'
     mockRoute.params = { taskId: 'task-1' }
-
-    const wrapper = mount(Workspace, {
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          Dialog: {
-            template: '<div><slot /></div>',
-          },
-          DialogContent: {
-            template: '<div><slot /></div>',
-          },
-          DialogHeader: {
-            template: '<div><slot /></div>',
-          },
-          DialogTitle: {
-            template: '<div><slot /></div>',
-          },
-          DialogFooter: {
-            template: '<div><slot /></div>',
-          },
-          Input: {
-            template: '<input />',
-          },
-        },
+    mockBackgroundStore.agents = [
+      {
+        id: 'task-1',
+        chat_session_id: 'session-1',
       },
-    })
+    ]
+    mockListExecutionContainers.mockResolvedValue([
+      {
+        id: 'task-1',
+        kind: 'background_task',
+        title: 'Digest',
+        subtitle: null,
+        updated_at: 1,
+        status: 'completed',
+        session_count: 1,
+        latest_session_id: 'session-1',
+        latest_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: null,
+        source_conversation_id: null,
+      },
+    ])
+    mockListExecutionSessions.mockResolvedValue([
+      {
+        id: 'run-summary-1',
+        kind: 'background_run',
+        container_id: 'task-1',
+        title: 'Run #1',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 10,
+        started_at: 1,
+        ended_at: 2,
+        session_id: 'session-1',
+        run_id: 'run-1',
+        task_id: 'task-1',
+        parent_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: null,
+        source_conversation_id: null,
+        effective_model: 'gpt-5',
+        provider: null,
+        event_count: 2,
+      },
+    ])
 
+    const wrapper = mountWorkspace()
     await flushPromises()
 
-    expect(wrapper.find('[data-testid="workspace-run-panel"]').exists()).toBe(true)
-    expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(false)
+    expect(mockRouterReplace).toHaveBeenCalledWith({
+      name: 'workspace-run-id',
+      params: { runId: 'run-1' },
+    })
+    expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(true)
   })
 })
