@@ -132,12 +132,50 @@ test.describe("Background Agent Web Flow", () => {
     }
     trackCreatedBackgroundTask(page, taskId);
 
+    const runId = `run-${Date.now()}`;
+    await page.route("**/api/request", async (route) => {
+      const payload = route.request().postDataJSON();
+      if (
+        payload?.type === "ListExecutionSessions" &&
+        payload?.data?.query?.container?.kind === "background_task" &&
+        payload?.data?.query?.container?.id === taskId
+      ) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            response_type: "Success",
+            data: [
+              {
+                id: `${taskId}:${runId}`,
+                kind: "background_run",
+                title: "Trace View Run",
+                subtitle: null,
+                status: "completed",
+                updated_at: Date.now(),
+                run_id: runId,
+                parent_run_id: null,
+                session_id: sessionId,
+                task_id: taskId,
+                agent_id: null,
+                source_channel: null,
+                source_conversation_id: null,
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      await route.continue();
+    });
+
     await expect(
       page.getByRole("button", { name: "Open Run Trace", exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Open Run Trace", exact: true }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/workspace/runs/${taskId}$`));
+    await expect(page).toHaveURL(new RegExp(`/workspace/run/${runId}$`));
     await page.waitForLoadState("domcontentloaded");
     await expect(page.getByTestId("workspace-shell")).toBeVisible({
       timeout: 15000,

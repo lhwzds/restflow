@@ -11,7 +11,7 @@ import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage } from '@/api/chat-session'
-import { getExecutionThread } from '@/api/execution-console'
+import { getExecutionThread, listExecutionSessions } from '@/api/execution-console'
 
 type SessionLike = {
   id: string
@@ -67,6 +67,7 @@ const mockSteerChatStream = vi.fn()
 const mockSendChatMessageApi = vi.fn()
 const mockRouterPush = vi.fn()
 const mockGetExecutionThread = vi.fn()
+const mockListExecutionSessions = vi.fn()
 let lastMessageListProps: Record<string, unknown> | null = null
 
 vi.mock('vue-i18n', () => ({
@@ -225,6 +226,7 @@ vi.mock('@/api/chat-stream', () => ({
 
 vi.mock('@/api/execution-console', () => ({
   getExecutionThread: vi.fn(),
+  listExecutionSessions: vi.fn(),
 }))
 
 vi.mock('@/composables/useToast', () => ({
@@ -380,7 +382,9 @@ describe('ChatPanel', () => {
       },
       child_sessions: [],
     })
+    mockListExecutionSessions.mockResolvedValue([])
     vi.mocked(getExecutionThread).mockImplementation(mockGetExecutionThread)
+    vi.mocked(listExecutionSessions).mockImplementation(mockListExecutionSessions)
   })
 
   it('syncs selected model when current session model changes with same id', async () => {
@@ -575,11 +579,45 @@ describe('ChatPanel', () => {
         chat_session_id: 'session-1',
       }),
     } as any)
+    mockListExecutionSessions.mockResolvedValue([
+      {
+        id: 'run-summary-1',
+        title: 'Run 1',
+        status: 'completed',
+        updated_at: 1234,
+        run_id: 'run-1',
+      },
+    ])
 
     const wrapper = mount(ChatPanel)
     await flushPromises()
 
     await wrapper.get('[data-testid="open-run-trace"]').trigger('click')
+    await flushPromises()
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-run-id',
+      params: { runId: 'run-1' },
+    })
+  })
+
+  it('falls back to task route when linked background session has no runs yet', async () => {
+    vi.mocked(useBackgroundAgentStore).mockReturnValue({
+      agents: [],
+      fetchAgents: vi.fn(),
+      agentBySessionId: () => ({
+        id: 'task-1',
+        status: 'running',
+        chat_session_id: 'session-1',
+      }),
+    } as any)
+    mockListExecutionSessions.mockResolvedValue([])
+
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="open-run-trace"]').trigger('click')
+    await flushPromises()
 
     expect(mockRouterPush).toHaveBeenCalledWith({
       name: 'workspace-run',
