@@ -244,21 +244,35 @@ const externalFolders = computed<ExternalChannelFolder[]>(() =>
   })),
 )
 
-const routeSessionId = computed(() => {
+const routeContainerId = computed(() => {
+  if (route.name !== 'workspace-container' && route.name !== 'workspace-container-run') {
+    return ''
+  }
+  return String(route.params.containerId ?? '').trim()
+})
+
+const routeContainerRunId = computed(() => {
+  if (route.name !== 'workspace-container-run') {
+    return ''
+  }
+  return String(route.params.runId ?? '').trim()
+})
+
+const routeLegacySessionId = computed(() => {
   if (route.name !== 'workspace-session') {
     return ''
   }
   return String(route.params.sessionId ?? '').trim()
 })
 
-const routeTaskId = computed(() => {
+const routeLegacyTaskId = computed(() => {
   if (route.name !== 'workspace-run') {
     return ''
   }
   return String(route.params.taskId ?? '').trim()
 })
 
-const routeRunId = computed(() => {
+const routeLegacyRunId = computed(() => {
   if (route.name !== 'workspace-run-id') {
     return ''
   }
@@ -270,6 +284,24 @@ function isExternallyManagedSession(sessionId: string): boolean {
     (entry) => entry.latest_session_id === sessionId || entry.id === sessionId,
   )
   return !!container?.source_channel && container.source_channel !== 'workspace'
+}
+
+function canonicalContainerRoute(containerId: string) {
+  return {
+    name: 'workspace-container' as const,
+    params: { containerId },
+  }
+}
+
+function canonicalContainerRunRoute(containerId: string, runId: string) {
+  return {
+    name: 'workspace-container-run' as const,
+    params: { containerId, runId },
+  }
+}
+
+function findContainerById(containerId: string): ExecutionContainerSummary | null {
+  return executionContainers.value.find((container) => container.id === containerId) ?? null
 }
 
 async function loadAgents() {
@@ -316,12 +348,18 @@ async function onNewSession() {
   const next = new Set(expandedWorkspaceContainerIds.value)
   next.add(session.id)
   expandedWorkspaceContainerIds.value = next
-  await router.push({ name: 'workspace-session', params: { sessionId: session.id } })
+  await router.push(canonicalContainerRoute(session.id))
 }
 
 function onSwitchToSessions() {
   sidebarMode.value = 'sessions'
-  if (routeRunId.value || routeSessionId.value || routeTaskId.value) {
+  if (
+    routeContainerId.value ||
+    routeContainerRunId.value ||
+    routeLegacyRunId.value ||
+    routeLegacySessionId.value ||
+    routeLegacyTaskId.value
+  ) {
     return
   }
   void router.push({ name: 'workspace' })
@@ -355,14 +393,14 @@ function onThreadSelection(selection: ThreadSelection) {
 
 function onThreadLoaded(thread: ExecutionThread | null) {
   const runId = thread?.focus.run_id ?? null
-  if (!runId) return
-  if (routeRunId.value === runId) return
-  if (!routeSessionId.value && !routeTaskId.value) return
+  const containerId = thread?.focus.container_id ?? null
+  if (!runId || !containerId) return
+  if (routeContainerRunId.value === runId && routeContainerId.value === containerId) return
+  if (!routeLegacySessionId.value && !routeLegacyTaskId.value && !routeLegacyRunId.value && routeContainerRunId.value) {
+    return
+  }
 
-  void router.replace({
-    name: 'workspace-run-id',
-    params: { runId },
-  })
+  void router.replace(canonicalContainerRunRoute(containerId, runId))
 }
 
 async function loadExecutionContainersProjection() {
@@ -486,55 +524,27 @@ async function onToggleExternalChannel(containerId: string) {
 
 async function onSelectContainer(kind: 'workspace' | 'background_task' | 'external_channel', containerId: string) {
   sidebarMode.value = 'sessions'
-
-  if (kind === 'workspace') {
-    activeContainerId.value = containerId
-    activeRunId.value = null
-    activeBackgroundTaskId.value = null
-    selectedSessionId.value = containerId
-    await chatSessionStore.selectSession(containerId)
-    await router.push({ name: 'workspace-session', params: { sessionId: containerId } })
-    return
-  }
-
-  if (kind === 'background_task') {
-    activeContainerId.value = containerId
-    activeRunId.value = null
-    activeBackgroundTaskId.value = containerId
-    let task = backgroundAgentStore.agents.find((agent) => agent.id === containerId) ?? null
-    if (!task) {
-      await backgroundAgentStore.fetchAgents()
-      task = backgroundAgentStore.agents.find((agent) => agent.id === containerId) ?? null
-    }
-    const sessionId = task?.chat_session_id ?? null
-    selectedSessionId.value = sessionId
-    await chatSessionStore.selectSession(sessionId)
-    await router.push({ name: 'workspace-run', params: { taskId: containerId } })
-    return
-  }
-
-  const runs = await ensureExternalRunsLoaded(containerId)
-  const latestRunId = runs[0]?.run_id ?? null
-  if (latestRunId) {
-    await router.push({ name: 'workspace-run-id', params: { runId: latestRunId } })
-    return
-  }
-
-  const container = executionContainers.value.find((entry) => entry.id === containerId) ?? null
+  const container = findContainerById(containerId)
+  const latestRunId = container?.latest_run_id ?? null
   const sessionId = container?.latest_session_id ?? null
+
   activeContainerId.value = containerId
   activeRunId.value = null
-  activeBackgroundTaskId.value = null
+  activeBackgroundTaskId.value = kind === 'background_task' ? containerId : null
   selectedSessionId.value = sessionId
   await chatSessionStore.selectSession(sessionId)
-  if (sessionId) {
-    await router.push({ name: 'workspace-session', params: { sessionId } })
+
+  if (latestRunId) {
+    await router.push(canonicalContainerRunRoute(containerId, latestRunId))
+    return
   }
+
+  await router.push(canonicalContainerRoute(containerId))
 }
 
-async function onSelectRun(runId: string) {
+async function onSelectRun(containerId: string, runId: string) {
   sidebarMode.value = 'sessions'
-  await router.push({ name: 'workspace-run-id', params: { runId } })
+  await router.push(canonicalContainerRunRoute(containerId, runId))
 }
 
 async function expandContainerForFocus(focus: ExecutionSessionSummary) {
@@ -568,7 +578,7 @@ async function expandContainerForFocus(focus: ExecutionSessionSummary) {
   activeBackgroundTaskId.value = null
 }
 
-async function resolveRunRoute(runId: string, version: number) {
+async function resolveRunRoute(runId: string, version: number, expectedContainerId: string | null = null) {
   const thread = await getExecutionThread({
     run_id: runId,
     session_id: null,
@@ -577,11 +587,61 @@ async function resolveRunRoute(runId: string, version: number) {
 
   if (version !== routeResolutionVersion) return
 
-  activeContainerId.value = thread.focus.container_id
+  const resolvedContainerId = thread.focus.container_id
+  activeContainerId.value = resolvedContainerId
   activeRunId.value = thread.focus.run_id ?? runId
   selectedSessionId.value = thread.focus.session_id ?? null
   await chatSessionStore.selectSession(thread.focus.session_id ?? null)
   await expandContainerForFocus(thread.focus)
+
+  if (
+    routeContainerRunId.value !== runId ||
+    routeContainerId.value !== resolvedContainerId ||
+    !!routeLegacyRunId.value ||
+    (expectedContainerId && expectedContainerId !== resolvedContainerId)
+  ) {
+    await router.replace(canonicalContainerRunRoute(resolvedContainerId, runId))
+  }
+}
+
+async function resolveContainerRoute(containerId: string, version: number) {
+  const container = findContainerById(containerId)
+  if (!container) {
+    activeContainerId.value = containerId
+    activeRunId.value = null
+    activeBackgroundTaskId.value = null
+    selectedSessionId.value = null
+    await chatSessionStore.selectSession(null)
+    return
+  }
+
+  if (container.latest_run_id) {
+    await router.replace(canonicalContainerRunRoute(container.id, container.latest_run_id))
+    return
+  }
+
+  if (version !== routeResolutionVersion) return
+
+  activeContainerId.value = container.id
+  activeRunId.value = null
+  activeBackgroundTaskId.value = container.kind === 'background_task' ? container.id : null
+  selectedSessionId.value = container.latest_session_id ?? null
+
+  if (container.kind === 'workspace') {
+    const next = new Set(expandedWorkspaceContainerIds.value)
+    next.add(container.id)
+    expandedWorkspaceContainerIds.value = next
+  } else if (container.kind === 'background_task') {
+    const next = new Set(expandedBackgroundTaskIds.value)
+    next.add(container.id)
+    expandedBackgroundTaskIds.value = next
+  } else {
+    const next = new Set(expandedExternalContainerIds.value)
+    next.add(container.id)
+    expandedExternalContainerIds.value = next
+  }
+
+  await chatSessionStore.selectSession(container.latest_session_id ?? null)
 }
 
 function findContainerBySessionId(sessionId: string): ExecutionContainerSummary | null {
@@ -592,75 +652,44 @@ function findContainerBySessionId(sessionId: string): ExecutionContainerSummary 
   )
 }
 
-async function resolveSessionRoute(sessionId: string, version: number) {
+async function resolveSessionRoute(sessionId: string, _version: number) {
   const container = findContainerBySessionId(sessionId)
 
-  if (container?.kind === 'background_task') {
-    await router.replace({ name: 'workspace-run', params: { taskId: container.id } })
+  if (!container) {
+    activeContainerId.value = sessionId
+    activeRunId.value = null
+    activeBackgroundTaskId.value = null
+    selectedSessionId.value = sessionId
+    await chatSessionStore.selectSession(sessionId)
     return
   }
 
-  const kind = container?.kind ?? 'workspace'
-  const containerId = container?.id ?? sessionId
-  const runs =
-    kind === 'external_channel'
-      ? await ensureExternalRunsLoaded(containerId)
-      : await ensureWorkspaceRunsLoaded(containerId)
-  if (version !== routeResolutionVersion) return
-
-  const latestRunId = runs[0]?.run_id ?? null
-  if (latestRunId) {
-    await router.replace({ name: 'workspace-run-id', params: { runId: latestRunId } })
+  if (container.latest_run_id) {
+    await router.replace(canonicalContainerRunRoute(container.id, container.latest_run_id))
     return
   }
 
-  activeContainerId.value = containerId
-  activeRunId.value = null
-  activeBackgroundTaskId.value = null
-  selectedSessionId.value = sessionId
-  if (kind === 'external_channel') {
-    const next = new Set(expandedExternalContainerIds.value)
-    next.add(containerId)
-    expandedExternalContainerIds.value = next
-  } else {
-    const next = new Set(expandedWorkspaceContainerIds.value)
-    next.add(containerId)
-    expandedWorkspaceContainerIds.value = next
-  }
-  await chatSessionStore.selectSession(sessionId)
+  await router.replace(canonicalContainerRoute(container.id))
 }
 
-async function resolveTaskRoute(taskId: string, version: number) {
-  const runs = await ensureBackgroundRunsLoaded(taskId)
-  if (version !== routeResolutionVersion) return
-
+async function resolveTaskRoute(taskId: string, _version: number) {
   const preferredRunId = typeof route.query.runId === 'string' && route.query.runId.trim().length > 0
     ? route.query.runId.trim()
     : null
-  const resolvedRunId =
-    (preferredRunId && runs.find((entry) => entry.run_id === preferredRunId)?.run_id) ||
-    runs[0]?.run_id ||
-    null
-
-  if (resolvedRunId) {
-    await router.replace({ name: 'workspace-run-id', params: { runId: resolvedRunId } })
+  if (preferredRunId) {
+    await router.replace(canonicalContainerRunRoute(taskId, preferredRunId))
     return
   }
 
-  activeContainerId.value = taskId
-  activeRunId.value = null
-  activeBackgroundTaskId.value = taskId
-  const next = new Set(expandedBackgroundTaskIds.value)
-  next.add(taskId)
-  expandedBackgroundTaskIds.value = next
+  const container = findContainerById(taskId)
+  const resolvedRunId = container?.latest_run_id ?? null
 
-  let task = backgroundAgentStore.agents.find((agent) => agent.id === taskId) ?? null
-  if (!task) {
-    await backgroundAgentStore.fetchAgents()
-    task = backgroundAgentStore.agents.find((agent) => agent.id === taskId) ?? null
+  if (resolvedRunId) {
+    await router.replace(canonicalContainerRunRoute(taskId, resolvedRunId))
+    return
   }
-  selectedSessionId.value = task?.chat_session_id ?? null
-  await chatSessionStore.selectSession(task?.chat_session_id ?? null)
+
+  await router.replace(canonicalContainerRoute(taskId))
 }
 
 async function onDeleteSession(id: string, name: string) {
@@ -765,7 +794,12 @@ async function onConvertToWorkspaceSession(id: string, name: string) {
   toast.success(t('workspace.session.convertToWorkspaceSuccess'))
   await chatSessionStore.fetchSummaries()
   await refreshNavigationProjection()
-  await router.push({ name: 'workspace-session', params: { sessionId: id } })
+  const container = findContainerBySessionId(id)
+  if (container?.latest_run_id) {
+    await router.push(canonicalContainerRunRoute(container.id, container.latest_run_id))
+    return
+  }
+  await router.push(canonicalContainerRoute(container?.id ?? id))
 }
 
 async function onRebuildSession(id: string, name: string) {
@@ -791,6 +825,12 @@ async function onRebuildSession(id: string, name: string) {
     activeContainerId.value = findContainerBySessionId(rebuilt.id)?.id ?? rebuilt.id
     activeRunId.value = null
     await chatSessionStore.selectSession(rebuilt.id)
+    const rebuiltContainer = findContainerBySessionId(rebuilt.id)
+    if (rebuiltContainer?.latest_run_id) {
+      await router.push(canonicalContainerRunRoute(rebuiltContainer.id, rebuiltContainer.latest_run_id))
+    } else if (rebuiltContainer) {
+      await router.push(canonicalContainerRoute(rebuiltContainer.id))
+    }
     toast.success(t('workspace.session.rebuildSuccess'))
   } catch (error) {
     const message = error instanceof Error ? error.message : t('workspace.session.rebuildFailed')
@@ -878,20 +918,20 @@ function resolveAgentDeleteErrorMessage(error: unknown): string {
 watch(
   () => chatSessionStore.currentSessionId,
   (newId) => {
-    if (newId && !routeRunId.value && !routeTaskId.value) {
+    if (newId && !routeContainerRunId.value && !routeLegacyTaskId.value && !routeLegacyRunId.value) {
       selectedSessionId.value = newId
       activeContainerId.value = activeContainerId.value ?? newId
     }
   },
 )
 
-watch([selectedSessionId, routeRunId], () => {
+watch([selectedSessionId, routeContainerRunId], () => {
   toolPanel.clearHistory()
 })
 
 watch(
-  [routeRunId, routeSessionId, routeTaskId, executionContainers],
-  async ([runId, sessionId, taskId]) => {
+  [routeContainerId, routeContainerRunId, routeLegacyRunId, routeLegacySessionId, routeLegacyTaskId, executionContainers],
+  async ([containerId, containerRunId, legacyRunId, legacySessionId, legacyTaskId]) => {
     routeResolutionVersion += 1
     const version = routeResolutionVersion
 
@@ -900,18 +940,28 @@ watch(
     }
 
     try {
-      if (runId) {
-        await resolveRunRoute(runId, version)
+      if (containerRunId) {
+        await resolveRunRoute(containerRunId, version, containerId || null)
         return
       }
 
-      if (taskId) {
-        await resolveTaskRoute(taskId, version)
+      if (containerId) {
+        await resolveContainerRoute(containerId, version)
         return
       }
 
-      if (sessionId) {
-        await resolveSessionRoute(sessionId, version)
+      if (legacyRunId) {
+        await resolveRunRoute(legacyRunId, version)
+        return
+      }
+
+      if (legacyTaskId) {
+        await resolveTaskRoute(legacyTaskId, version)
+        return
+      }
+
+      if (legacySessionId) {
+        await resolveSessionRoute(legacySessionId, version)
         return
       }
 

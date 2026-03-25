@@ -179,10 +179,16 @@ async function handleBgStop() {
 
 async function handleOpenRunTrace() {
   const runId = props.selectedRunId || executionThread.value?.focus.run_id || null
+  const containerId =
+    executionThread.value?.focus.container_id ||
+    props.backgroundTaskId ||
+    linkedBgAgent.value?.id ||
+    chatSessionStore.currentSessionId ||
+    null
   if (runId) {
     await router.push({
-      name: 'workspace-run-id',
-      params: { runId },
+      name: containerId ? 'workspace-container-run' : 'workspace-run-id',
+      params: containerId ? { containerId, runId } : { runId },
     })
     return
   }
@@ -197,10 +203,12 @@ async function handleOpenRunTrace() {
       },
     })
     const latestRunId = runs.find((entry) => !!entry.run_id)?.run_id ?? null
+    const latestRunContainerId =
+      runs.find((entry) => !!entry.run_id)?.container_id ?? linkedBgAgent.value.id
     if (latestRunId) {
       await router.push({
-        name: 'workspace-run-id',
-        params: { runId: latestRunId },
+        name: 'workspace-container-run',
+        params: { containerId: latestRunContainerId, runId: latestRunId },
       })
       return
     }
@@ -209,8 +217,8 @@ async function handleOpenRunTrace() {
   }
 
   await router.push({
-    name: 'workspace-run',
-    params: { taskId: linkedBgAgent.value.id },
+    name: 'workspace-container',
+    params: { containerId: linkedBgAgent.value.id },
   })
 }
 
@@ -269,10 +277,10 @@ watch(
   { immediate: true },
 )
 
-async function loadExecutionThreadForSession(sessionId: string | null) {
+async function loadExecutionThreadForSession(_sessionId: string | null) {
   const requestVersion = ++executionThreadLoadVersion
 
-  if (!sessionId && !props.selectedRunId) {
+  if (!props.selectedRunId) {
     executionThread.value = null
     emit('threadLoaded', null)
     return
@@ -280,7 +288,7 @@ async function loadExecutionThreadForSession(sessionId: string | null) {
 
   try {
     const thread = await getExecutionThread({
-      session_id: props.selectedRunId ? null : sessionId,
+      session_id: null,
       run_id: props.selectedRunId,
       task_id: null,
     })
@@ -303,6 +311,32 @@ async function loadExecutionThreadForSession(sessionId: string | null) {
   }
 }
 
+async function navigateToLatestWorkspaceRun(sessionId: string) {
+  if (props.selectedRunId) return
+  if (currentSession.value?.source_channel && currentSession.value.source_channel !== 'workspace') return
+
+  try {
+    const runs = await listExecutionSessions({
+      container: {
+        kind: 'workspace',
+        id: sessionId,
+      },
+    })
+    const latestRun = runs.find((entry) => !!entry.run_id)
+    if (!latestRun?.run_id) return
+
+    await router.replace({
+      name: 'workspace-container-run',
+      params: {
+        containerId: latestRun.container_id || sessionId,
+        runId: latestRun.run_id,
+      },
+    })
+  } catch (error) {
+    console.warn('Failed to resolve latest workspace run:', error)
+  }
+}
+
 watch(
   () => [chatSessionStore.currentSessionId, props.selectedRunId],
   ([sessionId]) => {
@@ -319,6 +353,7 @@ async function syncSessionFromBackend() {
   if (refreshed) {
     chatSessionStore.updateSessionLocally(refreshed)
     await loadExecutionThreadForSession(sessionId)
+    await navigateToLatestWorkspaceRun(sessionId)
     // Clear stream content after persisted messages are loaded to prevent
     // showing both the streaming message and the persisted message.
     chatStream.reset()
@@ -604,7 +639,9 @@ onMounted(async () => {
             if (session) {
               chatSessionStore.updateSessionLocally(session)
             }
-            return loadExecutionThreadForSession(sessionId)
+            return loadExecutionThreadForSession(sessionId).then(() =>
+              navigateToLatestWorkspaceRun(sessionId),
+            )
           })
         }
         // Also refresh summaries so the sidebar stays up to date

@@ -71,7 +71,7 @@ test.describe('ModelRef Persistence', () => {
       targetModelName: targetModel.name,
     }
 
-    await page.goto(`/workspace/sessions/${setup.sessionId}`)
+    await page.goto(`/workspace/c/${setup.sessionId}`)
     await page.waitForLoadState('domcontentloaded')
 
     const modelSelector = page

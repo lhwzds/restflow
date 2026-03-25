@@ -224,11 +224,17 @@ async function loadExecutionThread() {
   const version = loadVersion
   isLoadingThread.value = true
 
+  if (!props.selectedRunId) {
+    executionThread.value = null
+    isLoadingThread.value = false
+    return
+  }
+
   try {
     const thread = await getExecutionThread({
       session_id: null,
       run_id: props.selectedRunId,
-      task_id: props.selectedRunId ? null : props.agent.id,
+      task_id: null,
     })
 
     if (version !== loadVersion) return

@@ -84,7 +84,7 @@ describe('SessionList', () => {
     await findButton('workspace.session.delete').trigger('click')
 
     expect(wrapper.emitted('toggleWorkspaceFolder')).toEqual([['session-1']])
-    expect(wrapper.emitted('selectRun')).toEqual([['run-1']])
+    expect(wrapper.emitted('selectRun')).toEqual([['session-1', 'run-1']])
     expect(wrapper.emitted('rename')).toEqual([['session-1', 'Workspace Session']])
     expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([['session-1', 'Workspace Session']])
     expect(wrapper.emitted('archive')).toEqual([['session-1', 'Workspace Session']])
@@ -126,7 +126,7 @@ describe('SessionList', () => {
     await wrapper.get('[data-testid="background-run-task-1-run-1"]').trigger('click')
 
     expect(wrapper.emitted('toggleBackgroundTask')).toEqual([['task-1']])
-    expect(wrapper.emitted('selectRun')).toEqual([['run-1']])
+    expect(wrapper.emitted('selectRun')).toEqual([['task-1', 'run-1']])
   })
 
   it('renders external folders with nested runs and rebuild action', async () => {
@@ -174,7 +174,7 @@ describe('SessionList', () => {
     await rebuildButton!.trigger('click')
 
     expect(wrapper.emitted('toggleExternalChannel')).toEqual([['telegram:conversation-1']])
-    expect(wrapper.emitted('selectRun')).toEqual([['run-external-1']])
+    expect(wrapper.emitted('selectRun')).toEqual([['telegram:conversation-1', 'run-external-1']])
     expect(wrapper.emitted('rebuild')).toEqual([['session-telegram-1', '123456']])
   })
 

@@ -14,6 +14,18 @@ const router = createRouter({
       meta: { titleKey: 'common.brandName' },
     },
     {
+      path: '/workspace/c/:containerId',
+      name: 'workspace-container',
+      component: () => import('../views/Workspace.vue'),
+      meta: { titleKey: 'common.brandName' },
+    },
+    {
+      path: '/workspace/c/:containerId/r/:runId',
+      name: 'workspace-container-run',
+      component: () => import('../views/Workspace.vue'),
+      meta: { titleKey: 'common.brandName' },
+    },
+    {
       path: '/workspace/sessions/:sessionId',
       name: 'workspace-session',
       component: () => import('../views/Workspace.vue'),

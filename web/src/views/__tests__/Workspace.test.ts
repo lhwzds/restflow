@@ -99,7 +99,7 @@ vi.mock('@/components/workspace/SessionList.vue', () => ({
     name: 'SessionList',
     emits: ['newSession', 'selectRun', 'selectContainer'],
     template:
-      '<div><button data-testid="new-session" @click="$emit(\'newSession\')">new</button><button data-testid="select-run" @click="$emit(\'selectRun\', \'run-1\')">run</button><button data-testid="select-container" @click="$emit(\'selectContainer\', \'workspace\', \'session-1\')">container</button></div>',
+      '<div><button data-testid="new-session" @click="$emit(\'newSession\')">new</button><button data-testid="select-run" @click="$emit(\'selectRun\', \'session-1\', \'run-1\')">run</button><button data-testid="select-container" @click="$emit(\'selectContainer\', \'workspace\', \'session-1\')">container</button></div>',
   }),
 }))
 
@@ -227,7 +227,7 @@ describe('Workspace', () => {
         status: 'completed',
         session_count: 0,
         latest_session_id: 'session-1',
-        latest_run_id: null,
+        latest_run_id: 'run-1',
         agent_id: 'agent-1',
         source_channel: 'workspace',
         source_conversation_id: null,
@@ -302,8 +302,8 @@ describe('Workspace', () => {
     expect(mockCreateSession).toHaveBeenCalledWith('agent-1', 'gpt-5')
     expect(mockSelectSession).toHaveBeenCalledWith('session-new')
     expect(mockRouterPush).toHaveBeenCalledWith({
-      name: 'workspace-session',
-      params: { sessionId: 'session-new' },
+      name: 'workspace-container',
+      params: { containerId: 'session-new' },
     })
   })
 
@@ -345,8 +345,8 @@ describe('Workspace', () => {
     await wrapper.get('[data-testid="select-run"]').trigger('click')
 
     expect(mockRouterPush).toHaveBeenCalledWith({
-      name: 'workspace-run-id',
-      params: { runId: 'run-1' },
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-1' },
     })
   })
 
@@ -369,7 +369,7 @@ describe('Workspace', () => {
         status: 'completed',
         session_count: 1,
         latest_session_id: 'session-1',
-        latest_run_id: null,
+        latest_run_id: 'run-1',
         agent_id: 'agent-1',
         source_channel: null,
         source_conversation_id: null,
@@ -403,8 +403,8 @@ describe('Workspace', () => {
     await flushPromises()
 
     expect(mockRouterReplace).toHaveBeenCalledWith({
-      name: 'workspace-run-id',
-      params: { runId: 'run-1' },
+      name: 'workspace-container-run',
+      params: { containerId: 'task-1', runId: 'run-1' },
     })
     expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(true)
   })

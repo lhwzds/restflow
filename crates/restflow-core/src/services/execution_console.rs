@@ -62,6 +62,14 @@ struct RunSummaryMeta {
     source_conversation_id: Option<String>,
 }
 
+#[derive(Clone)]
+struct LatestRunProjection {
+    run_id: String,
+    updated_at: i64,
+    session_id: Option<String>,
+    task_id: String,
+}
+
 impl ExecutionConsoleService {
     pub fn new(storage: Arc<Storage>) -> Self {
         Self { storage }
@@ -73,12 +81,22 @@ impl ExecutionConsoleService {
 
     pub fn list_execution_containers(&self) -> Result<Vec<ExecutionContainerSummary>> {
         let session_contexts = self.load_session_contexts()?;
+        let latest_runs = self.load_latest_top_level_runs()?;
+        let latest_run_by_session_id = latest_run_by_session_id(&latest_runs);
+        let latest_run_by_task_id = latest_run_by_task_id(&latest_runs);
         let workspace_containers = session_contexts
             .iter()
             .filter(|ctx| {
                 ctx.source.source == ChatSessionSource::Workspace && ctx.bound_task.is_none()
             })
-            .map(|ctx| self.build_workspace_container(ctx))
+            .map(|ctx| {
+                self.build_workspace_container(
+                    ctx,
+                    latest_run_by_session_id
+                        .get(ctx.session.id.as_str())
+                        .map(|entry| entry.run_id.clone()),
+                )
+            })
             .collect::<Vec<_>>();
         let external_groups = self.group_external_sessions(&session_contexts);
         let background_tasks = self.storage.background_agents.list_tasks()?;
@@ -95,7 +113,9 @@ impl ExecutionConsoleService {
                 status: Some(task.status.as_str().to_string()),
                 session_count: task.success_count + task.failure_count,
                 latest_session_id: Some(task.chat_session_id.clone()),
-                latest_run_id: None,
+                latest_run_id: latest_run_by_task_id
+                    .get(task.id.as_str())
+                    .map(|entry| entry.run_id.clone()),
                 agent_id: Some(task.agent_id.clone()),
                 source_channel: None,
                 source_conversation_id: None,
@@ -107,6 +127,16 @@ impl ExecutionConsoleService {
                 .sessions
                 .iter()
                 .max_by(|left, right| left.updated_at.cmp(&right.updated_at));
+            let latest_run_id = group
+                .sessions
+                .iter()
+                .filter_map(|session| {
+                    latest_run_by_session_id
+                        .get(session.id.as_str())
+                        .map(|entry| (entry.updated_at, entry.run_id.clone()))
+                })
+                .max_by(|left, right| left.0.cmp(&right.0))
+                .map(|(_, run_id)| run_id);
             containers.push(ExecutionContainerSummary {
                 id: group.id,
                 kind: ExecutionContainerKind::ExternalChannel,
@@ -116,7 +146,7 @@ impl ExecutionConsoleService {
                 status: Some("active".to_string()),
                 session_count: group.sessions.len() as u32,
                 latest_session_id: latest_session.map(|session| session.id.clone()),
-                latest_run_id: None,
+                latest_run_id,
                 agent_id: latest_session.map(|session| session.agent_id.clone()),
                 source_channel: Some(group.source_channel),
                 source_conversation_id: Some(group.conversation_id),
@@ -243,7 +273,11 @@ impl ExecutionConsoleService {
         Ok(sessions)
     }
 
-    fn build_workspace_container(&self, context: &SessionContext) -> ExecutionContainerSummary {
+    fn build_workspace_container(
+        &self,
+        context: &SessionContext,
+        latest_run_id: Option<String>,
+    ) -> ExecutionContainerSummary {
         ExecutionContainerSummary {
             id: context.session.id.clone(),
             kind: ExecutionContainerKind::Workspace,
@@ -261,11 +295,46 @@ impl ExecutionConsoleService {
             }),
             session_count: 0,
             latest_session_id: Some(context.session.id.clone()),
-            latest_run_id: None,
+            latest_run_id,
             agent_id: Some(context.session.agent_id.clone()),
             source_channel: Some(ChatSessionSource::Workspace),
             source_conversation_id: None,
         }
+    }
+
+    fn load_latest_top_level_runs(&self) -> Result<HashMap<String, LatestRunProjection>> {
+        let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
+            limit: Some(usize::MAX),
+            ..ExecutionTraceQuery::default()
+        })?;
+
+        let mut projections = HashMap::new();
+        for event in events {
+            if event.parent_run_id.is_some() {
+                continue;
+            }
+
+            let Some(run_id) = event.run_id.clone() else {
+                continue;
+            };
+
+            let entry = projections
+                .entry(run_id.clone())
+                .or_insert_with(|| LatestRunProjection {
+                    run_id: run_id.clone(),
+                    updated_at: event.timestamp,
+                    session_id: event.session_id.clone(),
+                    task_id: event.task_id.clone(),
+                });
+
+            if event.timestamp >= entry.updated_at {
+                entry.updated_at = event.timestamp;
+                entry.session_id = event.session_id.clone();
+                entry.task_id = event.task_id.clone();
+            }
+        }
+
+        Ok(projections)
     }
 
     fn load_session_contexts(&self) -> Result<Vec<SessionContext>> {
@@ -611,7 +680,9 @@ impl ExecutionConsoleService {
             .map_err(ExecutionThreadError::from)?;
 
         let Some(run_id) = runs.first().and_then(|run| run.run_id.as_deref()) else {
-            return Err(ExecutionThreadError::SessionHasNoRuns(session_id.to_string()));
+            return Err(ExecutionThreadError::SessionHasNoRuns(
+                session_id.to_string(),
+            ));
         };
 
         self.get_run_thread(run_id)
@@ -826,6 +897,45 @@ fn execution_container_sort_key(container: &ExecutionContainerSummary) -> u8 {
     }
 }
 
+fn latest_run_by_session_id(
+    projections: &HashMap<String, LatestRunProjection>,
+) -> HashMap<&str, &LatestRunProjection> {
+    let mut by_session_id = HashMap::new();
+    for projection in projections.values() {
+        let Some(session_id) = projection.session_id.as_deref() else {
+            continue;
+        };
+        let replace = by_session_id
+            .get(session_id)
+            .map(|existing: &&LatestRunProjection| projection.updated_at >= existing.updated_at)
+            .unwrap_or(true);
+        if replace {
+            by_session_id.insert(session_id, projection);
+        }
+    }
+    by_session_id
+}
+
+fn latest_run_by_task_id(
+    projections: &HashMap<String, LatestRunProjection>,
+) -> HashMap<&str, &LatestRunProjection> {
+    let mut by_task_id = HashMap::new();
+    for projection in projections.values() {
+        let task_id = projection.task_id.as_str();
+        if task_id.trim().is_empty() {
+            continue;
+        }
+        let replace = by_task_id
+            .get(task_id)
+            .map(|existing: &&LatestRunProjection| projection.updated_at >= existing.updated_at)
+            .unwrap_or(true);
+        if replace {
+            by_task_id.insert(task_id, projection);
+        }
+    }
+    by_task_id
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -909,16 +1019,32 @@ mod tests {
             .create(&telegram)
             .expect("telegram session");
 
-        let containers = service.list_execution_containers().expect("containers");
-        assert!(
-            containers
-                .iter()
-                .any(|container| container.id == workspace.id)
+        store_run_events(
+            &storage,
+            &workspace.id,
+            &workspace.id,
+            "run-workspace",
+            None,
         );
-        assert!(
-            containers
-                .iter()
-                .any(|container| container.id == "telegram:chat-42")
+        store_run_events(&storage, &telegram.id, &telegram.id, "run-telegram", None);
+
+        let containers = service.list_execution_containers().expect("containers");
+        let workspace_container = containers
+            .iter()
+            .find(|container| container.id == workspace.id)
+            .expect("workspace container");
+        assert_eq!(
+            workspace_container.latest_run_id.as_deref(),
+            Some("run-workspace")
+        );
+
+        let telegram_container = containers
+            .iter()
+            .find(|container| container.id == "telegram:chat-42")
+            .expect("telegram container");
+        assert_eq!(
+            telegram_container.latest_run_id.as_deref(),
+            Some("run-telegram")
         );
     }
 
@@ -960,9 +1086,7 @@ mod tests {
             .iter()
             .find(|container| container.id == workspace.id)
             .expect("workspace container");
-        assert!(
-            workspace_container.latest_session_id.as_deref() == Some(workspace.id.as_str())
-        );
+        assert!(workspace_container.latest_session_id.as_deref() == Some(workspace.id.as_str()));
         assert!(
             containers
                 .iter()
@@ -1020,6 +1144,15 @@ mod tests {
                 },
             })
             .expect("task runs");
+        let containers = service.list_execution_containers().expect("containers");
+        let background_container = containers
+            .iter()
+            .find(|container| container.id == task.id)
+            .expect("background container");
+        assert_eq!(
+            background_container.latest_run_id.as_deref(),
+            Some("run-parent")
+        );
         assert!(
             runs.iter()
                 .any(|run| run.run_id.as_deref() == Some("run-parent"))

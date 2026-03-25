@@ -66,6 +66,7 @@ let chatBoxMountCount = 0
 const mockSteerChatStream = vi.fn()
 const mockSendChatMessageApi = vi.fn()
 const mockRouterPush = vi.fn()
+const mockRouterReplace = vi.fn()
 const mockGetExecutionThread = vi.fn()
 const mockListExecutionSessions = vi.fn()
 let lastMessageListProps: Record<string, unknown> | null = null
@@ -79,6 +80,7 @@ vi.mock('vue-i18n', () => ({
 vi.mock('vue-router', () => ({
   useRouter: () => ({
     push: (...args: unknown[]) => mockRouterPush(...args),
+    replace: (...args: unknown[]) => mockRouterReplace(...args),
   }),
 }))
 
@@ -347,6 +349,7 @@ describe('ChatPanel', () => {
     ] as any)
     mockSteerChatStream.mockResolvedValue(true)
     mockRouterPush.mockReset()
+    mockRouterReplace.mockReset()
     mockSendChatMessageApi.mockResolvedValue(mockCurrentSession.value)
     mockGetAgentApi.mockResolvedValue({
       id: 'agent-1',
@@ -582,6 +585,7 @@ describe('ChatPanel', () => {
     mockListExecutionSessions.mockResolvedValue([
       {
         id: 'run-summary-1',
+        container_id: 'task-1',
         title: 'Run 1',
         status: 'completed',
         updated_at: 1234,
@@ -596,8 +600,8 @@ describe('ChatPanel', () => {
     await flushPromises()
 
     expect(mockRouterPush).toHaveBeenCalledWith({
-      name: 'workspace-run-id',
-      params: { runId: 'run-1' },
+      name: 'workspace-container-run',
+      params: { containerId: 'task-1', runId: 'run-1' },
     })
   })
 
@@ -620,8 +624,8 @@ describe('ChatPanel', () => {
     await flushPromises()
 
     expect(mockRouterPush).toHaveBeenCalledWith({
-      name: 'workspace-run',
-      params: { taskId: 'task-1' },
+      name: 'workspace-container',
+      params: { containerId: 'task-1' },
     })
   })
 
@@ -741,12 +745,16 @@ describe('ChatPanel', () => {
       child_sessions: [],
     } as any)
 
-    mount(ChatPanel)
+    mount(ChatPanel, {
+      props: {
+        selectedRunId: 'run-1',
+      },
+    })
     await flushPromises()
 
     expect(getExecutionThread).toHaveBeenCalledWith({
-      session_id: 'session-1',
-      run_id: null,
+      session_id: null,
+      run_id: 'run-1',
       task_id: null,
     })
     expect(lastMessageListProps?.threadItems).toEqual(
@@ -765,5 +773,46 @@ describe('ChatPanel', () => {
         }),
       ]),
     )
+  })
+
+  it('does not request canonical thread data before a run exists', async () => {
+    mount(ChatPanel)
+    await flushPromises()
+
+    expect(getExecutionThread).not.toHaveBeenCalled()
+  })
+
+  it('normalizes a fresh workspace session into the canonical container run route after streaming completes', async () => {
+    mockRefreshSession.mockResolvedValue(mockCurrentSession.value)
+    mockListExecutionSessions.mockResolvedValue([
+      {
+        id: 'run-summary-1',
+        container_id: 'session-1',
+        title: 'Run 1',
+        status: 'completed',
+        updated_at: 1234,
+        run_id: 'run-1',
+      },
+    ])
+
+    mount(ChatPanel)
+    await flushPromises()
+
+    mockIsStreaming.value = true
+    await nextTick()
+    mockIsStreaming.value = false
+    await flushPromises()
+
+    expect(mockRefreshSession).toHaveBeenCalledWith('session-1')
+    expect(mockListExecutionSessions).toHaveBeenCalledWith({
+      container: {
+        kind: 'workspace',
+        id: 'session-1',
+      },
+    })
+    expect(mockRouterReplace).toHaveBeenCalledWith({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-1' },
+    })
   })
 })

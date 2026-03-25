@@ -213,7 +213,7 @@ describe('threadItems', () => {
     expect(items[3]?.message?.content).toBe('Streaming assistant reply')
   })
 
-  it('falls back to persisted execution summaries when the execution thread is empty', () => {
+  it('falls back to legacy persisted session messages when no canonical run exists yet', () => {
     const items = buildSessionThreadItems({
       thread: {
         focus: {} as any,
@@ -254,6 +254,37 @@ describe('threadItems', () => {
     expect(items.map((item) => item.id)).toEqual([
       'persisted-msg-assistant-legacy-0',
       'msg-assistant-legacy',
+    ])
+  })
+
+  it('keeps transient optimistic messages and live overlays before canonical run events exist', () => {
+    const items = buildSessionThreadItems({
+      thread: null,
+      messages: [
+        {
+          id: 'optimistic-123',
+          role: 'user',
+          content: 'Fresh optimistic prompt',
+          timestamp: 0n,
+          execution: null,
+        },
+      ],
+      steps: [
+        {
+          type: 'tool_call',
+          name: 'web_search',
+          displayName: 'web_search',
+          status: 'running',
+          toolId: 'stream-tool-1',
+        },
+      ],
+      streamContent: 'Streaming assistant reply',
+    })
+
+    expect(items.map((item) => item.id)).toEqual([
+      'optimistic-123',
+      'stream-tool-1',
+      'streaming-assistant',
     ])
   })
 
