@@ -215,6 +215,43 @@ describe('threadItems', () => {
 
   it('falls back to legacy persisted session messages when no canonical run exists yet', () => {
     const items = buildSessionThreadItems({
+      thread: null,
+      messages: [
+        {
+          id: 'msg-assistant-legacy',
+          role: 'assistant',
+          content: 'Legacy assistant output',
+          timestamp: 1000n,
+          execution: {
+            steps: [
+              {
+                step_type: 'tool_call',
+                name: 'web_search',
+                status: 'completed',
+                duration_ms: 1200n,
+              },
+            ],
+            duration_ms: 1200n,
+            tokens_used: 32,
+            cost_usd: null,
+            input_tokens: null,
+            output_tokens: null,
+            status: 'completed',
+          },
+        },
+      ],
+      steps: [],
+      streamContent: '',
+    })
+
+    expect(items.map((item) => item.id)).toEqual([
+      'persisted-msg-assistant-legacy-0',
+      'msg-assistant-legacy',
+    ])
+  })
+
+  it('keeps canonical empty threads on the canonical message path', () => {
+    const items = buildSessionThreadItems({
       thread: {
         focus: {} as any,
         timeline: {
@@ -251,10 +288,8 @@ describe('threadItems', () => {
       streamContent: '',
     })
 
-    expect(items.map((item) => item.id)).toEqual([
-      'persisted-msg-assistant-legacy-0',
-      'msg-assistant-legacy',
-    ])
+    expect(items.map((item) => item.id)).toEqual(['msg-assistant-legacy'])
+    expect(items[0]?.kind).toBe('message')
   })
 
   it('keeps transient optimistic messages and live overlays before canonical run events exist', () => {

@@ -169,6 +169,45 @@ test.describe("Background Agent Web Flow", () => {
         return;
       }
 
+      if (payload?.type === "GetExecutionRunThread" && payload?.data?.run_id === runId) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            response_type: "Success",
+            data: {
+              focus: {
+                id: `${taskId}:${runId}`,
+                kind: "background_run",
+                container_id: taskId,
+                title: "Trace View Run",
+                subtitle: null,
+                status: "completed",
+                updated_at: Date.now(),
+                started_at: null,
+                ended_at: null,
+                session_id: sessionId,
+                run_id: runId,
+                task_id: taskId,
+                parent_run_id: null,
+                agent_id: null,
+                source_channel: null,
+                source_conversation_id: null,
+                effective_model: null,
+                provider: null,
+                event_count: 0,
+              },
+              timeline: {
+                events: [],
+                stats: {},
+              },
+              child_sessions: [],
+            },
+          }),
+        });
+        return;
+      }
+
       await route.continue();
     });
 
@@ -183,6 +222,123 @@ test.describe("Background Agent Web Flow", () => {
       timeout: 15000,
     });
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible({
+      timeout: 15000,
+    });
+  });
+
+  test("normalizes legacy background task routes to the canonical container run route", async ({
+    page,
+  }) => {
+    await goToWorkspace(page);
+    const sessionId = await createSessionForTest(page);
+
+    const sessionRow = page.getByTestId(`workspace-folder-${sessionId}`);
+    await expect(sessionRow).toBeVisible({ timeout: 15000 });
+
+    const convertItem = await openSessionMenu(page, sessionRow);
+    await convertItem.click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.locator("input").first().fill(`Legacy Route ${Date.now()}`);
+    await dialog
+      .locator("textarea")
+      .fill("Prepare a background task for legacy route normalization");
+    await dialog.getByRole("button", { name: "Convert" }).click();
+    await expect(dialog).not.toBeVisible();
+
+    const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
+      type: "ListBackgroundAgents",
+      data: { status: null },
+    });
+    const taskId = agents.find((agent) => agent.chat_session_id === sessionId)?.id;
+    if (!taskId) {
+      throw new Error("Failed to find background agent task after conversion");
+    }
+    trackCreatedBackgroundTask(page, taskId);
+
+    const runId = `run-${Date.now()}`;
+    await page.route("**/api/request", async (route) => {
+      const payload = route.request().postDataJSON();
+      if (
+        payload?.type === "ListExecutionSessions" &&
+        payload?.data?.query?.container?.kind === "background_task" &&
+        payload?.data?.query?.container?.id === taskId
+      ) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            response_type: "Success",
+            data: [
+              {
+                id: `${taskId}:${runId}`,
+                kind: "background_run",
+                title: "Legacy Route Run",
+                subtitle: null,
+                status: "completed",
+                updated_at: Date.now(),
+                run_id: runId,
+                parent_run_id: null,
+                session_id: sessionId,
+                task_id: taskId,
+                agent_id: null,
+                source_channel: null,
+                source_conversation_id: null,
+              },
+            ],
+          }),
+        });
+        return;
+      }
+
+      if (payload?.type === "GetExecutionRunThread" && payload?.data?.run_id === runId) {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            response_type: "Success",
+            data: {
+              focus: {
+                id: `${taskId}:${runId}`,
+                kind: "background_run",
+                container_id: taskId,
+                title: "Legacy Route Run",
+                subtitle: null,
+                status: "completed",
+                updated_at: Date.now(),
+                started_at: null,
+                ended_at: null,
+                session_id: sessionId,
+                run_id: runId,
+                task_id: taskId,
+                parent_run_id: null,
+                agent_id: null,
+                source_channel: null,
+                source_conversation_id: null,
+                effective_model: null,
+                provider: null,
+                event_count: 0,
+              },
+              timeline: {
+                events: [],
+                stats: {},
+              },
+              child_sessions: [],
+            },
+          }),
+        });
+        return;
+      }
+
+      await route.continue();
+    });
+
+    await page.goto(`/workspace/runs/${taskId}`);
+    await page.waitForLoadState("domcontentloaded");
+
+    await expect(page).toHaveURL(new RegExp(`/workspace/c/${taskId}/r/${runId}$`));
+    await expect(page.getByTestId("workspace-shell")).toBeVisible({
       timeout: 15000,
     });
   });

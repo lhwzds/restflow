@@ -288,6 +288,9 @@ impl IpcServer {
                 Ok(query) => Self::handle_list_execution_sessions(core, query).await,
                 Err(err) => invalid_request_response(err),
             },
+            IpcRequest::GetExecutionRunThread { run_id } => {
+                Self::handle_get_execution_run_thread(core, run_id).await
+            }
             IpcRequest::GetExecutionThread { query } => match from_contract(query) {
                 Ok(query) => Self::handle_get_execution_thread(core, query).await,
                 Err(err) => invalid_request_response(err),

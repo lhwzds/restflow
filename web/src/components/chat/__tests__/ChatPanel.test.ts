@@ -11,7 +11,7 @@ import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage } from '@/api/chat-session'
-import { getExecutionThread, listExecutionSessions } from '@/api/execution-console'
+import { getExecutionRunThread, listExecutionSessions } from '@/api/execution-console'
 
 type SessionLike = {
   id: string
@@ -67,7 +67,7 @@ const mockSteerChatStream = vi.fn()
 const mockSendChatMessageApi = vi.fn()
 const mockRouterPush = vi.fn()
 const mockRouterReplace = vi.fn()
-const mockGetExecutionThread = vi.fn()
+const mockGetExecutionRunThread = vi.fn()
 const mockListExecutionSessions = vi.fn()
 let lastMessageListProps: Record<string, unknown> | null = null
 
@@ -227,7 +227,7 @@ vi.mock('@/api/chat-stream', () => ({
 }))
 
 vi.mock('@/api/execution-console', () => ({
-  getExecutionThread: vi.fn(),
+  getExecutionRunThread: vi.fn(),
   listExecutionSessions: vi.fn(),
 }))
 
@@ -377,7 +377,7 @@ describe('ChatPanel', () => {
     vi.mocked(updateAgent).mockImplementation(mockUpdateAgentApi)
     vi.mocked(steerChatStream).mockImplementation(mockSteerChatStream)
     vi.mocked(sendChatMessage).mockImplementation(mockSendChatMessageApi)
-    mockGetExecutionThread.mockResolvedValue({
+    mockGetExecutionRunThread.mockResolvedValue({
       focus: {},
       timeline: {
         events: [],
@@ -386,7 +386,7 @@ describe('ChatPanel', () => {
       child_sessions: [],
     })
     mockListExecutionSessions.mockResolvedValue([])
-    vi.mocked(getExecutionThread).mockImplementation(mockGetExecutionThread)
+    vi.mocked(getExecutionRunThread).mockImplementation(mockGetExecutionRunThread)
     vi.mocked(listExecutionSessions).mockImplementation(mockListExecutionSessions)
   })
 
@@ -403,6 +403,21 @@ describe('ChatPanel', () => {
     await nextTick()
 
     expect(wrapper.get('[data-testid="chatbox"]').attributes('data-selected-model')).toBe('gpt-5')
+  })
+
+  it('disables recent auto-selection when the panel is route-driven', async () => {
+    mount(ChatPanel, {
+      props: {
+        selectedRunId: 'run-1',
+        autoSelectRecent: false,
+      },
+    })
+    await flushPromises()
+
+    expect(useChatSession).toHaveBeenCalledWith({
+      autoLoad: true,
+      autoSelectRecent: false,
+    })
   })
 
   it('re-mounts chat box after async options load to refresh controlled select display', async () => {
@@ -646,7 +661,7 @@ describe('ChatPanel', () => {
         execution: null,
       },
     ]
-    mockGetExecutionThread.mockResolvedValue({
+    mockGetExecutionRunThread.mockResolvedValue({
       focus: {},
       timeline: {
         events: [
@@ -752,11 +767,7 @@ describe('ChatPanel', () => {
     })
     await flushPromises()
 
-    expect(getExecutionThread).toHaveBeenCalledWith({
-      session_id: null,
-      run_id: 'run-1',
-      task_id: null,
-    })
+    expect(getExecutionRunThread).toHaveBeenCalledWith('run-1')
     expect(lastMessageListProps?.threadItems).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -779,7 +790,7 @@ describe('ChatPanel', () => {
     mount(ChatPanel)
     await flushPromises()
 
-    expect(getExecutionThread).not.toHaveBeenCalled()
+    expect(getExecutionRunThread).not.toHaveBeenCalled()
   })
 
   it('normalizes a fresh workspace session into the canonical container run route after streaming completes', async () => {

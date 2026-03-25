@@ -3,25 +3,25 @@ import { defineComponent, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { useExecutionTelemetry } from '../useExecutionTelemetry'
 import {
-  getExecutionMetrics,
-  getExecutionTimeline,
-  queryExecutionLogs,
+  getRunExecutionMetrics,
+  getRunExecutionTimeline,
+  queryRunExecutionLogs,
 } from '@/api/execution-traces'
 
 vi.mock('@/api/execution-traces', () => ({
-  getExecutionTimeline: vi.fn(),
-  getExecutionMetrics: vi.fn(),
-  queryExecutionLogs: vi.fn(),
+  getRunExecutionTimeline: vi.fn(),
+  getRunExecutionMetrics: vi.fn(),
+  queryRunExecutionLogs: vi.fn(),
 }))
 
-function mountComposable(initialTaskId = 'task-1') {
-  const taskId = ref(initialTaskId)
+function mountComposable(initialRunId: string | null = 'run-1') {
+  const runId = ref(initialRunId)
 
   const wrapper = mount(
     defineComponent({
       setup(_, { expose }) {
-        const state = useExecutionTelemetry(taskId)
-        expose({ taskId, ...state })
+        const state = useExecutionTelemetry(runId)
+        expose({ runId, ...state })
         return () => null
       },
       template: '<div />',
@@ -29,9 +29,9 @@ function mountComposable(initialTaskId = 'task-1') {
   )
 
   return {
-    taskId,
+    runId,
     state: wrapper.vm as unknown as ReturnType<typeof useExecutionTelemetry> & {
-      taskId: typeof taskId
+      runId: typeof runId
     },
   }
 }
@@ -41,8 +41,8 @@ describe('useExecutionTelemetry', () => {
     vi.resetAllMocks()
   })
 
-  it('queries timeline, metrics, and logs by task id', async () => {
-    vi.mocked(getExecutionTimeline).mockResolvedValue({
+  it('queries timeline, metrics, and logs by run id', async () => {
+    vi.mocked(getRunExecutionTimeline).mockResolvedValue({
       events: [],
       stats: {
         total_events: 0n,
@@ -59,38 +59,23 @@ describe('useExecutionTelemetry', () => {
         time_range: null,
       },
     } as any)
-    vi.mocked(getExecutionMetrics).mockResolvedValue({ samples: [] } as any)
-    vi.mocked(queryExecutionLogs).mockResolvedValue({ events: [] } as any)
+    vi.mocked(getRunExecutionMetrics).mockResolvedValue({ samples: [] } as any)
+    vi.mocked(queryRunExecutionLogs).mockResolvedValue({ events: [] } as any)
 
-    mountComposable('task-1')
+    mountComposable('run-1')
     await flushPromises()
 
-    expect(getExecutionTimeline).toHaveBeenCalledWith(
-      expect.objectContaining({
-        task_id: 'task-1',
-        limit: 200,
-      }),
-    )
-    expect(getExecutionMetrics).toHaveBeenCalledWith(
-      expect.objectContaining({
-        task_id: 'task-1',
-        limit: 100,
-      }),
-    )
-    expect(queryExecutionLogs).toHaveBeenCalledWith(
-      expect.objectContaining({
-        task_id: 'task-1',
-        limit: 100,
-      }),
-    )
+    expect(getRunExecutionTimeline).toHaveBeenCalledWith('run-1')
+    expect(getRunExecutionMetrics).toHaveBeenCalledWith('run-1')
+    expect(queryRunExecutionLogs).toHaveBeenCalledWith('run-1')
   })
 
   it('keeps errors isolated between timeline, metrics, and logs', async () => {
-    vi.mocked(getExecutionTimeline).mockRejectedValue(new Error('timeline failed'))
-    vi.mocked(getExecutionMetrics).mockResolvedValue({ samples: [{ id: 'metric-1' }] } as any)
-    vi.mocked(queryExecutionLogs).mockResolvedValue({ events: [{ id: 'log-1' }] } as any)
+    vi.mocked(getRunExecutionTimeline).mockRejectedValue(new Error('timeline failed'))
+    vi.mocked(getRunExecutionMetrics).mockResolvedValue({ samples: [{ id: 'metric-1' }] } as any)
+    vi.mocked(queryRunExecutionLogs).mockResolvedValue({ events: [{ id: 'log-1' }] } as any)
 
-    const { state } = mountComposable('task-2')
+    const { state } = mountComposable('run-2')
     await flushPromises()
 
     expect(state.timelineError).toBe('timeline failed')
@@ -99,5 +84,17 @@ describe('useExecutionTelemetry', () => {
     expect(state.timeline).toBeNull()
     expect((state.metrics as any)?.samples).toHaveLength(1)
     expect((state.logs as any)?.events).toHaveLength(1)
+  })
+
+  it('stays empty when no run id is selected', async () => {
+    const { state } = mountComposable(null)
+    await flushPromises()
+
+    expect(getRunExecutionTimeline).not.toHaveBeenCalled()
+    expect(getRunExecutionMetrics).not.toHaveBeenCalled()
+    expect(queryRunExecutionLogs).not.toHaveBeenCalled()
+    expect(state.timeline).toBeNull()
+    expect(state.metrics).toBeNull()
+    expect(state.logs).toBeNull()
   })
 })

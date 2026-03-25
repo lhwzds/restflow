@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, reactive, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import Workspace from '../Workspace.vue'
+import { BackendError } from '@/api/http-client'
 
 const mockListAgents = vi.fn()
 const mockRouterPush = vi.fn()
@@ -12,7 +13,7 @@ const mockFetchSummaries = vi.fn()
 const mockFetchBackgroundAgents = vi.fn()
 const mockListExecutionContainers = vi.fn()
 const mockListExecutionSessions = vi.fn()
-const mockGetExecutionThread = vi.fn()
+const mockGetExecutionRunThread = vi.fn()
 const mockRoute = reactive<{ name: string; params: Record<string, string>; query: Record<string, string> }>({
   name: 'workspace',
   params: {},
@@ -44,7 +45,7 @@ vi.mock('@/api/agents', () => ({
 vi.mock('@/api/execution-console', () => ({
   listExecutionContainers: (...args: unknown[]) => mockListExecutionContainers(...args),
   listExecutionSessions: (...args: unknown[]) => mockListExecutionSessions(...args),
-  getExecutionThread: (...args: unknown[]) => mockGetExecutionThread(...args),
+  getExecutionRunThread: (...args: unknown[]) => mockGetExecutionRunThread(...args),
 }))
 
 vi.mock('@/stores/chatSessionStore', () => ({
@@ -234,7 +235,7 @@ describe('Workspace', () => {
       },
     ])
     mockListExecutionSessions.mockResolvedValue([])
-    mockGetExecutionThread.mockResolvedValue({
+    mockGetExecutionRunThread.mockResolvedValue({
       focus: {
         id: 'run-1',
         kind: 'workspace_run',
@@ -350,9 +351,9 @@ describe('Workspace', () => {
     })
   })
 
-  it('redirects legacy task routes to canonical run routes and keeps chat panel mounted', async () => {
-    mockRoute.name = 'workspace-run'
-    mockRoute.params = { taskId: 'task-1' }
+  it('redirects canonical background container routes to their latest run', async () => {
+    mockRoute.name = 'workspace-container'
+    mockRoute.params = { containerId: 'task-1' }
     mockBackgroundStore.agents = [
       {
         id: 'task-1',
@@ -406,7 +407,54 @@ describe('Workspace', () => {
       name: 'workspace-container-run',
       params: { containerId: 'task-1', runId: 'run-1' },
     })
-    expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(true)
+  })
+
+  it('shows an explicit empty state for containers without runs or sessions', async () => {
+    mockRoute.name = 'workspace-container'
+    mockRoute.params = { containerId: 'empty-container' }
+    mockListExecutionContainers.mockResolvedValue([
+      {
+        id: 'empty-container',
+        kind: 'workspace',
+        title: 'Empty Workspace Container',
+        subtitle: null,
+        updated_at: 1,
+        status: 'pending',
+        session_count: 0,
+        latest_session_id: null,
+        latest_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+      },
+    ])
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    expect(mockSelectSession).toHaveBeenCalledWith(null)
+    expect(wrapper.find('[data-testid="workspace-container-empty-state"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(false)
+  })
+
+  it('clears stale content and falls back to the container route when a canonical run is missing', async () => {
+    mockRoute.name = 'workspace-container-run'
+    mockRoute.params = { containerId: 'session-1', runId: 'missing-run' }
+    mockGetExecutionRunThread.mockRejectedValueOnce(
+      new BackendError({
+        code: 404,
+        message: 'ExecutionThread not found',
+      } as any),
+    )
+
+    mountWorkspace()
+    await flushPromises()
+
+    expect(mockSelectSession).toHaveBeenCalledWith(null)
+    expect(mockRouterReplace).toHaveBeenCalledWith({
+      name: 'workspace-container',
+      params: { containerId: 'session-1' },
+    })
   })
 
   it('allows resizing the left sidebar width with drag constraints', async () => {

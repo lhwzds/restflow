@@ -27,7 +27,7 @@ import {
   subscribeSessionEvents,
   type UnlistenFn,
 } from '@/api/chat-session'
-import { getExecutionThread, listExecutionSessions } from '@/api/execution-console'
+import { getExecutionRunThread, listExecutionSessions } from '@/api/execution-console'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
@@ -48,10 +48,12 @@ const props = withDefaults(
   defineProps<{
     selectedRunId?: string | null
     backgroundTaskId?: string | null
+    autoSelectRecent?: boolean
   }>(),
   {
     selectedRunId: null,
     backgroundTaskId: null,
+    autoSelectRecent: true,
   },
 )
 
@@ -81,7 +83,7 @@ const {
   messages: chatMessages,
   isSending,
   createSession: createChatSession,
-} = useChatSession({ autoLoad: true, autoSelectRecent: true })
+} = useChatSession({ autoLoad: true, autoSelectRecent: props.autoSelectRecent })
 
 // Chat stream for real-time responses
 const chatStream = useChatStream(() => chatSessionStore.currentSessionId)
@@ -287,11 +289,7 @@ async function loadExecutionThreadForSession(_sessionId: string | null) {
   }
 
   try {
-    const thread = await getExecutionThread({
-      session_id: null,
-      run_id: props.selectedRunId,
-      task_id: null,
-    })
+    const thread = await getExecutionRunThread(props.selectedRunId)
 
     if (requestVersion !== executionThreadLoadVersion) return
     executionThread.value = thread

@@ -28,6 +28,13 @@ export async function getExecutionThread(query: ExecutionThreadQuery): Promise<E
   })
 }
 
+export async function getExecutionRunThread(runId: string): Promise<ExecutionThread> {
+  return requestTyped<ExecutionThread>({
+    type: 'GetExecutionRunThread',
+    data: { run_id: runId },
+  })
+}
+
 export async function listChildExecutionSessions(
   query: ChildExecutionSessionQuery,
 ): Promise<ExecutionSessionSummary[]> {

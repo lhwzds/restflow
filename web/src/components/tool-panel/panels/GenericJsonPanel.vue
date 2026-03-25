@@ -4,16 +4,30 @@ import type { StreamStep } from '@/composables/workspace/useChatStream'
 import { copyText, parseToolResult } from '@/components/tool-panel/utils'
 
 const props = defineProps<{
-  step: StreamStep
+  step?: StreamStep
+  data?: Record<string, unknown>
 }>()
 
 const rawMode = ref(false)
-const parsed = computed(() => parseToolResult(props.step))
-const formatted = computed(() => JSON.stringify(parsed.value, null, 2))
-const raw = computed(() => (props.step.result ?? '').toString())
+
+function stringify(value: unknown, spacing: number): string {
+  return JSON.stringify(
+    value,
+    (_key, current) => (typeof current === 'bigint' ? current.toString() : current),
+    spacing,
+  )
+}
+
+const parsed = computed(() => (props.step ? parseToolResult(props.step) : props.data ?? {}))
+const formatted = computed(() => stringify(parsed.value, 2))
+const raw = computed(() =>
+  props.step ? (props.step.result ?? '').toString() : stringify(props.data ?? {}, 0),
+)
 const content = computed(() => (rawMode.value ? raw.value : formatted.value))
+const hasStep = computed(() => !!props.step)
 
 function statusClass(): string {
+  if (!props.step) return 'bg-zinc-100 text-zinc-800'
   switch (props.step.status) {
     case 'completed':
       return 'bg-emerald-100 text-emerald-800'
@@ -35,8 +49,10 @@ async function onCopy(): Promise<void> {
   <section class="rounded-md border border-border bg-background" data-testid="generic-json-panel">
     <header class="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
       <div class="flex items-center gap-2 text-xs">
-        <span class="font-medium">{{ props.step.name }}</span>
-        <span class="rounded px-2 py-0.5" :class="statusClass()">{{ props.step.status }}</span>
+        <span class="font-medium">{{ props.step?.name ?? 'Details' }}</span>
+        <span v-if="hasStep" class="rounded px-2 py-0.5" :class="statusClass()">{{
+          props.step?.status
+        }}</span>
       </div>
       <div class="flex items-center gap-2">
         <button

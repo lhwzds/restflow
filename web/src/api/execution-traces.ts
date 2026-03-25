@@ -26,12 +26,40 @@ export async function getExecutionTimeline(query: ExecutionTraceQuery): Promise<
   })
 }
 
+export async function getRunExecutionTimeline(runId: string): Promise<ExecutionTimeline> {
+  return getExecutionTimeline({
+    task_id: null,
+    run_id: runId,
+    parent_run_id: null,
+    session_id: null,
+    turn_id: null,
+    agent_id: null,
+    category: null,
+    source: null,
+    from_timestamp: null,
+    to_timestamp: null,
+    limit: 200,
+    offset: 0,
+  })
+}
+
 export async function getExecutionMetrics(
   query: ExecutionMetricQuery,
 ): Promise<ExecutionMetricsResponse> {
   return requestTyped<ExecutionMetricsResponse>({
     type: 'GetExecutionMetrics',
     data: { query },
+  })
+}
+
+export async function getRunExecutionMetrics(runId: string): Promise<ExecutionMetricsResponse> {
+  return getExecutionMetrics({
+    task_id: null,
+    run_id: runId,
+    session_id: null,
+    agent_id: null,
+    metric_name: null,
+    limit: 100,
   })
 }
 
@@ -48,6 +76,17 @@ export async function queryExecutionLogs(query: ExecutionLogQuery): Promise<Exec
   return requestTyped<ExecutionLogResponse>({
     type: 'QueryExecutionLogs',
     data: { query },
+  })
+}
+
+export async function queryRunExecutionLogs(runId: string): Promise<ExecutionLogResponse> {
+  return queryExecutionLogs({
+    task_id: null,
+    run_id: runId,
+    session_id: null,
+    agent_id: null,
+    level: null,
+    limit: 100,
   })
 }
 

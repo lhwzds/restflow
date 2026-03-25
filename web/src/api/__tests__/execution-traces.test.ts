@@ -5,7 +5,10 @@ import {
   getExecutionTimeline,
   getExecutionTraceById,
   getExecutionTraceStats,
+  getRunExecutionMetrics,
+  getRunExecutionTimeline,
   getProviderHealth,
+  queryRunExecutionLogs,
   queryExecutionLogs,
   queryExecutionTraces,
 } from '../execution-traces'
@@ -136,6 +139,52 @@ describe('execution-traces api', () => {
     expect(requestTyped).toHaveBeenNthCalledWith(5, {
       type: 'GetExecutionTraceStats',
       data: { task_id: 'task-1' },
+    })
+  })
+
+  it('provides run-scoped telemetry helpers', async () => {
+    vi.mocked(requestTyped)
+      .mockResolvedValueOnce({ events: [], stats: { total_events: 0 } })
+      .mockResolvedValueOnce({ samples: [] })
+      .mockResolvedValueOnce({ events: [] })
+
+    await getRunExecutionTimeline('run-1')
+    await getRunExecutionMetrics('run-1')
+    await queryRunExecutionLogs('run-1')
+
+    expect(requestTyped).toHaveBeenNthCalledWith(1, {
+      type: 'GetExecutionTimeline',
+      data: {
+        query: expect.objectContaining({
+          run_id: 'run-1',
+          task_id: null,
+          session_id: null,
+          limit: 200,
+          offset: 0,
+        }),
+      },
+    })
+    expect(requestTyped).toHaveBeenNthCalledWith(2, {
+      type: 'GetExecutionMetrics',
+      data: {
+        query: expect.objectContaining({
+          run_id: 'run-1',
+          task_id: null,
+          session_id: null,
+          limit: 100,
+        }),
+      },
+    })
+    expect(requestTyped).toHaveBeenNthCalledWith(3, {
+      type: 'QueryExecutionLogs',
+      data: {
+        query: expect.objectContaining({
+          run_id: 'run-1',
+          task_id: null,
+          session_id: null,
+          limit: 100,
+        }),
+      },
     })
   })
 

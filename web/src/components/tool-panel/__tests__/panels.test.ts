@@ -213,4 +213,26 @@ describe('tool panel components', () => {
     await toggleButton.trigger('click')
     expect(wrapper.text()).toContain('{"a":1}')
   })
+
+  it('renders GenericJsonPanel from generic data without a synthetic step', async () => {
+    const wrapper = mount(GenericJsonPanel, {
+      props: {
+        data: {
+          message_id: 'message-1',
+          role: 'assistant',
+          content: 'Hello',
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('Details')
+    expect(wrapper.text()).toContain('"message_id": "message-1"')
+
+    const toggleButton = wrapper.findAll('button')[0]
+    if (!toggleButton) {
+      throw new Error('Expected generic panel toggle button to exist')
+    }
+    await toggleButton.trigger('click')
+    expect(wrapper.text()).toContain('"content":"Hello"')
+  })
 })

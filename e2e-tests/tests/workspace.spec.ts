@@ -283,12 +283,12 @@ test.describe('Workspace Layout', () => {
 
     await page.route('**/api/request', async (route) => {
       const payload = route.request().postDataJSON() as
-        | { type?: string; data?: { query?: { run_id?: string | null } } }
+        | { type?: string; data?: { query?: { run_id?: string | null }; run_id?: string | null } }
         | undefined
 
       if (
-        payload?.type === 'GetExecutionThread' &&
-        payload.data?.query?.run_id === runId
+        payload?.type === 'GetExecutionRunThread' &&
+        payload.data?.run_id === runId
       ) {
         await route.fulfill({
           status: 200,

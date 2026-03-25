@@ -76,7 +76,7 @@ describe('ExecutionTelemetryViewer', () => {
     )
 
     const wrapper = mount(ExecutionTelemetryViewer, {
-      props: { taskId: 'task-1' },
+      props: { runId: 'run-1' },
     })
 
     expect(wrapper.get('[data-testid="execution-telemetry-empty"]').text()).toContain(
@@ -151,7 +151,7 @@ describe('ExecutionTelemetryViewer', () => {
     )
 
     const wrapper = mount(ExecutionTelemetryViewer, {
-      props: { taskId: 'task-1' },
+      props: { runId: 'run-1' },
     })
 
     expect(wrapper.text()).toContain('minimax-coding-plan-m2-5-highspeed → minimax-coding-plan-m2-5')
