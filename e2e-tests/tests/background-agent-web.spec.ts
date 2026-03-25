@@ -1,5 +1,11 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
-import { goToWorkspace, requestIpc } from "./helpers";
+import {
+  cleanupTrackedState,
+  createSessionForTest,
+  goToWorkspace,
+  requestIpc,
+  trackCreatedBackgroundTask,
+} from "./helpers";
 
 type BackgroundAgentSummary = {
   id: string;
@@ -9,29 +15,9 @@ type BackgroundAgentSummary = {
 test.describe("Background Agent Web Flow", () => {
   test.describe.configure({ mode: "serial" });
 
-  async function createFreshWorkspaceSession(
-    page: Page,
-  ): Promise<{ sessionId: string; containerId: string }> {
-    await Promise.all([
-      page.waitForURL(/\/workspace\/sessions\/[^/]+$/, { timeout: 15000 }),
-      page.getByRole("button", { name: "New Session" }).click(),
-    ]);
-
-    const sessionMatch = page.url().match(/\/workspace\/sessions\/([^/?#]+)/);
-    const sessionId = sessionMatch?.[1] ?? null;
-    if (!sessionId) {
-      throw new Error("Failed to read the new workspace session id from the URL");
-    }
-
-    await expect(page.getByTestId(`workspace-folder-${sessionId}`)).toBeVisible({
-      timeout: 15000,
-    });
-
-    return {
-      sessionId,
-      containerId: sessionId,
-    };
-  }
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page);
+  });
 
   async function openSessionMenu(page: Page, sessionRow: Locator) {
     const headerRow = sessionRow.locator(":scope > div").first();
@@ -66,9 +52,9 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const { sessionId, containerId } = await createFreshWorkspaceSession(page);
+    const sessionId = await createSessionForTest(page);
 
-    const sessionRow = page.getByTestId(`workspace-folder-${containerId}`);
+    const sessionRow = page.getByTestId(`workspace-folder-${sessionId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
 
     const convertItem = await openSessionMenu(page, sessionRow);
@@ -108,6 +94,7 @@ test.describe("Background Agent Web Flow", () => {
     if (!taskId) {
       throw new Error("Failed to find background agent task after conversion");
     }
+    trackCreatedBackgroundTask(page, taskId);
 
     await expect(page.getByTestId(`background-folder-${taskId}`)).toBeVisible();
   });
@@ -116,9 +103,9 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const { sessionId, containerId } = await createFreshWorkspaceSession(page);
+    const sessionId = await createSessionForTest(page);
 
-    const sessionRow = page.getByTestId(`workspace-folder-${containerId}`);
+    const sessionRow = page.getByTestId(`workspace-folder-${sessionId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
 
     const convertItem = await openSessionMenu(page, sessionRow);
@@ -143,6 +130,7 @@ test.describe("Background Agent Web Flow", () => {
     if (!taskId) {
       throw new Error("Failed to find background agent task after conversion");
     }
+    trackCreatedBackgroundTask(page, taskId);
 
     await expect(
       page.getByRole("button", { name: "Open Run Trace", exact: true }),
@@ -163,9 +151,9 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const { sessionId, containerId } = await createFreshWorkspaceSession(page);
+    const sessionId = await createSessionForTest(page);
 
-    const sessionRow = page.getByTestId(`workspace-folder-${containerId}`);
+    const sessionRow = page.getByTestId(`workspace-folder-${sessionId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
 
     const convertItem = await openSessionMenu(page, sessionRow);
@@ -187,6 +175,7 @@ test.describe("Background Agent Web Flow", () => {
     if (!taskId) {
       throw new Error("Failed to find background agent task after conversion");
     }
+    trackCreatedBackgroundTask(page, taskId);
 
     const folder = page.getByTestId(`background-folder-${taskId}`);
     await expect(folder).toBeVisible();

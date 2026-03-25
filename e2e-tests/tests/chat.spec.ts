@@ -1,5 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
-import { goToWorkspace } from './helpers'
+import { cleanupTrackedState, createSessionForTest, goToWorkspace } from './helpers'
 
 /**
  * Chat Panel E2E Tests
@@ -30,6 +30,11 @@ test.describe('Chat Input', () => {
 
   test.beforeEach(async ({ page }) => {
     await goToWorkspace(page)
+    await createSessionForTest(page)
+  })
+
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
   })
 
   test('can type in chat textarea', async ({ page }) => {

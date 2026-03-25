@@ -1,5 +1,51 @@
 import { expect, Page } from '@playwright/test'
 
+type SessionLike = {
+  id: string
+  agent_id?: string
+  model?: string
+}
+
+type CreateSessionRequest = {
+  agent_id?: string | null
+  model: string
+  name?: string | null
+  skill_id?: string | null
+}
+
+type TrackedState = {
+  sessionIds: Set<string>
+  backgroundTaskIds: Set<string>
+}
+
+const trackedState = new WeakMap<Page, TrackedState>()
+
+function getTrackedState(page: Page): TrackedState {
+  const existing = trackedState.get(page)
+  if (existing) {
+    return existing
+  }
+
+  const created: TrackedState = {
+    sessionIds: new Set(),
+    backgroundTaskIds: new Set(),
+  }
+  trackedState.set(page, created)
+  return created
+}
+
+function isNotFoundError(error: unknown): boolean {
+  return error instanceof Error && /not found/i.test(error.message)
+}
+
+function rememberSessionId(page: Page, sessionId: string) {
+  getTrackedState(page).sessionIds.add(sessionId)
+}
+
+function rememberBackgroundTaskId(page: Page, taskId: string) {
+  getTrackedState(page).backgroundTaskIds.add(taskId)
+}
+
 /**
  * Navigate to the workspace and wait for it to load.
  */
@@ -67,4 +113,101 @@ export async function requestIpc<T>(page: Page, request: Record<string, unknown>
 
     throw new Error(`Unexpected daemon response: ${envelope.response_type}`)
   }, request)
+}
+
+export function trackCreatedSession(page: Page, sessionId: string) {
+  rememberSessionId(page, sessionId)
+}
+
+export function trackCreatedBackgroundTask(page: Page, taskId: string) {
+  rememberBackgroundTaskId(page, taskId)
+}
+
+export async function createSessionForTest(page: Page): Promise<string> {
+  await Promise.all([
+    page.waitForURL(/\/workspace\/sessions\/[^/]+$/, { timeout: 15000 }),
+    page.getByRole('button', { name: 'New Session' }).click(),
+  ])
+
+  await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible({
+    timeout: 15000,
+  })
+
+  const sessionMatch = page.url().match(/\/workspace\/sessions\/([^/?#]+)/)
+  const sessionId = sessionMatch?.[1] ?? null
+  if (!sessionId) {
+    throw new Error('Failed to read the new workspace session id from the URL')
+  }
+
+  rememberSessionId(page, sessionId)
+  return sessionId
+}
+
+export async function createApiSessionForTest(
+  page: Page,
+  request: CreateSessionRequest,
+): Promise<SessionLike> {
+  const session = await requestIpc<SessionLike>(page, {
+    type: 'CreateSession',
+    data: {
+      agent_id: request.agent_id ?? null,
+      model: request.model,
+      name: request.name ?? null,
+      skill_id: request.skill_id ?? null,
+    },
+  })
+
+  rememberSessionId(page, session.id)
+  return session
+}
+
+export async function cleanupTrackedState(page: Page) {
+  const state = trackedState.get(page)
+  if (!state) {
+    return
+  }
+
+  const sessionIds = [...state.sessionIds].reverse()
+  const backgroundTaskIds = [...state.backgroundTaskIds].reverse()
+  trackedState.delete(page)
+
+  const cleanupErrors: string[] = []
+
+  for (const taskId of backgroundTaskIds) {
+    try {
+      await requestIpc<{ deleted?: boolean }>(page, {
+        type: 'DeleteBackgroundAgent',
+        data: { id: taskId },
+      })
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        cleanupErrors.push(
+          `Failed to delete background task ${taskId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+    }
+  }
+
+  for (const sessionId of sessionIds) {
+    try {
+      await requestIpc<{ deleted?: boolean }>(page, {
+        type: 'DeleteSession',
+        data: { id: sessionId },
+      })
+    } catch (error) {
+      if (!isNotFoundError(error)) {
+        cleanupErrors.push(
+          `Failed to delete session ${sessionId}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        )
+      }
+    }
+  }
+
+  if (cleanupErrors.length > 0) {
+    throw new Error(`Failed to clean up E2E state:\n${cleanupErrors.join('\n')}`)
+  }
 }

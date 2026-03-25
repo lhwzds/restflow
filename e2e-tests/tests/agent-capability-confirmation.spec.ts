@@ -1,10 +1,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
-import { goToWorkspace, requestIpc } from './helpers'
-
-type SessionSummary = {
-  id: string
-  updated_at: number
-}
+import {
+  cleanupTrackedState,
+  createSessionForTest,
+  goToWorkspace,
+} from './helpers'
 
 function confirmationError(token: string, message: string) {
   return {
@@ -32,7 +31,8 @@ function confirmationError(token: string, message: string) {
 }
 
 async function openSessionMenu(page: Page, sessionRow: Locator) {
-  const menuTrigger = sessionRow.locator('button').last()
+  const header = sessionRow.locator(':scope > div').first()
+  const menuTrigger = header.locator('button').last()
 
   for (let attempt = 0; attempt < 3; attempt += 1) {
     await sessionRow.hover()
@@ -54,6 +54,10 @@ async function openSessionMenu(page: Page, sessionRow: Locator) {
 }
 
 test.describe('Agent capability confirmation', () => {
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
+  })
+
   test('shows confirmation dialog when create agent needs provider confirmation', async ({ page }) => {
     await page.route('**/api/request', async (route) => {
       const payload = route.request().postDataJSON()
@@ -108,18 +112,12 @@ test.describe('Agent capability confirmation', () => {
     })
 
     await goToWorkspace(page)
-    await page.getByRole('button', { name: 'New Session' }).click()
+    const sessionId = await createSessionForTest(page)
 
-    const sessions = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-    const sessionId = [...sessions].sort((left, right) => right.updated_at - left.updated_at)[0]?.id
-    if (!sessionId) {
-      throw new Error('Failed to locate the newly created workspace session')
-    }
+    const sessionFolder = page.getByTestId(`workspace-folder-${sessionId}`)
+    await expect(sessionFolder).toBeVisible()
 
-    const sessionRow = page.getByTestId(`session-row-${sessionId}`)
-    await expect(sessionRow).toBeVisible()
-
-    const convertItem = await openSessionMenu(page, sessionRow)
+    const convertItem = await openSessionMenu(page, sessionFolder)
     await convertItem.click()
 
     const dialog = page.getByRole('dialog')

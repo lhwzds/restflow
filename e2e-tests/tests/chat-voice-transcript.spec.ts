@@ -1,12 +1,19 @@
 import { test, expect } from '@playwright/test'
-import { goToWorkspace, requestIpc } from './helpers'
+import {
+  cleanupTrackedState,
+  createSessionForTest,
+  goToWorkspace,
+  requestIpc,
+} from './helpers'
 
 test.describe('Chat Voice Transcript', () => {
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
+  })
+
   test('persists structured transcript metadata into chat history', async ({ page }) => {
     await goToWorkspace(page)
-    await page.getByRole('button', { name: 'New Session' }).click()
-
-    type SessionSummary = { id: string; updated_at: number }
+    const sessionId = await createSessionForTest(page)
     type ChatSession = {
       messages?: Array<{
         id: string
@@ -18,12 +25,6 @@ test.describe('Chat Voice Transcript', () => {
     const transcriptText = 'e2e structured transcript'
     const now = Date.now()
     const messageId = `e2e-voice-transcript-${now}`
-
-    const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-    const sessionId = [...summaries].sort((left, right) => right.updated_at - left.updated_at)[0]?.id
-    if (!sessionId) {
-      throw new Error('Failed to locate latest chat session for e2e test')
-    }
 
     await requestIpc<ChatSession>(page, {
       type: 'AppendMessage',
@@ -61,7 +62,8 @@ test.describe('Chat Voice Transcript', () => {
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
-    await page.getByTestId(`session-row-${sessionId}`).click()
+    await page.goto(`/workspace/sessions/${sessionId}`)
+    await page.waitForLoadState('domcontentloaded')
     await expect(page.getByText(transcriptText)).toBeVisible()
   })
 })

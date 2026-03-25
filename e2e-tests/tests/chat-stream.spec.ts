@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { goToWorkspace, requestIpc } from './helpers'
+import {
+  cleanupTrackedState,
+  createSessionForTest,
+  goToWorkspace,
+  requestIpc,
+} from './helpers'
 
 type StreamFrame = {
   stream_type: string
@@ -15,37 +20,9 @@ type StreamFrame = {
   }
 }
 
-type SessionSummary = {
-  id: string
-  updated_at: number
-}
-
 type StreamCollectionOptions = {
   maxFrames: number
   timeoutMs: number
-}
-
-async function waitForLatestSessionId(page: Parameters<typeof goToWorkspace>[0]): Promise<string> {
-  await expect
-    .poll(
-      async () => {
-        const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-        return [...summaries].sort((left, right) => right.updated_at - left.updated_at)[0]?.id ?? null
-      },
-      {
-        timeout: 5000,
-        message: 'Expected a chat session to be created after clicking New Session',
-      },
-    )
-    .not.toBeNull()
-
-  const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-  const sessionId = [...summaries].sort((left, right) => right.updated_at - left.updated_at)[0]?.id
-  if (!sessionId) {
-    throw new Error('No chat session available for stream event test')
-  }
-
-  return sessionId
 }
 
 async function collectSessionFrames(
@@ -126,10 +103,14 @@ test.describe('Chat streaming', () => {
     await goToWorkspace(page)
   })
 
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
+  })
+
   test('receives created session events from the daemon stream endpoint', async ({ page }) => {
     const streamPromise = collectSessionFrames(page)
 
-    await page.getByRole('button', { name: 'New Session' }).click()
+    await createSessionForTest(page)
 
     const frames = await streamPromise
     expect(frames.some((frame) => frame.stream_type === 'Start')).toBe(true)
@@ -138,8 +119,7 @@ test.describe('Chat streaming', () => {
   })
 
   test('receives message-added events from the daemon stream endpoint', async ({ page }) => {
-    await page.getByRole('button', { name: 'New Session' }).click()
-    const sessionId = await waitForLatestSessionId(page)
+    const sessionId = await createSessionForTest(page)
 
     const streamPromise = collectSessionFrames(page)
 

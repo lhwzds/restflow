@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test'
-import { goToWorkspace, requestIpc } from './helpers'
+import {
+  cleanupTrackedState,
+  createSessionForTest,
+  goToWorkspace,
+  requestIpc,
+} from './helpers'
 
 /**
  * Workspace Layout E2E Tests
@@ -12,28 +17,12 @@ import { goToWorkspace, requestIpc } from './helpers'
 test.describe('Workspace Layout', () => {
   test.describe.configure({ mode: 'serial' })
 
-  async function openFreshWorkspaceSession(page: import('@playwright/test').Page) {
-    await Promise.all([
-      page.waitForURL(/\/workspace\/sessions\/[^/]+$/, { timeout: 15000 }),
-      page.getByRole('button', { name: 'New Session' }).click(),
-    ])
-
-    await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible({
-      timeout: 15000,
-    })
-
-    const sessionMatch = page.url().match(/\/workspace\/sessions\/([^/?#]+)/)
-    const sessionId = sessionMatch?.[1] ?? null
-    if (!sessionId) {
-      throw new Error('Failed to read the new workspace session id from the URL')
-    }
-
-    return sessionId
-  }
-
   test.beforeEach(async ({ page }) => {
     await goToWorkspace(page)
-    await openFreshWorkspaceSession(page)
+  })
+
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
   })
 
   test('renders three-column layout', async ({ page }) => {
@@ -97,6 +86,8 @@ test.describe('Workspace Layout', () => {
   })
 
   test('chat input area is visible with agent and model selectors', async ({ page }) => {
+    await createSessionForTest(page)
+
     // Textarea
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible()
 
@@ -105,11 +96,13 @@ test.describe('Workspace Layout', () => {
   })
 
   test('send button is disabled when input is empty', async ({ page }) => {
+    await createSessionForTest(page)
     const sendButton = page.getByTestId('chat-send-button')
     await expect(sendButton).toBeDisabled()
   })
 
   test('send button enables when text is entered', async ({ page }) => {
+    await createSessionForTest(page)
     const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
     await textarea.fill('Hello')
 
@@ -118,13 +111,15 @@ test.describe('Workspace Layout', () => {
   })
 
   test('shows empty state when no messages', async ({ page }) => {
-    await page.getByRole('button', { name: 'New Session' }).click()
+    await createSessionForTest(page)
 
     // Empty state with placeholder text
     await expect(page.locator('text=Start a new conversation')).toBeVisible()
   })
 
   test('keyboard hints are hidden in expanded chat mode', async ({ page }) => {
+    await createSessionForTest(page)
+
     // In workspace layout, chat is always expanded (isExpanded=true),
     // so keyboard hints (Enter/Shift+Enter) are not shown
     const textarea = page.locator('textarea[placeholder*="Ask the agent"]')
@@ -135,7 +130,7 @@ test.describe('Workspace Layout', () => {
   })
 
   test('shows persisted tool steps inline in chat and opens the detail panel', async ({ page }) => {
-    const sessionId = await openFreshWorkspaceSession(page)
+    const sessionId = await createSessionForTest(page)
     const userMessageId = `e2e-user-${Date.now()}`
     const assistantMessageId = `e2e-assistant-${Date.now()}`
 
@@ -198,7 +193,7 @@ test.describe('Workspace Layout', () => {
   test('shows persisted non-tool execution steps inline and opens generic detail view', async ({
     page,
   }) => {
-    const sessionId = await openFreshWorkspaceSession(page)
+    const sessionId = await createSessionForTest(page)
     const assistantMessageId = `e2e-assistant-llm-${Date.now()}`
 
     await requestIpc(page, {
@@ -252,7 +247,7 @@ test.describe('Workspace Layout', () => {
   test('renders canonical session thread order while preserving full chat message content', async ({
     page,
   }) => {
-    const sessionId = await openFreshWorkspaceSession(page)
+    const sessionId = await createSessionForTest(page)
     const baseTime = Date.now()
     const userMessageId = `e2e-thread-user-${Date.now()}`
     const assistantMessageId = `e2e-thread-assistant-${Date.now()}`
@@ -439,12 +434,11 @@ test.describe('Workspace Layout', () => {
 
     await expect(page.getByTestId('thread-item-view-event-tool-1')).toBeVisible()
     await expect(page.getByTestId(`chat-message-${assistantMessageId}`)).toBeVisible()
-    await expect(
-      page.getByText('I found the release notes and summarized the changes in detail.'),
-    ).toBeVisible()
-
     const toolRow = page.getByTestId('thread-item-event-tool-1')
     const assistantRow = page.getByTestId(`chat-message-${assistantMessageId}`)
+    await expect(
+      assistantRow.getByText('I found the release notes and summarized the changes in detail.'),
+    ).toBeVisible()
     const toolAppearsBeforeAssistant = await toolRow.evaluate(
       (toolNode, assistantTestId) => {
         const assistantNode = document.querySelector(`[data-testid="${assistantTestId}"]`)
@@ -461,6 +455,10 @@ test.describe('Workspace Layout', () => {
 test.describe('Session List', () => {
   test.beforeEach(async ({ page }) => {
     await goToWorkspace(page)
+  })
+
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
   })
 
   test('shows session list state', async ({ page }) => {
@@ -491,8 +489,8 @@ test.describe('Session List', () => {
   })
 
   test('New Session button clears current session', async ({ page }) => {
-    const newSessionBtn = page.getByRole('button', { name: 'New Session' })
-    await newSessionBtn.click()
+    await createSessionForTest(page)
+    await createSessionForTest(page)
 
     // Should show empty conversation state
     await expect(page.locator('text=Start a new conversation')).toBeVisible()

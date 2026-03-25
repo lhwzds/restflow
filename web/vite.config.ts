@@ -4,6 +4,8 @@ import vue from '@vitejs/plugin-vue'
 import tailwindcss from '@tailwindcss/vite'
 import path from 'path'
 
+const proxyTarget = process.env.RESTFLOW_VITE_PROXY_TARGET || 'http://127.0.0.1:8787'
+
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
   define: {
@@ -63,8 +65,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': 'http://127.0.0.1:8787',
-      '/mcp': 'http://127.0.0.1:8787',
+      '/api': proxyTarget,
+      '/mcp': proxyTarget,
     },
   },
   resolve: {

@@ -1,7 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { goToWorkspace, requestIpc } from './helpers'
+import {
+  cleanupTrackedState,
+  createApiSessionForTest,
+  goToWorkspace,
+  requestIpc,
+} from './helpers'
 
-type ChatSession = { id: string }
 type ExecutionTimeline = {
   events: unknown[]
   stats: { total_events: number }
@@ -12,17 +16,18 @@ type ExecutionLogResponse = { events: unknown[] }
 type ExecutionTraceStats = { total_events: number }
 
 test.describe('Execution Telemetry', () => {
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
+  })
+
   test('daemon exposes empty telemetry queries for a fresh session', async ({ page }) => {
     await goToWorkspace(page)
 
-    const session = await requestIpc<ChatSession>(page, {
-      type: 'CreateSession',
-      data: {
-        agent_id: null,
-        model: 'gpt-5',
-        name: 'Telemetry E2E Session',
-        skill_id: null,
-      },
+    const session = await createApiSessionForTest(page, {
+      agent_id: null,
+      model: 'gpt-5',
+      name: 'Telemetry E2E Session',
+      skill_id: null,
     })
 
     const timeline = await requestIpc<ExecutionTimeline>(page, {
