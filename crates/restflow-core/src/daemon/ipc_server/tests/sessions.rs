@@ -140,6 +140,23 @@ async fn get_execution_thread_returns_not_found_for_missing_run() {
 }
 
 #[tokio::test]
+async fn get_execution_run_thread_returns_not_found_for_missing_run() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetExecutionRunThread {
+            run_id: "missing-run".to_string(),
+        },
+    )
+    .await;
+
+    assert_execution_thread_error(response, 404, "ExecutionThread not found");
+}
+
+#[tokio::test]
 async fn get_execution_thread_returns_not_found_for_missing_task() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();

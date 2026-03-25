@@ -265,6 +265,9 @@ pub enum IpcRequest {
     ListExecutionSessions {
         query: ExecutionSessionListQuery,
     },
+    GetExecutionRunThread {
+        run_id: String,
+    },
     GetExecutionThread {
         query: ExecutionThreadQuery,
     },

@@ -154,13 +154,6 @@ function buildMessageSelection(message: ChatMessage): ThreadSelection {
     kind: 'message',
     title: `${message.role} message`,
     data: buildMessageSelectionData(message),
-    step: {
-      type: 'message',
-      name: `${message.role} message`,
-      status: 'completed',
-      toolId: `message-${message.id}`,
-      result: stringifyData(buildMessageSelectionData(message)),
-    },
   }
 }
 
@@ -340,13 +333,6 @@ function buildEventSelection(event: ExecutionTraceEvent): ThreadSelection {
     data: {
       event: safeEvent,
     },
-    step: {
-      type: event.category,
-      name: event.tool_call?.tool_name ?? eventTitle(event),
-      status: normalizeStepStatus(eventStatus(event) ?? 'completed'),
-      toolId: event.id,
-      result: stringifyData(safeEvent),
-    },
   }
 }
 
@@ -371,16 +357,6 @@ function buildCanonicalEventSelection(
     data: {
       event: safeEvent,
       message: buildMessageSelectionData(message),
-    },
-    step: {
-      type: event.category,
-      name: event.tool_call?.tool_name ?? eventTitle(event),
-      status: normalizeStepStatus(eventStatus(event) ?? 'completed'),
-      toolId: event.id,
-      result: stringifyData({
-        event: safeEvent,
-        message: buildMessageSelectionData(message),
-      }),
     },
   }
 }
@@ -439,7 +415,7 @@ function buildExecutionEventItem(
     kind,
     title: eventTitle(event),
     summary,
-    body: selection.step?.result ?? null,
+    body: stringifyData(selection.data),
     status: eventStatus(event),
     durationLabel:
       event.llm_call?.duration_ms != null
@@ -459,13 +435,6 @@ function buildChildRunItem(session: ExecutionSessionSummary): ThreadItem {
     data: {
       child_run: session,
     },
-    step: {
-      type: 'child_run_link',
-      name: session.title,
-      status: normalizeStepStatus(session.status === 'failed' ? 'failed' : 'completed'),
-      toolId: `child-run-${session.id}`,
-      result: stringifyData({ child_run: session }),
-    },
   }
 
   return {
@@ -477,7 +446,7 @@ function buildChildRunItem(session: ExecutionSessionSummary): ThreadItem {
     timestampLabel: formatTimestampLabel(session.started_at ?? session.updated_at),
     selection,
     expandable: true,
-    body: selection.step?.result ?? null,
+    body: stringifyData(selection.data),
   }
 }
 
@@ -631,7 +600,7 @@ export function buildSessionThreadItems(input: {
   steps?: StreamStep[]
   streamContent?: string
 }): ThreadItem[] {
-  if (!input.thread || (input.thread.timeline.events.length === 0 && input.thread.child_sessions.length === 0)) {
+  if (!input.thread) {
     const hasPersistedMessages = input.messages.some((message) => !isOptimisticMessage(message))
     if (hasPersistedMessages) {
       return buildChatThreadItems({

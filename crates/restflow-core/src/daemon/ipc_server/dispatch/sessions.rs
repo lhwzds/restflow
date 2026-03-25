@@ -34,20 +34,21 @@ impl IpcServer {
         query: crate::models::ExecutionThreadQuery,
     ) -> IpcResponse {
         let service = ExecutionConsoleService::from_storage(&core.storage);
-        match service.get_execution_thread(&query) {
-            Ok(thread) => IpcResponse::success(thread),
-            Err(ExecutionThreadError::InvalidQuery) => {
-                IpcResponse::error(400, ExecutionThreadError::InvalidQuery.to_string())
-            }
-            Err(
-                ExecutionThreadError::SessionNotFound(_)
-                | ExecutionThreadError::SessionHasNoRuns(_)
-                | ExecutionThreadError::RunNotFound(_)
-                | ExecutionThreadError::TaskNotFound(_)
-                | ExecutionThreadError::TaskHasNoRuns(_),
-            ) => IpcResponse::not_found("ExecutionThread"),
-            Err(ExecutionThreadError::Internal(err)) => IpcResponse::error(500, err.to_string()),
-        }
+        map_execution_thread_response(service.get_execution_thread(&query))
+    }
+
+    pub(super) async fn handle_get_execution_run_thread(
+        core: &Arc<AppCore>,
+        run_id: String,
+    ) -> IpcResponse {
+        let service = ExecutionConsoleService::from_storage(&core.storage);
+        map_execution_thread_response(service.get_execution_thread(
+            &crate::models::ExecutionThreadQuery {
+                session_id: None,
+                run_id: Some(run_id),
+                task_id: None,
+            },
+        ))
     }
 
     pub(super) async fn handle_list_child_execution_sessions(
@@ -461,6 +462,25 @@ impl IpcServer {
             Ok(None) => IpcResponse::not_found("Execution trace"),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
+    }
+}
+
+fn map_execution_thread_response(
+    result: std::result::Result<crate::models::ExecutionThread, ExecutionThreadError>,
+) -> IpcResponse {
+    match result {
+        Ok(thread) => IpcResponse::success(thread),
+        Err(ExecutionThreadError::InvalidQuery) => {
+            IpcResponse::error(400, ExecutionThreadError::InvalidQuery.to_string())
+        }
+        Err(
+            ExecutionThreadError::SessionNotFound(_)
+            | ExecutionThreadError::SessionHasNoRuns(_)
+            | ExecutionThreadError::RunNotFound(_)
+            | ExecutionThreadError::TaskNotFound(_)
+            | ExecutionThreadError::TaskHasNoRuns(_),
+        ) => IpcResponse::not_found("ExecutionThread"),
+        Err(ExecutionThreadError::Internal(err)) => IpcResponse::error(500, err.to_string()),
     }
 }
 

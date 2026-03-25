@@ -34,7 +34,7 @@ import {
   steerTask,
 } from '@/api/background-agents'
 import { BackendError } from '@/api/http-client'
-import { getExecutionThread } from '@/api/execution-console'
+import { getExecutionRunThread } from '@/api/execution-console'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
@@ -231,11 +231,7 @@ async function loadExecutionThread() {
   }
 
   try {
-    const thread = await getExecutionThread({
-      session_id: null,
-      run_id: props.selectedRunId,
-      task_id: null,
-    })
+    const thread = await getExecutionRunThread(props.selectedRunId)
 
     if (version !== loadVersion) return
     executionThread.value = thread
@@ -523,7 +519,6 @@ onMounted(() => {
     </div>
 
     <ExecutionTelemetryViewer
-      :task-id="agent.id"
       :run-id="selectedRunId"
       :hide-timeline="true"
       class="shrink-0 border-t border-border"

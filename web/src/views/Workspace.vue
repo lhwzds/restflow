@@ -35,7 +35,7 @@ import { useTheme } from '@/composables/useTheme'
 import { confirmDelete, useConfirm } from '@/composables/useConfirm'
 import { deleteAgent as deleteAgentApi, listAgents } from '@/api/agents'
 import {
-  getExecutionThread,
+  getExecutionRunThread,
   listExecutionContainers,
   listExecutionSessions,
 } from '@/api/execution-console'
@@ -258,26 +258,43 @@ const routeContainerRunId = computed(() => {
   return String(route.params.runId ?? '').trim()
 })
 
-const routeLegacySessionId = computed(() => {
-  if (route.name !== 'workspace-session') {
-    return ''
-  }
-  return String(route.params.sessionId ?? '').trim()
+const activeContainer = computed(() => {
+  const containerId = activeContainerId.value || routeContainerId.value
+  return containerId ? findContainerById(containerId) : null
 })
 
-const routeLegacyTaskId = computed(() => {
-  if (route.name !== 'workspace-run') {
-    return ''
+const showContainerEmptyState = computed(
+  () =>
+    sidebarMode.value === 'sessions' &&
+    !!routeContainerId.value &&
+    !routeContainerRunId.value &&
+    !selectedSessionId.value,
+)
+
+const containerEmptyStateTitle = computed(() => activeContainer.value?.title ?? 'Container')
+const containerEmptyStateDescription = computed(() => {
+  switch (activeContainer.value?.kind) {
+    case 'background_task':
+      return 'No runs have been created for this background agent yet.'
+    case 'external_channel':
+      return 'No runs have been created for this external channel yet.'
+    default:
+      return 'No runs have been created for this container yet.'
   }
-  return String(route.params.taskId ?? '').trim()
 })
 
-const routeLegacyRunId = computed(() => {
-  if (route.name !== 'workspace-run-id') {
-    return ''
-  }
-  return String(route.params.runId ?? '').trim()
-})
+const chatPanelSelectedRunId = computed(() => activeRunId.value ?? (routeContainerRunId.value || null))
+const chatPanelAutoSelectRecent = computed(() => !routeContainerId.value && !routeContainerRunId.value)
+
+async function clearWorkspaceSelection(containerId: string | null = null) {
+  activeContainerId.value = containerId
+  activeRunId.value = null
+  activeBackgroundTaskId.value =
+    containerId && findContainerById(containerId)?.kind === 'background_task' ? containerId : null
+  selectedSessionId.value = null
+  await chatSessionStore.selectSession(null)
+  toolPanel.clearHistory()
+}
 
 function isExternallyManagedSession(sessionId: string): boolean {
   const container = executionContainers.value.find(
@@ -353,13 +370,7 @@ async function onNewSession() {
 
 function onSwitchToSessions() {
   sidebarMode.value = 'sessions'
-  if (
-    routeContainerId.value ||
-    routeContainerRunId.value ||
-    routeLegacyRunId.value ||
-    routeLegacySessionId.value ||
-    routeLegacyTaskId.value
-  ) {
+  if (routeContainerId.value || routeContainerRunId.value) {
     return
   }
   void router.push({ name: 'workspace' })
@@ -396,9 +407,6 @@ function onThreadLoaded(thread: ExecutionThread | null) {
   const containerId = thread?.focus.container_id ?? null
   if (!runId || !containerId) return
   if (routeContainerRunId.value === runId && routeContainerId.value === containerId) return
-  if (!routeLegacySessionId.value && !routeLegacyTaskId.value && !routeLegacyRunId.value && routeContainerRunId.value) {
-    return
-  }
 
   void router.replace(canonicalContainerRunRoute(containerId, runId))
 }
@@ -579,11 +587,7 @@ async function expandContainerForFocus(focus: ExecutionSessionSummary) {
 }
 
 async function resolveRunRoute(runId: string, version: number, expectedContainerId: string | null = null) {
-  const thread = await getExecutionThread({
-    run_id: runId,
-    session_id: null,
-    task_id: null,
-  })
+  const thread = await getExecutionRunThread(runId)
 
   if (version !== routeResolutionVersion) return
 
@@ -597,7 +601,6 @@ async function resolveRunRoute(runId: string, version: number, expectedContainer
   if (
     routeContainerRunId.value !== runId ||
     routeContainerId.value !== resolvedContainerId ||
-    !!routeLegacyRunId.value ||
     (expectedContainerId && expectedContainerId !== resolvedContainerId)
   ) {
     await router.replace(canonicalContainerRunRoute(resolvedContainerId, runId))
@@ -607,11 +610,7 @@ async function resolveRunRoute(runId: string, version: number, expectedContainer
 async function resolveContainerRoute(containerId: string, version: number) {
   const container = findContainerById(containerId)
   if (!container) {
-    activeContainerId.value = containerId
-    activeRunId.value = null
-    activeBackgroundTaskId.value = null
-    selectedSessionId.value = null
-    await chatSessionStore.selectSession(null)
+    await clearWorkspaceSelection(containerId)
     return
   }
 
@@ -650,46 +649,6 @@ function findContainerBySessionId(sessionId: string): ExecutionContainerSummary 
       (container) => container.id === sessionId || container.latest_session_id === sessionId,
     ) ?? null
   )
-}
-
-async function resolveSessionRoute(sessionId: string, _version: number) {
-  const container = findContainerBySessionId(sessionId)
-
-  if (!container) {
-    activeContainerId.value = sessionId
-    activeRunId.value = null
-    activeBackgroundTaskId.value = null
-    selectedSessionId.value = sessionId
-    await chatSessionStore.selectSession(sessionId)
-    return
-  }
-
-  if (container.latest_run_id) {
-    await router.replace(canonicalContainerRunRoute(container.id, container.latest_run_id))
-    return
-  }
-
-  await router.replace(canonicalContainerRoute(container.id))
-}
-
-async function resolveTaskRoute(taskId: string, _version: number) {
-  const preferredRunId = typeof route.query.runId === 'string' && route.query.runId.trim().length > 0
-    ? route.query.runId.trim()
-    : null
-  if (preferredRunId) {
-    await router.replace(canonicalContainerRunRoute(taskId, preferredRunId))
-    return
-  }
-
-  const container = findContainerById(taskId)
-  const resolvedRunId = container?.latest_run_id ?? null
-
-  if (resolvedRunId) {
-    await router.replace(canonicalContainerRunRoute(taskId, resolvedRunId))
-    return
-  }
-
-  await router.replace(canonicalContainerRoute(taskId))
 }
 
 async function onDeleteSession(id: string, name: string) {
@@ -918,7 +877,7 @@ function resolveAgentDeleteErrorMessage(error: unknown): string {
 watch(
   () => chatSessionStore.currentSessionId,
   (newId) => {
-    if (newId && !routeContainerRunId.value && !routeLegacyTaskId.value && !routeLegacyRunId.value) {
+    if (newId && !routeContainerRunId.value) {
       selectedSessionId.value = newId
       activeContainerId.value = activeContainerId.value ?? newId
     }
@@ -930,8 +889,8 @@ watch([selectedSessionId, routeContainerRunId], () => {
 })
 
 watch(
-  [routeContainerId, routeContainerRunId, routeLegacyRunId, routeLegacySessionId, routeLegacyTaskId, executionContainers],
-  async ([containerId, containerRunId, legacyRunId, legacySessionId, legacyTaskId]) => {
+  [routeContainerId, routeContainerRunId, executionContainers],
+  async ([containerId, containerRunId]) => {
     routeResolutionVersion += 1
     const version = routeResolutionVersion
 
@@ -941,6 +900,14 @@ watch(
 
     try {
       if (containerRunId) {
+        activeContainerId.value = containerId || null
+        activeRunId.value = containerRunId
+        activeBackgroundTaskId.value =
+          containerId && findContainerById(containerId)?.kind === 'background_task'
+            ? containerId
+            : null
+        selectedSessionId.value = null
+        await chatSessionStore.selectSession(null)
         await resolveRunRoute(containerRunId, version, containerId || null)
         return
       }
@@ -950,26 +917,20 @@ watch(
         return
       }
 
-      if (legacyRunId) {
-        await resolveRunRoute(legacyRunId, version)
-        return
-      }
-
-      if (legacyTaskId) {
-        await resolveTaskRoute(legacyTaskId, version)
-        return
-      }
-
-      if (legacySessionId) {
-        await resolveSessionRoute(legacySessionId, version)
-        return
-      }
-
       activeBackgroundTaskId.value = null
       activeRunId.value = null
       selectedSessionId.value = chatSessionStore.currentSessionId
       activeContainerId.value = chatSessionStore.currentSessionId
     } catch (error) {
+      await clearWorkspaceSelection(containerId || null)
+      if (containerRunId && containerId) {
+        const container = findContainerById(containerId)
+        const fallbackRoute =
+          container?.latest_run_id && container.latest_run_id !== containerRunId
+            ? canonicalContainerRoute(containerId)
+            : { name: 'workspace' as const }
+        await router.replace(fallbackRoute)
+      }
       const message = error instanceof Error ? error.message : t('workspace.noSessions')
       toast.error(message)
     }
@@ -1112,10 +1073,22 @@ onUnmounted(() => {
         @mousedown="startSidebarResize"
       />
 
+      <div
+        v-if="showContainerEmptyState"
+        class="flex flex-1 min-w-0 items-center justify-center px-8"
+        data-testid="workspace-container-empty-state"
+      >
+        <div class="max-w-[28rem] space-y-2 text-center">
+          <p class="text-base font-semibold">{{ containerEmptyStateTitle }}</p>
+          <p class="text-sm text-muted-foreground">{{ containerEmptyStateDescription }}</p>
+        </div>
+      </div>
+
       <ChatPanel
-        v-if="sidebarMode === 'sessions'"
-        :selected-run-id="activeRunId"
+        v-else-if="sidebarMode === 'sessions'"
+        :selected-run-id="chatPanelSelectedRunId"
         :background-task-id="activeBackgroundTaskId"
+        :auto-select-recent="chatPanelAutoSelectRecent"
         class="flex-1 min-w-0"
         @show-panel="onShowPanel"
         @tool-result="onToolResult"

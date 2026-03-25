@@ -20,7 +20,7 @@ export interface ToolPanelHistoryEntry {
   panelType: ToolPanelType
   title: string
   data: Record<string, unknown>
-  step: StreamStep
+  step?: StreamStep
   timestamp: number
   status: 'completed' | 'failed'
 }
@@ -32,17 +32,9 @@ export interface ToolPanelState {
   toolId: string
   title: string
   data: Record<string, unknown>
-  step: StreamStep
+  step?: StreamStep
   history: ToolPanelHistoryEntry[]
   historyIndex: number
-}
-
-function stringifyData(value: Record<string, unknown>): string {
-  return JSON.stringify(
-    value,
-    (_key, current) => (typeof current === 'bigint' ? current.toString() : current),
-    2,
-  )
 }
 
 const TOOL_PANEL_MAP: Record<string, ToolPanelType> = {
@@ -74,7 +66,7 @@ function createInitialState(): ToolPanelState {
     toolId: '',
     title: '',
     data: {},
-    step: { type: '', name: '', status: 'running' },
+    step: undefined,
     history: [],
     historyIndex: -1,
   }
@@ -91,6 +83,30 @@ function parseResult(result?: string): Record<string, unknown> {
     return { value: parsed }
   } catch {
     return { raw: result }
+  }
+}
+
+function stringifyUnknown(value: unknown): string {
+  return JSON.stringify(
+    value,
+    (_key, current) => (typeof current === 'bigint' ? current.toString() : current),
+    2,
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function normalizeStepStatus(status: unknown): StreamStep['status'] {
+  switch (status) {
+    case 'completed':
+    case 'failed':
+    case 'pending':
+    case 'running':
+      return status
+    default:
+      return 'completed'
   }
 }
 
@@ -143,17 +159,71 @@ function toPersistedStepTitle(step: StreamStep): string {
   return `${step.type || 'step'}: ${step.name || 'details'}`
 }
 
-function toSyntheticStep(selection: ThreadSelection): StreamStep {
-  return (
-    selection.step ?? {
-      type: selection.kind,
-      name: selection.toolName ?? selection.title,
-      displayName: selection.title,
-      status: 'completed',
-      toolId: selection.id,
-      result: stringifyData(selection.data),
+function toCanonicalToolEventStep(selection: ThreadSelection): StreamStep | null {
+  if (selection.kind !== 'event') return null
+
+  const event = isRecord(selection.data.event) ? selection.data.event : null
+  if (!event || event.category !== 'tool_call') return null
+
+  const toolCall = isRecord(event.tool_call) ? event.tool_call : null
+  const toolName =
+    typeof toolCall?.tool_name === 'string' && toolCall.tool_name.length > 0
+      ? toolCall.tool_name
+      : selection.toolName
+  if (!toolName) return null
+
+  const inputPayload =
+    toolCall?.input ??
+    {
+      input_summary:
+        typeof toolCall?.input_summary === 'string' ? toolCall.input_summary : null,
+      tool_call_id:
+        typeof toolCall?.tool_call_id === 'string' ? toolCall.tool_call_id : null,
     }
-  )
+  const outputPayload =
+    toolCall?.output ??
+    {
+      output_ref:
+        typeof toolCall?.output_ref === 'string' ? toolCall.output_ref : null,
+      error: typeof toolCall?.error === 'string' ? toolCall.error : null,
+      success: typeof toolCall?.success === 'boolean' ? toolCall.success : null,
+      duration_ms:
+        typeof toolCall?.duration_ms === 'number' || typeof toolCall?.duration_ms === 'bigint'
+          ? toolCall.duration_ms
+          : null,
+    }
+
+  return {
+    type: 'tool_call',
+    name: toolName,
+    displayName: toolName,
+    status: normalizeStepStatus(toolCall?.phase),
+    toolId:
+      (typeof toolCall?.tool_call_id === 'string' && toolCall.tool_call_id.length > 0
+        ? toolCall.tool_call_id
+        : selection.id),
+    arguments:
+      typeof inputPayload === 'string' ? inputPayload : stringifyUnknown(inputPayload),
+    result:
+      typeof outputPayload === 'string' ? outputPayload : stringifyUnknown(outputPayload),
+  }
+}
+
+function selectionStatus(selection: ThreadSelection): 'completed' | 'failed' {
+  const rawStatus =
+    typeof selection.data.status === 'string'
+      ? selection.data.status
+      : typeof selection.data.event === 'object' &&
+          selection.data.event &&
+          'lifecycle' in selection.data.event &&
+          selection.data.event.lifecycle &&
+          typeof selection.data.event.lifecycle === 'object' &&
+          'status' in selection.data.event.lifecycle &&
+          typeof selection.data.event.lifecycle.status === 'string'
+        ? selection.data.event.lifecycle.status
+        : 'completed'
+
+  return rawStatus === 'failed' ? 'failed' : 'completed'
 }
 
 export function useToolPanel() {
@@ -248,16 +318,21 @@ export function useToolPanel() {
       return
     }
 
-    const step = toSyntheticStep(selection)
+    const canonicalToolEventStep = toCanonicalToolEventStep(selection)
+    if (canonicalToolEventStep) {
+      handleToolResult(canonicalToolEventStep)
+      return
+    }
+
     appendEntry({
       toolId: selection.id,
-      toolName: selection.toolName ?? step.name ?? selection.title,
+      toolName: selection.toolName ?? selection.title,
       panelType: 'generic',
       title: selection.title,
       data: selection.data,
-      step,
+      step: undefined,
       timestamp: Date.now(),
-      status: step.status === 'failed' ? 'failed' : 'completed',
+      status: selectionStatus(selection),
     })
   }
 

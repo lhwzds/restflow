@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   getExecutionThread,
+  getExecutionRunThread,
   listChildExecutionSessions,
   listExecutionContainers,
   listExecutionSessions,
@@ -53,14 +54,27 @@ describe('execution-console api', () => {
   it('requests execution thread by run id', async () => {
     vi.mocked(requestTyped).mockResolvedValue({ focus: {}, timeline: { events: [], stats: {} }, child_sessions: [] } as any)
 
-    await getExecutionThread({ run_id: 'run-1', task_id: null, session_id: null })
+    await getExecutionRunThread('run-1')
+
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'GetExecutionRunThread',
+      data: {
+        run_id: 'run-1',
+      },
+    })
+  })
+
+  it('keeps the low-level execution thread query API for compatibility', async () => {
+    vi.mocked(requestTyped).mockResolvedValue({ focus: {}, timeline: { events: [], stats: {} }, child_sessions: [] } as any)
+
+    await getExecutionThread({ run_id: null, task_id: 'task-1', session_id: null })
 
     expect(requestTyped).toHaveBeenCalledWith({
       type: 'GetExecutionThread',
       data: {
         query: {
-          run_id: 'run-1',
-          task_id: null,
+          run_id: null,
+          task_id: 'task-1',
           session_id: null,
         },
       },

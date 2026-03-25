@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, ref, toRef } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useExecutionTelemetry } from '@/composables/telemetry/useExecutionTelemetry'
 import type { ExecutionTraceEvent } from '@/types/generated/ExecutionTraceEvent'
 
 const props = defineProps<{
-  taskId: string
   runId?: string | null
   hideTimeline?: boolean
 }>()
@@ -24,7 +23,7 @@ const {
   timelineError,
   metricsError,
   logsError,
-} = useExecutionTelemetry(toRef(props, 'taskId'), runIdRef)
+} = useExecutionTelemetry(runIdRef)
 
 const stats = computed(() => timeline.value?.stats ?? null)
 const timelineEvents = computed(() => timeline.value?.events ?? [])

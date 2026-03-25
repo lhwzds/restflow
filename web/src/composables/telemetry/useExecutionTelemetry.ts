@@ -1,8 +1,8 @@
 import { ref, watch, type Ref } from 'vue'
 import {
-  getExecutionMetrics,
-  getExecutionTimeline,
-  queryExecutionLogs,
+  getRunExecutionMetrics,
+  getRunExecutionTimeline,
+  queryRunExecutionLogs,
 } from '@/api/execution-traces'
 import type { ExecutionLogResponse } from '@/types/generated/ExecutionLogResponse'
 import type { ExecutionMetricsResponse } from '@/types/generated/ExecutionMetricsResponse'
@@ -15,7 +15,7 @@ function toErrorMessage(error: unknown): string {
   return 'Unknown telemetry error'
 }
 
-export function useExecutionTelemetry(taskId: Ref<string>, runId?: Ref<string | null>) {
+export function useExecutionTelemetry(runId: Ref<string | null>) {
   const timeline = ref<ExecutionTimeline | null>(null)
   const metrics = ref<ExecutionMetricsResponse | null>(null)
   const logs = ref<ExecutionLogResponse | null>(null)
@@ -31,11 +31,10 @@ export function useExecutionTelemetry(taskId: Ref<string>, runId?: Ref<string | 
   let loadVersion = 0
 
   async function refresh() {
-    const currentTaskId = taskId.value.trim()
-    const currentRunId = runId?.value?.trim() || null
+    const currentRunId = runId.value?.trim() || null
     const version = ++loadVersion
 
-    if (!currentTaskId && !currentRunId) {
+    if (!currentRunId) {
       timeline.value = null
       metrics.value = null
       logs.value = null
@@ -56,36 +55,9 @@ export function useExecutionTelemetry(taskId: Ref<string>, runId?: Ref<string | 
     logsError.value = null
 
     const [timelineResult, metricsResult, logsResult] = await Promise.allSettled([
-      getExecutionTimeline({
-        task_id: currentTaskId,
-        run_id: currentRunId,
-        parent_run_id: null,
-        session_id: null,
-        turn_id: null,
-        agent_id: null,
-        category: null,
-        source: null,
-        from_timestamp: null,
-        to_timestamp: null,
-        limit: 200,
-        offset: 0,
-      }),
-      getExecutionMetrics({
-        task_id: currentTaskId,
-        run_id: currentRunId,
-        session_id: null,
-        agent_id: null,
-        metric_name: null,
-        limit: 100,
-      }),
-      queryExecutionLogs({
-        task_id: currentTaskId,
-        run_id: currentRunId,
-        session_id: null,
-        agent_id: null,
-        level: null,
-        limit: 100,
-      }),
+      getRunExecutionTimeline(currentRunId),
+      getRunExecutionMetrics(currentRunId),
+      queryRunExecutionLogs(currentRunId),
     ])
 
     if (version !== loadVersion) {
@@ -121,7 +93,7 @@ export function useExecutionTelemetry(taskId: Ref<string>, runId?: Ref<string | 
   }
 
   watch(
-    [taskId, ...(runId ? [runId] : [])],
+    runId,
     () => {
       void refresh()
     },

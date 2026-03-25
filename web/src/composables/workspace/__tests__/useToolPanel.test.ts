@@ -127,7 +127,8 @@ describe('useToolPanel', () => {
     const entry = panel.state.value.history[0]
     expect(entry).toBeDefined()
     expect(entry!.step).toStrictEqual(step)
-    expect(entry!.step.arguments).toBe('{"url":"https://api.example.com","method":"POST"}')
+    expect(entry!.step).toBeDefined()
+    expect(entry!.step?.arguments).toBe('{"url":"https://api.example.com","method":"POST"}')
 
     // step should also be synced to state
     expect(panel.state.value.step).toStrictEqual(step)
@@ -179,7 +180,8 @@ describe('useToolPanel', () => {
     )
 
     expect(panel.state.value.data.stdout).toBe('hello')
-    expect(panel.state.value.step.arguments).toBeUndefined()
+    expect(panel.state.value.step).toBeDefined()
+    expect(panel.state.value.step?.arguments).toBeUndefined()
   })
 
   it('handles non-json arguments gracefully', () => {
@@ -256,6 +258,45 @@ describe('useToolPanel', () => {
     expect(panel.state.value.panelType).toBe('generic')
     expect(panel.state.value.title).toBe('assistant message')
     expect(panel.state.value.data.message_id).toBe('message-1')
-    expect(panel.state.value.step.result).toContain('"content": "Hello"')
+    expect(panel.state.value.step).toBeUndefined()
+  })
+
+  it('maps canonical tool_call events back into tool-specific panels', () => {
+    const panel = useToolPanel()
+    const selection: ThreadSelection = {
+      id: 'event-tool-1',
+      kind: 'event',
+      title: 'http_request',
+      toolName: 'http_request',
+      data: {
+        event: {
+          id: 'event-tool-1',
+          category: 'tool_call',
+          tool_call: {
+            tool_call_id: 'tool-http-1',
+            tool_name: 'http_request',
+            phase: 'completed',
+            input: {
+              method: 'GET',
+              url: 'https://example.com/api',
+            },
+            output: {
+              status: 200,
+              body: {
+                ok: true,
+              },
+            },
+          },
+        },
+      },
+    }
+
+    panel.handleThreadSelection(selection)
+
+    expect(panel.state.value.panelType).toBe('http')
+    expect(panel.state.value.toolId).toBe('tool-http-1')
+    expect(panel.state.value.step?.name).toBe('http_request')
+    expect(panel.state.value.data.status).toBe(200)
+    expect(panel.state.value.data.url).toBe('https://example.com/api')
   })
 })
