@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { goToWorkspace, requestIpc } from './helpers'
+import {
+  cleanupTrackedState,
+  createApiSessionForTest,
+  goToWorkspace,
+  requestIpc,
+} from './helpers'
 
 type SetupData = {
   agentId: string
@@ -10,11 +15,14 @@ type SetupData = {
 }
 
 test.describe('ModelRef Persistence', () => {
+  test.afterEach(async ({ page }) => {
+    await cleanupTrackedState(page)
+  })
+
   test('persists agent model_ref after switching chat model via UI', async ({ page }) => {
     await goToWorkspace(page)
 
     type ModelMetadata = { model: string; provider: string; name: string }
-    type SessionSummary = { id: string; agent_id: string; model: string }
     type StoredAgentLike = {
       agent?: {
         model?: string
@@ -25,17 +33,12 @@ test.describe('ModelRef Persistence', () => {
       }
     }
 
-    await page.getByRole('button', { name: 'New Session' }).click()
-    const summaries = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-
-    if (summaries.length === 0) {
-      throw new Error('No chat session summaries available for model_ref persistence test')
-    }
-
-    const targetSession = summaries[0]
-    if (!targetSession) {
-      throw new Error('No target session available for model_ref persistence test')
-    }
+    const targetSession = await createApiSessionForTest(page, {
+      agent_id: null,
+      model: 'gpt-5',
+      name: 'Model Ref Persistence E2E Session',
+      skill_id: null,
+    })
 
     const allModels = await requestIpc<ModelMetadata[]>(page, { type: 'GetAvailableModels' })
     const preferredModelIds = [
@@ -56,6 +59,9 @@ test.describe('ModelRef Persistence', () => {
     if (!targetModel) {
       return
     }
+    if (!targetSession.agent_id) {
+      throw new Error('Created test session did not return an agent id')
+    }
 
     const setup: SetupData = {
       agentId: targetSession.agent_id,
@@ -65,7 +71,8 @@ test.describe('ModelRef Persistence', () => {
       targetModelName: targetModel.name,
     }
 
-    await page.getByTestId(`session-row-${setup.sessionId}`).click()
+    await page.goto(`/workspace/sessions/${setup.sessionId}`)
+    await page.waitForLoadState('domcontentloaded')
 
     const modelSelector = page
       .locator('button[role="combobox"]')

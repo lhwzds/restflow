@@ -15,36 +15,35 @@ concurrency:
 jobs:
   e2e-tests:
     runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and start RestFlow
-        run: docker compose up -d --build
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
 
-      - name: Wait for RestFlow to be ready
-        run: |
-          echo "Waiting for RestFlow to start..."
-          for i in {1..30}; do
-            if curl -sf -X POST http://localhost:8787/mcp \
-              -H "Content-Type: application/json" \
-              -H "Accept: application/json, text/event-stream" \
-              -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"e2e-check","version":"0.1.0"}}}' \
-              >/dev/null 2>&1; then
-              echo "✅ RestFlow MCP server is running!"
-              exit 0
-            fi
-            echo "Attempt $i/30..."
-            sleep 3
-          done
-          echo "❌ RestFlow failed to start"
-          docker compose logs
-          exit 1
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/bin
+            ~/.cargo/registry/index
+            ~/.cargo/registry/cache
+            ~/.cargo/git/db
+            target
+          key: ${{ runner.os }}-cargo-e2e-${{ hashFiles('Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-e2e-
+
+      - name: Build RestFlow CLI
+        run: cargo build --package restflow-cli
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Cache E2E dependencies
         uses: actions/cache@v4
@@ -67,29 +66,7 @@ jobs:
           cd web
           npm ci
 
-      - name: Start frontend server
-        run: |
-          cd web
-          npm run dev -- --host 0.0.0.0 --port 5173 > /tmp/restflow-web.log 2>&1 &
-          echo "WEB_PID=$!" >> "$GITHUB_ENV"
-
-      - name: Wait for frontend to be ready
-        run: |
-          for i in {1..60}; do
-            if curl -sf http://localhost:5173/workspace >/dev/null 2>&1; then
-              echo "✅ Frontend server is running!"
-              exit 0
-            fi
-            echo "Waiting for frontend ($i/60)..."
-            sleep 2
-          done
-          echo "❌ Frontend failed to start"
-          cat /tmp/restflow-web.log || true
-          exit 1
-
       - name: Run E2E tests
-        env:
-          BASE_URL: http://localhost:5173
         run: |
           cd e2e-tests
           npm test
@@ -109,18 +86,3 @@ jobs:
           name: test-videos
           path: e2e-tests/test-results/
           retention-days: 7
-
-      - name: Show Docker logs on failure
-        if: failure()
-        run: docker compose logs
-
-      - name: Show frontend logs on failure
-        if: failure()
-        run: cat /tmp/restflow-web.log || true
-
-      - name: Stop frontend server
-        if: always()
-        run: |
-          if [ -n "${WEB_PID:-}" ]; then
-            kill "$WEB_PID" || true
-          fi

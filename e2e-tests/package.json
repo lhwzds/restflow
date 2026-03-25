@@ -3,9 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "test": "playwright test",
-    "test:ui": "playwright test --ui",
-    "test:headed": "playwright test --headed",
+    "playwright": "playwright test",
+    "test": "node ./scripts/run-isolated-e2e.mjs",
+    "test:ui": "node ./scripts/run-isolated-e2e.mjs --ui",
+    "test:headed": "node ./scripts/run-isolated-e2e.mjs --headed",
     "test:report": "playwright show-report"
   },
   "devDependencies": {
