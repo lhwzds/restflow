@@ -7,7 +7,7 @@
  * - Center: Unified execution thread panel
  * - Right: Tool panel / inspector
  */
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { Settings, Moon, Sun, Bot, MessageSquare } from 'lucide-vue-next'
@@ -93,7 +93,62 @@ const convertSessionId = ref('')
 const convertSessionName = ref('')
 
 const createAgentDialogOpen = ref(false)
+const DEFAULT_SIDEBAR_RATIO = 0.2
+const MIN_SIDEBAR_RATIO = 0.16
+const MAX_SIDEBAR_RATIO = 0.34
+const SIDEBAR_RATIO_STORAGE_KEY = 'workspace-sidebar-ratio'
+const workspaceContentRef = ref<HTMLElement | null>(null)
+const sidebarRatio = ref(DEFAULT_SIDEBAR_RATIO)
+const isSidebarResizing = ref(false)
+const sidebarResizeStartX = ref(0)
+const sidebarResizeStartRatio = ref(DEFAULT_SIDEBAR_RATIO)
 let routeResolutionVersion = 0
+
+const sidebarStyle = computed(() => ({
+  width: `${(sidebarRatio.value * 100).toFixed(2)}%`,
+}))
+
+function clampSidebarRatio(value: number): number {
+  return Math.min(MAX_SIDEBAR_RATIO, Math.max(MIN_SIDEBAR_RATIO, value))
+}
+
+function persistSidebarRatio(ratio: number) {
+  window.localStorage.setItem(SIDEBAR_RATIO_STORAGE_KEY, String(ratio))
+}
+
+function workspaceContentWidth(): number {
+  return workspaceContentRef.value?.clientWidth || window.innerWidth || 1
+}
+
+function applySidebarRatio(ratio: number) {
+  const nextRatio = clampSidebarRatio(ratio)
+  sidebarRatio.value = nextRatio
+  persistSidebarRatio(nextRatio)
+}
+
+function handleSidebarResizeMove(event: MouseEvent) {
+  if (!isSidebarResizing.value) return
+  const containerWidth = workspaceContentWidth()
+  if (containerWidth <= 0) return
+  const delta = event.clientX - sidebarResizeStartX.value
+  applySidebarRatio(sidebarResizeStartRatio.value + delta / containerWidth)
+}
+
+function stopSidebarResize() {
+  if (!isSidebarResizing.value) return
+  isSidebarResizing.value = false
+  document.body.style.cursor = ''
+  document.body.style.userSelect = ''
+}
+
+function startSidebarResize(event: MouseEvent) {
+  isSidebarResizing.value = true
+  sidebarResizeStartX.value = event.clientX
+  sidebarResizeStartRatio.value = sidebarRatio.value
+  document.body.style.cursor = 'col-resize'
+  document.body.style.userSelect = 'none'
+  event.preventDefault()
+}
 
 function normalizeSessionStatus(status: string, isSelected: boolean): WorkspaceSessionFolder['status'] {
   if (isSelected && isSending.value) {
@@ -879,10 +934,23 @@ watch(convertDialogOpen, (open, previous) => {
 })
 
 onMounted(() => {
+  const savedSidebarRatio = Number(window.localStorage.getItem(SIDEBAR_RATIO_STORAGE_KEY))
+  if (Number.isFinite(savedSidebarRatio) && savedSidebarRatio > 0) {
+    sidebarRatio.value = clampSidebarRatio(savedSidebarRatio)
+  }
+
+  window.addEventListener('mousemove', handleSidebarResizeMove)
+  window.addEventListener('mouseup', stopSidebarResize)
   void loadAgents()
   void backgroundAgentStore.fetchAgents()
   void chatSessionStore.fetchSummaries()
   void refreshNavigationProjection()
+})
+
+onUnmounted(() => {
+  window.removeEventListener('mousemove', handleSidebarResizeMove)
+  window.removeEventListener('mouseup', stopSidebarResize)
+  stopSidebarResize()
 })
 </script>
 
@@ -890,8 +958,12 @@ onMounted(() => {
   <div class="h-screen flex bg-background" data-testid="workspace-shell">
     <SettingsPanel v-if="showSettings" class="flex-1" @back="showSettings = false" />
 
-    <div v-show="!showSettings" class="flex flex-1 min-w-0">
-      <div class="w-56 border-r border-border shrink-0 flex flex-col">
+    <div v-show="!showSettings" ref="workspaceContentRef" class="flex flex-1 min-w-0" data-testid="workspace-content">
+      <div
+        class="border-r border-border shrink-0 flex flex-col"
+        :style="sidebarStyle"
+        data-testid="workspace-sidebar"
+      >
         <div class="h-10 shrink-0 flex items-center pr-2">
           <div class="w-[5rem] shrink-0" data-testid="workspace-traffic-safe-zone" />
           <div
@@ -982,6 +1054,13 @@ onMounted(() => {
           </Button>
         </div>
       </div>
+
+      <div
+        class="w-1 shrink-0 cursor-col-resize bg-transparent transition-colors hover:bg-primary/20"
+        :class="isSidebarResizing ? 'bg-primary/20' : ''"
+        data-testid="workspace-sidebar-resizer"
+        @mousedown="startSidebarResize"
+      />
 
       <ChatPanel
         v-if="sidebarMode === 'sessions'"
