@@ -25,6 +25,12 @@ const router = createRouter({
       component: () => import('../views/Workspace.vue'),
       meta: { titleKey: 'common.brandName' },
     },
+    {
+      path: '/workspace/run/:runId',
+      name: 'workspace-run-id',
+      component: () => import('../views/Workspace.vue'),
+      meta: { titleKey: 'common.brandName' },
+    },
   ],
 })
 

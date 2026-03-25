@@ -44,10 +44,22 @@ import {
 } from '@/utils/operationAssessment'
 import { buildVoiceMessageContent } from './voiceMessageContent'
 
+const props = withDefaults(
+  defineProps<{
+    selectedRunId?: string | null
+    backgroundTaskId?: string | null
+  }>(),
+  {
+    selectedRunId: null,
+    backgroundTaskId: null,
+  },
+)
+
 const emit = defineEmits<{
   showPanel: [resultJson: string]
   toolResult: [step: StreamStep]
   threadSelection: [selection: ThreadSelection]
+  threadLoaded: [thread: ExecutionThread | null]
 }>()
 
 const toast = useToast()
@@ -118,6 +130,9 @@ const durationMs = computed(() => chatStream.duration.value)
 
 // Background agent linked to current session (if any)
 const linkedBgAgent = computed(() => {
+  if (props.backgroundTaskId) {
+    return backgroundAgentStore.agents.find((agent) => agent.id === props.backgroundTaskId) ?? null
+  }
   const sessionId = chatSessionStore.currentSessionId
   if (!sessionId) return null
   return backgroundAgentStore.agentBySessionId(sessionId)
@@ -163,6 +178,15 @@ async function handleBgStop() {
 }
 
 function handleOpenRunTrace() {
+  const runId = props.selectedRunId || executionThread.value?.focus.run_id || null
+  if (runId) {
+    void router.push({
+      name: 'workspace-run-id',
+      params: { runId },
+    })
+    return
+  }
+
   if (!linkedBgAgent.value) return
   void router.push({
     name: 'workspace-run',
@@ -228,37 +252,41 @@ watch(
 async function loadExecutionThreadForSession(sessionId: string | null) {
   const requestVersion = ++executionThreadLoadVersion
 
-  if (!sessionId) {
+  if (!sessionId && !props.selectedRunId) {
     executionThread.value = null
+    emit('threadLoaded', null)
     return
   }
 
   try {
     const thread = await getExecutionThread({
-      session_id: sessionId,
-      run_id: null,
+      session_id: props.selectedRunId ? null : sessionId,
+      run_id: props.selectedRunId,
       task_id: null,
     })
 
     if (requestVersion !== executionThreadLoadVersion) return
     executionThread.value = thread
+    emit('threadLoaded', thread)
   } catch (error) {
     if (requestVersion !== executionThreadLoadVersion) return
 
     if (error instanceof BackendError && error.code === 404) {
       executionThread.value = null
+      emit('threadLoaded', null)
       return
     }
 
     console.warn('Failed to load execution thread for session:', error)
     executionThread.value = null
+    emit('threadLoaded', null)
   }
 }
 
 watch(
-  () => chatSessionStore.currentSessionId,
-  (sessionId) => {
-    void loadExecutionThreadForSession(sessionId)
+  () => [chatSessionStore.currentSessionId, props.selectedRunId],
+  ([sessionId]) => {
+    void loadExecutionThreadForSession(sessionId ?? null)
   },
   { immediate: true },
 )

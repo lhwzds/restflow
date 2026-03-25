@@ -7,25 +7,7 @@ import type { Provider } from '@/types/generated/Provider'
 
 export type SessionStatus = 'pending' | 'running' | 'completed' | 'failed'
 
-export interface SessionItem {
-  id: string
-  name: string
-  status: SessionStatus
-  updatedAt: number
-  subtitle?: string | null
-  agentId?: string
-  agentName?: string
-  containerId?: string | null
-  sourceChannel?: ChatSessionSource | null
-  /** Indicates the chat session is bound to a background agent task. */
-  isBackgroundSession?: boolean
-  /** Background task ID when the session is bound to a background agent. */
-  backgroundTaskId?: string | null
-  /** If true, this item represents a background agent, not a chat session */
-  isBackgroundAgent?: boolean
-}
-
-export interface BackgroundRunItem {
+export interface RunListItem {
   id: string
   title: string
   status: string
@@ -33,25 +15,41 @@ export interface BackgroundRunItem {
   runId?: string | null
 }
 
+export interface WorkspaceSessionFolder {
+  containerId: string
+  sessionId: string
+  name: string
+  subtitle?: string | null
+  status: SessionStatus
+  updatedAt: number
+  expanded: boolean
+  agentId?: string
+  agentName?: string
+  sourceChannel?: ChatSessionSource | null
+  runs: RunListItem[]
+}
+
 export interface BackgroundTaskFolder {
   taskId: string
+  chatSessionId?: string | null
   name: string
   subtitle?: string | null
   status: string
   updatedAt: number
   expanded: boolean
-  runs: BackgroundRunItem[]
+  runs: RunListItem[]
 }
 
 export interface ExternalChannelFolder {
   containerId: string
+  latestSessionId?: string | null
   name: string
   subtitle?: string | null
   status?: string | null
   updatedAt: number
   expanded: boolean
   sourceChannel?: ChatSessionSource | null
-  sessions: SessionItem[]
+  runs: RunListItem[]
 }
 
 export interface AgentFile {

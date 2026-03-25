@@ -1,11 +1,6 @@
 import { expect, test, type Locator, type Page } from "@playwright/test";
 import { goToWorkspace, requestIpc } from "./helpers";
 
-type SessionSummary = {
-  id: string;
-  updated_at: number;
-};
-
 type BackgroundAgentSummary = {
   id: string;
   chat_session_id?: string | null;
@@ -14,43 +9,33 @@ type BackgroundAgentSummary = {
 test.describe("Background Agent Web Flow", () => {
   test.describe.configure({ mode: "serial" });
 
-  async function createFreshWorkspaceSession(page: Page): Promise<string> {
-    const beforeSessions = await requestIpc<SessionSummary[]>(page, {
-      type: "ListSessions",
-    });
-    const beforeIds = new Set(beforeSessions.map((session) => session.id));
+  async function createFreshWorkspaceSession(
+    page: Page,
+  ): Promise<{ sessionId: string; containerId: string }> {
+    await Promise.all([
+      page.waitForURL(/\/workspace\/sessions\/[^/]+$/, { timeout: 15000 }),
+      page.getByRole("button", { name: "New Session" }).click(),
+    ]);
 
-    await page.getByRole("button", { name: "New Session" }).click();
-
-    await expect
-      .poll(async () => {
-        const sessions = await requestIpc<SessionSummary[]>(page, {
-          type: "ListSessions",
-        });
-        const created = sessions.find((session) => !beforeIds.has(session.id));
-        return created?.id ?? null;
-      })
-      .not.toBeNull();
-
-    const afterSessions = await requestIpc<SessionSummary[]>(page, {
-      type: "ListSessions",
-    });
-    const created = afterSessions.find((session) => !beforeIds.has(session.id));
-    if (!created) {
-      throw new Error("Failed to locate the newly created workspace session");
+    const sessionMatch = page.url().match(/\/workspace\/sessions\/([^/?#]+)/);
+    const sessionId = sessionMatch?.[1] ?? null;
+    if (!sessionId) {
+      throw new Error("Failed to read the new workspace session id from the URL");
     }
 
-    await page.goto(`/workspace/sessions/${created.id}`);
-    await page.waitForLoadState("domcontentloaded");
-    await expect(page.getByTestId(`session-row-${created.id}`)).toBeVisible({
+    await expect(page.getByTestId(`workspace-folder-${sessionId}`)).toBeVisible({
       timeout: 15000,
     });
 
-    return created.id;
+    return {
+      sessionId,
+      containerId: sessionId,
+    };
   }
 
   async function openSessionMenu(page: Page, sessionRow: Locator) {
-    const menuTrigger = sessionRow.locator("button").last();
+    const headerRow = sessionRow.locator(":scope > div").first();
+    const menuTrigger = headerRow.locator("button").last();
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       await sessionRow.scrollIntoViewIfNeeded();
@@ -81,9 +66,9 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const sessionId = await createFreshWorkspaceSession(page);
+    const { sessionId, containerId } = await createFreshWorkspaceSession(page);
 
-    const sessionRow = page.getByTestId(`session-row-${sessionId}`);
+    const sessionRow = page.getByTestId(`workspace-folder-${containerId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
 
     const convertItem = await openSessionMenu(page, sessionRow);
@@ -131,9 +116,9 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const sessionId = await createFreshWorkspaceSession(page);
+    const { sessionId, containerId } = await createFreshWorkspaceSession(page);
 
-    const sessionRow = page.getByTestId(`session-row-${sessionId}`);
+    const sessionRow = page.getByTestId(`workspace-folder-${containerId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
 
     const convertItem = await openSessionMenu(page, sessionRow);
@@ -169,10 +154,7 @@ test.describe("Background Agent Web Flow", () => {
     await expect(page.getByTestId("workspace-shell")).toBeVisible({
       timeout: 15000,
     });
-    await expect(page.getByTestId("workspace-run-panel")).toBeVisible({
-      timeout: 15000,
-    });
-    await expect(page.getByTestId("background-agent-panel")).toBeVisible({
+    await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible({
       timeout: 15000,
     });
   });
@@ -181,9 +163,9 @@ test.describe("Background Agent Web Flow", () => {
     page,
   }) => {
     await goToWorkspace(page);
-    const sessionId = await createFreshWorkspaceSession(page);
+    const { sessionId, containerId } = await createFreshWorkspaceSession(page);
 
-    const sessionRow = page.getByTestId(`session-row-${sessionId}`);
+    const sessionRow = page.getByTestId(`workspace-folder-${containerId}`);
     await expect(sessionRow).toBeVisible({ timeout: 15000 });
 
     const convertItem = await openSessionMenu(page, sessionRow);
@@ -208,8 +190,11 @@ test.describe("Background Agent Web Flow", () => {
 
     const folder = page.getByTestId(`background-folder-${taskId}`);
     await expect(folder).toBeVisible();
-    await folder.getByRole("button").click();
+    const emptyRunState = folder.getByTestId("background-run-empty");
+    if ((await emptyRunState.count()) === 0) {
+      await folder.getByRole("button", { name: /background folder/i }).click();
+    }
 
-    await expect(page.getByText("No runs yet")).toBeVisible();
+    await expect(emptyRunState).toBeVisible();
   });
 });

@@ -1,10 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { goToWorkspace, requestIpc } from './helpers'
 
-type SessionSummary = {
-  id: string
-}
-
 /**
  * Workspace Layout E2E Tests
  *
@@ -14,31 +10,25 @@ type SessionSummary = {
  * - Right: Canvas panel (shown on demand)
  */
 test.describe('Workspace Layout', () => {
+  test.describe.configure({ mode: 'serial' })
+
   async function openFreshWorkspaceSession(page: import('@playwright/test').Page) {
-    const beforeSessions = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-    const beforeIds = new Set(beforeSessions.map((session) => session.id))
-
-    await page.getByRole('button', { name: 'New Session' }).click()
-
-    await expect
-      .poll(async () => {
-        const sessions = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-        const created = sessions.find((session) => !beforeIds.has(session.id))
-        return created?.id ?? null
-      })
-      .not.toBeNull()
+    await Promise.all([
+      page.waitForURL(/\/workspace\/sessions\/[^/]+$/, { timeout: 15000 }),
+      page.getByRole('button', { name: 'New Session' }).click(),
+    ])
 
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible({
       timeout: 15000,
     })
 
-    const afterSessions = await requestIpc<SessionSummary[]>(page, { type: 'ListSessions' })
-    const created = afterSessions.find((session) => !beforeIds.has(session.id))
-    if (!created) {
-      throw new Error('Failed to locate the newly created workspace session')
+    const sessionMatch = page.url().match(/\/workspace\/sessions\/([^/?#]+)/)
+    const sessionId = sessionMatch?.[1] ?? null
+    if (!sessionId) {
+      throw new Error('Failed to read the new workspace session id from the URL')
     }
 
-    return created.id
+    return sessionId
   }
 
   test.beforeEach(async ({ page }) => {
@@ -234,6 +224,7 @@ test.describe('Workspace Layout', () => {
     page,
   }) => {
     const sessionId = await openFreshWorkspaceSession(page)
+    const baseTime = Date.now()
     const userMessageId = `e2e-thread-user-${Date.now()}`
     const assistantMessageId = `e2e-thread-assistant-${Date.now()}`
 
@@ -245,7 +236,7 @@ test.describe('Workspace Layout', () => {
           id: userMessageId,
           role: 'user',
           content: 'Find the latest release notes',
-          timestamp: Date.now(),
+          timestamp: baseTime,
           execution: null,
         },
       },
@@ -259,7 +250,7 @@ test.describe('Workspace Layout', () => {
           id: assistantMessageId,
           role: 'assistant',
           content: 'I found the release notes and summarized the changes in detail.',
-          timestamp: Date.now() + 1,
+          timestamp: baseTime + 1,
           execution: null,
         },
       },
@@ -285,19 +276,21 @@ test.describe('Workspace Layout', () => {
                 title: 'Session focus',
                 subtitle: null,
                 status: 'completed',
-                source_kind: 'workspace_session',
+                kind: 'workspace_run',
                 container_id: sessionId,
                 task_id: null,
                 run_id: null,
                 parent_run_id: null,
                 session_id: sessionId,
                 agent_id: 'agent-1',
-                requested_model: 'gpt-5',
                 effective_model: 'gpt-5',
-                provider: 'openai',
-                started_at: Date.now(),
+                provider: null,
+                started_at: baseTime,
                 ended_at: null,
-                updated_at: Date.now(),
+                updated_at: baseTime + 2,
+                source_channel: 'workspace',
+                source_conversation_id: null,
+                event_count: 3,
               },
               timeline: {
                 events: [
@@ -307,7 +300,7 @@ test.describe('Workspace Layout', () => {
                     agent_id: 'agent-1',
                     category: 'message',
                     source: 'agent_executor',
-                    timestamp: Date.now(),
+                    timestamp: baseTime,
                     subflow_path: [],
                     run_id: null,
                     parent_run_id: null,
@@ -336,7 +329,7 @@ test.describe('Workspace Layout', () => {
                     agent_id: 'agent-1',
                     category: 'tool_call',
                     source: 'agent_executor',
-                    timestamp: Date.now() + 1,
+                    timestamp: baseTime + 1,
                     subflow_path: [],
                     run_id: null,
                     parent_run_id: null,
@@ -367,7 +360,7 @@ test.describe('Workspace Layout', () => {
                     agent_id: 'agent-1',
                     category: 'message',
                     source: 'agent_executor',
-                    timestamp: Date.now() + 2,
+                    timestamp: baseTime + 2,
                     subflow_path: [],
                     run_id: null,
                     parent_run_id: null,
@@ -443,22 +436,28 @@ test.describe('Session List', () => {
 
   test('shows session list state', async ({ page }) => {
     await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
+    await expect
+      .poll(async () => {
+        const workspaceCount = await page.locator('[data-testid^="workspace-folder-"]').count()
+        const backgroundCount = await page.locator('[data-testid^="background-folder-"]').count()
+        const externalCount = await page.locator('[data-testid^="external-folder-"]').count()
+        const emptyCount = await page.getByTestId('session-empty-state').count()
+        return workspaceCount + backgroundCount + externalCount + emptyCount > 0
+      })
+      .toBe(true)
 
-    const sessionRows = page.locator('[data-testid^="session-row-"]')
-    const backgroundFolders = page.locator('[data-testid^="background-folder-"]')
-    const rowCount = await sessionRows.count()
-    const folderCount = await backgroundFolders.count()
-
-    if (rowCount > 0) {
-      await expect(sessionRows.first()).toBeVisible()
+    if ((await page.locator('[data-testid^="workspace-folder-"]').count()) > 0) {
+      await expect(page.locator('[data-testid^="workspace-folder-"]').first()).toBeVisible()
       return
     }
-
-    if (folderCount > 0) {
-      await expect(backgroundFolders.first()).toBeVisible()
+    if ((await page.locator('[data-testid^="background-folder-"]').count()) > 0) {
+      await expect(page.locator('[data-testid^="background-folder-"]').first()).toBeVisible()
       return
     }
-
+    if ((await page.locator('[data-testid^="external-folder-"]').count()) > 0) {
+      await expect(page.locator('[data-testid^="external-folder-"]').first()).toBeVisible()
+      return
+    }
     await expect(page.getByTestId('session-empty-state')).toBeVisible()
   })
 

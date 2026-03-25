@@ -8,215 +8,67 @@ vi.mock('vue-i18n', () => ({
   }),
 }))
 
+function mountSessionList(props: Record<string, unknown>) {
+  return mount(SessionList, {
+    props: props as any,
+    global: {
+      stubs: {
+        Button: {
+          template: '<button><slot /></button>',
+        },
+        DropdownMenu: {
+          template: '<div><slot /></div>',
+        },
+        DropdownMenuTrigger: {
+          template: '<div><slot /></div>',
+        },
+        DropdownMenuContent: {
+          template: '<div><slot /></div>',
+        },
+        DropdownMenuItem: {
+          template: '<button><slot /></button>',
+        },
+        DropdownMenuSeparator: {
+          template: '<div />',
+        },
+      },
+    },
+  })
+}
+
 describe('SessionList', () => {
-  it('strips channel session prefix from displayed chat session names', () => {
-    const wrapper = mount(SessionList, {
-      props: {
-        workspaceSessions: [
-          {
-            id: 'session-channel',
-            name: 'channel:7686400336',
-            status: 'completed',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-            sourceChannel: 'telegram',
-          },
-          {
-            id: 'session-normal',
-            name: 'Regular Session',
-            status: 'pending',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-          },
-          {
-            id: 'session-background-prefix',
-            name: 'Background: Daily Report',
-            status: 'completed',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-          },
-        ],
-        currentSessionId: null,
-      },
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenu: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuTrigger: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuContent: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuItem: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuSeparator: {
-            template: '<div />',
-          },
+  it('renders workspace folders with nested runs and session actions', async () => {
+    const wrapper = mountSessionList({
+      workspaceFolders: [
+        {
+          containerId: 'session-1',
+          sessionId: 'session-1',
+          name: 'Workspace Session',
+          subtitle: 'Latest reply',
+          status: 'completed',
+          updatedAt: Date.now(),
+          expanded: true,
+          agentName: 'Agent One',
+          sourceChannel: 'workspace',
+          runs: [
+            {
+              id: 'run-summary-1',
+              title: 'Run #1',
+              status: 'completed',
+              updatedAt: Date.now(),
+              runId: 'run-1',
+            },
+          ],
         },
-      },
+      ],
+      backgroundFolders: [],
+      externalFolders: [],
+      currentContainerId: 'session-1',
+      currentRunId: null,
     })
 
-    const text = wrapper.text()
-    expect(text).toContain('7686400336')
-    expect(text).toContain('Regular Session')
-    expect(text).toContain('Daily Report')
-    expect(text).toContain('workspace.sessionSource.telegram')
-    expect(text).not.toContain('channel:7686400336')
-    expect(text).not.toContain('Background: Daily Report')
-  })
-
-  it('shows a background tag for sessions linked to background agents', () => {
-    const wrapper = mount(SessionList, {
-      props: {
-        workspaceSessions: [
-          {
-            id: 'session-bg',
-            name: 'Bound Session',
-            status: 'completed',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-            sourceChannel: 'workspace',
-            isBackgroundSession: true,
-          },
-        ],
-        currentSessionId: null,
-      },
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenu: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuTrigger: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuContent: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuItem: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuSeparator: {
-            template: '<div />',
-          },
-        },
-      },
-    })
-
-    const text = wrapper.text()
-    expect(text).toContain('workspace.background')
-    expect(text).not.toContain('workspace.sessionSource.workspace')
-  })
-
-  it('uses the background tag instead of source tags when a session is marked as background', () => {
-    const wrapper = mount(SessionList, {
-      props: {
-        workspaceSessions: [
-          {
-            id: 'session-bg-telegram',
-            name: 'Background Task Session',
-            status: 'completed',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-            sourceChannel: 'telegram',
-            isBackgroundSession: true,
-          },
-        ],
-        currentSessionId: null,
-      },
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenu: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuTrigger: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuContent: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuItem: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuSeparator: {
-            template: '<div />',
-          },
-        },
-      },
-    })
-
-    const text = wrapper.text()
-    expect(text).toContain('workspace.background')
-    expect(text).not.toContain('workspace.sessionSource.telegram')
-  })
-
-  it('emits session actions from list controls', async () => {
-    const wrapper = mount(SessionList, {
-      props: {
-        workspaceSessions: [
-          {
-            id: 'session-channel',
-            name: 'channel:7686400336',
-            status: 'completed',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-            sourceChannel: 'telegram',
-          },
-          {
-            id: 'session-workspace',
-            name: 'Workspace Session',
-            status: 'completed',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-            sourceChannel: 'workspace',
-          },
-          {
-            id: 'session-background',
-            name: 'Background: Focus Task',
-            status: 'completed',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-            sourceChannel: 'workspace',
-            isBackgroundSession: true,
-            backgroundTaskId: 'task-background',
-          },
-        ],
-        currentSessionId: null,
-      },
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenu: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuTrigger: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuContent: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuItem: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenuSeparator: {
-            template: '<div />',
-          },
-        },
-      },
-    })
+    expect(wrapper.get('[data-testid="workspace-folder-session-1"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]')).toBeTruthy()
 
     const findButton = (label: string) => {
       const button = wrapper.findAll('button').find((item) => item.text().includes(label))
@@ -224,123 +76,46 @@ describe('SessionList', () => {
       return button!
     }
 
-    await findButton('workspace.newSession').trigger('click')
-    await findButton('workspace.session.rebuild').trigger('click')
+    await wrapper.get('[data-testid="workspace-folder-session-1"]').find('button').trigger('click')
+    await wrapper.get('[data-testid="workspace-run-session-1-run-1"]').trigger('click')
     await findButton('workspace.session.rename').trigger('click')
     await findButton('workspace.session.convertToBackground').trigger('click')
-    await findButton('workspace.session.viewRunTrace').trigger('click')
-    await findButton('workspace.session.convertToWorkspace').trigger('click')
     await findButton('workspace.session.archive').trigger('click')
     await findButton('workspace.session.delete').trigger('click')
 
-    expect(wrapper.emitted('newSession')).toEqual([[]])
-    expect(wrapper.emitted('rebuild')).toEqual([['session-channel', '7686400336']])
-    expect(wrapper.emitted('rename')).toEqual([['session-workspace', 'Workspace Session']])
-    expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([
-      ['session-workspace', 'Workspace Session'],
-    ])
-    expect(wrapper.emitted('viewRunTrace')).toEqual([['task-background']])
-    expect(wrapper.emitted('convertToWorkspaceSession')).toEqual([
-      ['session-background', 'Focus Task'],
-    ])
-    expect(wrapper.emitted('archive')).toEqual([['session-workspace', 'Workspace Session']])
-    expect(wrapper.emitted('delete')).toEqual([['session-workspace', 'Workspace Session']])
-  })
-
-  it('renders a larger menu trigger hit area for session actions', () => {
-    const wrapper = mount(SessionList, {
-      props: {
-        workspaceSessions: [
-          {
-            id: 'session-workspace',
-            name: 'Workspace Session',
-            status: 'completed',
-            updatedAt: Date.now(),
-            agentName: 'Agent One',
-            sourceChannel: 'workspace',
-          },
-        ],
-        currentSessionId: null,
-      },
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenu: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuTrigger: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuContent: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuItem: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenuSeparator: {
-            template: '<div />',
-          },
-        },
-      },
-    })
-
-    const triggerButton = wrapper
-      .findAll('button')
-      .find((button) => button.classes().includes('h-8') && button.classes().includes('w-8'))
-
-    expect(triggerButton).toBeDefined()
+    expect(wrapper.emitted('toggleWorkspaceFolder')).toEqual([['session-1']])
+    expect(wrapper.emitted('selectRun')).toEqual([['run-1']])
+    expect(wrapper.emitted('rename')).toEqual([['session-1', 'Workspace Session']])
+    expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([['session-1', 'Workspace Session']])
+    expect(wrapper.emitted('archive')).toEqual([['session-1', 'Workspace Session']])
+    expect(wrapper.emitted('delete')).toEqual([['session-1', 'Workspace Session']])
   })
 
   it('renders background folders and emits toggle/select events', async () => {
-    const wrapper = mount(SessionList, {
-      props: {
-        workspaceSessions: [],
-        currentSessionId: null,
-        backgroundFolders: [
-          {
-            taskId: 'task-1',
-            name: 'Daily Digest',
-            status: 'completed',
-            updatedAt: Date.now(),
-            expanded: true,
-            runs: [
-              {
-                id: 'run-summary-1',
-                title: 'Run #1',
-                status: 'completed',
-                updatedAt: Date.now(),
-                runId: 'run-1',
-              },
-            ],
-          },
-        ],
-        currentBackgroundTaskId: 'task-1',
-        currentBackgroundRunId: 'run-1',
-      },
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenu: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuTrigger: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuContent: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuItem: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenuSeparator: {
-            template: '<div />',
-          },
+    const wrapper = mountSessionList({
+      workspaceFolders: [],
+      backgroundFolders: [
+        {
+          taskId: 'task-1',
+          chatSessionId: 'session-task-1',
+          name: 'Daily Digest',
+          status: 'completed',
+          updatedAt: Date.now(),
+          expanded: true,
+          runs: [
+            {
+              id: 'run-summary-1',
+              title: 'Run #1',
+              status: 'completed',
+              updatedAt: Date.now(),
+              runId: 'run-1',
+            },
+          ],
         },
-      },
+      ],
+      externalFolders: [],
+      currentContainerId: 'task-1',
+      currentRunId: 'run-1',
     })
 
     expect(wrapper.text()).toContain('Background Agents')
@@ -351,71 +126,79 @@ describe('SessionList', () => {
     await wrapper.get('[data-testid="background-run-task-1-run-1"]').trigger('click')
 
     expect(wrapper.emitted('toggleBackgroundTask')).toEqual([['task-1']])
-    expect(wrapper.emitted('selectBackgroundRun')).toEqual([['task-1', 'run-1']])
+    expect(wrapper.emitted('selectRun')).toEqual([['run-1']])
   })
 
-  it('renders external channel folders and emits toggle/select events', async () => {
-    const wrapper = mount(SessionList, {
-      props: {
-        workspaceSessions: [],
-        currentSessionId: 'external-session-1',
-        externalFolders: [
-          {
-            containerId: 'telegram:conversation-1',
-            name: 'conversation-1',
-            subtitle: 'Latest external session',
-            status: 'active',
-            updatedAt: Date.now(),
-            expanded: true,
-            sourceChannel: 'telegram',
-            sessions: [
-              {
-                id: 'external-session-1',
-                name: 'channel:123456',
-                status: 'completed',
-                updatedAt: Date.now(),
-                agentName: 'Agent One',
-                sourceChannel: 'telegram',
-              },
-            ],
-          },
-        ],
-      },
-      global: {
-        stubs: {
-          Button: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenu: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuTrigger: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuContent: {
-            template: '<div><slot /></div>',
-          },
-          DropdownMenuItem: {
-            template: '<button><slot /></button>',
-          },
-          DropdownMenuSeparator: {
-            template: '<div />',
-          },
+  it('renders external folders with nested runs and rebuild action', async () => {
+    const wrapper = mountSessionList({
+      workspaceFolders: [],
+      backgroundFolders: [],
+      externalFolders: [
+        {
+          containerId: 'telegram:conversation-1',
+          latestSessionId: 'session-telegram-1',
+          name: 'channel:123456',
+          subtitle: 'Latest external session',
+          status: 'active',
+          updatedAt: Date.now(),
+          expanded: true,
+          sourceChannel: 'telegram',
+          runs: [
+            {
+              id: 'run-external-1',
+              title: 'Run #1',
+              status: 'completed',
+              updatedAt: Date.now(),
+              runId: 'run-external-1',
+            },
+          ],
         },
-      },
+      ],
+      currentContainerId: 'telegram:conversation-1',
+      currentRunId: 'run-external-1',
     })
 
-    expect(wrapper.text()).toContain('External Channels')
     expect(wrapper.get('[data-testid="external-folder-telegram:conversation-1"]')).toBeTruthy()
-    expect(wrapper.get('[data-testid="external-session-external-session-1"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="external-run-telegram:conversation-1-run-external-1"]')).toBeTruthy()
+    expect(wrapper.text()).toContain('workspace.sessionSource.telegram')
+    expect(wrapper.text()).toContain('123456')
 
     await wrapper
       .get('[data-testid="external-folder-telegram:conversation-1"]')
       .find('button')
       .trigger('click')
-    await wrapper.get('[data-testid="external-session-external-session-1"]').trigger('click')
+    await wrapper.get('[data-testid="external-run-telegram:conversation-1-run-external-1"]').trigger('click')
+
+    const rebuildButton = wrapper.findAll('button').find((item) => item.text().includes('workspace.session.rebuild'))
+    expect(rebuildButton).toBeDefined()
+    await rebuildButton!.trigger('click')
 
     expect(wrapper.emitted('toggleExternalChannel')).toEqual([['telegram:conversation-1']])
-    expect(wrapper.emitted('select')).toEqual([['external-session-1']])
+    expect(wrapper.emitted('selectRun')).toEqual([['run-external-1']])
+    expect(wrapper.emitted('rebuild')).toEqual([['session-telegram-1', '123456']])
+  })
+
+  it('shows an empty run placeholder for workspace folders without runs', async () => {
+    const wrapper = mountSessionList({
+      workspaceFolders: [
+        {
+          containerId: 'session-empty',
+          sessionId: 'session-empty',
+          name: 'Draft Session',
+          subtitle: null,
+          status: 'pending',
+          updatedAt: Date.now(),
+          expanded: true,
+          runs: [],
+        },
+      ],
+      backgroundFolders: [],
+      externalFolders: [],
+      currentContainerId: 'session-empty',
+      currentRunId: null,
+    })
+
+    await wrapper.get('[data-testid="workspace-run-empty"]').trigger('click')
+    expect(wrapper.emitted('selectContainer')).toEqual([['workspace', 'session-empty']])
   })
 })
