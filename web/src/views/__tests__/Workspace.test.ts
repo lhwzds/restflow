@@ -212,6 +212,7 @@ describe('Workspace', () => {
     vi.clearAllMocks()
     mockRouterPush.mockReset()
     mockRouterReplace.mockReset()
+    window.localStorage.clear()
     mockRoute.name = 'workspace'
     mockRoute.params = {}
     mockRoute.query = {}
@@ -406,5 +407,33 @@ describe('Workspace', () => {
       params: { runId: 'run-1' },
     })
     expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(true)
+  })
+
+  it('allows resizing the left sidebar width with drag constraints', async () => {
+    Object.defineProperty(window, 'innerWidth', {
+      configurable: true,
+      writable: true,
+      value: 1000,
+    })
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    const sidebar = wrapper.get('[data-testid="workspace-sidebar"]')
+    const resizer = wrapper.get('[data-testid="workspace-sidebar-resizer"]')
+
+    expect(sidebar.attributes('style')).toContain('width: 20.00%')
+
+    await resizer.trigger('mousedown', { clientX: 200 })
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 320 }))
+    await flushPromises()
+
+    expect(sidebar.attributes('style')).toContain('width: 32.00%')
+
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 999 }))
+    await flushPromises()
+
+    expect(sidebar.attributes('style')).toContain('width: 34.00%')
+
+    window.dispatchEvent(new MouseEvent('mouseup'))
   })
 })

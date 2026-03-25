@@ -56,6 +56,35 @@ test.describe('Workspace Layout', () => {
     await expect(buttons).toHaveCount(2)
   })
 
+  test('allows dragging the left sidebar to increase its width', async ({ page }) => {
+    const sidebar = page.getByTestId('workspace-sidebar')
+    const resizer = page.getByTestId('workspace-sidebar-resizer')
+    await expect(sidebar).toBeVisible()
+    await expect(resizer).toBeVisible()
+
+    const before = await sidebar.boundingBox()
+    if (!before) {
+      throw new Error('Failed to read the initial sidebar width')
+    }
+
+    const handle = await resizer.boundingBox()
+    if (!handle) {
+      throw new Error('Failed to read the sidebar resizer bounds')
+    }
+
+    await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+    await page.mouse.down()
+    await page.mouse.move(handle.x + 96, handle.y + handle.height / 2, { steps: 8 })
+    await page.mouse.up()
+
+    await expect
+      .poll(async () => {
+        const after = await sidebar.boundingBox()
+        return after?.width ?? 0
+      })
+      .toBeGreaterThan(before.width)
+  })
+
   test('New Session button is visible', async ({ page }) => {
     const newSessionBtn = page.getByRole('button', { name: 'New Session' })
     await expect(newSessionBtn).toBeVisible()
