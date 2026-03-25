@@ -62,7 +62,7 @@ test.describe('Chat Voice Transcript', () => {
     await page.reload()
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
-    await page.goto(`/workspace/sessions/${sessionId}`)
+    await page.goto(`/workspace/c/${sessionId}`)
     await page.waitForLoadState('domcontentloaded')
     await expect(page.getByText(transcriptText)).toBeVisible()
   })

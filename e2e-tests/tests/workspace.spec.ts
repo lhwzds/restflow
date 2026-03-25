@@ -177,7 +177,7 @@ test.describe('Workspace Layout', () => {
       },
     })
 
-    await page.goto(`/workspace/sessions/${sessionId}`)
+    await page.goto(`/workspace/c/${sessionId}`)
     await page.waitForLoadState('domcontentloaded')
 
     const persistedStep = page.getByTestId(`persisted-step-${assistantMessageId}-0`)
@@ -231,7 +231,7 @@ test.describe('Workspace Layout', () => {
       },
     })
 
-    await page.goto(`/workspace/sessions/${sessionId}`)
+    await page.goto(`/workspace/c/${sessionId}`)
     await page.waitForLoadState('domcontentloaded')
 
     await expect(page.getByTestId(`persisted-step-${assistantMessageId}-0`)).toBeVisible()
@@ -248,6 +248,7 @@ test.describe('Workspace Layout', () => {
     page,
   }) => {
     const sessionId = await createSessionForTest(page)
+    const runId = 'run-1'
     const baseTime = Date.now()
     const userMessageId = `e2e-thread-user-${Date.now()}`
     const assistantMessageId = `e2e-thread-assistant-${Date.now()}`
@@ -282,12 +283,12 @@ test.describe('Workspace Layout', () => {
 
     await page.route('**/api/request', async (route) => {
       const payload = route.request().postDataJSON() as
-        | { type?: string; data?: { query?: { session_id?: string | null } } }
+        | { type?: string; data?: { query?: { run_id?: string | null } } }
         | undefined
 
       if (
         payload?.type === 'GetExecutionThread' &&
-        payload.data?.query?.session_id === sessionId
+        payload.data?.query?.run_id === runId
       ) {
         await route.fulfill({
           status: 200,
@@ -303,7 +304,7 @@ test.describe('Workspace Layout', () => {
                 kind: 'workspace_run',
                 container_id: sessionId,
                 task_id: null,
-                run_id: null,
+                run_id: runId,
                 parent_run_id: null,
                 session_id: sessionId,
                 agent_id: 'agent-1',
@@ -326,7 +327,7 @@ test.describe('Workspace Layout', () => {
                     source: 'agent_executor',
                     timestamp: baseTime,
                     subflow_path: [],
-                    run_id: null,
+                    run_id: runId,
                     parent_run_id: null,
                     session_id: sessionId,
                     turn_id: 'turn-1',
@@ -355,7 +356,7 @@ test.describe('Workspace Layout', () => {
                     source: 'agent_executor',
                     timestamp: baseTime + 1,
                     subflow_path: [],
-                    run_id: null,
+                    run_id: runId,
                     parent_run_id: null,
                     session_id: sessionId,
                     turn_id: 'turn-1',
@@ -386,7 +387,7 @@ test.describe('Workspace Layout', () => {
                     source: 'agent_executor',
                     timestamp: baseTime + 2,
                     subflow_path: [],
-                    run_id: null,
+                    run_id: runId,
                     parent_run_id: null,
                     session_id: sessionId,
                     turn_id: 'turn-1',
@@ -429,7 +430,7 @@ test.describe('Workspace Layout', () => {
       await route.continue()
     })
 
-    await page.goto(`/workspace/sessions/${sessionId}`)
+    await page.goto(`/workspace/c/${sessionId}/r/${runId}`)
     await page.waitForLoadState('domcontentloaded')
 
     await expect(page.getByTestId('thread-item-view-event-tool-1')).toBeVisible()

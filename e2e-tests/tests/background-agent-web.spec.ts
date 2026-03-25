@@ -131,6 +131,8 @@ test.describe("Background Agent Web Flow", () => {
       throw new Error("Failed to find background agent task after conversion");
     }
     trackCreatedBackgroundTask(page, taskId);
+    await page.goto(`/workspace/c/${taskId}`);
+    await page.waitForLoadState("domcontentloaded");
 
     const runId = `run-${Date.now()}`;
     await page.route("**/api/request", async (route) => {
@@ -175,7 +177,7 @@ test.describe("Background Agent Web Flow", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Open Run Trace", exact: true }).click();
 
-    await expect(page).toHaveURL(new RegExp(`/workspace/run/${runId}$`));
+    await expect(page).toHaveURL(new RegExp(`/workspace/c/${taskId}/r/${runId}$`));
     await page.waitForLoadState("domcontentloaded");
     await expect(page.getByTestId("workspace-shell")).toBeVisible({
       timeout: 15000,

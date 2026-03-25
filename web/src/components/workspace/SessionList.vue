@@ -56,7 +56,7 @@ const { t } = useI18n()
 const emit = defineEmits<{
   newSession: []
   selectContainer: [kind: 'workspace' | 'background_task' | 'external_channel', containerId: string]
-  selectRun: [runId: string]
+  selectRun: [containerId: string, runId: string]
   rename: [id: string, currentName: string]
   archive: [id: string, name: string]
   delete: [id: string, name: string]
@@ -236,7 +236,7 @@ function isContainerSelected(containerId: string): boolean {
                 isRunSelected(run.runId) && 'bg-muted',
               )
             "
-            @click="run.runId && emit('selectRun', run.runId)"
+            @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
           >
             <component
               :is="normalizeStatusIcon(run.status)"
@@ -344,7 +344,7 @@ function isContainerSelected(containerId: string): boolean {
                 isRunSelected(run.runId) && 'bg-muted',
               )
             "
-            @click="run.runId && emit('selectRun', run.runId)"
+            @click="run.runId && emit('selectRun', folder.taskId, run.runId)"
           >
             <component
               :is="normalizeStatusIcon(run.status)"
@@ -442,7 +442,7 @@ function isContainerSelected(containerId: string): boolean {
                 isRunSelected(run.runId) && 'bg-muted',
               )
             "
-            @click="run.runId && emit('selectRun', run.runId)"
+            @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
           >
             <component
               :is="normalizeStatusIcon(run.status)"

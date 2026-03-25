@@ -582,6 +582,20 @@ function appendLiveOverlays(items: ThreadItem[], steps: StreamStep[] | undefined
   }
 }
 
+function isOptimisticMessage(message: ChatMessage): boolean {
+  return message.id.startsWith('optimistic-')
+}
+
+function buildTransientMessageItems(messages: ChatMessage[]): ThreadItem[] {
+  return [...messages]
+    .filter(isOptimisticMessage)
+    .sort((left, right) => {
+      const delta = toSortTime(left.timestamp) - toSortTime(right.timestamp)
+      return delta !== 0 ? delta : left.id.localeCompare(right.id)
+    })
+    .map((message) => buildMessageItem(message))
+}
+
 export function buildExecutionThreadItems(thread: ExecutionThread | null): ThreadItem[] {
   if (!thread) return []
 
@@ -618,11 +632,18 @@ export function buildSessionThreadItems(input: {
   streamContent?: string
 }): ThreadItem[] {
   if (!input.thread || (input.thread.timeline.events.length === 0 && input.thread.child_sessions.length === 0)) {
-    return buildChatThreadItems({
-      messages: input.messages,
-      steps: input.steps,
-      streamContent: input.streamContent,
-    })
+    const hasPersistedMessages = input.messages.some((message) => !isOptimisticMessage(message))
+    if (hasPersistedMessages) {
+      return buildChatThreadItems({
+        messages: input.messages,
+        steps: input.steps,
+        streamContent: input.streamContent,
+      })
+    }
+
+    const items = buildTransientMessageItems(input.messages)
+    appendLiveOverlays(items, input.steps, input.streamContent)
+    return items
   }
 
   const canonicalEvents = [...input.thread.timeline.events]

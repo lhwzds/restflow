@@ -125,7 +125,7 @@ export function trackCreatedBackgroundTask(page: Page, taskId: string) {
 
 export async function createSessionForTest(page: Page): Promise<string> {
   await Promise.all([
-    page.waitForURL(/\/workspace\/sessions\/[^/]+$/, { timeout: 15000 }),
+    page.waitForURL(/\/workspace\/c\/[^/?#]+$/, { timeout: 15000 }),
     page.getByRole('button', { name: 'New Session' }).click(),
   ])
 
@@ -133,7 +133,7 @@ export async function createSessionForTest(page: Page): Promise<string> {
     timeout: 15000,
   })
 
-  const sessionMatch = page.url().match(/\/workspace\/sessions\/([^/?#]+)/)
+  const sessionMatch = page.url().match(/\/workspace\/c\/([^/?#]+)/)
   const sessionId = sessionMatch?.[1] ?? null
   if (!sessionId) {
     throw new Error('Failed to read the new workspace session id from the URL')
