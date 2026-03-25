@@ -34,7 +34,7 @@ test.describe('Execution Telemetry', () => {
       type: 'GetExecutionTimeline',
       data: {
         query: {
-          task_id: session.id,
+          task_id: null,
           run_id: null,
           session_id: session.id,
           turn_id: null,
@@ -55,7 +55,8 @@ test.describe('Execution Telemetry', () => {
       type: 'GetExecutionMetrics',
       data: {
         query: {
-          task_id: session.id,
+          task_id: null,
+          run_id: null,
           session_id: session.id,
           agent_id: null,
           metric_name: null,
@@ -81,7 +82,8 @@ test.describe('Execution Telemetry', () => {
       type: 'QueryExecutionLogs',
       data: {
         query: {
-          task_id: session.id,
+          task_id: null,
+          run_id: null,
           session_id: session.id,
           agent_id: null,
           level: null,
@@ -94,7 +96,7 @@ test.describe('Execution Telemetry', () => {
     const stats = await requestIpc<ExecutionTraceStats>(page, {
       type: 'GetExecutionTraceStats',
       data: {
-        task_id: session.id,
+        task_id: null,
       },
     })
     expect(stats.total_events).toBe(0)

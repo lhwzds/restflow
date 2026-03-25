@@ -27,7 +27,7 @@ import {
   subscribeSessionEvents,
   type UnlistenFn,
 } from '@/api/chat-session'
-import { getExecutionThread } from '@/api/execution-console'
+import { getExecutionThread, listExecutionSessions } from '@/api/execution-console'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
@@ -177,10 +177,10 @@ async function handleBgStop() {
   await backgroundAgentStore.stopAgent(linkedBgAgent.value.id)
 }
 
-function handleOpenRunTrace() {
+async function handleOpenRunTrace() {
   const runId = props.selectedRunId || executionThread.value?.focus.run_id || null
   if (runId) {
-    void router.push({
+    await router.push({
       name: 'workspace-run-id',
       params: { runId },
     })
@@ -188,7 +188,27 @@ function handleOpenRunTrace() {
   }
 
   if (!linkedBgAgent.value) return
-  void router.push({
+
+  try {
+    const runs = await listExecutionSessions({
+      container: {
+        kind: 'background_task',
+        id: linkedBgAgent.value.id,
+      },
+    })
+    const latestRunId = runs.find((entry) => !!entry.run_id)?.run_id ?? null
+    if (latestRunId) {
+      await router.push({
+        name: 'workspace-run-id',
+        params: { runId: latestRunId },
+      })
+      return
+    }
+  } catch (error) {
+    console.warn('Failed to resolve latest background run for trace view:', error)
+  }
+
+  await router.push({
     name: 'workspace-run',
     params: { taskId: linkedBgAgent.value.id },
   })
