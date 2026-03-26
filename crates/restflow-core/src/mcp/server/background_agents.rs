@@ -91,30 +91,35 @@ impl RestFlowMcpServer {
                 let trace_fetch_limit = offset.saturating_add(limit).max(limit);
                 let mut filtered_traces = Vec::new();
                 for task in &scoped_tasks {
-                    let session_id = if task.chat_session_id.trim().is_empty() {
-                        task.id.as_str()
-                    } else {
-                        task.chat_session_id.as_str()
-                    };
-                    let traces = self
+                    let runs = self
                         .backend
-                        .query_execution_traces(ExecutionTraceQuery {
-                            task_id: Some(task.id.clone()),
-                            session_id: Some(session_id.to_string()),
-                            limit: Some(trace_fetch_limit),
-                            ..ExecutionTraceQuery::default()
+                        .list_execution_sessions(ExecutionSessionListQuery {
+                            container: ExecutionContainerRef {
+                                kind: ExecutionContainerKind::BackgroundTask,
+                                id: task.id.clone(),
+                            },
                         })
                         .await
-                        .map_err(|e| format!("Failed to list traces: {}", e))?;
-                    filtered_traces.extend(traces.into_iter().filter(|trace| {
-                        Self::trace_matches_category(trace, category.as_deref())
-                            && Self::trace_matches_source(trace, source_filter.as_deref())
-                            && Self::trace_matches_time_range(
-                                trace,
-                                params.from_time_ms,
-                                params.to_time_ms,
-                            )
-                    }));
+                        .map_err(|e| format!("Failed to list runs: {}", e))?;
+                    for run in runs {
+                        let Some(run_id) = run.run_id.as_deref() else {
+                            continue;
+                        };
+                        let traces = self
+                            .backend
+                            .query_execution_run_traces(run_id, trace_fetch_limit)
+                            .await
+                            .map_err(|e| format!("Failed to list traces: {}", e))?;
+                        filtered_traces.extend(traces.into_iter().filter(|trace| {
+                            Self::trace_matches_category(trace, category.as_deref())
+                                && Self::trace_matches_source(trace, source_filter.as_deref())
+                                && Self::trace_matches_time_range(
+                                    trace,
+                                    params.from_time_ms,
+                                    params.to_time_ms,
+                                )
+                        }));
+                    }
                 }
 
                 filtered_traces

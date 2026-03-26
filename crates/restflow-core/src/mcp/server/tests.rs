@@ -2,7 +2,7 @@ use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
     AgentNode, ApiKeyConfig, BackgroundAgentSchedule, ChannelSessionBinding, ChatSession,
-    ChatSessionSource, ModelId, Skill, SkillReference,
+    ChatSessionSource, ExecutionSessionKind, ModelId, Skill, SkillReference,
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
@@ -1245,6 +1245,33 @@ impl McpBackend for MockBackend {
 
     async fn list_deliverables(&self, _task_id: &str) -> Result<Vec<Deliverable>, String> {
         Ok(Vec::new())
+    }
+
+    async fn list_execution_sessions(
+        &self,
+        query: ExecutionSessionListQuery,
+    ) -> Result<Vec<ExecutionSessionSummary>, String> {
+        Ok(vec![ExecutionSessionSummary {
+            id: format!("{}-run-summary", query.container.id),
+            kind: ExecutionSessionKind::BackgroundRun,
+            container_id: query.container.id.clone(),
+            title: "Mock Run".to_string(),
+            subtitle: None,
+            status: "completed".to_string(),
+            updated_at: 1,
+            started_at: None,
+            ended_at: None,
+            session_id: Some(self.session.id.clone()),
+            run_id: Some("run-123".to_string()),
+            task_id: Some(query.container.id),
+            parent_run_id: None,
+            agent_id: Some(self.session.agent_id.clone()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 1,
+        }])
     }
 
     async fn query_execution_traces(

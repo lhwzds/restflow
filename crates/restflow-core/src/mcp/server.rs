@@ -9,10 +9,11 @@ use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
     BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundProgress,
-    ChatSession, ChatSessionSummary, Deliverable, ExecutionTraceCategory, ExecutionTraceEvent,
-    ExecutionTraceQuery, ExecutionTraceSource, Hook, HookAction, HookEvent, HookFilter,
-    MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats, ModelId,
-    SearchMode, Skill, SkillStatus, ValidationError,
+    ChatSession, ChatSessionSummary, Deliverable, ExecutionContainerKind, ExecutionContainerRef,
+    ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTraceCategory,
+    ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource, Hook, HookAction, HookEvent,
+    HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
+    ModelId, SearchMode, Skill, SkillStatus, ValidationError,
 };
 use crate::services::{
     operation_assessment::OperationAssessorAdapter,
@@ -143,6 +144,10 @@ pub trait McpBackend: Send + Sync {
         limit: usize,
     ) -> Result<Vec<BackgroundMessage>, String>;
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String>;
+    async fn list_execution_sessions(
+        &self,
+        query: ExecutionSessionListQuery,
+    ) -> Result<Vec<ExecutionSessionSummary>, String>;
 
     async fn query_execution_traces(
         &self,
