@@ -129,7 +129,7 @@ test.describe('Workspace Layout', () => {
     await expect(page.locator('text=Shift+Enter')).not.toBeVisible()
   })
 
-  test('shows persisted tool steps inline in chat and opens the detail panel', async ({ page }) => {
+  test('keeps legacy sessions readable without rendering synthetic persisted tool steps', async ({ page }) => {
     const sessionId = await createSessionForTest(page)
     const userMessageId = `e2e-user-${Date.now()}`
     const assistantMessageId = `e2e-assistant-${Date.now()}`
@@ -181,16 +181,11 @@ test.describe('Workspace Layout', () => {
     await page.waitForLoadState('domcontentloaded')
 
     const persistedStep = page.getByTestId(`persisted-step-${assistantMessageId}-0`)
-    await expect(persistedStep).toBeVisible()
+    await expect(persistedStep).toHaveCount(0)
     await expect(page.getByTestId(`chat-message-${assistantMessageId}`)).toBeVisible()
-
-    await page.getByTestId(`persisted-step-view-${assistantMessageId}-0`).click()
-
-    await expect(page.getByTestId('generic-json-panel')).toBeVisible()
-    await expect(page.locator('text=Detailed persisted tool payload is not available yet.')).toBeVisible()
   })
 
-  test('shows persisted non-tool execution steps inline and opens generic detail view', async ({
+  test('keeps legacy non-tool execution summaries inside the message body without synthetic inline steps', async ({
     page,
   }) => {
     const sessionId = await createSessionForTest(page)
@@ -234,14 +229,9 @@ test.describe('Workspace Layout', () => {
     await page.goto(`/workspace/c/${sessionId}`)
     await page.waitForLoadState('domcontentloaded')
 
-    await expect(page.getByTestId(`persisted-step-${assistantMessageId}-0`)).toBeVisible()
-    await expect(page.getByTestId(`persisted-step-${assistantMessageId}-1`)).toBeVisible()
-
-    await page.getByTestId(`persisted-step-view-${assistantMessageId}-1`).click()
-
-    await expect(page.getByTestId('generic-json-panel')).toBeVisible()
-    await expect(page.locator('text=Persisted execution step summary.')).toBeVisible()
-    await expect(page.getByText('model_switch: gpt-4 -> gpt-5')).toBeVisible()
+    await expect(page.getByTestId(`persisted-step-${assistantMessageId}-0`)).toHaveCount(0)
+    await expect(page.getByTestId(`persisted-step-${assistantMessageId}-1`)).toHaveCount(0)
+    await expect(page.getByTestId(`chat-message-${assistantMessageId}`)).toBeVisible()
   })
 
   test('renders canonical session thread order while preserving full chat message content', async ({
