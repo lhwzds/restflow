@@ -303,10 +303,16 @@ impl IpcServer {
                 Ok(query) => Self::handle_get_execution_timeline(core, query).await,
                 Err(err) => invalid_request_response(err),
             },
+            IpcRequest::GetExecutionRunTimeline { run_id } => {
+                Self::handle_get_execution_run_timeline(core, run_id).await
+            }
             IpcRequest::GetExecutionMetrics { query } => match from_contract(query) {
                 Ok(query) => Self::handle_get_execution_metrics(core, query).await,
                 Err(err) => invalid_request_response(err),
             },
+            IpcRequest::GetExecutionRunMetrics { run_id } => {
+                Self::handle_get_execution_run_metrics(core, run_id).await
+            }
             IpcRequest::GetProviderHealth { query } => match from_contract(query) {
                 Ok(query) => Self::handle_get_provider_health(core, query).await,
                 Err(err) => invalid_request_response(err),
@@ -315,6 +321,9 @@ impl IpcServer {
                 Ok(query) => Self::handle_query_execution_logs(core, query).await,
                 Err(err) => invalid_request_response(err),
             },
+            IpcRequest::QueryExecutionRunLogs { run_id } => {
+                Self::handle_query_execution_run_logs(core, run_id).await
+            }
             IpcRequest::GetExecutionTraceStats { run_id } => {
                 Self::handle_get_execution_trace_stats(core, run_id).await
             }
