@@ -18,10 +18,6 @@ use crate::telemetry::get_execution_timeline;
 pub enum ExecutionThreadError {
     #[error("execution thread query requires run_id, session_id, or task_id")]
     InvalidQuery,
-    #[error("session '{0}' not found")]
-    SessionNotFound(String),
-    #[error("session '{0}' has no runs")]
-    SessionHasNoRuns(String),
     #[error("run '{0}' not found")]
     RunNotFound(String),
     #[error(transparent)]
@@ -583,73 +579,6 @@ impl ExecutionConsoleService {
         groups
     }
 
-    #[cfg_attr(not(test), allow(dead_code))]
-    fn get_session_thread(
-        &self,
-        session_id: &str,
-    ) -> std::result::Result<ExecutionThread, ExecutionThreadError> {
-        let session = self
-            .storage
-            .chat_sessions
-            .get(session_id)
-            .map_err(ExecutionThreadError::from)?
-            .ok_or_else(|| ExecutionThreadError::SessionNotFound(session_id.to_string()))?;
-        let policy = SessionPolicy::from_storage(&self.storage);
-        let source = policy
-            .effective_source(&session)
-            .map_err(ExecutionThreadError::from)?;
-        let bound_task = policy
-            .bound_background_task(session_id)
-            .map_err(ExecutionThreadError::from)?;
-        let (container_id, kind, source_channel, source_conversation_id, subtitle) =
-            if let Some(task) = bound_task {
-                (
-                    task.id,
-                    ExecutionSessionKind::BackgroundRun,
-                    None,
-                    None,
-                    Some(task.name),
-                )
-            } else if source.source == ChatSessionSource::Workspace {
-                (
-                    session.id.clone(),
-                    ExecutionSessionKind::WorkspaceRun,
-                    Some(source.source),
-                    None,
-                    Some(session.name.clone()),
-                )
-            } else {
-                (
-                    external_container_id(
-                        source.source,
-                        source.conversation_id.as_deref().unwrap_or(session_id),
-                    ),
-                    ExecutionSessionKind::ExternalRun,
-                    Some(source.source),
-                    source.conversation_id,
-                    Some(session.name.clone()),
-                )
-            };
-        let runs = self
-            .list_session_runs(
-                &session,
-                &container_id,
-                kind,
-                source_channel,
-                source_conversation_id,
-                subtitle,
-            )
-            .map_err(ExecutionThreadError::from)?;
-
-        let Some(run_id) = runs.first().and_then(|run| run.run_id.as_deref()) else {
-            return Err(ExecutionThreadError::SessionHasNoRuns(
-                session_id.to_string(),
-            ));
-        };
-
-        self.get_run_thread(run_id)
-    }
-
     fn get_run_thread(
         &self,
         run_id: &str,
@@ -1128,7 +1057,7 @@ mod tests {
     }
 
     #[test]
-    fn resolves_session_thread_with_latest_run_and_children() {
+    fn workspace_container_exposes_latest_run_and_child_sessions() {
         let storage = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
 
@@ -1139,7 +1068,14 @@ mod tests {
         store_run_events(&storage, "task-1", &session_id, "run-1", None);
         store_run_events(&storage, "task-1", &session_id, "run-2", Some("run-1"));
 
-        let thread = service.get_session_thread(&session_id).expect("thread");
+        let containers = service.list_execution_containers().expect("containers");
+        let workspace_container = containers
+            .iter()
+            .find(|container| container.id == session_id)
+            .expect("workspace container");
+        assert_eq!(workspace_container.latest_run_id.as_deref(), Some("run-1"));
+
+        let thread = service.get_execution_run_thread("run-1").expect("thread");
         assert_eq!(thread.focus.run_id.as_deref(), Some("run-1"));
         assert!(thread.timeline.events.len() >= 2);
         assert_eq!(thread.child_sessions.len(), 1);
