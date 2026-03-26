@@ -3,7 +3,7 @@ import { defineComponent, h, ref } from 'vue'
 import { mount } from '@vue/test-utils'
 import { useChatStream } from '../useChatStream'
 import { cancelChatStream, openChatStream } from '@/api/chat-stream'
-import { queryExecutionTraces } from '@/api/execution-traces'
+import { queryRunExecutionTraces } from '@/api/execution-traces'
 import type { StreamFrame } from '@/types/generated/StreamFrame'
 
 vi.mock('@/api/chat-stream', () => ({
@@ -12,7 +12,7 @@ vi.mock('@/api/chat-stream', () => ({
 }))
 
 vi.mock('@/api/execution-traces', () => ({
-  queryExecutionTraces: vi.fn(),
+  queryRunExecutionTraces: vi.fn(),
 }))
 
 async function* createFrames(frames: StreamFrame[]): AsyncGenerator<StreamFrame> {
@@ -30,7 +30,7 @@ async function flushPromises(turns = 20): Promise<void> {
 describe('useChatStream', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.mocked(queryExecutionTraces).mockResolvedValue([])
+    vi.mocked(queryRunExecutionTraces).mockResolvedValue([])
   })
 
   function createHarness() {
@@ -79,17 +79,7 @@ describe('useChatStream', () => {
     expect(vm.stream.state.value.steps).toHaveLength(1)
     expect(vm.stream.state.value.steps[0]?.status).toBe('completed')
     expect(vm.stream.isStreaming.value).toBe(false)
-    expect(queryExecutionTraces).toHaveBeenCalledWith({
-      task_id: null,
-      run_id: 'msg-1',
-      parent_run_id: null,
-      session_id: null,
-      turn_id: null,
-      agent_id: null,
-      category: null,
-      source: null,
-      from_timestamp: null,
-      to_timestamp: null,
+    expect(queryRunExecutionTraces).toHaveBeenCalledWith('msg-1', {
       limit: 200,
       offset: 0,
     })
@@ -109,14 +99,10 @@ describe('useChatStream', () => {
     await vm.stream.send('hello')
     await flushPromises()
 
-    expect(queryExecutionTraces).toHaveBeenCalledWith(
-      expect.objectContaining({
-        task_id: null,
-        run_id: 'msg-4',
-        session_id: null,
-        turn_id: null,
-      }),
-    )
+    expect(queryRunExecutionTraces).toHaveBeenCalledWith('msg-4', {
+      limit: 200,
+      offset: 0,
+    })
 
     wrapper.unmount()
   })

@@ -144,6 +144,15 @@ impl IpcClient {
             .await
     }
 
+    pub async fn list_execution_sessions(
+        &mut self,
+        query: ExecutionSessionListQuery,
+    ) -> Result<Vec<ExecutionSessionSummary>> {
+        let query = to_contract(query)?;
+        self.request_typed(IpcRequest::ListExecutionSessions { query })
+            .await
+    }
+
     pub async fn query_execution_traces(
         &mut self,
         query: ExecutionTraceQuery,

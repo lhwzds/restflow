@@ -7,12 +7,33 @@ import type { ProviderHealthQuery } from '@/types/generated/ProviderHealthQuery'
 import type { ProviderHealthResponse } from '@/types/generated/ProviderHealthResponse'
 import { requestOptional, requestTyped } from './http-client'
 
+// Generic trace search is reserved for debug, search, and compatibility flows.
 export async function queryExecutionTraces(
   query: ExecutionTraceQuery,
 ): Promise<ExecutionTraceEvent[]> {
   return requestTyped<ExecutionTraceEvent[]>({
     type: 'QueryExecutionTraces',
     data: { query },
+  })
+}
+
+export async function queryRunExecutionTraces(
+  runId: string,
+  options?: Partial<Pick<ExecutionTraceQuery, 'category' | 'source' | 'limit' | 'offset'>>,
+): Promise<ExecutionTraceEvent[]> {
+  return queryExecutionTraces({
+    task_id: null,
+    run_id: runId,
+    parent_run_id: null,
+    session_id: null,
+    turn_id: null,
+    agent_id: null,
+    category: options?.category ?? null,
+    source: options?.source ?? null,
+    from_timestamp: null,
+    to_timestamp: null,
+    limit: options?.limit ?? 200,
+    offset: options?.offset ?? 0,
   })
 }
 

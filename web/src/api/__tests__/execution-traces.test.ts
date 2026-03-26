@@ -6,6 +6,7 @@ import {
   getRunExecutionTimeline,
   getProviderHealth,
   queryRunExecutionLogs,
+  queryRunExecutionTraces,
   queryExecutionTraces,
 } from '../execution-traces'
 import { requestOptional, requestTyped } from '../http-client'
@@ -67,23 +68,38 @@ describe('execution-traces api', () => {
 
   it('provides run-scoped telemetry helpers', async () => {
     vi.mocked(requestTyped)
+      .mockResolvedValueOnce([])
       .mockResolvedValueOnce({ events: [], stats: { total_events: 0 } })
       .mockResolvedValueOnce({ samples: [] })
       .mockResolvedValueOnce({ events: [] })
 
+    await queryRunExecutionTraces('run-1', { limit: 10, offset: 3, category: 'tool_call' })
     await getRunExecutionTimeline('run-1')
     await getRunExecutionMetrics('run-1')
     await queryRunExecutionLogs('run-1')
 
     expect(requestTyped).toHaveBeenNthCalledWith(1, {
+      type: 'QueryExecutionTraces',
+      data: {
+        query: expect.objectContaining({
+          run_id: 'run-1',
+          category: 'tool_call',
+          limit: 10,
+          offset: 3,
+          session_id: null,
+          turn_id: null,
+        }),
+      },
+    })
+    expect(requestTyped).toHaveBeenNthCalledWith(2, {
       type: 'GetExecutionRunTimeline',
       data: { run_id: 'run-1' },
     })
-    expect(requestTyped).toHaveBeenNthCalledWith(2, {
+    expect(requestTyped).toHaveBeenNthCalledWith(3, {
       type: 'GetExecutionRunMetrics',
       data: { run_id: 'run-1' },
     })
-    expect(requestTyped).toHaveBeenNthCalledWith(3, {
+    expect(requestTyped).toHaveBeenNthCalledWith(4, {
       type: 'QueryExecutionRunLogs',
       data: { run_id: 'run-1' },
     })

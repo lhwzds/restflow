@@ -7,12 +7,12 @@ use crate::setup;
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundProgress, Deliverable, ExecutionTimeline, ExecutionTraceEvent,
-    ExecutionTraceQuery, SharedEntry,
+    BackgroundAgentSpec, BackgroundProgress, Deliverable, ExecutionSessionListQuery,
+    ExecutionSessionSummary, ExecutionTimeline, ExecutionTraceQuery, SharedEntry,
 };
 use restflow_core::services::{
-    agent as agent_service, config as config_service, secrets as secrets_service,
-    session::SessionService, skills as skills_service,
+    agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
+    secrets as secrets_service, session::SessionService, skills as skills_service,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -311,11 +311,11 @@ impl CommandExecutor for DirectExecutor {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn query_execution_traces(
+    async fn list_execution_sessions(
         &self,
-        query: ExecutionTraceQuery,
-    ) -> Result<Vec<ExecutionTraceEvent>> {
-        self.core.storage.execution_traces.query(&query)
+        query: ExecutionSessionListQuery,
+    ) -> Result<Vec<ExecutionSessionSummary>> {
+        ExecutionConsoleService::from_storage(&self.core.storage).list_execution_sessions(&query)
     }
 
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {

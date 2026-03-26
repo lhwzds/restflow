@@ -163,22 +163,24 @@ impl RestFlowMcpServer {
                     .line_limit
                     .unwrap_or(defaults.background_trace_line_limit)
                     .max(1);
-                let mut query = ExecutionTraceQuery {
-                    limit: Some(limit),
-                    ..ExecutionTraceQuery::default()
-                };
                 let parts: Vec<&str> = trace_id.splitn(2, ':').collect();
-                if parts.len() == 2 {
+                let traces = if parts.len() == 2 {
+                    let mut query = ExecutionTraceQuery {
+                        limit: Some(limit),
+                        ..ExecutionTraceQuery::default()
+                    };
                     query.session_id = Some(parts[0].to_string());
                     query.turn_id = Some(parts[1].to_string());
+                    self.backend
+                        .query_execution_traces(query)
+                        .await
+                        .map_err(|e| format!("Failed to read trace: {}", e))?
                 } else {
-                    query.run_id = Some(trace_id.clone());
-                }
-                let traces = self
-                    .backend
-                    .query_execution_traces(query)
-                    .await
-                    .map_err(|e| format!("Failed to read trace: {}", e))?;
+                    self.backend
+                        .query_execution_run_traces(&trace_id, limit)
+                        .await
+                        .map_err(|e| format!("Failed to read trace: {}", e))?
+                };
                 serde_json::json!({
                     "trace_id": trace_id,
                     "total": traces.len(),

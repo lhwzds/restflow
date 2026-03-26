@@ -282,6 +282,31 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
+    async fn query_execution_run_traces(
+        &self,
+        run_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
+        self.core
+            .storage
+            .execution_traces
+            .query(&crate::models::ExecutionTraceQuery {
+                task_id: None,
+                run_id: Some(run_id.to_string()),
+                parent_run_id: None,
+                session_id: None,
+                turn_id: None,
+                agent_id: None,
+                category: None,
+                source: None,
+                from_timestamp: None,
+                to_timestamp: None,
+                limit: Some(limit),
+                offset: Some(0),
+            })
+            .map_err(|e| e.to_string())
+    }
+
     async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String> {
         let resolved_id = resolve_task_id(&self.core.storage.background_agents, id)?;
         self.core
@@ -614,6 +639,30 @@ impl McpBackend for IpcBackend {
         query: crate::models::ExecutionTraceQuery,
     ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
         let query = to_contract(query).map_err(|e| e.to_string())?;
+        self.request_typed(IpcRequest::QueryExecutionTraces { query })
+            .await
+    }
+
+    async fn query_execution_run_traces(
+        &self,
+        run_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
+        let query = to_contract(crate::models::ExecutionTraceQuery {
+            task_id: None,
+            run_id: Some(run_id.to_string()),
+            parent_run_id: None,
+            session_id: None,
+            turn_id: None,
+            agent_id: None,
+            category: None,
+            source: None,
+            from_timestamp: None,
+            to_timestamp: None,
+            limit: Some(limit),
+            offset: Some(0),
+        })
+        .map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::QueryExecutionTraces { query })
             .await
     }

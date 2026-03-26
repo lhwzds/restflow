@@ -11,7 +11,7 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundMessage, BackgroundProgress, ChatSession, ChatSessionSummary,
-    Deliverable, ExecutionTimeline, ExecutionTraceEvent, ExecutionTraceQuery, ItemQuery,
+    Deliverable, ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, ItemQuery,
     MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
     WorkItemPatch, WorkItemSpec,
 };
@@ -393,12 +393,12 @@ impl CommandExecutor for IpcExecutor {
         Ok(())
     }
 
-    async fn query_execution_traces(
+    async fn list_execution_sessions(
         &self,
-        query: ExecutionTraceQuery,
-    ) -> Result<Vec<ExecutionTraceEvent>> {
+        query: ExecutionSessionListQuery,
+    ) -> Result<Vec<ExecutionSessionSummary>> {
         let mut client = self.client.lock().await;
-        client.query_execution_traces(query).await
+        client.list_execution_sessions(query).await
     }
 
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {

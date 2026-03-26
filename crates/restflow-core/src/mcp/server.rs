@@ -148,6 +148,11 @@ pub trait McpBackend: Send + Sync {
         &self,
         query: ExecutionTraceQuery,
     ) -> Result<Vec<ExecutionTraceEvent>, String>;
+    async fn query_execution_run_traces(
+        &self,
+        run_id: &str,
+        limit: usize,
+    ) -> Result<Vec<ExecutionTraceEvent>, String>;
     async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String>;
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
