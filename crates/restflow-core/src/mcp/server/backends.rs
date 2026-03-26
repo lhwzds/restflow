@@ -271,6 +271,17 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
+    async fn list_execution_sessions(
+        &self,
+        query: ExecutionSessionListQuery,
+    ) -> Result<Vec<ExecutionSessionSummary>, String> {
+        crate::services::execution_console::ExecutionConsoleService::from_storage(
+            &self.core.storage,
+        )
+        .list_execution_sessions(&query)
+        .map_err(|e| e.to_string())
+    }
+
     async fn query_execution_traces(
         &self,
         query: crate::models::ExecutionTraceQuery,
@@ -632,6 +643,15 @@ impl McpBackend for IpcBackend {
                 .unwrap_or_else(|| "Runtime tool execution failed".to_string()));
         }
         serde_json::from_value(result.result).map_err(|e| e.to_string())
+    }
+
+    async fn list_execution_sessions(
+        &self,
+        query: ExecutionSessionListQuery,
+    ) -> Result<Vec<ExecutionSessionSummary>, String> {
+        let query = to_contract(query).map_err(|e| e.to_string())?;
+        self.request_typed(IpcRequest::ListExecutionSessions { query })
+            .await
     }
 
     async fn query_execution_traces(
