@@ -213,7 +213,7 @@ describe('threadItems', () => {
     expect(items[3]?.message?.content).toBe('Streaming assistant reply')
   })
 
-  it('falls back to legacy persisted session messages when no canonical run exists yet', () => {
+  it('keeps persisted session messages readable without re-injecting legacy execution summary steps', () => {
     const items = buildSessionThreadItems({
       thread: null,
       messages: [
@@ -244,10 +244,8 @@ describe('threadItems', () => {
       streamContent: '',
     })
 
-    expect(items.map((item) => item.id)).toEqual([
-      'persisted-msg-assistant-legacy-0',
-      'msg-assistant-legacy',
-    ])
+    expect(items.map((item) => item.id)).toEqual(['msg-assistant-legacy'])
+    expect(items[0]?.kind).toBe('message')
   })
 
   it('keeps canonical empty threads on the canonical message path', () => {
@@ -318,6 +316,45 @@ describe('threadItems', () => {
 
     expect(items.map((item) => item.id)).toEqual([
       'optimistic-123',
+      'stream-tool-1',
+      'streaming-assistant',
+    ])
+  })
+
+  it('appends optimistic messages after persisted history before live overlays when no canonical run exists yet', () => {
+    const items = buildSessionThreadItems({
+      thread: null,
+      messages: [
+        {
+          id: 'msg-user-1',
+          role: 'user',
+          content: 'Persisted user prompt',
+          timestamp: 1000n,
+          execution: null,
+        },
+        {
+          id: 'optimistic-123',
+          role: 'user',
+          content: 'Fresh optimistic prompt',
+          timestamp: 0n,
+          execution: null,
+        },
+      ],
+      steps: [
+        {
+          type: 'tool_call',
+          name: 'web_search',
+          displayName: 'web_search',
+          status: 'running',
+          toolId: 'stream-tool-1',
+        },
+      ],
+      streamContent: 'Streaming assistant reply',
+    })
+
+    expect(items.map((item) => item.id)).toEqual([
+      'optimistic-123',
+      'msg-user-1',
       'stream-tool-1',
       'streaming-assistant',
     ])

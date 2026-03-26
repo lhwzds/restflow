@@ -555,9 +555,11 @@ function isOptimisticMessage(message: ChatMessage): boolean {
   return message.id.startsWith('optimistic-')
 }
 
-function buildTransientMessageItems(messages: ChatMessage[]): ThreadItem[] {
-  return [...messages]
-    .filter(isOptimisticMessage)
+function buildMessageOnlyItems(messages: ChatMessage[]): ThreadItem[] {
+  const persistedMessages = messages.filter((message) => !isOptimisticMessage(message))
+  const optimisticMessages = messages.filter(isOptimisticMessage)
+
+  return [...persistedMessages, ...optimisticMessages]
     .sort((left, right) => {
       const delta = toSortTime(left.timestamp) - toSortTime(right.timestamp)
       return delta !== 0 ? delta : left.id.localeCompare(right.id)
@@ -601,16 +603,7 @@ export function buildSessionThreadItems(input: {
   streamContent?: string
 }): ThreadItem[] {
   if (!input.thread) {
-    const hasPersistedMessages = input.messages.some((message) => !isOptimisticMessage(message))
-    if (hasPersistedMessages) {
-      return buildChatThreadItems({
-        messages: input.messages,
-        steps: input.steps,
-        streamContent: input.streamContent,
-      })
-    }
-
-    const items = buildTransientMessageItems(input.messages)
+    const items = buildMessageOnlyItems(input.messages)
     appendLiveOverlays(items, input.steps, input.streamContent)
     return items
   }

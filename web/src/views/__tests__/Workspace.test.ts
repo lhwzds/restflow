@@ -400,7 +400,7 @@ describe('Workspace', () => {
       },
     ])
 
-    const wrapper = mountWorkspace()
+    mountWorkspace()
     await flushPromises()
 
     expect(mockRouterReplace).toHaveBeenCalledWith({
