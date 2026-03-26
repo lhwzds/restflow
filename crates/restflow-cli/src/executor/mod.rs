@@ -5,7 +5,7 @@ use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    ExecutionTimeline, ExecutionTraceEvent, ExecutionTraceQuery, ItemQuery, MemoryChunk,
+    ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, ItemQuery, MemoryChunk,
     MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem, WorkItemPatch,
     WorkItemSpec,
 };
@@ -115,10 +115,10 @@ pub trait CommandExecutor: Send + Sync {
         event_limit: Option<usize>,
     ) -> Result<BackgroundProgress>;
     async fn send_background_agent_message(&self, id: &str, message: &str) -> Result<()>;
-    async fn query_execution_traces(
+    async fn list_execution_sessions(
         &self,
-        query: ExecutionTraceQuery,
-    ) -> Result<Vec<ExecutionTraceEvent>>;
+        query: ExecutionSessionListQuery,
+    ) -> Result<Vec<ExecutionSessionSummary>>;
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline>;
 
     // Shared Space operations

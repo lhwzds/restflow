@@ -1,6 +1,5 @@
 use anyhow::Result;
 use comfy_table::{Cell, Table};
-use std::collections::HashSet;
 use std::sync::Arc;
 
 use crate::cli::{BackgroundAgentCommands, OutputFormat};
@@ -8,9 +7,12 @@ use crate::commands::utils::format_timestamp;
 use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
 use crate::output::table::print_table;
+#[cfg(test)]
+use restflow_core::models::ExecutionSessionKind;
 use restflow_core::models::{
-    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec, ExecutionTraceQuery,
-    TaskSchedule,
+    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
+    ExecutionContainerKind, ExecutionContainerRef, ExecutionSessionListQuery,
+    ExecutionSessionSummary, TaskSchedule,
 };
 use restflow_core::services::background_agent_conversion::{
     ConvertSessionSpecOptions, MISSING_CONVERSION_INPUT_ERROR, build_convert_session_spec,
@@ -496,22 +498,16 @@ async fn show_run_log(
         return Ok(());
     }
 
-    let mut seen = HashSet::new();
-    let mut runs = Vec::new();
-    let events = executor
-        .query_execution_traces(ExecutionTraceQuery {
-            session_id: Some(session_id.clone()),
-            ..ExecutionTraceQuery::default()
-        })
-        .await?;
-    for event in events {
-        let Some(turn_id) = event.turn_id else {
-            continue;
-        };
-        if seen.insert(turn_id.clone()) {
-            runs.push(turn_id);
-        }
-    }
+    let runs = collect_run_ids(
+        &executor
+            .list_execution_sessions(ExecutionSessionListQuery {
+                container: ExecutionContainerRef {
+                    kind: ExecutionContainerKind::BackgroundTask,
+                    id: task_id.to_string(),
+                },
+            })
+            .await?,
+    );
 
     if format.is_json() {
         return print_json(&serde_json::json!({
@@ -533,6 +529,13 @@ async fn show_run_log(
         }
     }
     Ok(())
+}
+
+fn collect_run_ids(summaries: &[ExecutionSessionSummary]) -> Vec<String> {
+    summaries
+        .iter()
+        .filter_map(|summary| summary.run_id.clone())
+        .collect()
 }
 
 fn parse_schedule(schedule_type: &str, schedule_value: Option<String>) -> Result<TaskSchedule> {
@@ -618,5 +621,55 @@ mod tests {
         ];
         let input = derive_conversion_input(None, &messages);
         assert_eq!(input.as_deref(), Some("latest request"));
+    }
+
+    #[test]
+    fn collect_run_ids_uses_run_summaries_in_order() {
+        let first = ExecutionSessionSummary {
+            id: "run-session-1".to_string(),
+            kind: ExecutionSessionKind::BackgroundRun,
+            container_id: "task-1".to_string(),
+            title: "Run 1".to_string(),
+            subtitle: None,
+            status: "completed".to_string(),
+            updated_at: 1,
+            started_at: None,
+            ended_at: None,
+            session_id: Some("session-1".to_string()),
+            run_id: Some("run-1".to_string()),
+            task_id: Some("task-1".to_string()),
+            parent_run_id: None,
+            agent_id: None,
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 2,
+        };
+
+        let second = ExecutionSessionSummary {
+            id: "run-session-2".to_string(),
+            kind: ExecutionSessionKind::BackgroundRun,
+            container_id: "task-1".to_string(),
+            title: "Run 2".to_string(),
+            subtitle: None,
+            status: "completed".to_string(),
+            updated_at: 2,
+            started_at: None,
+            ended_at: None,
+            session_id: Some("session-1".to_string()),
+            run_id: Some("run-2".to_string()),
+            task_id: Some("task-1".to_string()),
+            parent_run_id: None,
+            agent_id: None,
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 2,
+        };
+
+        let run_ids = collect_run_ids(&[first, second]);
+        assert_eq!(run_ids, vec!["run-1".to_string(), "run-2".to_string()]);
     }
 }

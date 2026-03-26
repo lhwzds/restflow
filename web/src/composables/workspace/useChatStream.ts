@@ -6,7 +6,7 @@
 
 import { ref, computed, onUnmounted, type ComputedRef } from 'vue'
 import { cancelChatStream, openChatStream } from '@/api/chat-stream'
-import { queryExecutionTraces } from '@/api/execution-traces'
+import { queryRunExecutionTraces } from '@/api/execution-traces'
 import type { ExecutionTraceEvent } from '@/types/generated/ExecutionTraceEvent'
 import type { StreamFrame } from '@/types/generated/StreamFrame'
 import type { StepStatus } from '@/types/generated/StepStatus'
@@ -162,20 +162,7 @@ export function useChatStream(sessionId: () => string | null) {
 
   async function syncPersistedExecutionEvents(runId: string): Promise<void> {
     try {
-      const events = await queryExecutionTraces({
-        task_id: null,
-        run_id: runId,
-        parent_run_id: null,
-        session_id: null,
-        turn_id: null,
-        agent_id: null,
-        category: null,
-        source: null,
-        from_timestamp: null,
-        to_timestamp: null,
-        limit: 200,
-        offset: 0,
-      })
+      const events = await queryRunExecutionTraces(runId, { limit: 200, offset: 0 })
       if (disposed || state.value.messageId !== runId) return
 
       const steps = buildStepsFromExecutionEvents(events)
