@@ -1,5 +1,6 @@
 use super::*;
 use crate::storage::Storage;
+use crate::{ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace};
 use restflow_contracts::request::ExecutionThreadQuery;
 use restflow_storage::SimpleStorage;
 
@@ -15,6 +16,52 @@ fn assert_execution_thread_error(
         }
         other => panic!("expected error response, got {other:?}"),
     }
+}
+
+fn store_run_events(
+    storage: &Arc<Storage>,
+    task_id: &str,
+    session_id: &str,
+    run_id: &str,
+    parent_run_id: Option<&str>,
+) {
+    let trace = restflow_telemetry::RestflowTrace::new(
+        run_id.to_string(),
+        session_id.to_string(),
+        task_id.to_string(),
+        "agent-1".to_string(),
+    )
+    .with_parent_run_id(parent_run_id.map(|value| value.to_string()));
+    let start = ExecutionTraceEvent::lifecycle(
+        task_id,
+        "agent-1",
+        LifecycleTrace {
+            status: "running".to_string(),
+            message: Some("started".to_string()),
+            error: None,
+            ai_duration_ms: None,
+        },
+    )
+    .with_trace_context(&trace)
+    .with_effective_model("openai/gpt-5")
+    .with_provider("openai");
+    let end = ExecutionTraceEvent::new(
+        task_id,
+        "agent-1",
+        ExecutionTraceCategory::Lifecycle,
+        ExecutionTraceSource::Runtime,
+    )
+    .with_trace_context(&trace)
+    .with_lifecycle(LifecycleTrace {
+        status: "completed".to_string(),
+        message: Some("done".to_string()),
+        error: None,
+        ai_duration_ms: Some(1200),
+    })
+    .with_effective_model("openai/gpt-5")
+    .with_provider("openai");
+    storage.execution_traces.store(&start).expect("store start");
+    storage.execution_traces.store(&end).expect("store end");
 }
 
 #[tokio::test]
@@ -154,6 +201,54 @@ async fn get_execution_run_thread_returns_not_found_for_missing_run() {
     .await;
 
     assert_execution_thread_error(response, 404, "ExecutionThread not found");
+}
+
+#[tokio::test]
+async fn get_execution_run_thread_returns_bad_request_for_blank_run_id() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetExecutionRunThread {
+            run_id: "   ".to_string(),
+        },
+    )
+    .await;
+
+    assert_execution_thread_error(response, 400, "run_id is required");
+}
+
+#[tokio::test]
+async fn get_execution_run_thread_returns_existing_run_thread() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    let session_id = session.id.clone();
+    core.storage.chat_sessions.create(&session).unwrap();
+    store_run_events(&core.storage, "task-1", &session_id, "run-1", None);
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetExecutionRunThread {
+            run_id: "run-1".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let thread: crate::ExecutionThread =
+                serde_json::from_value(value).expect("execution thread");
+            assert_eq!(thread.focus.run_id.as_deref(), Some("run-1"));
+            assert_eq!(thread.focus.session_id.as_deref(), Some(session_id.as_str()));
+            assert!(thread.timeline.events.len() >= 2);
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
 }
 
 #[tokio::test]

@@ -41,11 +41,16 @@ impl IpcServer {
         core: &Arc<AppCore>,
         run_id: String,
     ) -> IpcResponse {
+        let run_id = run_id.trim();
+        if run_id.is_empty() {
+            return IpcResponse::error(400, "run_id is required");
+        }
+
         let service = ExecutionConsoleService::from_storage(&core.storage);
         map_execution_thread_response(service.get_execution_thread(
             &crate::models::ExecutionThreadQuery {
                 session_id: None,
-                run_id: Some(run_id),
+                run_id: Some(run_id.to_string()),
                 task_id: None,
             },
         ))
