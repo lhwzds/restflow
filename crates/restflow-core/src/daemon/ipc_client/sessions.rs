@@ -162,12 +162,28 @@ impl IpcClient {
             .await
     }
 
+    pub async fn get_execution_run_timeline(
+        &mut self,
+        run_id: String,
+    ) -> Result<ExecutionTimeline> {
+        self.request_typed(IpcRequest::GetExecutionRunTimeline { run_id })
+            .await
+    }
+
     pub async fn get_execution_metrics(
         &mut self,
         query: ExecutionMetricQuery,
     ) -> Result<ExecutionMetricsResponse> {
         let query = to_contract(query)?;
         self.request_typed(IpcRequest::GetExecutionMetrics { query })
+            .await
+    }
+
+    pub async fn get_execution_run_metrics(
+        &mut self,
+        run_id: String,
+    ) -> Result<ExecutionMetricsResponse> {
+        self.request_typed(IpcRequest::GetExecutionRunMetrics { run_id })
             .await
     }
 
@@ -186,6 +202,14 @@ impl IpcClient {
     ) -> Result<ExecutionLogResponse> {
         let query = to_contract(query)?;
         self.request_typed(IpcRequest::QueryExecutionLogs { query })
+            .await
+    }
+
+    pub async fn query_execution_run_logs(
+        &mut self,
+        run_id: String,
+    ) -> Result<ExecutionLogResponse> {
+        self.request_typed(IpcRequest::QueryExecutionRunLogs { run_id })
             .await
     }
 

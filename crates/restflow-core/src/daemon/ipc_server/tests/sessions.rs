@@ -1,6 +1,9 @@
 use super::*;
 use crate::storage::Storage;
-use crate::{ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace};
+use crate::{
+    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace,
+    LogRecordTrace, MetricSampleTrace,
+};
 use restflow_storage::SimpleStorage;
 
 fn assert_execution_thread_error(
@@ -61,6 +64,39 @@ fn store_run_events(
     .with_provider("openai");
     storage.execution_traces.store(&start).expect("store start");
     storage.execution_traces.store(&end).expect("store end");
+}
+
+fn store_run_telemetry(storage: &Arc<Storage>, task_id: &str, session_id: &str, run_id: &str) {
+    let trace = restflow_telemetry::RestflowTrace::new(run_id, session_id, task_id, "agent-1");
+    let metric = ExecutionTraceEvent::metric_sample(
+        task_id,
+        "agent-1",
+        MetricSampleTrace {
+            name: "llm_total_tokens".to_string(),
+            value: 42.0,
+            unit: Some("tokens".to_string()),
+            dimensions: Vec::new(),
+        },
+    )
+    .with_trace_context(&trace);
+    let log = ExecutionTraceEvent::log_record(
+        task_id,
+        "agent-1",
+        LogRecordTrace {
+            level: "warn".to_string(),
+            message: format!("log-{run_id}"),
+            fields: Vec::new(),
+        },
+    )
+    .with_trace_context(&trace);
+    storage
+        .telemetry_metric_samples
+        .store(&metric)
+        .expect("store metric");
+    storage
+        .structured_execution_logs
+        .store(&log)
+        .expect("store log");
 }
 
 #[tokio::test]
@@ -175,6 +211,80 @@ async fn get_execution_trace_stats_filters_by_run_id() {
             assert_eq!(stats.lifecycle_count, 2);
         }
         other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn get_execution_run_telemetry_requests_filter_by_run_id() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    let session_id = session.id.clone();
+    core.storage.chat_sessions.create(&session).unwrap();
+    store_run_events(&core.storage, "task-1", &session_id, "run-1", None);
+    store_run_events(&core.storage, "task-1", &session_id, "run-2", None);
+    store_run_telemetry(&core.storage, "task-1", &session_id, "run-1");
+    store_run_telemetry(&core.storage, "task-1", &session_id, "run-2");
+
+    let timeline_response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetExecutionRunTimeline {
+            run_id: "run-1".to_string(),
+        },
+    )
+    .await;
+    let metrics_response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetExecutionRunMetrics {
+            run_id: "run-1".to_string(),
+        },
+    )
+    .await;
+    let logs_response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::QueryExecutionRunLogs {
+            run_id: "run-1".to_string(),
+        },
+    )
+    .await;
+
+    match timeline_response {
+        IpcResponse::Success(value) => {
+            let timeline: crate::ExecutionTimeline =
+                serde_json::from_value(value).expect("execution timeline");
+            assert_eq!(timeline.events.len(), 2);
+            assert!(
+                timeline
+                    .events
+                    .iter()
+                    .all(|event| event.run_id.as_deref() == Some("run-1"))
+            );
+        }
+        other => panic!("expected timeline success response, got {other:?}"),
+    }
+
+    match metrics_response {
+        IpcResponse::Success(value) => {
+            let metrics: crate::ExecutionMetricsResponse =
+                serde_json::from_value(value).expect("execution metrics");
+            assert_eq!(metrics.samples.len(), 1);
+            assert_eq!(metrics.samples[0].run_id.as_deref(), Some("run-1"));
+        }
+        other => panic!("expected metrics success response, got {other:?}"),
+    }
+
+    match logs_response {
+        IpcResponse::Success(value) => {
+            let logs: crate::ExecutionLogResponse =
+                serde_json::from_value(value).expect("execution logs");
+            assert_eq!(logs.events.len(), 1);
+            assert_eq!(logs.events[0].run_id.as_deref(), Some("run-1"));
+        }
+        other => panic!("expected logs success response, got {other:?}"),
     }
 }
 

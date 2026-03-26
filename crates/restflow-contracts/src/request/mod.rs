@@ -279,9 +279,15 @@ pub enum IpcRequest {
         #[serde(default)]
         query: ExecutionTraceQuery,
     },
+    GetExecutionRunTimeline {
+        run_id: String,
+    },
     GetExecutionMetrics {
         #[serde(default)]
         query: ExecutionMetricQuery,
+    },
+    GetExecutionRunMetrics {
+        run_id: String,
     },
     GetProviderHealth {
         #[serde(default)]
@@ -290,6 +296,9 @@ pub enum IpcRequest {
     QueryExecutionLogs {
         #[serde(default)]
         query: ExecutionLogQuery,
+    },
+    QueryExecutionRunLogs {
+        run_id: String,
     },
     GetExecutionTraceStats {
         #[serde(alias = "task_id")]

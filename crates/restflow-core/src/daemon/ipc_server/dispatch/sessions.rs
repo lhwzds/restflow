@@ -404,11 +404,65 @@ impl IpcServer {
         }
     }
 
+    pub(super) async fn handle_get_execution_run_timeline(
+        core: &Arc<AppCore>,
+        run_id: String,
+    ) -> IpcResponse {
+        let run_id = run_id.trim();
+        if run_id.is_empty() {
+            return IpcResponse::error(400, "run_id is required");
+        }
+        match get_execution_timeline(
+            &core.storage.execution_traces,
+            &crate::models::ExecutionTraceQuery {
+                task_id: None,
+                run_id: Some(run_id.to_string()),
+                parent_run_id: None,
+                session_id: None,
+                turn_id: None,
+                agent_id: None,
+                category: None,
+                source: None,
+                from_timestamp: None,
+                to_timestamp: None,
+                limit: Some(200),
+                offset: Some(0),
+            },
+        ) {
+            Ok(timeline) => IpcResponse::success(timeline),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
     pub(super) async fn handle_get_execution_metrics(
         core: &Arc<AppCore>,
         query: crate::models::ExecutionMetricQuery,
     ) -> IpcResponse {
         match get_execution_metrics(&core.storage.telemetry_metric_samples, &query) {
+            Ok(response) => IpcResponse::success(response),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_get_execution_run_metrics(
+        core: &Arc<AppCore>,
+        run_id: String,
+    ) -> IpcResponse {
+        let run_id = run_id.trim();
+        if run_id.is_empty() {
+            return IpcResponse::error(400, "run_id is required");
+        }
+        match get_execution_metrics(
+            &core.storage.telemetry_metric_samples,
+            &crate::models::ExecutionMetricQuery {
+                task_id: None,
+                run_id: Some(run_id.to_string()),
+                session_id: None,
+                agent_id: None,
+                metric_name: None,
+                limit: Some(100),
+            },
+        ) {
             Ok(response) => IpcResponse::success(response),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -429,6 +483,30 @@ impl IpcServer {
         query: crate::models::ExecutionLogQuery,
     ) -> IpcResponse {
         match query_execution_logs(&core.storage.structured_execution_logs, &query) {
+            Ok(response) => IpcResponse::success(response),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_query_execution_run_logs(
+        core: &Arc<AppCore>,
+        run_id: String,
+    ) -> IpcResponse {
+        let run_id = run_id.trim();
+        if run_id.is_empty() {
+            return IpcResponse::error(400, "run_id is required");
+        }
+        match query_execution_logs(
+            &core.storage.structured_execution_logs,
+            &crate::models::ExecutionLogQuery {
+                task_id: None,
+                run_id: Some(run_id.to_string()),
+                session_id: None,
+                agent_id: None,
+                level: None,
+                limit: Some(100),
+            },
+        ) {
             Ok(response) => IpcResponse::success(response),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

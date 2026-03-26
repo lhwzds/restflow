@@ -146,38 +146,16 @@ describe('execution-traces api', () => {
     await queryRunExecutionLogs('run-1')
 
     expect(requestTyped).toHaveBeenNthCalledWith(1, {
-      type: 'GetExecutionTimeline',
-      data: {
-        query: expect.objectContaining({
-          run_id: 'run-1',
-          task_id: null,
-          session_id: null,
-          limit: 200,
-          offset: 0,
-        }),
-      },
+      type: 'GetExecutionRunTimeline',
+      data: { run_id: 'run-1' },
     })
     expect(requestTyped).toHaveBeenNthCalledWith(2, {
-      type: 'GetExecutionMetrics',
-      data: {
-        query: expect.objectContaining({
-          run_id: 'run-1',
-          task_id: null,
-          session_id: null,
-          limit: 100,
-        }),
-      },
+      type: 'GetExecutionRunMetrics',
+      data: { run_id: 'run-1' },
     })
     expect(requestTyped).toHaveBeenNthCalledWith(3, {
-      type: 'QueryExecutionLogs',
-      data: {
-        query: expect.objectContaining({
-          run_id: 'run-1',
-          task_id: null,
-          session_id: null,
-          limit: 100,
-        }),
-      },
+      type: 'QueryExecutionRunLogs',
+      data: { run_id: 'run-1' },
     })
   })
 
