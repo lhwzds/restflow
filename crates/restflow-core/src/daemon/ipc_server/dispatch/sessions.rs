@@ -436,9 +436,9 @@ impl IpcServer {
 
     pub(super) async fn handle_get_execution_trace_stats(
         core: &Arc<AppCore>,
-        task_id: Option<String>,
+        run_id: Option<String>,
     ) -> IpcResponse {
-        match core.storage.execution_traces.stats(task_id.as_deref()) {
+        match core.storage.execution_traces.stats(run_id.as_deref()) {
             Ok(stats) => IpcResponse::success(stats),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

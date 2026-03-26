@@ -315,8 +315,8 @@ impl IpcServer {
                 Ok(query) => Self::handle_query_execution_logs(core, query).await,
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::GetExecutionTraceStats { task_id } => {
-                Self::handle_get_execution_trace_stats(core, task_id).await
+            IpcRequest::GetExecutionTraceStats { run_id } => {
+                Self::handle_get_execution_trace_stats(core, run_id).await
             }
             IpcRequest::GetExecutionTraceById { id } => {
                 Self::handle_get_execution_trace_by_id(core, id).await

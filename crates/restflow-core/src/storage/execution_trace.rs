@@ -153,8 +153,8 @@ impl ExecutionTraceStorage {
         Ok(None)
     }
 
-    /// Get statistics about execution trace events.
-    pub fn stats(&self, task_id: Option<&str>) -> Result<ExecutionTraceStats> {
+    /// Get statistics about execution trace events for a run or the entire store.
+    pub fn stats(&self, run_id: Option<&str>) -> Result<ExecutionTraceStats> {
         let raw_entries = self
             .inner
             .list_raw()
@@ -176,8 +176,8 @@ impl ExecutionTraceStorage {
 
         for (_, bytes) in raw_entries {
             if let Ok(event) = serde_json::from_slice::<ExecutionTraceEvent>(&bytes) {
-                if let Some(tid) = task_id
-                    && event.task_id != tid
+                if let Some(rid) = run_id
+                    && event.run_id.as_deref() != Some(rid)
                 {
                     continue;
                 }
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].task_id, "task-123");
 
-        let stats = storage.stats(Some("task-123")).unwrap();
+        let stats = storage.stats(event.run_id.as_deref()).unwrap();
         assert_eq!(stats.total_events, 1);
         assert_eq!(stats.llm_call_count, 1);
 
@@ -325,6 +325,8 @@ mod tests {
         let storage = ExecutionTraceStorage::in_memory().unwrap();
         let base_trace =
             restflow_telemetry::RestflowTrace::new("run-1", "session-1", "task-1", "agent-1");
+        let other_trace =
+            restflow_telemetry::RestflowTrace::new("run-2", "session-1", "task-1", "agent-1");
 
         let llm = ExecutionTraceEvent::llm_call(
             "task-1",
@@ -374,8 +376,18 @@ mod tests {
             },
         )
         .with_trace_context(&base_trace);
+        let other_run_log = ExecutionTraceEvent::log_record(
+            "task-1",
+            "agent-1",
+            crate::models::LogRecordTrace {
+                level: "info".to_string(),
+                message: "other run".to_string(),
+                fields: Vec::new(),
+            },
+        )
+        .with_trace_context(&other_trace);
 
-        for event in [&llm, &metric, &health, &log] {
+        for event in [&llm, &metric, &health, &log, &other_run_log] {
             storage.store(event).unwrap();
         }
 
@@ -390,10 +402,11 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 4);
 
-        let stats = storage.stats(Some("task-1")).unwrap();
+        let stats = storage.stats(Some("run-1")).unwrap();
         assert_eq!(stats.metric_sample_count, 1);
         assert_eq!(stats.provider_health_count, 1);
         assert_eq!(stats.log_record_count, 1);
         assert_eq!(stats.llm_call_count, 1);
+        assert_eq!(stats.total_events, 4);
     }
 }
