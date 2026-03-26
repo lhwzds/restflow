@@ -318,13 +318,23 @@ impl CommandExecutor for DirectExecutor {
         self.core.storage.execution_traces.query(&query)
     }
 
-    async fn get_execution_timeline(
-        &self,
-        query: ExecutionTraceQuery,
-    ) -> Result<ExecutionTimeline> {
+    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {
         restflow_core::telemetry::get_execution_timeline(
             &self.core.storage.execution_traces,
-            &query,
+            &ExecutionTraceQuery {
+                task_id: None,
+                run_id: Some(run_id.to_string()),
+                parent_run_id: None,
+                session_id: None,
+                turn_id: None,
+                agent_id: None,
+                category: None,
+                source: None,
+                from_timestamp: None,
+                to_timestamp: None,
+                limit: Some(200),
+                offset: Some(0),
+            },
         )
     }
 

@@ -401,12 +401,9 @@ impl CommandExecutor for IpcExecutor {
         client.query_execution_traces(query).await
     }
 
-    async fn get_execution_timeline(
-        &self,
-        query: ExecutionTraceQuery,
-    ) -> Result<ExecutionTimeline> {
+    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline> {
         let mut client = self.client.lock().await;
-        client.get_execution_timeline(query).await
+        client.get_execution_run_timeline(run_id.to_string()).await
     }
 
     // Shared Space operations - not yet in IPC protocol
