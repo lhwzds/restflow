@@ -160,17 +160,14 @@ export function useChatStream(sessionId: () => string | null) {
     step.displayName = formatToolDisplayName(step.name, step.arguments, result)
   }
 
-  async function syncPersistedExecutionEvents(turnId: string): Promise<void> {
-    const sid = sessionId()
-    if (!sid) return
-
+  async function syncPersistedExecutionEvents(runId: string): Promise<void> {
     try {
       const events = await queryExecutionTraces({
         task_id: null,
-        run_id: null,
+        run_id: runId,
         parent_run_id: null,
-        session_id: sid,
-        turn_id: turnId,
+        session_id: null,
+        turn_id: null,
         agent_id: null,
         category: null,
         source: null,
@@ -179,7 +176,7 @@ export function useChatStream(sessionId: () => string | null) {
         limit: 200,
         offset: 0,
       })
-      if (disposed || state.value.messageId !== turnId) return
+      if (disposed || state.value.messageId !== runId) return
 
       const steps = buildStepsFromExecutionEvents(events)
       if (steps.length > 0) {
@@ -267,10 +264,10 @@ export function useChatStream(sessionId: () => string | null) {
     return steps
   }
 
-  async function consumeFrames(frames: AsyncGenerator<StreamFrame>, turnId: string): Promise<void> {
+  async function consumeFrames(frames: AsyncGenerator<StreamFrame>, runId: string): Promise<void> {
     try {
       for await (const frame of frames) {
-        if (disposed || state.value.messageId !== turnId) {
+        if (disposed || state.value.messageId !== runId) {
           break
         }
 
@@ -296,24 +293,24 @@ export function useChatStream(sessionId: () => string | null) {
             state.value.isStreaming = false
             state.value.completedAt = Date.now()
             state.value.tokenCount = frame.data.total_tokens ?? state.value.tokenCount
-            await syncPersistedExecutionEvents(turnId)
+            await syncPersistedExecutionEvents(runId)
             return
           case 'error':
             state.value.isStreaming = false
             state.value.completedAt = Date.now()
             state.value.error = frame.data.message
             markRunningStepsFailed()
-            await syncPersistedExecutionEvents(turnId)
+            await syncPersistedExecutionEvents(runId)
             return
           case 'event':
             break
         }
       }
 
-      if (state.value.isStreaming && state.value.messageId === turnId) {
+      if (state.value.isStreaming && state.value.messageId === runId) {
         state.value.isStreaming = false
         state.value.completedAt = Date.now()
-        await syncPersistedExecutionEvents(turnId)
+        await syncPersistedExecutionEvents(runId)
       }
     } catch (error) {
       if (streamAbortController?.signal.aborted) {
@@ -323,7 +320,7 @@ export function useChatStream(sessionId: () => string | null) {
       state.value.completedAt = Date.now()
       state.value.error = error instanceof Error ? error.message : 'Streaming request failed'
       markRunningStepsFailed()
-      await syncPersistedExecutionEvents(turnId)
+      await syncPersistedExecutionEvents(runId)
     }
   }
 

@@ -81,10 +81,10 @@ describe('useChatStream', () => {
     expect(vm.stream.isStreaming.value).toBe(false)
     expect(queryExecutionTraces).toHaveBeenCalledWith({
       task_id: null,
-      run_id: null,
+      run_id: 'msg-1',
       parent_run_id: null,
-      session_id: 'session-1',
-      turn_id: 'msg-1',
+      session_id: null,
+      turn_id: null,
       agent_id: null,
       category: null,
       source: null,
@@ -97,7 +97,7 @@ describe('useChatStream', () => {
     wrapper.unmount()
   })
 
-  it('syncs persisted events by session_id only so background-linked sessions can resolve their trace', async () => {
+  it('syncs persisted events by run_id so stream-backed traces stay on the canonical path', async () => {
     vi.mocked(openChatStream).mockReturnValue({
       streamId: 'msg-4',
       frames: createFrames([{ stream_type: 'done', data: { total_tokens: 1 } }]),
@@ -112,8 +112,9 @@ describe('useChatStream', () => {
     expect(queryExecutionTraces).toHaveBeenCalledWith(
       expect.objectContaining({
         task_id: null,
-        session_id: 'session-1',
-        turn_id: 'msg-4',
+        run_id: 'msg-4',
+        session_id: null,
+        turn_id: null,
       }),
     )
 
