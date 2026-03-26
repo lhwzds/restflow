@@ -464,11 +464,7 @@ fn map_execution_thread_response(
         Err(ExecutionThreadError::InvalidQuery) => {
             IpcResponse::error(400, ExecutionThreadError::InvalidQuery.to_string())
         }
-        Err(
-            ExecutionThreadError::SessionNotFound(_)
-            | ExecutionThreadError::SessionHasNoRuns(_)
-            | ExecutionThreadError::RunNotFound(_),
-        ) => IpcResponse::not_found("ExecutionThread"),
+        Err(ExecutionThreadError::RunNotFound(_)) => IpcResponse::not_found("ExecutionThread"),
         Err(ExecutionThreadError::Internal(err)) => IpcResponse::error(500, err.to_string()),
     }
 }
