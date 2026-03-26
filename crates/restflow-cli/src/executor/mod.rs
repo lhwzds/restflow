@@ -119,8 +119,7 @@ pub trait CommandExecutor: Send + Sync {
         &self,
         query: ExecutionTraceQuery,
     ) -> Result<Vec<ExecutionTraceEvent>>;
-    async fn get_execution_timeline(&self, query: ExecutionTraceQuery)
-    -> Result<ExecutionTimeline>;
+    async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline>;
 
     // Shared Space operations
     async fn list_kv_store(&self, namespace: Option<&str>) -> Result<Vec<SharedEntry>>;

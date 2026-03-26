@@ -470,14 +470,7 @@ async fn show_run_log(
     };
 
     if let Some(run_id) = run_id {
-        let timeline = executor
-            .get_execution_timeline(ExecutionTraceQuery {
-                session_id: Some(session_id.clone()),
-                turn_id: Some(run_id.to_string()),
-                limit: Some(limit),
-                ..ExecutionTraceQuery::default()
-            })
-            .await?;
+        let timeline = executor.get_execution_run_timeline(run_id).await?;
 
         if format.is_json() {
             return print_json(&serde_json::json!({
