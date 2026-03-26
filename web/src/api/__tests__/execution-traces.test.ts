@@ -4,7 +4,6 @@ import {
   getExecutionMetrics,
   getExecutionTimeline,
   getExecutionTraceById,
-  getExecutionTraceStats,
   getRunExecutionMetrics,
   getRunExecutionTimeline,
   getProviderHealth,
@@ -61,7 +60,6 @@ describe('execution-traces api', () => {
       .mockResolvedValueOnce({ samples: [] })
       .mockResolvedValueOnce({ events: [] })
       .mockResolvedValueOnce({ events: [] })
-      .mockResolvedValueOnce({ total_events: 0 })
 
     await queryExecutionTraces({
       task_id: 'task-1',
@@ -98,7 +96,6 @@ describe('execution-traces api', () => {
       level: 'warn',
       limit: 10,
     })
-    await getExecutionTraceStats('task-1')
 
     expect(requestTyped).toHaveBeenNthCalledWith(1, {
       type: 'QueryExecutionTraces',
@@ -135,10 +132,6 @@ describe('execution-traces api', () => {
           level: 'warn',
         }),
       },
-    })
-    expect(requestTyped).toHaveBeenNthCalledWith(5, {
-      type: 'GetExecutionTraceStats',
-      data: { task_id: 'task-1' },
     })
   })
 

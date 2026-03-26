@@ -80,7 +80,7 @@ describe('useChatStream', () => {
     expect(vm.stream.state.value.steps[0]?.status).toBe('completed')
     expect(vm.stream.isStreaming.value).toBe(false)
     expect(queryExecutionTraces).toHaveBeenCalledWith({
-      task_id: 'session-1',
+      task_id: null,
       run_id: null,
       parent_run_id: null,
       session_id: 'session-1',
@@ -93,6 +93,29 @@ describe('useChatStream', () => {
       limit: 200,
       offset: 0,
     })
+
+    wrapper.unmount()
+  })
+
+  it('syncs persisted events by session_id only so background-linked sessions can resolve their trace', async () => {
+    vi.mocked(openChatStream).mockReturnValue({
+      streamId: 'msg-4',
+      frames: createFrames([{ stream_type: 'done', data: { total_tokens: 1 } }]),
+    })
+
+    const wrapper = createHarness()
+    const vm = wrapper.vm as unknown as { stream: ReturnType<typeof useChatStream> }
+
+    await vm.stream.send('hello')
+    await flushPromises()
+
+    expect(queryExecutionTraces).toHaveBeenCalledWith(
+      expect.objectContaining({
+        task_id: null,
+        session_id: 'session-1',
+        turn_id: 'msg-4',
+      }),
+    )
 
     wrapper.unmount()
   })

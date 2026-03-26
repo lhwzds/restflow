@@ -5,7 +5,6 @@ import type { ExecutionMetricsResponse } from '@/types/generated/ExecutionMetric
 import type { ExecutionTimeline } from '@/types/generated/ExecutionTimeline'
 import type { ExecutionTraceEvent } from '@/types/generated/ExecutionTraceEvent'
 import type { ExecutionTraceQuery } from '@/types/generated/ExecutionTraceQuery'
-import type { ExecutionTraceStats } from '@/types/generated/ExecutionTraceStats'
 import type { ProviderHealthQuery } from '@/types/generated/ProviderHealthQuery'
 import type { ProviderHealthResponse } from '@/types/generated/ProviderHealthResponse'
 import { requestOptional, requestTyped } from './http-client'
@@ -87,13 +86,6 @@ export async function queryRunExecutionLogs(runId: string): Promise<ExecutionLog
     agent_id: null,
     level: null,
     limit: 100,
-  })
-}
-
-export async function getExecutionTraceStats(taskId?: string): Promise<ExecutionTraceStats> {
-  return requestTyped<ExecutionTraceStats>({
-    type: 'GetExecutionTraceStats',
-    data: { task_id: taskId ?? null },
   })
 }
 

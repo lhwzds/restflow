@@ -28,6 +28,10 @@
       "sessions": "会话",
       "agents": "Agent"
     },
+    "container": {
+      "notFoundTitle": "容器不存在",
+      "notFoundDescription": "请求的容器不存在，或已经不可用。"
+    },
     "session": {
       "rename": "重命名",
       "archive": "归档",

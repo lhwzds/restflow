@@ -28,6 +28,10 @@
       "sessions": "Sessions",
       "agents": "Agents"
     },
+    "container": {
+      "notFoundTitle": "Container not found",
+      "notFoundDescription": "The requested container does not exist or is no longer available."
+    },
     "session": {
       "rename": "Rename",
       "archive": "Archive",

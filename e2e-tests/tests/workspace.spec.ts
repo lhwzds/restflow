@@ -117,6 +117,14 @@ test.describe('Workspace Layout', () => {
     await expect(page.locator('text=Start a new conversation')).toBeVisible()
   })
 
+  test('shows a not-found state for unknown canonical containers', async ({ page }) => {
+    await page.goto('/workspace/c/missing-container')
+    await page.waitForLoadState('domcontentloaded')
+
+    await expect(page.getByTestId('workspace-container-not-found-state')).toBeVisible()
+    await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toHaveCount(0)
+  })
+
   test('keyboard hints are hidden in expanded chat mode', async ({ page }) => {
     await createSessionForTest(page)
 

@@ -437,6 +437,35 @@ describe('Workspace', () => {
     expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(false)
   })
 
+  it('shows a not-found state for unknown canonical containers', async () => {
+    mockRoute.name = 'workspace-container'
+    mockRoute.params = { containerId: 'missing-container' }
+    mockListExecutionContainers.mockResolvedValue([
+      {
+        id: 'session-1',
+        kind: 'workspace',
+        title: 'Workspace Session',
+        subtitle: null,
+        updated_at: 1,
+        status: 'completed',
+        session_count: 1,
+        latest_session_id: 'session-1',
+        latest_run_id: 'run-1',
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+      },
+    ])
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    expect(mockSelectSession).toHaveBeenCalledWith(null)
+    expect(wrapper.find('[data-testid="workspace-container-not-found-state"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="workspace-container-empty-state"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="chat-panel"]').exists()).toBe(false)
+  })
+
   it('clears stale content and falls back to the container route when a canonical run is missing', async () => {
     mockRoute.name = 'workspace-container-run'
     mockRoute.params = { containerId: 'session-1', runId: 'missing-run' }

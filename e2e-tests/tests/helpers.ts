@@ -115,6 +115,44 @@ export async function requestIpc<T>(page: Page, request: Record<string, unknown>
   }, request)
 }
 
+async function requestIpcDirect<T>(request: Record<string, unknown>): Promise<T> {
+  const baseUrl = process.env.BASE_URL?.trim()
+  if (!baseUrl) {
+    throw new Error('BASE_URL is required for direct E2E IPC requests')
+  }
+
+  const response = await fetch(new URL('/api/request', baseUrl), {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(request),
+  })
+
+  if (!response.ok) {
+    throw new Error((await response.text()) || `HTTP ${response.status}`)
+  }
+
+  const envelope = (await response.json()) as
+    | { response_type: 'Success' | 'success'; data: T }
+    | { response_type: 'Error' | 'error'; data: { message?: string } }
+    | { response_type: 'Pong' | 'pong'; data: unknown }
+    | { response_type: string; data: unknown }
+
+  const responseType = envelope.response_type.toLowerCase()
+
+  if (responseType === 'success') {
+    return envelope.data
+  }
+
+  if (responseType === 'error') {
+    throw new Error(envelope.data?.message || 'Daemon request failed')
+  }
+
+  throw new Error(`Unexpected daemon response: ${envelope.response_type}`)
+}
+
 export function trackCreatedSession(page: Page, sessionId: string) {
   rememberSessionId(page, sessionId)
 }
@@ -175,7 +213,7 @@ export async function cleanupTrackedState(page: Page) {
 
   for (const taskId of backgroundTaskIds) {
     try {
-      await requestIpc<{ deleted?: boolean }>(page, {
+      await requestIpcDirect<{ deleted?: boolean }>({
         type: 'DeleteBackgroundAgent',
         data: { id: taskId },
       })
@@ -192,7 +230,7 @@ export async function cleanupTrackedState(page: Page) {
 
   for (const sessionId of sessionIds) {
     try {
-      await requestIpc<{ deleted?: boolean }>(page, {
+      await requestIpcDirect<{ deleted?: boolean }>({
         type: 'DeleteSession',
         data: { id: sessionId },
       })
