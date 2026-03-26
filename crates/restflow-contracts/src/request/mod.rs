@@ -275,6 +275,7 @@ pub enum IpcRequest {
         #[serde(default)]
         query: ExecutionTraceQuery,
     },
+    /// Compatibility-only generic telemetry query. Prefer `GetExecutionRunTimeline`.
     GetExecutionTimeline {
         #[serde(default)]
         query: ExecutionTraceQuery,
@@ -282,6 +283,7 @@ pub enum IpcRequest {
     GetExecutionRunTimeline {
         run_id: String,
     },
+    /// Compatibility-only generic telemetry query. Prefer `GetExecutionRunMetrics`.
     GetExecutionMetrics {
         #[serde(default)]
         query: ExecutionMetricQuery,
@@ -293,6 +295,7 @@ pub enum IpcRequest {
         #[serde(default)]
         query: ProviderHealthQuery,
     },
+    /// Compatibility-only generic telemetry query. Prefer `QueryExecutionRunLogs`.
     QueryExecutionLogs {
         #[serde(default)]
         query: ExecutionLogQuery,

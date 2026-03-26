@@ -20,6 +20,80 @@ test.describe('Execution Telemetry', () => {
     await cleanupTrackedState(page)
   })
 
+  test('run-scoped telemetry requests use canonical run-only IPC types', async ({ page }) => {
+    await goToWorkspace(page)
+
+    const runId = `run-${Date.now()}`
+
+    await page.route('**/api/request', async (route) => {
+      const payload = route.request().postDataJSON()
+
+      if (payload?.type === 'GetExecutionRunTimeline' && payload?.data?.run_id === runId) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: {
+              events: [{ id: 'timeline-event-1', run_id: runId }],
+              stats: { total_events: 1 },
+            },
+          }),
+        })
+        return
+      }
+
+      if (payload?.type === 'GetExecutionRunMetrics' && payload?.data?.run_id === runId) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: {
+              samples: [{ id: 'metric-1', run_id: runId }],
+            },
+          }),
+        })
+        return
+      }
+
+      if (payload?.type === 'QueryExecutionRunLogs' && payload?.data?.run_id === runId) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: {
+              events: [{ id: 'log-1', run_id: runId }],
+            },
+          }),
+        })
+        return
+      }
+
+      await route.continue()
+    })
+
+    const timeline = await requestIpc<ExecutionTimeline>(page, {
+      type: 'GetExecutionRunTimeline',
+      data: { run_id: runId },
+    })
+    expect(timeline.events).toHaveLength(1)
+    expect(timeline.stats.total_events).toBe(1)
+
+    const metrics = await requestIpc<ExecutionMetricsResponse>(page, {
+      type: 'GetExecutionRunMetrics',
+      data: { run_id: runId },
+    })
+    expect(metrics.samples).toHaveLength(1)
+
+    const logs = await requestIpc<ExecutionLogResponse>(page, {
+      type: 'QueryExecutionRunLogs',
+      data: { run_id: runId },
+    })
+    expect(logs.events).toHaveLength(1)
+  })
+
   test('daemon exposes empty telemetry queries for a fresh session', async ({ page }) => {
     await goToWorkspace(page)
 
