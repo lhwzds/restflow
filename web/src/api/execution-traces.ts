@@ -1,6 +1,4 @@
-import type { ExecutionLogQuery } from '@/types/generated/ExecutionLogQuery'
 import type { ExecutionLogResponse } from '@/types/generated/ExecutionLogResponse'
-import type { ExecutionMetricQuery } from '@/types/generated/ExecutionMetricQuery'
 import type { ExecutionMetricsResponse } from '@/types/generated/ExecutionMetricsResponse'
 import type { ExecutionTimeline } from '@/types/generated/ExecutionTimeline'
 import type { ExecutionTraceEvent } from '@/types/generated/ExecutionTraceEvent'
@@ -18,26 +16,10 @@ export async function queryExecutionTraces(
   })
 }
 
-export async function getExecutionTimeline(query: ExecutionTraceQuery): Promise<ExecutionTimeline> {
-  return requestTyped<ExecutionTimeline>({
-    type: 'GetExecutionTimeline',
-    data: { query },
-  })
-}
-
 export async function getRunExecutionTimeline(runId: string): Promise<ExecutionTimeline> {
   return requestTyped<ExecutionTimeline>({
     type: 'GetExecutionRunTimeline',
     data: { run_id: runId },
-  })
-}
-
-export async function getExecutionMetrics(
-  query: ExecutionMetricQuery,
-): Promise<ExecutionMetricsResponse> {
-  return requestTyped<ExecutionMetricsResponse>({
-    type: 'GetExecutionMetrics',
-    data: { query },
   })
 }
 
@@ -53,13 +35,6 @@ export async function getProviderHealth(
 ): Promise<ProviderHealthResponse> {
   return requestTyped<ProviderHealthResponse>({
     type: 'GetProviderHealth',
-    data: { query },
-  })
-}
-
-export async function queryExecutionLogs(query: ExecutionLogQuery): Promise<ExecutionLogResponse> {
-  return requestTyped<ExecutionLogResponse>({
-    type: 'QueryExecutionLogs',
     data: { query },
   })
 }
