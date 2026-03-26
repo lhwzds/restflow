@@ -11,7 +11,7 @@ import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage } from '@/api/chat-session'
-import { getExecutionRunThread, listExecutionSessions } from '@/api/execution-console'
+import { getExecutionRunThread, listExecutionContainers, listExecutionSessions } from '@/api/execution-console'
 
 type SessionLike = {
   id: string
@@ -68,6 +68,7 @@ const mockSendChatMessageApi = vi.fn()
 const mockRouterPush = vi.fn()
 const mockRouterReplace = vi.fn()
 const mockGetExecutionRunThread = vi.fn()
+const mockListExecutionContainers = vi.fn()
 const mockListExecutionSessions = vi.fn()
 let lastMessageListProps: Record<string, unknown> | null = null
 
@@ -228,6 +229,7 @@ vi.mock('@/api/chat-stream', () => ({
 
 vi.mock('@/api/execution-console', () => ({
   getExecutionRunThread: vi.fn(),
+  listExecutionContainers: vi.fn(),
   listExecutionSessions: vi.fn(),
 }))
 
@@ -385,8 +387,25 @@ describe('ChatPanel', () => {
       },
       child_sessions: [],
     })
+    mockListExecutionContainers.mockResolvedValue([
+      {
+        id: 'session-1',
+        kind: 'workspace',
+        title: 'Workspace Session',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 1234,
+        session_count: 1,
+        latest_session_id: 'session-1',
+        latest_run_id: 'run-1',
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+      },
+    ])
     mockListExecutionSessions.mockResolvedValue([])
     vi.mocked(getExecutionRunThread).mockImplementation(mockGetExecutionRunThread)
+    vi.mocked(listExecutionContainers).mockImplementation(mockListExecutionContainers)
     vi.mocked(listExecutionSessions).mockImplementation(mockListExecutionSessions)
   })
 
@@ -795,10 +814,49 @@ describe('ChatPanel', () => {
 
   it('normalizes a fresh workspace session into the canonical container run route after streaming completes', async () => {
     mockRefreshSession.mockResolvedValue(mockCurrentSession.value)
+
+    mount(ChatPanel)
+    await flushPromises()
+
+    mockIsStreaming.value = true
+    await nextTick()
+    mockIsStreaming.value = false
+    await flushPromises()
+
+    expect(mockRefreshSession).toHaveBeenCalledWith('session-1')
+    expect(mockListExecutionContainers).toHaveBeenCalled()
+    expect(mockRouterReplace).toHaveBeenCalledWith({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-1' },
+    })
+  })
+
+  it('normalizes a background-linked session into the canonical background container run route after streaming completes', async () => {
+    mockCurrentSession.value = {
+      ...mockCurrentSession.value!,
+      source_channel: 'workspace',
+    } as any
+    mockRefreshSession.mockResolvedValue(mockCurrentSession.value)
+    mockListExecutionContainers.mockResolvedValue([
+      {
+        id: 'task-1',
+        kind: 'background_task',
+        title: 'Digest Agent',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 1234,
+        session_count: 1,
+        latest_session_id: 'session-1',
+        latest_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: null,
+        source_conversation_id: null,
+      },
+    ])
     mockListExecutionSessions.mockResolvedValue([
       {
         id: 'run-summary-1',
-        container_id: 'session-1',
+        container_id: 'task-1',
         title: 'Run 1',
         status: 'completed',
         updated_at: 1234,
@@ -814,16 +872,15 @@ describe('ChatPanel', () => {
     mockIsStreaming.value = false
     await flushPromises()
 
-    expect(mockRefreshSession).toHaveBeenCalledWith('session-1')
     expect(mockListExecutionSessions).toHaveBeenCalledWith({
       container: {
-        kind: 'workspace',
-        id: 'session-1',
+        kind: 'background_task',
+        id: 'task-1',
       },
     })
     expect(mockRouterReplace).toHaveBeenCalledWith({
       name: 'workspace-container-run',
-      params: { containerId: 'session-1', runId: 'run-1' },
+      params: { containerId: 'task-1', runId: 'run-1' },
     })
   })
 })

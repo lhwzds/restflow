@@ -27,7 +27,11 @@ import {
   subscribeSessionEvents,
   type UnlistenFn,
 } from '@/api/chat-session'
-import { getExecutionRunThread, listExecutionSessions } from '@/api/execution-console'
+import {
+  getExecutionRunThread,
+  listExecutionContainers,
+  listExecutionSessions,
+} from '@/api/execution-console'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
@@ -309,15 +313,30 @@ async function loadExecutionThreadForSession(_sessionId: string | null) {
   }
 }
 
-async function navigateToLatestWorkspaceRun(sessionId: string) {
+async function navigateToLatestContainerRun(sessionId: string) {
   if (props.selectedRunId) return
-  if (currentSession.value?.source_channel && currentSession.value.source_channel !== 'workspace') return
 
   try {
+    const containers = await listExecutionContainers()
+    const container =
+      containers.find((entry) => entry.id === sessionId || entry.latest_session_id === sessionId) ?? null
+    if (!container) return
+
+    if (container.latest_run_id) {
+      await router.replace({
+        name: 'workspace-container-run',
+        params: {
+          containerId: container.id,
+          runId: container.latest_run_id,
+        },
+      })
+      return
+    }
+
     const runs = await listExecutionSessions({
       container: {
-        kind: 'workspace',
-        id: sessionId,
+        kind: container.kind,
+        id: container.id,
       },
     })
     const latestRun = runs.find((entry) => !!entry.run_id)
@@ -326,12 +345,12 @@ async function navigateToLatestWorkspaceRun(sessionId: string) {
     await router.replace({
       name: 'workspace-container-run',
       params: {
-        containerId: latestRun.container_id || sessionId,
+        containerId: latestRun.container_id || container.id,
         runId: latestRun.run_id,
       },
     })
   } catch (error) {
-    console.warn('Failed to resolve latest workspace run:', error)
+    console.warn('Failed to resolve latest container run:', error)
   }
 }
 
@@ -348,13 +367,13 @@ async function syncSessionFromBackend() {
   if (!sessionId) return
 
   const refreshed = await chatSessionStore.refreshSession(sessionId)
-  if (refreshed) {
-    chatSessionStore.updateSessionLocally(refreshed)
-    await loadExecutionThreadForSession(sessionId)
-    await navigateToLatestWorkspaceRun(sessionId)
-    // Clear stream content after persisted messages are loaded to prevent
-    // showing both the streaming message and the persisted message.
-    chatStream.reset()
+    if (refreshed) {
+      chatSessionStore.updateSessionLocally(refreshed)
+      await loadExecutionThreadForSession(sessionId)
+      await navigateToLatestContainerRun(sessionId)
+      // Clear stream content after persisted messages are loaded to prevent
+      // showing both the streaming message and the persisted message.
+      chatStream.reset()
   }
 }
 
@@ -638,7 +657,7 @@ onMounted(async () => {
               chatSessionStore.updateSessionLocally(session)
             }
             return loadExecutionThreadForSession(sessionId).then(() =>
-              navigateToLatestWorkspaceRun(sessionId),
+              navigateToLatestContainerRun(sessionId),
             )
           })
         }

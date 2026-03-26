@@ -263,11 +263,20 @@ const activeContainer = computed(() => {
   return containerId ? findContainerById(containerId) : null
 })
 
+const showContainerNotFoundState = computed(
+  () =>
+    sidebarMode.value === 'sessions' &&
+    !!routeContainerId.value &&
+    !routeContainerRunId.value &&
+    !activeContainer.value,
+)
+
 const showContainerEmptyState = computed(
   () =>
     sidebarMode.value === 'sessions' &&
     !!routeContainerId.value &&
     !routeContainerRunId.value &&
+    !!activeContainer.value &&
     !selectedSessionId.value,
 )
 
@@ -282,6 +291,8 @@ const containerEmptyStateDescription = computed(() => {
       return 'No runs have been created for this container yet.'
   }
 })
+const containerNotFoundTitle = computed(() => t('workspace.container.notFoundTitle'))
+const containerNotFoundDescription = computed(() => t('workspace.container.notFoundDescription'))
 
 const chatPanelSelectedRunId = computed(() => activeRunId.value ?? (routeContainerRunId.value || null))
 const chatPanelAutoSelectRecent = computed(() => !routeContainerId.value && !routeContainerRunId.value)
@@ -1074,7 +1085,18 @@ onUnmounted(() => {
       />
 
       <div
-        v-if="showContainerEmptyState"
+        v-if="showContainerNotFoundState"
+        class="flex flex-1 min-w-0 items-center justify-center px-8"
+        data-testid="workspace-container-not-found-state"
+      >
+        <div class="max-w-[28rem] space-y-2 text-center">
+          <p class="text-base font-semibold">{{ containerNotFoundTitle }}</p>
+          <p class="text-sm text-muted-foreground">{{ containerNotFoundDescription }}</p>
+        </div>
+      </div>
+
+      <div
+        v-else-if="showContainerEmptyState"
         class="flex flex-1 min-w-0 items-center justify-center px-8"
         data-testid="workspace-container-empty-state"
       >
