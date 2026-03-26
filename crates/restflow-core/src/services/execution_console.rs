@@ -8,8 +8,7 @@ use thiserror::Error;
 use crate::models::{
     BackgroundAgent, ChatSession, ChatSessionSource, ExecutionContainerKind,
     ExecutionContainerSummary, ExecutionSessionKind, ExecutionSessionListQuery,
-    ExecutionSessionSummary, ExecutionThread, ExecutionThreadQuery, ExecutionTraceEvent,
-    ExecutionTraceQuery,
+    ExecutionSessionSummary, ExecutionThread, ExecutionTraceEvent, ExecutionTraceQuery,
 };
 use crate::services::session_policy::{EffectiveSessionSource, SessionPolicy};
 use crate::storage::Storage;
@@ -25,10 +24,6 @@ pub enum ExecutionThreadError {
     SessionHasNoRuns(String),
     #[error("run '{0}' not found")]
     RunNotFound(String),
-    #[error("background task '{0}' not found")]
-    TaskNotFound(String),
-    #[error("background task '{0}' has no runs")]
-    TaskHasNoRuns(String),
     #[error(transparent)]
     Internal(#[from] anyhow::Error),
 }
@@ -178,50 +173,16 @@ impl ExecutionConsoleService {
         }
     }
 
-    pub fn get_execution_thread(
+    pub fn get_execution_run_thread(
         &self,
-        query: &ExecutionThreadQuery,
+        run_id: &str,
     ) -> std::result::Result<ExecutionThread, ExecutionThreadError> {
-        if let Some(run_id) = query
-            .run_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            return self.get_run_thread(run_id);
+        let run_id = run_id.trim();
+        if run_id.is_empty() {
+            return Err(ExecutionThreadError::InvalidQuery);
         }
 
-        if let Some(session_id) = query
-            .session_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            return self.get_session_thread(session_id);
-        }
-
-        if let Some(task_id) = query
-            .task_id
-            .as_deref()
-            .filter(|value| !value.trim().is_empty())
-        {
-            let task = self
-                .storage
-                .background_agents
-                .get_task(task_id)
-                .map_err(ExecutionThreadError::from)?
-                .ok_or_else(|| ExecutionThreadError::TaskNotFound(task_id.to_string()))?;
-            let runs = self
-                .list_background_task_runs(&task)
-                .map_err(ExecutionThreadError::from)?;
-            if let Some(run) = runs.first()
-                && let Some(run_id) = run.run_id.as_deref()
-            {
-                return self.get_run_thread(run_id);
-            }
-
-            return Err(ExecutionThreadError::TaskHasNoRuns(task_id.to_string()));
-        }
-
-        Err(ExecutionThreadError::InvalidQuery)
+        self.get_run_thread(run_id)
     }
 
     pub fn list_child_execution_sessions(
@@ -622,6 +583,7 @@ impl ExecutionConsoleService {
         groups
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     fn get_session_thread(
         &self,
         session_id: &str,
@@ -1177,13 +1139,7 @@ mod tests {
         store_run_events(&storage, "task-1", &session_id, "run-1", None);
         store_run_events(&storage, "task-1", &session_id, "run-2", Some("run-1"));
 
-        let thread = service
-            .get_execution_thread(&ExecutionThreadQuery {
-                session_id: Some(session_id),
-                run_id: None,
-                task_id: None,
-            })
-            .expect("thread");
+        let thread = service.get_session_thread(&session_id).expect("thread");
         assert_eq!(thread.focus.run_id.as_deref(), Some("run-1"));
         assert!(thread.timeline.events.len() >= 2);
         assert_eq!(thread.child_sessions.len(), 1);

@@ -268,9 +268,6 @@ pub enum IpcRequest {
     GetExecutionRunThread {
         run_id: String,
     },
-    GetExecutionThread {
-        query: ExecutionThreadQuery,
-    },
     ListChildExecutionSessions {
         query: ChildExecutionSessionQuery,
     },
@@ -1205,13 +1202,6 @@ pub struct ExecutionSessionListQuery {
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ChildExecutionSessionQuery {
     pub parent_run_id: String,
-}
-
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ExecutionThreadQuery {
-    pub session_id: Option<String>,
-    pub run_id: Option<String>,
-    pub task_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

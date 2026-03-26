@@ -1,7 +1,6 @@
 use super::*;
 use crate::storage::Storage;
 use crate::{ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace};
-use restflow_contracts::request::ExecutionThreadQuery;
 use restflow_storage::SimpleStorage;
 
 fn assert_execution_thread_error(
@@ -81,112 +80,6 @@ async fn resolve_chat_stream_trace_uses_session_agent_and_run_turn_id() {
 }
 
 #[tokio::test]
-async fn get_execution_thread_returns_bad_request_for_empty_query() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetExecutionThread {
-            query: ExecutionThreadQuery::default(),
-        },
-    )
-    .await;
-
-    assert_execution_thread_error(
-        response,
-        400,
-        "execution thread query requires run_id, session_id, or task_id",
-    );
-}
-
-#[tokio::test]
-async fn get_execution_thread_returns_not_found_for_task_without_runs() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let task = core
-        .storage
-        .background_agents
-        .create_background_agent(crate::models::BackgroundAgentSpec {
-            name: "empty-task".to_string(),
-            agent_id: "agent-1".to_string(),
-            chat_session_id: None,
-            description: None,
-            input: Some("run".to_string()),
-            input_template: None,
-            schedule: crate::models::BackgroundAgentSchedule::default(),
-            notification: None,
-            execution_mode: None,
-            timeout_secs: None,
-            memory: None,
-            durability_mode: None,
-            resource_limits: None,
-            prerequisites: Vec::new(),
-            continuation: None,
-        })
-        .unwrap();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetExecutionThread {
-            query: ExecutionThreadQuery {
-                session_id: None,
-                run_id: None,
-                task_id: Some(task.id.clone()),
-            },
-        },
-    )
-    .await;
-
-    assert_execution_thread_error(response, 404, "ExecutionThread not found");
-}
-
-#[tokio::test]
-async fn get_execution_thread_returns_not_found_for_missing_session() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetExecutionThread {
-            query: ExecutionThreadQuery {
-                session_id: Some("missing-session".to_string()),
-                run_id: None,
-                task_id: None,
-            },
-        },
-    )
-    .await;
-
-    assert_execution_thread_error(response, 404, "ExecutionThread not found");
-}
-
-#[tokio::test]
-async fn get_execution_thread_returns_not_found_for_missing_run() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetExecutionThread {
-            query: ExecutionThreadQuery {
-                session_id: None,
-                run_id: Some("missing-run".to_string()),
-                task_id: None,
-            },
-        },
-    )
-    .await;
-
-    assert_execution_thread_error(response, 404, "ExecutionThread not found");
-}
-
-#[tokio::test]
 async fn get_execution_run_thread_returns_not_found_for_missing_run() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
@@ -249,27 +142,6 @@ async fn get_execution_run_thread_returns_existing_run_thread() {
         }
         other => panic!("expected success response, got {other:?}"),
     }
-}
-
-#[tokio::test]
-async fn get_execution_thread_returns_not_found_for_missing_task() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::GetExecutionThread {
-            query: ExecutionThreadQuery {
-                session_id: None,
-                run_id: None,
-                task_id: Some("missing-task".to_string()),
-            },
-        },
-    )
-    .await;
-
-    assert_execution_thread_error(response, 404, "ExecutionThread not found");
 }
 
 #[tokio::test]
