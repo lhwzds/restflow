@@ -48,7 +48,7 @@ pub use deliverable::{Deliverable, DeliverableType};
 pub use execution_console::{
     ChildExecutionSessionQuery, ExecutionContainerKind, ExecutionContainerRef,
     ExecutionContainerSummary, ExecutionSessionKind, ExecutionSessionListQuery,
-    ExecutionSessionSummary, ExecutionThread, ExecutionThreadQuery,
+    ExecutionSessionSummary, ExecutionThread,
 };
 pub use hook::{Hook, HookAction, HookContext, HookEvent, HookFilter};
 pub use memory::{

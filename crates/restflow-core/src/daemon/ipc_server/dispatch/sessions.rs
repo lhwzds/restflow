@@ -29,31 +29,17 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_get_execution_thread(
-        core: &Arc<AppCore>,
-        query: crate::models::ExecutionThreadQuery,
-    ) -> IpcResponse {
-        let service = ExecutionConsoleService::from_storage(&core.storage);
-        map_execution_thread_response(service.get_execution_thread(&query))
-    }
-
     pub(super) async fn handle_get_execution_run_thread(
         core: &Arc<AppCore>,
         run_id: String,
     ) -> IpcResponse {
-        let run_id = run_id.trim();
+        let run_id = run_id.trim().to_string();
         if run_id.is_empty() {
             return IpcResponse::error(400, "run_id is required");
         }
 
         let service = ExecutionConsoleService::from_storage(&core.storage);
-        map_execution_thread_response(service.get_execution_thread(
-            &crate::models::ExecutionThreadQuery {
-                session_id: None,
-                run_id: Some(run_id.to_string()),
-                task_id: None,
-            },
-        ))
+        map_execution_thread_response(service.get_execution_run_thread(&run_id))
     }
 
     pub(super) async fn handle_list_child_execution_sessions(
@@ -481,9 +467,7 @@ fn map_execution_thread_response(
         Err(
             ExecutionThreadError::SessionNotFound(_)
             | ExecutionThreadError::SessionHasNoRuns(_)
-            | ExecutionThreadError::RunNotFound(_)
-            | ExecutionThreadError::TaskNotFound(_)
-            | ExecutionThreadError::TaskHasNoRuns(_),
+            | ExecutionThreadError::RunNotFound(_),
         ) => IpcResponse::not_found("ExecutionThread"),
         Err(ExecutionThreadError::Internal(err)) => IpcResponse::error(500, err.to_string()),
     }

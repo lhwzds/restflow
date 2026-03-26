@@ -87,7 +87,6 @@ pub use models::{
     ExecutionStep,
     ExecutionStepInfo,
     ExecutionThread,
-    ExecutionThreadQuery,
     ExecutionTimeline,
     ExecutionTraceCategory,
     ExecutionTraceEvent,

@@ -109,17 +109,6 @@ pub struct ChildExecutionSessionQuery {
     pub parent_run_id: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[ts(export)]
-pub struct ExecutionThreadQuery {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub session_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub run_id: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub task_id: Option<String>,
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[ts(export)]
 pub struct ExecutionThread {
