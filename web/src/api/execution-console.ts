@@ -3,7 +3,6 @@ import type { ChildExecutionSessionQuery } from '@/types/generated/ChildExecutio
 import type { ExecutionSessionListQuery } from '@/types/generated/ExecutionSessionListQuery'
 import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
-import type { ExecutionThreadQuery } from '@/types/generated/ExecutionThreadQuery'
 import { requestTyped } from './http-client'
 
 export async function listExecutionContainers(): Promise<ExecutionContainerSummary[]> {
@@ -17,13 +16,6 @@ export async function listExecutionSessions(
 ): Promise<ExecutionSessionSummary[]> {
   return requestTyped<ExecutionSessionSummary[]>({
     type: 'ListExecutionSessions',
-    data: { query },
-  })
-}
-
-export async function getExecutionThread(query: ExecutionThreadQuery): Promise<ExecutionThread> {
-  return requestTyped<ExecutionThread>({
-    type: 'GetExecutionThread',
     data: { query },
   })
 }
