@@ -1,14 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
-  getExecutionMetrics,
-  getExecutionTimeline,
   getExecutionTraceById,
   getRunExecutionMetrics,
   getRunExecutionTimeline,
   getProviderHealth,
   queryRunExecutionLogs,
-  queryExecutionLogs,
   queryExecutionTraces,
 } from '../execution-traces'
 import { requestOptional, requestTyped } from '../http-client'
@@ -23,42 +20,9 @@ describe('execution-traces api', () => {
     vi.resetAllMocks()
   })
 
-  it('sends trace timeline queries through daemon contracts', async () => {
-    vi.mocked(requestTyped).mockResolvedValue({ events: [], stats: { total_events: 0 } })
-
-    await getExecutionTimeline({
-      task_id: 'session-1',
-      run_id: null,
-      parent_run_id: null,
-      session_id: 'session-1',
-      turn_id: null,
-      agent_id: null,
-      category: null,
-      source: null,
-      from_timestamp: null,
-      to_timestamp: null,
-      limit: 50,
-      offset: 0,
-    })
-
-    expect(requestTyped).toHaveBeenCalledWith({
-      type: 'GetExecutionTimeline',
-      data: {
-        query: expect.objectContaining({
-          task_id: 'session-1',
-          session_id: 'session-1',
-          limit: 50,
-          offset: 0,
-        }),
-      },
-    })
-  })
-
-  it('wraps telemetry metrics, health, log, and trace queries', async () => {
+  it('wraps provider health and execution trace queries', async () => {
     vi.mocked(requestTyped)
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce({ samples: [] })
-      .mockResolvedValueOnce({ events: [] })
       .mockResolvedValueOnce({ events: [] })
 
     await queryExecutionTraces({
@@ -75,26 +39,10 @@ describe('execution-traces api', () => {
       limit: 20,
       offset: 0,
     })
-    await getExecutionMetrics({
-      task_id: 'task-1',
-      run_id: null,
-      session_id: null,
-      agent_id: null,
-      metric_name: 'llm_total_tokens',
-      limit: 10,
-    })
     await getProviderHealth({
       provider: 'minimax-coding-plan',
       model: 'minimax-coding-plan-m2-5-highspeed',
       limit: 5,
-    })
-    await queryExecutionLogs({
-      task_id: 'task-1',
-      run_id: null,
-      session_id: null,
-      agent_id: null,
-      level: 'warn',
-      limit: 10,
     })
 
     expect(requestTyped).toHaveBeenNthCalledWith(1, {
@@ -107,29 +55,11 @@ describe('execution-traces api', () => {
       },
     })
     expect(requestTyped).toHaveBeenNthCalledWith(2, {
-      type: 'GetExecutionMetrics',
-      data: {
-        query: expect.objectContaining({
-          task_id: 'task-1',
-          metric_name: 'llm_total_tokens',
-        }),
-      },
-    })
-    expect(requestTyped).toHaveBeenNthCalledWith(3, {
       type: 'GetProviderHealth',
       data: {
         query: expect.objectContaining({
           provider: 'minimax-coding-plan',
           model: 'minimax-coding-plan-m2-5-highspeed',
-        }),
-      },
-    })
-    expect(requestTyped).toHaveBeenNthCalledWith(4, {
-      type: 'QueryExecutionLogs',
-      data: {
-        query: expect.objectContaining({
-          task_id: 'task-1',
-          level: 'warn',
         }),
       },
     })
