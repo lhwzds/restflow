@@ -4,8 +4,8 @@ use super::*;
 use crate::daemon::request_mapper::to_contract;
 #[cfg(unix)]
 use crate::{
-    ExecutionLogQuery, ExecutionLogResponse, ExecutionMetricQuery, ExecutionMetricsResponse,
-    ExecutionTimeline, ProviderHealthQuery, ProviderHealthResponse,
+    ExecutionLogResponse, ExecutionMetricsResponse, ExecutionTimeline, ProviderHealthQuery,
+    ProviderHealthResponse,
 };
 #[cfg(unix)]
 use restflow_contracts::{ArchiveResponse, DeleteResponse};
@@ -153,29 +153,11 @@ impl IpcClient {
             .await
     }
 
-    pub async fn get_execution_timeline(
-        &mut self,
-        query: ExecutionTraceQuery,
-    ) -> Result<ExecutionTimeline> {
-        let query = to_contract(query)?;
-        self.request_typed(IpcRequest::GetExecutionTimeline { query })
-            .await
-    }
-
     pub async fn get_execution_run_timeline(
         &mut self,
         run_id: String,
     ) -> Result<ExecutionTimeline> {
         self.request_typed(IpcRequest::GetExecutionRunTimeline { run_id })
-            .await
-    }
-
-    pub async fn get_execution_metrics(
-        &mut self,
-        query: ExecutionMetricQuery,
-    ) -> Result<ExecutionMetricsResponse> {
-        let query = to_contract(query)?;
-        self.request_typed(IpcRequest::GetExecutionMetrics { query })
             .await
     }
 
@@ -193,15 +175,6 @@ impl IpcClient {
     ) -> Result<ProviderHealthResponse> {
         let query = to_contract(query)?;
         self.request_typed(IpcRequest::GetProviderHealth { query })
-            .await
-    }
-
-    pub async fn query_execution_logs(
-        &mut self,
-        query: ExecutionLogQuery,
-    ) -> Result<ExecutionLogResponse> {
-        let query = to_contract(query)?;
-        self.request_typed(IpcRequest::QueryExecutionLogs { query })
             .await
     }
 
