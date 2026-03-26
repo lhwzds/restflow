@@ -1,10 +1,5 @@
 import { expect, test } from '@playwright/test'
-import {
-  cleanupTrackedState,
-  createApiSessionForTest,
-  goToWorkspace,
-  requestIpc,
-} from './helpers'
+import { cleanupTrackedState, goToWorkspace, requestIpc } from './helpers'
 
 type ExecutionTimeline = {
   events: unknown[]
@@ -94,49 +89,20 @@ test.describe('Execution Telemetry', () => {
     expect(logs.events).toHaveLength(1)
   })
 
-  test('daemon exposes empty telemetry queries for a fresh session', async ({ page }) => {
+  test('daemon exposes empty run-scoped telemetry for a missing run', async ({ page }) => {
     await goToWorkspace(page)
-
-    const session = await createApiSessionForTest(page, {
-      agent_id: null,
-      model: 'gpt-5',
-      name: 'Telemetry E2E Session',
-      skill_id: null,
-    })
+    const runId = `missing-run-${Date.now()}`
 
     const timeline = await requestIpc<ExecutionTimeline>(page, {
-      type: 'GetExecutionTimeline',
-      data: {
-        query: {
-          task_id: null,
-          run_id: null,
-          session_id: session.id,
-          turn_id: null,
-          agent_id: null,
-          category: null,
-          source: null,
-          from_timestamp: null,
-          to_timestamp: null,
-          limit: 50,
-          offset: 0,
-        },
-      },
+      type: 'GetExecutionRunTimeline',
+      data: { run_id: runId },
     })
     expect(timeline.events).toEqual([])
     expect(timeline.stats.total_events).toBe(0)
 
     const metrics = await requestIpc<ExecutionMetricsResponse>(page, {
-      type: 'GetExecutionMetrics',
-      data: {
-        query: {
-          task_id: null,
-          run_id: null,
-          session_id: session.id,
-          agent_id: null,
-          metric_name: null,
-          limit: 20,
-        },
-      },
+      type: 'GetExecutionRunMetrics',
+      data: { run_id: runId },
     })
     expect(metrics.samples).toEqual([])
 
@@ -153,17 +119,8 @@ test.describe('Execution Telemetry', () => {
     expect(providerHealth.events).toEqual([])
 
     const logs = await requestIpc<ExecutionLogResponse>(page, {
-      type: 'QueryExecutionLogs',
-      data: {
-        query: {
-          task_id: null,
-          run_id: null,
-          session_id: session.id,
-          agent_id: null,
-          level: null,
-          limit: 20,
-        },
-      },
+      type: 'QueryExecutionRunLogs',
+      data: { run_id: runId },
     })
     expect(logs.events).toEqual([])
 

@@ -394,16 +394,6 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_get_execution_timeline(
-        core: &Arc<AppCore>,
-        query: crate::models::ExecutionTraceQuery,
-    ) -> IpcResponse {
-        match get_execution_timeline(&core.storage.execution_traces, &query) {
-            Ok(timeline) => IpcResponse::success(timeline),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
     pub(super) async fn handle_get_execution_run_timeline(
         core: &Arc<AppCore>,
         run_id: String,
@@ -430,16 +420,6 @@ impl IpcServer {
             },
         ) {
             Ok(timeline) => IpcResponse::success(timeline),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
-    pub(super) async fn handle_get_execution_metrics(
-        core: &Arc<AppCore>,
-        query: crate::models::ExecutionMetricQuery,
-    ) -> IpcResponse {
-        match get_execution_metrics(&core.storage.telemetry_metric_samples, &query) {
-            Ok(response) => IpcResponse::success(response),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -473,16 +453,6 @@ impl IpcServer {
         query: crate::models::ProviderHealthQuery,
     ) -> IpcResponse {
         match get_provider_health(&core.storage.provider_health_snapshots, &query) {
-            Ok(response) => IpcResponse::success(response),
-            Err(err) => IpcResponse::error(500, err.to_string()),
-        }
-    }
-
-    pub(super) async fn handle_query_execution_logs(
-        core: &Arc<AppCore>,
-        query: crate::models::ExecutionLogQuery,
-    ) -> IpcResponse {
-        match query_execution_logs(&core.storage.structured_execution_logs, &query) {
             Ok(response) => IpcResponse::success(response),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
