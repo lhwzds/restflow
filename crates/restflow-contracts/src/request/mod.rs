@@ -292,7 +292,8 @@ pub enum IpcRequest {
         query: ExecutionLogQuery,
     },
     GetExecutionTraceStats {
-        task_id: Option<String>,
+        #[serde(alias = "task_id")]
+        run_id: Option<String>,
     },
     GetExecutionTraceById {
         #[serde(alias = "event_id")]

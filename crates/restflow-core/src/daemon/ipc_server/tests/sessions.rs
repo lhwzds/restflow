@@ -137,8 +137,42 @@ async fn get_execution_run_thread_returns_existing_run_thread() {
             let thread: crate::ExecutionThread =
                 serde_json::from_value(value).expect("execution thread");
             assert_eq!(thread.focus.run_id.as_deref(), Some("run-1"));
-            assert_eq!(thread.focus.session_id.as_deref(), Some(session_id.as_str()));
+            assert_eq!(
+                thread.focus.session_id.as_deref(),
+                Some(session_id.as_str())
+            );
             assert!(thread.timeline.events.len() >= 2);
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn get_execution_trace_stats_filters_by_run_id() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    let session_id = session.id.clone();
+    core.storage.chat_sessions.create(&session).unwrap();
+    store_run_events(&core.storage, "task-1", &session_id, "run-1", None);
+    store_run_events(&core.storage, "task-1", &session_id, "run-2", None);
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetExecutionTraceStats {
+            run_id: Some("run-1".to_string()),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let stats: crate::ExecutionTraceStats =
+                serde_json::from_value(value).expect("execution trace stats");
+            assert_eq!(stats.total_events, 2);
+            assert_eq!(stats.lifecycle_count, 2);
         }
         other => panic!("expected success response, got {other:?}"),
     }

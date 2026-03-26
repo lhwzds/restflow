@@ -96,7 +96,7 @@ test.describe('Execution Telemetry', () => {
     const stats = await requestIpc<ExecutionTraceStats>(page, {
       type: 'GetExecutionTraceStats',
       data: {
-        task_id: null,
+        run_id: null,
       },
     })
     expect(stats.total_events).toBe(0)
