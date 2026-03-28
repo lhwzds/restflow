@@ -458,8 +458,55 @@ test.describe('Workspace Layout', () => {
 
     await page.route('**/api/request', async (route) => {
       const payload = route.request().postDataJSON() as
-        | { type?: string; data?: { run_id?: string | null } }
+        | {
+            type?: string
+            data?: {
+              run_id?: string | null
+              query?: {
+                container?: { kind?: string | null; id?: string | null } | null
+              } | null
+            }
+          }
         | undefined
+
+      if (
+        payload?.type === 'ListExecutionSessions' &&
+        payload.data?.query?.container?.kind === 'workspace' &&
+        payload.data?.query?.container?.id === sessionId
+      ) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: [
+              {
+                id: parentRunId,
+                title: 'Parent run',
+                subtitle: null,
+                status: 'completed',
+                kind: 'workspace_run',
+                container_id: sessionId,
+                root_run_id: parentRunId,
+                task_id: null,
+                run_id: parentRunId,
+                parent_run_id: null,
+                session_id: sessionId,
+                agent_id: 'agent-1',
+                effective_model: 'gpt-5',
+                provider: null,
+                started_at: baseTime,
+                ended_at: baseTime + 1,
+                updated_at: baseTime + 1,
+                source_channel: 'workspace',
+                source_conversation_id: null,
+                event_count: 1,
+              },
+            ],
+          }),
+        })
+        return
+      }
 
       if (payload?.type === 'GetExecutionRunThread' && payload.data?.run_id === parentRunId) {
         await route.fulfill({
@@ -572,7 +619,8 @@ test.describe('Workspace Layout', () => {
 
     const childRunButton = page.getByTestId(`thread-item-view-child-run-${childRunId}`)
     await expect(childRunButton).toBeVisible()
-    await childRunButton.click()
+    await expect(page.getByTestId(`workspace-run-${sessionId}-${childRunId}`)).toBeVisible()
+    await page.getByTestId(`workspace-run-${sessionId}-${childRunId}`).click()
 
     await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${childRunId}$`))
   })

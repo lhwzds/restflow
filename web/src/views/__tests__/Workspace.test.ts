@@ -98,9 +98,43 @@ vi.mock('@/composables/workspace/useToolPanel', () => ({
 vi.mock('@/components/workspace/SessionList.vue', () => ({
   default: defineComponent({
     name: 'SessionList',
+    props: {
+      workspaceFolders: {
+        type: Array,
+        default: () => [],
+      },
+    },
     emits: ['newSession', 'selectRun', 'selectContainer'],
-    template:
-      '<div><button data-testid="new-session" @click="$emit(\'newSession\')">new</button><button data-testid="select-run" @click="$emit(\'selectRun\', \'session-1\', \'run-1\')">run</button><button data-testid="select-container" @click="$emit(\'selectContainer\', \'workspace\', \'session-1\')">container</button></div>',
+    setup(props) {
+      function flattenRuns(runs: any[]): any[] {
+        return runs.flatMap((run) => [run, ...flattenRuns(run.childRuns ?? [])])
+      }
+
+      return {
+        flattenedWorkspaceFolders: () =>
+          (props.workspaceFolders as any[]).map((folder) => ({
+            ...folder,
+            flattenedRuns: flattenRuns(folder.runs ?? []),
+          })),
+      }
+    },
+    template: `
+      <div>
+        <button data-testid="new-session" @click="$emit('newSession')">new</button>
+        <button data-testid="select-run" @click="$emit('selectRun', 'session-1', 'run-1')">run</button>
+        <button data-testid="select-container" @click="$emit('selectContainer', 'workspace', 'session-1')">container</button>
+        <template v-for="folder in flattenedWorkspaceFolders()" :key="folder.containerId">
+          <button
+            v-for="run in folder.flattenedRuns"
+            :key="run.runId || run.id"
+            :data-testid="'mock-workspace-run-' + folder.containerId + '-' + (run.runId || 'latest')"
+            @click="$emit('selectRun', folder.containerId, run.runId)"
+          >
+            {{ run.title }}
+          </button>
+        </template>
+      </div>
+    `,
   }),
 }))
 
@@ -448,6 +482,154 @@ describe('Workspace', () => {
       name: 'workspace-container-run',
       params: { containerId: 'task-1', runId: 'run-1' },
     })
+  })
+
+  it('loads root container runs when resolving a canonical child run route', async () => {
+    mockRoute.name = 'workspace-container-run'
+    mockRoute.params = { containerId: 'session-1', runId: 'run-child' }
+    mockGetExecutionRunThread.mockResolvedValueOnce({
+      focus: {
+        id: 'run-child',
+        kind: 'subagent_run',
+        container_id: 'session-1',
+        root_run_id: 'run-1',
+        title: 'Child run',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 10,
+        started_at: 1,
+        ended_at: 2,
+        session_id: 'session-1',
+        run_id: 'run-child',
+        task_id: null,
+        parent_run_id: 'run-1',
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+        effective_model: 'gpt-5',
+        provider: null,
+        event_count: 2,
+      },
+      timeline: { events: [], stats: {} },
+      child_sessions: [],
+    })
+    mockListExecutionSessions.mockResolvedValueOnce([
+      {
+        id: 'run-summary-1',
+        kind: 'workspace_run',
+        container_id: 'session-1',
+        root_run_id: 'run-1',
+        title: 'Run #1',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 10,
+        started_at: 1,
+        ended_at: 2,
+        session_id: 'session-1',
+        run_id: 'run-1',
+        task_id: null,
+        parent_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+        effective_model: 'gpt-5',
+        provider: null,
+        event_count: 2,
+      },
+    ])
+
+    mountWorkspace()
+    await flushPromises()
+
+    expect(mockListExecutionSessions).toHaveBeenCalledWith({
+      container: {
+        kind: 'workspace',
+        id: 'session-1',
+      },
+    })
+  })
+
+  it('hydrates child runs in the sidebar while resolving a parent canonical run route', async () => {
+    mockRoute.name = 'workspace-container-run'
+    mockRoute.params = { containerId: 'session-1', runId: 'run-1' }
+    mockGetExecutionRunThread.mockResolvedValue({
+      focus: {
+        id: 'run-1',
+        kind: 'workspace_run',
+        container_id: 'session-1',
+        root_run_id: 'run-1',
+        title: 'Run #1',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 10,
+        started_at: 1,
+        ended_at: 2,
+        session_id: 'session-1',
+        run_id: 'run-1',
+        task_id: null,
+        parent_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+        effective_model: 'gpt-5',
+        provider: null,
+        event_count: 2,
+      },
+      timeline: { events: [], stats: {} },
+      child_sessions: [
+        {
+          id: 'run-child',
+          kind: 'subagent_run',
+          container_id: 'session-1',
+          root_run_id: 'run-1',
+          title: 'Child run',
+          subtitle: null,
+          status: 'completed',
+          updated_at: 11,
+          started_at: 2,
+          ended_at: 3,
+          session_id: 'session-1',
+          run_id: 'run-child',
+          task_id: null,
+          parent_run_id: 'run-1',
+          agent_id: 'agent-1',
+          source_channel: 'workspace',
+          source_conversation_id: null,
+          effective_model: 'gpt-5',
+          provider: null,
+          event_count: 1,
+        },
+      ],
+    })
+    mockListExecutionSessions.mockResolvedValue([
+      {
+        id: 'run-summary-1',
+        kind: 'workspace_run',
+        container_id: 'session-1',
+        root_run_id: 'run-1',
+        title: 'Run #1',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 10,
+        started_at: 1,
+        ended_at: 2,
+        session_id: 'session-1',
+        run_id: 'run-1',
+        task_id: null,
+        parent_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+        effective_model: 'gpt-5',
+        provider: null,
+        event_count: 2,
+      },
+    ])
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="mock-workspace-run-session-1-run-child"]').exists()).toBe(true)
   })
 
   it('shows an explicit empty state for containers without runs or sessions', async () => {
