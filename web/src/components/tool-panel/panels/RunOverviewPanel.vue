@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed } from 'vue'
-import { GitBranch } from 'lucide-vue-next'
+import { computed, ref } from 'vue'
+import { GitBranch, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 
@@ -16,12 +16,17 @@ const emit = defineEmits<{
 const focus = computed(() => props.thread.focus)
 const stats = computed(() => props.thread.timeline.stats)
 const childRuns = computed(() => props.childRuns ?? [])
+const showIds = ref(false)
 
-function formatTimestamp(value: bigint | number | null | undefined): string {
+function formatRelativeTime(value: bigint | number | null | undefined): string {
   if (value == null) return 'N/A'
   const numeric = typeof value === 'bigint' ? Number(value) : value
   if (!Number.isFinite(numeric)) return 'N/A'
-  return new Date(numeric).toLocaleString()
+  const diff = Date.now() - numeric
+  if (diff < 60_000) return 'just now'
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}m ago`
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`
+  return new Date(numeric).toLocaleDateString()
 }
 
 function formatCount(value: bigint | number | null | undefined): string {
@@ -54,63 +59,14 @@ function formatCount(value: bigint | number | null | undefined): string {
       </div>
     </div>
 
-    <div class="grid grid-cols-2 gap-2 text-xs">
-      <div class="rounded-md border border-border bg-muted/20 p-2">
-        <p class="text-muted-foreground">Events</p>
-        <p class="mt-1 font-medium" data-testid="run-overview-events">
-          {{ formatCount(stats.total_events) }}
-        </p>
-      </div>
-      <div class="rounded-md border border-border bg-muted/20 p-2">
-        <p class="text-muted-foreground">Child runs</p>
-        <p class="mt-1 font-medium" data-testid="run-overview-child-runs">
-          {{ childRuns.length }}
-        </p>
-      </div>
-      <div class="rounded-md border border-border bg-muted/20 p-2">
-        <p class="text-muted-foreground">Started</p>
-        <p class="mt-1 font-medium">{{ formatTimestamp(focus.started_at) }}</p>
-      </div>
-      <div class="rounded-md border border-border bg-muted/20 p-2">
-        <p class="text-muted-foreground">Updated</p>
-        <p class="mt-1 font-medium">{{ formatTimestamp(focus.updated_at) }}</p>
-      </div>
-    </div>
-
-    <div class="space-y-2 rounded-md border border-border bg-muted/10 p-3 text-xs">
-      <div class="flex items-start justify-between gap-3">
-        <span class="text-muted-foreground">Run ID</span>
-        <span class="break-all text-right font-mono">{{ focus.run_id || 'N/A' }}</span>
-      </div>
-      <div class="flex items-start justify-between gap-3">
-        <span class="text-muted-foreground">Session ID</span>
-        <span class="break-all text-right font-mono">{{ focus.session_id || 'N/A' }}</span>
-      </div>
-      <div class="flex items-start justify-between gap-3">
-        <span class="text-muted-foreground">Root run</span>
-        <span class="break-all text-right font-mono">{{ focus.root_run_id || 'N/A' }}</span>
-      </div>
-      <div class="flex items-start justify-between gap-3">
-        <span class="text-muted-foreground">Parent run</span>
-        <span class="break-all text-right font-mono">{{ focus.parent_run_id || 'N/A' }}</span>
-      </div>
-      <div class="flex items-start justify-between gap-3">
-        <span class="text-muted-foreground">Model</span>
-        <span class="break-all text-right">{{ focus.effective_model || 'N/A' }}</span>
-      </div>
-      <div class="flex items-start justify-between gap-3">
-        <span class="text-muted-foreground">Provider</span>
-        <span class="break-all text-right">{{ focus.provider || 'N/A' }}</span>
-      </div>
-    </div>
-
+    <!-- Primary stats: execution activity -->
     <div class="grid grid-cols-2 gap-2 text-xs">
       <div class="rounded-md border border-border bg-muted/20 p-2">
         <p class="text-muted-foreground">Messages</p>
         <p class="mt-1 font-medium">{{ formatCount(stats.message_count) }}</p>
       </div>
       <div class="rounded-md border border-border bg-muted/20 p-2">
-        <p class="text-muted-foreground">Tools</p>
+        <p class="text-muted-foreground">Tool calls</p>
         <p class="mt-1 font-medium">{{ formatCount(stats.tool_call_count) }}</p>
       </div>
       <div class="rounded-md border border-border bg-muted/20 p-2">
@@ -120,6 +76,65 @@ function formatCount(value: bigint | number | null | undefined): string {
       <div class="rounded-md border border-border bg-muted/20 p-2">
         <p class="text-muted-foreground">Tokens</p>
         <p class="mt-1 font-medium">{{ formatCount(stats.total_tokens) }}</p>
+      </div>
+    </div>
+
+    <!-- Secondary stats: timing and hierarchy -->
+    <div class="grid grid-cols-2 gap-2 text-xs">
+      <div class="rounded-md border border-border bg-muted/20 p-2">
+        <p class="text-muted-foreground">Started</p>
+        <p class="mt-1 font-medium">{{ formatRelativeTime(focus.started_at) }}</p>
+      </div>
+      <div class="rounded-md border border-border bg-muted/20 p-2">
+        <p class="text-muted-foreground">Updated</p>
+        <p class="mt-1 font-medium">{{ formatRelativeTime(focus.updated_at) }}</p>
+      </div>
+      <div class="rounded-md border border-border bg-muted/20 p-2">
+        <p class="text-muted-foreground">Events</p>
+        <p class="mt-1 font-medium" data-testid="run-overview-events">{{ formatCount(stats.total_events) }}</p>
+      </div>
+      <div class="rounded-md border border-border bg-muted/20 p-2">
+        <p class="text-muted-foreground">Child runs</p>
+        <p class="mt-1 font-medium" data-testid="run-overview-child-runs">{{ childRuns.length }}</p>
+      </div>
+    </div>
+
+    <!-- Model info -->
+    <div class="flex items-center justify-between rounded-md border border-border bg-muted/10 px-3 py-2 text-xs">
+      <span class="text-muted-foreground">Model</span>
+      <span class="text-right">
+        <span class="font-medium">{{ focus.effective_model || 'N/A' }}</span>
+        <span v-if="focus.provider" class="ml-1 text-muted-foreground">· {{ focus.provider }}</span>
+      </span>
+    </div>
+
+    <!-- IDs section — collapsed by default -->
+    <div class="rounded-md border border-border bg-muted/10 text-xs">
+      <button
+        class="flex w-full items-center justify-between px-3 py-2 text-muted-foreground hover:text-foreground transition-colors"
+        @click="showIds = !showIds"
+      >
+        <span class="font-medium">Run IDs</span>
+        <ChevronDown v-if="showIds" :size="12" />
+        <ChevronRight v-else :size="12" />
+      </button>
+      <div v-if="showIds" class="space-y-2 border-t border-border px-3 py-2">
+        <div class="flex items-start justify-between gap-3">
+          <span class="shrink-0 text-muted-foreground">Run</span>
+          <span class="break-all text-right font-mono">{{ focus.run_id || 'N/A' }}</span>
+        </div>
+        <div class="flex items-start justify-between gap-3">
+          <span class="shrink-0 text-muted-foreground">Session</span>
+          <span class="break-all text-right font-mono">{{ focus.session_id || 'N/A' }}</span>
+        </div>
+        <div class="flex items-start justify-between gap-3">
+          <span class="shrink-0 text-muted-foreground">Root</span>
+          <span class="break-all text-right font-mono">{{ focus.root_run_id || 'N/A' }}</span>
+        </div>
+        <div v-if="focus.parent_run_id" class="flex items-start justify-between gap-3">
+          <span class="shrink-0 text-muted-foreground">Parent</span>
+          <span class="break-all text-right font-mono">{{ focus.parent_run_id }}</span>
+        </div>
       </div>
     </div>
 
@@ -156,7 +171,7 @@ function formatCount(value: bigint | number | null | undefined): string {
           </div>
           <div class="shrink-0 text-right text-[11px] text-muted-foreground">
             <p>{{ childRun.status }}</p>
-            <p>{{ formatTimestamp(childRun.updated_at) }}</p>
+            <p>{{ formatRelativeTime(childRun.updated_at) }}</p>
           </div>
         </button>
       </div>

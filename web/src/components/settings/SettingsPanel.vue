@@ -27,13 +27,28 @@ type SettingsSection = 'secrets' | 'auth' | 'hooks' | 'marketplace' | 'memory' |
 
 const activeSection = ref<SettingsSection>('secrets')
 
-const navItems = computed<{ id: SettingsSection; label: string; icon: typeof Key }[]>(() => [
-  { id: 'secrets', label: t('settings.panel.secrets'), icon: Key },
-  { id: 'auth', label: t('settings.panel.authProfiles'), icon: KeyRound },
-  { id: 'hooks', label: t('settings.panel.hooks'), icon: Webhook },
-  { id: 'marketplace', label: t('settings.panel.marketplace'), icon: Store },
-  { id: 'memory', label: t('settings.panel.memory'), icon: Database },
-  { id: 'system', label: t('settings.panel.system'), icon: Cpu },
+const navGroups = computed<{ label: string; items: { id: SettingsSection; label: string; icon: typeof Key }[] }[]>(() => [
+  {
+    label: 'API & Auth',
+    items: [
+      { id: 'secrets', label: t('settings.panel.secrets'), icon: Key },
+      { id: 'auth', label: t('settings.panel.authProfiles'), icon: KeyRound },
+    ],
+  },
+  {
+    label: 'Automation',
+    items: [
+      { id: 'hooks', label: t('settings.panel.hooks'), icon: Webhook },
+      { id: 'marketplace', label: t('settings.panel.marketplace'), icon: Store },
+    ],
+  },
+  {
+    label: 'Data',
+    items: [
+      { id: 'memory', label: t('settings.panel.memory'), icon: Database },
+      { id: 'system', label: t('settings.panel.system'), icon: Cpu },
+    ],
+  },
 ])
 </script>
 
@@ -52,25 +67,32 @@ const navItems = computed<{ id: SettingsSection; label: string; icon: typeof Key
         </div>
       </div>
 
-      <div class="flex-1 pt-2 pb-2 space-y-0.5">
-        <Button
-          v-for="item in navItems"
-          :key="item.id"
-          variant="ghost"
-          :data-active="activeSection === item.id ? 'true' : 'false'"
-          :class="
-            cn(
-              'w-full justify-start gap-2 rounded-none px-4 text-sm transition-colors',
-              activeSection === item.id
-                ? 'bg-muted text-foreground font-medium hover:bg-muted'
-                : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-            )
-          "
-          @click="activeSection = item.id"
-        >
-          <component :is="item.icon" :size="14" class="shrink-0" />
-          {{ item.label }}
-        </Button>
+      <div class="flex-1 pt-2 pb-2 space-y-3 overflow-auto">
+        <div v-for="group in navGroups" :key="group.label">
+          <div class="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+            {{ group.label }}
+          </div>
+          <div class="space-y-0.5">
+            <Button
+              v-for="item in group.items"
+              :key="item.id"
+              variant="ghost"
+              :data-active="activeSection === item.id ? 'true' : 'false'"
+              :class="
+                cn(
+                  'w-full justify-start gap-2 rounded-none px-4 text-sm transition-colors',
+                  activeSection === item.id
+                    ? 'bg-muted text-foreground font-medium hover:bg-muted'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+                )
+              "
+              @click="activeSection = item.id"
+            >
+              <component :is="item.icon" :size="14" class="shrink-0" />
+              {{ item.label }}
+            </Button>
+          </div>
+        </div>
       </div>
 
       <!-- Back button at bottom -->
