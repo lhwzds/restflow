@@ -156,9 +156,19 @@ vi.mock('@/components/chat/ChatPanel.vue', () => ({
 vi.mock('@/components/tool-panel/ToolPanel.vue', () => ({
   default: defineComponent({
     name: 'ToolPanel',
+    props: {
+      mode: {
+        type: String,
+        default: 'detail',
+      },
+      runThread: {
+        type: Object,
+        default: null,
+      },
+    },
     emits: ['navigateRun'],
     template:
-      '<div data-testid="tool-panel"><button data-testid="tool-panel-nav-root" @click="$emit(\'navigateRun\', { containerId: \'session-1\', runId: \'run-root\' })">navigate</button></div>',
+      '<div data-testid="tool-panel"><div data-testid="tool-panel-mode">{{ mode }}</div><div data-testid="tool-panel-run-title">{{ runThread?.focus?.title }}</div><button data-testid="tool-panel-nav-root" @click="$emit(\'navigateRun\', { containerId: \'session-1\', runId: \'run-root\' })">navigate</button></div>',
   }),
 }))
 
@@ -551,6 +561,18 @@ describe('Workspace', () => {
         id: 'session-1',
       },
     })
+  })
+
+  it('shows the selected run overview in the right inspector for canonical run routes', async () => {
+    mockRoute.name = 'workspace-container-run'
+    mockRoute.params = { containerId: 'session-1', runId: 'run-1' }
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="tool-panel"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="tool-panel-mode"]').text()).toBe('overview')
+    expect(wrapper.get('[data-testid="tool-panel-run-title"]').text()).toBe('Run #1')
   })
 
   it('hydrates child runs in the sidebar while resolving a parent canonical run route', async () => {
