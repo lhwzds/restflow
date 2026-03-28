@@ -147,11 +147,12 @@ mod tests {
     use super::*;
     use crate::Tool;
     use restflow_ai::agent::{
-        SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-        SubagentDeps, SubagentManagerImpl, SubagentTracker, spawn_subagent,
+        SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
+        SubagentDeps, SubagentManagerImpl, SubagentTracker,
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
+    use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
     use restflow_traits::SubagentManager;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
@@ -182,7 +183,12 @@ mod tests {
             self.defs.get(id).cloned()
         }
         fn list_callable(&self) -> Vec<SubagentDefSummary> {
-            vec![]
+            vec![SubagentDefSummary {
+                id: "tester".to_string(),
+                name: "tester".to_string(),
+                description: "test agent".to_string(),
+                tags: vec![],
+            }]
         }
     }
 
@@ -212,29 +218,15 @@ mod tests {
     }
 
     /// Spawn a subagent that immediately completes (via MockLlmClient) and return its task_id.
-    fn spawn_test_agent(deps: &SubagentDeps) -> String {
-        let handle = spawn_subagent(
-            deps.tracker.clone(),
-            deps.definitions.clone(),
-            deps.llm_client.clone(),
-            deps.tool_registry.clone(),
-            deps.config.clone(),
-            SpawnRequest {
+    fn spawn_test_agent(manager: &Arc<dyn SubagentManager>) -> String {
+        let handle = manager
+            .spawn(ContractSubagentSpawnRequest {
                 agent_id: Some("tester".to_string()),
-                inline: None,
                 task: "test task".to_string(),
                 timeout_secs: Some(10),
-                max_iterations: None,
-                priority: None,
-                model: None,
-                model_provider: None,
-                parent_execution_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
-            },
-            restflow_ai::SubagentExecutionBridge::default(),
-        )
-        .unwrap();
+                ..ContractSubagentSpawnRequest::default()
+            })
+            .expect("spawn should succeed");
         handle.id
     }
 
@@ -259,8 +251,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_completed_task() {
-        let (deps, manager) = make_deps(vec![MockStep::text("done")]);
-        let task_id = spawn_test_agent(&deps);
+        let (_deps, manager) = make_deps(vec![MockStep::text("done")]);
+        let task_id = spawn_test_agent(&manager);
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
@@ -289,8 +281,8 @@ mod tests {
     #[tokio::test]
     async fn test_wait_timeout() {
         // Use a delayed step that exceeds the wait timeout.
-        let (deps, manager) = make_deps(vec![MockStep::text("slow").with_delay(2_000)]);
-        let task_id = spawn_test_agent(&deps);
+        let (_deps, manager) = make_deps(vec![MockStep::text("slow").with_delay(2_000)]);
+        let task_id = spawn_test_agent(&manager);
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
@@ -305,7 +297,7 @@ mod tests {
     #[tokio::test]
     async fn test_wait_interrupted_task() {
         let (deps, manager) = make_deps(vec![MockStep::text("slow").with_delay(2_000)]);
-        let task_id = spawn_test_agent(&deps);
+        let task_id = spawn_test_agent(&manager);
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(deps.tracker.cancel(&task_id));
 
@@ -323,10 +315,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_multiple_tasks() {
-        let (deps, manager) =
+        let (_deps, manager) =
             make_deps(vec![MockStep::text("result-1"), MockStep::text("result-2")]);
-        let id1 = spawn_test_agent(&deps);
-        let id2 = spawn_test_agent(&deps);
+        let id1 = spawn_test_agent(&manager);
+        let id2 = spawn_test_agent(&manager);
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
@@ -342,8 +334,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_with_zero_timeout_waits_for_completion() {
-        let (deps, manager) = make_deps(vec![MockStep::text("slow-done").with_delay(200)]);
-        let task_id = spawn_test_agent(&deps);
+        let (_deps, manager) = make_deps(vec![MockStep::text("slow-done").with_delay(200)]);
+        let task_id = spawn_test_agent(&manager);
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
@@ -359,8 +351,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_wait_failed_task() {
-        let (deps, manager) = make_deps(vec![MockStep::error("LLM error")]);
-        let task_id = spawn_test_agent(&deps);
+        let (_deps, manager) = make_deps(vec![MockStep::error("LLM error")]);
+        let task_id = spawn_test_agent(&manager);
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool

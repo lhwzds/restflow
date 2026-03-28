@@ -64,34 +64,12 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
     }
 
     async fn execute_subagent_plan(&self, plan: ExecutionPlan) -> anyhow::Result<ExecutionOutcome> {
-        let provider = match (plan.model.as_deref(), plan.provider.clone()) {
-            (Some(model), None) => self
-                .llm_client_factory
-                .provider_for_model(model)
-                .map(|provider| provider.as_str().to_string()),
-            _ => plan.provider.clone(),
-        };
-        execute_subagent_once(
+        execute_subagent_plan(
             self.definitions.clone(),
             self.llm_client.clone(),
             self.tool_registry.clone(),
             self.config.clone(),
-            restflow_traits::SpawnRequest {
-                agent_id: plan.agent_id.clone(),
-                inline: plan.inline_subagent.clone(),
-                task: plan
-                    .input
-                    .clone()
-                    .ok_or_else(|| anyhow::anyhow!("Subagent execution requires 'input'"))?,
-                timeout_secs: plan.timeout_secs,
-                max_iterations: plan.max_iterations,
-                priority: None,
-                model: plan.model.clone(),
-                model_provider: provider,
-                parent_execution_id: plan.parent_execution_id.clone(),
-                trace_session_id: plan.trace_session_id.clone(),
-                trace_scope_id: plan.trace_scope_id.clone(),
-            },
+            plan,
             SubagentExecutionBridge {
                 llm_client_factory: Some(self.llm_client_factory.clone()),
                 orchestrator: None,

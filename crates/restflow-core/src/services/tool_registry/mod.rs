@@ -24,7 +24,7 @@ use crate::storage::{
 use restflow_ai::AgentState;
 use restflow_ai::agent::{
     StreamEmitter, SubagentConfig, SubagentDefLookup, SubagentDeps, SubagentExecutionBridge,
-    SubagentManagerImpl, SubagentTracker, execute_subagent_once,
+    SubagentManagerImpl, SubagentTracker, execute_subagent_plan,
 };
 use restflow_ai::llm::{
     CodexClient, DefaultLlmClientFactory, LlmClient, LlmClientFactory, LlmSwitcherImpl,
