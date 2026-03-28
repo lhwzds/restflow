@@ -57,6 +57,16 @@ describe('SessionList', () => {
               status: 'completed',
               updatedAt: Date.now(),
               runId: 'run-1',
+              childRuns: [
+                {
+                  id: 'run-summary-1-child',
+                  title: 'Child Run',
+                  status: 'completed',
+                  updatedAt: Date.now(),
+                  runId: 'run-1-child',
+                  childRuns: [],
+                },
+              ],
             },
           ],
         },
@@ -69,6 +79,7 @@ describe('SessionList', () => {
 
     expect(wrapper.get('[data-testid="workspace-folder-session-1"]')).toBeTruthy()
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]')).toBeTruthy()
 
     const findButton = (label: string) => {
       const button = wrapper.findAll('button').find((item) => item.text().includes(label))
@@ -78,13 +89,17 @@ describe('SessionList', () => {
 
     await wrapper.get('[data-testid="workspace-folder-session-1"]').find('button').trigger('click')
     await wrapper.get('[data-testid="workspace-run-session-1-run-1"]').trigger('click')
+    await wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').trigger('click')
     await findButton('workspace.session.rename').trigger('click')
     await findButton('workspace.session.convertToBackground').trigger('click')
     await findButton('workspace.session.archive').trigger('click')
     await findButton('workspace.session.delete').trigger('click')
 
     expect(wrapper.emitted('toggleWorkspaceFolder')).toEqual([['session-1']])
-    expect(wrapper.emitted('selectRun')).toEqual([['session-1', 'run-1']])
+    expect(wrapper.emitted('selectRun')).toEqual([
+      ['session-1', 'run-1'],
+      ['session-1', 'run-1-child'],
+    ])
     expect(wrapper.emitted('rename')).toEqual([['session-1', 'Workspace Session']])
     expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([['session-1', 'Workspace Session']])
     expect(wrapper.emitted('archive')).toEqual([['session-1', 'Workspace Session']])

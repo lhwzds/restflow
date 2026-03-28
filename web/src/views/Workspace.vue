@@ -81,6 +81,7 @@ const expandedBackgroundTaskIds = ref<Set<string>>(new Set())
 const backgroundRunsByTaskId = ref<Record<string, ExecutionSessionSummary[]>>({})
 const expandedExternalContainerIds = ref<Set<string>>(new Set())
 const externalRunsByContainerId = ref<Record<string, ExecutionSessionSummary[]>>({})
+const childRunsByParentRunId = ref<Record<string, ExecutionSessionSummary[]>>({})
 const toolPanel = useToolPanel()
 const isSending = computed(() => chatSessionStore.isSending)
 
@@ -174,13 +175,24 @@ function agentNameForId(agentId: string | null | undefined): string | undefined 
   return availableAgents.value.find((agent) => agent.id === agentId)?.name ?? agentId
 }
 
-function toRunListItem(summary: ExecutionSessionSummary): RunListItem {
+function toRunListItem(summary: ExecutionSessionSummary, path = new Set<string>()): RunListItem {
+  const runId = summary.run_id ?? null
+  const nextPath = new Set(path)
+  if (runId) {
+    nextPath.add(runId)
+  }
+  const childRuns =
+    runId && !path.has(runId)
+      ? (childRunsByParentRunId.value[runId] ?? []).map((child) => toRunListItem(child, nextPath))
+      : []
+
   return {
     id: summary.id,
     title: summary.title,
     status: summary.status,
     updatedAt: summary.updated_at,
-    runId: summary.run_id,
+    runId,
+    childRuns,
   }
 }
 
@@ -212,7 +224,7 @@ const workspaceFolders = computed<WorkspaceSessionFolder[]>(() =>
       agentId: container.agent_id ?? undefined,
       agentName: agentNameForId(container.agent_id),
       sourceChannel: container.source_channel ?? null,
-      runs: (workspaceRunsByContainerId.value[container.id] ?? []).map(toRunListItem),
+      runs: (workspaceRunsByContainerId.value[container.id] ?? []).map((summary) => toRunListItem(summary)),
     }))
     .sort((left, right) => right.updatedAt - left.updatedAt || left.containerId.localeCompare(right.containerId)),
 )
@@ -226,7 +238,7 @@ const backgroundFolders = computed<BackgroundTaskFolder[]>(() =>
     status: container.status ?? 'idle',
     updatedAt: container.updated_at,
     expanded: expandedBackgroundTaskIds.value.has(container.id),
-    runs: (backgroundRunsByTaskId.value[container.id] ?? []).map(toRunListItem),
+    runs: (backgroundRunsByTaskId.value[container.id] ?? []).map((summary) => toRunListItem(summary)),
   })),
 )
 
@@ -240,7 +252,7 @@ const externalFolders = computed<ExternalChannelFolder[]>(() =>
     updatedAt: container.updated_at,
     expanded: expandedExternalContainerIds.value.has(container.id),
     sourceChannel: container.source_channel ?? null,
-    runs: (externalRunsByContainerId.value[container.id] ?? []).map(toRunListItem),
+    runs: (externalRunsByContainerId.value[container.id] ?? []).map((summary) => toRunListItem(summary)),
   })),
 )
 
@@ -439,9 +451,20 @@ function onThreadSelection(selection: ThreadSelection) {
   toolPanel.handleThreadSelection(selection)
 }
 
+function cacheThreadChildRuns(thread: ExecutionThread | null) {
+  const runId = thread?.focus.run_id ?? null
+  if (!runId) return
+
+  childRunsByParentRunId.value = {
+    ...childRunsByParentRunId.value,
+    [runId]: [...thread?.child_sessions ?? []],
+  }
+}
+
 function onThreadLoaded(thread: ExecutionThread | null) {
   const runId = thread?.focus.run_id ?? null
   const containerId = thread?.focus.container_id ?? null
+  cacheThreadChildRuns(thread)
   if (!runId || !containerId) return
   if (routeContainerRunId.value === runId && routeContainerId.value === containerId) return
 
@@ -456,8 +479,11 @@ async function refreshNavigationProjection() {
   await loadExecutionContainersProjection()
 }
 
-async function ensureWorkspaceRunsLoaded(containerId: string): Promise<ExecutionSessionSummary[]> {
-  if (workspaceRunsByContainerId.value[containerId]) {
+async function ensureWorkspaceRunsLoaded(
+  containerId: string,
+  forceRefresh = false,
+): Promise<ExecutionSessionSummary[]> {
+  if (!forceRefresh && workspaceRunsByContainerId.value[containerId]) {
     return workspaceRunsByContainerId.value[containerId]
   }
 
@@ -475,8 +501,11 @@ async function ensureWorkspaceRunsLoaded(containerId: string): Promise<Execution
   return runs
 }
 
-async function ensureBackgroundRunsLoaded(taskId: string): Promise<ExecutionSessionSummary[]> {
-  if (backgroundRunsByTaskId.value[taskId]) {
+async function ensureBackgroundRunsLoaded(
+  taskId: string,
+  forceRefresh = false,
+): Promise<ExecutionSessionSummary[]> {
+  if (!forceRefresh && backgroundRunsByTaskId.value[taskId]) {
     return backgroundRunsByTaskId.value[taskId]
   }
 
@@ -494,8 +523,11 @@ async function ensureBackgroundRunsLoaded(taskId: string): Promise<ExecutionSess
   return runs
 }
 
-async function ensureExternalRunsLoaded(containerId: string): Promise<ExecutionSessionSummary[]> {
-  if (externalRunsByContainerId.value[containerId]) {
+async function ensureExternalRunsLoaded(
+  containerId: string,
+  forceRefresh = false,
+): Promise<ExecutionSessionSummary[]> {
+  if (!forceRefresh && externalRunsByContainerId.value[containerId]) {
     return externalRunsByContainerId.value[containerId]
   }
 
@@ -592,13 +624,13 @@ async function onSelectRun(containerId: string, runId: string) {
   await router.push(canonicalContainerRunRoute(containerId, runId))
 }
 
-async function expandContainerForFocus(focus: ExecutionSessionSummary) {
+async function expandContainerForFocus(focus: ExecutionSessionSummary, forceRefreshRuns = false) {
   if (focus.kind === 'background_run' && focus.task_id) {
     activeBackgroundTaskId.value = focus.task_id
     const next = new Set(expandedBackgroundTaskIds.value)
     next.add(focus.task_id)
     expandedBackgroundTaskIds.value = next
-    await ensureBackgroundRunsLoaded(focus.task_id)
+    await ensureBackgroundRunsLoaded(focus.task_id, forceRefreshRuns)
     return
   }
 
@@ -607,7 +639,7 @@ async function expandContainerForFocus(focus: ExecutionSessionSummary) {
     const next = new Set(expandedWorkspaceContainerIds.value)
     next.add(focus.container_id)
     expandedWorkspaceContainerIds.value = next
-    await ensureWorkspaceRunsLoaded(focus.container_id)
+    await ensureWorkspaceRunsLoaded(focus.container_id, forceRefreshRuns)
     return
   }
 
@@ -616,7 +648,34 @@ async function expandContainerForFocus(focus: ExecutionSessionSummary) {
     const next = new Set(expandedExternalContainerIds.value)
     next.add(focus.container_id)
     expandedExternalContainerIds.value = next
-    await ensureExternalRunsLoaded(focus.container_id)
+    await ensureExternalRunsLoaded(focus.container_id, forceRefreshRuns)
+    return
+  }
+
+  const container = findContainerById(focus.container_id)
+  if (focus.kind === 'subagent_run' && container) {
+    activeBackgroundTaskId.value = container.kind === 'background_task' ? container.id : null
+
+    if (container.kind === 'workspace') {
+      const next = new Set(expandedWorkspaceContainerIds.value)
+      next.add(container.id)
+      expandedWorkspaceContainerIds.value = next
+      await ensureWorkspaceRunsLoaded(container.id, forceRefreshRuns)
+      return
+    }
+
+    if (container.kind === 'background_task') {
+      const next = new Set(expandedBackgroundTaskIds.value)
+      next.add(container.id)
+      expandedBackgroundTaskIds.value = next
+      await ensureBackgroundRunsLoaded(container.id, forceRefreshRuns)
+      return
+    }
+
+    const next = new Set(expandedExternalContainerIds.value)
+    next.add(container.id)
+    expandedExternalContainerIds.value = next
+    await ensureExternalRunsLoaded(container.id, forceRefreshRuns)
     return
   }
 
@@ -628,12 +687,13 @@ async function resolveRunRoute(runId: string, version: number, expectedContainer
 
   if (version !== routeResolutionVersion) return
 
+  cacheThreadChildRuns(thread)
   const resolvedContainerId = thread.focus.container_id
   activeContainerId.value = resolvedContainerId
   activeRunId.value = thread.focus.run_id ?? runId
   selectedSessionId.value = thread.focus.session_id ?? null
   await chatSessionStore.selectSession(thread.focus.session_id ?? null)
-  await expandContainerForFocus(thread.focus)
+  await expandContainerForFocus(thread.focus, true)
 
   if (
     routeContainerRunId.value !== runId ||

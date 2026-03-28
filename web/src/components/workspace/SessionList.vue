@@ -128,6 +128,15 @@ function runKey(containerId: string, run: RunListItem): string {
   return `${containerId}:${run.runId ?? run.id}`
 }
 
+type FlattenedRunItem = RunListItem & { depth: number }
+
+function flattenRuns(runs: RunListItem[], depth = 0): FlattenedRunItem[] {
+  return runs.flatMap((run) => [
+    { ...run, depth },
+    ...flattenRuns(run.childRuns ?? [], depth + 1),
+  ])
+}
+
 function isRunSelected(runId: string | null | undefined): boolean {
   return !!runId && props.currentRunId === runId
 }
@@ -227,15 +236,16 @@ function isContainerSelected(containerId: string): boolean {
 
         <div v-if="folder.expanded" class="pb-1">
           <button
-            v-for="run in folder.runs"
+            v-for="run in flattenRuns(folder.runs)"
             :key="runKey(folder.containerId, run)"
             :data-testid="`workspace-run-${folder.containerId}-${run.runId ?? 'latest'}`"
             :class="
               cn(
-                'flex w-full items-start gap-2 px-9 py-2 text-left transition-colors hover:bg-muted/50',
+                'flex w-full items-start gap-2 py-2 pr-3 text-left transition-colors hover:bg-muted/50',
                 isRunSelected(run.runId) && 'bg-muted',
               )
             "
+            :style="{ paddingLeft: `${2.25 + run.depth * 1.25}rem` }"
             @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
           >
             <component
@@ -335,15 +345,16 @@ function isContainerSelected(containerId: string): boolean {
 
         <div v-if="folder.expanded" class="pb-1">
           <button
-            v-for="run in folder.runs"
+            v-for="run in flattenRuns(folder.runs)"
             :key="runKey(folder.taskId, run)"
             :data-testid="`background-run-${folder.taskId}-${run.runId ?? 'latest'}`"
             :class="
               cn(
-                'flex w-full items-start gap-2 px-9 py-2 text-left transition-colors hover:bg-muted/50',
+                'flex w-full items-start gap-2 py-2 pr-3 text-left transition-colors hover:bg-muted/50',
                 isRunSelected(run.runId) && 'bg-muted',
               )
             "
+            :style="{ paddingLeft: `${2.25 + run.depth * 1.25}rem` }"
             @click="run.runId && emit('selectRun', folder.taskId, run.runId)"
           >
             <component
@@ -433,15 +444,16 @@ function isContainerSelected(containerId: string): boolean {
 
         <div v-if="folder.expanded" class="pb-1">
           <button
-            v-for="run in folder.runs"
+            v-for="run in flattenRuns(folder.runs)"
             :key="runKey(folder.containerId, run)"
             :data-testid="`external-run-${folder.containerId}-${run.runId ?? 'latest'}`"
             :class="
               cn(
-                'flex w-full items-start gap-2 px-9 py-2 text-left transition-colors hover:bg-muted/50',
+                'flex w-full items-start gap-2 py-2 pr-3 text-left transition-colors hover:bg-muted/50',
                 isRunSelected(run.runId) && 'bg-muted',
               )
             "
+            :style="{ paddingLeft: `${2.25 + run.depth * 1.25}rem` }"
             @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
           >
             <component
