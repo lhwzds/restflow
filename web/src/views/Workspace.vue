@@ -192,6 +192,7 @@ function toRunListItem(summary: ExecutionSessionSummary, path = new Set<string>(
     status: summary.status,
     updatedAt: summary.updated_at,
     runId,
+    agentName: agentNameForId(summary.agent_id),
     childRuns,
   }
 }
