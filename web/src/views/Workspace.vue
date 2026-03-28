@@ -258,6 +258,26 @@ const routeContainerRunId = computed(() => {
   return String(route.params.runId ?? '').trim()
 })
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function toChildRunSelection(selection: ThreadSelection): ExecutionSessionSummary | null {
+  if (selection.kind !== 'child_run') return null
+  const childRun = isRecord(selection.data.child_run) ? selection.data.child_run : null
+  if (!childRun) return null
+
+  const containerId =
+    typeof childRun.container_id === 'string' && childRun.container_id.length > 0
+      ? childRun.container_id
+      : null
+  const runId =
+    typeof childRun.run_id === 'string' && childRun.run_id.length > 0 ? childRun.run_id : null
+
+  if (!containerId || !runId) return null
+  return childRun as unknown as ExecutionSessionSummary
+}
+
 const activeContainer = computed(() => {
   const containerId = activeContainerId.value || routeContainerId.value
   return containerId ? findContainerById(containerId) : null
@@ -410,6 +430,12 @@ function onToolResult(step: StreamStep) {
 }
 
 function onThreadSelection(selection: ThreadSelection) {
+  const childRun = toChildRunSelection(selection)
+  if (childRun?.run_id) {
+    void router.push(canonicalContainerRunRoute(childRun.container_id, childRun.run_id))
+    return
+  }
+
   toolPanel.handleThreadSelection(selection)
 }
 

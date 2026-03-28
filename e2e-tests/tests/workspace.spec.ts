@@ -449,6 +449,133 @@ test.describe('Workspace Layout', () => {
 
     expect(toolAppearsBeforeAssistant).toBe(true)
   })
+
+  test('opens child run links on the canonical root container run route', async ({ page }) => {
+    const sessionId = await createSessionForTest(page)
+    const parentRunId = `run-parent-${Date.now()}`
+    const childRunId = `run-child-${Date.now()}`
+    const baseTime = Date.now()
+
+    await page.route('**/api/request', async (route) => {
+      const payload = route.request().postDataJSON() as
+        | { type?: string; data?: { run_id?: string | null } }
+        | undefined
+
+      if (payload?.type === 'GetExecutionRunThread' && payload.data?.run_id === parentRunId) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: {
+              focus: {
+                id: parentRunId,
+                title: 'Parent run',
+                subtitle: null,
+                status: 'completed',
+                kind: 'workspace_run',
+                container_id: sessionId,
+                root_run_id: parentRunId,
+                task_id: null,
+                run_id: parentRunId,
+                parent_run_id: null,
+                session_id: sessionId,
+                agent_id: 'agent-1',
+                effective_model: 'gpt-5',
+                provider: null,
+                started_at: baseTime,
+                ended_at: baseTime + 1,
+                updated_at: baseTime + 1,
+                source_channel: 'workspace',
+                source_conversation_id: null,
+                event_count: 1,
+              },
+              timeline: {
+                events: [],
+                stats: {},
+              },
+              child_sessions: [
+                {
+                  id: childRunId,
+                  title: 'Child run',
+                  subtitle: null,
+                  status: 'completed',
+                  kind: 'subagent_run',
+                  container_id: sessionId,
+                  root_run_id: parentRunId,
+                  task_id: null,
+                  run_id: childRunId,
+                  parent_run_id: parentRunId,
+                  session_id: sessionId,
+                  agent_id: 'agent-1',
+                  effective_model: 'gpt-5',
+                  provider: null,
+                  started_at: baseTime + 2,
+                  ended_at: baseTime + 3,
+                  updated_at: baseTime + 3,
+                  source_channel: 'workspace',
+                  source_conversation_id: null,
+                  event_count: 1,
+                },
+              ],
+            },
+          }),
+        })
+        return
+      }
+
+      if (payload?.type === 'GetExecutionRunThread' && payload.data?.run_id === childRunId) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: {
+              focus: {
+                id: childRunId,
+                title: 'Child run',
+                subtitle: null,
+                status: 'completed',
+                kind: 'subagent_run',
+                container_id: sessionId,
+                root_run_id: parentRunId,
+                task_id: null,
+                run_id: childRunId,
+                parent_run_id: parentRunId,
+                session_id: sessionId,
+                agent_id: 'agent-1',
+                effective_model: 'gpt-5',
+                provider: null,
+                started_at: baseTime + 2,
+                ended_at: baseTime + 3,
+                updated_at: baseTime + 3,
+                source_channel: 'workspace',
+                source_conversation_id: null,
+                event_count: 1,
+              },
+              timeline: {
+                events: [],
+                stats: {},
+              },
+              child_sessions: [],
+            },
+          }),
+        })
+        return
+      }
+
+      await route.continue()
+    })
+
+    await page.goto(`/workspace/c/${sessionId}/r/${parentRunId}`)
+    await page.waitForLoadState('domcontentloaded')
+
+    const childRunButton = page.getByTestId(`thread-item-view-child-run-${childRunId}`)
+    await expect(childRunButton).toBeVisible()
+    await childRunButton.click()
+
+    await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${childRunId}$`))
+  })
 })
 
 test.describe('Session List', () => {

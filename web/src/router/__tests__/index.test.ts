@@ -79,6 +79,24 @@ describe('router legacy route normalization', () => {
     })
   })
 
+  it('maps legacy child run-id routes to the canonical root container run route', async () => {
+    vi.mocked(getExecutionRunThread).mockResolvedValue({
+      focus: {
+        container_id: 'session-1',
+        root_run_id: 'run-1',
+        parent_run_id: 'run-1',
+        run_id: 'run-2',
+      },
+      timeline: { events: [], stats: {} },
+      child_sessions: [],
+    } as any)
+
+    await expect(resolveLegacyRunIdRoute('run-2')).resolves.toEqual({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-2' },
+    })
+  })
+
   it('falls back to workspace root when a legacy run-id route cannot be resolved', async () => {
     vi.mocked(getExecutionRunThread).mockRejectedValue(
       new BackendError({

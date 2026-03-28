@@ -451,4 +451,53 @@ describe('threadItems', () => {
 
     expect(items.map((item) => item.id)).toEqual(['event-tool', 'event-assistant'])
   })
+
+  it('includes child run links with canonical root container identity', () => {
+    const items = buildSessionThreadItems({
+      thread: {
+        focus: {} as any,
+        timeline: {
+          events: [],
+          stats: {} as any,
+        },
+        child_sessions: [
+          {
+            id: 'run-child',
+            kind: 'subagent_run',
+            container_id: 'session-1',
+            root_run_id: 'run-parent',
+            title: 'Subagent run',
+            subtitle: null,
+            status: 'completed',
+            updated_at: 2000,
+            started_at: 1500,
+            ended_at: 2000,
+            session_id: 'session-1',
+            run_id: 'run-child',
+            task_id: null,
+            parent_run_id: 'run-parent',
+            agent_id: 'agent-1',
+            source_channel: 'workspace',
+            source_conversation_id: null,
+            effective_model: 'gpt-5',
+            provider: null,
+            event_count: 2,
+          },
+        ],
+      },
+      messages: [],
+      steps: [],
+      streamContent: '',
+    })
+
+    expect(items).toHaveLength(1)
+    expect(items[0]?.kind).toBe('child_run_link')
+    expect(items[0]?.selection?.kind).toBe('child_run')
+    expect(items[0]?.selection?.data.child_run).toMatchObject({
+      container_id: 'session-1',
+      root_run_id: 'run-parent',
+      run_id: 'run-child',
+      parent_run_id: 'run-parent',
+    })
+  })
 })

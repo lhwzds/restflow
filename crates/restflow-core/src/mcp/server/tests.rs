@@ -1255,6 +1255,7 @@ impl McpBackend for MockBackend {
             id: format!("{}-run-summary", query.container.id),
             kind: ExecutionSessionKind::BackgroundRun,
             container_id: query.container.id.clone(),
+            root_run_id: Some("run-123".to_string()),
             title: "Mock Run".to_string(),
             subtitle: None,
             status: "completed".to_string(),

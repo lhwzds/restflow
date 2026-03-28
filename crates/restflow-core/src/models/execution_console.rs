@@ -62,6 +62,8 @@ pub struct ExecutionSessionSummary {
     pub id: String,
     pub kind: ExecutionSessionKind,
     pub container_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub root_run_id: Option<String>,
     pub title: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subtitle: Option<String>,

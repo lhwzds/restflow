@@ -125,7 +125,7 @@ vi.mock('@/components/workspace/AgentEditorPanel.vue', () => ({
 vi.mock('@/components/chat/ChatPanel.vue', () => ({
   default: defineComponent({
     name: 'ChatPanel',
-    emits: ['threadLoaded'],
+    emits: ['threadLoaded', 'threadSelection'],
     template: '<div data-testid="chat-panel" />',
   }),
 }))
@@ -348,6 +348,47 @@ describe('Workspace', () => {
     expect(mockRouterPush).toHaveBeenCalledWith({
       name: 'workspace-container-run',
       params: { containerId: 'session-1', runId: 'run-1' },
+    })
+  })
+
+  it('navigates child run thread selections to the canonical root container run route', async () => {
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    wrapper.findComponent({ name: 'ChatPanel' }).vm.$emit('threadSelection', {
+      id: 'child-run-run-2',
+      kind: 'child_run',
+      title: 'Subagent run',
+      data: {
+        child_run: {
+          id: 'run-2',
+          kind: 'subagent_run',
+          container_id: 'session-1',
+          root_run_id: 'run-1',
+          title: 'Subagent run',
+          subtitle: null,
+          status: 'completed',
+          updated_at: 2,
+          started_at: 1,
+          ended_at: 2,
+          session_id: 'session-1',
+          run_id: 'run-2',
+          task_id: null,
+          parent_run_id: 'run-1',
+          agent_id: 'agent-1',
+          source_channel: 'workspace',
+          source_conversation_id: null,
+          effective_model: 'gpt-5',
+          provider: null,
+          event_count: 2,
+        },
+      },
+    })
+    await flushPromises()
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-2' },
     })
   })
 
