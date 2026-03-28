@@ -634,6 +634,9 @@ test.describe('Workspace Layout', () => {
     await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${childRunId}$`))
     await expect(page.getByTestId('run-breadcrumb')).toBeVisible()
     await expect(page.getByTestId('run-breadcrumb')).toContainText('Child run')
+    await expect(page.getByTestId('run-breadcrumb-node-root')).toContainText('Parent run')
+    await page.getByTestId('run-breadcrumb-node-root').click()
+    await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${parentRunId}$`))
   })
 })
 

@@ -805,36 +805,96 @@ describe('ChatPanel', () => {
     )
   })
 
-  it('shows a breadcrumb for child runs and navigates back to the root run', async () => {
-    mockGetExecutionRunThread.mockResolvedValue({
-      focus: {
-        id: 'run-child',
-        kind: 'subagent_run',
-        container_id: 'session-1',
-        root_run_id: 'run-root',
-        title: 'Child run',
-        subtitle: null,
-        status: 'completed',
-        updated_at: 2000,
-        started_at: 1000,
-        ended_at: 2000,
-        session_id: 'session-1',
-        run_id: 'run-child',
-        task_id: null,
-        parent_run_id: 'run-root',
-        agent_id: 'agent-1',
-        source_channel: 'workspace',
-        source_conversation_id: null,
-        effective_model: 'gpt-5',
-        provider: 'openai',
-        event_count: 1,
-      },
-      timeline: {
-        events: [],
-        stats: {},
-      },
-      child_sessions: [],
-    } as any)
+  it('shows a full breadcrumb chain for child runs and navigates to root and parent runs', async () => {
+    mockGetExecutionRunThread.mockImplementation(async (runId: string) => {
+      if (runId === 'run-root') {
+        return {
+          focus: {
+            id: 'run-root',
+            kind: 'workspace_run',
+            container_id: 'session-1',
+            root_run_id: 'run-root',
+            title: 'Root run',
+            subtitle: null,
+            status: 'completed',
+            updated_at: 1000,
+            started_at: 900,
+            ended_at: 1000,
+            session_id: 'session-1',
+            run_id: 'run-root',
+            task_id: null,
+            parent_run_id: null,
+            agent_id: 'agent-1',
+            source_channel: 'workspace',
+            source_conversation_id: null,
+            effective_model: 'gpt-5',
+            provider: 'openai',
+            event_count: 1,
+          },
+          timeline: { events: [], stats: {} },
+          child_sessions: [],
+        } as any
+      }
+
+      if (runId === 'run-parent') {
+        return {
+          focus: {
+            id: 'run-parent',
+            kind: 'subagent_run',
+            container_id: 'session-1',
+            root_run_id: 'run-root',
+            title: 'Planner run',
+            subtitle: null,
+            status: 'completed',
+            updated_at: 1500,
+            started_at: 1000,
+            ended_at: 1500,
+            session_id: 'session-1',
+            run_id: 'run-parent',
+            task_id: null,
+            parent_run_id: 'run-root',
+            agent_id: 'agent-1',
+            source_channel: 'workspace',
+            source_conversation_id: null,
+            effective_model: 'gpt-5',
+            provider: 'openai',
+            event_count: 1,
+          },
+          timeline: { events: [], stats: {} },
+          child_sessions: [],
+        } as any
+      }
+
+      return {
+        focus: {
+          id: 'run-child',
+          kind: 'subagent_run',
+          container_id: 'session-1',
+          root_run_id: 'run-root',
+          title: 'Child run',
+          subtitle: null,
+          status: 'completed',
+          updated_at: 2000,
+          started_at: 1000,
+          ended_at: 2000,
+          session_id: 'session-1',
+          run_id: 'run-child',
+          task_id: null,
+          parent_run_id: 'run-parent',
+          agent_id: 'agent-1',
+          source_channel: 'workspace',
+          source_conversation_id: null,
+          effective_model: 'gpt-5',
+          provider: 'openai',
+          event_count: 1,
+        },
+        timeline: {
+          events: [],
+          stats: {},
+        },
+        child_sessions: [],
+      } as any
+    })
 
     const wrapper = mount(ChatPanel, {
       props: {
@@ -843,15 +903,26 @@ describe('ChatPanel', () => {
     })
     await flushPromises()
 
-    expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Child run')
+    expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Root')
+    expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Parent')
+    expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Child')
+    expect(wrapper.get('[data-testid="run-breadcrumb-node-root"]').text()).toContain('Root run')
+    expect(wrapper.get('[data-testid="run-breadcrumb-node-parent"]').text()).toContain('Planner run')
     expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Agent One')
     expect(wrapper.get('[data-testid="run-breadcrumb-current"]').text()).toContain('Child run')
 
-    await wrapper.get('[data-testid="run-breadcrumb-root"]').trigger('click')
+    await wrapper.get('[data-testid="run-breadcrumb-node-root"]').trigger('click')
 
     expect(mockRouterPush).toHaveBeenCalledWith({
       name: 'workspace-container-run',
       params: { containerId: 'session-1', runId: 'run-root' },
+    })
+
+    await wrapper.get('[data-testid="run-breadcrumb-node-parent"]').trigger('click')
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-parent' },
     })
   })
 
