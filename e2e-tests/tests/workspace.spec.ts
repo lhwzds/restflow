@@ -667,6 +667,8 @@ test.describe('Workspace Layout', () => {
     await page.goto(`/workspace/c/${sessionId}/r/${parentRunId}`)
     await page.waitForLoadState('domcontentloaded')
 
+    await expect(page.getByTestId('tool-panel')).toBeVisible()
+    await expect(page.getByTestId('run-overview-title')).toContainText('Parent run')
     const childRunButton = page.getByTestId(`thread-item-view-child-run-${childRunId}`)
     const childRunRow = page.getByTestId(`workspace-run-${sessionId}-${childRunId}`)
     const parentToggle = page.getByTestId(`workspace-run-toggle-${sessionId}-${parentRunId}`)
@@ -682,6 +684,7 @@ test.describe('Workspace Layout', () => {
     await childRunRow.click()
 
     await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${childRunId}$`))
+    await expect(page.getByTestId('run-overview-title')).toContainText('Child run')
     await expect(page.getByTestId('run-breadcrumb')).toBeVisible()
     await expect(page.getByTestId('run-breadcrumb')).toContainText('Child run')
     await expect(page.getByTestId('run-breadcrumb-node-root')).toContainText('Parent run')
@@ -690,6 +693,7 @@ test.describe('Workspace Layout', () => {
     await expect(page.getByTestId('tool-panel-run-nav-root')).toContainText('Parent run')
     await page.getByTestId('tool-panel-run-nav-root').click()
     await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${parentRunId}$`))
+    await expect(page.getByTestId('run-overview-title')).toContainText('Parent run')
     await page.goto(`/workspace/c/${sessionId}/r/${childRunId}`)
     await page.waitForLoadState('domcontentloaded')
     await page.getByTestId('run-breadcrumb-node-root').click()

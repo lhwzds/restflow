@@ -12,8 +12,10 @@ import BrowserPanel from './panels/BrowserPanel.vue'
 import NotificationPanel from './panels/NotificationPanel.vue'
 import GenericJsonPanel from './panels/GenericJsonPanel.vue'
 import LegacyCanvasPanel from './panels/LegacyCanvasPanel.vue'
+import RunOverviewPanel from './panels/RunOverviewPanel.vue'
 import type { ToolPanelType } from '@/composables/workspace/useToolPanel'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
+import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 
 interface ToolPanelRunNavigationNode {
   key: 'root' | 'parent' | 'current'
@@ -25,6 +27,7 @@ interface ToolPanelRunNavigationNode {
 }
 
 const props = defineProps<{
+  mode?: 'overview' | 'detail'
   panelType: ToolPanelType
   title: string
   toolName: string
@@ -33,6 +36,7 @@ const props = defineProps<{
   canNavigatePrev: boolean
   canNavigateNext: boolean
   runNavigation?: ToolPanelRunNavigationNode[]
+  runThread?: ExecutionThread | null
 }>()
 
 const emit = defineEmits<{
@@ -67,6 +71,10 @@ function startDrag(e: MouseEvent) {
 }
 
 const panelComponent = computed(() => {
+  if (props.mode === 'overview') {
+    return RunOverviewPanel
+  }
+
   const map: Record<ToolPanelType, unknown> = {
     terminal: TerminalPanel,
     http: HttpPanel,
@@ -84,10 +92,15 @@ const panelComponent = computed(() => {
 })
 
 const showRunNavigation = computed(() => (props.runNavigation?.length ?? 0) > 1)
+const isOverviewMode = computed(() => props.mode === 'overview')
+const panelTitle = computed(() =>
+  isOverviewMode.value ? props.runThread?.focus.title || 'Run Overview' : props.title || props.toolName || 'Tool Panel',
+)
 </script>
 
 <template>
   <div
+    data-testid="tool-panel"
     class="shrink-0 border-l border-border bg-background flex flex-col relative"
     :style="{ width: `${panelWidth}px` }"
   >
@@ -103,10 +116,11 @@ const showRunNavigation = computed(() => (props.runNavigation?.length ?? 0) > 1)
 
     <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
       <PanelRight :size="14" class="text-muted-foreground shrink-0" />
-      <span class="text-sm font-medium truncate flex-1">{{
-        props.title || props.toolName || 'Tool Panel'
+      <span class="text-sm font-medium truncate flex-1" data-testid="tool-panel-title">{{
+        panelTitle
       }}</span>
       <Button
+        v-if="!isOverviewMode"
         variant="ghost"
         size="icon"
         class="h-6 w-6"
@@ -116,6 +130,7 @@ const showRunNavigation = computed(() => (props.runNavigation?.length ?? 0) > 1)
         <ChevronLeft :size="14" />
       </Button>
       <Button
+        v-if="!isOverviewMode"
         variant="ghost"
         size="icon"
         class="h-6 w-6"
@@ -125,6 +140,7 @@ const showRunNavigation = computed(() => (props.runNavigation?.length ?? 0) > 1)
         <ChevronRight :size="14" />
       </Button>
       <button
+        v-if="!isOverviewMode"
         class="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
         @click="emit('close')"
       >
@@ -171,7 +187,12 @@ const showRunNavigation = computed(() => (props.runNavigation?.length ?? 0) > 1)
     </div>
 
     <div class="flex-1 overflow-auto p-4">
-      <component :is="panelComponent" :step="props.step" :data="props.data" />
+      <component
+        :is="panelComponent"
+        :step="props.step"
+        :data="props.data"
+        :thread="props.runThread"
+      />
     </div>
   </div>
 </template>

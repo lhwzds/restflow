@@ -74,6 +74,7 @@ const selectedSessionId = ref<string | null>(null)
 const activeContainerId = ref<string | null>(null)
 const activeRunId = ref<string | null>(null)
 const activeBackgroundTaskId = ref<string | null>(null)
+const activeExecutionThread = ref<ExecutionThread | null>(null)
 const executionContainers = ref<ExecutionContainerSummary[]>([])
 const expandedWorkspaceContainerIds = ref<Set<string>>(new Set())
 const workspaceRunsByContainerId = ref<Record<string, ExecutionSessionSummary[]>>({})
@@ -341,10 +342,18 @@ const containerNotFoundDescription = computed(() => t('workspace.container.notFo
 
 const chatPanelSelectedRunId = computed(() => activeRunId.value ?? (routeContainerRunId.value || null))
 const chatPanelAutoSelectRecent = computed(() => !routeContainerId.value && !routeContainerRunId.value)
+const showRunOverviewPanel = computed(
+  () =>
+    sidebarMode.value === 'sessions' &&
+    !!chatPanelSelectedRunId.value &&
+    !toolPanel.visible.value &&
+    !!activeExecutionThread.value,
+)
 
 async function clearWorkspaceSelection(containerId: string | null = null) {
   activeContainerId.value = containerId
   activeRunId.value = null
+  activeExecutionThread.value = null
   toolPanelRunNavigation.value = []
   activeBackgroundTaskId.value =
     containerId && findContainerById(containerId)?.kind === 'background_task' ? containerId : null
@@ -550,6 +559,7 @@ async function syncToolPanelRunNavigation(thread: ExecutionThread | null) {
 }
 
 function onThreadLoaded(thread: ExecutionThread | null) {
+  activeExecutionThread.value = thread
   void syncToolPanelRunNavigation(thread)
   const runId = thread?.focus.run_id ?? null
   const containerId = thread?.focus.container_id ?? null
@@ -776,6 +786,7 @@ async function resolveRunRoute(runId: string, version: number, expectedContainer
 
   if (version !== routeResolutionVersion) return
 
+  activeExecutionThread.value = thread
   void syncToolPanelRunNavigation(thread)
   cacheThreadChildRuns(thread)
   const resolvedContainerId = thread.focus.container_id
@@ -1080,6 +1091,16 @@ watch([selectedSessionId, routeContainerRunId], () => {
 })
 
 watch(
+  () => routeContainerRunId.value,
+  (runId, previousRunId) => {
+    if (runId !== previousRunId) {
+      activeExecutionThread.value = null
+      toolPanelRunNavigation.value = []
+    }
+  },
+)
+
+watch(
   [routeContainerId, routeContainerRunId, executionContainers],
   async ([containerId, containerRunId]) => {
     routeResolutionVersion += 1
@@ -1308,9 +1329,12 @@ onUnmounted(() => {
       <ToolPanel
         v-if="
           sidebarMode === 'sessions' &&
-          toolPanel.visible.value &&
-          toolPanel.activeEntry.value
+          (
+            (toolPanel.visible.value && toolPanel.activeEntry.value) ||
+            showRunOverviewPanel
+          )
         "
+        :mode="toolPanel.visible.value && toolPanel.activeEntry.value ? 'detail' : 'overview'"
         :panel-type="toolPanel.state.value.panelType"
         :title="toolPanel.state.value.title"
         :tool-name="toolPanel.state.value.toolName"
@@ -1319,6 +1343,7 @@ onUnmounted(() => {
         :can-navigate-prev="toolPanel.canNavigatePrev.value"
         :can-navigate-next="toolPanel.canNavigateNext.value"
         :run-navigation="toolPanelRunNavigation"
+        :run-thread="activeExecutionThread"
         @navigate="toolPanel.navigateHistory"
         @navigate-run="onNavigateToolPanelRun"
         @close="toolPanel.closePanel()"
