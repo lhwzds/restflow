@@ -45,6 +45,7 @@ import { useToast } from '@/composables/useToast'
 import type {
   AgentFile,
   BackgroundTaskFolder,
+  ChildRunLoadState,
   ExternalChannelFolder,
   RunListItem,
   WorkspaceAgentModelSelection,
@@ -85,6 +86,8 @@ const backgroundRunsByTaskId = ref<Record<string, ExecutionSessionSummary[]>>({}
 const expandedExternalContainerIds = ref<Set<string>>(new Set())
 const externalRunsByContainerId = ref<Record<string, ExecutionSessionSummary[]>>({})
 const childRunsByParentRunId = ref<Record<string, ExecutionSessionSummary[]>>({})
+const childRunStateByParentRunId = ref<Record<string, ChildRunLoadState>>({})
+const childRunErrorByParentRunId = ref<Record<string, string | null>>({})
 const toolPanel = useToolPanel()
 const isSending = computed(() => chatSessionStore.isSending)
 
@@ -208,6 +211,8 @@ function toRunListItem(summary: ExecutionSessionSummary, path = new Set<string>(
     updatedAt: summary.updated_at,
     runId,
     agentName: agentNameForId(summary.agent_id),
+    childRunsState: runId ? (childRunStateByParentRunId.value[runId] ?? 'idle') : 'loaded',
+    childRunsError: runId ? (childRunErrorByParentRunId.value[runId] ?? null) : null,
     childRuns,
   }
 }
@@ -580,29 +585,49 @@ async function ensureChildRunsLoaded(
   parentRunId: string,
   forceRefresh = false,
 ): Promise<ExecutionSessionSummary[]> {
-  if (!forceRefresh && childRunsByParentRunId.value[parentRunId]) {
-    return childRunsByParentRunId.value[parentRunId]
+  if (!forceRefresh && childRunStateByParentRunId.value[parentRunId] === 'loaded') {
+    return childRunsByParentRunId.value[parentRunId] ?? []
   }
 
-  const runs = await listChildExecutionSessions({
-    parent_run_id: parentRunId,
-  })
-
-  childRunsByParentRunId.value = {
-    ...childRunsByParentRunId.value,
-    [parentRunId]: runs,
+  childRunStateByParentRunId.value = {
+    ...childRunStateByParentRunId.value,
+    [parentRunId]: 'loading',
   }
-  return runs
-}
+  childRunErrorByParentRunId.value = {
+    ...childRunErrorByParentRunId.value,
+    [parentRunId]: null,
+  }
 
-async function ensureDirectChildRunsLoadedForRuns(
-  runs: ExecutionSessionSummary[],
-): Promise<void> {
-  const runIds = runs
-    .map((run) => run.run_id)
-    .filter((runId): runId is string => !!runId)
+  try {
+    const runs = await listChildExecutionSessions({
+      parent_run_id: parentRunId,
+    })
 
-  await Promise.all(runIds.map((runId) => ensureChildRunsLoaded(runId)))
+    childRunsByParentRunId.value = {
+      ...childRunsByParentRunId.value,
+      [parentRunId]: runs,
+    }
+    childRunStateByParentRunId.value = {
+      ...childRunStateByParentRunId.value,
+      [parentRunId]: 'loaded',
+    }
+    childRunErrorByParentRunId.value = {
+      ...childRunErrorByParentRunId.value,
+      [parentRunId]: null,
+    }
+    return runs
+  } catch (error) {
+    const message = error instanceof Error ? error.message : t('workspace.noSessions')
+    childRunStateByParentRunId.value = {
+      ...childRunStateByParentRunId.value,
+      [parentRunId]: 'error',
+    }
+    childRunErrorByParentRunId.value = {
+      ...childRunErrorByParentRunId.value,
+      [parentRunId]: message,
+    }
+    throw error
+  }
 }
 
 async function ensureRunAncestorChildrenLoaded(focus: ExecutionSessionSummary): Promise<void> {
@@ -637,7 +662,6 @@ async function ensureWorkspaceRunsLoaded(
     ...workspaceRunsByContainerId.value,
     [containerId]: runs,
   }
-  await ensureDirectChildRunsLoadedForRuns(runs)
   return runs
 }
 
@@ -660,7 +684,6 @@ async function ensureBackgroundRunsLoaded(
     ...backgroundRunsByTaskId.value,
     [taskId]: runs,
   }
-  await ensureDirectChildRunsLoadedForRuns(runs)
   return runs
 }
 
@@ -683,8 +706,16 @@ async function ensureExternalRunsLoaded(
     ...externalRunsByContainerId.value,
     [containerId]: runs,
   }
-  await ensureDirectChildRunsLoadedForRuns(runs)
   return runs
+}
+
+async function onToggleRunChildren(_containerId: string, runId: string) {
+  try {
+    await ensureChildRunsLoaded(runId)
+  } catch (error) {
+    const message = error instanceof Error ? error.message : t('workspace.noSessions')
+    toast.error(message)
+  }
 }
 
 async function onToggleWorkspaceFolder(containerId: string) {
@@ -1289,6 +1320,7 @@ onUnmounted(() => {
           @toggle-workspace-folder="onToggleWorkspaceFolder"
           @toggle-background-task="onToggleBackgroundTask"
           @toggle-external-channel="onToggleExternalChannel"
+          @toggle-run-children="onToggleRunChildren"
         />
 
         <AgentList

@@ -449,10 +449,11 @@ test.describe('Workspace Layout', () => {
     expect(toolAppearsBeforeAssistant).toBe(true)
   })
 
-  test('opens child run links on the canonical root container run route', async ({ page }) => {
+  test('lazily expands child and grandchild runs on the canonical run tree', async ({ page }) => {
     const sessionId = await createSessionForTest(page)
     const parentRunId = `run-parent-${Date.now()}`
     const childRunId = `run-child-${Date.now()}`
+    const grandchildRunId = `run-grandchild-${Date.now()}`
     const baseTime = Date.now()
 
     await page.route('**/api/request', async (route) => {
@@ -548,6 +549,44 @@ test.describe('Workspace Layout', () => {
       if (
         payload?.type === 'ListChildExecutionSessions' &&
         payload.data?.query?.parent_run_id === childRunId
+      ) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: [
+              {
+                id: grandchildRunId,
+                title: 'Grandchild run',
+                subtitle: null,
+                status: 'completed',
+                kind: 'subagent_run',
+                container_id: sessionId,
+                root_run_id: parentRunId,
+                task_id: null,
+                run_id: grandchildRunId,
+                parent_run_id: childRunId,
+                session_id: sessionId,
+                agent_id: 'agent-1',
+                effective_model: 'gpt-5',
+                provider: null,
+                started_at: baseTime + 4,
+                ended_at: baseTime + 5,
+                updated_at: baseTime + 5,
+                source_channel: 'workspace',
+                source_conversation_id: null,
+                event_count: 1,
+              },
+            ],
+          }),
+        })
+        return
+      }
+
+      if (
+        payload?.type === 'ListChildExecutionSessions' &&
+        payload.data?.query?.parent_run_id === grandchildRunId
       ) {
         await route.fulfill({
           status: 200,
@@ -688,6 +727,84 @@ test.describe('Workspace Layout', () => {
         return
       }
 
+      if (payload?.type === 'GetExecutionRunThread' && payload.data?.run_id === grandchildRunId) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: {
+              focus: {
+                id: grandchildRunId,
+                title: 'Grandchild run',
+                subtitle: null,
+                status: 'completed',
+                kind: 'subagent_run',
+                container_id: sessionId,
+                root_run_id: parentRunId,
+                task_id: null,
+                run_id: grandchildRunId,
+                parent_run_id: childRunId,
+                session_id: sessionId,
+                agent_id: 'agent-1',
+                effective_model: 'gpt-5',
+                provider: null,
+                started_at: baseTime + 4,
+                ended_at: baseTime + 5,
+                updated_at: baseTime + 5,
+                source_channel: 'workspace',
+                source_conversation_id: null,
+                event_count: 1,
+              },
+              timeline: {
+                events: [
+                  {
+                    id: 'event-grandchild-message-1',
+                    task_id: 'task-1',
+                    agent_id: 'agent-1',
+                    category: 'message',
+                    source: 'agent_executor',
+                    timestamp: baseTime + 4,
+                    subflow_path: ['child', 'grandchild'],
+                    run_id: grandchildRunId,
+                    parent_run_id: childRunId,
+                    session_id: sessionId,
+                    turn_id: 'turn-grandchild-1',
+                    requested_model: 'gpt-5',
+                    effective_model: 'gpt-5',
+                    provider: 'openai',
+                    attempt: 1,
+                    llm_call: null,
+                    tool_call: null,
+                    model_switch: null,
+                    lifecycle: null,
+                    message: {
+                      role: 'assistant',
+                      content_preview: 'Grandchild output',
+                      tool_call_count: null,
+                    },
+                    metric_sample: null,
+                    provider_health: null,
+                    log_record: null,
+                  },
+                ],
+                stats: {
+                  total_events: 1,
+                  by_category: {},
+                  time_range: null,
+                  top_requested_models: [],
+                  top_effective_models: [],
+                  top_providers: [],
+                  avg_llm_latency_ms: null,
+                  avg_tool_latency_ms: null,
+                },
+              },
+            },
+          }),
+        })
+        return
+      }
+
       await route.continue()
     })
 
@@ -698,28 +815,37 @@ test.describe('Workspace Layout', () => {
     await expect(page.getByTestId('run-overview-title')).toContainText('Parent run')
     const childRunOverviewButton = page.getByTestId(`run-overview-child-run-${childRunId}`)
     const childRunRow = page.getByTestId(`workspace-run-${sessionId}-${childRunId}`)
+    const grandchildRunRow = page.getByTestId(`workspace-run-${sessionId}-${grandchildRunId}`)
     const parentToggle = page.getByTestId(`workspace-run-toggle-${sessionId}-${parentRunId}`)
     await expect(page.getByTestId('run-overview-child-run-list')).toBeVisible()
     await expect(childRunOverviewButton).toBeVisible()
-    await expect(childRunRow).toBeVisible()
-    await expect(childRunRow).toHaveAttribute('data-run-depth', '1')
-    await expect(childRunRow).toContainText('Child')
+    await expect(childRunRow).toHaveCount(0)
     await expect(parentToggle).toBeVisible()
     await expect(page.getByTestId(`thread-item-view-child-run-${childRunId}`)).toHaveCount(0)
     await parentToggle.click()
-    await expect(childRunRow).toBeHidden()
-    await parentToggle.click()
     await expect(childRunRow).toBeVisible()
-    await childRunRow.click()
+    await expect(childRunRow).toHaveAttribute('data-run-depth', '1')
+    await expect(childRunRow).toContainText('Child')
+    const childToggle = page.getByTestId(`workspace-run-toggle-${sessionId}-${childRunId}`)
+    await expect(grandchildRunRow).toHaveCount(0)
+    await childToggle.click()
+    await expect(grandchildRunRow).toBeVisible()
+    await expect(grandchildRunRow).toHaveAttribute('data-run-depth', '2')
+    await grandchildRunRow.click()
 
-    await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${childRunId}$`))
-    await expect(page.getByTestId('run-overview-title')).toContainText('Child run')
+    await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${grandchildRunId}$`))
+    await expect(page.getByTestId('run-overview-title')).toContainText('Grandchild run')
     await expect(page.getByTestId('run-breadcrumb')).toBeVisible()
-    await expect(page.getByTestId('run-breadcrumb')).toContainText('Child run')
+    await expect(page.getByTestId('run-breadcrumb')).toContainText('Grandchild run')
     await expect(page.getByTestId('run-breadcrumb-node-root')).toContainText('Parent run')
-    await page.getByTestId('thread-item-view-event-child-tool-1').click()
+    await expect(page.getByTestId('run-breadcrumb-node-parent')).toContainText('Child run')
+    await page.getByTestId('chat-message-event-grandchild-message-1').click()
     await expect(page.getByTestId('tool-panel-run-navigation')).toBeVisible()
     await expect(page.getByTestId('tool-panel-run-nav-root')).toContainText('Parent run')
+    await expect(page.getByTestId('tool-panel-run-nav-parent')).toContainText('Child run')
+    await page.getByTestId('tool-panel-run-nav-parent').click()
+    await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${childRunId}$`))
+    await expect(page.getByTestId('run-overview-title')).toContainText('Child run')
     await page.getByTestId('tool-panel-run-nav-root').click()
     await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${parentRunId}$`))
     await expect(page.getByTestId('run-overview-title')).toContainText('Parent run')

@@ -95,7 +95,7 @@ vi.mock('@/components/workspace/SessionList.vue', () => ({
         default: () => [],
       },
     },
-    emits: ['newSession', 'selectRun', 'selectContainer'],
+    emits: ['newSession', 'selectRun', 'selectContainer', 'toggleRunChildren'],
     setup(props) {
       function flattenRuns(runs: any[]): any[] {
         return runs.flatMap((run) => [run, ...flattenRuns(run.childRuns ?? [])])
@@ -114,6 +114,7 @@ vi.mock('@/components/workspace/SessionList.vue', () => ({
         <button data-testid="new-session" @click="$emit('newSession')">new</button>
         <button data-testid="select-run" @click="$emit('selectRun', 'session-1', 'run-1')">run</button>
         <button data-testid="select-container" @click="$emit('selectContainer', 'workspace', 'session-1')">container</button>
+        <button data-testid="toggle-run-children" @click="$emit('toggleRunChildren', 'session-1', 'run-1')">toggle</button>
         <template v-for="folder in flattenedWorkspaceFolders()" :key="folder.containerId">
           <button
             v-for="run in folder.flattenedRuns"
@@ -618,6 +619,200 @@ describe('Workspace', () => {
     expect(wrapper.find('[data-testid="mock-workspace-run-session-1-run-child"]').exists()).toBe(true)
     expect(mockListChildExecutionSessions).toHaveBeenCalledWith({
       parent_run_id: 'run-1',
+    })
+  })
+
+  it('loads child runs lazily when the sidebar toggles a run row', async () => {
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="toggle-run-children"]').trigger('click')
+    await flushPromises()
+
+    expect(mockListChildExecutionSessions).toHaveBeenCalledWith({
+      parent_run_id: 'run-1',
+    })
+  })
+
+  it('hydrates parent and grandparent child relations for deep child routes', async () => {
+    mockRoute.name = 'workspace-container-run'
+    mockRoute.params = { containerId: 'session-1', runId: 'run-grandchild' }
+
+    mockGetExecutionRunThread.mockImplementation(async (runId: string) => {
+      if (runId === 'run-grandchild') {
+        return {
+          focus: {
+            id: 'run-grandchild',
+            kind: 'subagent_run',
+            container_id: 'session-1',
+            root_run_id: 'run-root',
+            title: 'Grandchild run',
+            subtitle: null,
+            status: 'completed',
+            updated_at: 20,
+            started_at: 10,
+            ended_at: 20,
+            session_id: 'session-1',
+            run_id: 'run-grandchild',
+            task_id: null,
+            parent_run_id: 'run-child',
+            agent_id: 'agent-1',
+            source_channel: 'workspace',
+            source_conversation_id: null,
+            effective_model: 'gpt-5',
+            provider: null,
+            event_count: 1,
+          },
+          timeline: { events: [], stats: {} },
+        }
+      }
+
+      if (runId === 'run-child') {
+        return {
+          focus: {
+            id: 'run-child',
+            kind: 'subagent_run',
+            container_id: 'session-1',
+            root_run_id: 'run-root',
+            title: 'Child run',
+            subtitle: null,
+            status: 'completed',
+            updated_at: 15,
+            started_at: 5,
+            ended_at: 15,
+            session_id: 'session-1',
+            run_id: 'run-child',
+            task_id: null,
+            parent_run_id: 'run-root',
+            agent_id: 'agent-1',
+            source_channel: 'workspace',
+            source_conversation_id: null,
+            effective_model: 'gpt-5',
+            provider: null,
+            event_count: 1,
+          },
+          timeline: { events: [], stats: {} },
+        }
+      }
+
+      return {
+        focus: {
+          id: 'run-root',
+          kind: 'workspace_run',
+          container_id: 'session-1',
+          root_run_id: 'run-root',
+          title: 'Root run',
+          subtitle: null,
+          status: 'completed',
+          updated_at: 10,
+          started_at: 1,
+          ended_at: 10,
+          session_id: 'session-1',
+          run_id: 'run-root',
+          task_id: null,
+          parent_run_id: null,
+          agent_id: 'agent-1',
+          source_channel: 'workspace',
+          source_conversation_id: null,
+          effective_model: 'gpt-5',
+          provider: null,
+          event_count: 1,
+        },
+        timeline: { events: [], stats: {} },
+      }
+    })
+
+    mockListExecutionSessions.mockResolvedValueOnce([
+      {
+        id: 'run-root',
+        kind: 'workspace_run',
+        container_id: 'session-1',
+        root_run_id: 'run-root',
+        title: 'Root run',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 10,
+        started_at: 1,
+        ended_at: 10,
+        session_id: 'session-1',
+        run_id: 'run-root',
+        task_id: null,
+        parent_run_id: null,
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+        effective_model: 'gpt-5',
+        provider: null,
+        event_count: 1,
+      },
+    ])
+
+    mockListChildExecutionSessions.mockImplementation(async ({ parent_run_id }: { parent_run_id: string }) => {
+      if (parent_run_id === 'run-root') {
+        return [
+          {
+            id: 'run-child',
+            kind: 'subagent_run',
+            container_id: 'session-1',
+            root_run_id: 'run-root',
+            title: 'Child run',
+            subtitle: null,
+            status: 'completed',
+            updated_at: 15,
+            started_at: 5,
+            ended_at: 15,
+            session_id: 'session-1',
+            run_id: 'run-child',
+            task_id: null,
+            parent_run_id: 'run-root',
+            agent_id: 'agent-1',
+            source_channel: 'workspace',
+            source_conversation_id: null,
+            effective_model: 'gpt-5',
+            provider: null,
+            event_count: 1,
+          },
+        ]
+      }
+
+      if (parent_run_id === 'run-child') {
+        return [
+          {
+            id: 'run-grandchild',
+            kind: 'subagent_run',
+            container_id: 'session-1',
+            root_run_id: 'run-root',
+            title: 'Grandchild run',
+            subtitle: null,
+            status: 'completed',
+            updated_at: 20,
+            started_at: 10,
+            ended_at: 20,
+            session_id: 'session-1',
+            run_id: 'run-grandchild',
+            task_id: null,
+            parent_run_id: 'run-child',
+            agent_id: 'agent-1',
+            source_channel: 'workspace',
+            source_conversation_id: null,
+            effective_model: 'gpt-5',
+            provider: null,
+            event_count: 1,
+          },
+        ]
+      }
+
+      return []
+    })
+
+    mountWorkspace()
+    await flushPromises()
+
+    expect(mockListChildExecutionSessions).toHaveBeenCalledWith({
+      parent_run_id: 'run-child',
+    })
+    expect(mockListChildExecutionSessions).toHaveBeenCalledWith({
+      parent_run_id: 'run-root',
     })
   })
 

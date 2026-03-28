@@ -81,21 +81,17 @@ describe('SessionList', () => {
 
     expect(wrapper.get('[data-testid="workspace-folder-session-1"]')).toBeTruthy()
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]')).toBeTruthy()
-    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]')).toBeTruthy()
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]').attributes('data-run-depth')).toBe('0')
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]').text()).toContain('Run · Agent One')
+    await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-1"]').trigger('click')
+    expect(wrapper.find('[data-testid="workspace-run-session-1-run-1-child"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').attributes('data-run-depth')).toBe(
       '1',
     )
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').text()).toContain('Child')
-    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]').text()).toContain('Run · Agent One')
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').text()).toContain(
       'Child run · Child Agent',
     )
-
-    await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-1"]').trigger('click')
-    expect(wrapper.find('[data-testid="workspace-run-session-1-run-1-child"]').exists()).toBe(false)
-    await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-1"]').trigger('click')
-    expect(wrapper.find('[data-testid="workspace-run-session-1-run-1-child"]').exists()).toBe(true)
 
     const findButton = (label: string) => {
       const button = wrapper.findAll('button').find((item) => item.text().includes(label))
@@ -119,6 +115,7 @@ describe('SessionList', () => {
     await findButton('workspace.session.delete').trigger('click')
 
     expect(wrapper.emitted('toggleWorkspaceFolder')).toEqual([['session-1']])
+    expect(wrapper.emitted('toggleRunChildren')).toEqual([['session-1', 'run-1']])
     expect(wrapper.emitted('selectRun')).toEqual([
       ['session-1', 'run-1'],
       ['session-1', 'run-1-child'],
@@ -242,5 +239,60 @@ describe('SessionList', () => {
 
     await wrapper.get('[data-testid="workspace-run-empty"]').trigger('click')
     expect(wrapper.emitted('selectContainer')).toEqual([['workspace', 'session-empty']])
+  })
+
+  it('shows run child loading and error placeholders', async () => {
+    const wrapper = mountSessionList({
+      workspaceFolders: [
+        {
+          containerId: 'session-1',
+          sessionId: 'session-1',
+          name: 'Workspace Session',
+          subtitle: null,
+          status: 'completed',
+          updatedAt: Date.now(),
+          expanded: true,
+          runs: [
+            {
+              id: 'run-1',
+              title: 'Run #1',
+              status: 'completed',
+              updatedAt: Date.now(),
+              runId: 'run-1',
+              childRunsState: 'loading',
+              childRuns: [],
+            },
+            {
+              id: 'run-2',
+              title: 'Run #2',
+              status: 'completed',
+              updatedAt: Date.now(),
+              runId: 'run-2',
+              childRunsState: 'error',
+              childRunsError: 'Failed to load child runs',
+              childRuns: [],
+            },
+          ],
+        },
+      ],
+      backgroundFolders: [],
+      externalFolders: [],
+      currentContainerId: null,
+      currentRunId: null,
+    })
+
+    await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-1"]').trigger('click')
+    await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-2"]').trigger('click')
+
+    expect(wrapper.get('[data-testid="workspace-run-state-session-1-run-1-loading"]').text()).toContain(
+      'Loading child runs',
+    )
+    expect(wrapper.get('[data-testid="workspace-run-state-session-1-run-2-error"]').text()).toContain(
+      'Failed to load child runs',
+    )
+    expect(wrapper.emitted('toggleRunChildren')).toEqual([
+      ['session-1', 'run-1'],
+      ['session-1', 'run-2'],
+    ])
   })
 })

@@ -6,6 +6,7 @@ import type { ModelId } from '@/types/generated/ModelId'
 import type { Provider } from '@/types/generated/Provider'
 
 export type SessionStatus = 'pending' | 'running' | 'completed' | 'failed'
+export type ChildRunLoadState = 'idle' | 'loading' | 'loaded' | 'error'
 
 export interface RunListItem {
   id: string
@@ -14,6 +15,8 @@ export interface RunListItem {
   updatedAt: number
   runId?: string | null
   agentName?: string | null
+  childRunsState?: ChildRunLoadState
+  childRunsError?: string | null
   childRuns?: RunListItem[]
 }
 
