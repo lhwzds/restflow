@@ -112,11 +112,12 @@ mod tests {
     use super::*;
     use crate::Tool;
     use restflow_ai::agent::{
-        SpawnRequest, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-        SubagentDeps, SubagentManagerImpl, SubagentTracker, spawn_subagent,
+        SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
+        SubagentDeps, SubagentManagerImpl, SubagentTracker,
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
+    use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
     use restflow_traits::SubagentManager;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
@@ -244,35 +245,22 @@ mod tests {
             MockDefLookup::with_agents(vec![("coder", "Coder")]),
             vec![MockStep::text("slow").with_delay(5000)],
         );
+        let manager = as_manager(&deps);
 
-        // Spawn an agent that will be slow
-        let _handle = spawn_subagent(
-            deps.tracker.clone(),
-            deps.definitions.clone(),
-            deps.llm_client.clone(),
-            deps.tool_registry.clone(),
-            deps.config.clone(),
-            SpawnRequest {
+        // Spawn an agent that will be slow.
+        let _handle = manager
+            .spawn(ContractSubagentSpawnRequest {
                 agent_id: Some("coder".to_string()),
-                inline: None,
                 task: "write code".to_string(),
                 timeout_secs: Some(30),
-                max_iterations: None,
-                priority: None,
-                model: None,
-                model_provider: None,
-                parent_execution_id: None,
-                trace_session_id: None,
-                trace_scope_id: None,
-            },
-            restflow_ai::SubagentExecutionBridge::default(),
-        )
-        .unwrap();
+                ..ContractSubagentSpawnRequest::default()
+            })
+            .expect("spawn should succeed");
 
         // Small delay to let the agent register
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-        let tool = ListSubagentsTool::new(as_manager(&deps));
+        let tool = ListSubagentsTool::new(manager);
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
         assert!(result.result["running_count"].as_u64().unwrap() >= 1);

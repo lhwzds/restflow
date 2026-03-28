@@ -27,8 +27,8 @@ pub use channel::{
 pub use execution_context::{ExecutionContext, ExecutionRole};
 pub use orchestrator::{AgentOrchestratorImpl, OrchestratingAgentExecutor};
 pub use restflow_ai::agent::{
-    SpawnHandle, SpawnPriority, SpawnRequest, SubagentCompletion, SubagentConfig, SubagentResult,
-    SubagentState, SubagentStatus, SubagentTracker, spawn_subagent,
+    SpawnHandle, SpawnPriority, SubagentCompletion, SubagentConfig, SubagentResult,
+    SubagentState, SubagentStatus, SubagentTracker,
 };
 pub use restflow_telemetry::RestflowTrace;
 pub use subagent::{

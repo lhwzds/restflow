@@ -228,7 +228,81 @@ fn execution_outcome_from_agent_result(
 }
 
 /// Execute one subagent request directly without tracker registration or nested spawn.
-pub async fn execute_subagent_once(
+pub async fn execute_subagent_plan(
+    definitions: Arc<dyn SubagentDefLookup>,
+    llm_client: Arc<dyn LlmClient>,
+    tool_registry: Arc<ToolRegistry>,
+    config: SubagentConfig,
+    plan: ExecutionPlan,
+    bridge: SubagentExecutionBridge,
+) -> Result<ExecutionOutcome> {
+    let request = spawn_request_from_plan(&plan, &bridge)?;
+    execute_subagent_once(definitions, llm_client, tool_registry, config, request, bridge).await
+}
+
+fn spawn_request_from_plan(plan: &ExecutionPlan, bridge: &SubagentExecutionBridge) -> Result<SpawnRequest> {
+    let provider = match (
+        plan.model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        plan.provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    ) {
+        (Some(model), None) => bridge
+            .llm_client_factory
+            .as_ref()
+            .and_then(|factory| factory.provider_for_model(model))
+            .map(|provider| provider.as_str().to_string()),
+        (_, Some(provider)) => Some(provider.to_string()),
+        (None, None) => None,
+    };
+
+    let normalized_plan = ExecutionPlan {
+        provider,
+        ..plan.clone()
+    };
+    normalized_plan.validate().map_err(AiError::from)?;
+
+    Ok(SpawnRequest {
+        agent_id: normalized_plan
+            .agent_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        inline: normalized_plan.inline_subagent.clone(),
+        task: normalized_plan
+            .input
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+            .ok_or_else(|| AiError::Tool("Subagent execution requires non-empty 'input'.".to_string()))?,
+        timeout_secs: normalized_plan.timeout_secs,
+        max_iterations: normalized_plan.max_iterations,
+        priority: None,
+        model: normalized_plan
+            .model
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        model_provider: normalized_plan
+            .provider
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned),
+        parent_execution_id: normalized_plan.parent_execution_id,
+        trace_session_id: normalized_plan.trace_session_id,
+        trace_scope_id: normalized_plan.trace_scope_id,
+    })
+}
+
+pub(crate) async fn execute_subagent_once(
     definitions: Arc<dyn SubagentDefLookup>,
     llm_client: Arc<dyn LlmClient>,
     tool_registry: Arc<ToolRegistry>,
@@ -328,7 +402,7 @@ pub async fn execute_subagent_once(
 }
 
 /// Spawn a sub-agent with the given request.
-pub fn spawn_subagent(
+pub(crate) fn spawn_subagent(
     tracker: Arc<SubagentTracker>,
     definitions: Arc<dyn SubagentDefLookup>,
     llm_client: Arc<dyn LlmClient>,
@@ -1388,6 +1462,56 @@ mod tests {
 
         let plans = orchestrator.plans.lock().expect("plans lock");
         assert!(plans.is_empty());
+    }
+
+    #[tokio::test]
+    async fn execute_subagent_plan_infers_provider_for_model_only_override() {
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
+            "mock",
+            vec![MockStep::text("plan execution")],
+        ));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+        let factory: Arc<dyn LlmClientFactory> = Arc::new(TestLlmFactory::new(
+            Arc::new(MockLlmClient::from_steps(
+                "gpt-5-mini",
+                vec![MockStep::text("plan execution")],
+            )),
+            "gpt-5-mini",
+            LlmProvider::OpenAI,
+        ));
+
+        let outcome = execute_subagent_plan(
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            ExecutionPlan {
+                mode: Some(ExecutionMode::Subagent),
+                agent_id: Some("tester".to_string()),
+                input: Some("run this plan".to_string()),
+                model: Some("gpt-5-mini".to_string()),
+                provider: None,
+                ..ExecutionPlan::default()
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: Some(factory),
+                orchestrator: None,
+                telemetry_sink: None,
+            },
+        )
+        .await
+        .expect("plan execution should succeed");
+
+        assert!(outcome.success);
+        assert_eq!(outcome.text.as_deref(), Some("plan execution"));
+        assert_eq!(outcome.model.as_deref(), Some("gpt-5-mini"));
     }
 
     #[derive(Clone)]
