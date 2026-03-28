@@ -51,7 +51,7 @@ describe('execution-console api', () => {
   })
 
   it('requests execution thread by run id', async () => {
-    vi.mocked(requestTyped).mockResolvedValue({ focus: {}, timeline: { events: [], stats: {} }, child_sessions: [] } as any)
+    vi.mocked(requestTyped).mockResolvedValue({ focus: {}, timeline: { events: [], stats: {} } } as any)
 
     await getExecutionRunThread('run-1')
 

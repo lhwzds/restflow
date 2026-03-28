@@ -116,6 +116,4 @@ pub struct ChildExecutionSessionQuery {
 pub struct ExecutionThread {
     pub focus: ExecutionSessionSummary,
     pub timeline: ExecutionTimeline,
-    #[serde(default)]
-    pub child_sessions: Vec<ExecutionSessionSummary>,
 }

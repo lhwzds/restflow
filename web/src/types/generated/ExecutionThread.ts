@@ -2,4 +2,4 @@
 import type { ExecutionSessionSummary } from "./ExecutionSessionSummary";
 import type { ExecutionTimeline } from "./ExecutionTimeline";
 
-export type ExecutionThread = { focus: ExecutionSessionSummary, timeline: ExecutionTimeline, child_sessions: Array<ExecutionSessionSummary>, };
+export type ExecutionThread = { focus: ExecutionSessionSummary, timeline: ExecutionTimeline, };

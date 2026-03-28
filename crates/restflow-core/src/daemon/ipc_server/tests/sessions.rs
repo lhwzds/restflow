@@ -4,6 +4,7 @@ use crate::{
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace,
     LogRecordTrace, MetricSampleTrace,
 };
+use restflow_contracts::request::ChildExecutionSessionQuery;
 use restflow_storage::SimpleStorage;
 
 fn assert_execution_thread_error(
@@ -178,6 +179,91 @@ async fn get_execution_run_thread_returns_existing_run_thread() {
                 Some(session_id.as_str())
             );
             assert!(thread.timeline.events.len() >= 2);
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn list_child_execution_sessions_returns_bad_request_for_blank_parent_run_id() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ListChildExecutionSessions {
+            query: ChildExecutionSessionQuery {
+                parent_run_id: "   ".to_string(),
+            },
+        },
+    )
+    .await;
+
+    assert_execution_thread_error(response, 400, "parent_run_id is required");
+}
+
+#[tokio::test]
+async fn list_child_execution_sessions_returns_empty_for_leaf_runs() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    let session_id = session.id.clone();
+    core.storage.chat_sessions.create(&session).unwrap();
+    store_run_events(&core.storage, "task-1", &session_id, "run-1", None);
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ListChildExecutionSessions {
+            query: ChildExecutionSessionQuery {
+                parent_run_id: "run-1".to_string(),
+            },
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let runs: Vec<crate::ExecutionSessionSummary> =
+                serde_json::from_value(value).expect("child runs");
+            assert!(runs.is_empty());
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn list_child_execution_sessions_returns_direct_children_for_parent_runs() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    let session_id = session.id.clone();
+    core.storage.chat_sessions.create(&session).unwrap();
+    store_run_events(&core.storage, "task-1", &session_id, "run-parent", None);
+    store_run_events(&core.storage, "task-1", &session_id, "run-child", Some("run-parent"));
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ListChildExecutionSessions {
+            query: ChildExecutionSessionQuery {
+                parent_run_id: "run-parent".to_string(),
+            },
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let runs: Vec<crate::ExecutionSessionSummary> =
+                serde_json::from_value(value).expect("child runs");
+            assert_eq!(runs.len(), 1);
+            assert_eq!(runs[0].run_id.as_deref(), Some("run-child"));
+            assert_eq!(runs[0].parent_run_id.as_deref(), Some("run-parent"));
+            assert_eq!(runs[0].root_run_id.as_deref(), Some("run-parent"));
         }
         other => panic!("expected success response, got {other:?}"),
     }

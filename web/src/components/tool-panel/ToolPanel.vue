@@ -15,6 +15,7 @@ import LegacyCanvasPanel from './panels/LegacyCanvasPanel.vue'
 import RunOverviewPanel from './panels/RunOverviewPanel.vue'
 import type { ToolPanelType } from '@/composables/workspace/useToolPanel'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
+import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 
 interface ToolPanelRunNavigationNode {
@@ -37,6 +38,7 @@ const props = defineProps<{
   canNavigateNext: boolean
   runNavigation?: ToolPanelRunNavigationNode[]
   runThread?: ExecutionThread | null
+  runChildSessions?: ExecutionSessionSummary[]
 }>()
 
 const emit = defineEmits<{
@@ -192,6 +194,8 @@ const panelTitle = computed(() =>
         :step="props.step"
         :data="props.data"
         :thread="props.runThread"
+        :child-runs="props.runChildSessions ?? []"
+        @navigate-run="emit('navigateRun', $event)"
       />
     </div>
   </div>

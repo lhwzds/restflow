@@ -46,8 +46,13 @@ impl IpcServer {
         core: &Arc<AppCore>,
         query: crate::models::ChildExecutionSessionQuery,
     ) -> IpcResponse {
+        let parent_run_id = query.parent_run_id.trim().to_string();
+        if parent_run_id.is_empty() {
+            return IpcResponse::error(400, "parent_run_id is required");
+        }
+
         let service = ExecutionConsoleService::from_storage(&core.storage);
-        match service.list_child_execution_sessions(&query.parent_run_id) {
+        match service.list_child_execution_sessions(&parent_run_id) {
             Ok(sessions) => IpcResponse::success(sessions),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

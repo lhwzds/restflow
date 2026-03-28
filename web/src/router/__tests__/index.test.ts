@@ -70,7 +70,6 @@ describe('router legacy route normalization', () => {
         run_id: 'run-1',
       },
       timeline: { events: [], stats: {} },
-      child_sessions: [],
     } as any)
 
     await expect(resolveLegacyRunIdRoute('run-1')).resolves.toEqual({
@@ -88,7 +87,6 @@ describe('router legacy route normalization', () => {
         run_id: 'run-2',
       },
       timeline: { events: [], stats: {} },
-      child_sessions: [],
     } as any)
 
     await expect(resolveLegacyRunIdRoute('run-2')).resolves.toEqual({

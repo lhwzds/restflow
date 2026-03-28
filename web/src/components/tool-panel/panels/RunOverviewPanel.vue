@@ -1,13 +1,21 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { GitBranch } from 'lucide-vue-next'
+import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 
 const props = defineProps<{
   thread: ExecutionThread
+  childRuns?: ExecutionSessionSummary[]
+}>()
+
+const emit = defineEmits<{
+  navigateRun: [payload: { containerId: string; runId: string }]
 }>()
 
 const focus = computed(() => props.thread.focus)
 const stats = computed(() => props.thread.timeline.stats)
+const childRuns = computed(() => props.childRuns ?? [])
 
 function formatTimestamp(value: bigint | number | null | undefined): string {
   if (value == null) return 'N/A'
@@ -56,7 +64,7 @@ function formatCount(value: bigint | number | null | undefined): string {
       <div class="rounded-md border border-border bg-muted/20 p-2">
         <p class="text-muted-foreground">Child runs</p>
         <p class="mt-1 font-medium" data-testid="run-overview-child-runs">
-          {{ props.thread.child_sessions.length }}
+          {{ childRuns.length }}
         </p>
       </div>
       <div class="rounded-md border border-border bg-muted/20 p-2">
@@ -112,6 +120,45 @@ function formatCount(value: bigint | number | null | undefined): string {
       <div class="rounded-md border border-border bg-muted/20 p-2">
         <p class="text-muted-foreground">Tokens</p>
         <p class="mt-1 font-medium">{{ formatCount(stats.total_tokens) }}</p>
+      </div>
+    </div>
+
+    <div
+      v-if="childRuns.length > 0"
+      class="space-y-2 rounded-md border border-border bg-muted/10 p-3"
+      data-testid="run-overview-child-run-list"
+    >
+      <div class="flex items-center gap-2">
+        <GitBranch :size="14" class="text-muted-foreground" />
+        <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          Direct child runs
+        </p>
+      </div>
+      <div class="space-y-2">
+        <button
+          v-for="childRun in childRuns"
+          :key="childRun.id"
+          :data-testid="`run-overview-child-run-${childRun.run_id ?? childRun.id}`"
+          class="flex w-full items-start justify-between gap-3 rounded-md border border-border/60 bg-background/80 px-3 py-2 text-left transition-colors hover:bg-muted/60"
+          @click="
+            childRun.run_id &&
+              emit('navigateRun', {
+                containerId: childRun.container_id,
+                runId: childRun.run_id,
+              })
+          "
+        >
+          <div class="min-w-0 flex-1">
+            <p class="truncate text-sm font-medium">{{ childRun.title }}</p>
+            <p class="truncate text-xs text-muted-foreground">
+              {{ childRun.agent_id || 'Unknown agent' }}
+            </p>
+          </div>
+          <div class="shrink-0 text-right text-[11px] text-muted-foreground">
+            <p>{{ childRun.status }}</p>
+            <p>{{ formatTimestamp(childRun.updated_at) }}</p>
+          </div>
+        </button>
       </div>
     </div>
   </div>

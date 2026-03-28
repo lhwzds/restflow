@@ -1,7 +1,6 @@
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { ChatRole } from '@/types/generated/ChatRole'
-import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionStepInfo } from '@/types/generated/ExecutionStepInfo'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 import type { ExecutionTraceEvent } from '@/types/generated/ExecutionTraceEvent'
@@ -14,9 +13,8 @@ export type ThreadItemKind =
   | 'model_switch'
   | 'lifecycle'
   | 'log_record'
-  | 'child_run_link'
 
-export type ThreadSelectionKind = 'message' | 'step' | 'event' | 'child_run'
+export type ThreadSelectionKind = 'message' | 'step' | 'event'
 
 export interface ThreadSelection {
   id: string
@@ -427,29 +425,6 @@ function buildExecutionEventItem(
   }
 }
 
-function buildChildRunItem(session: ExecutionSessionSummary): ThreadItem {
-  const selection: ThreadSelection = {
-    id: `child-run-${session.id}`,
-    kind: 'child_run',
-    title: session.title,
-    data: {
-      child_run: session,
-    },
-  }
-
-  return {
-    id: selection.id,
-    kind: 'child_run_link',
-    title: session.title,
-    summary: session.subtitle ?? session.run_id ?? session.session_id ?? null,
-    status: session.status,
-    timestampLabel: formatTimestampLabel(session.started_at ?? session.updated_at),
-    selection,
-    expandable: true,
-    body: stringifyData(selection.data),
-  }
-}
-
 function normalizeComparableText(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
 }
@@ -530,15 +505,6 @@ function resolveMessageMatches(
   }
 }
 
-function buildChildRunEnvelope(session: ExecutionSessionSummary): ThreadEnvelope {
-  return {
-    item: buildChildRunItem(session),
-    sortTime: toSortTime(session.started_at ?? session.updated_at),
-    sortId: `child-run-${session.id}`,
-    sequence: Number.MAX_SAFE_INTEGER,
-  }
-}
-
 function appendLiveOverlays(items: ThreadItem[], steps: StreamStep[] | undefined, streamContent: string | undefined) {
   if (steps?.length) {
     steps.forEach((step, index) => {
@@ -583,10 +549,6 @@ export function buildExecutionThreadItems(thread: ExecutionThread | null): Threa
     })
     .filter((entry): entry is ThreadEnvelope => entry !== null)
 
-  for (const child of thread.child_sessions) {
-    envelopes.push(buildChildRunEnvelope(child))
-  }
-
   envelopes.sort((left, right) => {
     if (left.sortTime !== right.sortTime) return left.sortTime - right.sortTime
     if (left.sequence !== right.sequence) return left.sequence - right.sequence
@@ -630,10 +592,6 @@ export function buildSessionThreadItems(input: {
       sortId: `message-${message.id}`,
       sequence: envelopes.length,
     })
-  }
-
-  for (const child of input.thread.child_sessions) {
-    envelopes.push(buildChildRunEnvelope(child))
   }
 
   envelopes.sort((left, right) => {

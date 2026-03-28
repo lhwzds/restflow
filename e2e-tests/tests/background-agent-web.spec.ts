@@ -201,7 +201,6 @@ test.describe("Background Agent Web Flow", () => {
                 events: [],
                 stats: {},
               },
-              child_sessions: [],
             },
           }),
         });
@@ -324,7 +323,6 @@ test.describe("Background Agent Web Flow", () => {
                 events: [],
                 stats: {},
               },
-              child_sessions: [],
             },
           }),
         });

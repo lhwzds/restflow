@@ -135,8 +135,6 @@ function itemKindLabel(item: ThreadItem): string {
       return 'Lifecycle'
     case 'log_record':
       return 'Log'
-    case 'child_run_link':
-      return 'Child Run'
     default:
       return 'Event'
   }

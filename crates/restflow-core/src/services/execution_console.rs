@@ -615,14 +615,7 @@ impl ExecutionConsoleService {
         let focus = self
             .build_focus_for_run(run_id, &timeline.events)
             .map_err(ExecutionThreadError::from)?;
-        let child_sessions = self
-            .list_child_execution_sessions(run_id)
-            .map_err(ExecutionThreadError::from)?;
-        Ok(ExecutionThread {
-            focus,
-            timeline,
-            child_sessions,
-        })
+        Ok(ExecutionThread { focus, timeline })
     }
 
     fn load_run_events(&self, run_id: &str) -> Result<Vec<ExecutionTraceEvent>> {
@@ -1159,7 +1152,7 @@ mod tests {
     }
 
     #[test]
-    fn workspace_container_exposes_latest_run_and_child_sessions() {
+    fn workspace_container_exposes_latest_run_and_child_runs_via_relation_query() {
         let storage = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
 
@@ -1181,13 +1174,14 @@ mod tests {
         assert_eq!(thread.focus.run_id.as_deref(), Some("run-1"));
         assert_eq!(thread.focus.root_run_id.as_deref(), Some("run-1"));
         assert!(thread.timeline.events.len() >= 2);
-        assert_eq!(thread.child_sessions.len(), 1);
-        assert_eq!(thread.child_sessions[0].run_id.as_deref(), Some("run-2"));
-        assert_eq!(thread.child_sessions[0].container_id, session_id);
-        assert_eq!(
-            thread.child_sessions[0].root_run_id.as_deref(),
-            Some("run-1")
-        );
+
+        let child_runs = service
+            .list_child_execution_sessions("run-1")
+            .expect("child runs");
+        assert_eq!(child_runs.len(), 1);
+        assert_eq!(child_runs[0].run_id.as_deref(), Some("run-2"));
+        assert_eq!(child_runs[0].container_id, session_id);
+        assert_eq!(child_runs[0].root_run_id.as_deref(), Some("run-1"));
 
         let child_thread = service
             .get_execution_run_thread("run-2")
