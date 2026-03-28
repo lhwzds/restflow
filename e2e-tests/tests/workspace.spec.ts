@@ -601,8 +601,58 @@ test.describe('Workspace Layout', () => {
                 event_count: 1,
               },
               timeline: {
-                events: [],
-                stats: {},
+                events: [
+                  {
+                    id: 'event-child-tool-1',
+                    run_id: childRunId,
+                    parent_run_id: parentRunId,
+                    turn_id: 'turn-child-1',
+                    actor_type: 'agent',
+                    actor_name: 'Agent One',
+                    category: 'tool_call',
+                    timestamp: baseTime + 2,
+                    visibility: 'visible',
+                    sequence: 0,
+                    subflow_path: ['child'],
+                    message: null,
+                    tool_call: {
+                      tool_call_id: 'tool-child-1',
+                      tool_name: 'http_request',
+                      phase: 'completed',
+                      input_summary: 'GET https://example.com',
+                      output_ref: 'status 200',
+                      error: null,
+                      success: true,
+                      duration_ms: 25,
+                      input: {
+                        method: 'GET',
+                        url: 'https://example.com',
+                      },
+                      output: {
+                        status: 200,
+                        body: {
+                          ok: true,
+                        },
+                      },
+                    },
+                    llm_call: null,
+                    model_switch: null,
+                    lifecycle: null,
+                    metric_sample: null,
+                    provider_health: null,
+                    log_record: null,
+                  },
+                ],
+                stats: {
+                  total_events: 1,
+                  by_category: {},
+                  time_range: null,
+                  top_requested_models: [],
+                  top_effective_models: [],
+                  top_providers: [],
+                  avg_llm_latency_ms: null,
+                  avg_tool_latency_ms: null,
+                },
               },
               child_sessions: [],
             },
@@ -635,6 +685,13 @@ test.describe('Workspace Layout', () => {
     await expect(page.getByTestId('run-breadcrumb')).toBeVisible()
     await expect(page.getByTestId('run-breadcrumb')).toContainText('Child run')
     await expect(page.getByTestId('run-breadcrumb-node-root')).toContainText('Parent run')
+    await page.getByTestId('thread-item-view-event-child-tool-1').click()
+    await expect(page.getByTestId('tool-panel-run-navigation')).toBeVisible()
+    await expect(page.getByTestId('tool-panel-run-nav-root')).toContainText('Parent run')
+    await page.getByTestId('tool-panel-run-nav-root').click()
+    await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${parentRunId}$`))
+    await page.goto(`/workspace/c/${sessionId}/r/${childRunId}`)
+    await page.waitForLoadState('domcontentloaded')
     await page.getByTestId('run-breadcrumb-node-root').click()
     await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${parentRunId}$`))
   })
