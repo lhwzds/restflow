@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { X, GripVertical, ChevronLeft, ChevronRight, PanelRight } from 'lucide-vue-next'
+import { X, GripVertical, ChevronLeft, ChevronRight, PanelRight, GitBranch } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import TerminalPanel from './panels/TerminalPanel.vue'
 import HttpPanel from './panels/HttpPanel.vue'
@@ -15,6 +15,15 @@ import LegacyCanvasPanel from './panels/LegacyCanvasPanel.vue'
 import type { ToolPanelType } from '@/composables/workspace/useToolPanel'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 
+interface ToolPanelRunNavigationNode {
+  key: 'root' | 'parent' | 'current'
+  runId: string
+  containerId: string
+  label: string
+  badge: string
+  clickable: boolean
+}
+
 const props = defineProps<{
   panelType: ToolPanelType
   title: string
@@ -23,11 +32,13 @@ const props = defineProps<{
   step?: StreamStep
   canNavigatePrev: boolean
   canNavigateNext: boolean
+  runNavigation?: ToolPanelRunNavigationNode[]
 }>()
 
 const emit = defineEmits<{
   close: []
   navigate: [direction: 'prev' | 'next']
+  navigateRun: [payload: { containerId: string; runId: string }]
 }>()
 
 const panelWidth = ref(420)
@@ -71,6 +82,8 @@ const panelComponent = computed(() => {
 
   return map[props.panelType] ?? GenericJsonPanel
 })
+
+const showRunNavigation = computed(() => (props.runNavigation?.length ?? 0) > 1)
 </script>
 
 <template>
@@ -117,6 +130,44 @@ const panelComponent = computed(() => {
       >
         <X :size="14" />
       </button>
+    </div>
+
+    <div
+      v-if="showRunNavigation"
+      data-testid="tool-panel-run-navigation"
+      class="flex items-center gap-1 overflow-x-auto border-b border-border px-3 py-2"
+    >
+      <GitBranch :size="13" class="shrink-0 text-muted-foreground" />
+      <template v-for="(node, index) in props.runNavigation" :key="`${node.key}-${node.runId}`">
+        <ChevronRight
+          v-if="index > 0"
+          :size="12"
+          class="shrink-0 text-muted-foreground"
+        />
+
+        <button
+          v-if="node.clickable"
+          :data-testid="`tool-panel-run-nav-${node.key}`"
+          class="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
+          @click="emit('navigateRun', { containerId: node.containerId, runId: node.runId })"
+        >
+          <span class="rounded bg-background px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+            {{ node.badge }}
+          </span>
+          <span class="truncate">{{ node.label }}</span>
+        </button>
+
+        <div
+          v-else
+          data-testid="tool-panel-run-nav-current"
+          class="inline-flex items-center gap-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1 text-xs text-foreground"
+        >
+          <span class="rounded bg-background px-1 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+            {{ node.badge }}
+          </span>
+          <span class="truncate font-medium">{{ node.label }}</span>
+        </div>
+      </template>
     </div>
 
     <div class="flex-1 overflow-auto p-4">

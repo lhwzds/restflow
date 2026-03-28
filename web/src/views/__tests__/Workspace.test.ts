@@ -22,6 +22,7 @@ const mockRoute = reactive<{ name: string; params: Record<string, string>; query
 
 let mockStore: any
 let mockBackgroundStore: any
+let mockToolPanel: any
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -80,19 +81,7 @@ vi.mock('@/composables/useConfirm', () => ({
 }))
 
 vi.mock('@/composables/workspace/useToolPanel', () => ({
-  useToolPanel: () => ({
-    visible: ref(false),
-    activeEntry: ref(null),
-    state: ref({ panelType: 'tool_result', title: '', toolName: null, data: null, step: null }),
-    canNavigatePrev: ref(false),
-    canNavigateNext: ref(false),
-    handleShowPanelResult: vi.fn(),
-    handleToolResult: vi.fn(),
-    handleThreadSelection: vi.fn(),
-    clearHistory: vi.fn(),
-    closePanel: vi.fn(),
-    navigateHistory: vi.fn(),
-  }),
+  useToolPanel: () => mockToolPanel,
 }))
 
 vi.mock('@/components/workspace/SessionList.vue', () => ({
@@ -167,7 +156,9 @@ vi.mock('@/components/chat/ChatPanel.vue', () => ({
 vi.mock('@/components/tool-panel/ToolPanel.vue', () => ({
   default: defineComponent({
     name: 'ToolPanel',
-    template: '<div data-testid="tool-panel" />',
+    emits: ['navigateRun'],
+    template:
+      '<div data-testid="tool-panel"><button data-testid="tool-panel-nav-root" @click="$emit(\'navigateRun\', { containerId: \'session-1\', runId: \'run-root\' })">navigate</button></div>',
   }),
 }))
 
@@ -311,6 +302,19 @@ describe('Workspace', () => {
       agents: [],
       fetchAgents: mockFetchBackgroundAgents,
       agentBySessionId: vi.fn(() => null),
+    }
+    mockToolPanel = {
+      visible: ref(false),
+      activeEntry: ref(null),
+      state: ref({ panelType: 'tool_result', title: '', toolName: null, data: null, step: null }),
+      canNavigatePrev: ref(false),
+      canNavigateNext: ref(false),
+      handleShowPanelResult: vi.fn(),
+      handleToolResult: vi.fn(),
+      handleThreadSelection: vi.fn(),
+      clearHistory: vi.fn(),
+      closePanel: vi.fn(),
+      navigateHistory: vi.fn(),
     }
 
     mockListAgents.mockResolvedValue([
@@ -735,5 +739,28 @@ describe('Workspace', () => {
     expect(sidebar.attributes('style')).toContain('width: 34.00%')
 
     window.dispatchEvent(new MouseEvent('mouseup'))
+  })
+
+  it('navigates from tool panel run shortcuts to the canonical run route', async () => {
+    mockToolPanel.visible.value = true
+    mockToolPanel.activeEntry.value = {
+      toolId: 'entry-1',
+      toolName: 'http_request',
+      panelType: 'generic',
+      title: 'Inspector',
+      data: {},
+      timestamp: 1,
+      status: 'completed',
+    }
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="tool-panel-nav-root"]').trigger('click')
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-root' },
+    })
   })
 })

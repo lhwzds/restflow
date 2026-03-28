@@ -104,6 +104,18 @@ const isSidebarResizing = ref(false)
 const sidebarResizeStartX = ref(0)
 const sidebarResizeStartRatio = ref(DEFAULT_SIDEBAR_RATIO)
 let routeResolutionVersion = 0
+let toolPanelRunNavigationVersion = 0
+
+interface ToolPanelRunNavigationNode {
+  key: 'root' | 'parent' | 'current'
+  runId: string
+  containerId: string
+  label: string
+  badge: string
+  clickable: boolean
+}
+
+const toolPanelRunNavigation = ref<ToolPanelRunNavigationNode[]>([])
 
 const sidebarStyle = computed(() => ({
   width: `${(sidebarRatio.value * 100).toFixed(2)}%`,
@@ -333,6 +345,7 @@ const chatPanelAutoSelectRecent = computed(() => !routeContainerId.value && !rou
 async function clearWorkspaceSelection(containerId: string | null = null) {
   activeContainerId.value = containerId
   activeRunId.value = null
+  toolPanelRunNavigation.value = []
   activeBackgroundTaskId.value =
     containerId && findContainerById(containerId)?.kind === 'background_task' ? containerId : null
   selectedSessionId.value = null
@@ -462,7 +475,82 @@ function cacheThreadChildRuns(thread: ExecutionThread | null) {
   }
 }
 
+async function syncToolPanelRunNavigation(thread: ExecutionThread | null) {
+  const version = ++toolPanelRunNavigationVersion
+  const focus = thread?.focus ?? null
+
+  if (!focus?.run_id || focus.kind !== 'subagent_run') {
+    toolPanelRunNavigation.value = []
+    return
+  }
+
+  const runLabels = new Map<string, string>()
+  runLabels.set(focus.run_id, focus.title || focus.run_id)
+
+  const runIdsToLoad = new Set<string>()
+  if (focus.root_run_id && focus.root_run_id !== focus.run_id) {
+    runIdsToLoad.add(focus.root_run_id)
+  }
+  if (
+    focus.parent_run_id &&
+    focus.parent_run_id !== focus.run_id &&
+    focus.parent_run_id !== focus.root_run_id
+  ) {
+    runIdsToLoad.add(focus.parent_run_id)
+  }
+
+  await Promise.all(
+    [...runIdsToLoad].map(async (runId) => {
+      try {
+        const resolvedThread = await getExecutionRunThread(runId)
+        runLabels.set(runId, resolvedThread.focus.title || runId)
+      } catch {
+        runLabels.set(runId, runId)
+      }
+    }),
+  )
+
+  if (version !== toolPanelRunNavigationVersion) return
+
+  const nodes: ToolPanelRunNavigationNode[] = []
+  if (focus.root_run_id && focus.root_run_id !== focus.run_id) {
+    nodes.push({
+      key: 'root',
+      runId: focus.root_run_id,
+      containerId: focus.container_id,
+      label: runLabels.get(focus.root_run_id) ?? 'Root run',
+      badge: 'Root',
+      clickable: true,
+    })
+  }
+  if (
+    focus.parent_run_id &&
+    focus.parent_run_id !== focus.run_id &&
+    focus.parent_run_id !== focus.root_run_id
+  ) {
+    nodes.push({
+      key: 'parent',
+      runId: focus.parent_run_id,
+      containerId: focus.container_id,
+      label: runLabels.get(focus.parent_run_id) ?? 'Parent run',
+      badge: 'Parent',
+      clickable: true,
+    })
+  }
+  nodes.push({
+    key: 'current',
+    runId: focus.run_id,
+    containerId: focus.container_id,
+    label: runLabels.get(focus.run_id) ?? focus.run_id,
+    badge: 'Child',
+    clickable: false,
+  })
+
+  toolPanelRunNavigation.value = nodes
+}
+
 function onThreadLoaded(thread: ExecutionThread | null) {
+  void syncToolPanelRunNavigation(thread)
   const runId = thread?.focus.run_id ?? null
   const containerId = thread?.focus.container_id ?? null
   cacheThreadChildRuns(thread)
@@ -688,6 +776,7 @@ async function resolveRunRoute(runId: string, version: number, expectedContainer
 
   if (version !== routeResolutionVersion) return
 
+  void syncToolPanelRunNavigation(thread)
   cacheThreadChildRuns(thread)
   const resolvedContainerId = thread.focus.container_id
   activeContainerId.value = resolvedContainerId
@@ -703,6 +792,10 @@ async function resolveRunRoute(runId: string, version: number, expectedContainer
   ) {
     await router.replace(canonicalContainerRunRoute(resolvedContainerId, runId))
   }
+}
+
+function onNavigateToolPanelRun(payload: { containerId: string; runId: string }) {
+  void router.push(canonicalContainerRunRoute(payload.containerId, payload.runId))
 }
 
 async function resolveContainerRoute(containerId: string, version: number) {
@@ -1225,7 +1318,9 @@ onUnmounted(() => {
         :step="toolPanel.state.value.step"
         :can-navigate-prev="toolPanel.canNavigatePrev.value"
         :can-navigate-next="toolPanel.canNavigateNext.value"
+        :run-navigation="toolPanelRunNavigation"
         @navigate="toolPanel.navigateHistory"
+        @navigate-run="onNavigateToolPanelRun"
         @close="toolPanel.closePanel()"
       />
     </div>
