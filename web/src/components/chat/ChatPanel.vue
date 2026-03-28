@@ -143,15 +143,18 @@ const linkedBgAgent = computed(() => {
   if (!sessionId) return null
   return backgroundAgentStore.agentBySessionId(sessionId)
 })
+interface RunBreadcrumbNode {
+  key: 'root' | 'parent' | 'current'
+  runId: string
+  label: string
+  badge: string
+  clickable: boolean
+}
+
 const executionFocus = computed(() => executionThread.value?.focus ?? null)
-const rootRunId = computed(() => executionFocus.value?.root_run_id ?? null)
-const currentRunId = computed(() => executionFocus.value?.run_id ?? props.selectedRunId ?? null)
-const showRunBreadcrumb = computed(
-  () =>
-    executionFocus.value?.kind === 'subagent_run' &&
-    !!rootRunId.value &&
-    rootRunId.value !== currentRunId.value,
-)
+const breadcrumbNodes = ref<RunBreadcrumbNode[]>([])
+let breadcrumbLoadVersion = 0
+const showRunBreadcrumb = computed(() => breadcrumbNodes.value.length > 1)
 const currentRunAgentName = computed(() => {
   const agentId = executionFocus.value?.agent_id
   if (!agentId) return null
@@ -242,16 +245,89 @@ async function handleOpenRunTrace() {
   })
 }
 
-async function handleOpenRootRun() {
+async function navigateToBreadcrumbRun(runId: string) {
   const containerId = executionFocus.value?.container_id ?? null
-  const runId = rootRunId.value
-  if (!containerId || !runId) return
+  if (!containerId) return
 
   await router.push({
     name: 'workspace-container-run',
     params: { containerId, runId },
   })
 }
+
+watch(
+  executionFocus,
+  async (focus) => {
+    const version = ++breadcrumbLoadVersion
+
+    if (focus?.kind !== 'subagent_run' || !focus.run_id) {
+      breadcrumbNodes.value = []
+      return
+    }
+
+    const runLabels = new Map<string, string>()
+    runLabels.set(focus.run_id, focus.title || focus.run_id)
+
+    const runIdsToLoad = new Set<string>()
+    if (focus.root_run_id && focus.root_run_id !== focus.run_id) {
+      runIdsToLoad.add(focus.root_run_id)
+    }
+    if (
+      focus.parent_run_id &&
+      focus.parent_run_id !== focus.run_id &&
+      focus.parent_run_id !== focus.root_run_id
+    ) {
+      runIdsToLoad.add(focus.parent_run_id)
+    }
+
+    await Promise.all(
+      [...runIdsToLoad].map(async (runId) => {
+        try {
+          const thread = await getExecutionRunThread(runId)
+          runLabels.set(runId, thread.focus.title || runId)
+        } catch {
+          runLabels.set(runId, runId)
+        }
+      }),
+    )
+
+    if (version !== breadcrumbLoadVersion) return
+
+    const nodes: RunBreadcrumbNode[] = []
+    if (focus.root_run_id && focus.root_run_id !== focus.run_id) {
+      nodes.push({
+        key: 'root',
+        runId: focus.root_run_id,
+        label: runLabels.get(focus.root_run_id) ?? 'Root run',
+        badge: 'Root',
+        clickable: true,
+      })
+    }
+    if (
+      focus.parent_run_id &&
+      focus.parent_run_id !== focus.run_id &&
+      focus.parent_run_id !== focus.root_run_id
+    ) {
+      nodes.push({
+        key: 'parent',
+        runId: focus.parent_run_id,
+        label: runLabels.get(focus.parent_run_id) ?? 'Parent run',
+        badge: 'Parent',
+        clickable: true,
+      })
+    }
+    nodes.push({
+      key: 'current',
+      runId: focus.run_id,
+      label: runLabels.get(focus.run_id) ?? focus.run_id,
+      badge: 'Child',
+      clickable: false,
+    })
+
+    breadcrumbNodes.value = nodes
+  },
+  { immediate: true },
+)
 
 function onSelectThreadItem(selection: ThreadSelection) {
   emit('threadSelection', selection)
@@ -776,24 +852,35 @@ defineExpose({
       data-testid="run-breadcrumb"
     >
       <GitBranch :size="11" class="shrink-0 text-muted-foreground/80" />
-      <Button
-        variant="ghost"
-        size="sm"
-        class="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
-        data-testid="run-breadcrumb-root"
-        @click="handleOpenRootRun"
-      >
-        <span>Root run</span>
-      </Button>
-      <ChevronRight :size="11" class="shrink-0 text-muted-foreground/70" />
-      <span
-        class="rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em]"
-      >
-        Child run
-      </span>
-      <span class="truncate font-medium text-foreground/85" data-testid="run-breadcrumb-current">
-        {{ executionFocus?.title ?? currentRunId }}
-      </span>
+      <template v-for="(node, index) in breadcrumbNodes" :key="`${node.key}-${node.runId}`">
+        <ChevronRight
+          v-if="index > 0"
+          :size="11"
+          class="shrink-0 text-muted-foreground/70"
+        />
+        <span
+          class="rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em]"
+        >
+          {{ node.badge }}
+        </span>
+        <Button
+          v-if="node.clickable"
+          variant="ghost"
+          size="sm"
+          class="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
+          :data-testid="`run-breadcrumb-node-${node.key}`"
+          @click="navigateToBreadcrumbRun(node.runId)"
+        >
+          <span>{{ node.label }}</span>
+        </Button>
+        <span
+          v-else
+          class="truncate font-medium text-foreground/85"
+          data-testid="run-breadcrumb-current"
+        >
+          {{ node.label }}
+        </span>
+      </template>
       <span v-if="currentRunAgentName" class="truncate text-muted-foreground/85">
         · {{ currentRunAgentName }}
       </span>
