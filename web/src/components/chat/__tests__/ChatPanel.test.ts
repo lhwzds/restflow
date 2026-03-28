@@ -385,7 +385,6 @@ describe('ChatPanel', () => {
         events: [],
         stats: {},
       },
-      child_sessions: [],
     })
     mockListExecutionContainers.mockResolvedValue([
       {
@@ -776,7 +775,6 @@ describe('ChatPanel', () => {
         ],
         stats: {},
       },
-      child_sessions: [],
     } as any)
 
     mount(ChatPanel, {
@@ -832,7 +830,6 @@ describe('ChatPanel', () => {
             event_count: 1,
           },
           timeline: { events: [], stats: {} },
-          child_sessions: [],
         } as any
       }
 
@@ -861,7 +858,6 @@ describe('ChatPanel', () => {
             event_count: 1,
           },
           timeline: { events: [], stats: {} },
-          child_sessions: [],
         } as any
       }
 
@@ -892,7 +888,6 @@ describe('ChatPanel', () => {
           events: [],
           stats: {},
         },
-        child_sessions: [],
       } as any
     })
 

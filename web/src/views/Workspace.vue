@@ -36,6 +36,7 @@ import { confirmDelete, useConfirm } from '@/composables/useConfirm'
 import { deleteAgent as deleteAgentApi, listAgents } from '@/api/agents'
 import {
   getExecutionRunThread,
+  listChildExecutionSessions,
   listExecutionContainers,
   listExecutionSessions,
 } from '@/api/execution-console'
@@ -75,6 +76,7 @@ const activeContainerId = ref<string | null>(null)
 const activeRunId = ref<string | null>(null)
 const activeBackgroundTaskId = ref<string | null>(null)
 const activeExecutionThread = ref<ExecutionThread | null>(null)
+const runThreadByRunId = ref<Record<string, ExecutionThread>>({})
 const executionContainers = ref<ExecutionContainerSummary[]>([])
 const expandedWorkspaceContainerIds = ref<Set<string>>(new Set())
 const workspaceRunsByContainerId = ref<Record<string, ExecutionSessionSummary[]>>({})
@@ -284,26 +286,6 @@ const routeContainerRunId = computed(() => {
   return String(route.params.runId ?? '').trim()
 })
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function toChildRunSelection(selection: ThreadSelection): ExecutionSessionSummary | null {
-  if (selection.kind !== 'child_run') return null
-  const childRun = isRecord(selection.data.child_run) ? selection.data.child_run : null
-  if (!childRun) return null
-
-  const containerId =
-    typeof childRun.container_id === 'string' && childRun.container_id.length > 0
-      ? childRun.container_id
-      : null
-  const runId =
-    typeof childRun.run_id === 'string' && childRun.run_id.length > 0 ? childRun.run_id : null
-
-  if (!containerId || !runId) return null
-  return childRun as unknown as ExecutionSessionSummary
-}
-
 const activeContainer = computed(() => {
   const containerId = activeContainerId.value || routeContainerId.value
   return containerId ? findContainerById(containerId) : null
@@ -349,6 +331,11 @@ const showRunOverviewPanel = computed(
     !toolPanel.visible.value &&
     !!activeExecutionThread.value,
 )
+const activeRunChildSessions = computed(() => {
+  const runId = activeExecutionThread.value?.focus.run_id ?? null
+  if (!runId) return []
+  return childRunsByParentRunId.value[runId] ?? []
+})
 
 async function clearWorkspaceSelection(containerId: string | null = null) {
   activeContainerId.value = containerId
@@ -465,22 +452,15 @@ function onToolResult(step: StreamStep) {
 }
 
 function onThreadSelection(selection: ThreadSelection) {
-  const childRun = toChildRunSelection(selection)
-  if (childRun?.run_id) {
-    void router.push(canonicalContainerRunRoute(childRun.container_id, childRun.run_id))
-    return
-  }
-
   toolPanel.handleThreadSelection(selection)
 }
 
-function cacheThreadChildRuns(thread: ExecutionThread | null) {
-  const runId = thread?.focus.run_id ?? null
+function cacheExecutionThread(thread: ExecutionThread) {
+  const runId = thread.focus.run_id ?? null
   if (!runId) return
-
-  childRunsByParentRunId.value = {
-    ...childRunsByParentRunId.value,
-    [runId]: [...thread?.child_sessions ?? []],
+  runThreadByRunId.value = {
+    ...runThreadByRunId.value,
+    [runId]: thread,
   }
 }
 
@@ -511,7 +491,7 @@ async function syncToolPanelRunNavigation(thread: ExecutionThread | null) {
   await Promise.all(
     [...runIdsToLoad].map(async (runId) => {
       try {
-        const resolvedThread = await getExecutionRunThread(runId)
+        const resolvedThread = await ensureRunThreadLoaded(runId)
         runLabels.set(runId, resolvedThread.focus.title || runId)
       } catch {
         runLabels.set(runId, runId)
@@ -560,10 +540,15 @@ async function syncToolPanelRunNavigation(thread: ExecutionThread | null) {
 
 function onThreadLoaded(thread: ExecutionThread | null) {
   activeExecutionThread.value = thread
+  if (thread) {
+    cacheExecutionThread(thread)
+  }
   void syncToolPanelRunNavigation(thread)
   const runId = thread?.focus.run_id ?? null
   const containerId = thread?.focus.container_id ?? null
-  cacheThreadChildRuns(thread)
+  if (runId) {
+    void ensureChildRunsLoaded(runId)
+  }
   if (!runId || !containerId) return
   if (routeContainerRunId.value === runId && routeContainerId.value === containerId) return
 
@@ -576,6 +561,61 @@ async function loadExecutionContainersProjection() {
 
 async function refreshNavigationProjection() {
   await loadExecutionContainersProjection()
+}
+
+async function ensureRunThreadLoaded(
+  runId: string,
+  forceRefresh = false,
+): Promise<ExecutionThread> {
+  if (!forceRefresh && runThreadByRunId.value[runId]) {
+    return runThreadByRunId.value[runId]
+  }
+
+  const thread = await getExecutionRunThread(runId)
+  cacheExecutionThread(thread)
+  return thread
+}
+
+async function ensureChildRunsLoaded(
+  parentRunId: string,
+  forceRefresh = false,
+): Promise<ExecutionSessionSummary[]> {
+  if (!forceRefresh && childRunsByParentRunId.value[parentRunId]) {
+    return childRunsByParentRunId.value[parentRunId]
+  }
+
+  const runs = await listChildExecutionSessions({
+    parent_run_id: parentRunId,
+  })
+
+  childRunsByParentRunId.value = {
+    ...childRunsByParentRunId.value,
+    [parentRunId]: runs,
+  }
+  return runs
+}
+
+async function ensureDirectChildRunsLoadedForRuns(
+  runs: ExecutionSessionSummary[],
+): Promise<void> {
+  const runIds = runs
+    .map((run) => run.run_id)
+    .filter((runId): runId is string => !!runId)
+
+  await Promise.all(runIds.map((runId) => ensureChildRunsLoaded(runId)))
+}
+
+async function ensureRunAncestorChildrenLoaded(focus: ExecutionSessionSummary): Promise<void> {
+  const ancestors: string[] = []
+  let currentParentRunId = focus.parent_run_id ?? null
+
+  while (currentParentRunId) {
+    ancestors.push(currentParentRunId)
+    const parentThread = await ensureRunThreadLoaded(currentParentRunId)
+    currentParentRunId = parentThread.focus.parent_run_id ?? null
+  }
+
+  await Promise.all(ancestors.map((runId) => ensureChildRunsLoaded(runId)))
 }
 
 async function ensureWorkspaceRunsLoaded(
@@ -597,6 +637,7 @@ async function ensureWorkspaceRunsLoaded(
     ...workspaceRunsByContainerId.value,
     [containerId]: runs,
   }
+  await ensureDirectChildRunsLoadedForRuns(runs)
   return runs
 }
 
@@ -619,6 +660,7 @@ async function ensureBackgroundRunsLoaded(
     ...backgroundRunsByTaskId.value,
     [taskId]: runs,
   }
+  await ensureDirectChildRunsLoadedForRuns(runs)
   return runs
 }
 
@@ -641,6 +683,7 @@ async function ensureExternalRunsLoaded(
     ...externalRunsByContainerId.value,
     [containerId]: runs,
   }
+  await ensureDirectChildRunsLoadedForRuns(runs)
   return runs
 }
 
@@ -782,19 +825,22 @@ async function expandContainerForFocus(focus: ExecutionSessionSummary, forceRefr
 }
 
 async function resolveRunRoute(runId: string, version: number, expectedContainerId: string | null = null) {
-  const thread = await getExecutionRunThread(runId)
+  const thread = await ensureRunThreadLoaded(runId, true)
 
   if (version !== routeResolutionVersion) return
 
   activeExecutionThread.value = thread
   void syncToolPanelRunNavigation(thread)
-  cacheThreadChildRuns(thread)
   const resolvedContainerId = thread.focus.container_id
   activeContainerId.value = resolvedContainerId
   activeRunId.value = thread.focus.run_id ?? runId
   selectedSessionId.value = thread.focus.session_id ?? null
   await chatSessionStore.selectSession(thread.focus.session_id ?? null)
   await expandContainerForFocus(thread.focus, true)
+  await ensureRunAncestorChildrenLoaded(thread.focus)
+  if (thread.focus.run_id) {
+    await ensureChildRunsLoaded(thread.focus.run_id, true)
+  }
 
   if (
     routeContainerRunId.value !== runId ||
@@ -1344,6 +1390,7 @@ onUnmounted(() => {
         :can-navigate-next="toolPanel.canNavigateNext.value"
         :run-navigation="toolPanelRunNavigation"
         :run-thread="activeExecutionThread"
+        :run-child-sessions="activeRunChildSessions"
         @navigate="toolPanel.navigateHistory"
         @navigate-run="onNavigateToolPanelRun"
         @close="toolPanel.closePanel()"
