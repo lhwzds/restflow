@@ -15,6 +15,8 @@ use restflow_ai::llm::{
 };
 use restflow_contracts::request::{
     AgentNode as ContractAgentNode, DurabilityMode as ContractDurabilityMode,
+    InlineSubagentConfig as ContractInlineSubagentConfig,
+    SubagentSpawnRequest as ContractSubagentSpawnRequest,
 };
 use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
@@ -24,7 +26,6 @@ use restflow_traits::store::{
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
     BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, MemoryStore as _,
 };
-use restflow_traits::subagent::{InlineSubagentConfig, SpawnRequest};
 use serde_json::json;
 use tempfile::tempdir;
 
@@ -1855,9 +1856,9 @@ async fn test_create_subagent_manager_persists_execution_traces() {
     );
 
     let handle = subagent_manager
-        .spawn(SpawnRequest {
+        .spawn(ContractSubagentSpawnRequest {
             agent_id: None,
-            inline: Some(InlineSubagentConfig {
+            inline: Some(ContractInlineSubagentConfig {
                 name: Some("trace-test".to_string()),
                 system_prompt: Some("Return a short answer.".to_string()),
                 allowed_tools: Some(vec!["__no_such_tool__".to_string()]),
@@ -1868,7 +1869,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
             max_iterations: None,
             priority: None,
             model: Some("mock-model".to_string()),
-            model_provider: None,
+            model_provider: Some("openai".to_string()),
             parent_execution_id: Some("parent-run-1".to_string()),
             trace_session_id: Some("session-trace-1".to_string()),
             trace_scope_id: Some("scope-trace-1".to_string()),
@@ -1998,7 +1999,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
     );
 
     let handle = subagent_manager
-        .spawn(SpawnRequest {
+        .spawn(ContractSubagentSpawnRequest {
             agent_id: None,
             inline: None,
             task: "Say done".to_string(),

@@ -8,7 +8,6 @@ use restflow_contracts::request::{
     InlineSubagentConfig as ContractInlineSubagentConfig,
     SubagentSpawnRequest as ContractSubagentSpawnRequest,
 };
-use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::{SubagentCompletion, SubagentStatus};
 
 use super::{SpawnSubagentParams, SpawnSubagentTool};
@@ -185,13 +184,10 @@ pub(super) async fn execute(
             .await;
     }
 
-    let request = spawn_request_from_contract(
-        &tool.available_agents(),
-        build_contract_request(
-            &params,
-            normalize_optional_text(params.task.as_deref()).unwrap_or_default(),
-        ),
-    )?;
+    let request = build_contract_request(
+        &params,
+        normalize_optional_text(params.task.as_deref()).unwrap_or_default(),
+    );
 
     if let Some(assessor) = &tool.assessor {
         let assessment = assessor

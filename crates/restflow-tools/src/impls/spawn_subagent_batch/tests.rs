@@ -1,5 +1,6 @@
 use super::*;
 use crate::Tool;
+use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
 use restflow_ai::agent::{
     SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
     SubagentManagerImpl, SubagentTracker,
@@ -7,9 +8,7 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_traits::store::KvStore;
-use restflow_traits::{
-    SpawnHandle, SpawnRequest, SubagentCompletion, SubagentManager, SubagentState,
-};
+use restflow_traits::{SpawnHandle, SubagentCompletion, SubagentManager, SubagentState};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -172,7 +171,10 @@ impl FailingSpawnManager {
 
 #[async_trait]
 impl SubagentManager for FailingSpawnManager {
-    fn spawn(&self, request: SpawnRequest) -> std::result::Result<SpawnHandle, ToolError> {
+    fn spawn(
+        &self,
+        request: ContractSubagentSpawnRequest,
+    ) -> std::result::Result<SpawnHandle, ToolError> {
         let mut attempts = self
             .attempts
             .lock()

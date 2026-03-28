@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::ToolError;
-use restflow_traits::{SpawnRequest, SubagentEffectiveLimits};
+use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
+use restflow_traits::SubagentEffectiveLimits;
 
 #[cfg(feature = "ts")]
 const TS_EXPORT_TO_WEB_TYPES: &str = concat!(
@@ -200,7 +201,7 @@ pub(super) struct SpawnedTask {
 pub(super) struct PreparedSpawnRequest {
     pub(super) spec_index: usize,
     pub(super) instance_index: u32,
-    pub(super) request: SpawnRequest,
+    pub(super) request: ContractSubagentSpawnRequest,
 }
 
 #[derive(Debug)]
