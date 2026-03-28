@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import {
   Plus,
   Check,
@@ -17,6 +17,7 @@ import {
   Radio,
   MessageSquare,
   GitBranch,
+  Search,
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
@@ -153,6 +154,25 @@ interface FlattenedRunPlaceholder {
 type FlattenedRunItem = FlattenedRunRow | FlattenedRunPlaceholder
 
 const expandedRunKeys = ref<Set<string>>(new Set())
+const searchQuery = ref('')
+
+const filteredWorkspaceFolders = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return props.workspaceFolders
+  return props.workspaceFolders.filter((f) => displayLabel(f.name).toLowerCase().includes(q))
+})
+
+const filteredBackgroundFolders = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return props.backgroundFolders
+  return props.backgroundFolders.filter((f) => f.name.toLowerCase().includes(q))
+})
+
+const filteredExternalFolders = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return props.externalFolders
+  return props.externalFolders.filter((f) => displayLabel(f.name).toLowerCase().includes(q))
+})
 
 function runContainsSelectedDescendant(run: RunListItem, selectedRunId: string | null | undefined): boolean {
   if (!selectedRunId) return false
@@ -285,6 +305,15 @@ function runTitleClass(run: FlattenedRunRow): string {
         <Plus :size="16" />
         <span>{{ t('workspace.newSession') }}</span>
       </Button>
+      <div class="relative">
+        <Search :size="12" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="Search sessions..."
+          class="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        />
+      </div>
     </div>
 
     <div class="flex-1 overflow-auto py-2">
@@ -292,7 +321,7 @@ function runTitleClass(run: FlattenedRunRow): string {
         Workspace Sessions
       </div>
       <div
-        v-for="folder in workspaceFolders"
+        v-for="folder in filteredWorkspaceFolders"
         :key="folder.containerId"
         :data-testid="`workspace-folder-${folder.containerId}`"
       >
@@ -475,7 +504,7 @@ function runTitleClass(run: FlattenedRunRow): string {
         Background Agents
       </div>
       <div
-        v-for="folder in backgroundFolders"
+        v-for="folder in filteredBackgroundFolders"
         :key="folder.taskId"
         :data-testid="`background-folder-${folder.taskId}`"
       >
@@ -644,7 +673,7 @@ function runTitleClass(run: FlattenedRunRow): string {
         External Channels
       </div>
       <div
-        v-for="folder in externalFolders"
+        v-for="folder in filteredExternalFolders"
         :key="folder.containerId"
         :data-testid="`external-folder-${folder.containerId}`"
       >
@@ -798,15 +827,28 @@ function runTitleClass(run: FlattenedRunRow): string {
       </div>
 
       <div
-        v-if="
+        v-if="searchQuery && filteredWorkspaceFolders.length === 0 && filteredBackgroundFolders.length === 0 && filteredExternalFolders.length === 0"
+        class="px-3 py-6 text-center text-xs text-muted-foreground"
+      >
+        No sessions match "{{ searchQuery }}"
+      </div>
+      <div
+        v-else-if="
+          !searchQuery &&
           workspaceFolders.length === 0 &&
           backgroundFolders.length === 0 &&
           externalFolders.length === 0
         "
         data-testid="session-empty-state"
-        class="px-3 py-6 text-sm text-muted-foreground"
+        class="px-3 py-8 text-center"
       >
-        {{ t('workspace.noSessions') }}
+        <MessageSquare :size="28" class="mx-auto mb-2 text-muted-foreground/40" />
+        <p class="mb-1 text-sm font-medium text-muted-foreground">{{ t('workspace.noSessions') }}</p>
+        <p class="mb-4 text-xs text-muted-foreground/70">Create a session to get started</p>
+        <Button variant="outline" size="sm" class="gap-1.5" @click="emit('newSession')">
+          <Plus :size="13" />
+          New Session
+        </Button>
       </div>
     </div>
   </div>

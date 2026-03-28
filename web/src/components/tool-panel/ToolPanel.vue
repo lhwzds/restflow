@@ -153,7 +153,7 @@ const panelTitle = computed(() =>
     <div
       v-if="showRunNavigation"
       data-testid="tool-panel-run-navigation"
-      class="flex items-center gap-1 overflow-x-auto border-b border-border px-3 py-2"
+      class="flex flex-wrap items-center gap-1 border-b border-border px-3 py-2"
     >
       <GitBranch :size="13" class="shrink-0 text-muted-foreground" />
       <template v-for="(node, index) in props.runNavigation" :key="`${node.key}-${node.runId}`">

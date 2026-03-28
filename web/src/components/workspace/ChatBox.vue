@@ -118,7 +118,7 @@ const handleKeydown = (e: KeyboardEvent) => {
 const handleInput = (e: Event) => {
   const textarea = e.target as HTMLTextAreaElement
   textarea.style.height = 'auto'
-  textarea.style.height = `${Math.min(textarea.scrollHeight, 120)}px`
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 300)}px`
 }
 
 // Reset height when message is cleared
@@ -185,7 +185,7 @@ const groupedModels = computed(() => {
         ref="chatTextarea"
         v-model="inputMessage"
         :placeholder="t('workspace.askAgent')"
-        class="chat-textarea min-h-[40px] max-h-[120px] resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
+        class="chat-textarea min-h-[40px] max-h-[300px] resize-none border-0 bg-transparent p-0 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0"
         @keydown="handleKeydown"
         @input="handleInput"
         @compositionstart="composing = true"
