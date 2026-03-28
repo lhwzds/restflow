@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
@@ -59,6 +59,12 @@ struct LatestRunProjection {
     updated_at: i64,
     session_id: Option<String>,
     task_id: String,
+}
+
+#[derive(Clone)]
+struct RootRunContext {
+    container_id: String,
+    root_run_id: String,
 }
 
 impl ExecutionConsoleService {
@@ -206,20 +212,27 @@ impl ExecutionConsoleService {
 
         let mut sessions = groups
             .into_iter()
-            .map(|(run_id, mut events)| {
+            .map(|(run_id, mut events)| -> Result<ExecutionSessionSummary> {
                 events.sort_by(|left, right| left.timestamp.cmp(&right.timestamp));
-                self.build_run_summary(
+                let root = self.resolve_root_run_context(
                     &run_id,
+                    events
+                        .last()
+                        .and_then(|event| event.parent_run_id.as_deref()),
+                )?;
+                Ok(self.build_run_summary(
                     &run_id,
+                    &root.container_id,
                     ExecutionSessionKind::SubagentRun,
                     &events,
                     RunSummaryMeta {
                         title: Some("Subagent run".to_string()),
                         ..RunSummaryMeta::default()
                     },
-                )
+                    Some(root.root_run_id),
+                ))
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>>>()?;
 
         sessions.sort_by(|left, right| {
             right
@@ -392,6 +405,7 @@ impl ExecutionConsoleService {
                         subtitle: Some(task.name.clone()),
                         ..RunSummaryMeta::default()
                     },
+                    Some(run_id.clone()),
                 )
             })
             .collect::<Vec<_>>();
@@ -490,6 +504,7 @@ impl ExecutionConsoleService {
                         source_channel,
                         source_conversation_id: source_conversation_id.clone(),
                     },
+                    Some(run_id.clone()),
                 )
             })
             .collect::<Vec<_>>();
@@ -511,6 +526,7 @@ impl ExecutionConsoleService {
         kind: ExecutionSessionKind,
         events: &[ExecutionTraceEvent],
         meta: RunSummaryMeta,
+        root_run_id: Option<String>,
     ) -> ExecutionSessionSummary {
         let first = events.first();
         let last = events.last();
@@ -528,6 +544,7 @@ impl ExecutionConsoleService {
             id: run_id.to_string(),
             kind,
             container_id: container_id.to_string(),
+            root_run_id,
             title: meta
                 .title
                 .unwrap_or_else(|| format!("Run {}", short_id(run_id))),
@@ -608,6 +625,63 @@ impl ExecutionConsoleService {
         })
     }
 
+    fn load_run_events(&self, run_id: &str) -> Result<Vec<ExecutionTraceEvent>> {
+        let mut events = self.storage.execution_traces.query(&ExecutionTraceQuery {
+            run_id: Some(run_id.to_string()),
+            limit: Some(usize::MAX),
+            ..ExecutionTraceQuery::default()
+        })?;
+        events.sort_by(|left, right| {
+            left.timestamp
+                .cmp(&right.timestamp)
+                .then_with(|| left.id.cmp(&right.id))
+        });
+        Ok(events)
+    }
+
+    fn resolve_root_run_context(
+        &self,
+        run_id: &str,
+        parent_run_id: Option<&str>,
+    ) -> Result<RootRunContext> {
+        let Some(initial_parent_run_id) = parent_run_id else {
+            return Ok(RootRunContext {
+                container_id: run_id.to_string(),
+                root_run_id: run_id.to_string(),
+            });
+        };
+
+        let mut current_run_id = initial_parent_run_id.to_string();
+        let mut visited = HashSet::new();
+
+        loop {
+            if !visited.insert(current_run_id.clone()) {
+                return Err(anyhow!(
+                    "detected cyclic run ancestry while resolving root run for '{}'",
+                    run_id
+                ));
+            }
+
+            let events = self.load_run_events(&current_run_id)?;
+            let latest = events
+                .last()
+                .ok_or_else(|| anyhow!("run '{}' has no events", current_run_id))?;
+
+            if latest.parent_run_id.is_none() {
+                let focus = self.build_focus_for_run(&current_run_id, &events)?;
+                return Ok(RootRunContext {
+                    container_id: focus.container_id,
+                    root_run_id: current_run_id,
+                });
+            }
+
+            current_run_id = latest
+                .parent_run_id
+                .clone()
+                .ok_or_else(|| anyhow!("run '{}' ancestry is incomplete", current_run_id))?;
+        }
+    }
+
     fn build_focus_for_run(
         &self,
         run_id: &str,
@@ -634,6 +708,28 @@ impl ExecutionConsoleService {
                     subtitle: Some(task.name),
                     ..RunSummaryMeta::default()
                 },
+                Some(run_id.to_string()),
+            ));
+        }
+
+        if latest.parent_run_id.is_some() {
+            let root = self.resolve_root_run_context(run_id, latest.parent_run_id.as_deref())?;
+            return Ok(self.build_run_summary(
+                run_id,
+                &root.container_id,
+                ExecutionSessionKind::SubagentRun,
+                events,
+                RunSummaryMeta {
+                    title: Some(format_run_title(
+                        events
+                            .first()
+                            .map(|event| event.timestamp)
+                            .unwrap_or(latest.timestamp),
+                    )),
+                    subtitle: latest.session_id.clone(),
+                    ..RunSummaryMeta::default()
+                },
+                Some(root.root_run_id),
             ));
         }
 
@@ -658,6 +754,7 @@ impl ExecutionConsoleService {
                         subtitle: Some(task.name),
                         ..RunSummaryMeta::default()
                     },
+                    Some(run_id.to_string()),
                 ));
             }
 
@@ -691,12 +788,13 @@ impl ExecutionConsoleService {
                     source_channel: Some(source.source),
                     source_conversation_id: source.conversation_id,
                 },
+                Some(run_id.to_string()),
             ));
         }
 
         Ok(self.build_run_summary(
             run_id,
-            latest.parent_run_id.as_deref().unwrap_or(run_id),
+            run_id,
             ExecutionSessionKind::SubagentRun,
             events,
             RunSummaryMeta {
@@ -709,6 +807,7 @@ impl ExecutionConsoleService {
                 subtitle: latest.session_id.clone(),
                 ..RunSummaryMeta::default()
             },
+            Some(run_id.to_string()),
         ))
     }
 }
@@ -1054,6 +1153,9 @@ mod tests {
             .expect("child runs");
         assert_eq!(child_runs.len(), 1);
         assert_eq!(child_runs[0].run_id.as_deref(), Some("run-child"));
+        assert_eq!(child_runs[0].container_id, task.id);
+        assert_eq!(child_runs[0].parent_run_id.as_deref(), Some("run-parent"));
+        assert_eq!(child_runs[0].root_run_id.as_deref(), Some("run-parent"));
     }
 
     #[test]
@@ -1077,8 +1179,22 @@ mod tests {
 
         let thread = service.get_execution_run_thread("run-1").expect("thread");
         assert_eq!(thread.focus.run_id.as_deref(), Some("run-1"));
+        assert_eq!(thread.focus.root_run_id.as_deref(), Some("run-1"));
         assert!(thread.timeline.events.len() >= 2);
         assert_eq!(thread.child_sessions.len(), 1);
         assert_eq!(thread.child_sessions[0].run_id.as_deref(), Some("run-2"));
+        assert_eq!(thread.child_sessions[0].container_id, session_id);
+        assert_eq!(
+            thread.child_sessions[0].root_run_id.as_deref(),
+            Some("run-1")
+        );
+
+        let child_thread = service
+            .get_execution_run_thread("run-2")
+            .expect("child thread");
+        assert_eq!(child_thread.focus.run_id.as_deref(), Some("run-2"));
+        assert_eq!(child_thread.focus.parent_run_id.as_deref(), Some("run-1"));
+        assert_eq!(child_thread.focus.container_id, session_id);
+        assert_eq!(child_thread.focus.root_run_id.as_deref(), Some("run-1"));
     }
 }
