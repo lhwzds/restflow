@@ -179,6 +179,11 @@ function toggleRunChildren(containerId: string, run: RunListItem) {
   expandedRunKeys.value = next
 }
 
+function retryLoadChildren(containerId: string, parentRunId: string) {
+  // Emit directly without toggling expandedRunKeys so the folder stays open
+  emit('toggleRunChildren', containerId, parentRunId)
+}
+
 function canToggleRunChildren(run: RunListItem): boolean {
   if (!run.runId) return false
   if (run.childRunsState === 'loaded') {
@@ -429,18 +434,28 @@ function runTitleClass(run: FlattenedRunRow): string {
                 </div>
               </button>
             </template>
-            <div v-else class="flex min-w-0 flex-1 items-center gap-2 py-2">
-              <Loader2
-                v-if="run.state === 'loading'"
-                :size="12"
-                class="animate-spin text-muted-foreground"
-              />
-              <Activity
-                v-else
-                :size="12"
-                class="text-destructive"
-              />
-              <span class="truncate">{{ run.message }}</span>
+            <div v-else class="flex min-w-0 flex-1 items-center justify-between gap-2 py-2">
+              <div class="flex min-w-0 items-center gap-2">
+                <Loader2
+                  v-if="run.state === 'loading'"
+                  :size="12"
+                  class="shrink-0 animate-spin text-muted-foreground"
+                />
+                <Activity
+                  v-else
+                  :size="12"
+                  class="shrink-0 text-destructive"
+                />
+                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{ run.message }}</span>
+              </div>
+              <button
+                v-if="run.state === 'error'"
+                class="shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                @click.stop="retryLoadChildren(run.containerId, run.parentRunId)"
+              >
+                <RotateCcw :size="10" />
+                Retry
+              </button>
             </div>
           </div>
           <button
@@ -588,18 +603,28 @@ function runTitleClass(run: FlattenedRunRow): string {
                 </div>
               </button>
             </template>
-            <div v-else class="flex min-w-0 flex-1 items-center gap-2 py-2">
-              <Loader2
-                v-if="run.state === 'loading'"
-                :size="12"
-                class="animate-spin text-muted-foreground"
-              />
-              <Activity
-                v-else
-                :size="12"
-                class="text-destructive"
-              />
-              <span class="truncate">{{ run.message }}</span>
+            <div v-else class="flex min-w-0 flex-1 items-center justify-between gap-2 py-2">
+              <div class="flex min-w-0 items-center gap-2">
+                <Loader2
+                  v-if="run.state === 'loading'"
+                  :size="12"
+                  class="shrink-0 animate-spin text-muted-foreground"
+                />
+                <Activity
+                  v-else
+                  :size="12"
+                  class="shrink-0 text-destructive"
+                />
+                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{ run.message }}</span>
+              </div>
+              <button
+                v-if="run.state === 'error'"
+                class="shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                @click.stop="retryLoadChildren(run.containerId, run.parentRunId)"
+              >
+                <RotateCcw :size="10" />
+                Retry
+              </button>
             </div>
           </div>
           <button
@@ -737,18 +762,28 @@ function runTitleClass(run: FlattenedRunRow): string {
                 </div>
               </button>
             </template>
-            <div v-else class="flex min-w-0 flex-1 items-center gap-2 py-2">
-              <Loader2
-                v-if="run.state === 'loading'"
-                :size="12"
-                class="animate-spin text-muted-foreground"
-              />
-              <Activity
-                v-else
-                :size="12"
-                class="text-destructive"
-              />
-              <span class="truncate">{{ run.message }}</span>
+            <div v-else class="flex min-w-0 flex-1 items-center justify-between gap-2 py-2">
+              <div class="flex min-w-0 items-center gap-2">
+                <Loader2
+                  v-if="run.state === 'loading'"
+                  :size="12"
+                  class="shrink-0 animate-spin text-muted-foreground"
+                />
+                <Activity
+                  v-else
+                  :size="12"
+                  class="shrink-0 text-destructive"
+                />
+                <span class="truncate" :class="run.state === 'error' ? 'text-destructive' : ''">{{ run.message }}</span>
+              </div>
+              <button
+                v-if="run.state === 'error'"
+                class="shrink-0 flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+                @click.stop="retryLoadChildren(run.containerId, run.parentRunId)"
+              >
+                <RotateCcw :size="10" />
+                Retry
+              </button>
             </div>
           </div>
           <button

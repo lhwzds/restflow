@@ -62,6 +62,8 @@ const emit = defineEmits<{
 const toast = useToast()
 const scrollContainer = ref<HTMLElement | null>(null)
 const expandedItems = ref<Set<string>>(new Set())
+// Tracks failed items the user has explicitly collapsed to override auto-expand
+const manuallyCollapsed = ref<Set<string>>(new Set())
 const loadedMediaUrls = ref<Map<string, { blobUrl: string; duration: number }>>(new Map())
 const loadingMediaPaths = ref<Set<string>>(new Set())
 
@@ -75,7 +77,18 @@ const renderedItems = computed<ThreadItem[]>(() =>
   }),
 )
 
-function toggleItem(id: string) {
+function isAutoExpanded(item: ThreadItem): boolean {
+  return item.status === 'failed' && !!item.body && !manuallyCollapsed.value.has(item.id)
+}
+
+function toggleItem(id: string, item?: ThreadItem) {
+  // If this item is currently auto-expanded (failed + not manually collapsed),
+  // the first click should collapse it by marking it manually collapsed.
+  if (item && isAutoExpanded(item) && !expandedItems.value.has(id)) {
+    manuallyCollapsed.value.add(id)
+    return
+  }
+  manuallyCollapsed.value.delete(id)
   if (expandedItems.value.has(id)) {
     expandedItems.value.delete(id)
   } else {
@@ -137,6 +150,17 @@ function itemKindLabel(item: ThreadItem): string {
       return 'Log'
     default:
       return 'Event'
+  }
+}
+
+function itemAccentClass(item: ThreadItem): string {
+  if (item.status === 'failed') return 'border-l-red-500'
+  switch (item.kind) {
+    case 'tool_call': return 'border-l-blue-500'
+    case 'llm_call': return 'border-l-purple-500'
+    case 'model_switch': return 'border-l-orange-500'
+    case 'lifecycle': return 'border-l-zinc-400'
+    default: return 'border-l-transparent'
   }
 }
 
@@ -243,11 +267,11 @@ onMounted(() => {
         <div
           v-if="!isMessageItem(item)"
           :data-testid="persistedStepIds(item)?.row ?? `thread-item-${item.id}`"
-          class="bg-background mr-auto max-w-[90%] overflow-hidden rounded-lg border border-border"
+          :class="['bg-background mr-auto max-w-[90%] overflow-hidden rounded-lg border border-border border-l-4', itemAccentClass(item)]"
         >
           <button
             class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
-            @click="canExpand(item) ? toggleItem(item.id) : undefined"
+            @click="canExpand(item) ? toggleItem(item.id, item) : undefined"
           >
             <Loader2
               v-if="item.status === 'running'"
@@ -296,7 +320,7 @@ onMounted(() => {
             </Button>
 
             <ChevronDown
-              v-if="canExpand(item) && isExpanded(item.id)"
+              v-if="canExpand(item) && (isExpanded(item.id) || isAutoExpanded(item))"
               :size="12"
               class="shrink-0 text-muted-foreground"
             />
@@ -307,8 +331,16 @@ onMounted(() => {
             />
           </button>
 
-          <div v-if="canExpand(item) && isExpanded(item.id)" class="border-t border-border bg-muted/30 px-3 py-2">
-            <pre class="max-h-48 overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono">{{ item.body }}</pre>
+          <div
+            v-if="canExpand(item) && (isExpanded(item.id) || isAutoExpanded(item))"
+            :class="[
+              'border-t px-3 py-2 max-h-[32rem] overflow-auto',
+              item.status === 'failed'
+                ? 'border-red-200 bg-red-500/5 dark:border-red-900'
+                : 'border-border bg-muted/30',
+            ]"
+          >
+            <pre class="whitespace-pre-wrap break-words text-[11px] font-mono">{{ item.body }}</pre>
           </div>
         </div>
 
@@ -391,8 +423,17 @@ onMounted(() => {
         </template>
       </div>
 
-      <div v-if="streamThinking && !streamContent" class="text-sm italic text-muted-foreground">
-        {{ streamThinking }}
+      <div
+        v-if="streamThinking && !streamContent"
+        class="mr-auto max-w-[90%] rounded-lg border border-dashed border-muted-foreground/30 bg-muted/20 text-sm"
+      >
+        <div class="flex items-center gap-1.5 border-b border-dashed border-muted-foreground/20 px-3 py-1.5">
+          <Loader2 :size="11" class="animate-spin text-muted-foreground" />
+          <span class="text-[11px] font-medium text-muted-foreground">Thinking...</span>
+        </div>
+        <div class="max-h-48 overflow-auto px-3 py-2 italic text-muted-foreground/80">
+          {{ streamThinking }}
+        </div>
       </div>
 
       <div
