@@ -57,6 +57,7 @@ describe('SessionList', () => {
               status: 'completed',
               updatedAt: Date.now(),
               runId: 'run-1',
+              agentName: 'Agent One',
               childRuns: [
                 {
                   id: 'run-summary-1-child',
@@ -64,6 +65,7 @@ describe('SessionList', () => {
                   status: 'completed',
                   updatedAt: Date.now(),
                   runId: 'run-1-child',
+                  agentName: 'Child Agent',
                   childRuns: [],
                 },
               ],
@@ -80,6 +82,20 @@ describe('SessionList', () => {
     expect(wrapper.get('[data-testid="workspace-folder-session-1"]')).toBeTruthy()
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]')).toBeTruthy()
     expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]')).toBeTruthy()
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]').attributes('data-run-depth')).toBe('0')
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').attributes('data-run-depth')).toBe(
+      '1',
+    )
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').text()).toContain('Child')
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1"]').text()).toContain('Run · Agent One')
+    expect(wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').text()).toContain(
+      'Child run · Child Agent',
+    )
+
+    await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-1"]').trigger('click')
+    expect(wrapper.find('[data-testid="workspace-run-session-1-run-1-child"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="workspace-run-toggle-session-1-run-1"]').trigger('click')
+    expect(wrapper.find('[data-testid="workspace-run-session-1-run-1-child"]').exists()).toBe(true)
 
     const findButton = (label: string) => {
       const button = wrapper.findAll('button').find((item) => item.text().includes(label))
@@ -87,9 +103,16 @@ describe('SessionList', () => {
       return button!
     }
 
+    const triggerRunSelection = async (testId: string) => {
+      const buttons = wrapper.get(testId).findAll('button')
+      const rowButton = buttons[buttons.length - 1]
+      expect(rowButton).toBeDefined()
+      await rowButton!.trigger('click')
+    }
+
     await wrapper.get('[data-testid="workspace-folder-session-1"]').find('button').trigger('click')
-    await wrapper.get('[data-testid="workspace-run-session-1-run-1"]').trigger('click')
-    await wrapper.get('[data-testid="workspace-run-session-1-run-1-child"]').trigger('click')
+    await triggerRunSelection('[data-testid="workspace-run-session-1-run-1"]')
+    await triggerRunSelection('[data-testid="workspace-run-session-1-run-1-child"]')
     await findButton('workspace.session.rename').trigger('click')
     await findButton('workspace.session.convertToBackground').trigger('click')
     await findButton('workspace.session.archive').trigger('click')
@@ -138,7 +161,8 @@ describe('SessionList', () => {
     expect(wrapper.get('[data-testid="background-run-task-1-run-1"]')).toBeTruthy()
 
     await wrapper.get('[data-testid="background-folder-task-1"]').find('button').trigger('click')
-    await wrapper.get('[data-testid="background-run-task-1-run-1"]').trigger('click')
+    const backgroundButtons = wrapper.get('[data-testid="background-run-task-1-run-1"]').findAll('button')
+    await backgroundButtons[backgroundButtons.length - 1]!.trigger('click')
 
     expect(wrapper.emitted('toggleBackgroundTask')).toEqual([['task-1']])
     expect(wrapper.emitted('selectRun')).toEqual([['task-1', 'run-1']])
@@ -182,7 +206,10 @@ describe('SessionList', () => {
       .get('[data-testid="external-folder-telegram:conversation-1"]')
       .find('button')
       .trigger('click')
-    await wrapper.get('[data-testid="external-run-telegram:conversation-1-run-external-1"]').trigger('click')
+    const externalButtons = wrapper
+      .get('[data-testid="external-run-telegram:conversation-1-run-external-1"]')
+      .findAll('button')
+    await externalButtons[externalButtons.length - 1]!.trigger('click')
 
     const rebuildButton = wrapper.findAll('button').find((item) => item.text().includes('workspace.session.rebuild'))
     expect(rebuildButton).toBeDefined()

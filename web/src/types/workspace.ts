@@ -13,6 +13,7 @@ export interface RunListItem {
   status: string
   updatedAt: number
   runId?: string | null
+  agentName?: string | null
   childRuns?: RunListItem[]
 }
 

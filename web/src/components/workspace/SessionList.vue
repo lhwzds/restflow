@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import {
   Plus,
   Check,
@@ -15,6 +16,7 @@ import {
   ChevronRight,
   Radio,
   MessageSquare,
+  GitBranch,
 } from 'lucide-vue-next'
 import { useI18n } from 'vue-i18n'
 import { Button } from '@/components/ui/button'
@@ -128,13 +130,44 @@ function runKey(containerId: string, run: RunListItem): string {
   return `${containerId}:${run.runId ?? run.id}`
 }
 
-type FlattenedRunItem = RunListItem & { depth: number }
+type FlattenedRunItem = RunListItem & { depth: number; hasChildren: boolean; isExpanded: boolean }
 
-function flattenRuns(runs: RunListItem[], depth = 0): FlattenedRunItem[] {
-  return runs.flatMap((run) => [
-    { ...run, depth },
-    ...flattenRuns(run.childRuns ?? [], depth + 1),
-  ])
+const collapsedRunKeys = ref<Set<string>>(new Set())
+
+function runContainsSelectedDescendant(run: RunListItem, selectedRunId: string | null | undefined): boolean {
+  if (!selectedRunId) return false
+  return (run.childRuns ?? []).some(
+    (child) => child.runId === selectedRunId || runContainsSelectedDescendant(child, selectedRunId),
+  )
+}
+
+function isRunExpanded(containerId: string, run: RunListItem): boolean {
+  if (!run.childRuns?.length) return false
+  const key = runKey(containerId, run)
+  return !collapsedRunKeys.value.has(key) || runContainsSelectedDescendant(run, props.currentRunId)
+}
+
+function toggleRunChildren(containerId: string, run: RunListItem) {
+  if (!run.childRuns?.length) return
+  const key = runKey(containerId, run)
+  const next = new Set(collapsedRunKeys.value)
+  if (next.has(key)) {
+    next.delete(key)
+  } else {
+    next.add(key)
+  }
+  collapsedRunKeys.value = next
+}
+
+function flattenRuns(containerId: string, runs: RunListItem[], depth = 0): FlattenedRunItem[] {
+  return runs.flatMap((run) => {
+    const hasChildren = (run.childRuns?.length ?? 0) > 0
+    const expanded = isRunExpanded(containerId, run)
+    return [
+      { ...run, depth, hasChildren, isExpanded: expanded },
+      ...(hasChildren && expanded ? flattenRuns(containerId, run.childRuns ?? [], depth + 1) : []),
+    ]
+  })
 }
 
 function isRunSelected(runId: string | null | undefined): boolean {
@@ -143,6 +176,14 @@ function isRunSelected(runId: string | null | undefined): boolean {
 
 function isContainerSelected(containerId: string): boolean {
   return props.currentContainerId === containerId && !props.currentRunId
+}
+
+function runHierarchyLabel(run: FlattenedRunItem): string {
+  return run.depth > 0 ? 'Child run' : 'Run'
+}
+
+function runMetaLabel(run: FlattenedRunItem): string {
+  return [runHierarchyLabel(run), run.agentName, formatTime(run.updatedAt)].filter(Boolean).join(' · ')
 }
 </script>
 
@@ -235,37 +276,66 @@ function isContainerSelected(containerId: string): boolean {
         </div>
 
         <div v-if="folder.expanded" class="pb-1">
-          <button
-            v-for="run in flattenRuns(folder.runs)"
+          <div
+            v-for="run in flattenRuns(folder.containerId, folder.runs)"
             :key="runKey(folder.containerId, run)"
             :data-testid="`workspace-run-${folder.containerId}-${run.runId ?? 'latest'}`"
+            :data-run-depth="String(run.depth)"
             :class="
               cn(
-                'flex w-full items-start gap-2 py-2 pr-3 text-left transition-colors hover:bg-muted/50',
+                'flex items-start pr-3 transition-colors hover:bg-muted/50',
                 isRunSelected(run.runId) && 'bg-muted',
+                run.depth > 0 && 'bg-muted/20 hover:bg-muted/40',
               )
             "
-            :style="{ paddingLeft: `${2.25 + run.depth * 1.25}rem` }"
-            @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
+            :style="{ paddingLeft: `${1.5 + run.depth * 1.25}rem` }"
           >
-            <component
-              :is="normalizeStatusIcon(run.status)"
-              :size="12"
-              :class="
-                cn(
-                  'mt-0.5 shrink-0 text-muted-foreground',
-                  run.status === 'running' && 'animate-spin text-primary',
-                  run.status === 'completed' && 'text-green-500',
-                )
-              "
-            />
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-sm">{{ run.title }}</div>
-              <div class="text-xs text-muted-foreground">
-                {{ formatTime(run.updatedAt) }}
+            <button
+              v-if="run.hasChildren"
+              :data-testid="`workspace-run-toggle-${folder.containerId}-${run.runId ?? 'latest'}`"
+              class="mt-2 shrink-0 text-muted-foreground"
+              :aria-label="run.isExpanded ? 'Collapse child runs' : 'Expand child runs'"
+              @click.stop="toggleRunChildren(folder.containerId, run)"
+            >
+              <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="12" />
+            </button>
+            <div v-else class="w-3 shrink-0" />
+            <button
+              class="flex min-w-0 flex-1 items-start gap-2 py-2 text-left"
+              @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
+            >
+              <GitBranch
+                v-if="run.depth > 0"
+                :size="11"
+                class="mt-0.5 shrink-0 text-muted-foreground/70"
+              />
+              <component
+                :is="normalizeStatusIcon(run.status)"
+                :size="12"
+                :class="
+                  cn(
+                    'mt-0.5 shrink-0 text-muted-foreground',
+                    run.status === 'running' && 'animate-spin text-primary',
+                    run.status === 'completed' && 'text-green-500',
+                  )
+                "
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <div class="truncate text-sm" :class="run.depth > 0 && 'text-[13px]'">{{ run.title }}</div>
+                  <span
+                    v-if="run.depth > 0"
+                    class="shrink-0 rounded border border-border/70 bg-background/70 px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                  >
+                    Child
+                  </span>
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  {{ runMetaLabel(run) }}
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+          </div>
           <button
             v-if="folder.runs.length === 0"
             class="w-full px-9 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
@@ -344,37 +414,66 @@ function isContainerSelected(containerId: string): boolean {
         </div>
 
         <div v-if="folder.expanded" class="pb-1">
-          <button
-            v-for="run in flattenRuns(folder.runs)"
+          <div
+            v-for="run in flattenRuns(folder.taskId, folder.runs)"
             :key="runKey(folder.taskId, run)"
             :data-testid="`background-run-${folder.taskId}-${run.runId ?? 'latest'}`"
+            :data-run-depth="String(run.depth)"
             :class="
               cn(
-                'flex w-full items-start gap-2 py-2 pr-3 text-left transition-colors hover:bg-muted/50',
+                'flex items-start pr-3 transition-colors hover:bg-muted/50',
                 isRunSelected(run.runId) && 'bg-muted',
+                run.depth > 0 && 'bg-muted/20 hover:bg-muted/40',
               )
             "
-            :style="{ paddingLeft: `${2.25 + run.depth * 1.25}rem` }"
-            @click="run.runId && emit('selectRun', folder.taskId, run.runId)"
+            :style="{ paddingLeft: `${1.5 + run.depth * 1.25}rem` }"
           >
-            <component
-              :is="normalizeStatusIcon(run.status)"
-              :size="12"
-              :class="
-                cn(
-                  'mt-0.5 shrink-0 text-muted-foreground',
-                  run.status === 'running' && 'animate-spin text-primary',
-                  run.status === 'completed' && 'text-green-500',
-                )
-              "
-            />
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-sm">{{ run.title }}</div>
-              <div class="text-xs text-muted-foreground">
-                {{ formatTime(run.updatedAt) }}
+            <button
+              v-if="run.hasChildren"
+              :data-testid="`background-run-toggle-${folder.taskId}-${run.runId ?? 'latest'}`"
+              class="mt-2 shrink-0 text-muted-foreground"
+              :aria-label="run.isExpanded ? 'Collapse child runs' : 'Expand child runs'"
+              @click.stop="toggleRunChildren(folder.taskId, run)"
+            >
+              <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="12" />
+            </button>
+            <div v-else class="w-3 shrink-0" />
+            <button
+              class="flex min-w-0 flex-1 items-start gap-2 py-2 text-left"
+              @click="run.runId && emit('selectRun', folder.taskId, run.runId)"
+            >
+              <GitBranch
+                v-if="run.depth > 0"
+                :size="11"
+                class="mt-0.5 shrink-0 text-muted-foreground/70"
+              />
+              <component
+                :is="normalizeStatusIcon(run.status)"
+                :size="12"
+                :class="
+                  cn(
+                    'mt-0.5 shrink-0 text-muted-foreground',
+                    run.status === 'running' && 'animate-spin text-primary',
+                    run.status === 'completed' && 'text-green-500',
+                  )
+                "
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <div class="truncate text-sm" :class="run.depth > 0 && 'text-[13px]'">{{ run.title }}</div>
+                  <span
+                    v-if="run.depth > 0"
+                    class="shrink-0 rounded border border-border/70 bg-background/70 px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                  >
+                    Child
+                  </span>
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  {{ runMetaLabel(run) }}
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+          </div>
           <button
             v-if="folder.runs.length === 0"
             class="w-full px-9 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"
@@ -443,37 +542,66 @@ function isContainerSelected(containerId: string): boolean {
         </div>
 
         <div v-if="folder.expanded" class="pb-1">
-          <button
-            v-for="run in flattenRuns(folder.runs)"
+          <div
+            v-for="run in flattenRuns(folder.containerId, folder.runs)"
             :key="runKey(folder.containerId, run)"
             :data-testid="`external-run-${folder.containerId}-${run.runId ?? 'latest'}`"
+            :data-run-depth="String(run.depth)"
             :class="
               cn(
-                'flex w-full items-start gap-2 py-2 pr-3 text-left transition-colors hover:bg-muted/50',
+                'flex items-start pr-3 transition-colors hover:bg-muted/50',
                 isRunSelected(run.runId) && 'bg-muted',
+                run.depth > 0 && 'bg-muted/20 hover:bg-muted/40',
               )
             "
-            :style="{ paddingLeft: `${2.25 + run.depth * 1.25}rem` }"
-            @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
+            :style="{ paddingLeft: `${1.5 + run.depth * 1.25}rem` }"
           >
-            <component
-              :is="normalizeStatusIcon(run.status)"
-              :size="12"
-              :class="
-                cn(
-                  'mt-0.5 shrink-0 text-muted-foreground',
-                  run.status === 'running' && 'animate-spin text-primary',
-                  run.status === 'completed' && 'text-green-500',
-                )
-              "
-            />
-            <div class="min-w-0 flex-1">
-              <div class="truncate text-sm">{{ run.title }}</div>
-              <div class="text-xs text-muted-foreground">
-                {{ formatTime(run.updatedAt) }}
+            <button
+              v-if="run.hasChildren"
+              :data-testid="`external-run-toggle-${folder.containerId}-${run.runId ?? 'latest'}`"
+              class="mt-2 shrink-0 text-muted-foreground"
+              :aria-label="run.isExpanded ? 'Collapse child runs' : 'Expand child runs'"
+              @click.stop="toggleRunChildren(folder.containerId, run)"
+            >
+              <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="12" />
+            </button>
+            <div v-else class="w-3 shrink-0" />
+            <button
+              class="flex min-w-0 flex-1 items-start gap-2 py-2 text-left"
+              @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
+            >
+              <GitBranch
+                v-if="run.depth > 0"
+                :size="11"
+                class="mt-0.5 shrink-0 text-muted-foreground/70"
+              />
+              <component
+                :is="normalizeStatusIcon(run.status)"
+                :size="12"
+                :class="
+                  cn(
+                    'mt-0.5 shrink-0 text-muted-foreground',
+                    run.status === 'running' && 'animate-spin text-primary',
+                    run.status === 'completed' && 'text-green-500',
+                  )
+                "
+              />
+              <div class="min-w-0 flex-1">
+                <div class="flex items-center gap-1.5">
+                  <div class="truncate text-sm" :class="run.depth > 0 && 'text-[13px]'">{{ run.title }}</div>
+                  <span
+                    v-if="run.depth > 0"
+                    class="shrink-0 rounded border border-border/70 bg-background/70 px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                  >
+                    Child
+                  </span>
+                </div>
+                <div class="text-xs text-muted-foreground">
+                  {{ runMetaLabel(run) }}
+                </div>
               </div>
-            </div>
-          </button>
+            </button>
+          </div>
           <button
             v-if="folder.runs.length === 0"
             class="w-full px-9 py-2 text-left text-xs text-muted-foreground transition-colors hover:bg-muted/50"

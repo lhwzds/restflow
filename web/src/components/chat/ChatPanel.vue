@@ -9,7 +9,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { Play, Pause, RotateCcw, XCircle, Activity } from 'lucide-vue-next'
+import { Play, Pause, RotateCcw, XCircle, Activity, ChevronRight, GitBranch } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import MessageList from './MessageList.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
@@ -143,6 +143,20 @@ const linkedBgAgent = computed(() => {
   if (!sessionId) return null
   return backgroundAgentStore.agentBySessionId(sessionId)
 })
+const executionFocus = computed(() => executionThread.value?.focus ?? null)
+const rootRunId = computed(() => executionFocus.value?.root_run_id ?? null)
+const currentRunId = computed(() => executionFocus.value?.run_id ?? props.selectedRunId ?? null)
+const showRunBreadcrumb = computed(
+  () =>
+    executionFocus.value?.kind === 'subagent_run' &&
+    !!rootRunId.value &&
+    rootRunId.value !== currentRunId.value,
+)
+const currentRunAgentName = computed(() => {
+  const agentId = executionFocus.value?.agent_id
+  if (!agentId) return null
+  return availableAgents.value.find((agent) => agent.id === agentId)?.name ?? agentId
+})
 const isExternalSessionManaged = computed(() => {
   const source = currentSession.value?.source_channel
   return !!source && source !== 'workspace'
@@ -225,6 +239,17 @@ async function handleOpenRunTrace() {
   await router.push({
     name: 'workspace-container',
     params: { containerId: linkedBgAgent.value.id },
+  })
+}
+
+async function handleOpenRootRun() {
+  const containerId = executionFocus.value?.container_id ?? null
+  const runId = rootRunId.value
+  if (!containerId || !runId) return
+
+  await router.push({
+    name: 'workspace-container-run',
+    params: { containerId, runId },
   })
 }
 
@@ -744,6 +769,35 @@ defineExpose({
       </Button>
     </div>
     <div v-else class="h-8 shrink-0" />
+
+    <div
+      v-if="showRunBreadcrumb"
+      class="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs text-muted-foreground"
+      data-testid="run-breadcrumb"
+    >
+      <GitBranch :size="12" class="shrink-0" />
+      <Button
+        variant="ghost"
+        size="sm"
+        class="h-6 gap-1 px-2 text-xs"
+        data-testid="run-breadcrumb-root"
+        @click="handleOpenRootRun"
+      >
+        <span>Root run</span>
+      </Button>
+      <ChevronRight :size="12" class="shrink-0" />
+      <span
+        class="rounded border border-border/70 bg-muted/40 px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em]"
+      >
+        Child run
+      </span>
+      <span class="truncate text-foreground/85" data-testid="run-breadcrumb-current">
+        {{ executionFocus?.title ?? currentRunId }}
+      </span>
+      <span v-if="currentRunAgentName" class="truncate text-muted-foreground">
+        {{ currentRunAgentName }}
+      </span>
+    </div>
 
     <!-- Message List -->
     <MessageList

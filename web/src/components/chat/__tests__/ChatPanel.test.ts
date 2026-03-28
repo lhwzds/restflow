@@ -805,6 +805,56 @@ describe('ChatPanel', () => {
     )
   })
 
+  it('shows a breadcrumb for child runs and navigates back to the root run', async () => {
+    mockGetExecutionRunThread.mockResolvedValue({
+      focus: {
+        id: 'run-child',
+        kind: 'subagent_run',
+        container_id: 'session-1',
+        root_run_id: 'run-root',
+        title: 'Child run',
+        subtitle: null,
+        status: 'completed',
+        updated_at: 2000,
+        started_at: 1000,
+        ended_at: 2000,
+        session_id: 'session-1',
+        run_id: 'run-child',
+        task_id: null,
+        parent_run_id: 'run-root',
+        agent_id: 'agent-1',
+        source_channel: 'workspace',
+        source_conversation_id: null,
+        effective_model: 'gpt-5',
+        provider: 'openai',
+        event_count: 1,
+      },
+      timeline: {
+        events: [],
+        stats: {},
+      },
+      child_sessions: [],
+    } as any)
+
+    const wrapper = mount(ChatPanel, {
+      props: {
+        selectedRunId: 'run-child',
+      },
+    })
+    await flushPromises()
+
+    expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Child run')
+    expect(wrapper.get('[data-testid="run-breadcrumb"]').text()).toContain('Agent One')
+    expect(wrapper.get('[data-testid="run-breadcrumb-current"]').text()).toContain('Child run')
+
+    await wrapper.get('[data-testid="run-breadcrumb-root"]').trigger('click')
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-root' },
+    })
+  })
+
   it('does not request canonical thread data before a run exists', async () => {
     mount(ChatPanel)
     await flushPromises()
