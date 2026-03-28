@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
-use restflow_contracts::request::AgentNode as ContractAgentNode;
+use restflow_contracts::request::{
+    AgentNode as ContractAgentNode, SubagentSpawnRequest as ContractSubagentSpawnRequest,
+};
 use restflow_storage::AuthProfileStorage;
 use restflow_traits::ModelProvider as SharedModelProvider;
 use sha2::{Digest, Sha256};
@@ -12,18 +14,20 @@ use crate::auth::{
     resolve_model_from_credentials, secret_or_env_exists,
 };
 use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
+use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::storage::agent::StoredAgent;
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, OperationAssessmentStatus,
 };
+use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::store::{
     AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
     BackgroundAgentUpdateRequest,
 };
-use restflow_traits::subagent::SpawnRequest;
+use restflow_traits::subagent::{SpawnRequest, SubagentDefLookup};
 
 #[derive(Clone)]
 pub struct OperationAssessorAdapter {
@@ -107,7 +111,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
     async fn assess_subagent_spawn(
         &self,
         operation: &str,
-        request: SpawnRequest,
+        request: ContractSubagentSpawnRequest,
         template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         assess_subagent_spawn(&self.core, operation, request, template_mode)
@@ -118,7 +122,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
     async fn assess_subagent_batch(
         &self,
         operation: &str,
-        requests: Vec<SpawnRequest>,
+        requests: Vec<ContractSubagentSpawnRequest>,
         template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         assess_subagent_batch(&self.core, operation, requests, template_mode)
@@ -300,6 +304,15 @@ async fn load_agent(core: &Arc<AppCore>, id_or_prefix: &str) -> Result<StoredAge
         .agents
         .get_agent(resolved_id.clone())?
         .ok_or_else(|| anyhow!("Agent not found: {resolved_id}"))
+}
+
+fn normalize_subagent_request(
+    core: &Arc<AppCore>,
+    request: ContractSubagentSpawnRequest,
+) -> Result<SpawnRequest> {
+    let definitions = StorageBackedSubagentLookup::new(core.storage.agents.clone());
+    let available_agents = definitions.list_callable();
+    spawn_request_from_contract(&available_agents, request).map_err(|error| anyhow!(error.to_string()))
 }
 
 async fn assess_agent_node(
@@ -601,9 +614,10 @@ pub async fn assess_background_agent_template(
 pub async fn assess_subagent_spawn(
     core: &Arc<AppCore>,
     operation: &str,
-    request: SpawnRequest,
+    request: ContractSubagentSpawnRequest,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
+    let request = normalize_subagent_request(core, request)?;
     let auth_manager = build_auth(core).await?;
     let intent = if template_mode {
         OperationAssessmentIntent::Save
@@ -693,7 +707,7 @@ pub async fn assess_subagent_spawn(
 pub async fn assess_subagent_batch(
     core: &Arc<AppCore>,
     operation: &str,
-    requests: Vec<SpawnRequest>,
+    requests: Vec<ContractSubagentSpawnRequest>,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
     let intent = if template_mode {
@@ -835,5 +849,87 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("validation_error"));
         assert!(message.contains("model_ref"));
+    }
+
+    #[tokio::test]
+    async fn assess_subagent_spawn_accepts_contract_request_and_sets_effective_model_ref() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let assessment = assess_subagent_spawn(
+            &core,
+            "spawn_subagent",
+            ContractSubagentSpawnRequest {
+                task: "Summarize the workspace".to_string(),
+                model: Some("gpt-5-mini".to_string()),
+                model_provider: Some("openai".to_string()),
+                ..ContractSubagentSpawnRequest::default()
+            },
+            true,
+        )
+        .await
+        .expect("assessment should succeed for a valid contract request");
+
+        assert_eq!(assessment.status, OperationAssessmentStatus::Warning);
+        assert_eq!(
+            assessment
+                .effective_model_ref
+                .as_ref()
+                .map(|model_ref| model_ref.provider.as_str()),
+            Some("openai")
+        );
+        assert_eq!(
+            assessment
+                .effective_model_ref
+                .as_ref()
+                .map(|model_ref| model_ref.model.as_str()),
+            Some("gpt-5-mini")
+        );
+    }
+
+    #[tokio::test]
+    async fn assess_subagent_spawn_rejects_invalid_contract_request_before_runtime() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let error = assess_subagent_spawn(
+            &core,
+            "spawn_subagent",
+            ContractSubagentSpawnRequest {
+                task: "Summarize the workspace".to_string(),
+                model: Some("gpt-5-mini".to_string()),
+                model_provider: None,
+                ..ContractSubagentSpawnRequest::default()
+            },
+            false,
+        )
+        .await
+        .expect_err("model/provider mismatch should fail at the boundary");
+
+        assert!(
+            error
+                .to_string()
+                .contains("requires both 'model' and 'provider'")
+        );
+    }
+
+    #[tokio::test]
+    async fn assess_subagent_batch_rejects_invalid_contract_requests() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let error = assess_subagent_batch(
+            &core,
+            "spawn_subagent_batch",
+            vec![ContractSubagentSpawnRequest {
+                task: "Summarize the workspace".to_string(),
+                model: Some("gpt-5-mini".to_string()),
+                model_provider: None,
+                ..ContractSubagentSpawnRequest::default()
+            }],
+            false,
+        )
+        .await
+        .expect_err("invalid batch request should fail at the boundary");
+
+        assert!(
+            error
+                .to_string()
+                .contains("requires both 'model' and 'provider'")
+        );
     }
 }

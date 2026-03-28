@@ -2,11 +2,12 @@ use std::sync::Arc;
 
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::ToolRegistry;
+use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::AgentOrchestrator;
 use restflow_traits::ToolError;
 use restflow_traits::subagent::{
-    SpawnHandle, SpawnRequest, SubagentCompletion, SubagentConfig, SubagentDefLookup,
-    SubagentDefSummary, SubagentManager, SubagentState,
+    ContractSubagentSpawnRequest, SpawnHandle, SubagentCompletion, SubagentConfig,
+    SubagentDefLookup, SubagentDefSummary, SubagentManager, SubagentState,
 };
 
 use super::spawn::{SubagentExecutionBridge, spawn_subagent};
@@ -81,7 +82,12 @@ impl SubagentManagerImpl {
 
 #[async_trait::async_trait]
 impl SubagentManager for SubagentManagerImpl {
-    fn spawn(&self, request: SpawnRequest) -> std::result::Result<SpawnHandle, ToolError> {
+    fn spawn(
+        &self,
+        request: ContractSubagentSpawnRequest,
+    ) -> std::result::Result<SpawnHandle, ToolError> {
+        let available_agents = self.definitions.list_callable();
+        let request = spawn_request_from_contract(&available_agents, request)?;
         spawn_subagent(
             self.tracker.clone(),
             self.definitions.clone(),

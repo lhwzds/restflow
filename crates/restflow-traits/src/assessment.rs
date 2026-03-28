@@ -7,7 +7,7 @@ use crate::store::{
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
     BackgroundAgentUpdateRequest,
 };
-use crate::subagent::SpawnRequest;
+use crate::subagent::ContractSubagentSpawnRequest;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -114,14 +114,14 @@ pub trait AgentOperationAssessor: Send + Sync {
     async fn assess_subagent_spawn(
         &self,
         operation: &str,
-        request: SpawnRequest,
+        request: ContractSubagentSpawnRequest,
         template_mode: bool,
     ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_subagent_batch(
         &self,
         operation: &str,
-        requests: Vec<SpawnRequest>,
+        requests: Vec<ContractSubagentSpawnRequest>,
         template_mode: bool,
     ) -> Result<OperationAssessment, ToolError>;
 }

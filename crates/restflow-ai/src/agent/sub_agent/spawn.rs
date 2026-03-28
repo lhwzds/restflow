@@ -861,9 +861,7 @@ mod tests {
     use super::*;
     use restflow_telemetry::{ExecutionEvent, ExecutionEventEnvelope, TelemetrySink};
     use restflow_traits::ToolError;
-    use restflow_traits::subagent::{
-        SpawnPriority, SubagentDefLookup, SubagentDefSummary, SubagentStatus,
-    };
+    use restflow_traits::subagent::{SubagentDefLookup, SubagentDefSummary, SubagentStatus};
 
     fn sample_effective_limits() -> SubagentEffectiveLimits {
         SubagentEffectiveLimits {
@@ -1426,31 +1424,6 @@ mod tests {
         fn supports_streaming(&self) -> bool {
             false
         }
-    }
-
-    #[test]
-    fn spawn_request_serialization_round_trips() {
-        let request = SpawnRequest {
-            agent_id: Some("researcher".to_string()),
-            inline: None,
-            task: "Research topic X".to_string(),
-            timeout_secs: Some(300),
-            max_iterations: None,
-            priority: Some(SpawnPriority::High),
-            model: None,
-            model_provider: None,
-            parent_execution_id: None,
-            trace_session_id: Some("session-1".to_string()),
-            trace_scope_id: Some("scope-1".to_string()),
-        };
-
-        let json = serde_json::to_string(&request).unwrap();
-        assert!(json.contains("researcher"));
-
-        let parsed: SpawnRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.agent_id.as_deref(), Some("researcher"));
-        assert_eq!(parsed.trace_session_id.as_deref(), Some("session-1"));
-        assert_eq!(parsed.trace_scope_id.as_deref(), Some("scope-1"));
     }
 
     #[test]

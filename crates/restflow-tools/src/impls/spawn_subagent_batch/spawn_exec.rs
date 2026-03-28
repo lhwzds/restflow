@@ -3,7 +3,6 @@ use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 
 use crate::{Result, ToolError, ToolOutput};
-use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::{SubagentCompletion, SubagentResult, SubagentStatus};
 
 use super::SpawnSubagentBatchTool;
@@ -176,10 +175,7 @@ pub(super) async fn spawn_batch(
             }
             let instance_index = instance_index as u32;
 
-            let request = spawn_request_from_contract(
-                &tool.available_agents(),
-                spawn_request_from_spec(spec, task, &params),
-            )?;
+            let request = spawn_request_from_spec(spec, task, &params);
             prepared.push(PreparedSpawnRequest {
                 spec_index,
                 instance_index,

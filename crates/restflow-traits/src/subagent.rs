@@ -9,6 +9,7 @@ use crate::{
     DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
     DEFAULT_SUBAGENT_TIMEOUT_SECS,
 };
+pub use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
 
 /// Snapshot of a sub-agent definition with all fields needed for execution.
 ///
@@ -81,7 +82,7 @@ impl Default for SubagentConfig {
 }
 
 /// Request to spawn a sub-agent.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SpawnRequest {
     /// Agent type ID (e.g., "researcher", "coder").
     ///
@@ -288,8 +289,11 @@ pub struct SubagentCompletion {
 /// tool implementations can manage subagents without depending on `restflow-ai`.
 #[async_trait::async_trait]
 pub trait SubagentManager: Send + Sync {
-    /// Spawn a new sub-agent from a [`SpawnRequest`].
-    fn spawn(&self, request: SpawnRequest) -> std::result::Result<SpawnHandle, ToolError>;
+    /// Spawn a new sub-agent from a contract request payload.
+    fn spawn(
+        &self,
+        request: ContractSubagentSpawnRequest,
+    ) -> std::result::Result<SpawnHandle, ToolError>;
 
     /// List all callable sub-agent definitions.
     fn list_callable(&self) -> Vec<SubagentDefSummary>;
@@ -315,31 +319,6 @@ pub trait SubagentSpawner: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_spawn_request_serialization() {
-        let request = SpawnRequest {
-            agent_id: Some("researcher".to_string()),
-            inline: None,
-            task: "Research topic X".to_string(),
-            timeout_secs: Some(300),
-            max_iterations: None,
-            priority: Some(SpawnPriority::High),
-            model: None,
-            model_provider: None,
-            parent_execution_id: None,
-            trace_session_id: Some("session-1".to_string()),
-            trace_scope_id: Some("scope-1".to_string()),
-        };
-
-        let json = serde_json::to_string(&request).unwrap();
-        assert!(json.contains("researcher"));
-
-        let parsed: SpawnRequest = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed.agent_id.as_deref(), Some("researcher"));
-        assert_eq!(parsed.trace_session_id.as_deref(), Some("session-1"));
-        assert_eq!(parsed.trace_scope_id.as_deref(), Some("scope-1"));
-    }
 
     #[test]
     fn test_spawn_handle_serialization() {
