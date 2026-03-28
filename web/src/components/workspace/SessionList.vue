@@ -185,6 +185,10 @@ function runHierarchyLabel(run: FlattenedRunItem): string {
 function runMetaLabel(run: FlattenedRunItem): string {
   return [runHierarchyLabel(run), run.agentName, formatTime(run.updatedAt)].filter(Boolean).join(' · ')
 }
+
+function runTitleClass(run: FlattenedRunItem): string {
+  return run.depth > 0 ? 'text-[13px] text-foreground/85' : 'text-sm'
+}
 </script>
 
 <template>
@@ -322,15 +326,15 @@ function runMetaLabel(run: FlattenedRunItem): string {
               />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <div class="truncate text-sm" :class="run.depth > 0 && 'text-[13px]'">{{ run.title }}</div>
+                  <div class="truncate font-medium" :class="runTitleClass(run)">{{ run.title }}</div>
                   <span
                     v-if="run.depth > 0"
-                    class="shrink-0 rounded border border-border/70 bg-background/70 px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                    class="shrink-0 rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
                   >
                     Child
                   </span>
                 </div>
-                <div class="text-xs text-muted-foreground">
+                <div class="text-[11px] text-muted-foreground/90">
                   {{ runMetaLabel(run) }}
                 </div>
               </div>
@@ -460,15 +464,15 @@ function runMetaLabel(run: FlattenedRunItem): string {
               />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <div class="truncate text-sm" :class="run.depth > 0 && 'text-[13px]'">{{ run.title }}</div>
+                  <div class="truncate font-medium" :class="runTitleClass(run)">{{ run.title }}</div>
                   <span
                     v-if="run.depth > 0"
-                    class="shrink-0 rounded border border-border/70 bg-background/70 px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                    class="shrink-0 rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
                   >
                     Child
                   </span>
                 </div>
-                <div class="text-xs text-muted-foreground">
+                <div class="text-[11px] text-muted-foreground/90">
                   {{ runMetaLabel(run) }}
                 </div>
               </div>
@@ -588,15 +592,15 @@ function runMetaLabel(run: FlattenedRunItem): string {
               />
               <div class="min-w-0 flex-1">
                 <div class="flex items-center gap-1.5">
-                  <div class="truncate text-sm" :class="run.depth > 0 && 'text-[13px]'">{{ run.title }}</div>
+                  <div class="truncate font-medium" :class="runTitleClass(run)">{{ run.title }}</div>
                   <span
                     v-if="run.depth > 0"
-                    class="shrink-0 rounded border border-border/70 bg-background/70 px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
+                    class="shrink-0 rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em] text-muted-foreground"
                   >
                     Child
                   </span>
                 </div>
-                <div class="text-xs text-muted-foreground">
+                <div class="text-[11px] text-muted-foreground/90">
                   {{ runMetaLabel(run) }}
                 </div>
               </div>

@@ -772,30 +772,30 @@ defineExpose({
 
     <div
       v-if="showRunBreadcrumb"
-      class="flex items-center gap-2 border-b border-border px-3 py-1.5 text-xs text-muted-foreground"
+      class="flex items-center gap-1.5 border-b border-border px-3 py-1 text-[11px] text-muted-foreground"
       data-testid="run-breadcrumb"
     >
-      <GitBranch :size="12" class="shrink-0" />
+      <GitBranch :size="11" class="shrink-0 text-muted-foreground/80" />
       <Button
         variant="ghost"
         size="sm"
-        class="h-6 gap-1 px-2 text-xs"
+        class="h-5 gap-1 px-1.5 text-[11px] text-muted-foreground"
         data-testid="run-breadcrumb-root"
         @click="handleOpenRootRun"
       >
         <span>Root run</span>
       </Button>
-      <ChevronRight :size="12" class="shrink-0" />
+      <ChevronRight :size="11" class="shrink-0 text-muted-foreground/70" />
       <span
-        class="rounded border border-border/70 bg-muted/40 px-1 py-0.5 text-[9px] font-medium uppercase tracking-[0.08em]"
+        class="rounded-sm border border-border/60 bg-muted/50 px-1 py-0 text-[8px] font-medium uppercase tracking-[0.08em]"
       >
         Child run
       </span>
-      <span class="truncate text-foreground/85" data-testid="run-breadcrumb-current">
+      <span class="truncate font-medium text-foreground/85" data-testid="run-breadcrumb-current">
         {{ executionFocus?.title ?? currentRunId }}
       </span>
-      <span v-if="currentRunAgentName" class="truncate text-muted-foreground">
-        {{ currentRunAgentName }}
+      <span v-if="currentRunAgentName" class="truncate text-muted-foreground/85">
+        · {{ currentRunAgentName }}
       </span>
     </div>
 
