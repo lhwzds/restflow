@@ -23,6 +23,7 @@ use crate::agent::stuck::StuckDetectorConfig;
 use crate::error::Result;
 
 pub const MAX_TOOL_RETRIES: usize = 2;
+#[cfg(test)]
 pub const DEFAULT_MAX_TOOL_CONCURRENCY: usize = DEFAULT_AGENT_MAX_TOOL_CONCURRENCY;
 
 /// Persistence frequency for execution checkpoints.

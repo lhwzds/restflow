@@ -9,14 +9,10 @@ mod tests;
 mod update;
 
 use async_trait::async_trait;
+use restflow_traits::config_types::ConfigDocument;
+use restflow_traits::store::ConfigStore;
 use serde_json::{Value, json};
-use std::fmt::Display;
 use std::sync::Arc;
-
-use restflow_storage::{
-    CliConfig, ConfigDocument, ConfigStorage, SystemConfig, load_cli_config,
-    load_global_cli_config, write_cli_config,
-};
 
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
@@ -25,14 +21,14 @@ use self::action::ConfigAction;
 
 #[derive(Clone)]
 pub struct ConfigTool {
-    storage: Arc<ConfigStorage>,
+    store: Arc<dyn ConfigStore>,
     allow_write: bool,
 }
 
 impl ConfigTool {
-    pub fn new(storage: Arc<ConfigStorage>) -> Self {
+    pub fn new(store: Arc<dyn ConfigStore>) -> Self {
         Self {
-            storage,
+            store,
             allow_write: false,
         }
     }
@@ -42,7 +38,7 @@ impl ConfigTool {
         self
     }
 
-    fn storage_error(error: impl Display) -> ToolError {
+    fn storage_error(error: impl std::fmt::Display) -> ToolError {
         ToolError::Tool(format!(
             "Config storage error: {error}. The config file may be missing, invalid, or inaccessible. Retry the operation."
         ))
@@ -59,29 +55,21 @@ impl ConfigTool {
     }
 
     fn get_effective_config(&self) -> Result<ConfigDocument> {
-        let system = self
-            .storage
+        self.store
             .get_effective_config()
-            .map_err(Self::storage_error)?;
-        let cli = load_cli_config().map_err(Self::storage_error)?;
-        Ok(ConfigDocument::from_system_config(system, cli))
+            .map_err(Self::storage_error)
     }
 
     fn get_writable_config(&self) -> Result<ConfigDocument> {
-        let system = self
-            .storage
-            .get_global_config()
-            .map_err(Self::storage_error)?;
-        let cli = load_global_cli_config().map_err(Self::storage_error)?;
-        Ok(ConfigDocument::from_system_config(system, cli))
+        self.store
+            .get_writable_config()
+            .map_err(Self::storage_error)
     }
 
     fn persist_config(&self, config: &ConfigDocument) -> Result<()> {
-        self.storage
-            .update_config(config.system_config())
-            .map_err(Self::storage_error)?;
-        write_cli_config(&config.cli).map_err(Self::storage_error)?;
-        Ok(())
+        self.store
+            .persist_config(config)
+            .map_err(Self::storage_error)
     }
 
     fn apply_update(&self, key: &str, value: &Value) -> Result<ConfigDocument> {
@@ -118,11 +106,7 @@ impl Tool for ConfigTool {
             })),
             ConfigAction::Reset => {
                 self.write_guard()?;
-                let config = ConfigDocument::from_system_config(
-                    SystemConfig::default(),
-                    CliConfig::default(),
-                );
-                self.persist_config(&config)?;
+                let config = self.store.reset_config().map_err(Self::storage_error)?;
                 ToolOutput::success(serde_json::to_value(config)?)
             }
             ConfigAction::Set { config, key, value } => {

@@ -12,6 +12,7 @@ pub mod assessment;
 pub mod batch_template;
 pub mod boundary;
 pub mod cache;
+pub mod config_types;
 pub mod defaults;
 pub mod error;
 pub mod filtered;
@@ -72,13 +73,13 @@ pub use store::{
     BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
     BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
-    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, CredentialInput,
+    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, ConfigStore, CredentialInput,
     DeliverableStore, DiagnosticsProvider, KvStore, MarketplaceStore, MemoryClearRequest,
     MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore, OpsProvider, ProcessLog,
-    ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender, SecurityQueryProvider,
-    SessionCreateRequest, SessionListFilter, SessionSearchQuery, SessionStore, TerminalStore,
-    TriggerStore, UnifiedMemorySearch, WorkItemPatch, WorkItemProvider, WorkItemQuery,
-    WorkItemRecord, WorkItemSpec, WorkItemStatus,
+    ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender, SecretStore,
+    SecurityQueryProvider, SessionCreateRequest, SessionListFilter, SessionSearchQuery,
+    SessionStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch,
+    WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };
 
 // Shared orchestration contracts
@@ -88,9 +89,9 @@ pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, Execu
 // Sub-agent types
 pub use subagent::{
     ContractSubagentSpawnRequest, InlineSubagentConfig, SpawnHandle, SpawnPriority, SpawnRequest,
-    SubagentCompletion, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
-    SubagentDefSummary, SubagentEffectiveLimits, SubagentLimitSource, SubagentManager,
-    SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
+    SubagentCompletion, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
+    SubagentEffectiveLimits, SubagentLimitSource, SubagentManager, SubagentResult, SubagentSpawner,
+    SubagentState, SubagentStatus,
 };
 
 // LLM switching

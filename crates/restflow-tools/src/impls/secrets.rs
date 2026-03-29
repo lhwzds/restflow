@@ -5,14 +5,14 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use std::sync::Arc;
 
-use restflow_storage::{Secret, SecretStorage};
+use restflow_traits::store::SecretStore;
 
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
 
 #[derive(Clone)]
 pub struct SecretsTool {
-    storage: Arc<SecretStorage>,
+    store: Arc<dyn SecretStore>,
     allow_write: bool,
     get_policy: SecretGetPolicy,
 }
@@ -26,9 +26,9 @@ pub enum SecretGetPolicy {
 }
 
 impl SecretsTool {
-    pub fn new(storage: Arc<SecretStorage>) -> Self {
+    pub fn new(store: Arc<dyn SecretStore>) -> Self {
         Self {
-            storage,
+            store,
             allow_write: false,
             get_policy: SecretGetPolicy::Open,
         }
@@ -117,17 +117,11 @@ impl Tool for SecretsTool {
 
         let output = match action {
             SecretsAction::List => {
-                let secrets: Vec<Secret> = self
-                    .storage
-                    .list_secrets()
-                    .map_err(|e| ToolError::Tool(format!("Failed to list secret: {e}")))?;
-                ToolOutput::success(json!({ "count": secrets.len(), "secrets": secrets }))
+                let result = self.store.list_secrets()?;
+                ToolOutput::success(result)
             }
             SecretsAction::Get { key } => {
-                let value = self
-                    .storage
-                    .get_secret(&key)
-                    .map_err(|e| ToolError::Tool(format!("Failed to get secret: {e}")))?;
+                let value = self.store.get_secret(&key)?;
                 match self.get_policy {
                     SecretGetPolicy::Open => ToolOutput::success(json!({
                         "key": key,
@@ -153,13 +147,8 @@ impl Tool for SecretsTool {
                 description,
             } => {
                 self.write_guard()?;
-                let existed = self
-                    .storage
-                    .has_secret(&key)
-                    .map_err(|e| ToolError::Tool(format!("Failed to set secret: {e}")))?;
-                self.storage
-                    .set_secret(&key, &value, description)
-                    .map_err(|e| ToolError::Tool(format!("Failed to set secret: {e}")))?;
+                let existed = self.store.has_secret(&key)?;
+                self.store.set_secret(&key, &value, description)?;
                 ToolOutput::success(json!({
                     "key": key,
                     "updated": existed,
@@ -168,22 +157,14 @@ impl Tool for SecretsTool {
             }
             SecretsAction::Delete { key } => {
                 self.write_guard()?;
-                let existed = self
-                    .storage
-                    .has_secret(&key)
-                    .map_err(|e| ToolError::Tool(format!("Failed to delete secret: {e}")))?;
+                let existed = self.store.has_secret(&key)?;
                 if existed {
-                    self.storage
-                        .delete_secret(&key)
-                        .map_err(|e| ToolError::Tool(format!("Failed to delete secret: {e}")))?;
+                    self.store.delete_secret(&key)?;
                 }
                 ToolOutput::success(json!({ "key": key, "deleted": existed }))
             }
             SecretsAction::Has { key } => {
-                let exists = self
-                    .storage
-                    .has_secret(&key)
-                    .map_err(|e| ToolError::Tool(format!("Failed to check secret: {e}")))?;
+                let exists = self.store.has_secret(&key)?;
                 ToolOutput::success(json!({ "key": key, "exists": exists }))
             }
         };
@@ -195,46 +176,70 @@ impl Tool for SecretsTool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use restflow_storage::SecretStorageConfig;
-    use std::sync::Mutex;
-    use tempfile::tempdir;
+    use restflow_traits::error::Result as TraitResult;
 
-    static ENV_LOCK: Mutex<()> = Mutex::new(());
+    #[derive(Clone)]
+    struct MockSecretStore {
+        secrets: Arc<parking_lot::RwLock<std::collections::HashMap<String, String>>>,
+    }
 
-    fn setup_storage() -> (Arc<SecretStorage>, tempfile::TempDir) {
-        let _guard = ENV_LOCK.lock().unwrap();
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(redb::Database::create(db_path).unwrap());
+    impl MockSecretStore {
+        fn new() -> Self {
+            Self {
+                secrets: Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new())),
+            }
+        }
+    }
 
-        let state_dir = temp_dir.path().join("state");
-        std::fs::create_dir_all(&state_dir).unwrap();
-        // SAFETY: env var modified under ENV_LOCK and callers use
-        // #[tokio::test(flavor = "current_thread")] so no worker threads race.
-        unsafe {
-            std::env::set_var("RESTFLOW_DIR", &state_dir);
+    impl SecretStore for MockSecretStore {
+        fn list_secrets(&self) -> TraitResult<Value> {
+            let map = self.secrets.read();
+            let secrets: Vec<Value> = map
+                .keys()
+                .map(|k| json!({ "key": k, "value": "", "description": null }))
+                .collect();
+            Ok(json!({ "count": secrets.len(), "secrets": secrets }))
         }
 
-        let storage = SecretStorage::with_config(
-            db,
-            SecretStorageConfig {
-                allow_insecure_file_permissions: true,
-            },
-        )
-        .unwrap();
+        fn get_secret(&self, key: &str) -> TraitResult<Option<String>> {
+            let map = self.secrets.read();
+            Ok(map.get(key).cloned())
+        }
 
-        // Keep temp_dir alive so RESTFLOW_DIR remains valid for storage usage
-        (Arc::new(storage), temp_dir)
+        fn set_secret(
+            &self,
+            key: &str,
+            value: &str,
+            _description: Option<String>,
+        ) -> TraitResult<()> {
+            self.secrets
+                .write()
+                .insert(key.to_string(), value.to_string());
+            Ok(())
+        }
+
+        fn delete_secret(&self, key: &str) -> TraitResult<()> {
+            self.secrets.write().remove(key);
+            Ok(())
+        }
+
+        fn has_secret(&self, key: &str) -> TraitResult<bool> {
+            Ok(self.secrets.read().contains_key(key))
+        }
+    }
+
+    fn setup_store() -> Arc<dyn SecretStore> {
+        Arc::new(MockSecretStore::new())
     }
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_list_and_get_secret() {
-        let (storage, _temp_dir) = setup_storage();
-        storage
+        let store = setup_store();
+        store
             .set_secret("TEST_KEY", "value", Some("desc".to_string()))
             .unwrap();
 
-        let tool = SecretsTool::new(storage.clone()).with_write(true);
+        let tool = SecretsTool::new(store).with_write(true);
         let output = tool
             .execute(json!({ "operation": "get", "key": "TEST_KEY" }))
             .await
@@ -250,8 +255,8 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_write_guard() {
-        let (storage, _temp_dir) = setup_storage();
-        let tool = SecretsTool::new(storage);
+        let store = setup_store();
+        let tool = SecretsTool::new(store);
         let result = tool
             .execute(json!({ "operation": "set", "key": "A", "value": "B" }))
             .await;
@@ -264,12 +269,12 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_get_metadata_only_policy_redacts_value() {
-        let (storage, _temp_dir) = setup_storage();
-        storage
+        let store = setup_store();
+        store
             .set_secret("TEST_KEY", "value", Some("desc".to_string()))
             .unwrap();
 
-        let tool = SecretsTool::new(storage).with_get_policy(SecretGetPolicy::MetadataOnly);
+        let tool = SecretsTool::new(store).with_get_policy(SecretGetPolicy::MetadataOnly);
         let output = tool
             .execute(json!({ "operation": "get", "key": "TEST_KEY" }))
             .await
@@ -282,12 +287,12 @@ mod tests {
 
     #[tokio::test(flavor = "current_thread")]
     async fn test_get_deny_policy_blocks_read() {
-        let (storage, _temp_dir) = setup_storage();
-        storage
+        let store = setup_store();
+        store
             .set_secret("TEST_KEY", "value", Some("desc".to_string()))
             .unwrap();
 
-        let tool = SecretsTool::new(storage).with_get_policy(SecretGetPolicy::Deny);
+        let tool = SecretsTool::new(store).with_get_policy(SecretGetPolicy::Deny);
         let result = tool
             .execute(json!({ "operation": "get", "key": "TEST_KEY" }))
             .await;

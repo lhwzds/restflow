@@ -22,13 +22,13 @@ use crate::impls::trigger::TriggerTool;
 use crate::impls::unified_memory_search::UnifiedMemorySearchTool;
 use crate::impls::work_item::WorkItemTool;
 use crate::security::SecurityGate;
-use restflow_storage::{ConfigStorage, SecretStorage};
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
-    AgentStore, AuthProfileStore, BackgroundAgentStore, DeliverableStore, DiagnosticsProvider,
-    KvStore, MarketplaceStore, MemoryManager, MemoryStore, OpsProvider, SecurityQueryProvider,
-    SessionStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
+    AgentStore, AuthProfileStore, BackgroundAgentStore, ConfigStore, DeliverableStore,
+    DiagnosticsProvider, KvStore, MarketplaceStore, MemoryManager, MemoryStore, OpsProvider,
+    SecretStore, SecurityQueryProvider, SessionStore, TerminalStore, TriggerStore,
+    UnifiedMemorySearch, WorkItemProvider,
 };
 
 use super::ToolRegistryBuilder;
@@ -119,26 +119,26 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_secrets(mut self, storage: Arc<SecretStorage>) -> Self {
-        self = self.with_secrets_config(storage, SecretsConfig::default());
+    pub fn with_secrets(mut self, store: Arc<dyn SecretStore>) -> Self {
+        self = self.with_secrets_config(store, SecretsConfig::default());
         self
     }
 
     pub fn with_secrets_config(
         mut self,
-        storage: Arc<SecretStorage>,
+        store: Arc<dyn SecretStore>,
         config: SecretsConfig,
     ) -> Self {
         self.registry.register(
-            SecretsTool::new(storage)
+            SecretsTool::new(store)
                 .with_write(config.allow_write)
                 .with_get_policy(config.get_policy),
         );
         self
     }
 
-    pub fn with_config(mut self, storage: Arc<ConfigStorage>) -> Self {
-        self.registry.register(ConfigTool::new(storage));
+    pub fn with_config(mut self, store: Arc<dyn ConfigStore>) -> Self {
+        self.registry.register(ConfigTool::new(store));
         self
     }
 

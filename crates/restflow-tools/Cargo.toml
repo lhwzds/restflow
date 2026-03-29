@@ -21,7 +21,6 @@ uuid = { workspace = true }
 restflow-contracts = { workspace = true }
 restflow-traits = { workspace = true, features = ["http-client"] }
 restflow-models = { workspace = true }
-restflow-storage = { path = "../restflow-storage" }
 restflow-browser = { workspace = true }
 
 # Tool implementations
@@ -63,10 +62,11 @@ sandbox = ["dep:restflow-sandbox"]
 ts = ["dep:ts-rs"]
 
 [lints.rust]
-dead_code = "allow"
+
 
 [dev-dependencies]
 tempfile = "3"
 tokio = { workspace = true, features = ["full"] }
 redb = "3.1"
 restflow-ai = { workspace = true, features = ["test-utils"] }
+restflow-storage = { path = "../restflow-storage" }

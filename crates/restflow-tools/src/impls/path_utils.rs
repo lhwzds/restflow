@@ -36,6 +36,7 @@ pub(crate) fn normalize_path(path: &Path) -> PathBuf {
 /// When `base_dir` is `None`, absolute paths are accepted as-is and relative
 /// paths are rejected. Callers that require a workspace root can use
 /// [`resolve_path_with_policy`] with `require_base_dir = true`.
+#[cfg(test)]
 pub(crate) fn resolve_path(path: &str, base_dir: Option<&Path>) -> Result<PathBuf, String> {
     resolve_path_with_policy(path, base_dir, false)
 }

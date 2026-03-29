@@ -1,6 +1,6 @@
 use serde_json::Value;
 
-use restflow_storage::ConfigDocument;
+use restflow_traits::config_types::ConfigDocument;
 
 use crate::Result;
 

@@ -483,12 +483,16 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             "manage_secrets" | "secrets" => {
                 with_storage!(storage, "manage_secrets", builder, |s| {
-                    builder.with_secrets(Arc::new(s.secrets.clone()))
+                    builder.with_secrets(Arc::new(SecretStoreAdapter::new(Arc::new(
+                        s.secrets.clone(),
+                    ))))
                 });
             }
             "manage_config" | "config" => {
                 with_storage!(storage, "manage_config", builder, |s| {
-                    builder.with_config(Arc::new(s.config.clone()))
+                    builder.with_config(Arc::new(ConfigStoreAdapter::new(Arc::new(
+                        s.config.clone(),
+                    ))))
                 });
             }
             "manage_sessions" | "sessions" => {
