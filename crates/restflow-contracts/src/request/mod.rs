@@ -95,6 +95,33 @@ pub enum IpcRequest {
     TestHook {
         id: String,
     },
+    ListPairingState,
+    ApprovePairing {
+        code: String,
+    },
+    DenyPairing {
+        code: String,
+    },
+    RevokePairedPeer {
+        peer_id: String,
+    },
+    GetPairingOwner,
+    SetPairingOwner {
+        chat_id: String,
+    },
+    ListRouteBindings,
+    BindRoute {
+        binding_type: String,
+        target_id: String,
+        agent_id: String,
+    },
+    UnbindRoute {
+        id: String,
+    },
+    RunCleanup,
+    MigrateSessionSources {
+        dry_run: bool,
+    },
 
     ListSecrets,
     GetSecret {

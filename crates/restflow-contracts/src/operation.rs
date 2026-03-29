@@ -64,6 +64,75 @@ pub struct SecretResponse {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AllowedPeerResponse {
+    pub peer_id: String,
+    pub peer_name: Option<String>,
+    pub approved_at: i64,
+    pub approved_by: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairingRequestResponse {
+    pub code: String,
+    pub peer_id: String,
+    pub peer_name: Option<String>,
+    pub chat_id: String,
+    pub created_at: i64,
+    pub expires_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairingStateResponse {
+    pub allowed_peers: Vec<AllowedPeerResponse>,
+    pub pending_requests: Vec<PairingRequestResponse>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairingApprovalResponse {
+    pub approved: bool,
+    pub peer_id: String,
+    pub peer_name: Option<String>,
+    pub owner_chat_id: Option<String>,
+    pub owner_auto_bound: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PairingOwnerResponse {
+    pub owner_chat_id: Option<String>,
+    pub source: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct RouteBindingResponse {
+    pub id: String,
+    pub binding_type: String,
+    pub target_id: String,
+    pub agent_id: String,
+    pub created_at: i64,
+    pub priority: u8,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CleanupReportResponse {
+    pub chat_sessions: usize,
+    pub background_tasks: usize,
+    pub checkpoints: usize,
+    pub memory_chunks: usize,
+    pub memory_sessions: usize,
+    pub vector_orphans: usize,
+    pub daemon_log_files: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct SessionSourceMigrationResponse {
+    pub dry_run: bool,
+    pub scanned: usize,
+    pub migrated: usize,
+    pub skipped: usize,
+    pub failed: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct IpcDaemonStatus {
     pub status: String,
     pub protocol_version: String,
@@ -179,6 +248,66 @@ mod tests {
             pid: 42,
             started_at_ms: 123,
             uptime_secs: 456,
+        };
+        assert_roundtrip(&response);
+    }
+
+    #[test]
+    fn pairing_state_response_round_trips() {
+        let response = PairingStateResponse {
+            allowed_peers: vec![AllowedPeerResponse {
+                peer_id: "peer-1".to_string(),
+                peer_name: Some("Alice".to_string()),
+                approved_at: 1,
+                approved_by: "cli".to_string(),
+            }],
+            pending_requests: vec![PairingRequestResponse {
+                code: "ABCD1234".to_string(),
+                peer_id: "peer-2".to_string(),
+                peer_name: None,
+                chat_id: "chat-1".to_string(),
+                created_at: 2,
+                expires_at: 3,
+            }],
+        };
+        assert_roundtrip(&response);
+    }
+
+    #[test]
+    fn route_binding_response_round_trips() {
+        let response = RouteBindingResponse {
+            id: "route-1".to_string(),
+            binding_type: "channel".to_string(),
+            target_id: "telegram".to_string(),
+            agent_id: "agent-1".to_string(),
+            created_at: 10,
+            priority: 2,
+        };
+        assert_roundtrip(&response);
+    }
+
+    #[test]
+    fn cleanup_report_response_round_trips() {
+        let response = CleanupReportResponse {
+            chat_sessions: 1,
+            background_tasks: 2,
+            checkpoints: 3,
+            memory_chunks: 4,
+            memory_sessions: 5,
+            vector_orphans: 6,
+            daemon_log_files: 7,
+        };
+        assert_roundtrip(&response);
+    }
+
+    #[test]
+    fn session_source_migration_response_round_trips() {
+        let response = SessionSourceMigrationResponse {
+            dry_run: true,
+            scanned: 10,
+            migrated: 4,
+            skipped: 5,
+            failed: 1,
         };
         assert_roundtrip(&response);
     }
