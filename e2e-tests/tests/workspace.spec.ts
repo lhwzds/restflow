@@ -432,6 +432,7 @@ test.describe('Workspace Layout', () => {
 
     const runGroup = page.getByTestId('run-group-run-group-turn-1')
     await expect(runGroup).toBeVisible()
+    await expect(runGroup).toContainText('Turn')
     await expect(page.getByTestId('run-group-child-view-event-tool-1')).toHaveCount(0)
     await runGroup.locator('button').first().click()
     await expect(page.getByTestId('run-group-child-view-event-tool-1')).toBeVisible()
