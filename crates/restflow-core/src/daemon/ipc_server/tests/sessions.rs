@@ -243,7 +243,13 @@ async fn list_child_execution_sessions_returns_direct_children_for_parent_runs()
     let session_id = session.id.clone();
     core.storage.chat_sessions.create(&session).unwrap();
     store_run_events(&core.storage, "task-1", &session_id, "run-parent", None);
-    store_run_events(&core.storage, "task-1", &session_id, "run-child", Some("run-parent"));
+    store_run_events(
+        &core.storage,
+        "task-1",
+        &session_id,
+        "run-child",
+        Some("run-parent"),
+    );
 
     let response = IpcServer::process(
         &core,

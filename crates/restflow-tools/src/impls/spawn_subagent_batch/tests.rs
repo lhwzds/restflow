@@ -1,12 +1,12 @@
 use super::*;
 use crate::Tool;
-use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
 use restflow_ai::agent::{
     SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
     SubagentManagerImpl, SubagentTracker,
 };
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
+use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
 use restflow_traits::store::KvStore;
 use restflow_traits::{SpawnHandle, SubagentCompletion, SubagentManager, SubagentState};
 use serde_json::{Value, json};

@@ -41,7 +41,7 @@ test-utils = []
 sandbox = ["dep:restflow-sandbox"]
 
 [lints.rust]
-dead_code = "allow"
+
 
 [dev-dependencies]
 tempfile = "3.25"

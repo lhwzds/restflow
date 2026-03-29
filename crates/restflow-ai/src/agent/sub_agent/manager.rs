@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use crate::llm::{LlmClient, LlmClientFactory};
 use crate::tools::ToolRegistry;
-use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::AgentOrchestrator;
 use restflow_traits::ToolError;
+use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::subagent::{
     ContractSubagentSpawnRequest, SpawnHandle, SubagentCompletion, SubagentConfig,
     SubagentDefLookup, SubagentDefSummary, SubagentManager, SubagentState,
