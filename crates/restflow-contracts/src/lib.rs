@@ -9,9 +9,11 @@ mod tool;
 
 pub use error::{ErrorKind, ErrorPayload};
 pub use operation::{
-    ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse, ClearResponse,
-    DeleteResponse, DeleteWithIdResponse, IdResponse, IpcDaemonStatus, OkResponse, PromptResponse,
-    SecretResponse, SteerResponse,
+    AllowedPeerResponse, ApiKeyResponse, ApprovalHandledResponse, ArchiveResponse, CancelResponse,
+    CleanupReportResponse, ClearResponse, DeleteResponse, DeleteWithIdResponse, IdResponse,
+    IpcDaemonStatus, OkResponse, PairingApprovalResponse, PairingOwnerResponse,
+    PairingRequestResponse, PairingStateResponse, PromptResponse, RouteBindingResponse,
+    SecretResponse, SessionSourceMigrationResponse, SteerResponse,
 };
 pub use request::IpcRequest;
 pub use response::ResponseEnvelope;
