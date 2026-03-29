@@ -19,6 +19,9 @@ use restflow_contracts::request::{
     InlineSubagentConfig as ContractInlineSubagentConfig,
     SubagentSpawnRequest as ContractSubagentSpawnRequest,
 };
+use restflow_traits::assessment::{
+    AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
+};
 use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
@@ -31,6 +34,8 @@ use serde_json::json;
 use tempfile::tempdir;
 
 struct DummyTool(&'static str);
+
+struct BackgroundMutationAssessor;
 
 #[async_trait]
 impl restflow_traits::Tool for DummyTool {
@@ -51,6 +56,103 @@ impl restflow_traits::Tool for DummyTool {
         _input: serde_json::Value,
     ) -> std::result::Result<restflow_traits::ToolOutput, restflow_traits::ToolError> {
         unimplemented!()
+    }
+}
+
+#[async_trait]
+impl AgentOperationAssessor for BackgroundMutationAssessor {
+    async fn assess_agent_create(
+        &self,
+        _request: AgentCreateRequest,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(
+            "create_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_agent_update(
+        &self,
+        _request: AgentUpdateRequest,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(
+            "update_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_create(
+        &self,
+        _request: BackgroundAgentCreateRequest,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(
+            "create_background_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_convert_session(
+        &self,
+        _request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(
+            "convert_session_to_background_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_update(
+        &self,
+        _request: BackgroundAgentUpdateRequest,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(
+            "update_background_agent",
+            OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_control(
+        &self,
+        _request: BackgroundAgentControlRequest,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(
+            "control_background_agent",
+            OperationAssessmentIntent::Run,
+        ))
+    }
+
+    async fn assess_background_agent_template(
+        &self,
+        operation: &str,
+        intent: OperationAssessmentIntent,
+        _agent_ids: Vec<String>,
+        _template_mode: bool,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(operation, intent))
+    }
+
+    async fn assess_subagent_spawn(
+        &self,
+        operation: &str,
+        _request: ContractSubagentSpawnRequest,
+        _template_mode: bool,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(
+            operation,
+            OperationAssessmentIntent::Run,
+        ))
+    }
+
+    async fn assess_subagent_batch(
+        &self,
+        operation: &str,
+        _requests: Vec<ContractSubagentSpawnRequest>,
+        _template_mode: bool,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::ok(
+            operation,
+            OperationAssessmentIntent::Run,
+        ))
     }
 }
 
@@ -1044,7 +1146,8 @@ fn test_task_store_adapter_background_agent_flow() {
             background_agent_storage,
             Some(memory_storage),
         ),
-    );
+    )
+    .with_assessor(Arc::new(BackgroundMutationAssessor));
 
     let created = BackgroundAgentStore::create_background_agent(
         &adapter,
@@ -1052,7 +1155,7 @@ fn test_task_store_adapter_background_agent_flow() {
             name: "Background Agent".to_string(),
             agent_id: created_agent.id,
             chat_session_id: None,
-            schedule: None,
+            schedule: Some(restflow_contracts::request::TaskSchedule::default()),
             input: Some("Run periodic checks".to_string()),
             input_template: Some("Template {{task.id}}".to_string()),
             timeout_secs: Some(1800),
@@ -1060,24 +1163,29 @@ fn test_task_store_adapter_background_agent_flow() {
             memory: None,
             memory_scope: Some("per_background_agent".to_string()),
             resource_limits: None,
+            preview: false,
+            confirmation_token: None,
         },
     )
     .unwrap();
     assert_eq!(
         created
-            .get("input_template")
+            .get("result")
+            .and_then(|value| value.get("input_template"))
             .and_then(|value| value.as_str()),
         Some("Template {{task.id}}")
     );
     assert_eq!(
         created
-            .get("memory")
+            .get("result")
+            .and_then(|value| value.get("memory"))
             .and_then(|value| value.get("memory_scope"))
             .and_then(|value| value.as_str()),
         Some("per_background_agent")
     );
     let task_id = created
-        .get("id")
+        .get("result")
+        .and_then(|value| value.get("id"))
         .and_then(|value| value.as_str())
         .unwrap()
         .to_string();
@@ -1100,22 +1208,31 @@ fn test_task_store_adapter_background_agent_flow() {
             memory: None,
             memory_scope: Some("shared_agent".to_string()),
             resource_limits: None,
+            preview: false,
+            confirmation_token: None,
         },
     )
     .unwrap();
     assert_eq!(
-        updated.get("name").and_then(|value| value.as_str()),
+        updated
+            .get("result")
+            .and_then(|value| value.get("name"))
+            .and_then(|value| value.as_str()),
         Some("Background Agent Updated")
     );
     assert_eq!(
         updated
-            .get("memory")
+            .get("result")
+            .and_then(|value| value.get("memory"))
             .and_then(|value| value.get("memory_scope"))
             .and_then(|value| value.as_str()),
         Some("shared_agent")
     );
     assert_eq!(
-        updated.get("timeout_secs").and_then(|value| value.as_u64()),
+        updated
+            .get("result")
+            .and_then(|value| value.get("timeout_secs"))
+            .and_then(|value| value.as_u64()),
         Some(900)
     );
 
@@ -1124,11 +1241,16 @@ fn test_task_store_adapter_background_agent_flow() {
         BackgroundAgentControlRequest {
             id: task_id.clone(),
             action: "run_now".to_string(),
+            preview: false,
+            confirmation_token: None,
         },
     )
     .unwrap();
     assert_eq!(
-        controlled.get("status").and_then(|value| value.as_str()),
+        controlled
+            .get("result")
+            .and_then(|value| value.get("status"))
+            .and_then(|value| value.as_str()),
         Some("active")
     );
 
@@ -1886,6 +2008,15 @@ async fn test_create_subagent_manager_persists_execution_traces() {
             trace_scope_id: Some("scope-trace-1".to_string()),
         })
         .expect("spawn subagent");
+
+    let running_states = subagent_manager.list_running();
+    let running_state = running_states
+        .iter()
+        .find(|state| state.id == handle.id)
+        .expect("running subagent state should be visible through public manager contract");
+    assert_eq!(running_state.parent_run_id.as_deref(), Some("parent-run-1"));
+    assert_eq!(running_state.agent_name, "trace-test");
+    assert_eq!(running_state.task, "Say done");
 
     let result = subagent_manager
         .wait(&handle.id)

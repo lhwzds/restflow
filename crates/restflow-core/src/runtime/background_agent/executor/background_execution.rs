@@ -678,11 +678,12 @@ impl AgentExecutor for AgentRuntimeExecutor {
 
 impl AgentRuntimeExecutor {
     #[allow(clippy::too_many_arguments)]
-    async fn execute_internal(
+    async fn execute_internal_with_optional_state(
         &self,
         agent_id: &str,
         background_task_id: Option<&str>,
         input: Option<&str>,
+        initial_state: Option<restflow_ai::AgentState>,
         memory_config: &MemoryConfig,
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
@@ -734,14 +735,15 @@ impl AgentRuntimeExecutor {
             background_task.as_ref(),
             Some(agent_id),
         )
-            .with_requested_model(primary_model.as_serialized_str())
-            .with_effective_model(primary_model.as_serialized_str())
-            .with_provider(primary_provider.as_canonical_str());
+        .with_requested_model(primary_model.as_serialized_str())
+        .with_effective_model(primary_model.as_serialized_str())
+        .with_provider(primary_provider.as_canonical_str());
         let mut attempt_tracker = RunAttemptTracker::default();
 
         loop {
             let input_ref = input_owned.as_deref();
             let agent_node_clone = agent_node.clone();
+            let initial_state = initial_state.clone();
             // Note: steer_rx is consumed on first execution attempt only.
             // Retries after this point won't have steering support.
             let telemetry_sink = telemetry_sink.clone();
@@ -749,6 +751,7 @@ impl AgentRuntimeExecutor {
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
+                let initial_state = initial_state.clone();
                 let (current_attempt, previous_model) = attempt_tracker.register_attempt(model);
                 let emitter = clone_shared_emitter(&shared_emitter);
                 let limits = resolved_resource_limits.clone();
@@ -786,7 +789,7 @@ impl AgentRuntimeExecutor {
                         steer_rx,
                         emitter,
                         Some(agent_id),
-                        None,
+                        initial_state,
                         telemetry_context,
                     )
                     .await
@@ -819,6 +822,30 @@ impl AgentRuntimeExecutor {
     }
 
     #[allow(clippy::too_many_arguments)]
+    async fn execute_internal(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        input: Option<&str>,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+    ) -> Result<ExecutionResult> {
+        self.execute_internal_with_optional_state(
+            agent_id,
+            background_task_id,
+            input,
+            None,
+            memory_config,
+            steer_rx,
+            emitter,
+            telemetry_context,
+        )
+        .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
     async fn execute_internal_from_state(
         &self,
         agent_id: &str,
@@ -829,56 +856,15 @@ impl AgentRuntimeExecutor {
         emitter: Option<Box<dyn StreamEmitter>>,
         telemetry_context: Option<restflow_telemetry::TelemetryContext>,
     ) -> Result<ExecutionResult> {
-        let stored_agent = self
-            .storage
-            .agents
-            .get_agent(agent_id.to_string())?
-            .ok_or_else(|| anyhow!("Agent '{}' not found", agent_id))?;
-        // Fail closed on storage errors - do not silently swallow DB failures.
-        let resolved_resource_limits = match background_task_id {
-            Some(task_id) => match self.storage.background_agents.get_task(task_id) {
-                Ok(Some(task)) => task.resource_limits,
-                Ok(None) => {
-                    warn!(task_id, "Background task not found, using default limits");
-                    Default::default()
-                }
-                Err(e) => return Err(e),
-            },
-            None => Default::default(),
-        };
-
-        let agent_node = stored_agent.agent.clone();
-        let primary_model = self.resolve_primary_model(&agent_node).await?;
-        let primary_provider = primary_model.provider();
-        self.run_preflight_check(&agent_node, primary_model, primary_provider, None)
-            .await?;
-        let background_task_snapshot = match background_task_id {
-            Some(task_id) => self.storage.background_agents.get_task(task_id)?,
-            None => None,
-        };
-        let base_telemetry_context = Self::background_telemetry_context(
-            telemetry_context,
-            background_task_id,
-            background_task_snapshot.as_ref(),
-            Some(agent_id),
-        )
-            .with_requested_model(primary_model.as_serialized_str())
-            .with_effective_model(primary_model.as_serialized_str())
-            .with_provider(primary_provider.as_canonical_str());
-
-        self.execute_with_profiles(
-            &agent_node,
-            primary_model,
+        self.execute_internal_with_optional_state(
+            agent_id,
             background_task_id,
             None,
+            Some(state),
             memory_config,
-            &resolved_resource_limits,
-            primary_provider,
             steer_rx,
             emitter,
-            Some(agent_id),
-            Some(state),
-            base_telemetry_context,
+            telemetry_context,
         )
         .await
     }
@@ -937,14 +923,13 @@ mod tests {
             &crate::telemetry::build_execution_trace_sink(&storage.execution_traces),
             stale_trace,
         ));
-        let explicit_context = restflow_telemetry::TelemetryContext::new(
-            restflow_telemetry::RestflowTrace::new(
+        let explicit_context =
+            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
                 "run-current",
                 task.chat_session_id.clone(),
                 task.id.clone(),
                 "agent-stale",
-            ),
-        );
+            ));
         let context = AgentRuntimeExecutor::background_telemetry_context(
             Some(explicit_context),
             Some(&task.id),

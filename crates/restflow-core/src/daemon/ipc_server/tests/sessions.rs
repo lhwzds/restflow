@@ -1,10 +1,10 @@
 use super::*;
+use crate::models::ChatSessionSource;
 use crate::storage::Storage;
 use crate::{
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace,
     LogRecordTrace, MetricSampleTrace,
 };
-use crate::models::ChatSessionSource;
 use restflow_contracts::request::ChildExecutionSessionQuery;
 use restflow_storage::SimpleStorage;
 

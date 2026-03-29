@@ -310,8 +310,23 @@ pub trait SubagentManager: Send + Sync {
     /// List all callable sub-agent definitions.
     fn list_callable(&self) -> Vec<SubagentDefSummary>;
 
-    /// List currently running sub-agents.
+    /// List currently running sub-agents across all parents.
+    ///
+    /// This is the legacy/global view kept for backward compatibility.
     fn list_running(&self) -> Vec<SubagentState>;
+
+    /// List currently running sub-agents that belong to one parent run.
+    fn list_running_for_parent(&self, parent_run_id: &str) -> Vec<SubagentState> {
+        let parent_run_id = parent_run_id.trim();
+        if parent_run_id.is_empty() {
+            return Vec::new();
+        }
+
+        self.list_running()
+            .into_iter()
+            .filter(|state| state.parent_run_id.as_deref() == Some(parent_run_id))
+            .collect()
+    }
 
     /// Number of currently running sub-agents.
     fn running_count(&self) -> usize;
@@ -331,6 +346,42 @@ pub trait SubagentSpawner: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    struct MockSubagentManager {
+        running: Mutex<Vec<SubagentState>>,
+        config: SubagentConfig,
+    }
+
+    #[async_trait::async_trait]
+    impl SubagentManager for MockSubagentManager {
+        fn spawn(
+            &self,
+            _request: ContractSubagentSpawnRequest,
+        ) -> std::result::Result<SpawnHandle, ToolError> {
+            Err(ToolError::Tool("not implemented".to_string()))
+        }
+
+        fn list_callable(&self) -> Vec<SubagentDefSummary> {
+            Vec::new()
+        }
+
+        fn list_running(&self) -> Vec<SubagentState> {
+            self.running.lock().expect("running lock").clone()
+        }
+
+        fn running_count(&self) -> usize {
+            self.running.lock().expect("running lock").len()
+        }
+
+        async fn wait(&self, _task_id: &str) -> Option<SubagentCompletion> {
+            None
+        }
+
+        fn config(&self) -> &SubagentConfig {
+            &self.config
+        }
+    }
 
     #[test]
     fn test_spawn_handle_serialization() {
@@ -347,5 +398,48 @@ mod tests {
 
         let json = serde_json::to_string(&handle).unwrap();
         assert!(json.contains("task-123"));
+    }
+
+    #[test]
+    fn test_list_running_for_parent_filters_legacy_global_view() {
+        let manager = MockSubagentManager {
+            running: Mutex::new(vec![
+                SubagentState {
+                    id: "run-1".to_string(),
+                    agent_name: "child-a".to_string(),
+                    task: "task-a".to_string(),
+                    parent_run_id: Some("parent-1".to_string()),
+                    status: SubagentStatus::Running,
+                    started_at: 1,
+                    completed_at: None,
+                    result: None,
+                },
+                SubagentState {
+                    id: "run-2".to_string(),
+                    agent_name: "child-b".to_string(),
+                    task: "task-b".to_string(),
+                    parent_run_id: Some("parent-2".to_string()),
+                    status: SubagentStatus::Running,
+                    started_at: 2,
+                    completed_at: None,
+                    result: None,
+                },
+            ]),
+            config: SubagentConfig::default(),
+        };
+
+        let filtered = manager.list_running_for_parent("parent-1");
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].id, "run-1");
+    }
+
+    #[test]
+    fn test_list_running_for_parent_rejects_blank_parent() {
+        let manager = MockSubagentManager {
+            running: Mutex::new(Vec::new()),
+            config: SubagentConfig::default(),
+        };
+
+        assert!(manager.list_running_for_parent("   ").is_empty());
     }
 }

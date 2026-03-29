@@ -160,7 +160,22 @@ fn extract_task_id(value: &Value) -> Option<String> {
         .map(str::to_string)
         .or_else(|| {
             value
+                .get("result")
+                .and_then(|result| result.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            value
                 .get("task")
+                .and_then(|task| task.get("id"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .or_else(|| {
+            value
+                .get("result")
+                .and_then(|result| result.get("task"))
                 .and_then(|task| task.get("id"))
                 .and_then(Value::as_str)
                 .map(str::to_string)
@@ -278,7 +293,11 @@ pub(super) async fn execute_run_batch(
                     .chat_session_id
                     .clone()
                     .or_else(|| chat_session_id.clone()),
-                schedule: worker_spec.schedule.clone().or_else(|| schedule.clone()),
+                schedule: worker_spec
+                    .schedule
+                    .clone()
+                    .or_else(|| schedule.clone())
+                    .or_else(|| Some(ContractTaskSchedule::default())),
                 input: Some(worker_input),
                 input_template: None,
                 timeout_secs: worker_spec.timeout_secs.or(timeout_secs),
@@ -295,6 +314,8 @@ pub(super) async fn execute_run_batch(
                     .resource_limits
                     .clone()
                     .or_else(|| resource_limits.clone()),
+                preview: false,
+                confirmation_token: None,
             })
             .map_err(|e| {
                 ToolError::Tool(format!(
@@ -309,12 +330,18 @@ pub(super) async fn execute_run_batch(
                 worker_index + 1
             ))
         })?;
+        let task_payload = created
+            .get("result")
+            .cloned()
+            .unwrap_or_else(|| created.clone());
 
         if should_run_now {
             tool.store
                 .control_background_agent(BackgroundAgentControlRequest {
                     id: task_id.clone(),
                     action: "run_now".to_string(),
+                    preview: false,
+                    confirmation_token: None,
                 })
                 .map_err(|e| {
                     ToolError::Tool(format!("Failed to run background agent {}: {e}.", task_id))
@@ -327,7 +354,7 @@ pub(super) async fn execute_run_batch(
             "spec_index": spec_index,
             "task_id": task_id,
             "run_now": should_run_now,
-            "task": created
+            "task": task_payload
         }));
     }
 

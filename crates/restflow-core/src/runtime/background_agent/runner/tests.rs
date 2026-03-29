@@ -366,6 +366,18 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = Arc::new(MockExecutor::new());
     let notifier = Arc::new(NoopNotificationSender);
+    let hook_scheduler = Arc::new(MockHookScheduler::new());
+    let hook = Hook::new(
+        "Interrupt follow-up".to_string(),
+        HookEvent::TaskInterrupted,
+        HookAction::RunTask {
+            agent_id: "agent-next".to_string(),
+            input_template: "Recovered".to_string(),
+        },
+    );
+    let hook_executor =
+        Arc::new(HookExecutor::new(vec![hook]).with_task_scheduler(hook_scheduler.clone()));
+    let (channel_emitter, mut event_rx) = ChannelEventEmitter::new();
     let current_time = chrono::Utc::now().timestamp_millis();
     let past_time = current_time - 120_000;
 
@@ -392,7 +404,9 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
             ..Default::default()
         },
         Arc::new(SteerRegistry::new()),
-    );
+    )
+    .with_event_emitter(Arc::new(channel_emitter))
+    .with_hook_executor(hook_executor);
 
     runner.recover_stalled_running_tasks(current_time).await;
 
@@ -408,6 +422,15 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
         run.error.as_deref(),
         Some("Recovered stalled background execution")
     );
+    assert_eq!(hook_scheduler.call_count(), 1);
+
+    let mut interrupted_seen = false;
+    while let Ok(event) = event_rx.try_recv() {
+        if let StreamEventKind::Interrupted { reason, .. } = event.kind {
+            interrupted_seen = reason == "Recovered stalled background execution";
+        }
+    }
+    assert!(interrupted_seen);
 }
 
 #[tokio::test]
@@ -1224,6 +1247,71 @@ async fn test_resume_from_checkpoint_approved_uses_restored_state() {
 }
 
 #[tokio::test]
+async fn test_resume_from_checkpoint_approved_does_not_consume_checkpoint_before_admission() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = Arc::new(MockExecutor::new());
+
+    let runner = BackgroundAgentRunner::new(
+        storage.clone(),
+        executor.clone(),
+        Arc::new(NoopNotificationSender),
+        RunnerConfig {
+            max_concurrent_tasks: 0,
+            ..Default::default()
+        },
+        Arc::new(SteerRegistry::new()),
+    );
+
+    let mut task = storage
+        .create_task(
+            "Checkpoint Admission Gate".to_string(),
+            "agent-001".to_string(),
+            TaskSchedule::default(),
+        )
+        .unwrap();
+    task.input = Some("Checkpoint task input".to_string());
+    storage.update_task(&task).unwrap();
+    storage.pause_task(&task.id).unwrap();
+
+    let mut state = restflow_ai::AgentState::new("resume-exec-gated".to_string(), 10);
+    state.iteration = 1;
+    state.add_message(restflow_ai::Message::user("resume me later"));
+
+    let checkpoint = AgentCheckpoint::new(
+        state.execution_id.clone(),
+        Some(task.id.clone()),
+        state.version,
+        state.iteration,
+        serde_json::to_vec(&state).unwrap(),
+        "approval required".to_string(),
+    );
+    let checkpoint_id = checkpoint.id.clone();
+    storage.save_checkpoint(&checkpoint).unwrap();
+
+    runner
+        .resume_from_checkpoint(
+            &task.id,
+            ResumePayload {
+                checkpoint_id: checkpoint_id.clone(),
+                approved: true,
+                user_message: Some("approved".to_string()),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+    assert_eq!(updated_task.status, BackgroundAgentStatus::Paused);
+    assert_eq!(executor.resume_call_count(), 0);
+    assert!(runner.has_resume_intent(&task.id).await);
+    assert!(storage.get_active_task_run(&task.id).unwrap().is_none());
+
+    let updated_checkpoint = storage.load_checkpoint(&checkpoint_id).unwrap().unwrap();
+    assert!(updated_checkpoint.resumed_at.is_none());
+}
+
+#[tokio::test]
 async fn test_resume_from_checkpoint_rejects_mismatched_checkpoint_id() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = Arc::new(MockExecutor::new());
@@ -1274,7 +1362,10 @@ async fn test_resume_from_checkpoint_rejects_mismatched_checkpoint_id() {
     assert_eq!(updated_task.status, BackgroundAgentStatus::Active);
     assert_eq!(executor.resume_call_count(), 0);
 
-    let checkpoint = storage.load_checkpoint(&other_checkpoint_id).unwrap().unwrap();
+    let checkpoint = storage
+        .load_checkpoint(&other_checkpoint_id)
+        .unwrap()
+        .unwrap();
     assert!(checkpoint.resumed_at.is_none());
 }
 
@@ -1340,6 +1431,154 @@ async fn test_resume_from_checkpoint_records_run_checkpoint_binding() {
         run.status,
         crate::models::BackgroundAgentRunStatus::Completed
     );
+}
+
+#[tokio::test]
+async fn test_resume_from_checkpoint_start_task_run_failure_rolls_back_without_started_side_effects()
+ {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = Arc::new(MockExecutor::new());
+    let hook_scheduler = Arc::new(MockHookScheduler::new());
+    let hook = Hook::new(
+        "Started follow-up".to_string(),
+        HookEvent::TaskStarted,
+        HookAction::RunTask {
+            agent_id: "agent-next".to_string(),
+            input_template: "Started".to_string(),
+        },
+    );
+    let hook_executor =
+        Arc::new(HookExecutor::new(vec![hook]).with_task_scheduler(hook_scheduler.clone()));
+    let (channel_emitter, mut event_rx) = ChannelEventEmitter::new();
+
+    let runner = Arc::new(
+        BackgroundAgentRunner::new(
+            storage.clone(),
+            executor.clone(),
+            Arc::new(NoopNotificationSender),
+            RunnerConfig::default(),
+            Arc::new(SteerRegistry::new()),
+        )
+        .with_event_emitter(Arc::new(channel_emitter))
+        .with_hook_executor(hook_executor),
+    );
+
+    let mut task = storage
+        .create_task(
+            "Checkpoint Run Creation Failure".to_string(),
+            "agent-001".to_string(),
+            TaskSchedule::default(),
+        )
+        .unwrap();
+    task.input = Some("Checkpoint task input".to_string());
+    storage.update_task(&task).unwrap();
+    storage.pause_task(&task.id).unwrap();
+
+    let mut state = restflow_ai::AgentState::new("resume-exec-fail-start-run".to_string(), 10);
+    state.iteration = 1;
+    state.add_message(restflow_ai::Message::user("resume me"));
+
+    let checkpoint = AgentCheckpoint::new(
+        state.execution_id.clone(),
+        Some(task.id.clone()),
+        state.version,
+        state.iteration,
+        serde_json::to_vec(&state).unwrap(),
+        "approval required".to_string(),
+    );
+    let checkpoint_id = checkpoint.id.clone();
+    storage.save_checkpoint(&checkpoint).unwrap();
+
+    runner.inject_start_task_run_failure();
+    let handle = runner.clone().start();
+    runner
+        .resume_from_checkpoint(
+            &task.id,
+            ResumePayload {
+                checkpoint_id: checkpoint_id.clone(),
+                approved: true,
+                user_message: Some("approved".to_string()),
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    handle.stop().await.unwrap();
+
+    let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+    assert_eq!(updated_task.status, BackgroundAgentStatus::Paused);
+    assert!(runner.has_resume_intent(&task.id).await);
+    assert_eq!(executor.resume_call_count(), 0);
+    assert!(storage.get_active_task_run(&task.id).unwrap().is_none());
+
+    let updated_checkpoint = storage.load_checkpoint(&checkpoint_id).unwrap().unwrap();
+    assert!(updated_checkpoint.resumed_at.is_none());
+    assert_eq!(hook_scheduler.call_count(), 0);
+
+    let mut started_seen = false;
+    while let Ok(event) = event_rx.try_recv() {
+        if matches!(event.kind, StreamEventKind::Started { .. }) {
+            started_seen = true;
+        }
+    }
+    assert!(!started_seen);
+}
+
+#[tokio::test]
+async fn test_execute_task_without_stop_receiver_fails_before_commit() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = Arc::new(MockExecutor::new());
+    let hook_scheduler = Arc::new(MockHookScheduler::new());
+    let hook = Hook::new(
+        "Started follow-up".to_string(),
+        HookEvent::TaskStarted,
+        HookAction::RunTask {
+            agent_id: "agent-next".to_string(),
+            input_template: "Started".to_string(),
+        },
+    );
+    let hook_executor =
+        Arc::new(HookExecutor::new(vec![hook]).with_task_scheduler(hook_scheduler.clone()));
+    let (channel_emitter, mut event_rx) = ChannelEventEmitter::new();
+
+    let runner = BackgroundAgentRunner::new(
+        storage.clone(),
+        executor.clone(),
+        Arc::new(NoopNotificationSender),
+        RunnerConfig::default(),
+        Arc::new(SteerRegistry::new()),
+    )
+    .with_event_emitter(Arc::new(channel_emitter))
+    .with_hook_executor(hook_executor);
+
+    let mut task = storage
+        .create_task(
+            "Missing Stop Receiver".to_string(),
+            "agent-001".to_string(),
+            TaskSchedule::default(),
+        )
+        .unwrap();
+    task.input = Some("Run me".to_string());
+    storage.update_task(&task).unwrap();
+
+    let result = runner.execute_task(&task.id, None).await;
+    assert!(result.is_err());
+    assert_eq!(executor.call_count(), 0);
+    assert!(storage.get_active_task_run(&task.id).unwrap().is_none());
+    assert_eq!(
+        storage.get_task(&task.id).unwrap().unwrap().status,
+        BackgroundAgentStatus::Active
+    );
+    assert_eq!(hook_scheduler.call_count(), 0);
+    assert_eq!(runner.running_task_count().await, 0);
+
+    let mut started_seen = false;
+    while let Ok(event) = event_rx.try_recv() {
+        if matches!(event.kind, StreamEventKind::Started { .. }) {
+            started_seen = true;
+        }
+    }
+    assert!(!started_seen);
 }
 
 #[tokio::test]

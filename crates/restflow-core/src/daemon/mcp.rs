@@ -2,13 +2,16 @@ use crate::AppCore;
 use crate::daemon::{IpcRequest, IpcResponse, IpcServer, StreamFrame};
 use crate::mcp::RestFlowMcpServer;
 use crate::models::storage_mode::StorageMode;
-use crate::models::{BackgroundAgent, GatingCheckResult, Skill, SkillManifest, SkillVersion};
+use crate::models::{
+    BackgroundAgentConversionResult, GatingCheckResult, Skill, SkillManifest, SkillVersion,
+};
 use crate::registry::{
     GatingChecker, GitHubProvider, MarketplaceProvider, SkillProvider as _, SkillSearchQuery,
     SkillSearchResult, SkillSortOrder,
 };
 use crate::runtime::channel::transcribe_media_file;
 use crate::services::background_agent_command::BackgroundAgentCommandService;
+use crate::services::operation_assessment::OperationAssessorAdapter;
 use anyhow::Result;
 use axum::Json;
 use axum::Router;
@@ -26,6 +29,7 @@ use http::{
 };
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use restflow_contracts::ErrorPayload;
+use restflow_traits::BackgroundAgentCommandOutcome;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -65,13 +69,10 @@ struct DaemonHttpState {
 
 #[derive(Debug, Deserialize)]
 struct ConvertSessionToBackgroundAgentRequest {
-    session_id: String,
+    #[serde(flatten)]
+    request: restflow_contracts::request::BackgroundAgentConvertSessionRequest,
     #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    input: Option<String>,
-    #[serde(default)]
-    run_now: Option<bool>,
+    preview: bool,
     #[serde(default)]
     confirmation_token: Option<String>,
 }
@@ -394,78 +395,35 @@ fn manifest_to_skill(manifest: SkillManifest, content: String) -> Skill {
 async fn api_convert_session_to_background_agent(
     State(state): State<DaemonHttpState>,
     Json(request): Json<ConvertSessionToBackgroundAgentRequest>,
-) -> std::result::Result<Json<BackgroundAgent>, (StatusCode, Json<ErrorPayload>)> {
-    let assessment =
-        crate::services::operation_assessment::assess_background_agent_convert_session(
-            &state.core,
-            restflow_traits::store::BackgroundAgentConvertSessionRequest {
-                session_id: request.session_id.clone(),
-                name: request.name.clone(),
-                schedule: None,
-                input: request.input.clone(),
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                run_now: request.run_now,
-            },
-        )
-        .await
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorPayload::new(500, error.to_string(), None)),
-            )
-        })?;
-    if !assessment.blockers.is_empty() {
-        return Err((
+) -> std::result::Result<
+    Json<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>,
+    (StatusCode, Json<ErrorPayload>),
+> {
+    let mut store_request =
+        crate::boundary::background_agent::contract_convert_request_to_store(request.request)
+            .map_err(|error| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorPayload::new(400, error.to_string(), None)),
+                )
+            })?;
+    store_request.preview = request.preview;
+    store_request.confirmation_token = request.confirmation_token;
+
+    let outcome = BackgroundAgentCommandService::from_storage(
+        state.core.storage.as_ref(),
+        Some(Arc::new(OperationAssessorAdapter::new(state.core.clone()))),
+    )
+    .convert_session(store_request)
+    .await
+    .map_err(|error| {
+        (
             StatusCode::BAD_REQUEST,
-            Json(ErrorPayload::new(
-                400,
-                crate::services::operation_assessment::assessment_summary(&assessment),
-                Some(json!({ "assessment": assessment })),
-            )),
-        ));
-    }
-    if crate::services::operation_assessment::assessment_requires_confirmation(&assessment)
-        && crate::services::operation_assessment::ensure_assessment_confirmed(
-            &assessment,
-            request.confirmation_token.as_deref(),
+            Json(ErrorPayload::new(400, error.to_string(), None)),
         )
-        .is_err()
-    {
-        return Err((
-            StatusCode::PRECONDITION_REQUIRED,
-            Json(ErrorPayload::new(
-                428,
-                crate::services::operation_assessment::assessment_summary(&assessment),
-                Some(json!({ "assessment": assessment })),
-            )),
-        ));
-    }
+    })?;
 
-    let conversion = BackgroundAgentCommandService::from_storage(state.core.storage.as_ref())
-        .convert_session(restflow_traits::store::BackgroundAgentConvertSessionRequest {
-            session_id: request.session_id,
-            name: request.name,
-            schedule: None,
-            input: request.input,
-            timeout_secs: None,
-            durability_mode: None,
-            memory: None,
-            memory_scope: None,
-            resource_limits: None,
-            run_now: request.run_now,
-        })
-        .map_err(|error| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorPayload::new(400, error.to_string(), None)),
-            )
-        })?;
-
-    Ok(Json(conversion.task))
+    Ok(Json(outcome))
 }
 
 async fn api_marketplace_search(
@@ -1088,12 +1046,14 @@ mod tests {
     use crate::daemon::{
         IpcRequest, IpcResponse, IpcStreamEvent, StreamFrame, publish_session_event,
     };
+    use crate::models::{AgentNode, ChatMessage, ChatSession, ModelId};
     use axum::body::{self, Body};
     use axum::http::{HeaderValue, Request, StatusCode, header::CONTENT_TYPE};
     use bytes::Bytes;
     use futures::StreamExt;
     use http::Response;
     use http_body_util::{BodyExt, Full};
+    use restflow_traits::BackgroundAgentCommandOutcome;
     use serde_json::Value;
     use std::env;
     use std::path::{Path, PathBuf};
@@ -1286,6 +1246,102 @@ mod tests {
         match payload {
             IpcResponse::Success(value) => assert_eq!(value["status"], "running"),
             other => panic!("unexpected response: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn api_convert_session_returns_full_conversion_outcome() {
+        let _env_lock = env_lock();
+        let core = test_core().await;
+        let agents_dir = tempdir().expect("agents tempdir");
+        let _agents_dir =
+            EnvGuard::set_path(crate::prompt_files::AGENTS_DIR_ENV, agents_dir.path());
+        std::fs::create_dir_all(agents_dir.path()).expect("create agents dir");
+
+        let agent = core
+            .storage
+            .agents
+            .create_agent("http-bg-owner".to_string(), AgentNode::new())
+            .expect("create agent");
+        let mut session = ChatSession::new(
+            agent.id.clone(),
+            ModelId::Gpt5.as_serialized_str().to_string(),
+        )
+        .with_name("HTTP Convert Session");
+        session.add_message(ChatMessage::user("Continue this job in background"));
+        core.storage
+            .chat_sessions
+            .create(&session)
+            .expect("create session");
+
+        let app = build_http_router(core, CancellationToken::new(), None);
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/background-agents/convert-session")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "session_id": session.id,
+                            "name": "HTTP Converted Task",
+                            "run_now": false
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let outcome: BackgroundAgentCommandOutcome<crate::models::BackgroundAgentConversionResult> =
+            serde_json::from_slice(&body).expect("conversion outcome");
+        let confirmation_token = match outcome {
+            BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
+                assessment.confirmation_token.expect("confirmation token")
+            }
+            other => panic!("expected confirmation_required outcome, got {other:?}"),
+        };
+
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/api/background-agents/convert-session")
+                    .header(CONTENT_TYPE, "application/json")
+                    .body(Body::from(
+                        serde_json::to_vec(&serde_json::json!({
+                            "session_id": session.id,
+                            "name": "HTTP Converted Task",
+                            "run_now": false,
+                            "confirmation_token": confirmation_token
+                        }))
+                        .unwrap(),
+                    ))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let body = body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let outcome: BackgroundAgentCommandOutcome<crate::models::BackgroundAgentConversionResult> =
+            serde_json::from_slice(&body).expect("conversion outcome");
+        match outcome {
+            BackgroundAgentCommandOutcome::Executed { result } => {
+                assert_eq!(result.source_session_id, session.id);
+                assert_eq!(result.task.chat_session_id, session.id);
+                assert_eq!(result.task.name, "HTTP Converted Task");
+                assert!(!result.run_now);
+            }
+            other => panic!("expected executed outcome, got {other:?}"),
         }
     }
 

@@ -91,8 +91,7 @@ impl ConfigTool {
             || !cli.sandbox.env.allow.is_empty()
             || !cli.sandbox.env.block.is_empty()
             || cli.sandbox.limits.timeout_secs != default_cli.sandbox.limits.timeout_secs
-            || cli.sandbox.limits.max_output_bytes
-                != default_cli.sandbox.limits.max_output_bytes;
+            || cli.sandbox.limits.max_output_bytes != default_cli.sandbox.limits.max_output_bytes;
         if has_cli_overrides {
             return Err(ToolError::Tool(
                 "CLI-local config fields are not available through manage_config. Use the CLI-local config command path for cli.* settings.".to_string(),

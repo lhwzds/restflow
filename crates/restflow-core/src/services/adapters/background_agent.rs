@@ -1,17 +1,16 @@
 //! BackgroundAgentStore adapter backed by BackgroundAgentStorage.
 
-use crate::boundary::background_agent::{
-    resolve_agent_id_alias,
-};
+use crate::boundary::background_agent::parse_control_action;
 use crate::models::{
-    BackgroundAgentControlAction, BackgroundAgentStatus, BackgroundMessageSource,
-    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
+    BackgroundAgentStatus, BackgroundMessageSource, ExecutionTraceCategory, ExecutionTraceEvent,
+    ExecutionTraceQuery,
 };
 use crate::services::background_agent_command::BackgroundAgentCommandService;
 use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, DeliverableStorage};
 use crate::telemetry::get_execution_timeline;
 use restflow_tools::ToolError;
+use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
     BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
@@ -25,10 +24,12 @@ use restflow_traits::{
 };
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, HashSet};
+use std::future::Future;
 
 #[derive(Clone)]
 pub struct BackgroundAgentStoreAdapter {
     storage: BackgroundAgentStorage,
+    #[allow(dead_code)]
     agent_storage: AgentStorage,
     deliverable_storage: DeliverableStorage,
     command_service: BackgroundAgentCommandService,
@@ -45,6 +46,7 @@ impl BackgroundAgentStoreAdapter {
             storage.clone(),
             agent_storage.clone(),
             session_service,
+            None,
         );
         Self {
             storage,
@@ -52,6 +54,11 @@ impl BackgroundAgentStoreAdapter {
             deliverable_storage,
             command_service,
         }
+    }
+
+    pub fn with_assessor(mut self, assessor: std::sync::Arc<dyn AgentOperationAssessor>) -> Self {
+        self.command_service = self.command_service.with_assessor(assessor);
+        self
     }
 
     fn parse_status(status: &str) -> Result<BackgroundAgentStatus, ToolError> {
@@ -66,18 +73,24 @@ impl BackgroundAgentStoreAdapter {
         }
     }
 
-    fn parse_control_action(action: &str) -> Result<BackgroundAgentControlAction, ToolError> {
-        match action.trim().to_lowercase().as_str() {
-            "start" => Ok(BackgroundAgentControlAction::Start),
-            "pause" => Ok(BackgroundAgentControlAction::Pause),
-            "resume" => Ok(BackgroundAgentControlAction::Resume),
-            "stop" => Ok(BackgroundAgentControlAction::Stop),
-            "run_now" | "run-now" | "runnow" => Ok(BackgroundAgentControlAction::RunNow),
-            _ => Err(ToolError::Tool(format!(
-                "Unknown control action: {}",
-                action
-            ))),
+    fn run_async<T, Fut>(&self, future: Fut) -> Result<T, ToolError>
+    where
+        Fut: Future<Output = anyhow::Result<T>>,
+    {
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            return tokio::task::block_in_place(|| {
+                handle
+                    .block_on(future)
+                    .map_err(|error| ToolError::Tool(error.to_string()))
+            });
         }
+
+        tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|error| ToolError::Tool(error.to_string()))?
+            .block_on(future)
+            .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     fn parse_message_source(source: Option<&str>) -> Result<BackgroundMessageSource, ToolError> {
@@ -92,15 +105,6 @@ impl BackgroundAgentStoreAdapter {
                 value
             ))),
         }
-    }
-
-    fn resolve_agent_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
-        resolve_agent_id_alias(
-            id_or_prefix,
-            || self.agent_storage.resolve_default_agent_id(),
-            |trimmed| self.agent_storage.resolve_existing_agent_id(trimmed),
-        )
-        .map_err(Into::into)
     }
 
     fn resolve_task_id(&self, id_or_prefix: &str) -> Result<String, ToolError> {
@@ -270,46 +274,24 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentCreateRequest,
     ) -> restflow_tools::Result<Value> {
-        let resolved_agent_id = self.resolve_agent_id(&request.agent_id)?;
-        let task = self
-            .command_service
-            .create_from_request(request, resolved_agent_id)?;
-        Ok(serde_json::to_value(task)?)
+        let outcome = self.run_async(self.command_service.create_from_request(request))?;
+        Ok(serde_json::to_value(outcome)?)
     }
 
     fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> restflow_tools::Result<Value> {
-        let result = match self.command_service.convert_session(request) {
-            Ok(result) => result,
-            Err(error) => return Err(ToolError::Tool(error.to_string())),
-        };
-        Ok(json!({
-            "task": result.task,
-            "source_session": {
-                "id": result.source_session_id,
-                "agent_id": result.source_session_agent_id,
-            },
-            "run_now": result.run_now,
-        }))
+        let outcome = self.run_async(self.command_service.convert_session(request))?;
+        Ok(serde_json::to_value(outcome)?)
     }
 
     fn update_background_agent(
         &self,
-        mut request: BackgroundAgentUpdateRequest,
+        request: BackgroundAgentUpdateRequest,
     ) -> restflow_tools::Result<Value> {
-        let resolved_id = self.resolve_task_id(&request.id)?;
-        request.id = resolved_id;
-        let resolved_agent_id = request
-            .agent_id
-            .as_deref()
-            .map(|id| self.resolve_agent_id(id))
-            .transpose()?;
-        let task = self
-            .command_service
-            .update_from_request(request, resolved_agent_id)?;
-        Ok(serde_json::to_value(task)?)
+        let outcome = self.run_async(self.command_service.update_from_request(request))?;
+        Ok(serde_json::to_value(outcome)?)
     }
 
     fn delete_background_agent(&self, id: &str) -> restflow_tools::Result<Value> {
@@ -333,10 +315,9 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentControlRequest,
     ) -> restflow_tools::Result<Value> {
-        let action = Self::parse_control_action(&request.action)?;
-        let resolved_id = self.resolve_task_id(&request.id)?;
-        let task = self.command_service.control(&resolved_id, action)?;
-        Ok(serde_json::to_value(task)?)
+        let _ = parse_control_action(&request.action)?;
+        let outcome = self.run_async(self.command_service.control_from_request(request))?;
+        Ok(serde_json::to_value(outcome)?)
     }
 
     fn get_background_agent_progress(
@@ -478,10 +459,127 @@ mod tests {
     use crate::storage::{
         ChannelSessionBindingStorage, ExecutionTraceStorage, MemoryStorage, SessionStorage,
     };
-    use restflow_contracts::request::DurabilityMode as ContractDurabilityMode;
-    use restflow_traits::store::BackgroundAgentStore;
+    use async_trait::async_trait;
+    use restflow_contracts::request::{
+        DurabilityMode as ContractDurabilityMode, TaskSchedule as ContractTaskSchedule,
+    };
+    use restflow_traits::assessment::{
+        AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
+    };
+    use restflow_traits::store::{
+        AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
+        BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest, BackgroundAgentStore,
+        BackgroundAgentUpdateRequest,
+    };
+    use restflow_traits::{ContractSubagentSpawnRequest, ToolError};
     use std::sync::Arc;
     use tempfile::tempdir;
+
+    struct MockAssessor;
+
+    #[async_trait]
+    impl AgentOperationAssessor for MockAssessor {
+        async fn assess_agent_create(
+            &self,
+            _request: AgentCreateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(
+                "create_agent",
+                OperationAssessmentIntent::Save,
+            ))
+        }
+
+        async fn assess_agent_update(
+            &self,
+            _request: AgentUpdateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(
+                "update_agent",
+                OperationAssessmentIntent::Save,
+            ))
+        }
+
+        async fn assess_background_agent_create(
+            &self,
+            _request: BackgroundAgentCreateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(
+                "create_background_agent",
+                OperationAssessmentIntent::Save,
+            ))
+        }
+
+        async fn assess_background_agent_convert_session(
+            &self,
+            _request: BackgroundAgentConvertSessionRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(
+                "convert_session_to_background_agent",
+                OperationAssessmentIntent::Save,
+            ))
+        }
+
+        async fn assess_background_agent_update(
+            &self,
+            _request: BackgroundAgentUpdateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(
+                "update_background_agent",
+                OperationAssessmentIntent::Save,
+            ))
+        }
+
+        async fn assess_background_agent_control(
+            &self,
+            _request: BackgroundAgentControlRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(
+                "control_background_agent",
+                OperationAssessmentIntent::Run,
+            ))
+        }
+
+        async fn assess_background_agent_template(
+            &self,
+            operation: &str,
+            intent: OperationAssessmentIntent,
+            _agent_ids: Vec<String>,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(operation, intent))
+        }
+
+        async fn assess_subagent_spawn(
+            &self,
+            operation: &str,
+            _request: ContractSubagentSpawnRequest,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(
+                operation,
+                OperationAssessmentIntent::Run,
+            ))
+        }
+
+        async fn assess_subagent_batch(
+            &self,
+            operation: &str,
+            _requests: Vec<ContractSubagentSpawnRequest>,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::ok(
+                operation,
+                OperationAssessmentIntent::Run,
+            ))
+        }
+    }
+
+    fn default_schedule() -> ContractTaskSchedule {
+        ContractTaskSchedule::Interval {
+            interval_ms: 60_000,
+            start_at: None,
+        }
+    }
 
     fn setup() -> (
         BackgroundAgentStoreAdapter,
@@ -532,7 +630,8 @@ mod tests {
                 agent_storage,
                 deliverable_storage,
                 session_service,
-            ),
+            )
+            .with_assessor(Arc::new(MockAssessor)),
             temp_dir,
             guard,
         )
@@ -553,15 +652,18 @@ mod tests {
             chat_session_id: None,
             input: Some("Do something".to_string()),
             input_template: None,
-            schedule: None,
+            schedule: Some(default_schedule()),
             timeout_secs: None,
             memory: None,
             memory_scope: None,
             durability_mode: None,
             resource_limits: None,
+            preview: false,
+            confirmation_token: None,
         };
         let created = adapter.create_background_agent(request).unwrap();
-        assert!(created["id"].as_str().is_some());
+        assert_eq!(created["status"], "executed");
+        assert!(created["result"]["id"].as_str().is_some());
 
         let list = adapter.list_background_agents(None).unwrap();
         let tasks = list.as_array().unwrap();
@@ -578,15 +680,18 @@ mod tests {
                 chat_session_id: None,
                 input: Some("use default alias".to_string()),
                 input_template: None,
-                schedule: None,
+                schedule: Some(default_schedule()),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
                 durability_mode: None,
                 resource_limits: None,
+                preview: false,
+                confirmation_token: None,
             })
             .expect("default alias should resolve to the only/default agent");
-        assert!(created["id"].as_str().is_some());
+        assert_eq!(created["status"], "executed");
+        assert!(created["result"]["id"].as_str().is_some());
     }
 
     #[test]
@@ -616,16 +721,22 @@ mod tests {
                 memory_scope: None,
                 resource_limits: None,
                 run_now: Some(false),
+                preview: false,
+                confirmation_token: None,
             })
             .unwrap();
 
-        assert_eq!(converted["source_session"]["id"], session.id);
-        assert_eq!(converted["source_session"]["agent_id"], agent_id);
-        assert_eq!(converted["run_now"], false);
-        assert_eq!(converted["task"]["chat_session_id"], session.id);
-        assert_eq!(converted["task"]["agent_id"], agent_id);
-        assert_eq!(converted["task"]["input"], "Please continue this task.");
-        assert_eq!(converted["task"]["name"], "Converted Task");
+        assert_eq!(converted["status"], "executed");
+        assert_eq!(converted["result"]["source_session_id"], session.id);
+        assert_eq!(converted["result"]["source_session_agent_id"], agent_id);
+        assert_eq!(converted["result"]["run_now"], false);
+        assert_eq!(converted["result"]["task"]["chat_session_id"], session.id);
+        assert_eq!(converted["result"]["task"]["agent_id"], agent_id);
+        assert_eq!(
+            converted["result"]["task"]["input"],
+            "Please continue this task."
+        );
+        assert_eq!(converted["result"]["task"]["name"], "Converted Task");
     }
 
     #[test]
@@ -652,15 +763,14 @@ mod tests {
                 memory_scope: None,
                 resource_limits: None,
                 run_now: Some(false),
+                preview: false,
+                confirmation_token: None,
             })
-            .expect_err("expected conversion to fail without user input");
-
-        assert!(
-            error
-                .to_string()
-                .contains("no non-empty user message found"),
-            "unexpected error: {}",
-            error
+            .expect("conversion should return blocked outcome");
+        assert_eq!(error["status"], "blocked");
+        assert_eq!(
+            error["assessment"]["blockers"][0]["code"],
+            "missing_conversion_input"
         );
     }
 
@@ -674,15 +784,17 @@ mod tests {
             chat_session_id: None,
             input: Some("task to delete".to_string()),
             input_template: None,
-            schedule: None,
+            schedule: Some(default_schedule()),
             timeout_secs: None,
             memory: None,
             memory_scope: None,
             durability_mode: None,
             resource_limits: None,
+            preview: false,
+            confirmation_token: None,
         };
         let created = adapter.create_background_agent(request).unwrap();
-        let id = created["id"].as_str().unwrap();
+        let id = created["result"]["id"].as_str().unwrap();
 
         let result = adapter.delete_background_agent(id).unwrap();
         assert_eq!(result["deleted"], true);
@@ -699,15 +811,17 @@ mod tests {
                 chat_session_id: None,
                 input: Some("task to delete".to_string()),
                 input_template: None,
-                schedule: None,
+                schedule: Some(default_schedule()),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
                 durability_mode: None,
                 resource_limits: None,
+                preview: false,
+                confirmation_token: None,
             })
             .unwrap();
-        let id = created["id"].as_str().unwrap().to_string();
+        let id = created["result"]["id"].as_str().unwrap().to_string();
         let prefix = &id[..8];
 
         let result = adapter.delete_background_agent(prefix).unwrap();
@@ -726,15 +840,17 @@ mod tests {
                 chat_session_id: None,
                 input: Some("messaging task".to_string()),
                 input_template: None,
-                schedule: None,
+                schedule: Some(default_schedule()),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
                 durability_mode: None,
                 resource_limits: None,
+                preview: false,
+                confirmation_token: None,
             })
             .unwrap();
-        let task_id = created["id"].as_str().unwrap().to_string();
+        let task_id = created["result"]["id"].as_str().unwrap().to_string();
 
         adapter
             .send_background_agent_message(BackgroundAgentMessageRequest {
@@ -765,15 +881,17 @@ mod tests {
                 chat_session_id: None,
                 input: Some("deliverables task".to_string()),
                 input_template: None,
-                schedule: None,
+                schedule: Some(default_schedule()),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
                 durability_mode: None,
                 resource_limits: None,
+                preview: false,
+                confirmation_token: None,
             })
             .unwrap();
-        let id = created["id"].as_str().unwrap().to_string();
+        let id = created["result"]["id"].as_str().unwrap().to_string();
         let prefix = &id[..8];
 
         let value = adapter
@@ -793,10 +911,10 @@ mod tests {
 
     #[test]
     fn test_parse_control_action() {
-        assert!(BackgroundAgentStoreAdapter::parse_control_action("start").is_ok());
-        assert!(BackgroundAgentStoreAdapter::parse_control_action("run_now").is_ok());
-        assert!(BackgroundAgentStoreAdapter::parse_control_action("run-now").is_ok());
-        assert!(BackgroundAgentStoreAdapter::parse_control_action("invalid").is_err());
+        assert!(parse_control_action("start").is_ok());
+        assert!(parse_control_action("run_now").is_ok());
+        assert!(parse_control_action("run-now").is_ok());
+        assert!(parse_control_action("invalid").is_err());
     }
 
     #[test]
@@ -821,16 +939,21 @@ mod tests {
                 chat_session_id: None,
                 input: Some("trace task".to_string()),
                 input_template: None,
-                schedule: None,
+                schedule: Some(default_schedule()),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
                 durability_mode: None,
                 resource_limits: None,
+                preview: false,
+                confirmation_token: None,
             })
             .unwrap();
-        let task_id = created["id"].as_str().unwrap().to_string();
-        let session_id = created["chat_session_id"].as_str().unwrap().to_string();
+        let task_id = created["result"]["id"].as_str().unwrap().to_string();
+        let session_id = created["result"]["chat_session_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
 
         let output_path = temp_dir.path().join("trace-output.txt");
         std::fs::write(&output_path, "line-1\nline-2\nline-3\nline-4\n").unwrap();

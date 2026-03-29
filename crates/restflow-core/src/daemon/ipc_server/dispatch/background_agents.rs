@@ -1,59 +1,14 @@
 use super::super::runtime::parse_background_agent_status;
 use super::super::*;
 use crate::boundary::background_agent::{
-    core_patch_to_update_request, core_spec_to_create_request, resolve_agent_id_alias,
-    resolve_patch_agent_id, resolve_spec_agent_id,
+    core_patch_to_update_request, core_spec_to_create_request,
 };
 use crate::daemon::request_mapper::to_contract;
-use crate::services::operation_assessment::{
-    assess_background_agent_control, assess_background_agent_convert_session,
-    assess_background_agent_create,
-    assess_background_agent_update, assessment_requires_confirmation, assessment_summary,
-    ensure_assessment_confirmed,
-};
 use crate::services::background_agent_command::BackgroundAgentCommandService;
+use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
-use restflow_traits::OperationAssessment;
 use restflow_traits::store::BackgroundAgentControlRequest;
-use serde_json::json;
-
-fn assessment_details(assessment: &OperationAssessment) -> serde_json::Value {
-    json!({ "assessment": assessment })
-}
-
-fn maybe_preview_or_confirm(
-    assessment: OperationAssessment,
-    preview: bool,
-    confirmation_token: Option<String>,
-) -> std::result::Result<Option<IpcResponse>, anyhow::Error> {
-    if preview {
-        return Ok(Some(IpcResponse::success(json!({
-            "status": "preview",
-            "assessment": assessment,
-        }))));
-    }
-
-    if !assessment.blockers.is_empty() {
-        return Ok(Some(IpcResponse::error_with_details(
-            400,
-            assessment_summary(&assessment),
-            Some(assessment_details(&assessment)),
-        )));
-    }
-
-    if assessment_requires_confirmation(&assessment)
-        && ensure_assessment_confirmed(&assessment, confirmation_token.as_deref()).is_err()
-    {
-        return Ok(Some(IpcResponse::error_with_details(
-            428,
-            assessment_summary(&assessment),
-            Some(assessment_details(&assessment)),
-        )));
-    }
-
-    Ok(None)
-}
 
 fn resolve_background_agent_id(
     core: &Arc<AppCore>,
@@ -74,20 +29,11 @@ fn resolve_background_agent_id(
     }
 }
 
-fn resolve_agent_id(
-    core: &Arc<AppCore>,
-    id_or_alias: &str,
-) -> std::result::Result<String, IpcResponse> {
-    resolve_agent_id_alias(
-        id_or_alias,
-        || core.storage.agents.resolve_default_agent_id(),
-        |trimmed| core.storage.agents.resolve_existing_agent_id(trimmed),
-    )
-    .map_err(|err| IpcResponse::error(400, err.to_string()))
-}
-
 fn command_service(core: &Arc<AppCore>) -> BackgroundAgentCommandService {
-    BackgroundAgentCommandService::from_storage(core.storage.as_ref())
+    BackgroundAgentCommandService::from_storage(
+        core.storage.as_ref(),
+        Some(Arc::new(OperationAssessorAdapter::new(core.clone()))),
+    )
 }
 
 impl IpcServer {
@@ -159,30 +105,14 @@ impl IpcServer {
         preview: bool,
         confirmation_token: Option<String>,
     ) -> IpcResponse {
-        let spec = match resolve_spec_agent_id(spec, |agent_id| resolve_agent_id(core, agent_id)) {
-            Ok(spec) => spec,
-            Err(response) => return response,
-        };
-        let assessment = match assess_background_agent_create(
-            core,
-            match core_spec_to_create_request(&spec) {
-                Ok(request) => request,
-                Err(err) => return IpcResponse::error(500, err.to_string()),
-            },
-        )
-        .await
-        {
-            Ok(assessment) => assessment,
+        let mut request = match core_spec_to_create_request(&spec) {
+            Ok(request) => request,
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
-        match maybe_preview_or_confirm(assessment, preview, confirmation_token) {
-            Ok(Some(response)) => return response,
-            Ok(None) => {}
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        }
-
-        match command_service(core).create(spec) {
-            Ok(task) => IpcResponse::success(task),
+        request.preview = preview;
+        request.confirmation_token = confirmation_token;
+        match command_service(core).create_from_request(request).await {
+            Ok(outcome) => IpcResponse::success(outcome),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -193,18 +123,11 @@ impl IpcServer {
         preview: bool,
         confirmation_token: Option<String>,
     ) -> IpcResponse {
-        let assessment = match assess_background_agent_convert_session(core, request.clone()).await {
-            Ok(assessment) => assessment,
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        };
-        match maybe_preview_or_confirm(assessment, preview, confirmation_token) {
-            Ok(Some(response)) => return response,
-            Ok(None) => {}
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        }
-
-        match command_service(core).convert_session(request) {
-            Ok(result) => IpcResponse::success(result),
+        let mut request = request;
+        request.preview = preview;
+        request.confirmation_token = confirmation_token;
+        match command_service(core).convert_session(request).await {
+            Ok(outcome) => IpcResponse::success(outcome),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -216,34 +139,14 @@ impl IpcServer {
         preview: bool,
         confirmation_token: Option<String>,
     ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
-            Ok(id) => id,
-            Err(response) => return response,
-        };
-        let patch = match resolve_patch_agent_id(patch, |agent_id| resolve_agent_id(core, agent_id))
-        {
-            Ok(patch) => patch,
-            Err(response) => return response,
-        };
-        let assessment = match assess_background_agent_update(
-            core,
-            match core_patch_to_update_request(resolved_id.clone(), &patch) {
-                Ok(request) => request,
-                Err(err) => return IpcResponse::error(500, err.to_string()),
-            },
-        )
-        .await
-        {
-            Ok(assessment) => assessment,
+        let mut request = match core_patch_to_update_request(id, &patch) {
+            Ok(request) => request,
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
-        match maybe_preview_or_confirm(assessment, preview, confirmation_token) {
-            Ok(Some(response)) => return response,
-            Ok(None) => {}
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        }
-        match command_service(core).update(&resolved_id, patch) {
-            Ok(task) => IpcResponse::success(task),
+        request.preview = preview;
+        request.confirmation_token = confirmation_token;
+        match command_service(core).update_from_request(request).await {
+            Ok(outcome) => IpcResponse::success(outcome),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -272,32 +175,18 @@ impl IpcServer {
         preview: bool,
         confirmation_token: Option<String>,
     ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
-            Ok(id) => id,
-            Err(response) => return response,
-        };
-        let assessment = match assess_background_agent_control(
-            core,
-            BackgroundAgentControlRequest {
-                id: resolved_id.clone(),
-                action: match to_contract(action.clone()) {
-                    Ok(value) => value,
-                    Err(err) => return IpcResponse::error(500, err.to_string()),
-                },
-            },
-        )
-        .await
-        {
-            Ok(assessment) => assessment,
+        let action = match to_contract(action) {
+            Ok(value) => value,
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
-        match maybe_preview_or_confirm(assessment, preview, confirmation_token) {
-            Ok(Some(response)) => return response,
-            Ok(None) => {}
-            Err(err) => return IpcResponse::error(500, err.to_string()),
-        }
-        match command_service(core).control(&resolved_id, action) {
-            Ok(task) => IpcResponse::success(task),
+        let request = BackgroundAgentControlRequest {
+            id,
+            action,
+            preview,
+            confirmation_token,
+        };
+        match command_service(core).control_from_request(request).await {
+            Ok(outcome) => IpcResponse::success(outcome),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }

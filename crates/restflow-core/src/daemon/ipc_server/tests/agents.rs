@@ -7,6 +7,7 @@ use restflow_contracts::{
     PairingStateResponse, RouteBindingResponse, SessionSourceMigrationResponse,
 };
 use restflow_storage::SimpleStorage;
+use restflow_traits::BackgroundAgentCommandOutcome;
 
 fn raw_agent_storage(core: &Arc<AppCore>) -> restflow_storage::AgentStorage {
     restflow_storage::AgentStorage::new(core.storage.get_db()).unwrap()
@@ -298,10 +299,15 @@ async fn process_update_background_agent_resolves_unique_prefix() {
 
     match response {
         IpcResponse::Success(value) => {
-            let updated: crate::models::BackgroundAgent =
+            let updated: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
                 serde_json::from_value(value).expect("background agent");
-            assert_eq!(updated.id, task.id);
-            assert_eq!(updated.description.as_deref(), Some("updated description"));
+            match updated {
+                BackgroundAgentCommandOutcome::Executed { result } => {
+                    assert_eq!(result.id, task.id);
+                    assert_eq!(result.description.as_deref(), Some("updated description"));
+                }
+                other => panic!("expected executed outcome, got {other:?}"),
+            }
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -330,10 +336,15 @@ async fn process_create_background_agent_accepts_default_agent_alias() {
 
     match response {
         IpcResponse::Success(value) => {
-            let created: crate::models::BackgroundAgent =
+            let created: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
                 serde_json::from_value(value).expect("background agent");
-            assert_eq!(created.agent_id, default_agent_id);
-            assert_eq!(created.name, "ipc-default-alias");
+            match created {
+                BackgroundAgentCommandOutcome::Executed { result } => {
+                    assert_eq!(result.agent_id, default_agent_id);
+                    assert_eq!(result.name, "ipc-default-alias");
+                }
+                other => panic!("expected executed outcome, got {other:?}"),
+            }
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -364,10 +375,15 @@ async fn process_update_background_agent_accepts_default_agent_alias() {
 
     match response {
         IpcResponse::Success(value) => {
-            let updated: crate::models::BackgroundAgent =
+            let updated: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
                 serde_json::from_value(value).expect("background agent");
-            assert_eq!(updated.id, task.id);
-            assert_eq!(updated.agent_id, default_agent_id);
+            match updated {
+                BackgroundAgentCommandOutcome::Executed { result } => {
+                    assert_eq!(result.id, task.id);
+                    assert_eq!(result.agent_id, default_agent_id);
+                }
+                other => panic!("expected executed outcome, got {other:?}"),
+            }
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -472,10 +488,15 @@ async fn process_control_background_agent_resolves_unique_prefix() {
 
     match response {
         IpcResponse::Success(value) => {
-            let updated: crate::models::BackgroundAgent =
+            let updated: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
                 serde_json::from_value(value).expect("background agent");
-            assert_eq!(updated.id, task.id);
-            assert_eq!(updated.status, crate::models::BackgroundAgentStatus::Paused);
+            match updated {
+                BackgroundAgentCommandOutcome::Executed { result } => {
+                    assert_eq!(result.id, task.id);
+                    assert_eq!(result.status, crate::models::BackgroundAgentStatus::Paused);
+                }
+                other => panic!("expected executed outcome, got {other:?}"),
+            }
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -630,7 +651,10 @@ async fn process_bind_route_preserves_legacy_group_binding() {
         "peer-1",
         "chat-1",
     );
-    assert_eq!(resolved.as_ref().map(|route| route.agent_id.as_str()), Some("agent-1"));
+    assert_eq!(
+        resolved.as_ref().map(|route| route.agent_id.as_str()),
+        Some("agent-1")
+    );
 }
 
 #[tokio::test]
@@ -959,16 +983,21 @@ async fn process_create_background_agent_requires_confirmation_when_agent_provid
     .await;
 
     match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 428);
-            assert_eq!(
-                error.kind,
-                restflow_contracts::ErrorKind::ConfirmationRequired
-            );
-            let details = error.details.expect("confirmation details");
-            assert_eq!(details["assessment"]["status"], "warning");
+        IpcResponse::Success(value) => {
+            let outcome: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
+                serde_json::from_value(value).expect("background agent outcome");
+            match outcome {
+                BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
+                    assert_eq!(
+                        assessment.status,
+                        restflow_traits::OperationAssessmentStatus::Warning
+                    );
+                    assert!(assessment.confirmation_token.is_some());
+                }
+                other => panic!("expected confirmation_required outcome, got {other:?}"),
+            }
         }
-        other => panic!("expected confirmation_required response, got {other:?}"),
+        other => panic!("expected success response, got {other:?}"),
     }
 }
 

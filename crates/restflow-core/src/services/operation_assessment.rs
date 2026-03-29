@@ -496,10 +496,7 @@ pub async fn assess_background_agent_convert_session(
         OperationAssessmentIntent::Save
     };
     if derive_conversion_input(request.input.clone(), &session.messages).is_none() {
-        let mut assessment = OperationAssessment::ok(
-            "convert_session_to_background_agent",
-            intent,
-        );
+        let mut assessment = OperationAssessment::ok("convert_session_to_background_agent", intent);
         assessment.blockers.push(issue(
             "missing_conversion_input",
             "Cannot convert session: no non-empty user message found; please provide input.",
@@ -986,7 +983,10 @@ mod tests {
             ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
         );
         session.add_message(ChatMessage::user("Summarize this thread"));
-        core.storage.chat_sessions.create(&session).expect("session");
+        core.storage
+            .chat_sessions
+            .create(&session)
+            .expect("session");
 
         let assessment = assess_background_agent_convert_session(
             &core,
@@ -1001,6 +1001,8 @@ mod tests {
                 memory_scope: None,
                 resource_limits: None,
                 run_now: None,
+                preview: false,
+                confirmation_token: None,
             },
         )
         .await
@@ -1024,7 +1026,10 @@ mod tests {
             created.id.clone(),
             ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
         );
-        core.storage.chat_sessions.create(&session).expect("session");
+        core.storage
+            .chat_sessions
+            .create(&session)
+            .expect("session");
 
         let assessment = assess_background_agent_convert_session(
             &core,
@@ -1039,6 +1044,8 @@ mod tests {
                 memory_scope: None,
                 resource_limits: None,
                 run_now: None,
+                preview: false,
+                confirmation_token: None,
             },
         )
         .await

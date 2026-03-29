@@ -89,15 +89,9 @@ pub(super) async fn execute_create(
         memory,
         memory_scope,
         resource_limits,
+        preview,
+        confirmation_token,
     };
-    let assessment = tool
-        .assessor()?
-        .assess_background_agent_create(request.clone())
-        .await?;
-    if preview {
-        return Ok(preview_output(assessment));
-    }
-    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let result = tool
         .store
         .create_background_agent(request)
@@ -133,15 +127,9 @@ pub(super) async fn execute_convert_session(
         memory_scope,
         resource_limits,
         run_now,
+        preview,
+        confirmation_token,
     };
-    let assessment = tool
-        .assessor()?
-        .assess_background_agent_convert_session(request.clone())
-        .await?;
-    if preview {
-        return Ok(preview_output(assessment));
-    }
-    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let result = tool
         .store
         .convert_session_to_background_agent(request)
@@ -187,15 +175,9 @@ pub(super) async fn execute_promote_to_background(
         memory_scope,
         resource_limits,
         run_now,
+        preview,
+        confirmation_token,
     };
-    let assessment = tool
-        .assessor()?
-        .assess_background_agent_convert_session(request.clone())
-        .await?;
-    if preview {
-        return Ok(preview_output(assessment));
-    }
-    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let result = tool
         .store
         .convert_session_to_background_agent(request)
@@ -245,15 +227,9 @@ pub(super) async fn execute_update(
         memory,
         memory_scope,
         resource_limits,
+        preview,
+        confirmation_token,
     };
-    let assessment = tool
-        .assessor()?
-        .assess_background_agent_update(request.clone())
-        .await?;
-    if preview {
-        return Ok(preview_output(assessment));
-    }
-    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let result = tool
         .store
         .update_background_agent(request)

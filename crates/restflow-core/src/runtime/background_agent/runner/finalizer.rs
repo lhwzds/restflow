@@ -151,7 +151,8 @@ impl<'a> BackgroundRunFinalizer<'a> {
         }
 
         if self.task.memory.persist_on_complete {
-            self.runner.persist_memory(&self.task, &exec_result.messages);
+            self.runner
+                .persist_memory(&self.task, &exec_result.messages);
         }
 
         self.runner
@@ -185,7 +186,11 @@ impl<'a> BackgroundRunFinalizer<'a> {
             ))
             .await;
         self.runner
-            .fire_hooks(&HookContext::from_failed(&self.task, error_msg, duration_ms))
+            .fire_hooks(&HookContext::from_failed(
+                &self.task,
+                error_msg,
+                duration_ms,
+            ))
             .await;
 
         if let Err(err) = self.runner.storage.fail_task_execution(
@@ -211,7 +216,12 @@ impl<'a> BackgroundRunFinalizer<'a> {
             .await;
     }
 
-    pub(super) async fn finalize_timeout(&self, error_msg: &str, timeout_secs: u64, duration_ms: i64) {
+    pub(super) async fn finalize_timeout(
+        &self,
+        error_msg: &str,
+        timeout_secs: u64,
+        duration_ms: i64,
+    ) {
         self.run_handle
             .fail(error_msg, Some(duration_ms.max(0) as u64))
             .await;
@@ -231,7 +241,11 @@ impl<'a> BackgroundRunFinalizer<'a> {
             ))
             .await;
         self.runner
-            .fire_hooks(&HookContext::from_failed(&self.task, error_msg, duration_ms))
+            .fire_hooks(&HookContext::from_failed(
+                &self.task,
+                error_msg,
+                duration_ms,
+            ))
             .await;
 
         if let Err(err) = self.runner.storage.fail_task_execution(
@@ -281,7 +295,11 @@ impl<'a> BackgroundRunFinalizer<'a> {
             ))
             .await;
         self.runner
-            .fire_hooks(&HookContext::from_interrupted(&self.task, reason, duration_ms))
+            .fire_hooks(&HookContext::from_interrupted(
+                &self.task,
+                reason,
+                duration_ms,
+            ))
             .await;
     }
 }

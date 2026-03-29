@@ -1,4 +1,5 @@
 use restflow_ai::llm::Message;
+use restflow_telemetry::TelemetryContext;
 
 use crate::models::ModelId;
 
@@ -131,6 +132,7 @@ pub struct SessionExecutionResult {
     pub active_model: String,
     pub final_model: ModelId,
     pub metrics: ExecutionMetrics,
+    pub final_telemetry_context: Option<TelemetryContext>,
 }
 
 impl SessionExecutionResult {
@@ -151,7 +153,13 @@ impl SessionExecutionResult {
                 final_model: Some(final_model),
                 ..ExecutionMetrics::default()
             },
+            final_telemetry_context: None,
         }
+    }
+
+    pub fn with_final_telemetry_context(mut self, telemetry_context: TelemetryContext) -> Self {
+        self.final_telemetry_context = Some(telemetry_context);
+        self
     }
 }
 
@@ -192,5 +200,6 @@ mod tests {
         assert_eq!(result.metrics.active_model.as_deref(), Some("gpt-5"));
         assert_eq!(result.metrics.final_model, Some(ModelId::Gpt5));
         assert_eq!(result.final_model, ModelId::Gpt5);
+        assert!(result.final_telemetry_context.is_none());
     }
 }

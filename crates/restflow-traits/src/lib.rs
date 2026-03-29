@@ -40,8 +40,8 @@ pub use error::{Result as ToolResult, ToolError};
 
 // Assessment types
 pub use assessment::{
-    AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
-    OperationAssessmentIssue, OperationAssessmentStatus,
+    AgentOperationAssessor, AssessmentModelRef, BackgroundAgentCommandOutcome, OperationAssessment,
+    OperationAssessmentIntent, OperationAssessmentIssue, OperationAssessmentStatus,
 };
 
 // Tool trait and core types

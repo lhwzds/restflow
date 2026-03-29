@@ -41,8 +41,8 @@ pub use background_agent::{
     BackgroundAgentRunMetrics, BackgroundAgentRunStatus, BackgroundAgentSchedule,
     BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
     BackgroundMessageStatus, BackgroundProgress, CliExecutionConfig, ContinuationConfig,
-    DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig,
-    ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
+    DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, ResourceLimits,
+    TaskEvent, TaskEventType, TaskSchedule,
 };
 pub use channel_session_binding::ChannelSessionBinding;
 pub use checkpoint::{AgentCheckpoint, ResumePayload};

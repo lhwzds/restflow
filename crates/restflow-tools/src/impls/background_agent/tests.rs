@@ -201,26 +201,66 @@ impl KvStore for MockKvStore {
 }
 
 impl BackgroundAgentStore for MockStore {
-    fn create_background_agent(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
-        Ok(json!({ "id": "task-1" }))
+    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+        if request.preview {
+            return Ok(json!({
+                "status": "preview",
+                "assessment": {
+                    "operation": "create_background_agent"
+                }
+            }));
+        }
+        Ok(json!({
+            "status": "executed",
+            "result": {
+                "id": "task-1"
+            }
+        }))
     }
 
     fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> Result<Value> {
+        if request.preview {
+            return Ok(json!({
+                "status": "preview",
+                "assessment": {
+                    "operation": "convert_session_to_background_agent"
+                }
+            }));
+        }
         Ok(json!({
-            "task": {
-                "id": "task-1",
-                "chat_session_id": request.session_id,
-                "name": request.name.unwrap_or_else(|| "converted".to_string()),
+            "status": "executed",
+            "result": {
+                "task": {
+                    "id": "task-1",
+                    "chat_session_id": request.session_id.clone(),
+                    "name": request.name.unwrap_or_else(|| "converted".to_string()),
+                },
+                "source_session_id": request.session_id,
+                "source_session_agent_id": "agent-1",
+                "run_now": request.run_now.unwrap_or(false)
             },
-            "run_now": request.run_now.unwrap_or(false)
         }))
     }
 
-    fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
-        Ok(json!({ "id": "task-1", "updated": true }))
+    fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value> {
+        if request.preview {
+            return Ok(json!({
+                "status": "preview",
+                "assessment": {
+                    "operation": "update_background_agent"
+                }
+            }));
+        }
+        Ok(json!({
+            "status": "executed",
+            "result": {
+                "id": "task-1",
+                "updated": true
+            }
+        }))
     }
 
     fn delete_background_agent(&self, _id: &str) -> Result<Value> {
@@ -232,7 +272,21 @@ impl BackgroundAgentStore for MockStore {
     }
 
     fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
-        Ok(json!({ "id": request.id, "action": request.action }))
+        if request.preview {
+            return Ok(json!({
+                "status": "preview",
+                "assessment": {
+                    "operation": "control_background_agent"
+                }
+            }));
+        }
+        Ok(json!({
+            "status": "executed",
+            "result": {
+                "id": request.id,
+                "action": request.action
+            }
+        }))
     }
 
     fn get_background_agent_progress(
@@ -307,7 +361,10 @@ impl BackgroundAgentStore for MockStore {
 
 impl BackgroundAgentStore for FailingListStore {
     fn create_background_agent(&self, _request: BackgroundAgentCreateRequest) -> Result<Value> {
-        Ok(json!({ "id": "task-1" }))
+        Ok(json!({
+            "status": "executed",
+            "result": { "id": "task-1" }
+        }))
     }
 
     fn convert_session_to_background_agent(
@@ -315,16 +372,24 @@ impl BackgroundAgentStore for FailingListStore {
         request: BackgroundAgentConvertSessionRequest,
     ) -> Result<Value> {
         Ok(json!({
-            "task": {
-                "id": "task-1",
-                "chat_session_id": request.session_id,
+            "status": "executed",
+            "result": {
+                "task": {
+                    "id": "task-1",
+                    "chat_session_id": request.session_id,
+                },
+                "source_session_id": "session-1",
+                "source_session_agent_id": "agent-1",
+                "run_now": request.run_now.unwrap_or(false)
             },
-            "run_now": request.run_now.unwrap_or(false)
         }))
     }
 
     fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
-        Ok(json!({ "id": "task-1", "updated": true }))
+        Ok(json!({
+            "status": "executed",
+            "result": { "id": "task-1", "updated": true }
+        }))
     }
 
     fn delete_background_agent(&self, _id: &str) -> Result<Value> {
@@ -336,7 +401,10 @@ impl BackgroundAgentStore for FailingListStore {
     }
 
     fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
-        Ok(json!({ "id": request.id, "action": request.action }))
+        Ok(json!({
+            "status": "executed",
+            "result": { "id": request.id, "action": request.action }
+        }))
     }
 
     fn get_background_agent_progress(
@@ -464,6 +532,32 @@ async fn test_create_accepts_typed_background_agent_payloads() {
         .await
         .unwrap();
     assert!(output.success);
+    assert_eq!(output.result["status"], "executed");
+}
+
+#[tokio::test]
+async fn test_create_preview_returns_store_outcome() {
+    let tool = writable_tool();
+    let output = tool
+        .execute(json!({
+            "operation": "create",
+            "name": "Preview Task",
+            "agent_id": "agent-1",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            },
+            "preview": true
+        }))
+        .await
+        .unwrap();
+    assert!(output.success);
+    assert_eq!(output.result["status"], "preview");
+    assert_eq!(
+        output.result["assessment"]["operation"],
+        "create_background_agent"
+    );
 }
 
 #[tokio::test]
@@ -503,7 +597,8 @@ async fn test_convert_session_operation() {
     assert_eq!(
         output
             .result
-            .get("task")
+            .get("result")
+            .and_then(|result| result.get("task"))
             .and_then(|task| task.get("chat_session_id"))
             .and_then(|value| value.as_str()),
         Some("session-1")
@@ -511,7 +606,8 @@ async fn test_convert_session_operation() {
     assert_eq!(
         output
             .result
-            .get("run_now")
+            .get("result")
+            .and_then(|result| result.get("run_now"))
             .and_then(|value| value.as_bool()),
         Some(true)
     );
@@ -533,7 +629,8 @@ async fn test_promote_to_background_operation() {
     assert_eq!(
         output
             .result
-            .get("task")
+            .get("result")
+            .and_then(|result| result.get("task"))
             .and_then(|task| task.get("chat_session_id"))
             .and_then(|value| value.as_str()),
         Some("session-1")
@@ -541,7 +638,8 @@ async fn test_promote_to_background_operation() {
     assert_eq!(
         output
             .result
-            .get("run_now")
+            .get("result")
+            .and_then(|result| result.get("run_now"))
             .and_then(|value| value.as_bool()),
         Some(false)
     );
@@ -562,7 +660,8 @@ async fn test_convert_session_defaults_run_now_to_false() {
     assert_eq!(
         output
             .result
-            .get("run_now")
+            .get("result")
+            .and_then(|result| result.get("run_now"))
             .and_then(|value| value.as_bool()),
         Some(false)
     );
@@ -670,7 +769,11 @@ async fn test_stop_uses_control_not_delete() {
     // Stop should call control_background_agent with action "stop", not delete
     // MockStore returns { id, action } for control operations
     assert_eq!(
-        output.result.get("action").and_then(|v| v.as_str()),
+        output
+            .result
+            .get("result")
+            .and_then(|result| result.get("action"))
+            .and_then(|v| v.as_str()),
         Some("stop")
     );
 }
@@ -687,7 +790,11 @@ async fn test_start_uses_control_with_start_action() {
         .unwrap();
     assert!(output.success);
     assert_eq!(
-        output.result.get("action").and_then(|v| v.as_str()),
+        output
+            .result
+            .get("result")
+            .and_then(|result| result.get("action"))
+            .and_then(|v| v.as_str()),
         Some("start")
     );
 }

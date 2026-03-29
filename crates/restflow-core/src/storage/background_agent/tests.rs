@@ -1,4 +1,5 @@
 use super::*;
+use crate::models::{BackgroundAgentRun, BackgroundAgentRunStatus};
 use tempfile::tempdir;
 
 fn create_test_storage() -> BackgroundAgentStorage {
@@ -6,6 +7,34 @@ fn create_test_storage() -> BackgroundAgentStorage {
     let db_path = temp_dir.path().join("test.db");
     let db = Arc::new(Database::create(db_path).unwrap());
     BackgroundAgentStorage::new(db).unwrap()
+}
+
+fn persist_checkpoint(
+    storage: &BackgroundAgentStorage,
+    task_id: &str,
+    execution_id: &str,
+    with_savepoint: bool,
+) -> AgentCheckpoint {
+    let mut checkpoint = AgentCheckpoint::new(
+        execution_id.to_string(),
+        Some(task_id.to_string()),
+        1,
+        0,
+        b"{}".to_vec(),
+        "test checkpoint".to_string(),
+    );
+
+    if with_savepoint {
+        let savepoint_id = storage.save_checkpoint_with_savepoint(&checkpoint).unwrap();
+        checkpoint.savepoint_id = Some(savepoint_id);
+        storage
+            .save_checkpoint_with_savepoint_id(&checkpoint)
+            .unwrap();
+    } else {
+        storage.save_checkpoint(&checkpoint).unwrap();
+    }
+
+    checkpoint
 }
 
 // ============== Short ID Resolution Tests ==============
@@ -237,6 +266,7 @@ fn test_task_runs_round_trip_and_track_checkpoint() {
             BackgroundAgentSchedule::default(),
         )
         .unwrap();
+    let checkpoint = persist_checkpoint(&storage, &task.id, "exec-1", false);
 
     let run = storage
         .start_task_run(&task.id, "run-1", "exec-1", 100, None)
@@ -250,10 +280,13 @@ fn test_task_runs_round_trip_and_track_checkpoint() {
     assert_eq!(active_run.execution_id, "exec-1");
 
     let updated = storage
-        .set_task_run_checkpoint("run-1", Some("cp-1".to_string()))
+        .set_task_run_checkpoint("run-1", Some(checkpoint.id.clone()))
         .unwrap()
         .expect("updated run");
-    assert_eq!(updated.checkpoint_id.as_deref(), Some("cp-1"));
+    assert_eq!(
+        updated.checkpoint_id.as_deref(),
+        Some(checkpoint.id.as_str())
+    );
 
     let completed = storage
         .mark_task_run_terminal(
@@ -273,6 +306,138 @@ fn test_task_runs_round_trip_and_track_checkpoint() {
         crate::models::BackgroundAgentRunStatus::Completed
     );
     assert!(storage.get_active_task_run(&task.id).unwrap().is_none());
+}
+
+#[test]
+fn test_start_task_run_rejects_second_active_run_for_task() {
+    let storage = create_test_storage();
+    let task = storage
+        .create_task(
+            "Single Active Run".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+
+    storage
+        .start_task_run(&task.id, "run-1", "exec-1", 100, None)
+        .unwrap();
+    let result = storage.start_task_run(&task.id, "run-2", "exec-2", 200, None);
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("already has active run")
+    );
+}
+
+#[test]
+fn test_start_task_run_rejects_foreign_checkpoint() {
+    let storage = create_test_storage();
+    let task = storage
+        .create_task(
+            "Checkpoint Owner".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+    let other_task = storage
+        .create_task(
+            "Foreign Owner".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+    let foreign_checkpoint = persist_checkpoint(&storage, &other_task.id, "exec-1", false);
+
+    let result = storage.start_task_run(
+        &task.id,
+        "run-1",
+        "exec-1",
+        100,
+        Some(foreign_checkpoint.id.clone()),
+    );
+
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("belongs to task"));
+}
+
+#[test]
+fn test_set_task_run_checkpoint_rejects_mismatched_execution() {
+    let storage = create_test_storage();
+    let task = storage
+        .create_task(
+            "Checkpoint Execution".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+    let wrong_execution_checkpoint = persist_checkpoint(&storage, &task.id, "exec-2", false);
+
+    storage
+        .start_task_run(&task.id, "run-1", "exec-1", 100, None)
+        .unwrap();
+    let result = storage.set_task_run_checkpoint("run-1", Some(wrong_execution_checkpoint.id));
+
+    assert!(result.is_err());
+    assert!(
+        result
+            .unwrap_err()
+            .to_string()
+            .contains("belongs to execution")
+    );
+}
+
+#[test]
+fn test_get_active_task_run_recovers_duplicate_legacy_active_runs() {
+    let storage = create_test_storage();
+    let task = storage
+        .create_task(
+            "Legacy Duplicate Runs".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+
+    let run_one = BackgroundAgentRun::new("run-1", task.id.clone(), "exec-1", 100, None);
+    let run_two = BackgroundAgentRun::new("run-2", task.id.clone(), "exec-2", 200, None);
+    let run_one_raw = serde_json::to_vec(&run_one).unwrap();
+    let run_two_raw = serde_json::to_vec(&run_two).unwrap();
+    storage
+        .inner
+        .put_run_raw(&run_one.run_id, &run_one.task_id, &run_one_raw)
+        .unwrap();
+    storage
+        .inner
+        .put_run_raw(&run_two.run_id, &run_two.task_id, &run_two_raw)
+        .unwrap();
+
+    let active = storage
+        .get_active_task_run(&task.id)
+        .unwrap()
+        .expect("active run should be recovered");
+    assert_eq!(active.run_id, "run-2");
+
+    let interrupted = storage
+        .get_task_run("run-1")
+        .unwrap()
+        .expect("legacy loser run");
+    assert_eq!(interrupted.status, BackgroundAgentRunStatus::Interrupted);
+    assert!(
+        interrupted
+            .error
+            .as_deref()
+            .is_some_and(|value| value.contains("Recovered duplicate active run"))
+    );
+
+    let indexed = storage
+        .inner
+        .get_active_run_raw(&task.id)
+        .unwrap()
+        .expect("active-run index should self-heal");
+    assert_eq!(indexed.0, "run-2");
 }
 
 #[test]
@@ -783,6 +948,52 @@ fn test_delete_task() {
         .list_background_agent_messages(&task.id, 10)
         .unwrap();
     assert!(messages.is_empty());
+}
+
+#[test]
+fn test_delete_task_removes_checkpoints_and_savepoints() {
+    let storage = create_test_storage();
+    let task = storage
+        .create_task(
+            "Delete Checkpoints".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+    let checkpoint_one = persist_checkpoint(&storage, &task.id, "exec-1", true);
+    let checkpoint_two = persist_checkpoint(&storage, &task.id, "exec-2", true);
+
+    let deleted = storage.delete_task(&task.id).unwrap();
+    assert!(deleted);
+
+    assert!(
+        storage
+            .load_checkpoint_by_task_id(&task.id)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        storage
+            .load_checkpoint(&checkpoint_one.id)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        storage
+            .load_checkpoint(&checkpoint_two.id)
+            .unwrap()
+            .is_none()
+    );
+    assert!(
+        !storage
+            .delete_checkpoint_savepoint(checkpoint_one.savepoint_id.unwrap())
+            .unwrap()
+    );
+    assert!(
+        !storage
+            .delete_checkpoint_savepoint(checkpoint_two.savepoint_id.unwrap())
+            .unwrap()
+    );
 }
 
 #[test]

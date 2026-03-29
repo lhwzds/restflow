@@ -152,6 +152,10 @@ pub struct BackgroundAgentCreateRequest {
     pub memory_scope: Option<String>,
     #[serde(default)]
     pub resource_limits: Option<ContractResourceLimits>,
+    #[serde(default)]
+    pub preview: bool,
+    #[serde(default)]
+    pub confirmation_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -175,6 +179,10 @@ pub struct BackgroundAgentConvertSessionRequest {
     pub resource_limits: Option<ContractResourceLimits>,
     #[serde(default)]
     pub run_now: Option<bool>,
+    #[serde(default)]
+    pub preview: bool,
+    #[serde(default)]
+    pub confirmation_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -208,12 +216,20 @@ pub struct BackgroundAgentUpdateRequest {
     pub memory_scope: Option<String>,
     #[serde(default)]
     pub resource_limits: Option<ContractResourceLimits>,
+    #[serde(default)]
+    pub preview: bool,
+    #[serde(default)]
+    pub confirmation_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackgroundAgentControlRequest {
     pub id: String,
     pub action: String,
+    #[serde(default)]
+    pub preview: bool,
+    #[serde(default)]
+    pub confirmation_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

@@ -6,8 +6,9 @@ use crate::boundary::background_agent::{
 };
 #[cfg(unix)]
 use crate::daemon::request_mapper::to_contract;
-#[cfg(unix)]
 use restflow_contracts::DeleteWithIdResponse;
+#[cfg(unix)]
+use restflow_traits::BackgroundAgentCommandOutcome;
 #[cfg(unix)]
 use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
@@ -29,12 +30,14 @@ impl IpcClient {
     pub async fn create_background_agent(
         &mut self,
         spec: BackgroundAgentSpec,
-    ) -> Result<BackgroundAgent> {
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let spec = core_spec_to_contract(spec)?;
         self.request_typed(IpcRequest::CreateBackgroundAgent {
             spec,
-            preview: false,
-            confirmation_token: None,
+            preview,
+            confirmation_token,
         })
         .await
     }
@@ -42,12 +45,14 @@ impl IpcClient {
     pub async fn convert_session_to_background_agent(
         &mut self,
         request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<crate::models::BackgroundAgentConversionResult> {
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<crate::models::BackgroundAgentConversionResult>> {
         let request = store_convert_request_to_contract(request)?;
         self.request_typed(IpcRequest::ConvertSessionToBackgroundAgent {
             request,
-            preview: false,
-            confirmation_token: None,
+            preview,
+            confirmation_token,
         })
         .await
     }
@@ -56,13 +61,15 @@ impl IpcClient {
         &mut self,
         id: String,
         patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent> {
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let patch = core_patch_to_contract(patch)?;
         self.request_typed(IpcRequest::UpdateBackgroundAgent {
             id,
             patch,
-            preview: false,
-            confirmation_token: None,
+            preview,
+            confirmation_token,
         })
         .await
     }
@@ -78,13 +85,15 @@ impl IpcClient {
         &mut self,
         id: String,
         action: BackgroundAgentControlAction,
-    ) -> Result<BackgroundAgent> {
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let action = to_contract(action)?;
         self.request_typed(IpcRequest::ControlBackgroundAgent {
             id,
             action,
-            preview: false,
-            confirmation_token: None,
+            preview,
+            confirmation_token,
         })
         .await
     }

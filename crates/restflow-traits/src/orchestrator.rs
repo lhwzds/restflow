@@ -58,6 +58,10 @@ pub struct ExecutionPlan {
     #[serde(default)]
     pub trace_scope_id: Option<String>,
     /// Optional authoritative run ID.
+    ///
+    /// For sub-agent executions this identifies the canonical child run. When
+    /// supplied by a caller that already owns lifecycle emission, executors
+    /// must reuse this run ID without emitting a second top-level lifecycle.
     #[serde(default)]
     pub run_id: Option<String>,
     /// Mode-specific metadata payload.
@@ -260,5 +264,19 @@ mod tests {
         };
 
         assert!(invalid.validate().is_err());
+    }
+
+    #[test]
+    fn test_execution_plan_accepts_optional_run_id_for_subagent_mode() {
+        let valid = ExecutionPlan {
+            mode: Some(ExecutionMode::Subagent),
+            agent_id: Some("child".to_string()),
+            input: Some("task".to_string()),
+            run_id: Some("child-run-1".to_string()),
+            ..ExecutionPlan::default()
+        };
+
+        assert!(valid.validate().is_ok());
+        assert_eq!(valid.run_id.as_deref(), Some("child-run-1"));
     }
 }

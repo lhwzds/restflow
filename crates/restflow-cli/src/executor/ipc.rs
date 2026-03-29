@@ -21,6 +21,7 @@ use restflow_core::models::{
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
+use restflow_traits::BackgroundAgentCommandOutcome;
 use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 pub struct IpcExecutor {
@@ -446,26 +447,41 @@ impl CommandExecutor for IpcExecutor {
             .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", id))
     }
 
-    async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+    async fn create_background_agent(
+        &self,
+        spec: BackgroundAgentSpec,
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let mut client = self.client.lock().await;
-        client.create_background_agent(spec).await
+        client
+            .create_background_agent(spec, preview, confirmation_token)
+            .await
     }
 
     async fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentConversionResult> {
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
         let mut client = self.client.lock().await;
-        client.convert_session_to_background_agent(request).await
+        client
+            .convert_session_to_background_agent(request, preview, confirmation_token)
+            .await
     }
 
     async fn update_background_agent(
         &self,
         id: &str,
         patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent> {
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let mut client = self.client.lock().await;
-        client.update_background_agent(id.to_string(), patch).await
+        client
+            .update_background_agent(id.to_string(), patch, preview, confirmation_token)
+            .await
     }
 
     async fn delete_background_agent(&self, id: &str) -> Result<()> {
@@ -478,12 +494,13 @@ impl CommandExecutor for IpcExecutor {
         &self,
         id: &str,
         action: BackgroundAgentControlAction,
-    ) -> Result<()> {
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let mut client = self.client.lock().await;
         client
-            .control_background_agent(id.to_string(), action)
-            .await?;
-        Ok(())
+            .control_background_agent(id.to_string(), action, preview, confirmation_token)
+            .await
     }
 
     async fn get_background_agent_progress(

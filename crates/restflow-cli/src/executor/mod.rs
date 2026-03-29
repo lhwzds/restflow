@@ -8,15 +8,15 @@ use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
-    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundProgress, ChatSession,
-    ChatSessionSummary, Deliverable,
-    ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, Hook, ItemQuery,
-    MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
+    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary,
+    Deliverable, ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, Hook,
+    ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
     WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
+use restflow_traits::BackgroundAgentCommandOutcome;
 use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 use std::sync::Arc;
 
@@ -130,22 +130,33 @@ pub trait CommandExecutor: Send + Sync {
     // Background Agent operations
     async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<BackgroundAgent>>;
     async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent>;
-    async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent>;
+    async fn create_background_agent(
+        &self,
+        spec: BackgroundAgentSpec,
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>>;
     async fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentConversionResult>;
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>;
     async fn update_background_agent(
         &self,
         id: &str,
         patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent>;
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>>;
     async fn delete_background_agent(&self, id: &str) -> Result<()>;
     async fn control_background_agent(
         &self,
         id: &str,
         action: BackgroundAgentControlAction,
-    ) -> Result<()>;
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>>;
     async fn get_background_agent_progress(
         &self,
         id: &str,

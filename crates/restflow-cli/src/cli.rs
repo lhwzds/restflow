@@ -202,6 +202,17 @@ pub struct UpgradeArgs {
     pub force: bool,
 }
 
+#[derive(Args, Clone, Debug, Default)]
+pub struct MutationGuardArgs {
+    /// Preview capability warnings/blockers without applying changes
+    #[arg(long)]
+    pub preview: bool,
+
+    /// Confirmation token returned by a previous preview/confirmation_required response
+    #[arg(long = "confirm")]
+    pub confirmation_token: Option<String>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::Cli;
@@ -346,8 +357,6 @@ mod tests {
             "background-agent",
             "convert-session",
             "session-123",
-            "--run-now",
-            "false",
         ]);
         assert!(matches!(
             cli,
@@ -356,6 +365,34 @@ mod tests {
                     command: super::BackgroundAgentCommands::ConvertSession { .. }
                 }),
                 ..
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_background_agent_create_guard_flags() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "background-agent",
+            "create",
+            "--name",
+            "guarded-task",
+            "--agent",
+            "default",
+            "--schedule",
+            "interval",
+            "--schedule-value",
+            "60000",
+            "--preview",
+            "--confirm",
+            "token-123",
+        ])
+        .expect("parse background-agent create with guard flags");
+
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::BackgroundAgent {
+                command: super::BackgroundAgentCommands::Create { .. }
             })
         ));
     }
@@ -1103,6 +1140,9 @@ pub enum BackgroundAgentCommands {
         /// Enable Telegram notification
         #[arg(long)]
         notify: bool,
+
+        #[command(flatten)]
+        guard: MutationGuardArgs,
     },
 
     /// Convert an existing chat session into a background agent
@@ -1131,8 +1171,11 @@ pub enum BackgroundAgentCommands {
         timeout: Option<u64>,
 
         /// Trigger immediate run after conversion
-        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
+        #[arg(long, default_value_t = false, action = clap::ArgAction::Set)]
         run_now: bool,
+
+        #[command(flatten)]
+        guard: MutationGuardArgs,
     },
 
     /// Update a background agent
@@ -1154,6 +1197,9 @@ pub enum BackgroundAgentCommands {
 
         #[arg(long)]
         timeout: Option<u64>,
+
+        #[command(flatten)]
+        guard: MutationGuardArgs,
     },
 
     /// Delete a background agent
@@ -1170,6 +1216,9 @@ pub enum BackgroundAgentCommands {
         /// Action: start, pause, resume, stop, run_now
         #[arg(short, long)]
         action: String,
+
+        #[command(flatten)]
+        guard: MutationGuardArgs,
     },
 
     /// Show execution progress
