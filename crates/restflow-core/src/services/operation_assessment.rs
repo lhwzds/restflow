@@ -312,7 +312,8 @@ fn normalize_subagent_request(
 ) -> Result<SpawnRequest> {
     let definitions = StorageBackedSubagentLookup::new(core.storage.agents.clone());
     let available_agents = definitions.list_callable();
-    spawn_request_from_contract(&available_agents, request).map_err(|error| anyhow!(error.to_string()))
+    spawn_request_from_contract(&available_agents, request)
+        .map_err(|error| anyhow!(error.to_string()))
 }
 
 async fn assess_agent_node(

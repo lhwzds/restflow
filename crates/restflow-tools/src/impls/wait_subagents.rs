@@ -147,8 +147,8 @@ mod tests {
     use super::*;
     use crate::Tool;
     use restflow_ai::agent::{
-        SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-        SubagentDeps, SubagentManagerImpl, SubagentTracker,
+        SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary, SubagentDeps,
+        SubagentManagerImpl, SubagentTracker,
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
