@@ -10,8 +10,9 @@
 use crate::channel::{ChannelRouter, MessageLevel, OutboundMessage};
 use crate::hooks::HookExecutor;
 use crate::models::{
-    BackgroundAgent, BackgroundAgentStatus, BackgroundMessageSource, ExecutionMode, HookContext,
-    MemoryConfig, MemoryScope, NotificationConfig, SteerMessage, SteerSource,
+    BackgroundAgent, BackgroundAgentRun, BackgroundAgentStatus, BackgroundMessageSource,
+    ExecutionMode, HookContext, MemoryConfig, MemoryScope, NotificationConfig, SteerMessage,
+    SteerSource,
 };
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
@@ -24,6 +25,8 @@ use restflow_ai::agent::StreamEmitter;
 use restflow_telemetry::{RunDescriptor, RunKind, RunLifecycleService};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+#[cfg(test)]
+use std::sync::atomic::AtomicBool;
 use std::sync::atomic::{AtomicU64, Ordering};
 use tokio::sync::{RwLock, mpsc, oneshot};
 use tokio::time::{Duration, Instant, interval};
@@ -43,9 +46,9 @@ use super::heartbeat::{
 };
 use super::outcome::ExecutionOutcome;
 use finalizer::BackgroundRunFinalizer;
+mod finalizer;
 mod notification;
 mod persistence;
-mod finalizer;
 
 #[cfg(test)]
 mod tests;
@@ -460,6 +463,8 @@ pub struct BackgroundAgentRunner {
     steer_registry: Arc<SteerRegistry>,
     /// Optional channel router for broadcasting notifications to all configured channels
     channel_router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
+    #[cfg(test)]
+    fail_start_task_run_once: Arc<AtomicBool>,
 }
 
 impl BackgroundAgentRunner {
@@ -496,6 +501,8 @@ impl BackgroundAgentRunner {
             hook_executor: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
+            #[cfg(test)]
+            fail_start_task_run_once: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -533,6 +540,8 @@ impl BackgroundAgentRunner {
             hook_executor: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
+            #[cfg(test)]
+            fail_start_task_run_once: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -574,6 +583,8 @@ impl BackgroundAgentRunner {
             hook_executor: None,
             steer_registry,
             channel_router: Arc::new(RwLock::new(None)),
+            #[cfg(test)]
+            fail_start_task_run_once: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -619,6 +630,173 @@ impl BackgroundAgentRunner {
     /// Get the execution trace storage for persisting runtime events.
     fn execution_trace_storage(&self) -> &crate::storage::ExecutionTraceStorage {
         self.storage.execution_traces()
+    }
+
+    #[cfg(test)]
+    fn inject_start_task_run_failure(&self) {
+        self.fail_start_task_run_once.store(true, Ordering::SeqCst);
+    }
+
+    async fn has_resume_intent(&self, task_id: &str) -> bool {
+        self.resume_states.read().await.contains_key(task_id)
+            || self
+                .resume_checkpoint_ids
+                .read()
+                .await
+                .contains_key(task_id)
+    }
+
+    async fn staged_resume_intent(
+        &self,
+        task_id: &str,
+    ) -> (Option<restflow_ai::AgentState>, Option<String>) {
+        let state = self.resume_states.read().await.get(task_id).cloned();
+        let checkpoint_id = self
+            .resume_checkpoint_ids
+            .read()
+            .await
+            .get(task_id)
+            .cloned();
+        (state, checkpoint_id)
+    }
+
+    fn build_run_handle_for_task_run(
+        &self,
+        task: &BackgroundAgent,
+        run: &BackgroundAgentRun,
+    ) -> restflow_telemetry::RunHandle {
+        let trace_session_id = {
+            let session_id = task.chat_session_id.trim();
+            if session_id.is_empty() {
+                task.id.clone()
+            } else {
+                session_id.to_string()
+            }
+        };
+        let telemetry_sink =
+            crate::telemetry::build_execution_trace_sink(self.execution_trace_storage());
+        RunLifecycleService::new(telemetry_sink).handle(RunDescriptor::new(
+            RunKind::BackgroundTask,
+            run.run_id.clone(),
+            trace_session_id,
+            task.id.clone(),
+            task.agent_id.clone(),
+        ))
+    }
+
+    async fn activate_resume_intent_for_launch(&self, task_id: &str) -> Result<bool> {
+        if !self.has_resume_intent(task_id).await {
+            return Ok(false);
+        }
+        let Some(mut task) = self.storage.get_task(task_id)? else {
+            return Err(anyhow!("Task {} not found", task_id));
+        };
+        if task.status != BackgroundAgentStatus::Paused {
+            return Ok(false);
+        }
+        task.status = BackgroundAgentStatus::Active;
+        task.updated_at = chrono::Utc::now().timestamp_millis();
+        self.storage.save_task(&task)?;
+        Ok(true)
+    }
+
+    async fn consume_resume_checkpoint(&self, task_id: &str, checkpoint_id: &str) -> Result<()> {
+        let checkpoint = self
+            .storage
+            .load_checkpoint(checkpoint_id)?
+            .ok_or_else(|| {
+                anyhow!(
+                    "Checkpoint {} not found for task {}",
+                    checkpoint_id,
+                    task_id
+                )
+            })?;
+        if checkpoint.task_id.as_deref() != Some(task_id) {
+            anyhow::bail!(
+                "Checkpoint {} no longer belongs to task {}",
+                checkpoint_id,
+                task_id
+            );
+        }
+
+        let mut checkpoint = checkpoint;
+        if !checkpoint.is_resumed() {
+            checkpoint.mark_resumed();
+            self.storage.save_checkpoint(&checkpoint)?;
+        }
+        if let Some(savepoint_id) = checkpoint.savepoint_id {
+            self.storage.delete_checkpoint_savepoint(savepoint_id)?;
+        }
+        Ok(())
+    }
+
+    async fn rollback_precommit_launch(
+        &self,
+        task_id: &str,
+        original_task: &BackgroundAgent,
+        resume_launch: bool,
+        run_id: Option<&str>,
+        reason: &str,
+    ) {
+        let now = chrono::Utc::now().timestamp_millis();
+        if let Some(run_id) = run_id
+            && let Err(err) = self.storage.interrupt_task_run(run_id, now, reason)
+        {
+            warn!(
+                task_id = %task_id,
+                run_id = %run_id,
+                error = %err,
+                "Failed to mark pre-commit background run as interrupted"
+            );
+        }
+
+        match self.storage.get_task(task_id) {
+            Ok(Some(mut latest)) => {
+                if resume_launch {
+                    latest.pause();
+                    if let Err(err) = self.storage.save_task(&latest) {
+                        warn!(
+                            task_id = %task_id,
+                            error = %err,
+                            "Failed to rollback resumed task to paused state"
+                        );
+                    }
+                } else {
+                    let mut rollback = original_task.clone();
+                    rollback.updated_at = now;
+                    if let Err(err) = self.storage.save_task(&rollback) {
+                        warn!(
+                            task_id = %task_id,
+                            error = %err,
+                            "Failed to rollback task to pre-launch snapshot"
+                        );
+                    }
+                }
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!(
+                    task_id = %task_id,
+                    error = %err,
+                    "Failed to load task during pre-commit rollback"
+                );
+            }
+        }
+
+        self.cleanup_runtime_tracking(task_id).await;
+    }
+
+    async fn recover_active_run_with_finalizer(
+        &self,
+        task: &BackgroundAgent,
+        run: &BackgroundAgentRun,
+        reason: &str,
+        ended_at: i64,
+    ) {
+        let run_handle = self.build_run_handle_for_task_run(task, run);
+        let finalizer = BackgroundRunFinalizer::new(self, task.clone(), None, run_handle);
+        let duration_ms = ended_at.saturating_sub(run.started_at);
+        finalizer.finalize_interrupted(reason, duration_ms).await;
     }
 
     /// Install RestFlow git hooks in the given repository.
@@ -794,34 +972,39 @@ impl BackgroundAgentRunner {
         match self.storage.list_active_task_runs() {
             Ok(runs) => {
                 for run in runs {
-                    match self.storage.interrupt_task_run(
-                        &run.run_id,
-                        now,
-                        "Recovered after daemon restart",
-                    ) {
-                        Ok(_) => {
-                            recovered_task_ids.insert(run.task_id.clone());
-                            if let Ok(Some(task)) = self.storage.get_task(&run.task_id)
-                                && task.status == BackgroundAgentStatus::Running
-                                && let Err(err) = self.storage.resume_task(&task.id)
-                            {
-                                error!(
-                                    "Failed to recover stale Running task '{}' after run recovery: {}",
-                                    task.name, err
-                                );
-                            }
-                        }
+                    let task = match self.storage.get_task(&run.task_id) {
+                        Ok(Some(task)) => task,
+                        Ok(None) => continue,
                         Err(err) => {
                             error!(
-                                "Failed to recover stale background run '{}' for task '{}': {}",
-                                run.run_id, run.task_id, err
+                                "Failed to load task '{}' during startup recovery: {}",
+                                run.task_id, err
                             );
+                            continue;
                         }
+                    };
+                    futures::executor::block_on(self.recover_active_run_with_finalizer(
+                        &task,
+                        &run,
+                        "Recovered after daemon restart",
+                        now,
+                    ));
+                    recovered_task_ids.insert(run.task_id.clone());
+                    if task.status == BackgroundAgentStatus::Running
+                        && let Err(err) = self.storage.resume_task(&task.id)
+                    {
+                        error!(
+                            "Failed to recover stale Running task '{}' after run recovery: {}",
+                            task.name, err
+                        );
                     }
                 }
             }
             Err(err) => {
-                error!("Failed to list background task runs for startup recovery: {}", err);
+                error!(
+                    "Failed to list background task runs for startup recovery: {}",
+                    err
+                );
             }
         }
 
@@ -952,34 +1135,40 @@ impl BackgroundAgentRunner {
                         continue;
                     }
 
-                    match self.storage.interrupt_task_run(
-                        &run.run_id,
-                        current_time,
-                        "Recovered stalled background execution",
-                    ) {
-                        Ok(_) => {
-                            recovered_task_ids.insert(run.task_id.clone());
-                            if let Ok(Some(task)) = self.storage.get_task(&run.task_id)
-                                && task.status == BackgroundAgentStatus::Running
-                                && let Err(error) = self.storage.resume_task(&task.id)
-                            {
-                                warn!(
-                                    "Failed to recover stalled Running task '{}' after run recovery: {}",
-                                    task.name, error
-                                );
-                            }
-                        }
+                    let task = match self.storage.get_task(&run.task_id) {
+                        Ok(Some(task)) => task,
+                        Ok(None) => continue,
                         Err(error) => {
                             warn!(
-                                "Failed to recover stalled background run '{}' for task '{}': {}",
-                                run.run_id, run.task_id, error
+                                "Failed to load task '{}' during stalled-task recovery: {}",
+                                run.task_id, error
                             );
+                            continue;
                         }
+                    };
+                    self.recover_active_run_with_finalizer(
+                        &task,
+                        &run,
+                        "Recovered stalled background execution",
+                        current_time,
+                    )
+                    .await;
+                    recovered_task_ids.insert(run.task_id.clone());
+                    if task.status == BackgroundAgentStatus::Running
+                        && let Err(error) = self.storage.resume_task(&task.id)
+                    {
+                        warn!(
+                            "Failed to recover stalled Running task '{}' after run recovery: {}",
+                            task.name, error
+                        );
                     }
                 }
             }
             Err(error) => {
-                warn!("Failed to list background task runs for stalled-task recovery: {}", error);
+                warn!(
+                    "Failed to list background task runs for stalled-task recovery: {}",
+                    error
+                );
             }
         }
 
@@ -1034,6 +1223,7 @@ impl BackgroundAgentRunner {
     /// Run a task immediately, bypassing schedule check
     async fn run_task_immediate(&self, task_id: &str) {
         let task_id_owned = task_id.to_string();
+        let resume_launch = self.has_resume_intent(&task_id_owned).await;
         match self.storage.get_active_task_run(&task_id_owned) {
             Ok(Some(run)) => {
                 warn!(
@@ -1067,31 +1257,42 @@ impl BackgroundAgentRunner {
             running_tasks.insert(task_id_owned.clone());
         }
 
-        // Verify task exists and is not paused/completed
-        match self.storage.get_task(&task_id_owned) {
-            Ok(Some(task)) => {
-                if task.status == BackgroundAgentStatus::Paused {
-                    warn!("Cannot run paused task {}", task_id);
-                    self.cleanup_task_tracking(&task_id_owned).await;
-                    return;
-                }
-                if task.status == BackgroundAgentStatus::Completed {
-                    warn!("Cannot run completed task {}", task_id);
-                    self.cleanup_task_tracking(&task_id_owned).await;
-                    return;
-                }
-            }
+        let original_task = match self.storage.get_task(&task_id_owned) {
+            Ok(Some(task)) => task,
             Ok(None) => {
                 warn!("Task {} not found", task_id);
-                self.cleanup_task_tracking(&task_id_owned).await;
+                self.cleanup_runtime_tracking(&task_id_owned).await;
                 return;
             }
-            Err(e) => {
-                error!("Failed to get task {}: {}", task_id, e);
-                self.cleanup_task_tracking(&task_id_owned).await;
+            Err(error) => {
+                error!("Failed to get task {}: {}", task_id, error);
+                self.cleanup_runtime_tracking(&task_id_owned).await;
                 return;
             }
+        };
+        if original_task.status == BackgroundAgentStatus::Paused && !resume_launch {
+            warn!("Cannot run paused task {}", task_id);
+            self.cleanup_runtime_tracking(&task_id_owned).await;
+            return;
         }
+        if original_task.status == BackgroundAgentStatus::Completed {
+            warn!("Cannot run completed task {}", task_id);
+            self.cleanup_runtime_tracking(&task_id_owned).await;
+            return;
+        }
+
+        let resume_task_activated =
+            match self.activate_resume_intent_for_launch(&task_id_owned).await {
+                Ok(activated) => activated,
+                Err(error) => {
+                    error!(
+                        "Failed to activate staged resume intent for task {}: {}",
+                        task_id, error
+                    );
+                    self.cleanup_runtime_tracking(&task_id_owned).await;
+                    return;
+                }
+            };
 
         let (stop_tx, stop_rx) = oneshot::channel();
         self.stop_senders
@@ -1107,19 +1308,40 @@ impl BackgroundAgentRunner {
             Ok(Some(task)) => task,
             Ok(None) => {
                 warn!("Task {} not found", task_id_owned);
-                self.cleanup_task_tracking(&task_id_owned).await;
+                self.rollback_precommit_launch(
+                    &task_id_owned,
+                    &original_task,
+                    resume_task_activated,
+                    None,
+                    "Task disappeared before queue submission",
+                )
+                .await;
                 return;
             }
-            Err(e) => {
-                error!("Failed to load task {}: {}", task_id_owned, e);
-                self.cleanup_task_tracking(&task_id_owned).await;
+            Err(error) => {
+                error!("Failed to load task {}: {}", task_id_owned, error);
+                self.rollback_precommit_launch(
+                    &task_id_owned,
+                    &original_task,
+                    resume_task_activated,
+                    None,
+                    "Failed to load task before queue submission",
+                )
+                .await;
                 return;
             }
         };
 
         if let Err(err) = self.task_queue.submit(task, TaskPriority::High).await {
             warn!("Failed to enqueue task {}: {:?}", task_id_owned, err);
-            self.cleanup_task_tracking(&task_id_owned).await;
+            self.rollback_precommit_launch(
+                &task_id_owned,
+                &original_task,
+                resume_task_activated,
+                None,
+                "Failed to enqueue task",
+            )
+            .await;
         }
     }
 
@@ -1163,10 +1385,7 @@ impl BackgroundAgentRunner {
         let checkpoint = match self.storage.load_checkpoint(checkpoint_id) {
             Ok(Some(cp)) => cp,
             Ok(None) => {
-                warn!(
-                    "No checkpoint {} found for task {}",
-                    checkpoint_id, task_id
-                );
+                warn!("No checkpoint {} found for task {}", checkpoint_id, task_id);
                 return;
             }
             Err(e) => {
@@ -1206,79 +1425,84 @@ impl BackgroundAgentRunner {
                 }
             };
 
-        let mut cp = checkpoint;
-        cp.mark_resumed();
-        if let Err(e) = self.storage.save_checkpoint(&cp) {
-            warn!("Failed to mark checkpoint as resumed: {}", e);
-        }
-        if let Some(savepoint_id) = cp.savepoint_id
-            && let Err(e) = self.storage.delete_checkpoint_savepoint(savepoint_id)
-        {
-            warn!(
-                "Failed to delete checkpoint savepoint {} for task {}: {}",
-                savepoint_id, task_id, e
-            );
-        }
+        let checkpoint_id = checkpoint.id.clone();
 
-        // Transition task status back to Running
-        if let Ok(Some(mut task)) = self.storage.get_task(task_id) {
-            task.status = if payload.approved {
-                BackgroundAgentStatus::Running
-            } else {
-                BackgroundAgentStatus::Paused
-            };
-            task.updated_at = chrono::Utc::now().timestamp_millis();
-            if let Err(e) = self.storage.save_task(&task) {
+        if !payload.approved {
+            let mut denied_checkpoint = checkpoint;
+            denied_checkpoint.mark_resumed();
+            if let Err(e) = self.storage.save_checkpoint(&denied_checkpoint) {
+                warn!("Failed to mark checkpoint as resumed: {}", e);
+            }
+            if let Some(savepoint_id) = denied_checkpoint.savepoint_id
+                && let Err(e) = self.storage.delete_checkpoint_savepoint(savepoint_id)
+            {
+                warn!(
+                    "Failed to delete checkpoint savepoint {} for task {}: {}",
+                    savepoint_id, task_id, e
+                );
+            }
+
+            if let Ok(Some(mut task)) = self.storage.get_task(task_id) {
+                task.status = BackgroundAgentStatus::Paused;
+                task.updated_at = chrono::Utc::now().timestamp_millis();
+                if let Err(e) = self.storage.save_task(&task) {
+                    error!(
+                        "Failed to update task status after checkpoint denial: {}",
+                        e
+                    );
+                    return;
+                }
+            }
+        } else {
+            let Some(state) = restored_state else {
                 error!(
-                    "Failed to update task status after checkpoint decision: {}",
-                    e
+                    "Cannot resume task {} from checkpoint {} without a valid restored state",
+                    task_id, checkpoint_id
                 );
                 return;
-            }
-        }
-
-        // Emit event
-        {
-            let detail = format!(
-                "Resumed from checkpoint {}: {}",
-                cp.id,
-                if payload.approved {
-                    "approved"
-                } else {
-                    "denied"
-                }
-            );
-            self.event_emitter
-                .emit(TaskStreamEvent::progress(
-                    task_id,
-                    "resumed",
-                    None,
-                    Some(detail),
-                ))
-                .await;
-        }
-
-        // Run the task. If state deserialization succeeded, execution resumes
-        // from that state on the next queue dispatch.
-        info!(
-            task_id = %task_id,
-            checkpoint_id = %cp.id,
-            approved = payload.approved,
-            "Resuming task from checkpoint"
-        );
-        if payload.approved {
-            if let Some(state) = restored_state {
-                self.resume_states
-                    .write()
-                    .await
-                    .insert(task_id.to_string(), state);
-            }
+            };
+            self.resume_states
+                .write()
+                .await
+                .insert(task_id.to_string(), state);
             self.resume_checkpoint_ids
                 .write()
                 .await
-                .insert(task_id.to_string(), cp.id.clone());
+                .insert(task_id.to_string(), checkpoint_id.clone());
+
+            info!(
+                task_id = %task_id,
+                checkpoint_id = %checkpoint_id,
+                approved = payload.approved,
+                "Staged checkpoint resume intent"
+            );
             self.run_task_immediate(task_id).await;
         }
+
+        let detail = format!(
+            "Resumed from checkpoint {}: {}",
+            checkpoint_id,
+            if payload.approved {
+                "approved"
+            } else {
+                "denied"
+            }
+        );
+        self.event_emitter
+            .emit(TaskStreamEvent::progress(
+                task_id,
+                "resumed",
+                None,
+                Some(detail),
+            ))
+            .await;
+
+        info!(
+            task_id = %task_id,
+            checkpoint_id = %checkpoint_id,
+            approved = payload.approved,
+            "Processed checkpoint resume request"
+        );
     }
 
     fn to_steer_source(source: &BackgroundMessageSource) -> SteerSource {
@@ -1329,13 +1553,47 @@ impl BackgroundAgentRunner {
         stop_rx: Option<oneshot::Receiver<()>>,
     ) -> Result<bool> {
         let start_time = chrono::Utc::now().timestamp_millis();
+        let stop_rx = match stop_rx {
+            Some(receiver) => receiver,
+            None => {
+                error!(
+                    "No stop receiver found for task '{}'. Refusing to run unstoppably tracked task.",
+                    task_id
+                );
+                self.cleanup_runtime_tracking(task_id).await;
+                return Err(anyhow!("Task {} has no stop channel", task_id));
+            }
+        };
+        let resume_launch = self.has_resume_intent(task_id).await;
+        let original_task = match self.storage.get_task(task_id) {
+            Ok(Some(task)) => task,
+            Ok(None) => {
+                self.cleanup_runtime_tracking(task_id).await;
+                return Err(anyhow!("Task {} not found before execution", task_id));
+            }
+            Err(error) => {
+                self.cleanup_runtime_tracking(task_id).await;
+                return Err(anyhow!(
+                    "Failed to load task {} before execution: {}",
+                    task_id,
+                    error
+                ));
+            }
+        };
 
         // Start execution in storage
         let task = match self.storage.start_task_execution(task_id) {
             Ok(task) => task,
             Err(e) => {
                 error!("Failed to start task execution for {}: {}", task_id, e);
-                self.cleanup_task_tracking(task_id).await;
+                self.rollback_precommit_launch(
+                    task_id,
+                    &original_task,
+                    resume_launch,
+                    None,
+                    "Failed to start task execution",
+                )
+                .await;
                 return Err(anyhow!(
                     "Failed to start task execution for {}: {}",
                     task_id,
@@ -1360,16 +1618,6 @@ impl BackgroundAgentRunner {
             ExecutionMode::Api => "api".to_string(),
             ExecutionMode::Cli(cfg) => format!("cli:{}", cfg.binary),
         };
-
-        self.event_emitter
-            .emit(TaskStreamEvent::started(
-                &task.id,
-                &task.name,
-                &task.agent_id,
-                &execution_mode_str,
-            ))
-            .await;
-        self.fire_hooks(&HookContext::from_started(&task)).await;
 
         // Register steer channel for API-based tasks
         let steer_rx = if matches!(task.execution_mode, ExecutionMode::Api) {
@@ -1465,14 +1713,7 @@ impl BackgroundAgentRunner {
         } else {
             execution_timeout_secs
         };
-        let (resume_state, resume_checkpoint_id) = {
-            let mut resume_states = self.resume_states.write().await;
-            let state = resume_states.remove(task_id);
-            drop(resume_states);
-            let mut resume_checkpoint_ids = self.resume_checkpoint_ids.write().await;
-            let checkpoint_id = resume_checkpoint_ids.remove(task_id);
-            (state, checkpoint_id)
-        };
+        let (resume_state, resume_checkpoint_id) = self.staged_resume_intent(task_id).await;
 
         let execution_trace_storage = self.execution_trace_storage();
         let telemetry_sink = crate::telemetry::build_execution_trace_sink(execution_trace_storage);
@@ -1487,18 +1728,45 @@ impl BackgroundAgentRunner {
             .as_ref()
             .map(|state| state.execution_id.clone())
             .unwrap_or_else(|| run_handle.run_id().to_string());
+        #[cfg(test)]
+        if self.fail_start_task_run_once.swap(false, Ordering::SeqCst) {
+            pump_cancel.cancel();
+            if let Some(pump) = message_pump.take() {
+                let _ = pump.await;
+            }
+            self.rollback_precommit_launch(
+                &task.id,
+                &original_task,
+                resume_launch,
+                None,
+                "Injected start_task_run failure",
+            )
+            .await;
+            return Err(anyhow!(
+                "Injected background task run creation failure for {}",
+                task.id
+            ));
+        }
+        let persisted_resume_checkpoint_id = resume_checkpoint_id.clone();
         if let Err(err) = self.storage.start_task_run(
             &task.id,
             run_handle.run_id().to_string(),
             execution_id,
             start_time,
-            resume_checkpoint_id,
+            persisted_resume_checkpoint_id,
         ) {
             pump_cancel.cancel();
             if let Some(pump) = message_pump.take() {
                 let _ = pump.await;
             }
-            self.cleanup_task_tracking(task_id).await;
+            self.rollback_precommit_launch(
+                &task.id,
+                &original_task,
+                resume_launch,
+                None,
+                "Failed to create background task run",
+            )
+            .await;
             return Err(anyhow!(
                 "Failed to create background task run for {}: {}",
                 task.id,
@@ -1506,13 +1774,41 @@ impl BackgroundAgentRunner {
             ));
         }
         run_handle.start().await;
-        let telemetry_context = Some(run_handle.cloned_context());
         let finalizer = BackgroundRunFinalizer::new(
             self,
             task.clone(),
             resolved_input.clone(),
             run_handle.clone(),
         );
+        if let Some(checkpoint_id) = resume_checkpoint_id.as_deref()
+            && let Err(err) = self
+                .consume_resume_checkpoint(&task.id, checkpoint_id)
+                .await
+        {
+            let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
+            let error_msg = format!("Execution error: failed to consume resume checkpoint: {err}");
+            pump_cancel.cancel();
+            if let Some(pump) = message_pump.take() {
+                let _ = pump.await;
+            }
+            finalizer
+                .finalize_failure(&error_msg, duration_ms, false)
+                .await;
+            self.clear_task_conversation_links(task_id).await;
+            self.cleanup_task_tracking(task_id).await;
+            return Ok(false);
+        }
+        self.clear_resume_intent(task_id).await;
+        self.event_emitter
+            .emit(TaskStreamEvent::started(
+                &task.id,
+                &task.name,
+                &task.agent_id,
+                &execution_mode_str,
+            ))
+            .await;
+        self.fire_hooks(&HookContext::from_started(&task)).await;
+        let telemetry_context = Some(run_handle.cloned_context());
 
         if resolved_input
             .as_deref()
@@ -1664,15 +1960,6 @@ impl BackgroundAgentRunner {
                 }
             }
         };
-
-        // Fail fast: refuse to run uncancellable tasks
-        let stop_rx = stop_rx.ok_or_else(|| {
-            error!(
-                "No stop receiver found for task '{}'. Refusing to run unstoppably tracked task.",
-                task_id
-            );
-            anyhow!("Task {} has no stop channel", task_id)
-        })?;
 
         enum PauseSignal {
             Paused,

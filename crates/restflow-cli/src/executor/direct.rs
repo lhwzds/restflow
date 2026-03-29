@@ -32,6 +32,7 @@ use restflow_core::{
     },
 };
 use restflow_storage::PairingStorage;
+use restflow_traits::BackgroundAgentCommandOutcome;
 use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 const TELEGRAM_CHAT_ID_SECRET: &str = "TELEGRAM_CHAT_ID";
@@ -446,14 +447,21 @@ impl CommandExecutor for DirectExecutor {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn create_background_agent(&self, _spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+    async fn create_background_agent(
+        &self,
+        _spec: BackgroundAgentSpec,
+        _preview: bool,
+        _confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
     async fn convert_session_to_background_agent(
         &self,
         _request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentConversionResult> {
+        _preview: bool,
+        _confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
@@ -461,7 +469,9 @@ impl CommandExecutor for DirectExecutor {
         &self,
         _id: &str,
         _patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent> {
+        _preview: bool,
+        _confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
@@ -473,7 +483,9 @@ impl CommandExecutor for DirectExecutor {
         &self,
         _id: &str,
         _action: BackgroundAgentControlAction,
-    ) -> Result<()> {
+        _preview: bool,
+        _confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 

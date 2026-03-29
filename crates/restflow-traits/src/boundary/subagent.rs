@@ -267,4 +267,20 @@ mod tests {
                 .contains("cannot be combined with 'agent'")
         );
     }
+
+    #[test]
+    fn spawn_request_from_contract_keeps_run_id_empty_for_external_callers() {
+        let request = spawn_request_from_contract(
+            &available_agents(),
+            ContractSubagentSpawnRequest {
+                agent_id: Some("coder".to_string()),
+                task: "write code".to_string(),
+                ..ContractSubagentSpawnRequest::default()
+            },
+        )
+        .expect("request should build");
+
+        assert_eq!(request.agent_id.as_deref(), Some("coder"));
+        assert!(request.run_id.is_none());
+    }
 }

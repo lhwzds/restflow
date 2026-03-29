@@ -131,19 +131,37 @@ impl RunHandle {
 
     pub fn with_requested_model(&self, requested_model: impl Into<String>) -> Self {
         let mut next = self.clone();
-        next.telemetry_context = next.telemetry_context.clone().with_requested_model(requested_model);
+        next.telemetry_context = next
+            .telemetry_context
+            .clone()
+            .with_requested_model(requested_model);
         next
     }
 
     pub fn with_effective_model(&self, effective_model: impl Into<String>) -> Self {
         let mut next = self.clone();
-        next.telemetry_context = next.telemetry_context.clone().with_effective_model(effective_model);
+        next.telemetry_context = next
+            .telemetry_context
+            .clone()
+            .with_effective_model(effective_model);
         next
     }
 
     pub fn with_provider(&self, provider: impl Into<String>) -> Self {
         let mut next = self.clone();
         next.telemetry_context = next.telemetry_context.clone().with_provider(provider);
+        next
+    }
+
+    pub fn with_attempt(&self, attempt: u32) -> Self {
+        let mut next = self.clone();
+        next.telemetry_context = next.telemetry_context.clone().with_attempt(attempt);
+        next
+    }
+
+    pub fn with_actor_id(&self, actor_id: impl Into<String>) -> Self {
+        let mut next = self.clone();
+        next.telemetry_context.trace.actor_id = actor_id.into();
         next
     }
 
@@ -170,7 +188,20 @@ impl RunHandle {
     }
 
     pub async fn complete(&self, ai_duration_ms: Option<u64>) {
-        self.emit(ExecutionEvent::RunCompleted { ai_duration_ms }).await;
+        self.emit(ExecutionEvent::RunCompleted { ai_duration_ms })
+            .await;
+    }
+
+    pub async fn complete_with_context(
+        &self,
+        context: &TelemetryContext,
+        ai_duration_ms: Option<u64>,
+    ) {
+        self.emit_with_context(
+            self.merge_terminal_context(context),
+            ExecutionEvent::RunCompleted { ai_duration_ms },
+        )
+        .await;
     }
 
     pub async fn fail(&self, error: impl AsRef<str>, ai_duration_ms: Option<u64>) {
@@ -185,6 +216,26 @@ impl RunHandle {
         .await;
     }
 
+    pub async fn fail_with_context(
+        &self,
+        context: &TelemetryContext,
+        error: impl AsRef<str>,
+        ai_duration_ms: Option<u64>,
+    ) {
+        let sanitized_error = truncate_telemetry_text(
+            &sanitize_telemetry_secrets(error.as_ref()),
+            DEFAULT_TELEMETRY_TEXT_LIMIT,
+        );
+        self.emit_with_context(
+            self.merge_terminal_context(context),
+            ExecutionEvent::RunFailed {
+                error: sanitized_error,
+                ai_duration_ms,
+            },
+        )
+        .await;
+    }
+
     pub async fn interrupt(&self, reason: impl AsRef<str>, ai_duration_ms: Option<u64>) {
         let sanitized_reason = truncate_telemetry_text(
             &sanitize_telemetry_secrets(reason.as_ref()),
@@ -194,6 +245,26 @@ impl RunHandle {
             reason: sanitized_reason,
             ai_duration_ms,
         })
+        .await;
+    }
+
+    pub async fn interrupt_with_context(
+        &self,
+        context: &TelemetryContext,
+        reason: impl AsRef<str>,
+        ai_duration_ms: Option<u64>,
+    ) {
+        let sanitized_reason = truncate_telemetry_text(
+            &sanitize_telemetry_secrets(reason.as_ref()),
+            DEFAULT_TELEMETRY_TEXT_LIMIT,
+        );
+        self.emit_with_context(
+            self.merge_terminal_context(context),
+            ExecutionEvent::RunInterrupted {
+                reason: sanitized_reason,
+                ai_duration_ms,
+            },
+        )
         .await;
     }
 
@@ -221,13 +292,46 @@ impl RunHandle {
     }
 
     async fn emit(&self, event: ExecutionEvent) {
+        self.emit_with_context(self.telemetry_context.clone(), event)
+            .await;
+    }
+
+    async fn emit_with_context(&self, context: TelemetryContext, event: ExecutionEvent) {
         if let Some(sink) = &self.sink {
             sink.emit(ExecutionEventEnvelope::from_telemetry_context(
-                &self.telemetry_context,
-                event,
+                &context, event,
             ))
             .await;
         }
+    }
+
+    fn merge_terminal_context(&self, context: &TelemetryContext) -> TelemetryContext {
+        let mut merged = self.telemetry_context.clone();
+        merged.trace.run_id = self.descriptor.run_id.clone();
+        merged.trace.parent_run_id = self.descriptor.parent_run_id.clone();
+
+        if !context.trace.session_id.trim().is_empty() {
+            merged.trace.session_id = context.trace.session_id.clone();
+        }
+        if !context.trace.scope_id.trim().is_empty() {
+            merged.trace.scope_id = context.trace.scope_id.clone();
+        }
+        if !context.trace.actor_id.trim().is_empty() {
+            merged.trace.actor_id = context.trace.actor_id.clone();
+        }
+        if context.requested_model.is_some() {
+            merged.requested_model = context.requested_model.clone();
+        }
+        if context.effective_model.is_some() {
+            merged.effective_model = context.effective_model.clone();
+        }
+        if context.provider.is_some() {
+            merged.provider = context.provider.clone();
+        }
+        if context.attempt.is_some() {
+            merged.attempt = context.attempt;
+        }
+        merged
     }
 }
 
@@ -264,7 +368,7 @@ mod tests {
 
     use tokio::sync::Mutex;
 
-    use crate::{ExecutionEvent, ExecutionEventEnvelope, TelemetrySink};
+    use crate::{ExecutionEvent, ExecutionEventEnvelope, TelemetryContext, TelemetrySink};
 
     use super::{RunAttemptTracker, RunDescriptor, RunKind, RunLifecycleService};
 
@@ -306,6 +410,52 @@ mod tests {
         ));
     }
 
+    #[tokio::test]
+    async fn terminal_events_can_use_final_context_without_changing_run_identity() {
+        let sink = Arc::new(RecordingSink::default());
+        let service = RunLifecycleService::new(sink.clone());
+        let handle = service.handle(
+            RunDescriptor::new(
+                RunKind::Interactive,
+                "run-1",
+                "session-1",
+                "scope-1",
+                "agent-1",
+            )
+            .with_parent_run_id(Some("parent-1".to_string())),
+        );
+        let override_context = TelemetryContext::new(
+            handle
+                .child_descriptor(
+                    RunKind::Subagent,
+                    "wrong-run",
+                    "agent-2",
+                    Some("session-2".to_string()),
+                    Some("scope-2".to_string()),
+                )
+                .trace(),
+        )
+        .with_effective_model("gpt-5")
+        .with_provider("openai")
+        .with_attempt(2);
+
+        handle.start().await;
+        handle
+            .complete_with_context(&override_context, Some(42))
+            .await;
+
+        let events = sink.events.lock().await.clone();
+        assert_eq!(events.len(), 2);
+        assert_eq!(events[1].trace.run_id, "run-1");
+        assert_eq!(events[1].trace.parent_run_id.as_deref(), Some("parent-1"));
+        assert_eq!(events[1].trace.session_id, "session-2");
+        assert_eq!(events[1].trace.scope_id, "scope-2");
+        assert_eq!(events[1].trace.actor_id, "agent-2");
+        assert_eq!(events[1].effective_model.as_deref(), Some("gpt-5"));
+        assert_eq!(events[1].provider.as_deref(), Some("openai"));
+        assert_eq!(events[1].attempt, Some(2));
+    }
+
     #[test]
     fn attempt_tracker_increments_monotonically() {
         let mut tracker = RunAttemptTracker::default();
@@ -331,13 +481,8 @@ mod tests {
             .with_parent_run_id(Some("root".to_string())),
         );
 
-        let child = handle.child_descriptor(
-            RunKind::Subagent,
-            "child-run",
-            "agent-child",
-            None,
-            None,
-        );
+        let child =
+            handle.child_descriptor(RunKind::Subagent, "child-run", "agent-child", None, None);
 
         assert_eq!(child.parent_run_id.as_deref(), Some("parent-run"));
         assert_eq!(child.session_id, "session-1");

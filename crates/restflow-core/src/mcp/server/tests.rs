@@ -1583,9 +1583,10 @@ async fn test_manage_background_agents_convert_session_operation() {
         .await
         .unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(value["source_session"]["id"], session_id);
-    assert_eq!(value["task"]["chat_session_id"], session_id);
-    assert_eq!(value["run_now"], false);
+    assert_eq!(value["status"], "executed");
+    assert_eq!(value["result"]["source_session_id"], session_id);
+    assert_eq!(value["result"]["task"]["chat_session_id"], session_id);
+    assert_eq!(value["result"]["run_now"], false);
 }
 
 #[tokio::test]
@@ -1603,9 +1604,10 @@ async fn test_manage_background_agents_promote_to_background_operation() {
         .await
         .unwrap();
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert_eq!(value["source_session"]["id"], session_id);
-    assert_eq!(value["task"]["chat_session_id"], session_id);
-    assert_eq!(value["run_now"], true);
+    assert_eq!(value["status"], "executed");
+    assert_eq!(value["result"]["source_session_id"], session_id);
+    assert_eq!(value["result"]["task"]["chat_session_id"], session_id);
+    assert_eq!(value["result"]["run_now"], true);
 }
 
 #[tokio::test]
@@ -1709,7 +1711,12 @@ async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
             "operation": "create",
             "name": "stop-contract",
             "agent_id": "default",
-            "input": "do not run"
+            "input": "do not run",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            }
         }),
     )
     .await;
@@ -1720,7 +1727,7 @@ async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
     );
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
-    let task_id = created["id"]
+    let task_id = created["result"]["id"]
         .as_str()
         .expect("created task should have id")
         .to_string();
@@ -1738,12 +1745,12 @@ async fn test_mcp_manage_background_agents_stop_uses_stop_semantics() {
     let stopped: serde_json::Value =
         serde_json::from_str(call_tool_text(&stop)).expect("stop response json");
     assert!(stopped.get("deleted").is_none());
-    assert_eq!(stopped["status"], "interrupted");
+    assert_eq!(stopped["result"]["status"], "interrupted");
 
     let stored = core
         .storage
         .background_agents
-        .get_task(stopped["id"].as_str().expect("stopped task id"))
+        .get_task(stopped["result"]["id"].as_str().expect("stopped task id"))
         .expect("background storage query should succeed")
         .expect("stop should not delete the task");
     assert_eq!(stored.status, BackgroundAgentStatus::Interrupted);
@@ -1760,7 +1767,12 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
             "operation": "create",
             "name": "start-contract",
             "agent_id": "default",
-            "input": "start later"
+            "input": "start later",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            }
         }),
     )
     .await;
@@ -1771,7 +1783,7 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
     );
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
-    let task_id = created["id"]
+    let task_id = created["result"]["id"]
         .as_str()
         .expect("created task should have id")
         .to_string();
@@ -1799,13 +1811,13 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
     assert!(!start.is_error.unwrap_or(false));
     let started: serde_json::Value =
         serde_json::from_str(call_tool_text(&start)).expect("start response json");
-    assert_eq!(started["status"], "active");
-    assert!(started["next_run_at"].as_i64().is_some());
+    assert_eq!(started["result"]["status"], "active");
+    assert!(started["result"]["next_run_at"].as_i64().is_some());
 
     let stored = core
         .storage
         .background_agents
-        .get_task(started["id"].as_str().expect("started task id"))
+        .get_task(started["result"]["id"].as_str().expect("started task id"))
         .expect("background storage query should succeed")
         .expect("start should not delete the task");
     assert_eq!(stored.status, BackgroundAgentStatus::Active);
@@ -1823,7 +1835,12 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
             "operation": "create",
             "name": "delete-prefix-contract",
             "agent_id": "default",
-            "input": "delete later"
+            "input": "delete later",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            }
         }),
     )
     .await;
@@ -1834,7 +1851,7 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
     );
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
-    let task_id = created["id"]
+    let task_id = created["result"]["id"]
         .as_str()
         .expect("created task should have id")
         .to_string();
@@ -1867,7 +1884,12 @@ async fn test_mcp_manage_background_agents_list_deliverables_accepts_prefix() {
             "operation": "create",
             "name": "deliverable-prefix-contract",
             "agent_id": "default",
-            "input": "deliver later"
+            "input": "deliver later",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            }
         }),
     )
     .await;
@@ -1878,7 +1900,7 @@ async fn test_mcp_manage_background_agents_list_deliverables_accepts_prefix() {
     );
     let created: serde_json::Value =
         serde_json::from_str(call_tool_text(&create)).expect("create response json");
-    let task_id = created["id"]
+    let task_id = created["result"]["id"]
         .as_str()
         .expect("created task should have id")
         .to_string();

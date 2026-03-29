@@ -28,6 +28,9 @@ const BACKGROUND_AGENT_RUN_TABLE: TableDefinition<&str, &[u8]> =
 /// Index table: task_id:run_id -> run_id
 const BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("background_agent_run_task_index");
+/// Index table: task_id -> run_id for the single active run of one task.
+const BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_active_run_index");
 /// Background message payload table
 const BACKGROUND_MESSAGE_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("background_messages");
@@ -87,6 +90,109 @@ impl BackgroundAgentStorage {
         Ok(status.to_string())
     }
 
+    fn parse_run_task_id(data: &[u8]) -> Result<String> {
+        let value: serde_json::Value =
+            serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
+        let task_id = value
+            .get("task_id")
+            .and_then(|task_id| task_id.as_str())
+            .ok_or_else(|| anyhow::anyhow!("task_id is missing or not a string"))?;
+        Ok(task_id.to_string())
+    }
+
+    fn parse_run_status(data: &[u8]) -> Result<String> {
+        let value: serde_json::Value =
+            serde_json::from_slice(data).map_err(|error| anyhow::anyhow!("{}", error))?;
+        let status = value
+            .get("status")
+            .and_then(|status| status.as_str())
+            .ok_or_else(|| anyhow::anyhow!("status is missing or not a string"))?;
+        Ok(status.to_string())
+    }
+
+    fn validate_run_payload(run_id: &str, task_id: &str, status: &str, data: &[u8]) -> Result<()> {
+        let payload_task_id = Self::parse_run_task_id(data)?;
+        if payload_task_id != task_id {
+            anyhow::bail!(
+                "background run '{}' payload task_id '{}' does not match '{}'",
+                run_id,
+                payload_task_id,
+                task_id
+            );
+        }
+
+        let payload_status = Self::parse_run_status(data)?;
+        if payload_status != status {
+            anyhow::bail!(
+                "background run '{}' payload status '{}' does not match '{}'",
+                run_id,
+                payload_status,
+                status
+            );
+        }
+
+        Ok(())
+    }
+
+    fn ensure_task_exists(
+        table: &redb::Table<&str, &[u8]>,
+        task_id: &str,
+        run_id: &str,
+    ) -> Result<()> {
+        if table.get(task_id)?.is_none() {
+            anyhow::bail!(
+                "background run '{}' references missing background task '{}'",
+                run_id,
+                task_id
+            );
+        }
+        Ok(())
+    }
+
+    fn reconcile_active_run_slot(
+        active_index: &mut redb::Table<&str, &str>,
+        run_table: &redb::Table<&str, &[u8]>,
+        task_id: &str,
+        run_id: &str,
+        status: &str,
+    ) -> Result<()> {
+        let wants_active = status == "running";
+        let active_entry = active_index
+            .get(task_id)?
+            .map(|value| value.value().to_string());
+
+        if let Some(existing_run_id) = active_entry {
+            if existing_run_id != run_id {
+                if let Some(existing_raw) = run_table.get(existing_run_id.as_str())? {
+                    let existing_task_id = Self::parse_run_task_id(existing_raw.value())?;
+                    let existing_status = Self::parse_run_status(existing_raw.value())?;
+                    if existing_task_id == task_id && existing_status == "running" {
+                        if wants_active {
+                            anyhow::bail!(
+                                "background task '{}' already has active run '{}'",
+                                task_id,
+                                existing_run_id
+                            );
+                        }
+                        return Ok(());
+                    }
+                }
+                active_index.remove(task_id)?;
+            } else if !wants_active {
+                active_index.remove(task_id)?;
+                return Ok(());
+            }
+        } else if !wants_active {
+            return Ok(());
+        }
+
+        if wants_active {
+            active_index.insert(task_id, run_id)?;
+        }
+
+        Ok(())
+    }
+
     fn ensure_unique_chat_session_binding(
         table: &redb::Table<&str, &[u8]>,
         task_id: &str,
@@ -140,6 +246,7 @@ impl BackgroundAgentStorage {
         write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
         write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
         write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+        write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
@@ -326,10 +433,13 @@ impl BackgroundAgentStorage {
 
             let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
             let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            let mut active_run_index =
+                write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
             if let Some(previous_key) = status_lookup.get(id)? {
                 status_index.remove(previous_key.value())?;
             }
             status_lookup.remove(id)?;
+            active_run_index.remove(id)?;
 
             existed
         };
@@ -346,6 +456,8 @@ impl BackgroundAgentStorage {
 
             let mut status_index = write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
             let mut status_lookup = write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+            let mut active_run_index =
+                write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
             if let Some(previous_key) = status_lookup.get(id)? {
                 status_index.remove(previous_key.value())?;
             } else {
@@ -353,6 +465,7 @@ impl BackgroundAgentStorage {
                 status_index.remove(status_key.as_str())?;
             }
             status_lookup.remove(id)?;
+            active_run_index.remove(id)?;
 
             existed
         };
@@ -383,8 +496,9 @@ impl BackgroundAgentStorage {
             }
 
             let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
-            let mut run_task_index =
-                write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let mut run_task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let mut active_run_index =
+                write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
             let mut run_keys = Vec::new();
             for item in run_task_index.range(start.as_str()..end.as_str())? {
                 let (key, value) = item?;
@@ -394,6 +508,7 @@ impl BackgroundAgentStorage {
                 run_task_index.remove(run_key.as_str())?;
                 run_table.remove(run_id.as_str())?;
             }
+            active_run_index.remove(id)?;
 
             let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
             let mut message_task_index =
@@ -450,6 +565,54 @@ impl BackgroundAgentStorage {
         Ok(())
     }
 
+    /// Store raw background run data and keep the active-run index consistent.
+    pub fn put_run_raw_with_status(
+        &self,
+        run_id: &str,
+        task_id: &str,
+        status: &str,
+        data: &[u8],
+    ) -> Result<()> {
+        Self::validate_run_payload(run_id, task_id, status, data)?;
+
+        let write_txn = self.db.begin_write()?;
+        {
+            let task_table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            Self::ensure_task_exists(&task_table, task_id, run_id)?;
+            drop(task_table);
+
+            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+            let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let mut active_index = write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+
+            if let Some(existing) = run_table.get(run_id)? {
+                let existing_task_id = Self::parse_run_task_id(existing.value())?;
+                if existing_task_id != task_id {
+                    anyhow::bail!(
+                        "background run '{}' is indexed under task '{}', not '{}'",
+                        run_id,
+                        existing_task_id,
+                        task_id
+                    );
+                }
+            }
+
+            Self::reconcile_active_run_slot(
+                &mut active_index,
+                &run_table,
+                task_id,
+                run_id,
+                status,
+            )?;
+            run_table.insert(run_id, data)?;
+
+            let task_key = format!("{}:{}", task_id, run_id);
+            task_index.insert(task_key.as_str(), run_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
     /// Update raw background run data while preserving the task index.
     pub fn update_run_raw(&self, run_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
         let write_txn = self.db.begin_write()?;
@@ -460,6 +623,68 @@ impl BackgroundAgentStorage {
             let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
             let task_key = format!("{}:{}", task_id, run_id);
             task_index.insert(task_key.as_str(), run_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Update raw background run data while preserving task index and active-run consistency.
+    pub fn update_run_raw_with_status(
+        &self,
+        run_id: &str,
+        task_id: &str,
+        old_status: &str,
+        new_status: &str,
+        data: &[u8],
+    ) -> Result<()> {
+        Self::validate_run_payload(run_id, task_id, new_status, data)?;
+
+        let write_txn = self.db.begin_write()?;
+        {
+            let task_table = write_txn.open_table(BACKGROUND_AGENT_TABLE)?;
+            Self::ensure_task_exists(&task_table, task_id, run_id)?;
+            drop(task_table);
+
+            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+            let current_status = match run_table.get(run_id)? {
+                Some(existing) => {
+                    let existing_task_id = Self::parse_run_task_id(existing.value())?;
+                    if existing_task_id != task_id {
+                        anyhow::bail!(
+                            "background run '{}' is indexed under task '{}', not '{}'",
+                            run_id,
+                            existing_task_id,
+                            task_id
+                        );
+                    }
+                    Self::parse_run_status(existing.value())?
+                }
+                None => old_status.to_string(),
+            };
+
+            let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let mut active_index = write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+
+            Self::reconcile_active_run_slot(
+                &mut active_index,
+                &run_table,
+                task_id,
+                run_id,
+                new_status,
+            )?;
+            run_table.insert(run_id, data)?;
+
+            let task_key = format!("{}:{}", task_id, run_id);
+            task_index.insert(task_key.as_str(), run_id)?;
+
+            if current_status == "running"
+                && new_status != "running"
+                && active_index
+                    .get(task_id)?
+                    .is_some_and(|value| value.value() == run_id)
+            {
+                active_index.remove(task_id)?;
+            }
         }
         write_txn.commit()?;
         Ok(())
@@ -500,6 +725,51 @@ impl BackgroundAgentStorage {
                 runs.push((run_id.to_string(), data.value().to_vec()));
             }
         }
+        Ok(runs)
+    }
+
+    /// Return the active run payload referenced by the task-level active-run index.
+    pub fn get_active_run_raw(&self, task_id: &str) -> Result<Option<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let active_index = read_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+
+        let Some(run_id) = active_index.get(task_id)? else {
+            return Ok(None);
+        };
+        let run_id = run_id.value().to_string();
+        let Some(data) = run_table.get(run_id.as_str())? else {
+            return Ok(None);
+        };
+        Ok(Some((run_id, data.value().to_vec())))
+    }
+
+    /// Remove one task-level active-run index entry.
+    pub fn clear_active_run_raw(&self, task_id: &str) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut active_index = write_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+            active_index.remove(task_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// List all active run payloads referenced by the task-level active-run index.
+    pub fn list_active_runs_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let active_index = read_txn.open_table(BACKGROUND_AGENT_ACTIVE_RUN_INDEX_TABLE)?;
+        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        let mut runs = Vec::new();
+
+        for item in active_index.iter()? {
+            let (_, run_id) = item?;
+            let run_id = run_id.value();
+            if let Some(data) = run_table.get(run_id)? {
+                runs.push((run_id.to_string(), data.value().to_vec()));
+            }
+        }
+
         Ok(runs)
     }
 
@@ -813,6 +1083,23 @@ mod tests {
         .into_bytes()
     }
 
+    fn run_payload(
+        run_id: &str,
+        task_id: &str,
+        execution_id: &str,
+        status: &str,
+        started_at: i64,
+    ) -> Vec<u8> {
+        format!(
+            concat!(
+                r#"{{"run_id":"{}","task_id":"{}","execution_id":"{}","status":"{}","#,
+                r#""started_at":{},"updated_at":{},"ended_at":null,"checkpoint_id":null,"error":null,"metrics":{{}}}}"#
+            ),
+            run_id, task_id, execution_id, status, started_at, started_at
+        )
+        .into_bytes()
+    }
+
     fn create_test_storage() -> BackgroundAgentStorage {
         let temp_dir = tempdir().unwrap();
         let db_path = temp_dir.path().join("test.db");
@@ -1083,6 +1370,103 @@ mod tests {
 
         let active_tasks = storage.list_tasks_by_status_indexed("active").unwrap();
         assert!(active_tasks.is_empty());
+    }
+
+    #[test]
+    fn test_put_run_with_status_rejects_second_active_run_for_task() {
+        let storage = create_test_storage();
+        storage
+            .put_task_raw("task-1", br#"{"id":"task-1"}"#)
+            .unwrap();
+
+        storage
+            .put_run_raw_with_status(
+                "run-1",
+                "task-1",
+                "running",
+                &run_payload("run-1", "task-1", "exec-1", "running", 100),
+            )
+            .unwrap();
+        let result = storage.put_run_raw_with_status(
+            "run-2",
+            "task-1",
+            "running",
+            &run_payload("run-2", "task-1", "exec-2", "running", 200),
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("already has active run")
+        );
+    }
+
+    #[test]
+    fn test_marking_active_run_terminal_clears_active_run_index() {
+        let storage = create_test_storage();
+        storage
+            .put_task_raw("task-1", br#"{"id":"task-1"}"#)
+            .unwrap();
+
+        storage
+            .put_run_raw_with_status(
+                "run-1",
+                "task-1",
+                "running",
+                &run_payload("run-1", "task-1", "exec-1", "running", 100),
+            )
+            .unwrap();
+        assert_eq!(
+            storage.get_active_run_raw("task-1").unwrap().unwrap().0,
+            "run-1"
+        );
+
+        storage
+            .update_run_raw_with_status(
+                "run-1",
+                "task-1",
+                "running",
+                "completed",
+                &run_payload("run-1", "task-1", "exec-1", "completed", 100),
+            )
+            .unwrap();
+        assert!(storage.get_active_run_raw("task-1").unwrap().is_none());
+    }
+
+    #[test]
+    fn test_put_run_with_status_rejects_cross_task_run_rebind() {
+        let storage = create_test_storage();
+        storage
+            .put_task_raw("task-1", br#"{"id":"task-1"}"#)
+            .unwrap();
+        storage
+            .put_task_raw("task-2", br#"{"id":"task-2"}"#)
+            .unwrap();
+
+        storage
+            .put_run_raw_with_status(
+                "run-1",
+                "task-1",
+                "completed",
+                &run_payload("run-1", "task-1", "exec-1", "completed", 100),
+            )
+            .unwrap();
+        let result = storage.put_run_raw_with_status(
+            "run-1",
+            "task-2",
+            "completed",
+            &run_payload("run-1", "task-2", "exec-2", "completed", 200),
+        );
+
+        assert!(result.is_err());
+        assert!(
+            result
+                .unwrap_err()
+                .to_string()
+                .contains("is indexed under task")
+        );
     }
 
     #[test]
@@ -1431,6 +1815,23 @@ mod tests {
             .unwrap();
 
         storage
+            .put_run_raw_with_status(
+                "run-1",
+                "task-1",
+                "running",
+                &run_payload("run-1", "task-1", "exec-1", "running", 100),
+            )
+            .unwrap();
+        storage
+            .put_run_raw_with_status(
+                "run-2",
+                "task-2",
+                "running",
+                &run_payload("run-2", "task-2", "exec-2", "running", 100),
+            )
+            .unwrap();
+
+        storage
             .put_background_message_raw_with_status(
                 "msg-1",
                 "task-1",
@@ -1460,6 +1861,8 @@ mod tests {
 
         assert!(storage.get_task_raw("task-1").unwrap().is_none());
         assert_eq!(storage.list_events_for_task_raw("task-1").unwrap().len(), 0);
+        assert!(storage.get_run_raw("run-1").unwrap().is_none());
+        assert!(storage.get_active_run_raw("task-1").unwrap().is_none());
         assert_eq!(
             storage
                 .list_background_messages_for_task_raw("task-1")
@@ -1470,6 +1873,11 @@ mod tests {
 
         assert!(storage.get_task_raw("task-2").unwrap().is_some());
         assert_eq!(storage.list_events_for_task_raw("task-2").unwrap().len(), 1);
+        assert!(storage.get_run_raw("run-2").unwrap().is_some());
+        assert_eq!(
+            storage.get_active_run_raw("task-2").unwrap().unwrap().0,
+            "run-2"
+        );
         assert_eq!(
             storage
                 .list_background_messages_for_task_raw("task-2")

@@ -1,7 +1,8 @@
 use crate::boundary::codec::{from_contract, to_contract};
 use crate::models::{
-    BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, DurabilityMode,
-    ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, ResourceLimits,
+    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
+    BackgroundAgentSpec, DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope,
+    NotificationConfig, ResourceLimits,
 };
 use crate::services::background_agent_conversion::default_conversion_schedule;
 use restflow_contracts::request::{
@@ -15,8 +16,7 @@ use restflow_contracts::request::{
 use restflow_tools::ToolError;
 use restflow_traits::store::{
     BackgroundAgentConvertSessionRequest as StoreBackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest,
-    BackgroundAgentUpdateRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -67,6 +67,7 @@ where
     }
 }
 
+#[allow(dead_code)]
 pub(crate) fn resolve_spec_agent_id<E, ResolveAgentId>(
     mut spec: BackgroundAgentSpec,
     mut resolve_agent_id: ResolveAgentId,
@@ -78,6 +79,7 @@ where
     Ok(spec)
 }
 
+#[allow(dead_code)]
 pub(crate) fn resolve_patch_agent_id<E, ResolveAgentId>(
     mut patch: BackgroundAgentPatch,
     mut resolve_agent_id: ResolveAgentId,
@@ -112,6 +114,8 @@ pub(crate) fn core_spec_to_create_request(
         memory: spec.memory.clone().map(to_contract).transpose()?,
         memory_scope: None,
         resource_limits: spec.resource_limits.clone().map(to_contract).transpose()?,
+        preview: false,
+        confirmation_token: None,
     })
 }
 
@@ -135,25 +139,28 @@ pub(crate) fn core_patch_to_update_request(
         memory: patch.memory.clone().map(to_contract).transpose()?,
         memory_scope: None,
         resource_limits: patch.resource_limits.clone().map(to_contract).transpose()?,
+        preview: false,
+        confirmation_token: None,
     })
 }
 
 pub(crate) fn create_request_to_spec(
     request: BackgroundAgentCreateRequest,
-    resolved_agent_id: String,
 ) -> Result<BackgroundAgentSpec, ToolError> {
+    let schedule = decode_optional_contract::<ContractTaskSchedule, BackgroundAgentSchedule>(
+        "schedule",
+        request.schedule,
+    )?
+    .ok_or_else(|| ToolError::Tool("Missing required field: schedule".to_string()))?;
+
     Ok(BackgroundAgentSpec {
         name: request.name,
-        agent_id: resolved_agent_id,
+        agent_id: request.agent_id,
         chat_session_id: request.chat_session_id,
         description: None,
         input: request.input,
         input_template: request.input_template,
-        schedule: decode_optional_contract::<ContractTaskSchedule, BackgroundAgentSchedule>(
-            "schedule",
-            request.schedule,
-        )?
-        .unwrap_or_default(),
+        schedule,
         notification: None,
         execution_mode: None,
         timeout_secs: request.timeout_secs,
@@ -179,12 +186,11 @@ pub(crate) fn create_request_to_spec(
 
 pub(crate) fn update_request_to_patch(
     request: BackgroundAgentUpdateRequest,
-    resolved_agent_id: Option<String>,
 ) -> Result<BackgroundAgentPatch, ToolError> {
     Ok(BackgroundAgentPatch {
         name: request.name,
         description: request.description,
-        agent_id: resolved_agent_id,
+        agent_id: request.agent_id,
         chat_session_id: request.chat_session_id,
         input: request.input,
         input_template: request.input_template,
@@ -219,6 +225,22 @@ pub(crate) fn update_request_to_patch(
         prerequisites: None,
         continuation: None,
     })
+}
+
+pub(crate) fn parse_control_action(
+    action: &str,
+) -> Result<BackgroundAgentControlAction, ToolError> {
+    match action.trim().to_lowercase().as_str() {
+        "start" => Ok(BackgroundAgentControlAction::Start),
+        "pause" => Ok(BackgroundAgentControlAction::Pause),
+        "resume" => Ok(BackgroundAgentControlAction::Resume),
+        "stop" => Ok(BackgroundAgentControlAction::Stop),
+        "run_now" | "run-now" | "runnow" => Ok(BackgroundAgentControlAction::RunNow),
+        value => Err(ToolError::Tool(format!(
+            "Unknown control action: {}",
+            value
+        ))),
+    }
 }
 
 pub(crate) fn convert_session_request_to_options(
@@ -266,6 +288,8 @@ pub(crate) fn contract_convert_request_to_store(
         memory_scope: request.memory_scope,
         resource_limits: request.resource_limits,
         run_now: request.run_now,
+        preview: false,
+        confirmation_token: None,
     })
 }
 
@@ -382,28 +406,52 @@ mod tests {
 
     #[test]
     fn create_request_to_spec_merges_memory_scope() {
-        let spec = create_request_to_spec(
-            BackgroundAgentCreateRequest {
-                name: "nightly".to_string(),
-                agent_id: "agent-1".to_string(),
-                chat_session_id: None,
-                schedule: None,
-                input: None,
-                input_template: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: Some("per_background_agent".to_string()),
-                resource_limits: None,
-            },
-            "agent-1".to_string(),
-        )
+        let spec = create_request_to_spec(BackgroundAgentCreateRequest {
+            name: "nightly".to_string(),
+            agent_id: "agent-1".to_string(),
+            chat_session_id: None,
+            schedule: Some(ContractTaskSchedule::Interval {
+                interval_ms: 60_000,
+                start_at: None,
+            }),
+            input: None,
+            input_template: None,
+            timeout_secs: None,
+            durability_mode: None,
+            memory: None,
+            memory_scope: Some("per_background_agent".to_string()),
+            resource_limits: None,
+            preview: false,
+            confirmation_token: None,
+        })
         .expect("spec should decode");
 
         assert_eq!(
             spec.memory.expect("memory").memory_scope,
             MemoryScope::PerBackgroundAgent
         );
+    }
+
+    #[test]
+    fn create_request_to_spec_requires_schedule() {
+        let err = create_request_to_spec(BackgroundAgentCreateRequest {
+            name: "nightly".to_string(),
+            agent_id: "agent-1".to_string(),
+            chat_session_id: None,
+            schedule: None,
+            input: None,
+            input_template: None,
+            timeout_secs: None,
+            durability_mode: None,
+            memory: None,
+            memory_scope: None,
+            resource_limits: None,
+            preview: false,
+            confirmation_token: None,
+        })
+        .expect_err("missing schedule should fail");
+
+        assert!(err.to_string().contains("Missing required field: schedule"));
     }
 
     #[test]

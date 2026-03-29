@@ -115,7 +115,7 @@ pub fn create_tool_registry_with_assessor(
         background_agent_storage.clone(),
         known_tools.clone(),
     ));
-    let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(
+    let mut background_agent_store = BackgroundAgentStoreAdapter::new(
         background_agent_storage.clone(),
         agent_storage.clone(),
         deliverable_storage,
@@ -129,7 +129,11 @@ pub fn create_tool_registry_with_assessor(
             background_agent_storage,
             Some(memory_storage.clone()),
         ),
-    ));
+    );
+    if let Some(assessor) = assessor.clone() {
+        background_agent_store = background_agent_store.with_assessor(assessor);
+    }
+    let background_agent_store = Arc::new(background_agent_store);
     let marketplace_store = Arc::new(MarketplaceStoreAdapter::new_with_defaults(
         skill_storage,
         registry_defaults,

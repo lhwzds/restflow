@@ -1,4 +1,3 @@
-use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
 use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::store::BackgroundAgentControlRequest;
 
@@ -16,21 +15,9 @@ async fn execute_named_control(
     let request = BackgroundAgentControlRequest {
         id,
         action: action.to_string(),
+        preview,
+        confirmation_token,
     };
-    if action == "run_now" {
-        let assessment = tool
-            .assessor()?
-            .assess_background_agent_control(request.clone())
-            .await?;
-        if preview {
-            return Ok(preview_output(assessment));
-        }
-        enforce_confirmation(&assessment, confirmation_token.as_deref())?;
-    } else if preview {
-        return Err(ToolError::Tool(
-            "Preview is only supported for run_now control actions.".to_string(),
-        ));
-    }
     let result = tool
         .store
         .control_background_agent(request)

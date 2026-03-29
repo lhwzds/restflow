@@ -71,6 +71,15 @@ impl OperationAssessment {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum BackgroundAgentCommandOutcome<T> {
+    Preview { assessment: OperationAssessment },
+    Blocked { assessment: OperationAssessment },
+    ConfirmationRequired { assessment: OperationAssessment },
+    Executed { result: T },
+}
+
 #[async_trait]
 pub trait AgentOperationAssessor: Send + Sync {
     async fn assess_agent_create(

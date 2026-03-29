@@ -141,7 +141,6 @@ impl AgentOrchestratorImpl {
             session.id.clone(),
             session.agent_id.clone(),
         ));
-        let trace = run_handle.context().trace.clone();
         run_handle.start().await;
 
         let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
@@ -193,14 +192,26 @@ impl AgentOrchestratorImpl {
             Ok(result) => result.execution,
             Err(error) => {
                 run_handle
-                    .fail(error.to_string(), Some(started_at.elapsed().as_millis() as u64))
+                    .fail(
+                        error.to_string(),
+                        Some(started_at.elapsed().as_millis() as u64),
+                    )
                     .await;
                 return Err(error);
             }
         };
 
         let duration_ms = started_at.elapsed().as_millis() as u64;
-        run_handle.complete(Some(duration_ms)).await;
+        let trace =
+            if let Some(final_telemetry_context) = execution.final_telemetry_context.as_ref() {
+                run_handle
+                    .complete_with_context(final_telemetry_context, Some(duration_ms))
+                    .await;
+                final_telemetry_context.trace.clone()
+            } else {
+                run_handle.complete(Some(duration_ms)).await;
+                run_handle.context().trace.clone()
+            };
 
         Ok(TracedInteractiveExecutionResult {
             trace,
@@ -411,15 +422,24 @@ mod tests {
             _max_history: usize,
             _input_mode: SessionInputMode,
             _emitter: Option<Box<dyn StreamEmitter>>,
-            _options: SessionTurnRuntimeOptions,
+            options: SessionTurnRuntimeOptions,
         ) -> Result<SessionExecutionResult> {
             session.agent_id = "fallback-agent".to_string();
-            Ok(SessionExecutionResult::new(
+            let mut result = SessionExecutionResult::new(
                 "interactive-output".to_string(),
                 3,
                 "gpt-5.3-codex".to_string(),
                 ModelId::CodexCli,
-            ))
+            );
+            if let Some(telemetry_context) = options.telemetry_context {
+                let mut final_telemetry_context = telemetry_context
+                    .with_effective_model("gpt-5.3-codex")
+                    .with_provider(ModelId::CodexCli.provider().as_canonical_str())
+                    .with_attempt(2);
+                final_telemetry_context.trace.actor_id = "fallback-agent".to_string();
+                result.final_telemetry_context = Some(final_telemetry_context);
+            }
+            Ok(result)
         }
 
         async fn execute_background(
@@ -561,6 +581,64 @@ mod tests {
         assert!(lifecycle_statuses.contains(&"run_completed"));
         assert_eq!(result.execution.output, "interactive-output");
         assert!(result.duration_ms <= 1_000);
+    }
+
+    #[tokio::test]
+    async fn run_traced_interactive_session_turn_returns_trace_matching_terminal_event() {
+        let backend = Arc::new(MockBackend::default());
+        let mut session = ChatSession::new("agent-a".to_string(), "gpt-5".to_string());
+        let session_id = session.id.clone();
+        backend
+            .session
+            .lock()
+            .expect("session lock")
+            .replace(session.clone());
+        let orchestrator = AgentOrchestratorImpl::new(backend);
+        let (_temp_dir, execution_trace_storage) = setup_trace_storage();
+
+        let result = orchestrator
+            .run_traced_interactive_session_turn(InteractiveSessionRequest {
+                session: &mut session,
+                user_input: "hello",
+                max_history: 20,
+                input_mode: SessionInputMode::EphemeralInput,
+                run_id: "run-traced-final".to_string(),
+                execution_trace_storage: execution_trace_storage.clone(),
+                timeout_secs: None,
+                emitter: None,
+                steer_rx: None,
+            })
+            .await
+            .expect("traced interactive run should succeed");
+
+        let events = execution_trace_storage
+            .query(&ExecutionTraceQuery {
+                task_id: Some(session_id),
+                run_id: Some("run-traced-final".to_string()),
+                ..ExecutionTraceQuery::default()
+            })
+            .expect("trace list");
+        let completed = events
+            .iter()
+            .find(|event| {
+                event
+                    .lifecycle
+                    .as_ref()
+                    .is_some_and(|trace| trace.status == "run_completed")
+            })
+            .expect("completed lifecycle event");
+
+        assert_eq!(result.trace.run_id, "run-traced-final");
+        assert_eq!(result.trace.actor_id, "fallback-agent");
+        assert_eq!(
+            completed.session_id.as_deref(),
+            Some(result.trace.session_id.as_str())
+        );
+        assert_eq!(result.trace.scope_id, completed.task_id);
+        assert_eq!(completed.agent_id, "fallback-agent");
+        assert_eq!(completed.effective_model.as_deref(), Some("gpt-5.3-codex"));
+        assert_eq!(completed.provider.as_deref(), Some("codex"));
+        assert_eq!(completed.attempt, Some(2));
     }
 
     #[tokio::test]

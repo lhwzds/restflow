@@ -327,6 +327,7 @@ impl BackgroundAgentStorage {
     /// Delete an agent task and all its events
     pub fn delete_task(&self, id: &str) -> Result<bool> {
         let task = self.get_task(id)?;
+        self.delete_checkpoints_for_task(id)?;
         let deleted = self.inner.delete_task_cascade(id)?;
         if !deleted {
             return Ok(false);

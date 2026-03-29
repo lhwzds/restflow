@@ -179,7 +179,10 @@ async fn test_set_rejects_unknown_field_with_valid_fields_hint() {
     let message = err.to_string();
 
     assert!(message.contains("Unknown config field: 'invalid_field'"));
-    assert!(message.contains("Valid fields: system.*, agent.*, api.*, runtime.*, channel.*, registry.*."));
+    assert!(
+        message
+            .contains("Valid fields: system.*, agent.*, api.*, runtime.*, channel.*, registry.*.")
+    );
 }
 
 #[tokio::test]
@@ -576,9 +579,10 @@ async fn test_set_rejects_cli_fields() {
         .await
         .expect_err("cli fields should be rejected by daemon-facing config");
 
-    assert!(err
-        .to_string()
-        .contains("Unknown config field: 'cli.model'"));
+    assert!(
+        err.to_string()
+            .contains("Unknown config field: 'cli.model'")
+    );
 }
 
 #[tokio::test]
@@ -601,9 +605,10 @@ async fn test_set_rejects_cli_block_in_full_config_payload() {
         .await
         .expect_err("cli block should be rejected for daemon-facing config writes");
 
-    assert!(err
-        .to_string()
-        .contains("CLI-local config fields are not available through manage_config"));
+    assert!(
+        err.to_string()
+            .contains("CLI-local config fields are not available through manage_config")
+    );
 }
 
 #[tokio::test]
@@ -624,9 +629,10 @@ async fn test_set_rejects_default_cli_block_in_full_config_payload() {
         .await
         .expect_err("default cli block should still be rejected");
 
-    assert!(err
-        .to_string()
-        .contains("CLI-local config fields are not available through manage_config"));
+    assert!(
+        err.to_string()
+            .contains("CLI-local config fields are not available through manage_config")
+    );
 }
 
 #[tokio::test]

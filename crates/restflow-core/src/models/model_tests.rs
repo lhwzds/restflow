@@ -1,6 +1,7 @@
 use crate::models::{ModelId, ModelRef, Provider};
 use restflow_contracts::request::WireModelRef;
-use restflow_models::{LlmProvider, catalog};
+use restflow_models::{LlmProvider, catalog, provider_meta};
+use restflow_traits::ModelProvider;
 
 #[test]
 fn test_provider() {
@@ -308,6 +309,7 @@ fn test_all_models() {
     assert!(models.contains(&ModelId::MiniMaxM27));
     assert!(models.contains(&ModelId::MiniMaxM27Highspeed));
     assert!(models.contains(&ModelId::MiniMaxM21CodingPlan));
+    assert!(models.contains(&ModelId::MiniMaxM25CodingPlan));
     assert!(models.contains(&ModelId::MiniMaxM27CodingPlan));
     assert!(models.contains(&ModelId::MiniMaxM27CodingPlanHighspeed));
     assert!(models.contains(&ModelId::MiniMaxM25CodingPlanHighspeed));
@@ -474,6 +476,11 @@ fn test_same_provider_fallback() {
         ModelId::Glm5TurboCodingPlan.same_provider_fallback(),
         Some(ModelId::Glm5CodeCodingPlan)
     );
+    assert_eq!(ModelId::MiniMaxM25CodingPlan.same_provider_fallback(), None);
+    assert_eq!(
+        ModelId::MiniMaxM27CodingPlan.same_provider_fallback(),
+        Some(ModelId::MiniMaxM25CodingPlan)
+    );
     assert_eq!(
         ModelId::MiniMaxM25CodingPlanHighspeed.same_provider_fallback(),
         Some(ModelId::MiniMaxM25CodingPlan)
@@ -521,6 +528,14 @@ fn test_openrouter_equivalent() {
     );
     assert_eq!(
         ModelId::MiniMaxM27Highspeed.openrouter_equivalent(),
+        Some(ModelId::OrMinimaxM2_1)
+    );
+    assert_eq!(
+        ModelId::MiniMaxM25CodingPlan.openrouter_equivalent(),
+        Some(ModelId::OrMinimaxM2_1)
+    );
+    assert_eq!(
+        ModelId::MiniMaxM27CodingPlan.openrouter_equivalent(),
         Some(ModelId::OrMinimaxM2_1)
     );
     assert_eq!(
@@ -849,6 +864,10 @@ fn test_normalize_model_id_for_provider_avoids_minimax_collision() {
         Some("minimax-coding-plan-m2-5".to_string())
     );
     assert_eq!(
+        ModelId::normalize_model_id_for_provider(Provider::MiniMaxCodingPlan, "MiniMax-M2.7"),
+        Some("minimax-coding-plan-m2-7".to_string())
+    );
+    assert_eq!(
         ModelId::normalize_model_id_for_provider(
             Provider::MiniMaxCodingPlan,
             "MiniMax-M2.5-highspeed"
@@ -858,6 +877,32 @@ fn test_normalize_model_id_for_provider_avoids_minimax_collision() {
     assert_eq!(
         ModelId::normalize_model_id_for_provider(Provider::MiniMax, "MiniMax-M2.5"),
         Some("minimax-m2-5".to_string())
+    );
+}
+
+#[test]
+fn test_minimax_coding_plan_default_model_is_intentionally_distinct_from_flagship() {
+    let provider_catalog = catalog::provider_catalog(Provider::MiniMaxCodingPlan)
+        .expect("missing provider catalog for MiniMax coding plan");
+    let provider_meta = provider_meta(ModelProvider::MiniMaxCodingPlan);
+
+    assert_eq!(
+        provider_meta.default_model_id,
+        ModelId::MiniMaxM25CodingPlan
+    );
+    assert_eq!(provider_catalog.flagship, ModelId::MiniMaxM27CodingPlan);
+    assert_ne!(provider_meta.default_model_id, provider_catalog.flagship);
+    assert!(
+        provider_catalog
+            .models
+            .iter()
+            .any(|descriptor| descriptor.id == ModelId::MiniMaxM25CodingPlan)
+    );
+    assert!(
+        provider_catalog
+            .models
+            .iter()
+            .any(|descriptor| descriptor.id == ModelId::MiniMaxM27CodingPlan)
     );
 }
 

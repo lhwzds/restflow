@@ -250,7 +250,7 @@ impl AgentRuntimeExecutor {
         );
         let execution_context =
             ExecutionContext::main(agent_id.unwrap_or(&session.agent_id), &session.id);
-        let telemetry_context = telemetry_context
+        let final_telemetry_context = telemetry_context
             .unwrap_or_else(|| {
                 restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
                     session.id.clone(),
@@ -292,7 +292,7 @@ impl AgentRuntimeExecutor {
             .with_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
                 self.storage.as_ref(),
             ))
-            .with_telemetry_context(telemetry_context.clone());
+            .with_telemetry_context(final_telemetry_context.clone());
 
         let mut agent = ReActAgentExecutor::new(swappable.clone(), tools)
             .with_subagent_tracker(self.subagent_tracker.clone());
@@ -361,6 +361,14 @@ impl AgentRuntimeExecutor {
             final_model,
         );
         execution.metrics.message_count = result.state.messages.len();
+        let mut final_telemetry_context = final_telemetry_context;
+        if !session.agent_id.trim().is_empty() {
+            final_telemetry_context.trace.actor_id = session.agent_id.clone();
+        }
+        final_telemetry_context = final_telemetry_context
+            .with_effective_model(final_model.as_serialized_str())
+            .with_provider(final_model.provider().as_canonical_str());
+        execution.final_telemetry_context = Some(final_telemetry_context);
         Ok(execution)
     }
 
@@ -708,21 +716,21 @@ impl AgentRuntimeExecutor {
         let shared_emitter = share_stream_emitter(emitter);
         let mut steer_rx = steer_rx;
         let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
-        let base_telemetry_context = Self::normalize_session_telemetry_context(
-            telemetry_context,
-            session,
-        )
-            .unwrap_or_else(|| {
-                restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
-                    session.id.clone(),
-                    session.id.clone(),
-                    session.id.clone(),
-                    session.agent_id.clone(),
-                ))
-            })
-            .with_requested_model(primary_model.as_serialized_str())
-            .with_effective_model(primary_model.as_serialized_str())
-            .with_provider(primary_provider.as_canonical_str());
+        let base_telemetry_context =
+            Self::normalize_session_telemetry_context(telemetry_context, session)
+                .unwrap_or_else(|| {
+                    restflow_telemetry::TelemetryContext::new(
+                        restflow_telemetry::RestflowTrace::new(
+                            session.id.clone(),
+                            session.id.clone(),
+                            session.id.clone(),
+                            session.agent_id.clone(),
+                        ),
+                    )
+                })
+                .with_requested_model(primary_model.as_serialized_str())
+                .with_effective_model(primary_model.as_serialized_str())
+                .with_provider(primary_provider.as_canonical_str());
         let mut attempt_tracker = RunAttemptTracker::default();
 
         loop {
@@ -783,6 +791,13 @@ impl AgentRuntimeExecutor {
                 Ok((mut exec_result, final_model)) => {
                     exec_result.final_model = final_model;
                     exec_result.metrics.final_model = Some(final_model);
+                    if let Some(telemetry_context) = exec_result.final_telemetry_context.take() {
+                        exec_result.final_telemetry_context = Some(
+                            telemetry_context
+                                .with_effective_model(final_model.as_serialized_str())
+                                .with_provider(final_model.provider().as_canonical_str()),
+                        );
+                    }
                     return Ok(exec_result);
                 }
                 Err(err) => {

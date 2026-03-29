@@ -104,7 +104,9 @@ impl SessionService {
         let mut sessions = match (agent_id, skill_id, include_archived) {
             (Some(agent_id), _, true) => self.sessions.chat_sessions.list_by_agent_all(agent_id)?,
             (Some(agent_id), _, false) => self.sessions.chat_sessions.list_by_agent(agent_id)?,
-            (None, Some(skill_id), true) => self.sessions.chat_sessions.list_by_skill_all(skill_id)?,
+            (None, Some(skill_id), true) => {
+                self.sessions.chat_sessions.list_by_skill_all(skill_id)?
+            }
             (None, Some(skill_id), false) => self.sessions.chat_sessions.list_by_skill(skill_id)?,
             (None, None, true) => self.sessions.chat_sessions.list_all()?,
             (None, None, false) => self.sessions.chat_sessions.list()?,

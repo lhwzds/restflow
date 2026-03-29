@@ -8,7 +8,9 @@ use std::sync::LazyLock;
 
 mod run_lifecycle;
 
-pub use run_lifecycle::{RunAttemptTracker, RunDescriptor, RunHandle, RunKind, RunLifecycleService};
+pub use run_lifecycle::{
+    RunAttemptTracker, RunDescriptor, RunHandle, RunKind, RunLifecycleService,
+};
 
 pub const DEFAULT_TELEMETRY_TEXT_LIMIT: usize = 10_000;
 
@@ -432,7 +434,6 @@ impl RestflowTrace {
         let session_id = session_id
             .filter(|value| !value.trim().is_empty())
             .or(scope_id.clone().filter(|value| !value.trim().is_empty()))
-            .or(parent_run_id.clone())
             .unwrap_or_else(|| run_id.clone());
         let scope_id = scope_id
             .filter(|value| !value.trim().is_empty())
@@ -444,7 +445,6 @@ impl RestflowTrace {
                     Some(session_id.to_string())
                 }
             })
-            .or(parent_run_id.clone())
             .unwrap_or_else(|| run_id.clone());
         Self::new(run_id, session_id, scope_id, actor_id).with_parent_run_id(parent_run_id)
     }
@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn from_run_defaults_to_parent_when_present() {
+    fn from_run_defaults_to_run_id_when_only_parent_is_present() {
         let trace = RestflowTrace::from_run(
             "child-run",
             "worker",
@@ -533,9 +533,22 @@ mod tests {
             None,
         );
         assert_eq!(trace.parent_run_id.as_deref(), Some("parent-run"));
-        assert_eq!(trace.session_id, "parent-run");
-        assert_eq!(trace.scope_id, "parent-run");
+        assert_eq!(trace.session_id, "child-run");
+        assert_eq!(trace.scope_id, "child-run");
         assert_eq!(trace.turn_id, "run-child-run");
+    }
+
+    #[test]
+    fn from_run_cross_falls_back_between_session_and_scope() {
+        let scope_only =
+            RestflowTrace::from_run("run-1", "worker", None, None, Some("scope-1".to_string()));
+        assert_eq!(scope_only.session_id, "scope-1");
+        assert_eq!(scope_only.scope_id, "scope-1");
+
+        let session_only =
+            RestflowTrace::from_run("run-2", "worker", None, Some("session-2".to_string()), None);
+        assert_eq!(session_only.session_id, "session-2");
+        assert_eq!(session_only.scope_id, "session-2");
     }
 
     #[test]

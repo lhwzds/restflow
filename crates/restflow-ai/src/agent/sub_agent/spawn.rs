@@ -35,6 +35,7 @@ struct ResolvedSubagentExecution {
     effective_limits: SubagentEffectiveLimits,
     trace_context: RunTraceContext,
     run_handle: Option<RunHandle>,
+    owns_lifecycle: bool,
     telemetry_context: Option<TelemetryContext>,
     telemetry_sink: Option<Arc<dyn TelemetrySink>>,
 }
@@ -59,6 +60,10 @@ fn normalize_trace_identity(value: Option<&str>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(ToOwned::to_owned)
+}
+
+fn normalize_authoritative_run_id(value: Option<&str>) -> Option<String> {
+    normalize_trace_identity(value)
 }
 
 fn resolve_plan_provider(
@@ -303,9 +308,7 @@ pub(crate) async fn execute_subagent_once(
         bridge.llm_client_factory.as_ref(),
     )?;
     let active_model = llm_client.model().to_string();
-    let direct_run_id = request
-        .run_id
-        .clone()
+    let direct_run_id = normalize_authoritative_run_id(request.run_id.as_deref())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let trace_context = build_trace_context(&direct_run_id, &agent_def.name, &request);
     let requested_model = request
@@ -338,6 +341,7 @@ pub(crate) async fn execute_subagent_once(
         effective_limits: effective_limits.clone(),
         trace_context: trace_context.clone(),
         run_handle: run_handle.clone(),
+        owns_lifecycle: normalize_authoritative_run_id(request.run_id.as_deref()).is_none(),
         telemetry_context: run_handle.as_ref().map(|handle| handle.cloned_context()),
         telemetry_sink: bridge.telemetry_sink.clone(),
     };
@@ -353,7 +357,9 @@ pub(crate) async fn execute_subagent_once(
     };
 
     let start = std::time::Instant::now();
-    if let Some(run_handle) = execution.run_handle.as_ref() {
+    if execution.owns_lifecycle
+        && let Some(run_handle) = execution.run_handle.as_ref()
+    {
         run_handle.start().await;
     }
     let result = timeout(
@@ -371,7 +377,9 @@ pub(crate) async fn execute_subagent_once(
 
     Ok(match result {
         Ok(Ok(result)) => {
-            if let Some(run_handle) = execution.run_handle.as_ref() {
+            if execution.owns_lifecycle
+                && let Some(run_handle) = execution.run_handle.as_ref()
+            {
                 run_handle.complete(Some(duration_ms)).await;
             }
             execution_outcome_from_agent_result(
@@ -383,40 +391,44 @@ pub(crate) async fn execute_subagent_once(
             )
         }
         Ok(Err(error)) => {
-            if let Some(run_handle) = execution.run_handle.as_ref() {
+            if execution.owns_lifecycle
+                && let Some(run_handle) = execution.run_handle.as_ref()
+            {
                 run_handle.fail(error.to_string(), Some(duration_ms)).await;
             }
             ExecutionOutcome {
-            success: false,
-            text: Some(String::new()),
-            error: Some(error.to_string()),
-            model: Some(active_model),
-            duration_ms: Some(duration_ms),
-            metadata: Some(json!({
-                "agent_name": agent_def.name,
-                "effective_limits": execution.effective_limits,
-            })),
-            ..ExecutionOutcome::default()
-        }
+                success: false,
+                text: Some(String::new()),
+                error: Some(error.to_string()),
+                model: Some(active_model),
+                duration_ms: Some(duration_ms),
+                metadata: Some(json!({
+                    "agent_name": agent_def.name,
+                    "effective_limits": execution.effective_limits,
+                })),
+                ..ExecutionOutcome::default()
+            }
         }
         Err(_) => {
-            if let Some(run_handle) = execution.run_handle.as_ref() {
+            if execution.owns_lifecycle
+                && let Some(run_handle) = execution.run_handle.as_ref()
+            {
                 run_handle
                     .fail("Sub-agent timed out", Some(duration_ms))
                     .await;
             }
             ExecutionOutcome {
-            success: false,
-            text: Some(String::new()),
-            error: Some("Sub-agent timed out".to_string()),
-            model: Some(active_model),
-            duration_ms: Some(duration_ms),
-            metadata: Some(json!({
-                "agent_name": agent_def.name,
-                "effective_limits": execution.effective_limits,
-            })),
-            ..ExecutionOutcome::default()
-        }
+                success: false,
+                text: Some(String::new()),
+                error: Some("Sub-agent timed out".to_string()),
+                model: Some(active_model),
+                duration_ms: Some(duration_ms),
+                metadata: Some(json!({
+                    "agent_name": agent_def.name,
+                    "effective_limits": execution.effective_limits,
+                })),
+                ..ExecutionOutcome::default()
+            }
         }
     })
 }
@@ -442,9 +454,7 @@ pub(crate) fn spawn_subagent(
         bridge.llm_client_factory.as_ref(),
     )?;
 
-    let task_id = request
-        .run_id
-        .clone()
+    let task_id = normalize_authoritative_run_id(request.run_id.as_deref())
         .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
     let timeout_secs = effective_limits.timeout_secs;
 
@@ -512,6 +522,7 @@ pub(crate) fn spawn_subagent(
         effective_limits: effective_limits.clone(),
         trace_context: trace_context.clone(),
         run_handle: run_handle.clone(),
+        owns_lifecycle: true,
         telemetry_context: telemetry_context.clone(),
         telemetry_sink: telemetry_sink.clone(),
     };
@@ -1155,6 +1166,38 @@ mod tests {
         }
     }
 
+    struct DelegatingOrchestrator {
+        plans: Mutex<Vec<ExecutionPlan>>,
+        definitions: Arc<dyn SubagentDefLookup>,
+        llm_client: Arc<dyn LlmClient>,
+        tool_registry: Arc<ToolRegistry>,
+        config: SubagentConfig,
+        bridge: SubagentExecutionBridge,
+    }
+
+    #[async_trait]
+    impl AgentOrchestrator for DelegatingOrchestrator {
+        async fn run(
+            &self,
+            plan: ExecutionPlan,
+        ) -> std::result::Result<ExecutionOutcome, ToolError> {
+            self.plans.lock().expect("plans lock").push(plan.clone());
+            execute_subagent_plan(
+                self.definitions.clone(),
+                self.llm_client.clone(),
+                self.tool_registry.clone(),
+                self.config.clone(),
+                plan,
+                SubagentExecutionBridge {
+                    orchestrator: None,
+                    ..self.bridge.clone()
+                },
+            )
+            .await
+            .map_err(|error| ToolError::Tool(error.to_string()))
+        }
+    }
+
     #[derive(Default)]
     struct RecordingTelemetrySink {
         events: Mutex<Vec<ExecutionEventEnvelope>>,
@@ -1676,6 +1719,110 @@ mod tests {
             assert_eq!(event.trace.session_id, "session-main-1");
             assert_eq!(event.trace.scope_id, "scope-main-1");
         }
+    }
+
+    #[tokio::test]
+    async fn spawn_subagent_delegating_orchestrator_emits_single_lifecycle() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let sink = Arc::new(RecordingTelemetrySink::default());
+        tracker.set_telemetry_sink(sink.clone());
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockDefLookup::with_agent("tester"));
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::from_steps(
+            "mock-nested",
+            vec![MockStep::text("nested orchestration done")],
+        ));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let config = SubagentConfig {
+            max_parallel_agents: 2,
+            subagent_timeout_secs: 10,
+            max_iterations: 5,
+            max_depth: 1,
+        };
+        let orchestrator = Arc::new(DelegatingOrchestrator {
+            plans: Mutex::new(Vec::new()),
+            definitions: definitions.clone(),
+            llm_client: llm_client.clone(),
+            tool_registry: tool_registry.clone(),
+            config: config.clone(),
+            bridge: SubagentExecutionBridge {
+                llm_client_factory: None,
+                orchestrator: None,
+                telemetry_sink: Some(sink.clone()),
+            },
+        });
+
+        let handle = spawn_subagent(
+            tracker.clone(),
+            definitions,
+            llm_client,
+            tool_registry,
+            config,
+            SpawnRequest {
+                agent_id: Some("tester".to_string()),
+                inline: None,
+                task: "delegate with lifecycle reuse".to_string(),
+                timeout_secs: Some(10),
+                max_iterations: None,
+                priority: None,
+                model: None,
+                model_provider: None,
+                parent_execution_id: Some("parent-1".to_string()),
+                trace_session_id: Some("session-1".to_string()),
+                trace_scope_id: Some("scope-1".to_string()),
+                run_id: None,
+            },
+            SubagentExecutionBridge {
+                llm_client_factory: None,
+                orchestrator: Some(orchestrator.clone()),
+                telemetry_sink: Some(sink.clone()),
+            },
+        )
+        .expect("spawn should succeed");
+
+        let completion = tracker
+            .wait(&handle.id)
+            .await
+            .expect("completion should be available");
+        let result = completion.result.expect("result payload should exist");
+        assert!(result.success);
+        assert_eq!(result.output, "nested orchestration done");
+
+        let events = sink.events.lock().expect("events lock").clone();
+        let child_events: Vec<_> = events
+            .into_iter()
+            .filter(|event| event.trace.run_id == handle.id)
+            .collect();
+        assert_eq!(
+            child_events
+                .iter()
+                .filter(|event| matches!(event.event, ExecutionEvent::RunStarted))
+                .count(),
+            1
+        );
+        assert_eq!(
+            child_events
+                .iter()
+                .filter(|event| matches!(event.event, ExecutionEvent::RunCompleted { .. }))
+                .count(),
+            1
+        );
+        assert_eq!(
+            child_events
+                .iter()
+                .filter(|event| matches!(event.event, ExecutionEvent::RunFailed { .. }))
+                .count(),
+            0
+        );
+        assert!(
+            child_events
+                .iter()
+                .any(|event| matches!(event.event, ExecutionEvent::LlmCall(_)))
+        );
+
+        let plans = orchestrator.plans.lock().expect("plans lock");
+        assert_eq!(plans.len(), 1);
+        assert_eq!(plans[0].run_id.as_deref(), Some(handle.id.as_str()));
     }
 
     #[tokio::test]

@@ -18,8 +18,8 @@ pub struct SubagentTracker {
     /// All sub-agent states.
     states: DashMap<String, SubagentState>,
 
-    /// Parent-scoped completion backlog for active parent runs.
-    completion_backlog: DashMap<String, Vec<SubagentCompletion>>,
+    /// Parent-scoped completion backlog and lifecycle metadata.
+    parent_scopes: DashMap<String, ParentScopeState>,
 
     /// Abort handles for cancelling running sub-agents.
     abort_handles: DashMap<String, AbortHandle>,
@@ -40,13 +40,20 @@ pub struct SubagentTracker {
     telemetry_sink: RwLock<Option<Arc<dyn TelemetrySink>>>,
 }
 
+#[derive(Debug, Clone, Default)]
+struct ParentScopeState {
+    backlog: Vec<SubagentCompletion>,
+    active_children: usize,
+    last_activity_at: i64,
+    closed: bool,
+}
+
 impl SubagentTracker {
-    fn completion_backlog_key(parent_run_id: Option<&str>) -> String {
+    fn normalized_parent_run_id(parent_run_id: Option<&str>) -> Option<String> {
         parent_run_id
             .map(str::trim)
             .filter(|value| !value.is_empty())
-            .unwrap_or("__root__")
-            .to_string()
+            .map(ToOwned::to_owned)
     }
 
     fn is_terminal_status(status: &SubagentStatus) -> bool {
@@ -106,12 +113,7 @@ impl SubagentTracker {
                 status,
                 result,
             };
-            self.completion_backlog
-                .entry(Self::completion_backlog_key(
-                    completion.parent_run_id.as_deref(),
-                ))
-                .or_default()
-                .push(completion.clone());
+            self.record_parent_completion(&completion);
             let _ = self.completion_tx.try_send(completion);
             return true;
         }
@@ -126,7 +128,7 @@ impl SubagentTracker {
     ) -> Self {
         Self {
             states: DashMap::new(),
-            completion_backlog: DashMap::new(),
+            parent_scopes: DashMap::new(),
             abort_handles: DashMap::new(),
             completion_waiters: DashMap::new(),
             completion_tx,
@@ -156,7 +158,8 @@ impl SubagentTracker {
         agent_name: String,
         task: String,
         parent_run_id: Option<String>,
-    ) {
+    ) -> Result<()> {
+        self.register_parent_child(parent_run_id.as_deref())?;
         let state = SubagentState {
             id: id.clone(),
             agent_name,
@@ -168,6 +171,7 @@ impl SubagentTracker {
             result: None,
         };
         self.states.insert(id, state);
+        Ok(())
     }
 
     fn spawn_join_monitor(self: &Arc<Self>, id: String, handle: JoinHandle<SubagentResult>) {
@@ -232,7 +236,8 @@ impl SubagentTracker {
         completion_rx: oneshot::Receiver<SubagentResult>,
     ) {
         self.cleanup_completed(300_000);
-        self.insert_running_state(id.clone(), agent_name, task, parent_run_id);
+        self.insert_running_state(id.clone(), agent_name, task, parent_run_id)
+            .expect("sub-agent register parent scope should succeed");
         let _ = self.attach_execution(id, handle, completion_rx);
     }
 
@@ -261,7 +266,7 @@ impl SubagentTracker {
         if self.states.contains_key(&id) {
             return Err(AiError::Agent(format!("Sub-agent id already exists: {id}")));
         }
-        self.insert_running_state(id, agent_name, task, parent_run_id);
+        self.insert_running_state(id, agent_name, task, parent_run_id)?;
         Ok(())
     }
 
@@ -283,6 +288,21 @@ impl SubagentTracker {
         self.states
             .iter()
             .filter(|record| matches!(record.value().status, SubagentStatus::Running))
+            .map(|record| record.value().clone())
+            .collect()
+    }
+
+    pub fn running_for_parent(&self, parent_run_id: &str) -> Vec<SubagentState> {
+        let Some(parent_run_id) = Self::normalized_parent_run_id(Some(parent_run_id)) else {
+            return Vec::new();
+        };
+
+        self.states
+            .iter()
+            .filter(|record| {
+                matches!(record.value().status, SubagentStatus::Running)
+                    && record.value().parent_run_id.as_deref() == Some(parent_run_id.as_str())
+            })
             .map(|record| record.value().clone())
             .collect()
     }
@@ -430,6 +450,8 @@ impl SubagentTracker {
         for id in to_remove {
             self.states.remove(&id);
         }
+
+        self.cleanup_parent_scopes(max_age_ms);
     }
 
     /// Get the completion sender for external use.
@@ -450,10 +472,124 @@ impl SubagentTracker {
     }
 
     pub fn poll_completions_for_parent(&self, parent_run_id: &str) -> Vec<SubagentCompletion> {
-        self.completion_backlog
-            .remove(&Self::completion_backlog_key(Some(parent_run_id)))
-            .map(|(_, completions)| completions)
-            .unwrap_or_default()
+        let Some(parent_run_id) = Self::normalized_parent_run_id(Some(parent_run_id)) else {
+            return Vec::new();
+        };
+
+        let (completions, should_remove) =
+            if let Some(mut scope) = self.parent_scopes.get_mut(&parent_run_id) {
+                scope.last_activity_at = chrono::Utc::now().timestamp_millis();
+                let completions = std::mem::take(&mut scope.backlog);
+                let should_remove = scope.closed && scope.active_children == 0;
+                (completions, should_remove)
+            } else {
+                (Vec::new(), false)
+            };
+
+        if should_remove {
+            self.parent_scopes.remove(&parent_run_id);
+        }
+
+        completions
+    }
+
+    pub fn close_parent_scope(&self, parent_run_id: &str) -> bool {
+        let Some(parent_run_id) = Self::normalized_parent_run_id(Some(parent_run_id)) else {
+            return false;
+        };
+
+        let should_remove = if let Some(mut scope) = self.parent_scopes.get_mut(&parent_run_id) {
+            scope.closed = true;
+            scope.backlog.clear();
+            scope.last_activity_at = chrono::Utc::now().timestamp_millis();
+            scope.active_children == 0
+        } else {
+            return false;
+        };
+
+        if should_remove {
+            self.parent_scopes.remove(&parent_run_id);
+        }
+
+        true
+    }
+
+    fn register_parent_child(&self, parent_run_id: Option<&str>) -> Result<()> {
+        let Some(parent_key) = Self::normalized_parent_run_id(parent_run_id) else {
+            return Ok(());
+        };
+
+        let now = chrono::Utc::now().timestamp_millis();
+        if let Some(mut scope) = self.parent_scopes.get_mut(&parent_key) {
+            if scope.closed {
+                return Err(AiError::Agent(format!(
+                    "Parent sub-agent scope is closed: {parent_key}"
+                )));
+            }
+            scope.active_children = scope.active_children.saturating_add(1);
+            scope.last_activity_at = now;
+            return Ok(());
+        }
+
+        self.parent_scopes.insert(
+            parent_key,
+            ParentScopeState {
+                backlog: Vec::new(),
+                active_children: 1,
+                last_activity_at: now,
+                closed: false,
+            },
+        );
+        Ok(())
+    }
+
+    fn record_parent_completion(&self, completion: &SubagentCompletion) {
+        let Some(parent_key) = Self::normalized_parent_run_id(completion.parent_run_id.as_deref())
+        else {
+            return;
+        };
+
+        let now = chrono::Utc::now().timestamp_millis();
+        if let Some(mut scope) = self.parent_scopes.get_mut(&parent_key) {
+            scope.active_children = scope.active_children.saturating_sub(1);
+            scope.last_activity_at = now;
+            if !scope.closed {
+                scope.backlog.push(completion.clone());
+            }
+            let should_remove = scope.closed && scope.active_children == 0;
+            drop(scope);
+            if should_remove {
+                self.parent_scopes.remove(&parent_key);
+            }
+            return;
+        }
+
+        self.parent_scopes.insert(
+            parent_key,
+            ParentScopeState {
+                backlog: vec![completion.clone()],
+                active_children: 0,
+                last_activity_at: now,
+                closed: false,
+            },
+        );
+    }
+
+    fn cleanup_parent_scopes(&self, max_age_ms: i64) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let to_remove: Vec<String> = self
+            .parent_scopes
+            .iter()
+            .filter(|entry| {
+                let scope = entry.value();
+                scope.active_children == 0 && now - scope.last_activity_at > max_age_ms
+            })
+            .map(|entry| entry.key().clone())
+            .collect();
+
+        for key in to_remove {
+            self.parent_scopes.remove(&key);
+        }
     }
 }
 
@@ -764,5 +900,170 @@ mod tests {
         let result = result.result.expect("completed task payload");
         assert!(result.success);
         assert_eq!(result.output, "done");
+    }
+
+    #[tokio::test]
+    async fn poll_completions_for_parent_is_isolated() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+
+        tracker
+            .insert_running_state(
+                "child-a".to_string(),
+                "tester".to_string(),
+                "task a".to_string(),
+                Some("parent-a".to_string()),
+            )
+            .expect("parent a should register");
+        tracker
+            .insert_running_state(
+                "child-b".to_string(),
+                "tester".to_string(),
+                "task b".to_string(),
+                Some("parent-b".to_string()),
+            )
+            .expect("parent b should register");
+
+        tracker.mark_completed(
+            "child-a",
+            SubagentResult {
+                success: true,
+                output: "done-a".to_string(),
+                summary: None,
+                duration_ms: 10,
+                tokens_used: None,
+                cost_usd: None,
+                error: None,
+            },
+        );
+        tracker.mark_completed(
+            "child-b",
+            SubagentResult {
+                success: true,
+                output: "done-b".to_string(),
+                summary: None,
+                duration_ms: 10,
+                tokens_used: None,
+                cost_usd: None,
+                error: None,
+            },
+        );
+
+        let completions_a = tracker.poll_completions_for_parent("parent-a");
+        assert_eq!(completions_a.len(), 1);
+        assert_eq!(completions_a[0].id, "child-a");
+
+        let completions_b = tracker.poll_completions_for_parent("parent-b");
+        assert_eq!(completions_b.len(), 1);
+        assert_eq!(completions_b[0].id, "child-b");
+
+        assert!(tracker.poll_completions_for_parent("parent-a").is_empty());
+        assert!(tracker.poll_completions_for_parent("parent-b").is_empty());
+    }
+
+    #[test]
+    fn close_parent_scope_clears_backlog_and_blocks_future_children() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+
+        tracker
+            .insert_running_state(
+                "child-a".to_string(),
+                "tester".to_string(),
+                "task a".to_string(),
+                Some("parent-a".to_string()),
+            )
+            .expect("parent a should register");
+        tracker.mark_completed(
+            "child-a",
+            SubagentResult {
+                success: true,
+                output: "done-a".to_string(),
+                summary: None,
+                duration_ms: 10,
+                tokens_used: None,
+                cost_usd: None,
+                error: None,
+            },
+        );
+
+        assert!(tracker.close_parent_scope("parent-a"));
+        assert!(tracker.poll_completions_for_parent("parent-a").is_empty());
+        assert!(
+            tracker
+                .try_reserve(
+                    2,
+                    "child-b".to_string(),
+                    "tester".to_string(),
+                    "task b".to_string(),
+                    Some("parent-a".to_string()),
+                )
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn cleanup_completed_reclaims_stale_parent_scope() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let now = chrono::Utc::now().timestamp_millis();
+
+        tracker.parent_scopes.insert(
+            "parent-stale".to_string(),
+            ParentScopeState {
+                backlog: vec![SubagentCompletion {
+                    id: "child-a".to_string(),
+                    parent_run_id: Some("parent-stale".to_string()),
+                    status: SubagentStatus::Completed,
+                    result: None,
+                }],
+                active_children: 0,
+                last_activity_at: now - 1_000,
+                closed: false,
+            },
+        );
+
+        tracker.cleanup_completed(50);
+        assert!(!tracker.parent_scopes.contains_key("parent-stale"));
+    }
+
+    #[test]
+    fn running_for_parent_filters_running_children() {
+        let (tx, rx) = mpsc::channel(16);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+
+        tracker
+            .insert_running_state(
+                "child-a".to_string(),
+                "tester".to_string(),
+                "task a".to_string(),
+                Some("parent-a".to_string()),
+            )
+            .expect("parent a should register");
+        tracker
+            .insert_running_state(
+                "child-b".to_string(),
+                "tester".to_string(),
+                "task b".to_string(),
+                Some("parent-b".to_string()),
+            )
+            .expect("parent b should register");
+        tracker.mark_completed(
+            "child-b",
+            SubagentResult {
+                success: true,
+                output: "done-b".to_string(),
+                summary: None,
+                duration_ms: 10,
+                tokens_used: None,
+                cost_usd: None,
+                error: None,
+            },
+        );
+
+        let running = tracker.running_for_parent("parent-a");
+        assert_eq!(running.len(), 1);
+        assert_eq!(running[0].id, "child-a");
+        assert!(tracker.running_for_parent("parent-b").is_empty());
     }
 }

@@ -62,7 +62,10 @@ impl IpcServer {
         let session_service = SessionService::from_storage(&core.storage);
         match session_service.list_session_views(None, None, false) {
             Ok(sessions) => {
-                let summaries = sessions.iter().map(ChatSessionSummary::from).collect::<Vec<_>>();
+                let summaries = sessions
+                    .iter()
+                    .map(ChatSessionSummary::from)
+                    .collect::<Vec<_>>();
                 IpcResponse::success(summaries)
             }
             Err(err) => IpcResponse::error(500, err.to_string()),
@@ -234,10 +237,8 @@ impl IpcServer {
         let session_service = SessionService::from_storage(&core.storage);
         match session_service.search_session_views(&query, None, None, false, usize::MAX) {
             Ok(sessions) => {
-                let matches: Vec<ChatSessionSummary> = sessions
-                    .iter()
-                    .map(ChatSessionSummary::from)
-                    .collect();
+                let matches: Vec<ChatSessionSummary> =
+                    sessions.iter().map(ChatSessionSummary::from).collect();
                 IpcResponse::success(matches)
             }
             Err(err) => IpcResponse::error(500, err.to_string()),
@@ -454,7 +455,11 @@ impl IpcServer {
         if run_id_provided && normalized_run_id.is_none() {
             return IpcResponse::error(400, "run_id is required");
         }
-        match core.storage.execution_traces.stats(normalized_run_id.as_deref()) {
+        match core
+            .storage
+            .execution_traces
+            .stats(normalized_run_id.as_deref())
+        {
             Ok(stats) => IpcResponse::success(stats),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

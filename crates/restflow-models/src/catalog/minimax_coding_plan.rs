@@ -79,8 +79,46 @@ pub const MODELS: &[ModelDescriptor] = &[
     .with_openrouter_equivalent(ModelId::OrMinimaxM2_1),
 ];
 
+// Keep the best-quality flagship distinct from the conservative default model.
+// Provider metadata owns the default selection (M2.5), while the catalog
+// flagship remains the recommended top-end coding-plan model (M2.7).
 pub const CATALOG: ProviderCatalog = ProviderCatalog::new(
     Provider::MiniMaxCodingPlan,
     ModelId::MiniMaxM27CodingPlan,
     MODELS,
 );
+
+#[cfg(test)]
+mod tests {
+    use super::CATALOG;
+    use crate::{ModelId, provider_meta};
+    use restflow_traits::ModelProvider;
+
+    #[test]
+    fn default_model_is_intentionally_distinct_from_flagship() {
+        let provider_meta = provider_meta(ModelProvider::MiniMaxCodingPlan);
+
+        assert_eq!(
+            provider_meta.default_model_id,
+            ModelId::MiniMaxM25CodingPlan
+        );
+        assert_eq!(CATALOG.flagship, ModelId::MiniMaxM27CodingPlan);
+        assert_ne!(provider_meta.default_model_id, CATALOG.flagship);
+    }
+
+    #[test]
+    fn catalog_contains_default_and_flagship_models() {
+        assert!(
+            CATALOG
+                .models
+                .iter()
+                .any(|descriptor| descriptor.id == ModelId::MiniMaxM25CodingPlan)
+        );
+        assert!(
+            CATALOG
+                .models
+                .iter()
+                .any(|descriptor| descriptor.id == ModelId::MiniMaxM27CodingPlan)
+        );
+    }
+}

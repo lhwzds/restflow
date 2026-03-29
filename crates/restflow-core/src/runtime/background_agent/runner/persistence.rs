@@ -2,6 +2,15 @@ use super::*;
 use restflow_ai::llm::Message;
 
 impl BackgroundAgentRunner {
+    pub(super) async fn clear_resume_intent(&self, task_id: &str) {
+        let (mut states, mut checkpoint_ids) = tokio::join!(
+            self.resume_states.write(),
+            self.resume_checkpoint_ids.write(),
+        );
+        states.remove(task_id);
+        checkpoint_ids.remove(task_id);
+    }
+
     pub(super) async fn clear_task_conversation_links(&self, task_id: &str) {
         let Some(router) = self.channel_router.read().await.as_ref().cloned() else {
             return;
@@ -38,36 +47,33 @@ impl BackgroundAgentRunner {
         debug!("Scope guard cleanup completed for task {}", task_id);
     }
 
-    /// Remove a task from runner tracking maps.
-    /// Acquires all locks atomically to prevent partial cleanup on panic.
-    pub(super) async fn cleanup_task_tracking(&self, task_id: &str) {
+    /// Remove runtime tracking entries for a task without consuming staged
+    /// resume intent.
+    pub(super) async fn cleanup_runtime_tracking(&self, task_id: &str) {
         // Acquire all locks concurrently to minimize inconsistency window
-        let (
-            mut running,
-            mut senders,
-            mut receivers,
-            mut states,
-            mut checkpoint_ids,
-        ) = tokio::join!(
+        let (mut running, mut senders, mut receivers) = tokio::join!(
             self.running_tasks.write(),
             self.stop_senders.write(),
             self.pending_stop_receivers.write(),
-            self.resume_states.write(),
-            self.resume_checkpoint_ids.write(),
         );
 
         // Remove from all maps
         running.remove(task_id);
         senders.remove(task_id);
         receivers.remove(task_id);
-        states.remove(task_id);
-        checkpoint_ids.remove(task_id);
 
         // Explicitly drop locks before unregister to avoid holding while calling external code
-        drop((running, senders, receivers, states, checkpoint_ids));
+        drop((running, senders, receivers));
 
         // Unregister from steer registry (may fail, but maps are already cleaned)
         self.steer_registry.unregister(task_id).await;
+    }
+
+    /// Remove a task from runner tracking maps including any staged resume
+    /// intent.
+    pub(super) async fn cleanup_task_tracking(&self, task_id: &str) {
+        self.cleanup_runtime_tracking(task_id).await;
+        self.clear_resume_intent(task_id).await;
     }
 
     /// Take the stop receiver for a task, returning None if not found.
