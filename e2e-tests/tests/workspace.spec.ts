@@ -454,6 +454,234 @@ test.describe('Workspace Layout', () => {
     expect(toolAppearsBeforeAssistant).toBe(true)
   })
 
+  test('keeps the center panel on the canonical run view after a streamed tool call completes', async ({
+    page,
+  }) => {
+    const sessionId = await createSessionForTest(page)
+    const turnId = 'turn-live-1'
+    let streamRunId: string | null = null
+    let persistedRunAttempts = 0
+
+    await page.route('**/api/stream', async (route) => {
+      const payload = route.request().postDataJSON() as
+        | {
+            type?: string
+            data?: {
+              session_id?: string | null
+              stream_id?: string | null
+            }
+          }
+        | undefined
+
+      if (
+        payload?.type === 'ExecuteChatSessionStream' &&
+        payload.data?.session_id === sessionId &&
+        payload.data.stream_id
+      ) {
+        streamRunId = payload.data.stream_id
+        const frames = [
+          { stream_type: 'start', data: { stream_id: streamRunId } },
+          { stream_type: 'ack', data: { content: 'Running python...' } },
+          {
+            stream_type: 'tool_call',
+            data: {
+              id: 'tool-live-1',
+              name: 'python3',
+              arguments: { cmd: 'python3 /tmp/helloworld.py' },
+            },
+          },
+          {
+            stream_type: 'tool_result',
+            data: {
+              id: 'tool-live-1',
+              result: 'Hello, World!',
+              success: true,
+            },
+          },
+          { stream_type: 'done', data: { total_tokens: 12 } },
+        ]
+          .map((frame) => JSON.stringify(frame))
+          .join('\n')
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/x-ndjson',
+          body: `${frames}\n`,
+        })
+        return
+      }
+
+      await route.continue()
+    })
+
+    await page.route('**/api/request', async (route) => {
+      const payload = route.request().postDataJSON() as
+        | {
+            type?: string
+            data?: {
+              run_id?: string | null
+            }
+          }
+        | undefined
+
+      if (
+        payload?.type === 'GetExecutionRunThread' &&
+        streamRunId &&
+        payload.data?.run_id === streamRunId
+      ) {
+        if (persistedRunAttempts < 4) {
+          persistedRunAttempts += 1
+          await route.fulfill({
+            status: 200,
+            contentType: 'application/json',
+            body: JSON.stringify({
+              response_type: 'Error',
+              data: {
+                code: 404,
+                kind: 'not_found',
+                message: 'Run not found yet',
+                details: null,
+              },
+            }),
+          })
+          return
+        }
+
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            response_type: 'Success',
+            data: {
+              focus: {
+                id: 'focus-live-1',
+                title: 'Live run',
+                subtitle: null,
+                status: 'completed',
+                kind: 'workspace_run',
+                container_id: sessionId,
+                task_id: null,
+                run_id: streamRunId,
+                parent_run_id: null,
+                session_id: sessionId,
+                agent_id: 'agent-1',
+                effective_model: 'gpt-5',
+                provider: null,
+                started_at: Date.now(),
+                ended_at: Date.now() + 1,
+                updated_at: Date.now() + 1,
+                source_channel: 'workspace',
+                source_conversation_id: null,
+                event_count: 3,
+              },
+              timeline: {
+                events: [
+                  {
+                    id: 'event-tool-live-1',
+                    task_id: 'task-1',
+                    agent_id: 'agent-1',
+                    category: 'tool_call',
+                    source: 'agent_executor',
+                    timestamp: Date.now(),
+                    subflow_path: [],
+                    run_id: streamRunId,
+                    parent_run_id: null,
+                    session_id: sessionId,
+                    turn_id: turnId,
+                    requested_model: 'gpt-5',
+                    effective_model: 'gpt-5',
+                    provider: 'openai',
+                    attempt: 1,
+                    llm_call: null,
+                    tool_call: {
+                      tool_call_id: 'tool-live-1',
+                      tool_name: 'python3',
+                      phase: 'completed',
+                      input: '{"cmd":"python3 /tmp/helloworld.py"}',
+                      input_summary: 'python3 /tmp/helloworld.py',
+                      output: 'Hello, World!',
+                      output_ref: null,
+                      success: true,
+                      error: null,
+                      duration_ms: 50,
+                    },
+                    model_switch: null,
+                    lifecycle: null,
+                    message: null,
+                    metric_sample: null,
+                    provider_health: null,
+                    log_record: null,
+                  },
+                  {
+                    id: 'event-lifecycle-live-1',
+                    task_id: 'task-1',
+                    agent_id: 'agent-1',
+                    category: 'lifecycle',
+                    source: 'agent_executor',
+                    timestamp: Date.now() + 1,
+                    subflow_path: [],
+                    run_id: streamRunId,
+                    parent_run_id: null,
+                    session_id: sessionId,
+                    turn_id: turnId,
+                    requested_model: 'gpt-5',
+                    effective_model: 'gpt-5',
+                    provider: 'openai',
+                    attempt: 1,
+                    llm_call: null,
+                    tool_call: null,
+                    model_switch: null,
+                    lifecycle: {
+                      status: 'run_completed',
+                      message: null,
+                      error: null,
+                      ai_duration_ms: 50,
+                    },
+                    message: null,
+                    metric_sample: null,
+                    provider_health: null,
+                    log_record: null,
+                  },
+                ],
+                stats: {
+                  total_events: 2,
+                  by_category: {},
+                  time_range: null,
+                  top_requested_models: [],
+                  top_effective_models: [],
+                  top_providers: [],
+                  avg_llm_latency_ms: null,
+                  avg_tool_latency_ms: 50,
+                },
+              },
+            },
+          }),
+        })
+        return
+      }
+
+      await route.continue()
+    })
+
+    await page.locator('textarea[placeholder*="Ask the agent"]').fill('Run hello world')
+    await page.getByTestId('chat-send-button').click()
+
+    await expect
+      .poll(() => page.url())
+      .toContain(`/workspace/c/${sessionId}/r/`)
+
+    await expect
+      .poll(() => streamRunId)
+      .not.toBeNull()
+
+    await expect(page).toHaveURL(new RegExp(`/workspace/c/${sessionId}/r/${streamRunId}$`))
+    await expect(page.getByTestId(`run-group-run-group-${turnId}`)).toBeVisible()
+    await expect(page.getByTestId(`run-group-run-group-${turnId}`)).toContainText('Turn')
+    await expect(page.getByTestId(`run-group-run-group-${turnId}`)).toContainText('python3')
+    await expect(page.locator('text=minimax:tool_call')).toHaveCount(0)
+    expect(persistedRunAttempts).toBe(4)
+  })
+
   test('lazily expands child and grandchild runs on the canonical run tree', async ({ page }) => {
     const sessionId = await createSessionForTest(page)
     const parentRunId = `run-parent-${Date.now()}`

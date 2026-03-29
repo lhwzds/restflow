@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildSessionThreadItems } from '../threadItems'
+import { buildRunThreadItems, buildSessionThreadItems } from '../threadItems'
 
 describe('threadItems', () => {
   it('uses canonical execution order while backfilling full message content from chat messages', () => {
@@ -563,6 +563,44 @@ describe('threadItems', () => {
 
     expect(items.map((item) => item.id)).toEqual(['run-group-turn-1'])
     expect(items.find((item) => item.id === 'live-run-group')).toBeUndefined()
+  })
+
+  it('keeps completed live tool steps visible while a selected run is still waiting for its persisted thread', () => {
+    const items = buildRunThreadItems({
+      thread: null,
+      messages: [
+        {
+          id: 'optimistic-1',
+          role: 'user',
+          content: 'Run the script',
+          timestamp: 0n,
+          execution: null,
+        },
+      ],
+      steps: [
+        {
+          type: 'tool_call',
+          name: 'python3',
+          displayName: 'python3',
+          status: 'completed',
+          toolId: 'stream-tool-1',
+          result: 'Hello, World!',
+        },
+      ],
+      streamContent: '',
+    })
+
+    expect(items.map((item) => item.id)).toEqual(['optimistic-1', 'live-run-group'])
+    expect(items[1]).toMatchObject({
+      kind: 'run_group',
+      title: 'Turn',
+      children: [
+        expect.objectContaining({
+          id: 'stream-tool-1',
+          status: 'completed',
+        }),
+      ],
+    })
   })
 
   it('keeps live run groups in running state while any child step is still active', () => {

@@ -39,9 +39,15 @@ import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { ModelId } from '@/types/generated/ModelId'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
+import type { ExecutionContainerKind } from '@/types/generated/ExecutionContainerKind'
+import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 import type { ThreadSelection } from './threadItems'
-import { buildSessionThreadItems, type ThreadItem } from './threadItems'
+import {
+  buildRunThreadItems,
+  buildTranscriptThreadItems,
+  type ThreadItem,
+} from './threadItems'
 import {
   extractOperationAssessment,
   formatOperationAssessment,
@@ -52,11 +58,13 @@ import { buildVoiceMessageContent } from './voiceMessageContent'
 const props = withDefaults(
   defineProps<{
     selectedRunId?: string | null
+    containerId?: string | null
     backgroundTaskId?: string | null
     autoSelectRecent?: boolean
   }>(),
   {
     selectedRunId: null,
+    containerId: null,
     backgroundTaskId: null,
     autoSelectRecent: true,
   },
@@ -67,6 +75,7 @@ const emit = defineEmits<{
   toolResult: [step: StreamStep]
   threadSelection: [selection: ThreadSelection]
   threadLoaded: [thread: ExecutionThread | null]
+  runStarted: [payload: { containerId: string; runId: string }]
 }>()
 
 const toast = useToast()
@@ -112,6 +121,12 @@ const chatBoxKey = computed(() => {
 const messages = computed<ChatMessage[]>(() => chatMessages.value)
 const executionThread = ref<ExecutionThread | null>(null)
 let executionThreadLoadVersion = 0
+const pendingRunId = ref<string | null>(null)
+const pendingStreamResetRunId = ref<string | null>(null)
+let persistedRunRetryTimer: number | null = null
+let persistedRunRetryDeadline = 0
+const containerRunSummaries = ref<ExecutionSessionSummary[]>([])
+let containerRunSummariesLoadVersion = 0
 
 // Stream state
 const isStreaming = computed(() => chatStream.isStreaming.value)
@@ -129,14 +144,223 @@ const executionStatusLabel = computed(() => {
   }
   return null
 })
-const threadItems = computed<ThreadItem[]>(() =>
-  buildSessionThreadItems({
-    thread: executionThread.value,
+const activeStreamRunId = computed(() => chatStream.state.value.messageId)
+const centerRunId = computed(() => props.selectedRunId || pendingRunId.value || null)
+const isCenterRunStreaming = computed(
+  () => !!centerRunId.value && centerRunId.value === activeStreamRunId.value,
+)
+const resolvedContainerId = computed(
+  () => props.containerId || executionThread.value?.focus.container_id || chatSessionStore.currentSessionId || null,
+)
+
+function isOptimisticMessage(message: ChatMessage): boolean {
+  return message.id.startsWith('optimistic-')
+}
+
+function messageTimestampMs(message: ChatMessage): number | null {
+  const value = Number(message.timestamp)
+  if (!Number.isFinite(value) || value <= 0) return null
+  return value
+}
+
+interface RunMessageBoundary {
+  runId: string
+  startedAt: number
+  updatedAt: number
+  endedAt: number
+}
+
+function summaryToRunMessageBoundary(summary: ExecutionSessionSummary): RunMessageBoundary | null {
+  if (!summary.run_id) return null
+
+  return {
+    runId: summary.run_id,
+    startedAt: Number(summary.started_at ?? 0),
+    updatedAt: Number(summary.updated_at ?? 0),
+    endedAt: Number(summary.ended_at ?? 0),
+  }
+}
+
+function threadToRunMessageBoundary(thread: ExecutionThread | null): RunMessageBoundary | null {
+  if (!thread?.focus.run_id) return null
+
+  return {
+    runId: thread.focus.run_id,
+    startedAt: Number(thread.focus.started_at ?? 0),
+    updatedAt: Number(thread.focus.updated_at ?? 0),
+    endedAt: Number(thread.focus.ended_at ?? 0),
+  }
+}
+
+function runBoundarySortTime(boundary: RunMessageBoundary): number {
+  if (boundary.startedAt > 0) return boundary.startedAt
+  return Math.max(boundary.updatedAt, boundary.endedAt, 0)
+}
+
+function runBoundaryEndTime(boundary: RunMessageBoundary): number {
+  return Math.max(boundary.endedAt, boundary.updatedAt, boundary.startedAt, 0)
+}
+
+function sortRunMessageBoundaries(boundaries: RunMessageBoundary[]): RunMessageBoundary[] {
+  return [...boundaries].sort((left, right) => {
+    const delta = runBoundarySortTime(left) - runBoundarySortTime(right)
+    if (delta !== 0) return delta
+    return left.runId.localeCompare(right.runId)
+  })
+}
+
+function deriveContainerMessageWindow(
+  runId: string,
+  boundaries: RunMessageBoundary[],
+): { lowerBound: number; upperBound: number } | null {
+  const sorted = sortRunMessageBoundaries(boundaries)
+  if (sorted.length === 0) {
+    return { lowerBound: Number.NEGATIVE_INFINITY, upperBound: Number.POSITIVE_INFINITY }
+  }
+
+  const currentIndex = sorted.findIndex((boundary) => boundary.runId === runId)
+  if (currentIndex >= 0) {
+    const previous = currentIndex > 0 ? sorted[currentIndex - 1] : null
+    const next = currentIndex < sorted.length - 1 ? sorted[currentIndex + 1] : null
+    return {
+      lowerBound: previous ? runBoundaryEndTime(previous) : Number.NEGATIVE_INFINITY,
+      upperBound: next
+        ? next.startedAt > 0
+          ? next.startedAt
+          : runBoundarySortTime(next)
+        : Number.POSITIVE_INFINITY,
+    }
+  }
+
+  if (pendingRunId.value === runId) {
+    const previous = sorted[sorted.length - 1] ?? null
+    return {
+      lowerBound: previous ? runBoundaryEndTime(previous) : Number.NEGATIVE_INFINITY,
+      upperBound: Number.POSITIVE_INFINITY,
+    }
+  }
+
+  return null
+}
+
+function deriveThreadHeuristicMessageWindow(
+  thread: ExecutionThread,
+): { lowerBound: number; upperBound: number } {
+  const boundary = threadToRunMessageBoundary(thread)
+  const lowerBound = boundary?.startedAt && boundary.startedAt > 0 ? boundary.startedAt : 0
+  const upperCandidate = boundary ? runBoundaryEndTime(boundary) : 0
+  return {
+    lowerBound,
+    upperBound: upperCandidate > 0 ? upperCandidate : Number.POSITIVE_INFINITY,
+  }
+}
+
+async function loadContainerRunSummaries(
+  containerId: string | null,
+  kind: ExecutionContainerKind | null,
+): Promise<ExecutionSessionSummary[]> {
+  const version = ++containerRunSummariesLoadVersion
+
+  if (!containerId || !kind) {
+    containerRunSummaries.value = []
+    return []
+  }
+
+  try {
+    const runs = await listExecutionSessions({
+      container: {
+        kind,
+        id: containerId,
+      },
+    })
+    if (version !== containerRunSummariesLoadVersion) return containerRunSummaries.value
+    containerRunSummaries.value = runs.filter((summary) => !!summary.run_id)
+    return containerRunSummaries.value
+  } catch (error) {
+    if (version !== containerRunSummariesLoadVersion) return containerRunSummaries.value
+    console.warn('Failed to load container run summaries:', error)
+    containerRunSummaries.value = []
+    return []
+  }
+}
+
+function buildRunScopedMessages(
+  allMessages: ChatMessage[],
+  thread: ExecutionThread | null,
+  runId: string | null,
+  includeOptimisticMessages: boolean,
+  runSummaries: ExecutionSessionSummary[],
+): ChatMessage[] {
+  if (!runId) return allMessages
+
+  const optimisticMessages = includeOptimisticMessages
+    ? allMessages.filter(isOptimisticMessage)
+    : []
+
+  if (!thread || thread.focus.run_id !== runId) {
+    return optimisticMessages
+  }
+
+  const boundaries = new Map<string, RunMessageBoundary>()
+  for (const summary of runSummaries) {
+    const boundary = summaryToRunMessageBoundary(summary)
+    if (boundary) {
+      boundaries.set(boundary.runId, boundary)
+    }
+  }
+  const threadBoundary = threadToRunMessageBoundary(thread)
+  if (threadBoundary) {
+    boundaries.set(threadBoundary.runId, threadBoundary)
+  }
+
+  const containerWindow = deriveContainerMessageWindow(runId, [...boundaries.values()])
+  const hasAdjacentBoundary =
+    !!containerWindow &&
+    (Number.isFinite(containerWindow.lowerBound) || Number.isFinite(containerWindow.upperBound))
+  const messageWindow = hasAdjacentBoundary
+    ? containerWindow
+    : deriveThreadHeuristicMessageWindow(thread)
+
+  const persistedMessages = allMessages.filter((message) => {
+    if (isOptimisticMessage(message)) return false
+    const timestamp = messageTimestampMs(message)
+    if (timestamp == null) return false
+    if (hasAdjacentBoundary) {
+      return timestamp > messageWindow.lowerBound && timestamp < messageWindow.upperBound
+    }
+    return timestamp >= messageWindow.lowerBound && timestamp <= messageWindow.upperBound
+  })
+
+  return [...persistedMessages, ...optimisticMessages]
+}
+
+const runScopedMessages = computed<ChatMessage[]>(() =>
+  buildRunScopedMessages(
+    messages.value,
+    executionThread.value,
+    centerRunId.value,
+    isCenterRunStreaming.value,
+    containerRunSummaries.value,
+  ),
+)
+
+const threadItems = computed<ThreadItem[]>(() => {
+  if (centerRunId.value) {
+    return buildRunThreadItems({
+      thread:
+        executionThread.value?.focus.run_id === centerRunId.value ? executionThread.value : null,
+      messages: runScopedMessages.value,
+      steps: isCenterRunStreaming.value ? streamSteps.value : [],
+      streamContent: isCenterRunStreaming.value ? streamContent.value : '',
+    })
+  }
+
+  return buildTranscriptThreadItems({
     messages: messages.value,
     steps: streamSteps.value,
     streamContent: streamContent.value,
-  }),
-)
+  })
+})
 
 // Token stats from stream
 const inputTokens = computed(() => chatStream.state.value.inputTokens)
@@ -174,6 +398,11 @@ const currentRunAgentName = computed(() => {
 const isExternalSessionManaged = computed(() => {
   const source = currentSession.value?.source_channel
   return !!source && source !== 'workspace'
+})
+const activeContainerKind = computed<ExecutionContainerKind | null>(() => {
+  if (props.backgroundTaskId) return 'background_task'
+  if (isExternalSessionManaged.value) return 'external_channel'
+  return resolvedContainerId.value ? 'workspace' : null
 })
 const bgCanPause = computed(() => linkedBgAgent.value?.status === 'active')
 const bgCanResume = computed(() => linkedBgAgent.value?.status === 'paused')
@@ -395,34 +624,124 @@ watch(
   { immediate: true },
 )
 
-async function loadExecutionThreadForSession(_sessionId: string | null) {
+watch(
+  () => props.selectedRunId,
+  (runId) => {
+    if (!runId) return
+    if (pendingRunId.value === runId) {
+      pendingRunId.value = null
+      return
+    }
+    pendingRunId.value = null
+  },
+)
+
+watch(
+  [resolvedContainerId, activeContainerKind],
+  ([containerId, kind]) => {
+    void loadContainerRunSummaries(containerId, kind)
+  },
+  { immediate: true },
+)
+
+watch(
+  centerRunId,
+  (runId, previousRunId) => {
+    if (previousRunId && previousRunId !== runId && pendingStreamResetRunId.value === previousRunId) {
+      pendingStreamResetRunId.value = null
+      clearPersistedRunRetry()
+    }
+  },
+)
+
+function clearPersistedRunRetry() {
+  if (persistedRunRetryTimer != null) {
+    window.clearTimeout(persistedRunRetryTimer)
+    persistedRunRetryTimer = null
+  }
+  persistedRunRetryDeadline = 0
+}
+
+function finalizePersistedRun(runId: string) {
+  if (pendingStreamResetRunId.value === runId) {
+    pendingStreamResetRunId.value = null
+    chatStream.reset()
+  }
+  clearPersistedRunRetry()
+}
+
+async function loadExecutionThreadForRun(
+  runId: string | null,
+  options: { allowNotFound?: boolean } = {},
+): Promise<ExecutionThread | null> {
   const requestVersion = ++executionThreadLoadVersion
 
-  if (!props.selectedRunId) {
+  if (!runId) {
     executionThread.value = null
     emit('threadLoaded', null)
-    return
+    return null
+  }
+
+  if (executionThread.value?.focus.run_id !== runId) {
+    executionThread.value = null
+    emit('threadLoaded', null)
   }
 
   try {
-    const thread = await getExecutionRunThread(props.selectedRunId)
+    const thread = await getExecutionRunThread(runId)
 
-    if (requestVersion !== executionThreadLoadVersion) return
+    if (requestVersion !== executionThreadLoadVersion) return executionThread.value
     executionThread.value = thread
     emit('threadLoaded', thread)
+    return thread
   } catch (error) {
-    if (requestVersion !== executionThreadLoadVersion) return
+    if (requestVersion !== executionThreadLoadVersion) return executionThread.value
+
+    if (error instanceof BackendError && error.code === 404 && options.allowNotFound) {
+      return null
+    }
 
     if (error instanceof BackendError && error.code === 404) {
       executionThread.value = null
       emit('threadLoaded', null)
+      return null
+    }
+
+    console.warn('Failed to load execution thread for run:', error)
+    executionThread.value = null
+    emit('threadLoaded', null)
+    return null
+  }
+}
+
+function schedulePersistedRunRetry(runId: string, delayMs = 250) {
+  if (persistedRunRetryTimer != null) {
+    window.clearTimeout(persistedRunRetryTimer)
+  }
+
+  persistedRunRetryTimer = window.setTimeout(async () => {
+    persistedRunRetryTimer = null
+
+    if (centerRunId.value !== runId) {
+      pendingStreamResetRunId.value = null
+      clearPersistedRunRetry()
       return
     }
 
-    console.warn('Failed to load execution thread for session:', error)
-    executionThread.value = null
-    emit('threadLoaded', null)
-  }
+    const thread = await loadExecutionThreadForRun(runId, { allowNotFound: true })
+    if (thread) {
+      finalizePersistedRun(runId)
+      return
+    }
+
+    if (Date.now() >= persistedRunRetryDeadline) {
+      pendingStreamResetRunId.value = null
+      clearPersistedRunRetry()
+      return
+    }
+
+    schedulePersistedRunRetry(runId, Math.min(delayMs * 2, 1000))
+  }, delayMs)
 }
 
 async function navigateToLatestContainerRun(sessionId: string) {
@@ -467,9 +786,11 @@ async function navigateToLatestContainerRun(sessionId: string) {
 }
 
 watch(
-  () => [chatSessionStore.currentSessionId, props.selectedRunId],
-  ([sessionId]) => {
-    void loadExecutionThreadForSession(sessionId ?? null)
+  () => centerRunId.value,
+  (runId) => {
+    void loadExecutionThreadForRun(runId, {
+      allowNotFound: !!runId && (runId === pendingRunId.value || runId === activeStreamRunId.value),
+    })
   },
   { immediate: true },
 )
@@ -478,14 +799,30 @@ async function syncSessionFromBackend() {
   const sessionId = chatSessionStore.currentSessionId
   if (!sessionId) return
 
+  const runId = centerRunId.value ?? activeStreamRunId.value
   const refreshed = await chatSessionStore.refreshSession(sessionId)
-    if (refreshed) {
-      chatSessionStore.updateSessionLocally(refreshed)
-      await loadExecutionThreadForSession(sessionId)
+  if (refreshed) {
+    chatSessionStore.updateSessionLocally(refreshed)
+    await loadContainerRunSummaries(resolvedContainerId.value, activeContainerKind.value)
+
+    if (runId) {
+      const thread = await loadExecutionThreadForRun(runId, { allowNotFound: true })
+      if (thread) {
+        finalizePersistedRun(runId)
+        return
+      }
+
+      if (runId === pendingRunId.value || runId === activeStreamRunId.value) {
+        pendingStreamResetRunId.value = runId
+        persistedRunRetryDeadline = Date.now() + 10000
+        schedulePersistedRunRetry(runId)
+        return
+      }
+    } else {
       await navigateToLatestContainerRun(sessionId)
-      // Clear stream content after persisted messages are loaded to prevent
-      // showing both the streaming message and the persisted message.
       chatStream.reset()
+      return
+    }
   }
 }
 
@@ -526,7 +863,12 @@ async function sendMessageWithStream(message: string) {
   }
 
   try {
-    await chatStream.send(message)
+    const streamId = await chatStream.send(message)
+    const containerId = resolvedContainerId.value
+    if (containerId) {
+      pendingRunId.value = streamId
+      emit('runStarted', { containerId, runId: streamId })
+    }
     // Session sync is handled by the isStreaming watcher when streaming ends.
     // Do NOT call syncSessionFromBackend() here — send() returns before
     // the stream completes, so an early sync would fetch stale data.
@@ -782,9 +1124,12 @@ onMounted(async () => {
             if (session) {
               chatSessionStore.updateSessionLocally(session)
             }
-            return loadExecutionThreadForSession(sessionId).then(() =>
-              navigateToLatestContainerRun(sessionId),
-            )
+            void loadContainerRunSummaries(resolvedContainerId.value, activeContainerKind.value)
+            const runId = centerRunId.value
+            if (runId) {
+              return loadExecutionThreadForRun(runId, { allowNotFound: true }).then(() => undefined)
+            }
+            return navigateToLatestContainerRun(sessionId)
           })
         }
         // Also refresh summaries so the sidebar stays up to date
@@ -798,6 +1143,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   unlistenSessionEvents?.()
+  clearPersistedRunRetry()
 })
 
 // Expose for parent (Workspace.vue needs session list data)
