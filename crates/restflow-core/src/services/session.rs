@@ -95,6 +95,52 @@ impl SessionService {
         Ok(Some(session))
     }
 
+    pub fn list_session_views(
+        &self,
+        agent_id: Option<&str>,
+        skill_id: Option<&str>,
+        include_archived: bool,
+    ) -> Result<Vec<ChatSession>> {
+        let mut sessions = match (agent_id, skill_id, include_archived) {
+            (Some(agent_id), _, true) => self.sessions.chat_sessions.list_by_agent_all(agent_id)?,
+            (Some(agent_id), _, false) => self.sessions.chat_sessions.list_by_agent(agent_id)?,
+            (None, Some(skill_id), true) => self.sessions.chat_sessions.list_by_skill_all(skill_id)?,
+            (None, Some(skill_id), false) => self.sessions.chat_sessions.list_by_skill(skill_id)?,
+            (None, None, true) => self.sessions.chat_sessions.list_all()?,
+            (None, None, false) => self.sessions.chat_sessions.list()?,
+        };
+
+        for session in &mut sessions {
+            self.apply_effective_source(session)?;
+        }
+
+        Ok(sessions)
+    }
+
+    pub fn search_session_views(
+        &self,
+        query: &str,
+        agent_id: Option<&str>,
+        skill_id: Option<&str>,
+        include_archived: bool,
+        limit: usize,
+    ) -> Result<Vec<ChatSession>> {
+        let keyword = query.to_lowercase();
+        let sessions = self.list_session_views(agent_id, skill_id, include_archived)?;
+
+        Ok(sessions
+            .into_iter()
+            .filter(|session| {
+                session.name.to_lowercase().contains(&keyword)
+                    || session
+                        .messages
+                        .iter()
+                        .any(|message| message.content.to_lowercase().contains(&keyword))
+            })
+            .take(limit)
+            .collect())
+    }
+
     pub fn create_workspace_session(
         &self,
         agent_id: String,
