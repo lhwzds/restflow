@@ -16,6 +16,7 @@ pub(crate) fn parse_usize(value: &Value, key: &str) -> Result<usize> {
     Ok(parse_u64(value, key)? as usize)
 }
 
+#[allow(dead_code)]
 pub(crate) fn parse_bool(value: &Value, key: &str) -> Result<bool> {
     value
         .as_bool()
@@ -52,6 +53,7 @@ pub(crate) fn parse_optional_string_list(value: &Value, key: &str) -> Result<Opt
     Ok(Some(result))
 }
 
+#[allow(dead_code)]
 pub(crate) fn parse_optional_string(value: &Value, key: &str) -> Result<Option<String>> {
     if value.is_null() {
         return Ok(None);

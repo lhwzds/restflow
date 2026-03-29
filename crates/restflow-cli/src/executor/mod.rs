@@ -162,7 +162,14 @@ pub trait CommandExecutor: Send + Sync {
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>>;
 }
 
-pub async fn create(_db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>> {
+pub async fn create(db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>> {
+    if let Some(db_path) = db_path {
+        anyhow::bail!(
+            "The --db-path flag is only supported for daemon lifecycle commands. Commands routed through the daemon must target the running daemon instance instead of selecting a database path directly: {}",
+            db_path
+        );
+    }
+
     let socket_path = paths::socket_path()?;
     if is_daemon_available(&socket_path).await {
         let executor = ipc::IpcExecutor::connect(&socket_path).await?;
@@ -203,5 +210,16 @@ mod tests {
             Some(value) => unsafe { std::env::set_var("RESTFLOW_DIR", value) },
             None => unsafe { std::env::remove_var("RESTFLOW_DIR") },
         }
+    }
+
+    #[tokio::test]
+    async fn create_rejects_db_path_for_executor_commands() {
+        let err = match create(Some("/tmp/restflow.db".to_string())).await {
+            Ok(_) => panic!("create should reject db_path for daemon-routed commands"),
+            Err(err) => err,
+        };
+        assert!(err
+            .to_string()
+            .contains("only supported for daemon lifecycle commands"));
     }
 }

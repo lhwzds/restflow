@@ -207,7 +207,7 @@ async fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::command_needs_direct_core;
-    use crate::cli::{Commands, HookCommands, MaintenanceCommands, PairingCommands, StartArgs};
+    use crate::cli::{Commands, HookCommands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
@@ -235,6 +235,14 @@ mod tests {
     fn pairing_does_not_need_direct_core() {
         let command = Some(Commands::Pairing {
             command: PairingCommands::List,
+        });
+        assert!(!command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn route_does_not_need_direct_core() {
+        let command = Some(Commands::Route {
+            command: RouteCommands::List,
         });
         assert!(!command_needs_direct_core(&command));
     }

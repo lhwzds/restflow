@@ -199,8 +199,11 @@ impl IpcClient {
         &mut self,
         run_id: Option<String>,
     ) -> Result<ExecutionTraceStats> {
-        self.request_typed(IpcRequest::GetExecutionTraceStats { run_id })
-            .await
+        self.request_typed(IpcRequest::GetExecutionTraceStats {
+            run_id,
+            task_id: None,
+        })
+        .await
     }
 
     pub async fn get_execution_trace_by_id(

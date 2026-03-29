@@ -132,6 +132,10 @@ impl AgentOrchestratorImpl {
             emitter,
             steer_rx,
         } = request;
+        self.kernel
+            .backend()
+            .prepare_interactive_session(session)
+            .map_err(InteractiveExecutionError::Execution)?;
         let trace = RestflowTrace::new(
             run_id,
             session.id.clone(),

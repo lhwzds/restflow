@@ -17,6 +17,10 @@ use restflow_traits::{ExecutionOutcome, ExecutionPlan};
 pub trait ExecutionBackend: Send + Sync {
     fn load_chat_session(&self, session_id: &str) -> Result<ChatSession>;
 
+    fn prepare_interactive_session(&self, _session: &mut ChatSession) -> Result<()> {
+        Ok(())
+    }
+
     async fn execute_interactive_session_turn(
         &self,
         session: &mut ChatSession,
@@ -69,6 +73,11 @@ impl ExecutionKernel {
 impl ExecutionBackend for AgentRuntimeExecutor {
     fn load_chat_session(&self, session_id: &str) -> Result<ChatSession> {
         self.load_chat_session(session_id)
+    }
+
+    fn prepare_interactive_session(&self, session: &mut ChatSession) -> Result<()> {
+        let _ = self.resolve_stored_agent_for_session(session)?;
+        Ok(())
     }
 
     async fn execute_interactive_session_turn(

@@ -1,9 +1,8 @@
 use super::*;
-use restflow_storage::{ConfigStorage, load_cli_config, load_global_cli_config};
+use restflow_storage::ConfigStorage;
 use restflow_traits::config_types::{CliConfig, ConfigDocument, SystemConfig};
 use restflow_traits::store::ConfigStore;
 use std::env;
-use std::fs;
 use std::path::Path;
 use std::sync::{Mutex, OnceLock};
 use tempfile::tempdir;
@@ -72,24 +71,20 @@ impl ConfigStore for TestConfigStore {
         let system = self.storage.get_effective_config().map_err(config_error)?;
         let system = serde_json::from_value(serde_json::to_value(system).map_err(config_error)?)
             .map_err(config_error)?;
-        let cli = serde_json::from_value(
-            serde_json::to_value(restflow_storage::load_cli_config().map_err(config_error)?)
-                .map_err(config_error)?,
-        )
-        .map_err(config_error)?;
-        Ok(ConfigDocument::from_system_config(system, cli))
+        Ok(ConfigDocument::from_system_config(
+            system,
+            CliConfig::default(),
+        ))
     }
 
     fn get_writable_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
         let system = self.storage.get_global_config().map_err(config_error)?;
         let system = serde_json::from_value(serde_json::to_value(system).map_err(config_error)?)
             .map_err(config_error)?;
-        let cli = serde_json::from_value(
-            serde_json::to_value(restflow_storage::load_global_cli_config().map_err(config_error)?)
-                .map_err(config_error)?,
-        )
-        .map_err(config_error)?;
-        Ok(ConfigDocument::from_system_config(system, cli))
+        Ok(ConfigDocument::from_system_config(
+            system,
+            CliConfig::default(),
+        ))
     }
 
     fn persist_config(&self, config: &ConfigDocument) -> restflow_traits::error::Result<()> {
@@ -97,11 +92,7 @@ impl ConfigStore for TestConfigStore {
             serde_json::to_value(config.system_config()).map_err(config_error)?,
         )
         .map_err(config_error)?;
-        let cli =
-            serde_json::from_value(serde_json::to_value(config.cli.clone()).map_err(config_error)?)
-                .map_err(config_error)?;
         self.storage.update_config(system).map_err(config_error)?;
-        restflow_storage::write_cli_config(&cli).map_err(config_error)?;
         Ok(())
     }
 
@@ -111,11 +102,7 @@ impl ConfigStore for TestConfigStore {
             serde_json::to_value(doc.system_config()).map_err(config_error)?,
         )
         .map_err(config_error)?;
-        let cli =
-            serde_json::from_value(serde_json::to_value(doc.cli.clone()).map_err(config_error)?)
-                .map_err(config_error)?;
         self.storage.update_config(system).map_err(config_error)?;
-        restflow_storage::write_cli_config(&cli).map_err(config_error)?;
         Ok(doc)
     }
 }
@@ -150,6 +137,10 @@ async fn test_get_config() {
             .pointer("/system/worker_count")
             .and_then(|value| value.as_u64())
             .is_some()
+    );
+    assert!(
+        output.result.get("cli").is_none(),
+        "daemon-facing config view must omit cli-local settings"
     );
 }
 
@@ -188,9 +179,7 @@ async fn test_set_rejects_unknown_field_with_valid_fields_hint() {
     let message = err.to_string();
 
     assert!(message.contains("Unknown config field: 'invalid_field'"));
-    assert!(message.contains(
-        "Valid fields: system.*, agent.*, api.*, runtime.*, channel.*, registry.*, cli.*."
-    ));
+    assert!(message.contains("Valid fields: system.*, agent.*, api.*, runtime.*, channel.*, registry.*."));
 }
 
 #[tokio::test]
@@ -574,31 +563,47 @@ async fn test_set_agent_fallback_models_allows_null_clear() {
 }
 
 #[tokio::test]
-async fn test_set_cli_field_preserves_workspace_override() {
+async fn test_set_rejects_cli_fields() {
     let ctx = setup_storage();
     let tool = ConfigTool::new(ctx.store).with_write(true);
-    let workspace_path = ctx._temp_dir.path().join("workspace-config.toml");
-    fs::write(&workspace_path, "[cli]\nagent = \"workspace-agent\"\n")
-        .expect("write workspace config");
-    let _workspace_guard = EnvGuard::set_path("RESTFLOW_WORKSPACE_CONFIG", &workspace_path);
 
-    let output = tool
+    let err = tool
         .execute(json!({
             "operation": "set",
             "key": "cli.model",
             "value": "gpt-5"
         }))
         .await
-        .expect("setting cli.model should succeed");
+        .expect_err("cli fields should be rejected by daemon-facing config");
 
-    assert!(output.success);
-    let global_cli = load_global_cli_config().expect("load global cli config");
-    assert_eq!(global_cli.agent, None);
-    assert_eq!(global_cli.model.as_deref(), Some("gpt-5"));
+    assert!(err
+        .to_string()
+        .contains("Unknown config field: 'cli.model'"));
+}
 
-    let effective_cli = load_cli_config().expect("load effective cli config");
-    assert_eq!(effective_cli.agent.as_deref(), Some("workspace-agent"));
-    assert_eq!(effective_cli.model.as_deref(), Some("gpt-5"));
+#[tokio::test]
+async fn test_set_rejects_cli_block_in_full_config_payload() {
+    let ctx = setup_storage();
+    let tool = ConfigTool::new(ctx.store).with_write(true);
+
+    let err = tool
+        .execute(json!({
+            "operation": "set",
+            "config": {
+                "system": {
+                    "worker_count": 6
+                },
+                "cli": {
+                    "model": "gpt-5"
+                }
+            }
+        }))
+        .await
+        .expect_err("cli block should be rejected for daemon-facing config writes");
+
+    assert!(err
+        .to_string()
+        .contains("CLI-local config fields are not available through manage_config"));
 }
 
 #[tokio::test]

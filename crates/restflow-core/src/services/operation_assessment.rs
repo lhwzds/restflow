@@ -15,6 +15,7 @@ use crate::auth::{
 };
 use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
+use crate::services::background_agent_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
@@ -489,12 +490,25 @@ pub async fn assess_background_agent_convert_session(
         .chat_sessions
         .get(&request.session_id)?
         .ok_or_else(|| anyhow!("Session not found: {}", request.session_id))?;
-    let stored_agent = load_agent(core, &session.agent_id).await?;
-    let intent = if request.run_now.unwrap_or(true) {
+    let intent = if request.run_now.unwrap_or(false) {
         OperationAssessmentIntent::Run
     } else {
         OperationAssessmentIntent::Save
     };
+    if derive_conversion_input(request.input.clone(), &session.messages).is_none() {
+        let mut assessment = OperationAssessment::ok(
+            "convert_session_to_background_agent",
+            intent,
+        );
+        assessment.blockers.push(issue(
+            "missing_conversion_input",
+            "Cannot convert session: no non-empty user message found; please provide input.",
+            Some("input"),
+            Some("Provide a non-empty input value before converting the session."),
+        ));
+        return Ok(finalize_assessment(assessment));
+    }
+    let stored_agent = load_agent(core, &session.agent_id).await?;
     assess_agent_node(
         core,
         &auth_manager,
@@ -729,7 +743,9 @@ pub async fn assess_subagent_batch(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::{ApiKeyConfig, ChatMessage, ModelRef};
     use crate::prompt_files;
+    use crate::services::agent::create_agent;
     use restflow_contracts::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
     use tempfile::tempdir;
 
@@ -769,6 +785,23 @@ mod tests {
                 .unwrap(),
         );
         (core, temp_db, temp_agents, env_guard)
+    }
+
+    fn create_test_agent_node(prompt: &str) -> AgentNode {
+        AgentNode {
+            model: Some(ModelId::ClaudeSonnet4_5),
+            model_ref: Some(ModelRef::from_model(ModelId::ClaudeSonnet4_5)),
+            prompt: Some(prompt.to_string()),
+            temperature: Some(0.7),
+            codex_cli_reasoning_effort: None,
+            codex_cli_execution_mode: None,
+            api_key_config: Some(ApiKeyConfig::Direct("test_key".to_string())),
+            tools: Some(vec!["http_request".to_string()]),
+            skills: None,
+            skill_variables: None,
+            skill_preflight_policy_mode: None,
+            model_routing: None,
+        }
     }
 
     #[tokio::test]
@@ -935,5 +968,85 @@ mod tests {
                 .to_string()
                 .contains("requires both 'model' and 'provider'")
         );
+    }
+
+    #[tokio::test]
+    async fn assess_background_agent_convert_session_defaults_run_now_to_save() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let created = create_agent(
+            &core,
+            "Assessment Agent".to_string(),
+            create_test_agent_node("Assess conversions"),
+        )
+        .await
+        .expect("agent");
+
+        let mut session = crate::models::ChatSession::new(
+            created.id.clone(),
+            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
+        );
+        session.add_message(ChatMessage::user("Summarize this thread"));
+        core.storage.chat_sessions.create(&session).expect("session");
+
+        let assessment = assess_background_agent_convert_session(
+            &core,
+            BackgroundAgentConvertSessionRequest {
+                session_id: session.id.clone(),
+                name: None,
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: None,
+            },
+        )
+        .await
+        .expect("assessment");
+
+        assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
+    }
+
+    #[tokio::test]
+    async fn assess_background_agent_convert_session_blocks_when_input_cannot_be_derived() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let created = create_agent(
+            &core,
+            "Assessment Agent".to_string(),
+            create_test_agent_node("Assess conversions"),
+        )
+        .await
+        .expect("agent");
+
+        let session = crate::models::ChatSession::new(
+            created.id.clone(),
+            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
+        );
+        core.storage.chat_sessions.create(&session).expect("session");
+
+        let assessment = assess_background_agent_convert_session(
+            &core,
+            BackgroundAgentConvertSessionRequest {
+                session_id: session.id.clone(),
+                name: None,
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: None,
+            },
+        )
+        .await
+        .expect("assessment");
+
+        assert_eq!(assessment.status, OperationAssessmentStatus::Block);
+        assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
+        assert_eq!(assessment.blockers.len(), 1);
+        assert_eq!(assessment.blockers[0].code, "missing_conversion_input");
     }
 }

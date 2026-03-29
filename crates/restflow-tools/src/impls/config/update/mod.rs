@@ -1,7 +1,6 @@
 mod agent;
 mod api;
 mod channel;
-mod cli;
 mod registry;
 mod runtime;
 mod system;
@@ -32,9 +31,6 @@ pub(crate) fn apply_update(key: &str, value: &Value, config: &mut ConfigDocument
     }
     if let Some(field) = key.strip_prefix("registry.") {
         return registry::apply(field, value, config);
-    }
-    if let Some(field) = key.strip_prefix("cli.") {
-        return cli::apply(field, value, config);
     }
     Err(fields::unknown_top_level_field(key))
 }

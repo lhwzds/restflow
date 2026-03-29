@@ -246,7 +246,7 @@ pub(crate) fn convert_session_request_to_options(
             "resource_limits",
             request.resource_limits,
         )?,
-        run_now: request.run_now.unwrap_or(true),
+        run_now: request.run_now.unwrap_or(false),
     })
 }
 
