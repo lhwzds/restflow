@@ -6,6 +6,10 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
 
+mod run_lifecycle;
+
+pub use run_lifecycle::{RunAttemptTracker, RunDescriptor, RunHandle, RunKind, RunLifecycleService};
+
 pub const DEFAULT_TELEMETRY_TEXT_LIMIT: usize = 10_000;
 
 /// Context describing a traced run execution.
