@@ -2,14 +2,17 @@ use anyhow::Result;
 use std::sync::Arc;
 
 use crate::cli::HookCommands;
+use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::AppCore;
-use restflow_core::hooks::{BackgroundAgentHookScheduler, HookExecutor};
-use restflow_core::models::{Hook, HookAction, HookContext, HookEvent};
+use restflow_core::models::{Hook, HookAction, HookEvent};
 
-pub async fn run(core: Arc<AppCore>, command: HookCommands, format: OutputFormat) -> Result<()> {
+pub async fn run(
+    executor: Arc<dyn CommandExecutor>,
+    command: HookCommands,
+    format: OutputFormat,
+) -> Result<()> {
     match command {
-        HookCommands::List => list_hooks(core, format).await,
+        HookCommands::List => list_hooks(executor, format).await,
         HookCommands::Create {
             name,
             event,
@@ -22,17 +25,17 @@ pub async fn run(core: Arc<AppCore>, command: HookCommands, format: OutputFormat
             input,
         } => {
             create_hook(
-                core, name, event, action, url, script, channel, message, agent, input, format,
+                executor, name, event, action, url, script, channel, message, agent, input, format,
             )
             .await
         }
-        HookCommands::Delete { id } => delete_hook(core, &id, format).await,
-        HookCommands::Test { id } => test_hook(core, &id, format).await,
+        HookCommands::Delete { id } => delete_hook(executor, &id, format).await,
+        HookCommands::Test { id } => test_hook(executor, &id, format).await,
     }
 }
 
-async fn list_hooks(core: Arc<AppCore>, format: OutputFormat) -> Result<()> {
-    let hooks = core.storage.hooks.list()?;
+async fn list_hooks(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
+    let hooks = executor.list_hooks().await?;
 
     if format.is_json() {
         return print_json(&hooks);
@@ -58,7 +61,7 @@ async fn list_hooks(core: Arc<AppCore>, format: OutputFormat) -> Result<()> {
 
 #[allow(clippy::too_many_arguments)]
 async fn create_hook(
-    core: Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     name: String,
     event: String,
     action: String,
@@ -73,8 +76,7 @@ async fn create_hook(
     let event = parse_event(&event)?;
     let action = build_action(action, url, script, channel, message, agent, input)?;
 
-    let hook = Hook::new(name, event, action);
-    core.storage.hooks.create(&hook)?;
+    let hook = executor.create_hook(Hook::new(name, event, action)).await?;
 
     if format.is_json() {
         return print_json(&hook);
@@ -84,8 +86,12 @@ async fn create_hook(
     Ok(())
 }
 
-async fn delete_hook(core: Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let deleted = core.storage.hooks.delete(id)?;
+async fn delete_hook(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    let deleted = executor.delete_hook(id).await?;
 
     if format.is_json() {
         return print_json(&serde_json::json!({ "id": id, "deleted": deleted }));
@@ -99,20 +105,12 @@ async fn delete_hook(core: Arc<AppCore>, id: &str, format: OutputFormat) -> Resu
     Ok(())
 }
 
-async fn test_hook(core: Arc<AppCore>, id: &str, format: OutputFormat) -> Result<()> {
-    let hook = core
-        .storage
-        .hooks
-        .get(id)?
-        .ok_or_else(|| anyhow::anyhow!("Hook not found: {}", id))?;
-
-    let scheduler = Arc::new(BackgroundAgentHookScheduler::new(
-        core.storage.background_agents.clone(),
-    ));
-    let executor = HookExecutor::new(Vec::new()).with_task_scheduler(scheduler);
-
-    let context = sample_context(&hook.event);
-    executor.execute_hook(&hook, &context).await?;
+async fn test_hook(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    format: OutputFormat,
+) -> Result<()> {
+    executor.test_hook(id).await?;
 
     if format.is_json() {
         return print_json(&serde_json::json!({ "id": id, "tested": true }));
@@ -166,35 +164,6 @@ fn build_action(
             input_template: input.unwrap_or_default(),
         }),
         _ => anyhow::bail!("Unsupported hook action: {}", action),
-    }
-}
-
-fn sample_context(event: &HookEvent) -> HookContext {
-    let now = chrono::Utc::now().timestamp_millis();
-
-    match event {
-        HookEvent::TaskFailed | HookEvent::TaskInterrupted => HookContext {
-            event: event.clone(),
-            task_id: "hook-test-task".to_string(),
-            task_name: "hook-test-task".to_string(),
-            agent_id: "hook-test-agent".to_string(),
-            success: Some(false),
-            output: None,
-            error: Some("Hook test error".to_string()),
-            duration_ms: Some(200),
-            timestamp: now,
-        },
-        _ => HookContext {
-            event: event.clone(),
-            task_id: "hook-test-task".to_string(),
-            task_name: "hook-test-task".to_string(),
-            agent_id: "hook-test-agent".to_string(),
-            success: Some(true),
-            output: Some("Hook test output".to_string()),
-            error: None,
-            duration_ms: Some(200),
-            timestamp: now,
-        },
     }
 }
 

@@ -3,24 +3,24 @@ use serde_json::json;
 use std::sync::Arc;
 
 use crate::cli::MaintenanceCommands;
+use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
-use restflow_core::AppCore;
 
 pub async fn run(
-    core: Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     command: MaintenanceCommands,
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        MaintenanceCommands::Cleanup => run_cleanup(core, format).await,
+        MaintenanceCommands::Cleanup => run_cleanup(executor, format).await,
         MaintenanceCommands::MigrateSessionSources { dry_run } => {
-            run_migrate_session_sources(core, format, dry_run).await
+            run_migrate_session_sources(executor, format, dry_run).await
         }
     }
 }
 
-async fn run_cleanup(core: Arc<AppCore>, format: OutputFormat) -> Result<()> {
-    let report = restflow_core::services::cleanup::run_cleanup(&core).await?;
+async fn run_cleanup(executor: Arc<dyn CommandExecutor>, format: OutputFormat) -> Result<()> {
+    let report = executor.run_cleanup().await?;
 
     if format.is_json() {
         return print_json(&json!({
@@ -46,18 +46,15 @@ async fn run_cleanup(core: Arc<AppCore>, format: OutputFormat) -> Result<()> {
 }
 
 async fn run_migrate_session_sources(
-    core: Arc<AppCore>,
+    executor: Arc<dyn CommandExecutor>,
     format: OutputFormat,
     dry_run: bool,
 ) -> Result<()> {
-    let stats = core
-        .storage
-        .chat_sessions
-        .migrate_legacy_channel_sources(dry_run)?;
+    let stats = executor.migrate_session_sources(dry_run).await?;
 
     if format.is_json() {
         return print_json(&json!({
-            "dry_run": dry_run,
+            "dry_run": stats.dry_run,
             "scanned": stats.scanned,
             "migrated": stats.migrated,
             "skipped": stats.skipped,

@@ -416,6 +416,7 @@ async fn set_config_value(
     value: &str,
     format: OutputFormat,
 ) -> Result<()> {
+    // Keep CLI-only preferences local so daemon-owned config stays behind the executor boundary.
     if key.starts_with("cli.") {
         let mut config = load_global_cli_config()?;
         match key {
