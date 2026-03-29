@@ -3,6 +3,7 @@
 use async_trait::async_trait;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::Result;
@@ -26,8 +27,8 @@ pub struct TranscribeConfig {
 impl Default for TranscribeConfig {
     fn default() -> Self {
         let mut allowed = Vec::new();
-        if let Ok(restflow_dir) = restflow_storage::paths::ensure_restflow_dir() {
-            allowed.push(restflow_dir.join("media"));
+        if let Some(media_dir) = ensure_default_media_dir() {
+            allowed.push(media_dir);
         }
         Self {
             allowed_paths: allowed,
@@ -45,6 +46,17 @@ impl Default for TranscribeConfig {
             ],
         }
     }
+}
+
+fn ensure_default_media_dir() -> Option<PathBuf> {
+    let restflow_dir = std::env::var("RESTFLOW_DIR")
+        .ok()
+        .filter(|dir| !dir.trim().is_empty())
+        .map(PathBuf::from)
+        .or_else(|| dirs::home_dir().map(|home| home.join(".restflow")))?;
+    let media_dir = restflow_dir.join("media");
+    fs::create_dir_all(&media_dir).ok()?;
+    Some(media_dir)
 }
 
 impl TranscribeConfig {

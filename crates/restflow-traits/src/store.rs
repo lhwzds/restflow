@@ -19,6 +19,7 @@ use restflow_contracts::request::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
+use crate::config_types::ConfigDocument;
 use crate::error::Result;
 
 pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = &[
@@ -651,6 +652,25 @@ pub trait MarketplaceStore: Send + Sync {
     -> Result<Value>;
     fn uninstall_skill(&self, id: &str) -> Result<Value>;
     fn list_installed(&self) -> Result<Value>;
+}
+
+// ── SecretStore ──────────────────────────────────────────────────────
+
+pub trait SecretStore: Send + Sync {
+    fn list_secrets(&self) -> Result<Value>;
+    fn get_secret(&self, key: &str) -> Result<Option<String>>;
+    fn set_secret(&self, key: &str, value: &str, description: Option<String>) -> Result<()>;
+    fn delete_secret(&self, key: &str) -> Result<()>;
+    fn has_secret(&self, key: &str) -> Result<bool>;
+}
+
+// ── ConfigStore ──────────────────────────────────────────────────────
+
+pub trait ConfigStore: Send + Sync {
+    fn get_effective_config(&self) -> Result<ConfigDocument>;
+    fn get_writable_config(&self) -> Result<ConfigDocument>;
+    fn persist_config(&self, config: &ConfigDocument) -> Result<()>;
+    fn reset_config(&self) -> Result<ConfigDocument>;
 }
 
 // ── OpsProvider ─────────────────────────────────────────────────────

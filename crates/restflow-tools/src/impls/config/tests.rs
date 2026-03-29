@@ -1,4 +1,7 @@
 use super::*;
+use restflow_storage::{ConfigStorage, load_cli_config, load_global_cli_config};
+use restflow_traits::config_types::{CliConfig, ConfigDocument, SystemConfig};
+use restflow_traits::store::ConfigStore;
 use std::env;
 use std::fs;
 use std::path::Path;
@@ -42,10 +45,79 @@ fn env_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 struct TestContext {
-    storage: Arc<ConfigStorage>,
+    store: Arc<dyn ConfigStore>,
     _temp_dir: tempfile::TempDir,
     _global_guard: EnvGuard,
     _env_lock: std::sync::MutexGuard<'static, ()>,
+}
+
+struct TestConfigStore {
+    storage: Arc<ConfigStorage>,
+}
+
+impl TestConfigStore {
+    fn new(storage: Arc<ConfigStorage>) -> Self {
+        Self { storage }
+    }
+}
+
+fn config_error(e: impl std::fmt::Display) -> restflow_traits::ToolError {
+    restflow_traits::ToolError::Tool(format!(
+        "Config storage error: {e}. The config file may be missing, invalid, or inaccessible."
+    ))
+}
+
+impl ConfigStore for TestConfigStore {
+    fn get_effective_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
+        let system = self.storage.get_effective_config().map_err(config_error)?;
+        let system = serde_json::from_value(serde_json::to_value(system).map_err(config_error)?)
+            .map_err(config_error)?;
+        let cli = serde_json::from_value(
+            serde_json::to_value(restflow_storage::load_cli_config().map_err(config_error)?)
+                .map_err(config_error)?,
+        )
+        .map_err(config_error)?;
+        Ok(ConfigDocument::from_system_config(system, cli))
+    }
+
+    fn get_writable_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
+        let system = self.storage.get_global_config().map_err(config_error)?;
+        let system = serde_json::from_value(serde_json::to_value(system).map_err(config_error)?)
+            .map_err(config_error)?;
+        let cli = serde_json::from_value(
+            serde_json::to_value(restflow_storage::load_global_cli_config().map_err(config_error)?)
+                .map_err(config_error)?,
+        )
+        .map_err(config_error)?;
+        Ok(ConfigDocument::from_system_config(system, cli))
+    }
+
+    fn persist_config(&self, config: &ConfigDocument) -> restflow_traits::error::Result<()> {
+        let system = serde_json::from_value(
+            serde_json::to_value(config.system_config()).map_err(config_error)?,
+        )
+        .map_err(config_error)?;
+        let cli =
+            serde_json::from_value(serde_json::to_value(config.cli.clone()).map_err(config_error)?)
+                .map_err(config_error)?;
+        self.storage.update_config(system).map_err(config_error)?;
+        restflow_storage::write_cli_config(&cli).map_err(config_error)?;
+        Ok(())
+    }
+
+    fn reset_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
+        let doc = ConfigDocument::from_system_config(SystemConfig::default(), CliConfig::default());
+        let system = serde_json::from_value(
+            serde_json::to_value(doc.system_config()).map_err(config_error)?,
+        )
+        .map_err(config_error)?;
+        let cli =
+            serde_json::from_value(serde_json::to_value(doc.cli.clone()).map_err(config_error)?)
+                .map_err(config_error)?;
+        self.storage.update_config(system).map_err(config_error)?;
+        restflow_storage::write_cli_config(&cli).map_err(config_error)?;
+        Ok(doc)
+    }
 }
 
 fn setup_storage() -> TestContext {
@@ -56,8 +128,9 @@ fn setup_storage() -> TestContext {
     let db_path = temp_dir.path().join("test.db");
     let db = Arc::new(redb::Database::create(db_path).unwrap());
     let storage = Arc::new(ConfigStorage::new(db).unwrap());
+    let store: Arc<dyn ConfigStore> = Arc::new(TestConfigStore::new(storage));
     TestContext {
-        storage,
+        store,
         _temp_dir: temp_dir,
         _global_guard: global_guard,
         _env_lock: env_guard,
@@ -67,7 +140,7 @@ fn setup_storage() -> TestContext {
 #[tokio::test]
 async fn test_get_config() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage);
+    let tool = ConfigTool::new(ctx.store);
 
     let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
     assert!(output.success);
@@ -83,7 +156,7 @@ async fn test_get_config() {
 #[tokio::test]
 async fn test_set_requires_write() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage);
+    let tool = ConfigTool::new(ctx.store);
 
     let result = tool
         .execute(json!({
@@ -102,7 +175,7 @@ async fn test_set_requires_write() {
 #[tokio::test]
 async fn test_set_rejects_unknown_field_with_valid_fields_hint() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let result = tool
         .execute(json!({
@@ -123,7 +196,7 @@ async fn test_set_rejects_unknown_field_with_valid_fields_hint() {
 #[tokio::test]
 async fn test_set_experimental_features() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let output = tool
         .execute(json!({
@@ -145,7 +218,7 @@ async fn test_set_experimental_features() {
 #[tokio::test]
 async fn test_set_optional_timeout_with_null() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let output = tool
         .execute(json!({
@@ -167,7 +240,7 @@ async fn test_set_optional_timeout_with_null() {
 #[tokio::test]
 async fn test_set_agent_max_wall_clock_with_null() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let output = tool
         .execute(json!({
@@ -192,7 +265,7 @@ async fn test_set_agent_max_wall_clock_with_null() {
 #[tokio::test]
 async fn test_list_supported_fields() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage);
+    let tool = ConfigTool::new(ctx.store);
 
     let output = tool.execute(json!({ "operation": "list" })).await.unwrap();
     assert!(output.success);
@@ -212,7 +285,7 @@ async fn test_list_supported_fields() {
 #[tokio::test]
 async fn test_listed_retention_fields_are_settable() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let updates = [
         ("system.chat_session_retention_days", json!(0)),
@@ -241,7 +314,7 @@ async fn test_listed_retention_fields_are_settable() {
 #[tokio::test]
 async fn test_set_agent_defaults() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let updates = [
         ("agent.tool_timeout_secs", json!(180)),
@@ -346,7 +419,7 @@ async fn test_set_agent_defaults() {
 #[tokio::test]
 async fn test_set_agent_unknown_field() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let result = tool
         .execute(json!({
@@ -362,7 +435,7 @@ async fn test_set_agent_unknown_field() {
 #[tokio::test]
 async fn test_get_includes_agent_defaults() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage);
+    let tool = ConfigTool::new(ctx.store);
 
     let output = tool.execute(json!({ "operation": "get" })).await.unwrap();
     assert!(output.success);
@@ -387,7 +460,7 @@ async fn test_get_includes_agent_defaults() {
 #[tokio::test]
 async fn test_set_runtime_channel_and_registry_defaults() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let updates = [
         ("runtime.background_runner_poll_interval_ms", json!(15000)),
@@ -469,7 +542,7 @@ async fn test_set_runtime_channel_and_registry_defaults() {
 #[tokio::test]
 async fn test_set_agent_fallback_models_allows_null_clear() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     tool.execute(json!({
         "operation": "set",
@@ -503,7 +576,7 @@ async fn test_set_agent_fallback_models_allows_null_clear() {
 #[tokio::test]
 async fn test_set_cli_field_preserves_workspace_override() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
     let workspace_path = ctx._temp_dir.path().join("workspace-config.toml");
     fs::write(&workspace_path, "[cli]\nagent = \"workspace-agent\"\n")
         .expect("write workspace config");
@@ -531,7 +604,7 @@ async fn test_set_cli_field_preserves_workspace_override() {
 #[tokio::test]
 async fn test_set_api_defaults() {
     let ctx = setup_storage();
-    let tool = ConfigTool::new(ctx.storage).with_write(true);
+    let tool = ConfigTool::new(ctx.store).with_write(true);
 
     let updates = [
         ("api.memory_search_limit", json!(25)),

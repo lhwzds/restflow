@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value;
 
-use restflow_storage::ConfigDocument;
+use restflow_traits::config_types::ConfigDocument;
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
