@@ -19,6 +19,10 @@ agent_name: string,
  */
 task: string, 
 /**
+ * Parent run ID, when spawned from another execution.
+ */
+parent_run_id: string | null, 
+/**
  * Current status
  */
 status: SubagentStatus, 
