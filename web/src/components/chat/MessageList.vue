@@ -298,6 +298,24 @@ watch(
   },
 )
 
+watch(
+  renderedItems,
+  (items, previousItems) => {
+    const hadLiveGroup = previousItems?.some((item) => item.id === 'live-run-group') ?? false
+    const hasLiveGroup = items.some((item) => item.id === 'live-run-group')
+    if (!hadLiveGroup || hasLiveGroup) return
+
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+      const candidate = items[index]
+      if (candidate?.kind === 'run_group' && candidate.status === 'completed') {
+        expandedGroups.value.add(candidate.id)
+        break
+      }
+    }
+  },
+  { deep: true },
+)
+
 onMounted(() => {
   void nextTick(() => scrollToBottom())
 })
@@ -317,15 +335,18 @@ onMounted(() => {
           <!-- Group header -->
           <button
             class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
-            :class="{ 'cursor-default': item.status === 'running' }"
-            @click="toggleGroup(item.id, item)"
+            :class="{ 'cursor-default': item.status === 'running' || !item.children?.length }"
+            @click="item.children?.length ? toggleGroup(item.id, item) : undefined"
           >
             <Loader2 v-if="item.status === 'running'" :size="12" class="shrink-0 animate-spin text-primary" />
             <Check v-else-if="item.status === 'completed'" :size="12" class="shrink-0 text-green-500" />
             <X v-else :size="12" class="shrink-0 text-red-500" />
 
             <span class="text-xs font-medium text-foreground/80">
-              {{ item.summary || 'Run' }}
+              {{ item.title || 'Turn' }}
+            </span>
+            <span v-if="item.summary" class="text-[11px] text-muted-foreground">
+              · {{ item.summary }}
             </span>
             <span v-if="item.durationLabel" class="text-[11px] text-muted-foreground">
               · {{ item.durationLabel }}
@@ -333,8 +354,8 @@ onMounted(() => {
 
             <div class="flex-1" />
 
-            <ChevronDown v-if="isGroupExpanded(item) && item.status !== 'running'" :size="12" class="shrink-0 text-muted-foreground" />
-            <ChevronRight v-else-if="item.status !== 'running'" :size="12" class="shrink-0 text-muted-foreground" />
+            <ChevronDown v-if="item.children?.length && isGroupExpanded(item) && item.status !== 'running'" :size="12" class="shrink-0 text-muted-foreground" />
+            <ChevronRight v-else-if="item.children?.length && item.status !== 'running'" :size="12" class="shrink-0 text-muted-foreground" />
           </button>
 
           <!-- Children tree -->

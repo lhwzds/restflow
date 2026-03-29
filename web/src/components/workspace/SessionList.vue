@@ -300,32 +300,27 @@ function runTitleClass(run: FlattenedRunRow): string {
 
 <template>
   <div class="flex min-h-0 flex-col bg-muted/30">
-    <div class="space-y-2 px-3 pb-3 pt-2">
-      <Button
-        variant="outline"
-        size="sm"
-        class="w-full gap-2"
+    <div class="space-y-1.5 px-3 pb-2 pt-2">
+      <button
+        class="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
         data-testid="session-list-new-session"
         @click="emit('newSession')"
       >
-        <Plus :size="16" />
+        <Plus :size="13" />
         <span>{{ t('workspace.newSession') }}</span>
-      </Button>
+      </button>
       <div class="relative">
-        <Search :size="12" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+        <Search :size="11" class="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60" />
         <input
           v-model="searchQuery"
           type="text"
-          placeholder="Search sessions..."
-          class="w-full rounded-md border border-border bg-background py-1.5 pl-7 pr-3 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="Search..."
+          class="w-full rounded-md border border-border/60 bg-background/60 py-1 pl-7 pr-3 text-xs text-foreground placeholder:text-muted-foreground/60 focus:outline-none focus:ring-1 focus:ring-ring"
         />
       </div>
     </div>
 
-    <div class="flex-1 overflow-auto py-2">
-      <div class="px-3 pb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-        Workspace Sessions
-      </div>
+    <div class="flex-1 overflow-auto py-1">
       <div
         v-for="folder in filteredWorkspaceFolders"
         :key="folder.containerId"
@@ -334,39 +329,36 @@ function runTitleClass(run: FlattenedRunRow): string {
         <div
           :class="
             cn(
-              'flex items-start gap-2 px-3 py-2 transition-colors hover:bg-muted/50',
+              'group flex items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-muted/50',
               isContainerSelected(folder.containerId) && 'bg-muted',
             )
           "
         >
           <button
-            class="mt-0.5 shrink-0 text-muted-foreground"
+            class="shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
             :aria-label="folder.expanded ? 'Collapse workspace folder' : 'Expand workspace folder'"
             @click="emit('toggleWorkspaceFolder', folder.containerId)"
           >
-            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="14" />
+            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="12" />
           </button>
-          <MessageSquare :size="14" class="mt-0.5 shrink-0 text-muted-foreground" />
           <button
             class="min-w-0 flex-1 text-left"
             @click="emit('selectContainer', 'workspace', folder.containerId)"
           >
-            <div class="truncate text-sm">{{ displayLabel(folder.name) }}</div>
-            <div class="truncate text-xs text-muted-foreground">
-              <span v-if="folder.agentName">{{ folder.agentName }}</span>
-              <span v-else>{{ t('common.unknownAgent') }}</span>
-            </div>
-            <div class="text-xs text-muted-foreground">
-              {{ folder.subtitle || formatTime(folder.updatedAt) }}
+            <div class="truncate text-sm leading-snug">{{ displayLabel(folder.name) }}</div>
+            <div class="flex items-center gap-1 text-[11px] text-muted-foreground/70">
+              <span class="truncate">{{ folder.agentName || t('common.unknownAgent') }}</span>
+              <span class="shrink-0 text-muted-foreground/40">·</span>
+              <span class="shrink-0">{{ folder.subtitle || formatTime(folder.updatedAt) }}</span>
             </div>
           </button>
-          <div class="shrink-0 self-start" @click.stop>
+          <div class="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" @click.stop>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
                 >
-                  <MoreHorizontal :size="14" class="text-muted-foreground" />
+                  <MoreHorizontal :size="13" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" class="w-48">
@@ -426,15 +418,15 @@ function runTitleClass(run: FlattenedRunRow): string {
               <button
                 v-if="run.canToggleChildren"
                 :data-testid="`workspace-run-toggle-${folder.containerId}-${run.runId ?? 'latest'}`"
-                class="mt-2 shrink-0 text-muted-foreground"
+                class="mt-1.5 shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
                 :aria-label="run.isExpanded ? 'Collapse child runs' : 'Expand child runs'"
                 @click.stop="toggleRunChildren(folder.containerId, run)"
               >
-                <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="12" />
+                <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="11" />
               </button>
               <div v-else class="w-3 shrink-0" />
               <button
-                class="flex min-w-0 flex-1 items-start gap-2 py-2 text-left"
+                class="flex min-w-0 flex-1 items-start gap-2 py-1 text-left"
                 @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
               >
                 <GitBranch
@@ -504,9 +496,8 @@ function runTitleClass(run: FlattenedRunRow): string {
         </div>
       </div>
 
-      <div
-        class="px-3 pb-2 pt-4 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
-      >
+      <div class="mx-3 mb-1 mt-3 border-t border-border/40" />
+      <div class="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
         Background Agents
       </div>
       <div
@@ -517,24 +508,24 @@ function runTitleClass(run: FlattenedRunRow): string {
         <div
           :class="
             cn(
-              'flex items-start gap-2 px-3 py-2 transition-colors hover:bg-muted/50',
+              'group flex items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-muted/50',
               isContainerSelected(folder.taskId) && 'bg-muted',
             )
           "
         >
           <button
-            class="mt-0.5 shrink-0 text-muted-foreground"
+            class="shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
             :aria-label="folder.expanded ? 'Collapse background folder' : 'Expand background folder'"
             @click="emit('toggleBackgroundTask', folder.taskId)"
           >
-            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="14" />
+            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="12" />
           </button>
           <component
             :is="normalizeStatusIcon(folder.status)"
-            :size="14"
+            :size="12"
             :class="
               cn(
-                'mt-0.5 shrink-0 text-muted-foreground',
+                'shrink-0 text-muted-foreground',
                 folder.status === 'running' && 'animate-spin text-primary',
                 folder.status === 'completed' && 'text-green-500',
               )
@@ -544,18 +535,18 @@ function runTitleClass(run: FlattenedRunRow): string {
             class="min-w-0 flex-1 text-left"
             @click="emit('selectContainer', 'background_task', folder.taskId)"
           >
-            <div class="truncate text-sm">{{ folder.name }}</div>
-            <div class="truncate text-xs text-muted-foreground">
+            <div class="truncate text-sm leading-snug">{{ folder.name }}</div>
+            <div class="text-[11px] text-muted-foreground/70">
               {{ folder.subtitle || formatTime(folder.updatedAt) }}
             </div>
           </button>
-          <div v-if="folder.chatSessionId" class="shrink-0 self-start" @click.stop>
+          <div v-if="folder.chatSessionId" class="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" @click.stop>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
                 >
-                  <MoreHorizontal :size="14" class="text-muted-foreground" />
+                  <MoreHorizontal :size="13" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" class="w-48">
@@ -595,15 +586,15 @@ function runTitleClass(run: FlattenedRunRow): string {
               <button
                 v-if="run.canToggleChildren"
                 :data-testid="`background-run-toggle-${folder.taskId}-${run.runId ?? 'latest'}`"
-                class="mt-2 shrink-0 text-muted-foreground"
+                class="mt-1.5 shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
                 :aria-label="run.isExpanded ? 'Collapse child runs' : 'Expand child runs'"
                 @click.stop="toggleRunChildren(folder.taskId, run)"
               >
-                <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="12" />
+                <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="11" />
               </button>
               <div v-else class="w-3 shrink-0" />
               <button
-                class="flex min-w-0 flex-1 items-start gap-2 py-2 text-left"
+                class="flex min-w-0 flex-1 items-start gap-2 py-1 text-left"
                 @click="run.runId && emit('selectRun', folder.taskId, run.runId)"
               >
                 <GitBranch
@@ -673,9 +664,8 @@ function runTitleClass(run: FlattenedRunRow): string {
         </div>
       </div>
 
-      <div
-        class="px-3 pb-2 pt-4 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
-      >
+      <div class="mx-3 mb-1 mt-3 border-t border-border/40" />
+      <div class="px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-widest text-muted-foreground/50">
         External Channels
       </div>
       <div
@@ -686,35 +676,35 @@ function runTitleClass(run: FlattenedRunRow): string {
         <div
           :class="
             cn(
-              'flex items-start gap-2 px-3 py-2 transition-colors hover:bg-muted/50',
+              'group flex items-center gap-1.5 px-3 py-1.5 transition-colors hover:bg-muted/50',
               isContainerSelected(folder.containerId) && 'bg-muted',
             )
           "
         >
           <button
-            class="mt-0.5 shrink-0 text-muted-foreground"
+            class="shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
             :aria-label="folder.expanded ? 'Collapse external folder' : 'Expand external folder'"
             @click="emit('toggleExternalChannel', folder.containerId)"
           >
-            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="14" />
+            <component :is="folder.expanded ? ChevronDown : ChevronRight" :size="12" />
           </button>
-          <Radio :size="14" class="mt-0.5 shrink-0 text-muted-foreground" />
+          <Radio :size="12" class="shrink-0 text-muted-foreground/70" />
           <button
             class="min-w-0 flex-1 text-left"
             @click="emit('selectContainer', 'external_channel', folder.containerId)"
           >
-            <div class="truncate text-sm">{{ displayLabel(folder.name) }}</div>
-            <div class="truncate text-xs text-muted-foreground">
-              {{ sourceLabel(folder.sourceChannel) || folder.subtitle || formatTime(folder.updatedAt) }}
+            <div class="truncate text-sm leading-snug">{{ displayLabel(folder.name) }}</div>
+            <div class="flex items-center gap-1 text-[11px] text-muted-foreground/70">
+              <span class="truncate">{{ sourceLabel(folder.sourceChannel) || folder.subtitle || formatTime(folder.updatedAt) }}</span>
             </div>
           </button>
-          <div v-if="folder.latestSessionId" class="shrink-0 self-start" @click.stop>
+          <div v-if="folder.latestSessionId" class="shrink-0 opacity-0 transition-opacity group-hover:opacity-100" @click.stop>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
-                  class="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
+                  class="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted-foreground/10 hover:text-foreground"
                 >
-                  <MoreHorizontal :size="14" class="text-muted-foreground" />
+                  <MoreHorizontal :size="13" />
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" class="w-48">
@@ -754,15 +744,15 @@ function runTitleClass(run: FlattenedRunRow): string {
               <button
                 v-if="run.canToggleChildren"
                 :data-testid="`external-run-toggle-${folder.containerId}-${run.runId ?? 'latest'}`"
-                class="mt-2 shrink-0 text-muted-foreground"
+                class="mt-1.5 shrink-0 text-muted-foreground/60 hover:text-muted-foreground"
                 :aria-label="run.isExpanded ? 'Collapse child runs' : 'Expand child runs'"
                 @click.stop="toggleRunChildren(folder.containerId, run)"
               >
-                <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="12" />
+                <component :is="run.isExpanded ? ChevronDown : ChevronRight" :size="11" />
               </button>
               <div v-else class="w-3 shrink-0" />
               <button
-                class="flex min-w-0 flex-1 items-start gap-2 py-2 text-left"
+                class="flex min-w-0 flex-1 items-start gap-2 py-1 text-left"
                 @click="run.runId && emit('selectRun', folder.containerId, run.runId)"
               >
                 <GitBranch

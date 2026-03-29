@@ -130,6 +130,7 @@ describe('threadItems', () => {
     expect(items.map((item) => item.kind)).toEqual(['message', 'run_group', 'message'])
     expect(items[1]).toMatchObject({
       id: 'run-group-turn-1',
+      title: 'Turn',
       status: 'completed',
       children: [
         expect.objectContaining({
@@ -219,6 +220,7 @@ describe('threadItems', () => {
     ])
     expect(items[2]).toMatchObject({
       kind: 'run_group',
+      title: 'Turn',
       status: 'running',
       children: [
         expect.objectContaining({
@@ -338,6 +340,7 @@ describe('threadItems', () => {
     ])
     expect(items[1]).toMatchObject({
       kind: 'run_group',
+      title: 'Turn',
       status: 'running',
       children: [
         expect.objectContaining({
@@ -593,7 +596,7 @@ describe('threadItems', () => {
     })
   })
 
-  it('renders lifecycle-only turns as run groups so failed runs remain visible', () => {
+  it('does not render lifecycle-only turns as standalone run groups', () => {
     const items = buildSessionThreadItems({
       thread: {
         focus: {} as any,
@@ -638,14 +641,6 @@ describe('threadItems', () => {
       streamContent: '',
     })
 
-    expect(items).toEqual([
-      expect.objectContaining({
-        id: 'run-group-turn-1',
-        kind: 'run_group',
-        status: 'failed',
-        durationLabel: '250ms',
-        children: [],
-      }),
-    ])
+    expect(items).toEqual([])
   })
 })

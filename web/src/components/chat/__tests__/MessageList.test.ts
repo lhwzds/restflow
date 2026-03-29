@@ -609,7 +609,7 @@ describe('MessageList', () => {
       {
         id: 'run-group-turn-1',
         kind: 'run_group',
-        title: 'Run',
+        title: 'Turn',
         summary: '1 tool · 1.2s',
         status: 'completed',
         durationLabel: '1.2s',
@@ -650,6 +650,7 @@ describe('MessageList', () => {
       },
     })
 
+    expect(wrapper.text()).toContain('Turn')
     expect(wrapper.text()).toContain('1 tool · 1.2s')
     expect(wrapper.text()).not.toContain('web_search')
 
@@ -676,7 +677,7 @@ describe('MessageList', () => {
       {
         id: 'run-group-turn-failed',
         kind: 'run_group',
-        title: 'Run',
+        title: 'Turn',
         summary: 'failed',
         status: 'failed',
         expandable: false,
@@ -721,5 +722,83 @@ describe('MessageList', () => {
     await wrapper.get('[data-testid="run-group-run-group-turn-failed"] button').trigger('click')
 
     expect(wrapper.text()).not.toContain('bash')
+  })
+
+  it('keeps the persisted turn expanded when a live run group settles into completed state', async () => {
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        isStreaming: true,
+        streamContent: '',
+        threadItems: [
+          {
+            id: 'live-run-group',
+            kind: 'run_group',
+            title: 'Turn',
+            summary: '1 tool',
+            status: 'running',
+            expandable: false,
+            children: [
+              {
+                id: 'stream-tool-1',
+                kind: 'tool_call',
+                title: 'bash',
+                status: 'running',
+                selection: {
+                  id: 'stream-tool-1',
+                  kind: 'event',
+                  title: 'bash',
+                  data: { event_id: 'stream-tool-1' },
+                },
+                expandable: false,
+              },
+            ],
+          },
+        ] as ThreadItem[],
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('bash')
+
+    await wrapper.setProps({
+      isStreaming: false,
+      threadItems: [
+        {
+          id: 'run-group-turn-2',
+          kind: 'run_group',
+          title: 'Turn',
+          summary: '1 tool · 1.2s',
+          status: 'completed',
+          durationLabel: '1.2s',
+          expandable: false,
+          turnId: 'turn-2',
+          children: [
+            {
+              id: 'event-tool-2',
+              kind: 'tool_call',
+              title: 'bash',
+              status: 'completed',
+              selection: {
+                id: 'event-tool-2',
+                kind: 'event',
+                title: 'bash',
+                data: { event_id: 'event-tool-2' },
+              },
+              expandable: false,
+            },
+          ],
+        },
+      ] as ThreadItem[],
+    })
+
+    expect(wrapper.text()).toContain('Turn')
+    expect(wrapper.text()).toContain('bash')
   })
 })

@@ -516,7 +516,7 @@ function appendLiveOverlays(items: ThreadItem[], steps: StreamStep[] | undefined
     items.push({
       id: 'live-run-group',
       kind: 'run_group',
-      title: 'Run',
+      title: 'Turn',
       status: resolveGroupStatus(undefined, children),
       expandable: false,
       children,
@@ -552,7 +552,7 @@ function resolveGroupStatus(meta: Pick<TurnMeta, 'status'> | undefined, children
     return 'failed'
   }
 
-  return children.length > 0 ? 'completed' : 'running'
+  return 'completed'
 }
 
 function collectTurnMeta(events: ExecutionTraceEvent[]): Map<string, TurnMeta> {
@@ -565,7 +565,7 @@ function collectTurnMeta(events: ExecutionTraceEvent[]): Map<string, TurnMeta> {
     const m = meta.get(event.turn_id)!
     if (event.category === 'lifecycle') {
       const s = event.lifecycle?.status ?? ''
-      if (s === 'completed' || s === 'failed' || s === 'run_failed' || s === 'interrupted') {
+      if (s === 'completed' || s === 'run_completed' || s === 'failed' || s === 'run_failed' || s === 'interrupted') {
         m.status = s.includes('fail') ? 'failed' : s.includes('interrupt') ? 'interrupted' : 'completed'
         if (event.lifecycle?.ai_duration_ms != null) {
           m.durationMs = Number(event.lifecycle.ai_duration_ms)
@@ -602,7 +602,7 @@ function groupItemsByTurn(items: ThreadItem[], turnMeta: Map<string, TurnMeta>):
       const group: ThreadItem = {
         id: `run-group-${turnId}`,
         kind: 'run_group',
-        title: 'Run',
+        title: 'Turn',
         summary: buildRunGroupSummary(meta),
         status: meta.status,
         durationLabel: meta.durationMs != null
@@ -625,10 +625,9 @@ function groupItemsByTurn(items: ThreadItem[], turnMeta: Map<string, TurnMeta>):
       continue
     }
 
-    // Lifecycle items contribute run-group metadata. They should still create a
-    // group so lifecycle-only turns remain visible in the thread.
+    // Lifecycle items only contribute metadata for groups that already have
+    // actionable children. They should not create standalone groups on their own.
     if (item.kind === 'lifecycle') {
-      if (item.turnId) ensureGroup(item.turnId)
       continue
     }
 
@@ -644,7 +643,9 @@ function groupItemsByTurn(items: ThreadItem[], turnMeta: Map<string, TurnMeta>):
     group.status = resolveGroupStatus(turnMeta.get(turnId), group.children ?? [])
   })
 
-  return result
+  // Drop lifecycle-only run groups that have no tool/llm children — they are
+  // bookkeeping entries with nothing useful to display in the thread.
+  return result.filter((item) => item.kind !== 'run_group' || (item.children?.length ?? 0) > 0)
 }
 
 function buildMessageOnlyItems(messages: ChatMessage[]): ThreadItem[] {
@@ -735,6 +736,7 @@ export function buildSessionThreadItems(input: {
 
   const flatItems = envelopes.map((entry) => entry.item)
   const turnMeta = collectTurnMeta(canonicalEvents)
+
   const grouped = groupItemsByTurn(flatItems, turnMeta)
 
   // Only overlay live steps when something is still running.
