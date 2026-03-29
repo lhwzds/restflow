@@ -117,24 +117,6 @@ fn test_context_window_for_model() {
 }
 
 #[test]
-fn test_spawn_request_from_plan_preserves_iteration_override() {
-    let plan = ExecutionPlan {
-        agent_id: Some("child".to_string()),
-        input: Some("do work".to_string()),
-        timeout_secs: Some(120),
-        max_iterations: Some(77),
-        ..ExecutionPlan::default()
-    };
-
-    let request = spawn_request_from_plan(&plan).expect("spawn request should build");
-
-    assert_eq!(request.agent_id.as_deref(), Some("child"));
-    assert_eq!(request.task, "do work");
-    assert_eq!(request.timeout_secs, Some(120));
-    assert_eq!(request.max_iterations, Some(77));
-}
-
-#[test]
 fn test_to_agent_resource_limits_maps_cost_budget() {
     let limits = crate::models::ResourceLimits {
         max_tool_calls: 12,

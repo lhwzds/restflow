@@ -237,10 +237,21 @@ pub async fn execute_subagent_plan(
     bridge: SubagentExecutionBridge,
 ) -> Result<ExecutionOutcome> {
     let request = spawn_request_from_plan(&plan, &bridge)?;
-    execute_subagent_once(definitions, llm_client, tool_registry, config, request, bridge).await
+    execute_subagent_once(
+        definitions,
+        llm_client,
+        tool_registry,
+        config,
+        request,
+        bridge,
+    )
+    .await
 }
 
-fn spawn_request_from_plan(plan: &ExecutionPlan, bridge: &SubagentExecutionBridge) -> Result<SpawnRequest> {
+fn spawn_request_from_plan(
+    plan: &ExecutionPlan,
+    bridge: &SubagentExecutionBridge,
+) -> Result<SpawnRequest> {
     let provider = match (
         plan.model
             .as_deref()
@@ -280,7 +291,9 @@ fn spawn_request_from_plan(plan: &ExecutionPlan, bridge: &SubagentExecutionBridg
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned)
-            .ok_or_else(|| AiError::Tool("Subagent execution requires non-empty 'input'.".to_string()))?,
+            .ok_or_else(|| {
+                AiError::Tool("Subagent execution requires non-empty 'input'.".to_string())
+            })?,
         timeout_secs: normalized_plan.timeout_secs,
         max_iterations: normalized_plan.max_iterations,
         priority: None,
@@ -1512,6 +1525,26 @@ mod tests {
         assert!(outcome.success);
         assert_eq!(outcome.text.as_deref(), Some("plan execution"));
         assert_eq!(outcome.model.as_deref(), Some("gpt-5-mini"));
+    }
+
+    #[test]
+    fn spawn_request_from_plan_preserves_iteration_override() {
+        let plan = ExecutionPlan {
+            mode: Some(ExecutionMode::Subagent),
+            agent_id: Some("child".to_string()),
+            input: Some("do work".to_string()),
+            timeout_secs: Some(120),
+            max_iterations: Some(77),
+            ..ExecutionPlan::default()
+        };
+
+        let request = spawn_request_from_plan(&plan, &SubagentExecutionBridge::default())
+            .expect("spawn request should build");
+
+        assert_eq!(request.agent_id.as_deref(), Some("child"));
+        assert_eq!(request.task, "do work");
+        assert_eq!(request.timeout_secs, Some(120));
+        assert_eq!(request.max_iterations, Some(77));
     }
 
     #[derive(Clone)]

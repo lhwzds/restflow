@@ -113,7 +113,7 @@ pub const ALL_PROVIDER_META: &[ProviderMeta] = &[
         runtime_provider: LlmProvider::ZaiCodingPlan,
         api_key_env: Some("ZAI_CODING_PLAN_API_KEY"),
         api_key_env_aliases: &[],
-        default_model_id: ModelId::Glm5CodingPlan,
+        default_model_id: ModelId::Glm5_1CodingPlan,
         models_dev_provider_ids: &["zai-coding-plan", "zhipuai-coding-plan"],
     },
     ProviderMeta {

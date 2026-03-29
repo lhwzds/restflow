@@ -43,6 +43,7 @@ impl ModelId {
     pub const Glm5Turbo: Self = Self("glm-5-turbo");
     pub const Glm5Code: Self = Self("glm-5-code");
     pub const Glm4_7: Self = Self("glm-4-7");
+    pub const Glm5_1CodingPlan: Self = Self("zai-coding-plan-glm-5-1");
     pub const Glm5CodingPlan: Self = Self("zai-coding-plan-glm-5");
     pub const Glm5TurboCodingPlan: Self = Self("zai-coding-plan-glm-5-turbo");
     pub const Glm5CodeCodingPlan: Self = Self("zai-coding-plan-glm-5-code");

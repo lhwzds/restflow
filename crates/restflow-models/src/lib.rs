@@ -213,6 +213,26 @@ mod tests {
     }
 
     #[test]
+    fn glm_5_1_coding_plan_is_recognized_by_api_and_serialized_names() {
+        assert_eq!(
+            ModelId::from_api_name("glm-5.1"),
+            Some(ModelId::Glm5_1CodingPlan)
+        );
+        assert_eq!(
+            ModelId::from_serialized_str("zai-coding-plan-glm-5-1"),
+            Some(ModelId::Glm5_1CodingPlan)
+        );
+        assert_eq!(
+            ModelId::normalize_model_id_for_provider(Provider::ZaiCodingPlan, "glm-5.1").as_deref(),
+            Some("zai-coding-plan-glm-5-1")
+        );
+        assert_eq!(
+            provider_meta(ModelProvider::ZaiCodingPlan).default_model_id,
+            ModelId::Glm5_1CodingPlan
+        );
+    }
+
+    #[test]
     fn export_bindings_provider() {
         Provider::export_to_string(&ts_rs::Config::default()).unwrap();
     }
