@@ -2,7 +2,10 @@ use super::*;
 use crate::daemon::request_mapper::to_contract;
 use crate::models::{ApiKeyConfig, ModelId};
 use restflow_contracts::request::{AgentNode as ContractAgentNode, WireModelRef};
-use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
+use restflow_contracts::{
+    ApprovalHandledResponse, CleanupReportResponse, DeleteWithIdResponse, PairingApprovalResponse,
+    PairingStateResponse, RouteBindingResponse, SessionSourceMigrationResponse,
+};
 use restflow_storage::SimpleStorage;
 
 fn raw_agent_storage(core: &Arc<AppCore>) -> restflow_storage::AgentStorage {
@@ -529,6 +532,170 @@ async fn process_list_hooks_returns_empty_by_default() {
         IpcResponse::Success(value) => {
             let hooks: Vec<crate::models::Hook> = serde_json::from_value(value).expect("hooks");
             assert!(hooks.is_empty());
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_list_pairing_state_returns_empty_by_default() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response =
+        IpcServer::process(&core, &runtime_tool_registry, IpcRequest::ListPairingState).await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let state: PairingStateResponse = serde_json::from_value(value).expect("pairing state");
+            assert!(state.allowed_peers.is_empty());
+            assert!(state.pending_requests.is_empty());
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_approve_pairing_auto_binds_owner_chat_id() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let pairing_storage =
+        Arc::new(crate::storage::PairingStorage::new(core.storage.get_db()).unwrap());
+    let manager = crate::channel::PairingManager::new(pairing_storage);
+    let code = manager
+        .create_request("peer-1", Some("Peer 1"), "chat-100")
+        .expect("pairing request");
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ApprovePairing { code },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let approval: PairingApprovalResponse =
+                serde_json::from_value(value).expect("pairing approval");
+            assert!(approval.approved);
+            assert_eq!(approval.peer_id, "peer-1");
+            assert_eq!(approval.peer_name.as_deref(), Some("Peer 1"));
+            assert_eq!(approval.owner_chat_id.as_deref(), Some("chat-100"));
+            assert!(approval.owner_auto_bound);
+            assert_eq!(
+                core.storage
+                    .secrets
+                    .get_secret("TELEGRAM_CHAT_ID")
+                    .expect("owner secret"),
+                Some("chat-100".to_string())
+            );
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_bind_route_maps_group_to_channel() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::BindRoute {
+            binding_type: "group".to_string(),
+            target_id: "chat-1".to_string(),
+            agent_id: "agent-1".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let binding: RouteBindingResponse =
+                serde_json::from_value(value).expect("route binding");
+            assert_eq!(binding.binding_type, "channel");
+            assert_eq!(binding.target_id, "chat-1");
+            assert_eq!(binding.agent_id, "agent-1");
+            assert_eq!(binding.priority, 2);
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_bind_route_rejects_invalid_binding_type() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::BindRoute {
+            binding_type: "bad".to_string(),
+            target_id: "chat-1".to_string(),
+            agent_id: "agent-1".to_string(),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => assert_eq!(error.code, 400),
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_run_cleanup_returns_report() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(&core, &runtime_tool_registry, IpcRequest::RunCleanup).await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let report: CleanupReportResponse =
+                serde_json::from_value(value).expect("cleanup report");
+            assert_eq!(report.chat_sessions, 0);
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_migrate_session_sources_dry_run_reports_stats_without_writing() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    let mut session = crate::models::ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    session.name = "channel:chat-legacy".to_string();
+    core.storage
+        .chat_sessions
+        .create(&session)
+        .expect("create session");
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::MigrateSessionSources { dry_run: true },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let report: SessionSourceMigrationResponse =
+                serde_json::from_value(value).expect("migration report");
+            assert!(report.dry_run);
+            assert_eq!(report.scanned, 1);
+            assert_eq!(report.migrated, 1);
+            let persisted = core
+                .storage
+                .chat_sessions
+                .get(&session.id)
+                .expect("load session")
+                .expect("session");
+            assert!(persisted.source_channel.is_none());
+            assert!(persisted.source_conversation_id.is_none());
+            assert_eq!(persisted.name, "channel:chat-legacy");
         }
         other => panic!("expected success response, got {other:?}"),
     }
