@@ -196,6 +196,10 @@ impl BackgroundAgentStorage {
                 continue;
             };
 
+            if self.get_active_task_run(&task.id)?.is_some() {
+                continue;
+            }
+
             if task.should_run(current_time) {
                 runnable.push(task);
             }

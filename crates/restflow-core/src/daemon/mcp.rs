@@ -8,9 +8,7 @@ use crate::registry::{
     SkillSearchResult, SkillSortOrder,
 };
 use crate::runtime::channel::transcribe_media_file;
-use crate::services::background_agent_conversion::{
-    ConvertSessionSpecOptions, build_convert_session_spec,
-};
+use crate::services::background_agent_command::BackgroundAgentCommandService;
 use anyhow::Result;
 use axum::Json;
 use axum::Router;
@@ -397,27 +395,6 @@ async fn api_convert_session_to_background_agent(
     State(state): State<DaemonHttpState>,
     Json(request): Json<ConvertSessionToBackgroundAgentRequest>,
 ) -> std::result::Result<Json<BackgroundAgent>, (StatusCode, Json<ErrorPayload>)> {
-    let session = state
-        .core
-        .storage
-        .chat_sessions
-        .get(&request.session_id)
-        .map_err(|error| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorPayload::new(500, error.to_string(), None)),
-            )
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::NOT_FOUND,
-                Json(ErrorPayload::not_found(&format!(
-                    "Session {}",
-                    request.session_id
-                ))),
-            )
-        })?;
-
     let assessment =
         crate::services::operation_assessment::assess_background_agent_convert_session(
             &state.core,
@@ -468,45 +445,27 @@ async fn api_convert_session_to_background_agent(
         ));
     }
 
-    let spec = build_convert_session_spec(
-        &session,
-        ConvertSessionSpecOptions {
+    let conversion = BackgroundAgentCommandService::from_storage(state.core.storage.as_ref())
+        .convert_session(restflow_traits::store::BackgroundAgentConvertSessionRequest {
+            session_id: request.session_id,
             name: request.name,
+            schedule: None,
             input: request.input,
-            ..ConvertSessionSpecOptions::default()
-        },
-    )
-    .map_err(|error| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorPayload::new(400, error.to_string(), None)),
-        )
-    })?;
-
-    let agent = state
-        .core
-        .storage
-        .background_agents
-        .create_background_agent(spec)
+            timeout_secs: None,
+            durability_mode: None,
+            memory: None,
+            memory_scope: None,
+            resource_limits: None,
+            run_now: request.run_now,
+        })
         .map_err(|error| {
             (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorPayload::new(500, error.to_string(), None)),
+                StatusCode::BAD_REQUEST,
+                Json(ErrorPayload::new(400, error.to_string(), None)),
             )
         })?;
 
-    if request.run_now.unwrap_or(false) {
-        let _ = state
-            .core
-            .storage
-            .background_agents
-            .control_background_agent(
-                &agent.id,
-                crate::models::BackgroundAgentControlAction::RunNow,
-            );
-    }
-
-    Ok(Json(agent))
+    Ok(Json(conversion.task))
 }
 
 async fn api_marketplace_search(

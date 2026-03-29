@@ -645,6 +645,132 @@ pub struct BackgroundProgress {
     pub pending_message_count: u32,
 }
 
+/// Result payload for converting an existing chat session into a background agent.
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[ts(export)]
+pub struct BackgroundAgentConversionResult {
+    /// Created or updated background agent task.
+    pub task: BackgroundAgent,
+    /// Source session ID used for conversion.
+    pub source_session_id: String,
+    /// Source session agent ID at conversion time.
+    pub source_session_agent_id: String,
+    /// Whether the task was scheduled for immediate execution.
+    pub run_now: bool,
+}
+
+/// Status for one persisted background-agent execution attempt.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BackgroundAgentRunStatus {
+    Running,
+    Completed,
+    Failed,
+    Interrupted,
+    TimedOut,
+}
+
+impl BackgroundAgentRunStatus {
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            BackgroundAgentRunStatus::Running => "running",
+            BackgroundAgentRunStatus::Completed => "completed",
+            BackgroundAgentRunStatus::Failed => "failed",
+            BackgroundAgentRunStatus::Interrupted => "interrupted",
+            BackgroundAgentRunStatus::TimedOut => "timed_out",
+        }
+    }
+
+    pub const fn is_active(&self) -> bool {
+        matches!(self, BackgroundAgentRunStatus::Running)
+    }
+}
+
+/// Minimal persisted metrics for one background-agent execution attempt.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct BackgroundAgentRunMetrics {
+    #[serde(default)]
+    pub duration_ms: Option<u64>,
+    #[serde(default)]
+    pub iterations: Option<u32>,
+    #[serde(default)]
+    pub active_model: Option<String>,
+    #[serde(default)]
+    pub final_model: Option<String>,
+    #[serde(default)]
+    pub message_count: Option<usize>,
+    #[serde(default)]
+    pub compaction_events: Option<u32>,
+}
+
+/// One persisted background-agent execution attempt.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BackgroundAgentRun {
+    pub run_id: String,
+    pub task_id: String,
+    pub execution_id: String,
+    pub status: BackgroundAgentRunStatus,
+    pub started_at: i64,
+    pub updated_at: i64,
+    #[serde(default)]
+    pub ended_at: Option<i64>,
+    #[serde(default)]
+    pub checkpoint_id: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub metrics: BackgroundAgentRunMetrics,
+}
+
+impl BackgroundAgentRun {
+    pub fn new(
+        run_id: impl Into<String>,
+        task_id: impl Into<String>,
+        execution_id: impl Into<String>,
+        started_at: i64,
+        checkpoint_id: Option<String>,
+    ) -> Self {
+        Self {
+            run_id: run_id.into(),
+            task_id: task_id.into(),
+            execution_id: execution_id.into(),
+            status: BackgroundAgentRunStatus::Running,
+            started_at,
+            updated_at: started_at,
+            ended_at: None,
+            checkpoint_id,
+            error: None,
+            metrics: BackgroundAgentRunMetrics::default(),
+        }
+    }
+
+    pub fn set_checkpoint_id(&mut self, checkpoint_id: Option<String>) {
+        self.checkpoint_id = checkpoint_id;
+        self.updated_at = chrono::Utc::now().timestamp_millis();
+    }
+
+    pub fn mark_terminal(
+        &mut self,
+        status: BackgroundAgentRunStatus,
+        ended_at: i64,
+        error: Option<String>,
+        metrics: BackgroundAgentRunMetrics,
+    ) {
+        self.status = status;
+        self.updated_at = ended_at;
+        self.ended_at = Some(ended_at);
+        self.error = error;
+        self.metrics = metrics;
+    }
+
+    pub fn mark_interrupted(&mut self, ended_at: i64, reason: impl Into<String>) {
+        self.status = BackgroundAgentRunStatus::Interrupted;
+        self.updated_at = ended_at;
+        self.ended_at = Some(ended_at);
+        self.error = Some(reason.into());
+    }
+}
+
 /// Execution path for nested sub-agent calls. Empty for top-level tasks.
 /// When Agent A spawns Agent B, Agent B's events include Agent A's subflow path
 /// plus its own tool_call_id. This enables hierarchical execution tracking.

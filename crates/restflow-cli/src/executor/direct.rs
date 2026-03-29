@@ -13,9 +13,10 @@ use restflow_core::channel::pairing::PairingManager;
 use restflow_core::channel::route_binding::{RouteBindingType, RouteResolver};
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
-    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundProgress, Deliverable, ExecutionSessionListQuery,
-    ExecutionSessionSummary, ExecutionTimeline, ExecutionTraceQuery, Hook, SharedEntry,
+    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
+    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundProgress, Deliverable,
+    ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, ExecutionTraceQuery,
+    Hook, SharedEntry,
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
@@ -31,6 +32,7 @@ use restflow_core::{
     },
 };
 use restflow_storage::PairingStorage;
+use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 const TELEGRAM_CHAT_ID_SECRET: &str = "TELEGRAM_CHAT_ID";
 const TELEGRAM_DEFAULT_CHAT_ID_SECRET: &str = "TELEGRAM_DEFAULT_CHAT_ID";
@@ -445,6 +447,13 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn create_background_agent(&self, _spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn convert_session_to_background_agent(
+        &self,
+        _request: BackgroundAgentConvertSessionRequest,
+    ) -> Result<BackgroundAgentConversionResult> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 

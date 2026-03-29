@@ -1,17 +1,15 @@
 //! BackgroundAgentStore adapter backed by BackgroundAgentStorage.
 
 use crate::boundary::background_agent::{
-    convert_session_request_to_options, create_request_to_spec, resolve_agent_id_alias,
-    update_request_to_patch,
+    resolve_agent_id_alias,
 };
 use crate::models::{
     BackgroundAgentControlAction, BackgroundAgentStatus, BackgroundMessageSource,
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
 };
-use crate::services::background_agent_conversion::{
-    ConvertSessionSpecOptions, build_convert_session_spec,
-};
-use crate::storage::{AgentStorage, BackgroundAgentStorage};
+use crate::services::background_agent_command::BackgroundAgentCommandService;
+use crate::services::session::SessionService;
+use crate::storage::{AgentStorage, BackgroundAgentStorage, DeliverableStorage};
 use crate::telemetry::get_execution_timeline;
 use restflow_tools::ToolError;
 use restflow_traits::store::{
@@ -32,19 +30,27 @@ use std::collections::{BTreeMap, HashSet};
 pub struct BackgroundAgentStoreAdapter {
     storage: BackgroundAgentStorage,
     agent_storage: AgentStorage,
-    deliverable_storage: crate::storage::DeliverableStorage,
+    deliverable_storage: DeliverableStorage,
+    command_service: BackgroundAgentCommandService,
 }
 
 impl BackgroundAgentStoreAdapter {
     pub fn new(
         storage: BackgroundAgentStorage,
         agent_storage: AgentStorage,
-        deliverable_storage: crate::storage::DeliverableStorage,
+        deliverable_storage: DeliverableStorage,
+        session_service: SessionService,
     ) -> Self {
+        let command_service = BackgroundAgentCommandService::new(
+            storage.clone(),
+            agent_storage.clone(),
+            session_service,
+        );
         Self {
             storage,
             agent_storage,
             deliverable_storage,
+            command_service,
         }
     }
 
@@ -265,8 +271,9 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentCreateRequest,
     ) -> restflow_tools::Result<Value> {
         let resolved_agent_id = self.resolve_agent_id(&request.agent_id)?;
-        let spec = create_request_to_spec(request, resolved_agent_id)?;
-        let task = self.storage.create_background_agent(spec)?;
+        let task = self
+            .command_service
+            .create_from_request(request, resolved_agent_id)?;
         Ok(serde_json::to_value(task)?)
     }
 
@@ -274,73 +281,40 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> restflow_tools::Result<Value> {
-        let session_id = request.session_id.trim();
-        if session_id.is_empty() {
-            return Err(ToolError::Tool("session_id must not be empty".to_string()));
-        }
-
-        let session = self
-            .storage
-            .chat_sessions()
-            .get(session_id)?
-            .ok_or_else(|| ToolError::Tool(format!("Session not found: {}", session_id)))?;
-        let boundary = convert_session_request_to_options(request)?;
-
-        let spec = build_convert_session_spec(
-            &session,
-            ConvertSessionSpecOptions {
-                name: boundary.name,
-                description: None,
-                schedule: Some(boundary.schedule),
-                input: boundary.input,
-                notification: None,
-                execution_mode: None,
-                timeout_secs: boundary.timeout_secs,
-                memory: boundary.memory,
-                durability_mode: boundary.durability_mode,
-                resource_limits: boundary.resource_limits,
-                prerequisites: Vec::new(),
-                continuation: None,
-            },
-        )
-        .map_err(|e| ToolError::Tool(e.to_string()))?;
-
-        let mut task = self.storage.create_background_agent(spec)?;
-        let run_now = boundary.run_now;
-        if run_now {
-            task = self
-                .storage
-                .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)?;
-        }
-
+        let result = match self.command_service.convert_session(request) {
+            Ok(result) => result,
+            Err(error) => return Err(ToolError::Tool(error.to_string())),
+        };
         Ok(json!({
-            "task": task,
+            "task": result.task,
             "source_session": {
-                "id": session.id,
-                "agent_id": session.agent_id,
+                "id": result.source_session_id,
+                "agent_id": result.source_session_agent_id,
             },
-            "run_now": run_now,
+            "run_now": result.run_now,
         }))
     }
 
     fn update_background_agent(
         &self,
-        request: BackgroundAgentUpdateRequest,
+        mut request: BackgroundAgentUpdateRequest,
     ) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
+        request.id = resolved_id;
         let resolved_agent_id = request
             .agent_id
             .as_deref()
             .map(|id| self.resolve_agent_id(id))
             .transpose()?;
-        let patch = update_request_to_patch(request, resolved_agent_id)?;
-        let task = self.storage.update_background_agent(&resolved_id, patch)?;
+        let task = self
+            .command_service
+            .update_from_request(request, resolved_agent_id)?;
         Ok(serde_json::to_value(task)?)
     }
 
     fn delete_background_agent(&self, id: &str) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(id)?;
-        let deleted = self.storage.delete_task(&resolved_id)?;
+        let deleted = self.command_service.delete(&resolved_id)?;
         Ok(json!({ "id": resolved_id, "deleted": deleted }))
     }
 
@@ -361,9 +335,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
     ) -> restflow_tools::Result<Value> {
         let action = Self::parse_control_action(&request.action)?;
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let task = self
-            .storage
-            .control_background_agent(&resolved_id, action)?;
+        let task = self.command_service.control(&resolved_id, action)?;
         Ok(serde_json::to_value(task)?)
     }
 
@@ -372,7 +344,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentProgressRequest,
     ) -> restflow_tools::Result<Value> {
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let progress = self.storage.get_background_agent_progress(
+        let progress = self.command_service.progress(
             &resolved_id,
             request
                 .event_limit
@@ -388,9 +360,9 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
     ) -> restflow_tools::Result<Value> {
         let source = Self::parse_message_source(request.source.as_deref())?;
         let resolved_id = self.resolve_task_id(&request.id)?;
-        let message =
-            self.storage
-                .send_background_agent_message(&resolved_id, request.message, source)?;
+        let message = self
+            .command_service
+            .send_message(&resolved_id, request.message, source)?;
         Ok(serde_json::to_value(message)?)
     }
 
@@ -502,6 +474,10 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
 mod tests {
     use super::*;
     use crate::prompt_files;
+    use crate::services::session::SessionService;
+    use crate::storage::{
+        ChannelSessionBindingStorage, ExecutionTraceStorage, MemoryStorage, SessionStorage,
+    };
     use restflow_contracts::request::DurabilityMode as ContractDurabilityMode;
     use restflow_traits::store::BackgroundAgentStore;
     use std::sync::Arc;
@@ -518,6 +494,17 @@ mod tests {
         let db = Arc::new(redb::Database::create(db_path).unwrap());
         let bg_storage = BackgroundAgentStorage::new(db.clone()).unwrap();
         let agent_storage = AgentStorage::new(db.clone()).unwrap();
+        let chat_storage = crate::storage::ChatSessionStorage::new(db.clone()).unwrap();
+        let binding_storage = ChannelSessionBindingStorage::new(db.clone()).unwrap();
+        let trace_storage = ExecutionTraceStorage::new(db.clone()).unwrap();
+        let memory_storage = MemoryStorage::new(db.clone()).unwrap();
+        let session_storage = SessionStorage::new(chat_storage, binding_storage, trace_storage);
+        let session_service = SessionService::new(
+            session_storage,
+            Some(agent_storage.clone()),
+            bg_storage.clone(),
+            Some(memory_storage),
+        );
         let deliverable_storage = crate::storage::DeliverableStorage::new(db).unwrap();
 
         let prompts_dir = temp_dir.path().join("state").join("agents");
@@ -540,7 +527,12 @@ mod tests {
         }
 
         (
-            BackgroundAgentStoreAdapter::new(bg_storage, agent_storage, deliverable_storage),
+            BackgroundAgentStoreAdapter::new(
+                bg_storage,
+                agent_storage,
+                deliverable_storage,
+                session_service,
+            ),
             temp_dir,
             guard,
         )

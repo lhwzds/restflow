@@ -30,7 +30,9 @@ mod terminals;
 mod work_items;
 
 use super::*;
-use crate::boundary::background_agent::{contract_patch_to_core, contract_spec_to_core};
+use crate::boundary::background_agent::{
+    contract_convert_request_to_store, contract_patch_to_core, contract_spec_to_core,
+};
 use crate::daemon::request_mapper::{
     from_contract, invalid_request_response, invalid_validation_response,
 };
@@ -434,6 +436,22 @@ impl IpcServer {
                 Ok(spec) => {
                     Self::handle_create_background_agent(core, spec, preview, confirmation_token)
                         .await
+                }
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::ConvertSessionToBackgroundAgent {
+                request,
+                preview,
+                confirmation_token,
+            } => match contract_convert_request_to_store(request) {
+                Ok(request) => {
+                    Self::handle_convert_session_to_background_agent(
+                        core,
+                        request,
+                        preview,
+                        confirmation_token,
+                    )
+                    .await
                 }
                 Err(err) => invalid_request_response(err),
             },

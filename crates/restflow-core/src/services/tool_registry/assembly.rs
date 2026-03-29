@@ -1,4 +1,5 @@
 use super::*;
+use crate::services::session::SessionService;
 use restflow_tools::FileConfig;
 use restflow_traits::AgentOperationAssessor;
 
@@ -88,7 +89,7 @@ pub fn create_tool_registry_with_assessor(
     let session_store = Arc::new(SessionStorageAdapter::new(
         crate::storage::SessionStorage::new(
             chat_storage.clone(),
-            channel_session_binding_storage,
+            channel_session_binding_storage.clone(),
             execution_trace_storage.clone(),
         ),
         agent_storage.clone(),
@@ -97,11 +98,11 @@ pub fn create_tool_registry_with_assessor(
     let memory_manager = Arc::new(MemoryManagerAdapter::new(memory_storage.clone()));
     let mem_store = Arc::new(DbMemoryStoreAdapter::new(memory_storage.clone()));
     let deliverable_store = Arc::new(DeliverableStoreAdapter::new(deliverable_storage.clone()));
-    let search_engine = UnifiedSearchEngine::new(memory_storage, chat_storage.clone());
+    let search_engine = UnifiedSearchEngine::new(memory_storage.clone(), chat_storage.clone());
     let unified_search = Arc::new(UnifiedMemorySearchAdapter::new(search_engine));
     let ops_provider = Arc::new(OpsProviderAdapter::new(
         background_agent_storage.clone(),
-        chat_storage,
+        chat_storage.clone(),
     ));
     let kv_store = Arc::new(KvStoreAdapter::new(kv_store_storage, accessor_id));
     let work_item_provider = Arc::new(DbWorkItemAdapter::new(work_item_storage.clone()));
@@ -115,9 +116,19 @@ pub fn create_tool_registry_with_assessor(
         known_tools.clone(),
     ));
     let background_agent_store = Arc::new(BackgroundAgentStoreAdapter::new(
-        background_agent_storage,
+        background_agent_storage.clone(),
         agent_storage.clone(),
         deliverable_storage,
+        SessionService::new(
+            crate::storage::SessionStorage::new(
+                chat_storage.clone(),
+                channel_session_binding_storage.clone(),
+                execution_trace_storage.clone(),
+            ),
+            Some(agent_storage.clone()),
+            background_agent_storage,
+            Some(memory_storage.clone()),
+        ),
     ));
     let marketplace_store = Arc::new(MarketplaceStoreAdapter::new_with_defaults(
         skill_storage,

@@ -7,8 +7,9 @@ use restflow_contracts::{
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
+    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
+    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundProgress, ChatSession,
+    ChatSessionSummary, Deliverable,
     ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, Hook, ItemQuery,
     MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
     WorkItemPatch, WorkItemSpec,
@@ -16,6 +17,7 @@ use restflow_core::models::{
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
+use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 use std::sync::Arc;
 
 #[cfg(test)]
@@ -129,6 +131,10 @@ pub trait CommandExecutor: Send + Sync {
     async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<BackgroundAgent>>;
     async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent>;
     async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent>;
+    async fn convert_session_to_background_agent(
+        &self,
+        request: BackgroundAgentConvertSessionRequest,
+    ) -> Result<BackgroundAgentConversionResult>;
     async fn update_background_agent(
         &self,
         id: &str,

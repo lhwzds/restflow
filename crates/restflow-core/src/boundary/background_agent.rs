@@ -5,6 +5,7 @@ use crate::models::{
 };
 use crate::services::background_agent_conversion::default_conversion_schedule;
 use restflow_contracts::request::{
+    BackgroundAgentConvertSessionRequest as ContractBackgroundAgentConvertSessionRequest,
     BackgroundAgentPatch as ContractBackgroundAgentPatch,
     BackgroundAgentSpec as ContractBackgroundAgentSpec, DurabilityMode as ContractDurabilityMode,
     ExecutionMode as ContractExecutionMode, MemoryConfig as ContractMemoryConfig,
@@ -13,7 +14,8 @@ use restflow_contracts::request::{
 };
 use restflow_tools::ToolError;
 use restflow_traits::store::{
-    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
+    BackgroundAgentConvertSessionRequest as StoreBackgroundAgentConvertSessionRequest,
+    BackgroundAgentCreateRequest,
     BackgroundAgentUpdateRequest,
 };
 use serde::Serialize;
@@ -220,7 +222,7 @@ pub(crate) fn update_request_to_patch(
 }
 
 pub(crate) fn convert_session_request_to_options(
-    request: BackgroundAgentConvertSessionRequest,
+    request: StoreBackgroundAgentConvertSessionRequest,
 ) -> Result<ConvertSessionRequestOptions, ToolError> {
     Ok(ConvertSessionRequestOptions {
         name: request.name,
@@ -247,6 +249,40 @@ pub(crate) fn convert_session_request_to_options(
             request.resource_limits,
         )?,
         run_now: request.run_now.unwrap_or(false),
+    })
+}
+
+pub(crate) fn contract_convert_request_to_store(
+    request: ContractBackgroundAgentConvertSessionRequest,
+) -> anyhow::Result<StoreBackgroundAgentConvertSessionRequest> {
+    Ok(StoreBackgroundAgentConvertSessionRequest {
+        session_id: request.session_id,
+        name: request.name,
+        schedule: request.schedule,
+        input: request.input,
+        timeout_secs: request.timeout_secs,
+        durability_mode: request.durability_mode,
+        memory: request.memory,
+        memory_scope: request.memory_scope,
+        resource_limits: request.resource_limits,
+        run_now: request.run_now,
+    })
+}
+
+pub(crate) fn store_convert_request_to_contract(
+    request: StoreBackgroundAgentConvertSessionRequest,
+) -> anyhow::Result<ContractBackgroundAgentConvertSessionRequest> {
+    Ok(ContractBackgroundAgentConvertSessionRequest {
+        session_id: request.session_id,
+        name: request.name,
+        schedule: request.schedule,
+        input: request.input,
+        timeout_secs: request.timeout_secs,
+        durability_mode: request.durability_mode,
+        memory: request.memory,
+        memory_scope: request.memory_scope,
+        resource_limits: request.resource_limits,
+        run_now: request.run_now,
     })
 }
 

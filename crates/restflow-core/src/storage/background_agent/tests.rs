@@ -228,6 +228,54 @@ fn test_resolve_existing_task_id_typed_returns_internal_for_malformed_task_scan(
 }
 
 #[test]
+fn test_task_runs_round_trip_and_track_checkpoint() {
+    let storage = create_test_storage();
+    let task = storage
+        .create_task(
+            "Run Tracking".to_string(),
+            "agent-001".to_string(),
+            BackgroundAgentSchedule::default(),
+        )
+        .unwrap();
+
+    let run = storage
+        .start_task_run(&task.id, "run-1", "exec-1", 100, None)
+        .unwrap();
+    assert_eq!(run.run_id, "run-1");
+
+    let active_run = storage
+        .get_active_task_run(&task.id)
+        .unwrap()
+        .expect("active run");
+    assert_eq!(active_run.execution_id, "exec-1");
+
+    let updated = storage
+        .set_task_run_checkpoint("run-1", Some("cp-1".to_string()))
+        .unwrap()
+        .expect("updated run");
+    assert_eq!(updated.checkpoint_id.as_deref(), Some("cp-1"));
+
+    let completed = storage
+        .mark_task_run_terminal(
+            "run-1",
+            crate::models::BackgroundAgentRunStatus::Completed,
+            200,
+            None,
+            crate::models::BackgroundAgentRunMetrics {
+                duration_ms: Some(100),
+                ..Default::default()
+            },
+        )
+        .unwrap()
+        .expect("completed run");
+    assert_eq!(
+        completed.status,
+        crate::models::BackgroundAgentRunStatus::Completed
+    );
+    assert!(storage.get_active_task_run(&task.id).unwrap().is_none());
+}
+
+#[test]
 fn test_resolve_existing_task_id_exact_priority_over_prefix() {
     let storage = create_test_storage();
 

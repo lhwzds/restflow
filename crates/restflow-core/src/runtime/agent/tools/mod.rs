@@ -19,6 +19,7 @@ use self::assembly::{
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
+use crate::services::session::SessionService;
 use crate::storage::Storage;
 use restflow_storage::{AgentSettings, ApiSettings};
 use restflow_traits::security::SecurityGate;
@@ -398,6 +399,7 @@ pub fn registry_from_allowlist_with_security_gate(
                         s.background_agents.clone(),
                         s.agents.clone(),
                         s.deliverables.clone(),
+                        SessionService::from_storage(s),
                     ));
                     builder.with_background_agent_and_kv(
                         store,

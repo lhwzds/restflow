@@ -23,6 +23,11 @@ impl BackgroundAgentStorage {
         self.checkpoints.load_by_task_id(task_id)
     }
 
+    /// Load a checkpoint by checkpoint ID.
+    pub fn load_checkpoint(&self, checkpoint_id: &str) -> Result<Option<AgentCheckpoint>> {
+        self.checkpoints.load(checkpoint_id)
+    }
+
     /// Delete expired checkpoints.
     pub fn cleanup_expired_checkpoints(&self) -> Result<usize> {
         self.checkpoints.cleanup_expired()

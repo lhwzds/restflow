@@ -14,14 +14,12 @@ use restflow_core::models::{
     ExecutionContainerKind, ExecutionContainerRef, ExecutionSessionListQuery,
     ExecutionSessionSummary, TaskSchedule,
 };
-use restflow_core::services::background_agent_conversion::{
-    ConvertSessionSpecOptions, MISSING_CONVERSION_INPUT_ERROR, build_convert_session_spec,
-    default_conversion_schedule,
-};
+use restflow_core::services::background_agent_conversion::default_conversion_schedule;
 #[cfg(test)]
 use restflow_core::services::background_agent_conversion::{
     derive_conversion_input, derive_conversion_name,
 };
+use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
@@ -202,7 +200,6 @@ async fn convert_session_to_background_agent(
     run_now: bool,
     format: OutputFormat,
 ) -> Result<()> {
-    let session = executor.get_session(session_id).await?;
     let schedule = if let Some(schedule_type) = schedule_type {
         Some(parse_schedule(&schedule_type, schedule_value)?)
     } else {
@@ -210,59 +207,39 @@ async fn convert_session_to_background_agent(
     }
     .unwrap_or_else(default_conversion_schedule);
 
-    let spec = build_convert_session_spec(
-        &session,
-        ConvertSessionSpecOptions {
+    let result = executor
+        .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+            session_id: session_id.to_string(),
             name,
-            description: None,
-            schedule: Some(schedule),
+            schedule: Some(restflow_core::daemon::request_mapper::to_contract(schedule)?),
             input,
-            notification: None,
-            execution_mode: None,
             timeout_secs,
-            memory: None,
             durability_mode: None,
+            memory: None,
+            memory_scope: None,
             resource_limits: None,
-            prerequisites: vec![],
-            continuation: None,
-        },
-    )
-    .map_err(|e| {
-        if e == MISSING_CONVERSION_INPUT_ERROR {
-            anyhow::anyhow!(
-                "{} use --input to provide one.",
-                MISSING_CONVERSION_INPUT_ERROR.trim_end_matches('.')
-            )
-        } else {
-            anyhow::anyhow!("{e}")
-        }
-    })?;
-
-    let agent = executor.create_background_agent(spec).await?;
-    if run_now {
-        executor
-            .control_background_agent(&agent.id, BackgroundAgentControlAction::RunNow)
-            .await?;
-    }
+            run_now: Some(run_now),
+        })
+        .await?;
 
     if format.is_json() {
         return print_json(&serde_json::json!({
-            "task": agent,
+            "task": result.task,
             "source_session": {
-                "id": session.id,
-                "agent_id": session.agent_id,
+                "id": result.source_session_id,
+                "agent_id": result.source_session_agent_id,
             },
-            "run_now": run_now,
+            "run_now": result.run_now,
         }));
     }
 
     println!(
         "Converted session {} -> background agent {} ({})",
         session_id,
-        agent.name,
-        &agent.id[..8.min(agent.id.len())]
+        result.task.name,
+        &result.task.id[..8.min(result.task.id.len())]
     );
-    if run_now {
+    if result.run_now {
         println!("Triggered immediate run.");
     }
     Ok(())
