@@ -2,15 +2,9 @@
 
 ## Status
 
-- Updated: 2026-03-11
+- Updated: 2026-03-28
 - Scope: Runtime architecture, deployment model, and migration baseline
 - Audience: Core contributors working on browser, CLI, daemon, and runtime channels
-
-## Refactor Docs
-
-- [Minimal Refactor Roadmap](./MINIMAL_REFACTOR_ROADMAP.md)
-- [Compatibility Matrix](./COMPATIBILITY_MATRIX.md)
-- [Migration Test Plan](./MIGRATION_TEST_PLAN.md)
 
 ## 1. Architectural Decision
 
@@ -32,29 +26,48 @@ This avoids split-brain behavior, inconsistent routing logic, and duplicated wri
 
 ## 3. Runtime Topology
 
-```text
-UI/Clients
-  - Browser frontend
-  - CLI
-  - External channel connectors (Telegram/Discord/Slack)
-  - MCP callers
-        |
-        | IPC / HTTP / MCP
-        v
-Daemon
-  - IPC server
-  - MCP HTTP server
-  - Channel router + chat dispatcher
-  - Background agent runner
-  - Runtime event publishing
-  - Service layer
-        |
-        v
-Storage
-  - sessions/messages
-  - tool_traces
-  - background_agents + history
-  - auth/secrets/config
+### 3.1 Runtime Dependency Graph
+
+```mermaid
+flowchart TD
+    Browser["Browser frontend"] -->|"HTTP stream/request"| Daemon["Daemon"]
+    CLI["CLI"] -->|"IPC / HTTP"| Daemon
+    Channels["Telegram / Discord / Slack"] -->|"channel events"| Daemon
+    McpCallers["MCP callers"] -->|"JSON-RPC over HTTP"| Daemon
+
+    Daemon --> Ipc["IPC server"]
+    Daemon --> Mcp["MCP HTTP server"]
+    Daemon --> Router["Channel router + chat dispatcher"]
+    Daemon --> Runner["Background agent runner"]
+    Daemon --> Runtime["Runtime event publishing"]
+    Daemon --> Services["Service layer"]
+
+    Services --> Sessions["sessions / messages"]
+    Services --> Traces["tool_traces / execution traces"]
+    Services --> Background["background agents / history"]
+    Services --> Secrets["auth / secrets / config"]
+```
+
+### 3.2 Crate Dependency Graph
+
+```mermaid
+flowchart LR
+    Traits["restflow-traits"] --> Contracts["restflow-contracts"]
+    Traits --> Models["restflow-models"]
+    Traits --> Storage["restflow-storage"]
+
+    Contracts --> Core["restflow-core"]
+    Models --> Ai["restflow-ai"]
+    Models --> Core
+    Storage --> Core
+    Telemetry["restflow-telemetry"] --> Core
+    Browser["restflow-browser"] --> Core
+
+    Ai --> Tools["restflow-tools"]
+    Ai --> Core
+    Tools --> Core
+
+    Core --> Cli["restflow-cli"]
 ```
 
 ## 4. Main Execution Flows
@@ -79,6 +92,24 @@ Storage
 1. Runtime emits turn/tool events during execution.
 2. `tool_traces` persists execution traces.
 3. Session execution steps are backfilled from traces for persisted UI rendering.
+
+### 4.4 Browser Workspace Inspection Flow
+
+```mermaid
+flowchart TD
+    Sidebar["Sidebar run tree"] --> Route["Canonical route"]
+    RoutePath["/workspace/c/:containerId/r/:runId"] --> Thread["GetExecutionRunThread(run_id)"]
+    Route --> RoutePath
+    RoutePath --> TopLevel["ListExecutionSessions(container)"]
+    Sidebar --> Children["ListChildExecutionSessions(parent_run_id)"]
+
+    Thread --> Center["Center panel: selected run only"]
+    Thread --> Inspector["Inspector overview baseline"]
+    Children --> Sidebar
+    Children --> Inspector
+    TopLevel --> Sidebar
+    Inspector --> Detail["Detail mode when a message/event/tool is selected"]
+```
 
 ## 5. Component Responsibilities
 
@@ -109,6 +140,54 @@ Provider/model ownership is intentionally split from daemon runtime ownership:
 - `restflow-ai` owns client construction and hot-swapping mechanics.
 - `restflow-core` owns daemon-specific pairing and auth policy.
 
+#### Current Provider and Boundary Map
+
+```mermaid
+flowchart LR
+    subgraph INPUT["External Input"]
+        A["ContractAgentNode"]
+        B["ContractBackgroundAgent requests"]
+        C["ContractSubagentSpawnRequest"]
+    end
+
+    subgraph BOUNDARY["Boundary Layer"]
+        BA["core::boundary::agent"]
+        BB["core::boundary::background_agent"]
+        BS["traits::boundary::subagent"]
+    end
+
+    subgraph DOMAIN["Domain and Runtime"]
+        DA["core::AgentNode / ModelRef"]
+        DB["core::BackgroundAgentSpec / Patch"]
+        SR["SpawnRequest (runtime-only)"]
+        SM["SubagentManager"]
+    end
+
+    subgraph MODELS["Shared Model Ownership"]
+        T["restflow-traits\nModelProvider / LlmProvider / ClientKind / LlmSwitcher"]
+        M["restflow-models\nProviderMeta / ModelId / catalog / selector / ModelSpec"]
+        AI["restflow-ai\nSwappableLlm / LlmClientFactory / execution runtime"]
+        C0["restflow-core\nprovider_access / provider_policy / daemon pairing"]
+    end
+
+    A --> BA --> DA
+    B --> BB --> DB
+    C --> BS --> SR --> SM
+
+    T --> M
+    M --> BA
+    M --> BB
+    M --> BS
+    M --> AI
+    M --> C0
+```
+
+Operational notes:
+
+- `AgentNode`, `BackgroundAgent`, and `Subagent` ingress now normalize through dedicated boundary modules instead of ad-hoc `serde_json` conversion in services or tool handlers.
+- `SpawnRequest` is a runtime-only type. Public subagent ingress must start from `ContractSubagentSpawnRequest` and pass through `traits::boundary::subagent`.
+- `ProviderMeta` remains the source of shared provider defaults. `ZaiCodingPlan` currently defaults to `GLM-5.1` in the shared model catalog.
+
 #### Shared Ownership Map
 
 `restflow-traits` owns cross-crate identities and runtime switching contracts:
@@ -127,6 +206,13 @@ Provider/model ownership is intentionally split from daemon runtime ownership:
 - `catalog/`: provider-specific model descriptors and aliases
 - `selector.rs`: shared provider selector parsing and model resolution helpers
 - `ModelSpec`: runtime model specification consumed by the LLM factory
+
+Current notable provider defaults:
+
+- `MiniMax`: `MiniMax-M2.7`
+- `MiniMaxCodingPlan`: `MiniMax-M2.5`
+- `Zai`: `GLM-5`
+- `ZaiCodingPlan`: `GLM-5.1`
 
 `restflow-ai` owns runtime execution mechanics:
 
@@ -197,6 +283,119 @@ These pieces intentionally remain outside the shared model crate:
 - auth profile ordering and credential availability logic
 - daemon/UI display-only provider ordering
 - concrete LLM client implementations and runtime swap mechanics
+
+### Browser Workspace Execution Architecture
+
+The browser workspace now follows a **run-first inspection model**.
+
+The canonical routes are:
+
+- `/workspace/c/:containerId`
+- `/workspace/c/:containerId/r/:runId`
+
+The workspace shell is intentionally split into three roles:
+
+- Left sidebar: run tree navigation
+- Center panel: selected run thread only
+- Right inspector: selected run overview by default, selected event detail on demand
+
+#### Canonical Data Flows
+
+The browser workspace uses separate daemon read paths for run content and run
+relationships.
+
+1. Run content flow:
+   - `GetExecutionRunThread { run_id }`
+   - Drives the center panel thread and the inspector overview baseline
+2. Top-level run flow:
+   - `ListExecutionSessions { container }`
+   - Returns top-level runs for a container only
+3. Child relation flow:
+   - `ListChildExecutionSessions { parent_run_id }`
+   - Returns direct child runs only
+
+This separation is intentional:
+
+- `GetExecutionRunThread` must describe the body of one run only
+- child/subagent relationships must not be embedded into thread content
+- left navigation and relationship views must be driven by relation queries
+
+#### Center Panel Rules
+
+The center panel renders only the selected run:
+
+- user-visible messages that belong to the selected run
+- timeline events from `ExecutionThread.timeline`
+- optimistic/live overlays for the selected run during execution
+
+The center panel must not render:
+
+- child run pseudo-items
+- `child_run_link` rows
+- sibling or parent run content mixed into the current thread
+
+Parent/child context belongs in navigation and run metadata, not in the body of
+the selected run thread.
+
+#### Run Relationship Model
+
+Every run summary used by the workspace must preserve enough identity to resolve
+navigation consistently:
+
+- `run_id`
+- `container_id`
+- `parent_run_id`
+- `root_run_id`
+
+The intended interpretation is:
+
+- `container_id`: canonical container used by the route
+- `parent_run_id`: direct parent run when the run was spawned by another run
+- `root_run_id`: top-level root run in the same execution tree
+
+This allows child runs to behave as first-class runs while still preserving
+their lineage.
+
+#### Sidebar Run Tree
+
+The left sidebar is the primary navigation model for execution inspection.
+
+- top-level runs come from `ListExecutionSessions(container)`
+- child runs are loaded lazily with `ListChildExecutionSessions(parent_run_id)`
+- current run ancestors should auto-expand when needed
+- clicking any run, top-level or child, must navigate to the same canonical run
+  route shape
+
+The sidebar is responsible for traversal. It is not responsible for composing
+thread content across multiple runs.
+
+#### Inspector Modes
+
+The right inspector operates in two modes:
+
+1. Overview mode
+   - default state for the active run
+   - shows run summary, lineage, child runs, run-scoped telemetry, and related execution metadata
+2. Detail mode
+   - entered when the user selects a message, event, or tool result
+   - shows the detail panel for that selected item
+
+Closing detail must return to overview for the same active run instead of
+hiding the inspector entirely.
+
+#### Supporting Interaction Layers
+
+The workspace includes several browser-only interaction layers that sit on top
+of the daemon-backed run model:
+
+- `RunOverviewPanel`: run summary and lineage-aware inspector overview
+- `ExecutionStatusBar`: active execution state, elapsed time, and current phase
+- `CommandPalette`: global browser navigation/action surface for sessions,
+  agents, and workspace actions
+
+These layers improve inspection and navigation, but they must not introduce
+alternative write paths or alternate execution ownership. Daemon contracts
+remain the single source of truth.
 
 ## 6. Deployment Model
 
@@ -287,7 +486,58 @@ Section names describe ownership domains, not implementation details:
 Automatic migrations are expected for legacy key/profile formats. Runtime
 configuration now converges into `~/.restflow/config.toml`.
 
-## 9. Guardrails for Contributors
+## 9. Compatibility and Validation Baseline
+
+Compatibility remains part of the architecture, not an optional release task.
+
+### Compatibility Principles
+
+1. CLI command paths, MCP tool names, and daemon HTTP request/stream envelopes
+   must remain stable unless a change is explicitly versioned.
+2. Public evolution must be additive-first:
+   - add optional fields before removing old ones
+   - keep tolerant readers while migrations are still in flight
+   - preserve old aliases until rollout is complete
+3. Browser, CLI, and MCP remain facades over daemon-owned behavior. New client
+   features must not create alternate write paths.
+
+### Validation Gates
+
+All architecture-sensitive changes should satisfy these blocking checks before
+merge:
+
+- Backend:
+  - `cargo fmt --all -- --check`
+  - `cargo clippy --all-targets --all-features -- -D warnings`
+  - `cargo test --workspace`
+- Frontend:
+  - `cd web && npm run test`
+  - `cd web && npm run build`
+- End-to-end:
+  - `cd e2e-tests && npm test`
+
+### Required Smoke Flows
+
+After architecture-sensitive changes, verify at least these flows:
+
+1. Daemon lifecycle:
+   - start
+   - health/status check
+   - clean stop
+2. Chat execution:
+   - request
+   - stream
+   - persisted history replay
+3. Background execution:
+   - trigger
+   - observe progress
+   - read persisted history
+4. Workspace inspection:
+   - top-level run navigation
+   - child run navigation
+   - inspector overview/detail transitions
+
+## 10. Guardrails for Contributors
 
 Do:
 
@@ -301,7 +551,7 @@ Do not:
 - Add fallback write paths that bypass daemon ownership.
 - Encode routing ownership only in display fields on session models.
 
-## 10. Implementation Roadmap (High-Level)
+## 11. Implementation Roadmap (High-Level)
 
 1. Enforce daemon handshake and remove silent fallback execution paths.
 2. Unify client command surfaces through daemon APIs.
