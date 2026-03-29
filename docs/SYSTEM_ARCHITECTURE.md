@@ -284,6 +284,42 @@ These pieces intentionally remain outside the shared model crate:
 - daemon/UI display-only provider ordering
 - concrete LLM client implementations and runtime swap mechanics
 
+### Trace Ownership Boundaries
+
+Trace architecture follows the same daemon-centric ownership rules as the rest
+of the runtime.
+
+#### Trace Domain Ownership
+
+- `restflow-core` owns trace domain models, typed trace storage wrappers, and
+  runtime trace services
+- `restflow-storage` owns raw persistence primitives only
+- `restflow-ai` owns AI execution stream contracts and execution-domain stream
+  types
+
+This means:
+
+- typed trace models belong in `restflow-core`
+- raw byte/table persistence stays in `restflow-storage`
+- execution streaming abstractions stay near AI execution runtime code
+
+#### What Must Not Move
+
+The following boundaries are intentional and should not be refactored away
+without a full dependency review:
+
+1. `StreamEmitter` stays in `restflow-ai`
+   - it is coupled to AI execution streaming semantics and AI-specific stream
+     payloads
+2. Runtime emitter implementations stay in `restflow-core`
+   - they depend on storage, sanitization, runtime channels, and daemon-owned
+     execution policy
+3. Raw trace table definitions stay in `restflow-storage`
+   - they are persistence plumbing, not domain APIs
+
+The goal is not to force every trace-related type into one crate. The goal is
+to keep protocol, domain, runtime, and storage responsibilities explicit.
+
 ### Browser Workspace Execution Architecture
 
 The browser workspace now follows a **run-first inspection model**.
