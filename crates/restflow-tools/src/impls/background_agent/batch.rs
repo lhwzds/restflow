@@ -238,7 +238,7 @@ pub(super) async fn execute_run_batch(
                 })
         })
         .collect::<Result<Vec<_>>>()?;
-    let should_run_now = run_now.unwrap_or(true);
+    let should_run_now = run_now.unwrap_or(false);
     let assessment = tool
         .assessor()?
         .assess_background_agent_template(

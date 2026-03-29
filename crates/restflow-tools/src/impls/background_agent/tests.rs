@@ -215,7 +215,7 @@ impl BackgroundAgentStore for MockStore {
                 "chat_session_id": request.session_id,
                 "name": request.name.unwrap_or_else(|| "converted".to_string()),
             },
-            "run_now": request.run_now.unwrap_or(true)
+            "run_now": request.run_now.unwrap_or(false)
         }))
     }
 
@@ -319,7 +319,7 @@ impl BackgroundAgentStore for FailingListStore {
                 "id": "task-1",
                 "chat_session_id": request.session_id,
             },
-            "run_now": request.run_now.unwrap_or(true)
+            "run_now": request.run_now.unwrap_or(false)
         }))
     }
 
@@ -548,6 +548,27 @@ async fn test_promote_to_background_operation() {
 }
 
 #[tokio::test]
+async fn test_convert_session_defaults_run_now_to_false() {
+    let tool = writable_tool();
+    let output = tool
+        .execute(json!({
+            "operation": "convert_session",
+            "session_id": "session-1",
+            "name": "Converted Task"
+        }))
+        .await
+        .unwrap();
+    assert!(output.success);
+    assert_eq!(
+        output
+            .result
+            .get("run_now")
+            .and_then(|value| value.as_bool()),
+        Some(false)
+    );
+}
+
+#[tokio::test]
 async fn test_promote_to_background_requires_session_id() {
     let tool = BackgroundAgentTool::new(Arc::new(MockStore)).with_write(true);
     let err = tool
@@ -689,11 +710,30 @@ async fn test_run_batch_with_mixed_input_modes() {
     assert!(output.success);
     assert_eq!(output.result["operation"], "run_batch");
     assert_eq!(output.result["total"], 4);
-    assert_eq!(output.result["run_now"], true);
+    assert_eq!(output.result["run_now"], false);
     assert_eq!(
         output.result["tasks"].as_array().map(|items| items.len()),
         Some(4)
     );
+}
+
+#[tokio::test]
+async fn test_run_batch_defaults_run_now_to_false() {
+    let tool = writable_tool();
+    let output = tool
+        .execute(json!({
+            "operation": "run_batch",
+            "agent_id": "agent-1",
+            "input": "save-only input",
+            "workers": [
+                { "count": 1 }
+            ]
+        }))
+        .await
+        .unwrap();
+    assert!(output.success);
+    assert_eq!(output.result["run_now"], false);
+    assert_eq!(output.result["tasks"][0]["run_now"], false);
 }
 
 #[tokio::test]

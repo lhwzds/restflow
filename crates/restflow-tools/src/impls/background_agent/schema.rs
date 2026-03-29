@@ -92,7 +92,7 @@ pub(super) fn parameters_schema() -> Value {
             },
             "run_now": {
                 "type": "boolean",
-                "description": "Whether to trigger immediate run after convert_session/promote_to_background (default: true)"
+                "description": "Whether to trigger immediate run after convert_session/promote_to_background (default: false)"
             },
             "preview": {
                 "type": "boolean",
