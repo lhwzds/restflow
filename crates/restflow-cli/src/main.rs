@@ -55,14 +55,7 @@ fn init_logging(verbose: bool) -> Option<WorkerGuard> {
 }
 
 fn command_needs_direct_core(command: &Option<Commands>) -> bool {
-    matches!(
-        command,
-        Some(Commands::Daemon { .. })
-            | Some(Commands::Hook { .. })
-            | Some(Commands::Pairing { .. })
-            | Some(Commands::Route { .. })
-            | Some(Commands::Maintenance { .. })
-    )
+    matches!(command, Some(Commands::Daemon { .. }))
 }
 
 #[tokio::main]
@@ -130,8 +123,7 @@ async fn run() -> Result<()> {
         return commands::mcp::run(command.clone(), cli.format).await;
     }
 
-    // Commands that need direct core access (daemon, run, hook)
-    // These bypass the executor pattern for now
+    // Commands that need direct core access.
     let needs_direct_core = command_needs_direct_core(&cli.command);
 
     let db_path = setup::resolve_db_path(cli.db_path.clone())?;
@@ -142,18 +134,6 @@ async fn run() -> Result<()> {
 
         match cli.command {
             Some(Commands::Daemon { command }) => commands::daemon::run(core, command).await,
-            Some(Commands::Hook { command }) => {
-                commands::hook::run(core, command, cli.format).await
-            }
-            Some(Commands::Pairing { command }) => {
-                commands::pairing::run(core, command, cli.format).await
-            }
-            Some(Commands::Route { command }) => {
-                commands::pairing::run_route(core, command, cli.format).await
-            }
-            Some(Commands::Maintenance { command }) => {
-                commands::maintenance::run(core, command, cli.format).await
-            }
             _ => unreachable!(),
         }
     } else {
@@ -173,6 +153,9 @@ async fn run() -> Result<()> {
             Some(Commands::Secret { command }) => {
                 commands::secret::run(exec, command, cli.format).await
             }
+            Some(Commands::Hook { command }) => {
+                commands::hook::run(exec, command, cli.format).await
+            }
             Some(Commands::Config { command }) => {
                 commands::config::run(exec, command, cli.format).await
             }
@@ -181,6 +164,15 @@ async fn run() -> Result<()> {
             }
             Some(Commands::Note { command }) => {
                 commands::note::run(exec, command, cli.format).await
+            }
+            Some(Commands::Pairing { command }) => {
+                commands::pairing::run(exec, command, cli.format).await
+            }
+            Some(Commands::Route { command }) => {
+                commands::pairing::run_route(exec, command, cli.format).await
+            }
+            Some(Commands::Maintenance { command }) => {
+                commands::maintenance::run(exec, command, cli.format).await
             }
             Some(Commands::Security { command }) => {
                 commands::security::run(command, cli.format).await
@@ -215,7 +207,7 @@ async fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::command_needs_direct_core;
-    use crate::cli::{Commands, HookCommands, MaintenanceCommands, StartArgs};
+    use crate::cli::{Commands, HookCommands, MaintenanceCommands, PairingCommands, StartArgs};
 
     #[test]
     fn start_does_not_need_direct_core() {
@@ -224,18 +216,26 @@ mod tests {
     }
 
     #[test]
-    fn hook_needs_direct_core() {
+    fn hook_does_not_need_direct_core() {
         let command = Some(Commands::Hook {
             command: HookCommands::List,
         });
-        assert!(command_needs_direct_core(&command));
+        assert!(!command_needs_direct_core(&command));
     }
 
     #[test]
-    fn maintenance_needs_direct_core() {
+    fn maintenance_does_not_need_direct_core() {
         let command = Some(Commands::Maintenance {
             command: MaintenanceCommands::Cleanup,
         });
-        assert!(command_needs_direct_core(&command));
+        assert!(!command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn pairing_does_not_need_direct_core() {
+        let command = Some(Commands::Pairing {
+            command: PairingCommands::List,
+        });
+        assert!(!command_needs_direct_core(&command));
     }
 }
