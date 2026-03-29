@@ -3,6 +3,7 @@ import { defineComponent, reactive, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import Workspace from '../Workspace.vue'
 import { BackendError } from '@/api/http-client'
+import { useCommandPalette } from '@/composables/useCommandPalette'
 
 const mockListAgents = vi.fn()
 const mockRouterPush = vi.fn()
@@ -220,27 +221,41 @@ function mountWorkspace() {
   return mount(Workspace, {
     global: {
       stubs: {
-        Button: {
+        Button: defineComponent({
+          name: 'Button',
           template: '<button><slot /></button>',
-        },
-        Dialog: {
+        }),
+        Dialog: defineComponent({
+          name: 'Dialog',
+          props: {
+            open: {
+              type: Boolean,
+              default: false,
+            },
+          },
+          emits: ['update:open'],
+          template: '<div v-if="open"><slot /></div>',
+        }),
+        DialogContent: defineComponent({
+          name: 'DialogContent',
+          template: '<div data-slot="dialog-content"><slot /></div>',
+        }),
+        DialogHeader: defineComponent({
+          name: 'DialogHeader',
           template: '<div><slot /></div>',
-        },
-        DialogContent: {
+        }),
+        DialogTitle: defineComponent({
+          name: 'DialogTitle',
           template: '<div><slot /></div>',
-        },
-        DialogHeader: {
+        }),
+        DialogFooter: defineComponent({
+          name: 'DialogFooter',
           template: '<div><slot /></div>',
-        },
-        DialogTitle: {
-          template: '<div><slot /></div>',
-        },
-        DialogFooter: {
-          template: '<div><slot /></div>',
-        },
-        Input: {
+        }),
+        Input: defineComponent({
+          name: 'Input',
           template: '<input />',
-        },
+        }),
       },
     },
   })
@@ -251,6 +266,7 @@ describe('Workspace', () => {
     vi.clearAllMocks()
     mockRouterPush.mockReset()
     mockRouterReplace.mockReset()
+    useCommandPalette().close()
     window.localStorage.clear()
     mockRoute.name = 'workspace'
     mockRoute.params = {}
@@ -534,6 +550,62 @@ describe('Workspace', () => {
     expect(wrapper.find('[data-testid="tool-panel"]').exists()).toBe(true)
     expect(wrapper.get('[data-testid="tool-panel-mode"]').text()).toBe('overview')
     expect(wrapper.get('[data-testid="tool-panel-run-title"]').text()).toBe('Run #1')
+  })
+
+  it('opens the command palette from the global shortcut on non-editable targets', async () => {
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'k',
+        metaKey: true,
+        bubbles: true,
+      }),
+    )
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="command-palette"]').exists()).toBe(true)
+  })
+
+  it('ignores the global command palette shortcut inside editable targets', async () => {
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    const input = document.createElement('input')
+    document.body.appendChild(input)
+    input.focus()
+    input.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'k',
+        metaKey: true,
+        bubbles: true,
+      }),
+    )
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="command-palette"]').exists()).toBe(false)
+
+    input.remove()
+  })
+
+  it('navigates to the selected agent from the command palette', async () => {
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', {
+        key: 'k',
+        metaKey: true,
+        bubbles: true,
+      }),
+    )
+    await flushPromises()
+
+    await wrapper.get('[data-testid="command-palette-item-agent-agent-1"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="agent-editor"]').exists()).toBe(true)
   })
 
   it('hydrates child runs in the sidebar while resolving a parent canonical run route', async () => {

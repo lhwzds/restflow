@@ -121,7 +121,7 @@ test.describe('Settings Panel', () => {
     await openSettings(page)
 
     // Session list should NOT be visible
-    await expect(page.getByRole('button', { name: 'New Session' })).not.toBeVisible()
+    await expect(page.getByTestId('session-list-new-session')).not.toBeVisible()
 
     // Chat panel should NOT be visible
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).not.toBeVisible()

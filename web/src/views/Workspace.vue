@@ -22,6 +22,7 @@ import {
 import { Input } from '@/components/ui/input'
 import SessionList from '@/components/workspace/SessionList.vue'
 import AgentList from '@/components/workspace/AgentList.vue'
+import CommandPalette from '@/components/workspace/CommandPalette.vue'
 import AgentEditorPanel from '@/components/workspace/AgentEditorPanel.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
@@ -33,6 +34,7 @@ import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
 import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { confirmDelete, useConfirm } from '@/composables/useConfirm'
+import { useCommandPalette } from '@/composables/useCommandPalette'
 import { deleteAgent as deleteAgentApi, listAgents } from '@/api/agents'
 import {
   getExecutionRunThread,
@@ -60,6 +62,7 @@ import type { ExecutionThread } from '@/types/generated/ExecutionThread'
 const toast = useToast()
 const { t } = useI18n()
 const { confirm } = useConfirm()
+const commandPalette = useCommandPalette()
 const route = useRoute()
 const router = useRouter()
 const chatSessionStore = useChatSessionStore()
@@ -1233,6 +1236,27 @@ watch(convertDialogOpen, (open, previous) => {
   }
 })
 
+function handleGlobalKeydown(e: KeyboardEvent) {
+  const target = e.target instanceof HTMLElement ? e.target : null
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const effectiveTarget = target ?? activeElement
+  const isEditableTarget =
+    !!effectiveTarget &&
+    (effectiveTarget.isContentEditable ||
+      ['INPUT', 'TEXTAREA', 'SELECT'].includes(effectiveTarget.tagName) ||
+      !!effectiveTarget.closest('[contenteditable="true"]'))
+  const isDialogTarget = !!effectiveTarget?.closest('[role="dialog"], [data-slot="dialog-content"]')
+
+  if (e.defaultPrevented || e.isComposing || isEditableTarget || isDialogTarget) {
+    return
+  }
+
+  if (e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey)) {
+    e.preventDefault()
+    commandPalette.open()
+  }
+}
+
 onMounted(() => {
   const savedSidebarRatio = Number(window.localStorage.getItem(SIDEBAR_RATIO_STORAGE_KEY))
   if (Number.isFinite(savedSidebarRatio) && savedSidebarRatio > 0) {
@@ -1241,6 +1265,7 @@ onMounted(() => {
 
   window.addEventListener('mousemove', handleSidebarResizeMove)
   window.addEventListener('mouseup', stopSidebarResize)
+  window.addEventListener('keydown', handleGlobalKeydown)
   void loadAgents()
   void backgroundAgentStore.fetchAgents()
   void chatSessionStore.fetchSummaries()
@@ -1250,12 +1275,20 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener('mousemove', handleSidebarResizeMove)
   window.removeEventListener('mouseup', stopSidebarResize)
+  window.removeEventListener('keydown', handleGlobalKeydown)
   stopSidebarResize()
 })
 </script>
 
 <template>
   <div class="h-screen flex bg-background" data-testid="workspace-shell">
+    <CommandPalette
+      @navigate-container="onSelectContainer('workspace', $event)"
+      @navigate-agent="onSelectAgent"
+      @new-session="onNewSession"
+      @open-settings="showSettings = true"
+    />
+
     <SettingsPanel v-if="showSettings" class="flex-1" @back="showSettings = false" />
 
     <div v-show="!showSettings" ref="workspaceContentRef" class="flex flex-1 min-w-0" data-testid="workspace-content">

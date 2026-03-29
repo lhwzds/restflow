@@ -55,7 +55,7 @@ export async function goToWorkspace(page: Page) {
   })
   await page.goto('/workspace')
   await page.waitForLoadState('domcontentloaded')
-  await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible({
+  await expect(page.getByTestId('session-list-new-session')).toBeVisible({
     timeout: 15000,
   })
 }
@@ -77,7 +77,7 @@ export async function closeSettings(page: Page) {
   const backButton = page.getByRole('button', { name: 'Back to workspace' })
   await backButton.click()
   // Wait for session list to appear
-  await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
+  await expect(page.getByTestId('session-list-new-session')).toBeVisible()
 }
 
 export async function requestIpc<T>(page: Page, request: Record<string, unknown>): Promise<T> {
@@ -164,7 +164,7 @@ export function trackCreatedBackgroundTask(page: Page, taskId: string) {
 export async function createSessionForTest(page: Page): Promise<string> {
   await Promise.all([
     page.waitForURL(/\/workspace\/c\/[^/?#]+$/, { timeout: 15000 }),
-    page.getByRole('button', { name: 'New Session' }).click(),
+    page.getByTestId('session-list-new-session').click(),
   ])
 
   await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible({

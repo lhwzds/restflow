@@ -27,7 +27,7 @@ test.describe('Workspace Layout', () => {
 
   test('renders three-column layout', async ({ page }) => {
     // Left sidebar with session list
-    await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
+    await expect(page.getByTestId('session-list-new-session')).toBeVisible()
 
     // Center chat area with input
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible()
@@ -75,7 +75,7 @@ test.describe('Workspace Layout', () => {
   })
 
   test('New Session button is visible', async ({ page }) => {
-    const newSessionBtn = page.getByRole('button', { name: 'New Session' })
+    const newSessionBtn = page.getByTestId('session-list-new-session')
     await expect(newSessionBtn).toBeVisible()
   })
 
@@ -866,7 +866,7 @@ test.describe('Session List', () => {
   })
 
   test('shows session list state', async ({ page }) => {
-    await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible()
+    await expect(page.getByTestId('session-list-new-session')).toBeVisible()
     await expect
       .poll(async () => {
         const workspaceCount = await page.locator('[data-testid^="workspace-folder-"]').count()

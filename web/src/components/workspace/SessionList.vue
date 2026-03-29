@@ -301,7 +301,13 @@ function runTitleClass(run: FlattenedRunRow): string {
 <template>
   <div class="flex min-h-0 flex-col bg-muted/30">
     <div class="space-y-2 px-3 pb-3 pt-2">
-      <Button variant="outline" size="sm" class="w-full gap-2" @click="emit('newSession')">
+      <Button
+        variant="outline"
+        size="sm"
+        class="w-full gap-2"
+        data-testid="session-list-new-session"
+        @click="emit('newSession')"
+      >
         <Plus :size="16" />
         <span>{{ t('workspace.newSession') }}</span>
       </Button>
@@ -845,7 +851,13 @@ function runTitleClass(run: FlattenedRunRow): string {
         <MessageSquare :size="28" class="mx-auto mb-2 text-muted-foreground/40" />
         <p class="mb-1 text-sm font-medium text-muted-foreground">{{ t('workspace.noSessions') }}</p>
         <p class="mb-4 text-xs text-muted-foreground/70">Create a session to get started</p>
-        <Button variant="outline" size="sm" class="gap-1.5" @click="emit('newSession')">
+        <Button
+          variant="outline"
+          size="sm"
+          class="gap-1.5"
+          data-testid="session-empty-new-session"
+          @click="emit('newSession')"
+        >
           <Plus :size="13" />
           New Session
         </Button>
