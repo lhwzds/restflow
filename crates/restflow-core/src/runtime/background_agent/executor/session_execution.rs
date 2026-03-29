@@ -5,6 +5,20 @@ fn should_force_non_stream(model: ModelId) -> bool {
 }
 
 #[derive(Default)]
+struct TelemetryAttemptTracker {
+    previous_model: Option<ModelId>,
+    next_attempt: u32,
+}
+
+impl TelemetryAttemptTracker {
+    fn register_attempt(&mut self, model: ModelId) -> (u32, Option<ModelId>) {
+        let previous_model = self.previous_model.replace(model);
+        self.next_attempt = self.next_attempt.saturating_add(1);
+        (self.next_attempt, previous_model)
+    }
+}
+
+#[derive(Default)]
 pub struct SessionTurnRuntimeOptions {
     pub steer_rx: Option<mpsc::Receiver<SteerMessage>>,
     pub telemetry_context: Option<restflow_telemetry::TelemetryContext>,
@@ -722,21 +736,18 @@ impl AgentRuntimeExecutor {
             .with_requested_model(primary_model.as_serialized_str())
             .with_effective_model(primary_model.as_serialized_str())
             .with_provider(primary_provider.as_canonical_str());
+        let mut attempt_tracker = TelemetryAttemptTracker::default();
 
         loop {
             let node = agent_node.clone();
             let session_for_execution = session_snapshot.clone();
-            let mut previous_attempt_model: Option<ModelId> = None;
-            let mut attempt_number: u32 = 0;
             let telemetry_sink = telemetry_sink.clone();
             let base_telemetry_context = base_telemetry_context.clone();
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = node.clone();
                 let session_for_execution = session_for_execution.clone();
                 let agent_id = agent_id.clone();
-                let previous_model = previous_attempt_model.replace(model);
-                attempt_number = attempt_number.saturating_add(1);
-                let current_attempt = attempt_number;
+                let (current_attempt, previous_model) = attempt_tracker.register_attempt(model);
                 let emitter = clone_shared_emitter(&shared_emitter);
                 let steer_rx = steer_rx.take();
                 let telemetry_sink = telemetry_sink.clone();
@@ -831,5 +842,21 @@ mod tests {
                 .expect("telemetry context");
 
         assert_eq!(normalized.trace.actor_id, "agent-fallback");
+    }
+
+    #[test]
+    fn telemetry_attempt_tracker_keeps_count_monotonic_across_retries() {
+        let mut tracker = TelemetryAttemptTracker::default();
+
+        let (attempt_one, previous_one) = tracker.register_attempt(ModelId::Gpt5);
+        let (attempt_two, previous_two) = tracker.register_attempt(ModelId::ClaudeCodeSonnet);
+        let (attempt_three, previous_three) = tracker.register_attempt(ModelId::Gpt5Mini);
+
+        assert_eq!(attempt_one, 1);
+        assert!(previous_one.is_none());
+        assert_eq!(attempt_two, 2);
+        assert_eq!(previous_two, Some(ModelId::Gpt5));
+        assert_eq!(attempt_three, 3);
+        assert_eq!(previous_three, Some(ModelId::ClaudeCodeSonnet));
     }
 }
