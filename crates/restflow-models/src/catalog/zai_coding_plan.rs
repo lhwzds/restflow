@@ -2,6 +2,14 @@ use super::{ModelDescriptor, ProviderCatalog};
 use crate::{ModelId, Provider};
 
 const ZAI_CODING_BASE_URL: &str = "https://api.z.ai/api/coding/paas/v4";
+const GLM5_1_ALIASES: &[&str] = &[
+    "glm5.1",
+    "glm-5.1",
+    "glm5.1 coding plan",
+    "glm-5.1 coding plan",
+    "zai-coding-plan-glm5.1",
+    "zai-coding-plan-glm-5.1",
+];
 const GLM5_ALIASES: &[&str] = &[
     "glm5",
     "glm5 coding plan",
@@ -28,6 +36,17 @@ const GLM5_CODE_ALIASES: &[&str] = &[
 const GLM47_ALIASES: &[&str] = &["glm-4.7", "zai-coding-plan-glm-4-7"];
 
 pub const MODELS: &[ModelDescriptor] = &[
+    ModelDescriptor::new(
+        ModelId::Glm5_1CodingPlan,
+        Provider::ZaiCodingPlan,
+        "glm-5.1",
+        "GLM-5.1 (Coding Plan)",
+        true,
+    )
+    .with_aliases(GLM5_1_ALIASES)
+    .with_base_url_override(ZAI_CODING_BASE_URL)
+    .with_canonical_family("glm-5-1")
+    .with_same_provider_fallback(ModelId::Glm5CodingPlan),
     ModelDescriptor::new(
         ModelId::Glm5CodingPlan,
         Provider::ZaiCodingPlan,
@@ -78,4 +97,4 @@ pub const MODELS: &[ModelDescriptor] = &[
 ];
 
 pub const CATALOG: ProviderCatalog =
-    ProviderCatalog::new(Provider::ZaiCodingPlan, ModelId::Glm5CodingPlan, MODELS);
+    ProviderCatalog::new(Provider::ZaiCodingPlan, ModelId::Glm5_1CodingPlan, MODELS);
