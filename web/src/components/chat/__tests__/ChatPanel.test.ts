@@ -29,11 +29,26 @@ type SessionLike = {
   metadata: Record<string, unknown>
 }
 
+type MockStreamState = {
+  messageId: string | null
+  content: string
+  thinking: string
+  steps: any[]
+  isStreaming: boolean
+  error: string | null
+  tokenCount: number
+  inputTokens: number
+  outputTokens: number
+  startedAt: number | null
+  completedAt: number | null
+  acknowledgement: string
+}
+
 const mockCurrentSession = ref<SessionLike | null>(null)
 const mockMessages = ref<any[]>([])
 const mockIsSending = ref(false)
 
-const mockStreamState = ref({
+const mockStreamState = ref<MockStreamState>({
   messageId: null as string | null,
   content: '',
   thinking: '',
@@ -43,6 +58,9 @@ const mockStreamState = ref({
   tokenCount: 0,
   inputTokens: 0,
   outputTokens: 0,
+  startedAt: null,
+  completedAt: null,
+  acknowledgement: '',
 })
 const mockIsStreaming = ref(false)
 const mockTokensPerSecond = ref(0)
@@ -71,6 +89,7 @@ const mockGetExecutionRunThread = vi.fn()
 const mockListExecutionContainers = vi.fn()
 const mockListExecutionSessions = vi.fn()
 let lastMessageListProps: Record<string, unknown> | null = null
+let lastExecutionStatusBarProps: Record<string, unknown> | null = null
 
 vi.mock('vue-i18n', () => ({
   useI18n: () => ({
@@ -125,6 +144,41 @@ vi.mock('@/components/chat/MessageList.vue', () => ({
           steps: props.steps,
         }
         return h('div', { 'data-testid': 'message-list' })
+      }
+    },
+  }),
+}))
+
+vi.mock('@/components/chat/ExecutionStatusBar.vue', () => ({
+  default: defineComponent({
+    name: 'ExecutionStatusBar',
+    props: {
+      isActive: {
+        type: Boolean,
+        default: false,
+      },
+      startedAt: {
+        type: Number,
+        default: null,
+      },
+      steps: {
+        type: Array,
+        default: () => [],
+      },
+      fallbackLabel: {
+        type: String,
+        default: null,
+      },
+    },
+    setup(props) {
+      return () => {
+        lastExecutionStatusBarProps = {
+          isActive: props.isActive,
+          startedAt: props.startedAt,
+          steps: props.steps,
+          fallbackLabel: props.fallbackLabel,
+        }
+        return h('div', { 'data-testid': 'execution-status-bar' })
       }
     },
   }),
@@ -271,6 +325,7 @@ describe('ChatPanel', () => {
     vi.clearAllMocks()
     chatBoxMountCount = 0
     lastMessageListProps = null
+    lastExecutionStatusBarProps = null
 
     mockCurrentSession.value = createSession('gpt-4')
     mockMessages.value = []
@@ -286,6 +341,9 @@ describe('ChatPanel', () => {
       tokenCount: 0,
       inputTokens: 0,
       outputTokens: 0,
+      startedAt: null,
+      completedAt: null,
+      acknowledgement: '',
     }
     mockIsStreaming.value = false
     mockTokensPerSecond.value = 0
@@ -492,6 +550,18 @@ describe('ChatPanel', () => {
     expect(mockSteerChatStream).toHaveBeenCalledWith('session-1', 'follow-up')
     expect(mockSendChatMessageApi).not.toHaveBeenCalled()
     expect(mockSendStream).toHaveBeenCalledWith('follow-up')
+  })
+
+  it('shows the execution status bar during the pre-stream sending phase', async () => {
+    mockIsSending.value = true
+
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="execution-status-bar"]').exists()).toBe(true)
+    expect(lastExecutionStatusBarProps?.isActive).toBe(true)
+    expect(lastExecutionStatusBarProps?.fallbackLabel).toBe('Preparing run...')
+    expect(typeof lastExecutionStatusBarProps?.startedAt).toBe('number')
   })
 
   it('sends normalized voice content without transcribe instruction', async () => {
