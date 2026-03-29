@@ -1,5 +1,6 @@
 use super::*;
 use async_trait::async_trait;
+use restflow_telemetry::RunAttemptTracker;
 
 fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
@@ -198,7 +199,7 @@ impl AgentRuntimeExecutor {
             .with_telemetry_sink(crate::telemetry::build_core_telemetry_sink(
                 self.storage.as_ref(),
             ))
-            .with_telemetry_context(telemetry_context);
+            .with_telemetry_context(telemetry_context.clone());
         if let Some(task) = background_task_snapshot.as_ref() {
             let checkpoint_durability = match task.durability_mode {
                 DurabilityMode::Sync => CheckpointDurability::PerTurn,
@@ -208,9 +209,11 @@ impl AgentRuntimeExecutor {
             config = config.with_checkpoint_durability(checkpoint_durability);
 
             let checkpoints = self.storage.background_agents.clone();
+            let run_id = telemetry_context.trace.run_id.clone();
             let task_id_owned = task.id.clone();
             config = config.with_checkpoint_callback(move |state| {
                 let checkpoints = checkpoints.clone();
+                let run_id = run_id.clone();
                 let task_id = task_id_owned.clone();
                 let state = state.clone();
                 async move {
@@ -237,6 +240,13 @@ impl AgentRuntimeExecutor {
                         .map_err(|e| {
                             AiError::Agent(format!(
                                 "Failed to persist checkpoint with savepoint id: {e}"
+                            ))
+                        })?;
+                    checkpoints
+                        .set_task_run_checkpoint(&run_id, Some(checkpoint.id.clone()))
+                        .map_err(|e| {
+                            AiError::Agent(format!(
+                                "Failed to update background run checkpoint: {e}"
                             ))
                         })?;
                     Ok(())
@@ -727,25 +737,26 @@ impl AgentRuntimeExecutor {
             .with_requested_model(primary_model.as_serialized_str())
             .with_effective_model(primary_model.as_serialized_str())
             .with_provider(primary_provider.as_canonical_str());
+        let mut attempt_tracker = RunAttemptTracker::default();
 
         loop {
             let input_ref = input_owned.as_deref();
             let agent_node_clone = agent_node.clone();
             // Note: steer_rx is consumed on first execution attempt only.
             // Retries after this point won't have steering support.
-            let mut previous_attempt_model: Option<ModelId> = None;
             let telemetry_sink = telemetry_sink.clone();
             let base_telemetry_context = base_telemetry_context.clone();
             let result = execute_with_failover(&failover_manager, |model| {
                 let node = agent_node_clone.clone();
                 let steer_rx = steer_rx.take();
-                let previous_model = previous_attempt_model.replace(model);
+                let (current_attempt, previous_model) = attempt_tracker.register_attempt(model);
                 let emitter = clone_shared_emitter(&shared_emitter);
                 let limits = resolved_resource_limits.clone();
                 let telemetry_sink = telemetry_sink.clone();
                 let telemetry_context = base_telemetry_context
                     .clone()
-                    .with_effective_model(model.as_serialized_str());
+                    .with_effective_model(model.as_serialized_str())
+                    .with_attempt(current_attempt);
                 async move {
                     if let Some(previous_model) = previous_model
                         && previous_model != model

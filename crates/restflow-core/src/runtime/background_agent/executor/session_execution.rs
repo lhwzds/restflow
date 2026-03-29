@@ -1,21 +1,8 @@
 use super::*;
+use restflow_telemetry::RunAttemptTracker;
 
 fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
-}
-
-#[derive(Default)]
-struct TelemetryAttemptTracker {
-    previous_model: Option<ModelId>,
-    next_attempt: u32,
-}
-
-impl TelemetryAttemptTracker {
-    fn register_attempt(&mut self, model: ModelId) -> (u32, Option<ModelId>) {
-        let previous_model = self.previous_model.replace(model);
-        self.next_attempt = self.next_attempt.saturating_add(1);
-        (self.next_attempt, previous_model)
-    }
 }
 
 #[derive(Default)]
@@ -736,7 +723,7 @@ impl AgentRuntimeExecutor {
             .with_requested_model(primary_model.as_serialized_str())
             .with_effective_model(primary_model.as_serialized_str())
             .with_provider(primary_provider.as_canonical_str());
-        let mut attempt_tracker = TelemetryAttemptTracker::default();
+        let mut attempt_tracker = RunAttemptTracker::default();
 
         loop {
             let node = agent_node.clone();
@@ -846,7 +833,7 @@ mod tests {
 
     #[test]
     fn telemetry_attempt_tracker_keeps_count_monotonic_across_retries() {
-        let mut tracker = TelemetryAttemptTracker::default();
+        let mut tracker = RunAttemptTracker::default();
 
         let (attempt_one, previous_one) = tracker.register_attempt(ModelId::Gpt5);
         let (attempt_two, previous_two) = tracker.register_attempt(ModelId::ClaudeCodeSonnet);

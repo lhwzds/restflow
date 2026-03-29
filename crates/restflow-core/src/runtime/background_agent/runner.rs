@@ -19,13 +19,9 @@ use crate::performance::{
 use crate::runtime::output::{ensure_success_output, format_error_output};
 use crate::steer::SteerRegistry;
 use crate::storage::{BackgroundAgentStorage, MemoryStorage};
-use crate::telemetry::{
-    build_execution_trace_sink, emit_run_completed, emit_run_failed, emit_run_interrupted,
-    emit_run_started,
-};
 use anyhow::{Result, anyhow};
 use restflow_ai::agent::StreamEmitter;
-use restflow_telemetry::RestflowTrace;
+use restflow_telemetry::{RunDescriptor, RunKind, RunLifecycleService};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -46,8 +42,10 @@ use super::heartbeat::{
     RunnerStatusEvent,
 };
 use super::outcome::ExecutionOutcome;
+use finalizer::BackgroundRunFinalizer;
 mod notification;
 mod persistence;
+mod finalizer;
 
 #[cfg(test)]
 mod tests;
@@ -449,6 +447,7 @@ pub struct BackgroundAgentRunner {
     stop_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
     pending_stop_receivers: Arc<RwLock<HashMap<String, oneshot::Receiver<()>>>>,
     resume_states: Arc<RwLock<HashMap<String, restflow_ai::AgentState>>>,
+    resume_checkpoint_ids: Arc<RwLock<HashMap<String, String>>>,
     task_queue: Arc<TaskQueue>,
     heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
     event_emitter: Arc<dyn TaskEventEmitter>,
@@ -487,6 +486,7 @@ impl BackgroundAgentRunner {
             stop_senders: Arc::new(RwLock::new(HashMap::new())),
             pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
             resume_states: Arc::new(RwLock::new(HashMap::new())),
+            resume_checkpoint_ids: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter: Arc::new(NoopHeartbeatEmitter),
             event_emitter: Arc::new(NoopEventEmitter),
@@ -523,6 +523,7 @@ impl BackgroundAgentRunner {
             stop_senders: Arc::new(RwLock::new(HashMap::new())),
             pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
             resume_states: Arc::new(RwLock::new(HashMap::new())),
+            resume_checkpoint_ids: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter,
             event_emitter: Arc::new(NoopEventEmitter),
@@ -563,6 +564,7 @@ impl BackgroundAgentRunner {
             stop_senders: Arc::new(RwLock::new(HashMap::new())),
             pending_stop_receivers: Arc::new(RwLock::new(HashMap::new())),
             resume_states: Arc::new(RwLock::new(HashMap::new())),
+            resume_checkpoint_ids: Arc::new(RwLock::new(HashMap::new())),
             task_queue,
             heartbeat_emitter,
             event_emitter: Arc::new(NoopEventEmitter),
@@ -786,6 +788,43 @@ impl BackgroundAgentRunner {
     /// This assumes a single active daemon per workspace/database. If multiple
     /// daemons operate on the same storage, this recovery strategy is unsafe.
     fn recover_stale_running_tasks(&self) {
+        let now = chrono::Utc::now().timestamp_millis();
+        let mut recovered_task_ids = HashSet::new();
+
+        match self.storage.list_active_task_runs() {
+            Ok(runs) => {
+                for run in runs {
+                    match self.storage.interrupt_task_run(
+                        &run.run_id,
+                        now,
+                        "Recovered after daemon restart",
+                    ) {
+                        Ok(_) => {
+                            recovered_task_ids.insert(run.task_id.clone());
+                            if let Ok(Some(task)) = self.storage.get_task(&run.task_id)
+                                && task.status == BackgroundAgentStatus::Running
+                                && let Err(err) = self.storage.resume_task(&task.id)
+                            {
+                                error!(
+                                    "Failed to recover stale Running task '{}' after run recovery: {}",
+                                    task.name, err
+                                );
+                            }
+                        }
+                        Err(err) => {
+                            error!(
+                                "Failed to recover stale background run '{}' for task '{}': {}",
+                                run.run_id, run.task_id, err
+                            );
+                        }
+                    }
+                }
+            }
+            Err(err) => {
+                error!("Failed to list background task runs for startup recovery: {}", err);
+            }
+        }
+
         let tasks = match self.storage.list_tasks() {
             Ok(t) => t,
             Err(e) => {
@@ -797,6 +836,10 @@ impl BackgroundAgentRunner {
         let mut recovered = 0;
         for task in tasks {
             if task.status == BackgroundAgentStatus::Running {
+                if recovered_task_ids.contains(&task.id) {
+                    recovered += 1;
+                    continue;
+                }
                 match self.storage.resume_task(&task.id) {
                     Ok(_) => {
                         info!(
@@ -897,6 +940,48 @@ impl BackgroundAgentRunner {
         let threshold_ms = timeout_secs.saturating_mul(1_000) as i64;
         let recover_before = current_time.saturating_sub(threshold_ms);
         let tracked_running = self.running_tasks.read().await.clone();
+        let mut recovered_task_ids = HashSet::new();
+
+        match self.storage.list_active_task_runs() {
+            Ok(runs) => {
+                for run in runs {
+                    if tracked_running.contains(&run.task_id) {
+                        continue;
+                    }
+                    if run.updated_at > recover_before {
+                        continue;
+                    }
+
+                    match self.storage.interrupt_task_run(
+                        &run.run_id,
+                        current_time,
+                        "Recovered stalled background execution",
+                    ) {
+                        Ok(_) => {
+                            recovered_task_ids.insert(run.task_id.clone());
+                            if let Ok(Some(task)) = self.storage.get_task(&run.task_id)
+                                && task.status == BackgroundAgentStatus::Running
+                                && let Err(error) = self.storage.resume_task(&task.id)
+                            {
+                                warn!(
+                                    "Failed to recover stalled Running task '{}' after run recovery: {}",
+                                    task.name, error
+                                );
+                            }
+                        }
+                        Err(error) => {
+                            warn!(
+                                "Failed to recover stalled background run '{}' for task '{}': {}",
+                                run.run_id, run.task_id, error
+                            );
+                        }
+                    }
+                }
+            }
+            Err(error) => {
+                warn!("Failed to list background task runs for stalled-task recovery: {}", error);
+            }
+        }
 
         let tasks = match self.storage.list_tasks() {
             Ok(tasks) => tasks,
@@ -909,6 +994,10 @@ impl BackgroundAgentRunner {
         let mut recovered = 0;
         for task in tasks {
             if task.status != BackgroundAgentStatus::Running {
+                continue;
+            }
+            if recovered_task_ids.contains(&task.id) {
+                recovered += 1;
                 continue;
             }
             if tracked_running.contains(&task.id) {
@@ -945,6 +1034,23 @@ impl BackgroundAgentRunner {
     /// Run a task immediately, bypassing schedule check
     async fn run_task_immediate(&self, task_id: &str) {
         let task_id_owned = task_id.to_string();
+        match self.storage.get_active_task_run(&task_id_owned) {
+            Ok(Some(run)) => {
+                warn!(
+                    "Cannot run task {} - active run {} is still recorded",
+                    task_id, run.run_id
+                );
+                return;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!(
+                    "Cannot verify active run state for task {}: {}",
+                    task_id, err
+                );
+                return;
+            }
+        }
         {
             let mut running_tasks = self.running_tasks.write().await;
             if running_tasks.contains(task_id) {
@@ -1047,20 +1153,47 @@ impl BackgroundAgentRunner {
     }
 
     async fn resume_from_checkpoint(&self, task_id: &str, payload: crate::models::ResumePayload) {
+        let checkpoint_id = payload.checkpoint_id.trim();
+        if checkpoint_id.is_empty() {
+            warn!("Cannot resume task {} with empty checkpoint_id", task_id);
+            return;
+        }
+
         // Load checkpoint from storage
-        let checkpoint = match self.storage.load_checkpoint_by_task_id(task_id) {
+        let checkpoint = match self.storage.load_checkpoint(checkpoint_id) {
             Ok(Some(cp)) => cp,
             Ok(None) => {
-                warn!("No checkpoint found for task {}", task_id);
+                warn!(
+                    "No checkpoint {} found for task {}",
+                    checkpoint_id, task_id
+                );
                 return;
             }
             Err(e) => {
-                error!("Failed to load checkpoint for task {}: {}", task_id, e);
+                error!(
+                    "Failed to load checkpoint {} for task {}: {}",
+                    checkpoint_id, task_id, e
+                );
                 return;
             }
         };
 
-        // Deserialize checkpointed agent state for real resume.
+        if checkpoint.task_id.as_deref() != Some(task_id) {
+            warn!(
+                "Checkpoint {} does not belong to task {}",
+                checkpoint_id, task_id
+            );
+            return;
+        }
+
+        if checkpoint.is_resumed() {
+            warn!(
+                "Checkpoint {} for task {} was already resumed",
+                checkpoint_id, task_id
+            );
+            return;
+        }
+
         let restored_state: Option<restflow_ai::AgentState> =
             match serde_json::from_slice(&checkpoint.state_json) {
                 Ok(state) => Some(state),
@@ -1073,7 +1206,6 @@ impl BackgroundAgentRunner {
                 }
             };
 
-        // Mark checkpoint as resumed
         let mut cp = checkpoint;
         cp.mark_resumed();
         if let Err(e) = self.storage.save_checkpoint(&cp) {
@@ -1141,6 +1273,10 @@ impl BackgroundAgentRunner {
                     .await
                     .insert(task_id.to_string(), state);
             }
+            self.resume_checkpoint_ids
+                .write()
+                .await
+                .insert(task_id.to_string(), cp.id.clone());
             self.run_task_immediate(task_id).await;
         }
     }
@@ -1315,18 +1451,68 @@ impl BackgroundAgentRunner {
             chrono::Utc::now().timestamp_millis(),
             uuid::Uuid::new_v4()
         );
-        let restflow_telemetry = RestflowTrace::new(
+        let execution_timeout_secs = match &task.execution_mode {
+            ExecutionMode::Api => task.timeout_secs.or(self.config.task_timeout_secs),
+            ExecutionMode::Cli(cli_config) => Some(cli_config.timeout_secs),
+        };
+        let execution_timeout_secs = if task.resource_limits.max_duration_secs > 0 {
+            match execution_timeout_secs {
+                Some(timeout_secs) => {
+                    Some(timeout_secs.min(task.resource_limits.max_duration_secs))
+                }
+                None => Some(task.resource_limits.max_duration_secs),
+            }
+        } else {
+            execution_timeout_secs
+        };
+        let (resume_state, resume_checkpoint_id) = {
+            let mut resume_states = self.resume_states.write().await;
+            let state = resume_states.remove(task_id);
+            drop(resume_states);
+            let mut resume_checkpoint_ids = self.resume_checkpoint_ids.write().await;
+            let checkpoint_id = resume_checkpoint_ids.remove(task_id);
+            (state, checkpoint_id)
+        };
+
+        let execution_trace_storage = self.execution_trace_storage();
+        let telemetry_sink = crate::telemetry::build_execution_trace_sink(execution_trace_storage);
+        let run_handle = RunLifecycleService::new(telemetry_sink).handle(RunDescriptor::new(
+            RunKind::BackgroundTask,
             run_id,
-            trace_session_id.clone(),
+            trace_session_id,
             task.id.clone(),
             task.agent_id.clone(),
-        );
-        let execution_trace_storage = self.execution_trace_storage();
-        let telemetry_sink = build_execution_trace_sink(execution_trace_storage);
-        emit_run_started(&telemetry_sink, restflow_telemetry.clone()).await;
-        let telemetry_context = Some(restflow_telemetry::TelemetryContext::new(
-            restflow_telemetry.clone(),
         ));
+        let execution_id = resume_state
+            .as_ref()
+            .map(|state| state.execution_id.clone())
+            .unwrap_or_else(|| run_handle.run_id().to_string());
+        if let Err(err) = self.storage.start_task_run(
+            &task.id,
+            run_handle.run_id().to_string(),
+            execution_id,
+            start_time,
+            resume_checkpoint_id,
+        ) {
+            pump_cancel.cancel();
+            if let Some(pump) = message_pump.take() {
+                let _ = pump.await;
+            }
+            self.cleanup_task_tracking(task_id).await;
+            return Err(anyhow!(
+                "Failed to create background task run for {}: {}",
+                task.id,
+                err
+            ));
+        }
+        run_handle.start().await;
+        let telemetry_context = Some(run_handle.cloned_context());
+        let finalizer = BackgroundRunFinalizer::new(
+            self,
+            task.clone(),
+            resolved_input.clone(),
+            run_handle.clone(),
+        );
 
         if resolved_input
             .as_deref()
@@ -1335,39 +1521,15 @@ impl BackgroundAgentRunner {
             let duration_ms = chrono::Utc::now().timestamp_millis() - start_time;
             let reason = "Background task requires non-empty input or input_template";
             let error_msg = format!("Execution error: {}", reason);
-            emit_run_failed(
-                &telemetry_sink,
-                restflow_telemetry.clone(),
-                &error_msg,
-                Some(duration_ms.max(0) as u64),
-            )
-            .await;
 
             error!("Task '{}' failed preflight: {}", task.name, reason);
             pump_cancel.cancel();
             if let Some(pump) = message_pump.take() {
                 let _ = pump.await;
             }
-
-            self.event_emitter
-                .emit(TaskStreamEvent::failed(
-                    task_id,
-                    &error_msg,
-                    duration_ms,
-                    false,
-                ))
+            finalizer
+                .finalize_failure(&error_msg, duration_ms, false)
                 .await;
-            self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
-                .await;
-
-            if let Err(e) =
-                self.storage
-                    .fail_task_execution(task_id, error_msg.clone(), duration_ms)
-            {
-                error!("Failed to record preflight task failure: {}", e);
-            }
-
-            self.send_notification(&task, false, &error_msg).await;
             self.clear_task_conversation_links(task_id).await;
             self.cleanup_task_tracking(task_id).await;
             return Ok(false);
@@ -1398,22 +1560,6 @@ impl BackgroundAgentRunner {
         } else {
             broadcast_emitter
         };
-
-        let execution_timeout_secs = match &task.execution_mode {
-            ExecutionMode::Api => task.timeout_secs.or(self.config.task_timeout_secs),
-            ExecutionMode::Cli(cli_config) => Some(cli_config.timeout_secs),
-        };
-        let execution_timeout_secs = if task.resource_limits.max_duration_secs > 0 {
-            match execution_timeout_secs {
-                Some(timeout_secs) => {
-                    Some(timeout_secs.min(task.resource_limits.max_duration_secs))
-                }
-                None => Some(task.resource_limits.max_duration_secs),
-            }
-        } else {
-            execution_timeout_secs
-        };
-        let resume_state = self.resume_states.write().await.remove(task_id);
 
         let exec_future = async {
             match &task.execution_mode {
@@ -1543,30 +1689,13 @@ impl BackgroundAgentRunner {
                     "Task '{}' stopped by user (duration={}ms)",
                     task.name, duration_ms
                 );
-                emit_run_interrupted(
-                    &telemetry_sink,
-                    restflow_telemetry.clone(),
-                    "Stopped by user",
-                    Some(duration_ms.max(0) as u64),
-                )
-                .await;
                 pump_cancel.cancel();
                 if let Some(pump) = message_pump.take() {
                     let _ = pump.await;
                 }
-                self.event_emitter
-                    .emit(TaskStreamEvent::interrupted(
-                        task_id,
-                        "Stopped by user",
-                        duration_ms,
-                    ))
+                finalizer
+                    .finalize_interrupted("Stopped by user", duration_ms)
                     .await;
-                self.fire_hooks(&HookContext::from_interrupted(
-                    &task,
-                    "Stopped by user",
-                    duration_ms,
-                ))
-                .await;
                 if let Err(e) = self
                     .storage
                     .control_background_agent(task_id, crate::models::BackgroundAgentControlAction::Stop)
@@ -1613,26 +1742,9 @@ impl BackgroundAgentRunner {
                             "Task '{}' interrupted by pause request (duration={}ms)",
                             task.name, duration_ms
                         );
-                        emit_run_interrupted(
-                            &telemetry_sink,
-                            restflow_telemetry.clone(),
-                            "Paused by user",
-                            Some(duration_ms.max(0) as u64),
-                        )
-                        .await;
-                        self.event_emitter
-                            .emit(TaskStreamEvent::interrupted(
-                                task_id,
-                                "Paused by user",
-                                duration_ms,
-                            ))
+                        finalizer
+                            .finalize_interrupted("Paused by user", duration_ms)
                             .await;
-                        self.fire_hooks(&HookContext::from_interrupted(
-                            &task,
-                            "Paused by user",
-                            duration_ms,
-                        ))
-                        .await;
                         if let Err(e) = self.storage.pause_task(task_id) {
                             error!("Failed to keep task {} paused: {}", task_id, e);
                         }
@@ -1642,26 +1754,9 @@ impl BackgroundAgentRunner {
                             "Task '{}' stopped by user request (duration={}ms)",
                             task.name, duration_ms
                         );
-                        emit_run_interrupted(
-                            &telemetry_sink,
-                            restflow_telemetry.clone(),
-                            "Stopped by user",
-                            Some(duration_ms.max(0) as u64),
-                        )
-                        .await;
-                        self.event_emitter
-                            .emit(TaskStreamEvent::interrupted(
-                                task_id,
-                                "Stopped by user",
-                                duration_ms,
-                            ))
+                        finalizer
+                            .finalize_interrupted("Stopped by user", duration_ms)
                             .await;
-                        self.fire_hooks(&HookContext::from_interrupted(
-                            &task,
-                            "Stopped by user",
-                            duration_ms,
-                        ))
-                        .await;
                         if let Err(e) = self
                             .storage
                             .control_background_agent(task_id, crate::models::BackgroundAgentControlAction::Stop)
@@ -1674,26 +1769,9 @@ impl BackgroundAgentRunner {
                             "Task '{}' stopped because task record was deleted (duration={}ms)",
                             task.name, duration_ms
                         );
-                        emit_run_interrupted(
-                            &telemetry_sink,
-                            restflow_telemetry.clone(),
-                            "Task deleted",
-                            Some(duration_ms.max(0) as u64),
-                        )
-                        .await;
-                        self.event_emitter
-                            .emit(TaskStreamEvent::interrupted(
-                                task_id,
-                                "Task deleted",
-                                duration_ms,
-                            ))
+                        finalizer
+                            .finalize_interrupted("Task deleted", duration_ms)
                             .await;
-                        self.fire_hooks(&HookContext::from_interrupted(
-                            &task,
-                            "Task deleted",
-                            duration_ms,
-                        ))
-                        .await;
                     }
                 }
                 self.cleanup_task_tracking(task_id).await;
@@ -1718,123 +1796,15 @@ impl BackgroundAgentRunner {
                     "Task '{}' completed successfully (duration={}ms)",
                     task.name, duration_ms
                 );
-                emit_run_completed(
-                    &telemetry_sink,
-                    restflow_telemetry.clone(),
-                    Some(duration_ms.max(0) as u64),
-                )
-                .await;
-
-                self.event_emitter
-                    .emit(TaskStreamEvent::completed(
-                        task_id,
-                        &exec_result.output,
-                        duration_ms,
-                    ))
-                    .await;
-                self.fire_hooks(&HookContext::from_completed(
-                    &task,
-                    &exec_result.output,
-                    duration_ms,
-                ))
-                .await;
-
-                if let Err(e) = self.storage.complete_task_execution(
-                    task_id,
-                    Some(exec_result.output.clone()),
-                    duration_ms,
-                ) {
-                    error!("Failed to record task completion: {}", e);
-                }
-
-                // Persist input/output to the bound chat session
-                self.persist_to_chat_session(
-                    &task,
-                    resolved_input.as_deref(),
-                    &exec_result.output,
-                    false,
-                    duration_ms,
-                );
-
-                if let Some(compaction) = exec_result.metrics.compaction.as_ref() {
-                    let compaction_message = format!(
-                        "Compacted {} messages ({} -> {} tokens) across {} event(s)",
-                        compaction.messages_compacted,
-                        compaction.tokens_before,
-                        compaction.tokens_after,
-                        compaction.event_count
-                    );
-                    let event = crate::models::BackgroundAgentEvent::new(
-                        task.id.clone(),
-                        crate::models::BackgroundAgentEventType::Compaction,
-                    )
-                    .with_message(compaction_message.clone());
-                    if let Err(err) = self.storage.add_event(&event) {
-                        warn!(
-                            "Failed to record compaction event for '{}': {}",
-                            task.id, err
-                        );
-                    }
-                    self.event_emitter
-                        .emit(TaskStreamEvent::progress(
-                            &task.id,
-                            "compaction",
-                            None,
-                            Some(compaction_message),
-                        ))
-                        .await;
-                }
-
-                // Persist conversation to long-term memory if enabled
-                if task.memory.persist_on_complete {
-                    self.persist_memory(&task, &exec_result.messages);
-                }
-
-                // Send notification if configured
-                self.send_notification(&task, true, &exec_result.output)
-                    .await;
+                finalizer.finalize_success(&exec_result, duration_ms).await;
             }
             Ok(Err(e)) => {
                 // Execution error
                 let error_msg = format!("Execution error: {}", e);
                 error!("Task '{}' failed: {}", task.name, error_msg);
-                emit_run_failed(
-                    &telemetry_sink,
-                    restflow_telemetry.clone(),
-                    &error_msg,
-                    Some(duration_ms.max(0) as u64),
-                )
-                .await;
-
-                self.event_emitter
-                    .emit(TaskStreamEvent::failed(
-                        task_id,
-                        &error_msg,
-                        duration_ms,
-                        false,
-                    ))
+                finalizer
+                    .finalize_failure(&error_msg, duration_ms, true)
                     .await;
-                self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
-                    .await;
-
-                if let Err(e) =
-                    self.storage
-                        .fail_task_execution(task_id, error_msg.clone(), duration_ms)
-                {
-                    error!("Failed to record task failure: {}", e);
-                }
-
-                // Persist error to the bound chat session
-                self.persist_to_chat_session(
-                    &task,
-                    resolved_input.as_deref(),
-                    &error_msg,
-                    true,
-                    duration_ms,
-                );
-
-                // Send failure notification
-                self.send_notification(&task, false, &error_msg).await;
             }
             Err(_) => {
                 // Timeout
@@ -1845,38 +1815,9 @@ impl BackgroundAgentRunner {
                     "Task timed out".to_string()
                 };
                 error!("Task '{}' timed out", task.name);
-                emit_run_failed(
-                    &telemetry_sink,
-                    restflow_telemetry.clone(),
-                    &error_msg,
-                    Some(duration_ms.max(0) as u64),
-                )
-                .await;
-
-                self.event_emitter
-                    .emit(TaskStreamEvent::timeout(task_id, timeout_secs, duration_ms))
+                finalizer
+                    .finalize_timeout(&error_msg, timeout_secs, duration_ms)
                     .await;
-                self.fire_hooks(&HookContext::from_failed(&task, &error_msg, duration_ms))
-                    .await;
-
-                if let Err(e) =
-                    self.storage
-                        .fail_task_execution(task_id, error_msg.clone(), duration_ms)
-                {
-                    error!("Failed to record task timeout: {}", e);
-                }
-
-                // Persist timeout error to the bound chat session
-                self.persist_to_chat_session(
-                    &task,
-                    resolved_input.as_deref(),
-                    &error_msg,
-                    true,
-                    duration_ms,
-                );
-
-                // Send timeout notification
-                self.send_notification(&task, false, &error_msg).await;
             }
         }
 

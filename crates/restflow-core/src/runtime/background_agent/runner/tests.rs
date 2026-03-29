@@ -379,6 +379,9 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
     task.status = BackgroundAgentStatus::Running;
     task.updated_at = past_time;
     storage.update_task(&task).unwrap();
+    storage
+        .start_task_run(&task.id, "run-stalled", "exec-stalled", past_time, None)
+        .unwrap();
 
     let runner = BackgroundAgentRunner::new(
         storage.clone(),
@@ -395,6 +398,16 @@ async fn test_recover_stalled_running_tasks_resets_untracked_tasks() {
 
     let recovered_task = storage.get_task(&task.id).unwrap().unwrap();
     assert_eq!(recovered_task.status, BackgroundAgentStatus::Active);
+
+    let run = storage.get_task_run("run-stalled").unwrap().unwrap();
+    assert_eq!(
+        run.status,
+        crate::models::BackgroundAgentRunStatus::Interrupted
+    );
+    assert_eq!(
+        run.error.as_deref(),
+        Some("Recovered stalled background execution")
+    );
 }
 
 #[tokio::test]
@@ -1208,6 +1221,125 @@ async fn test_resume_from_checkpoint_approved_uses_restored_state() {
     let updated_task = storage.get_task(&task.id).unwrap().unwrap();
     assert_eq!(updated_task.success_count, 1);
     assert_eq!(executor.resume_call_count(), 1);
+}
+
+#[tokio::test]
+async fn test_resume_from_checkpoint_rejects_mismatched_checkpoint_id() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = Arc::new(MockExecutor::new());
+
+    let runner = BackgroundAgentRunner::new(
+        storage.clone(),
+        executor.clone(),
+        Arc::new(NoopNotificationSender),
+        RunnerConfig::default(),
+        Arc::new(SteerRegistry::new()),
+    );
+
+    let mut task = storage
+        .create_task(
+            "Checkpoint Mismatch".to_string(),
+            "agent-001".to_string(),
+            TaskSchedule::default(),
+        )
+        .unwrap();
+    task.input = Some("Checkpoint task input".to_string());
+    storage.update_task(&task).unwrap();
+
+    let other_checkpoint = AgentCheckpoint::new(
+        "exec-other".to_string(),
+        Some("another-task".to_string()),
+        1,
+        0,
+        b"{}".to_vec(),
+        "approval required".to_string(),
+    );
+    let other_checkpoint_id = other_checkpoint.id.clone();
+    storage.save_checkpoint(&other_checkpoint).unwrap();
+
+    runner
+        .resume_from_checkpoint(
+            &task.id,
+            ResumePayload {
+                checkpoint_id: other_checkpoint_id.clone(),
+                approved: true,
+                user_message: None,
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let updated_task = storage.get_task(&task.id).unwrap().unwrap();
+    assert_eq!(updated_task.status, BackgroundAgentStatus::Active);
+    assert_eq!(executor.resume_call_count(), 0);
+
+    let checkpoint = storage.load_checkpoint(&other_checkpoint_id).unwrap().unwrap();
+    assert!(checkpoint.resumed_at.is_none());
+}
+
+#[tokio::test]
+async fn test_resume_from_checkpoint_records_run_checkpoint_binding() {
+    let (storage, _temp_dir) = create_test_storage();
+    let executor = Arc::new(MockExecutor::new());
+
+    let runner = Arc::new(BackgroundAgentRunner::new(
+        storage.clone(),
+        executor.clone(),
+        Arc::new(NoopNotificationSender),
+        RunnerConfig::default(),
+        Arc::new(SteerRegistry::new()),
+    ));
+
+    let mut task = storage
+        .create_task(
+            "Checkpoint Binding".to_string(),
+            "agent-001".to_string(),
+            TaskSchedule::default(),
+        )
+        .unwrap();
+    task.input = Some("Checkpoint task input".to_string());
+    storage.update_task(&task).unwrap();
+
+    let mut state = restflow_ai::AgentState::new("resume-exec-bind".to_string(), 10);
+    state.iteration = 1;
+    state.add_message(restflow_ai::Message::user("resume me"));
+
+    let checkpoint = AgentCheckpoint::new(
+        state.execution_id.clone(),
+        Some(task.id.clone()),
+        state.version,
+        state.iteration,
+        serde_json::to_vec(&state).unwrap(),
+        "resume binding".to_string(),
+    );
+    let checkpoint_id = checkpoint.id.clone();
+    storage.save_checkpoint(&checkpoint).unwrap();
+
+    let handle = runner.clone().start();
+    runner
+        .resume_from_checkpoint(
+            &task.id,
+            ResumePayload {
+                checkpoint_id: checkpoint_id.clone(),
+                approved: true,
+                user_message: None,
+                metadata: serde_json::json!({}),
+            },
+        )
+        .await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    handle.stop().await.unwrap();
+
+    let runs = storage.list_task_runs(&task.id).unwrap();
+    assert_eq!(runs.len(), 1);
+    let run = &runs[0];
+    assert_eq!(run.execution_id, "resume-exec-bind");
+    assert_eq!(run.checkpoint_id.as_deref(), Some(checkpoint_id.as_str()));
+    assert_eq!(
+        run.status,
+        crate::models::BackgroundAgentRunStatus::Completed
+    );
 }
 
 #[tokio::test]
