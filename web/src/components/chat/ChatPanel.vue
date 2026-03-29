@@ -12,6 +12,7 @@ import { useI18n } from 'vue-i18n'
 import { Play, Pause, RotateCcw, XCircle, Activity, ChevronRight, GitBranch } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import MessageList from './MessageList.vue'
+import ExecutionStatusBar from './ExecutionStatusBar.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
 import AgentStatusBadge from '@/components/background-agent/AgentStatusBadge.vue'
 import { useChatSession } from '@/composables/workspace/useChatSession'
@@ -118,6 +119,16 @@ const isExecuting = computed(() => isSending.value || isStreaming.value)
 const streamContent = computed(() => chatStream.state.value.content)
 const streamThinking = computed(() => chatStream.state.value.thinking)
 const streamSteps = computed(() => chatStream.state.value.steps)
+const executionStartedAt = ref<number | null>(null)
+const executionStatusLabel = computed(() => {
+  if (streamThinking.value.trim()) {
+    return 'Thinking...'
+  }
+  if (isExecuting.value && !isStreaming.value) {
+    return 'Preparing run...'
+  }
+  return null
+})
 const threadItems = computed<ThreadItem[]>(() =>
   buildSessionThreadItems({
     thread: executionThread.value,
@@ -483,6 +494,20 @@ watch(isStreaming, (streaming, prevStreaming) => {
     void syncSessionFromBackend()
   }
 })
+
+watch(
+  isExecuting,
+  (executing, previousExecuting) => {
+    if (executing && !previousExecuting) {
+      executionStartedAt.value = Date.now()
+      return
+    }
+    if (!executing) {
+      executionStartedAt.value = null
+    }
+  },
+  { immediate: true },
+)
 
 async function sendMessageWithStream(message: string) {
   chatStream.reset()
@@ -885,6 +910,15 @@ defineExpose({
         · {{ currentRunAgentName }}
       </span>
     </div>
+
+    <!-- Execution status bar -->
+    <ExecutionStatusBar
+      v-if="isExecuting"
+      :is-active="isExecuting"
+      :started-at="executionStartedAt"
+      :steps="streamSteps"
+      :fallback-label="executionStatusLabel"
+    />
 
     <!-- Message List -->
     <MessageList
