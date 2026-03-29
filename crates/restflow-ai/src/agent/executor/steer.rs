@@ -20,7 +20,7 @@ impl AgentExecutor {
             return;
         };
 
-        let completions = tracker.poll_completions().await;
+        let completions = tracker.poll_completions_for_parent(&state.execution_id);
         if completions.is_empty() {
             return;
         }

@@ -137,6 +137,12 @@ pub struct SpawnRequest {
     /// This is injected by runtime and should not be supplied by users directly.
     #[serde(default)]
     pub trace_scope_id: Option<String>,
+
+    /// Optional authoritative run ID for this sub-agent execution.
+    ///
+    /// When provided, runtime must use this as the canonical child run ID.
+    #[serde(default)]
+    pub run_id: Option<String>,
 }
 
 /// Inline configuration for temporary sub-agent creation.
@@ -219,6 +225,9 @@ pub struct SubagentState {
     /// Task description
     pub task: String,
 
+    /// Parent run ID, when spawned from another execution.
+    pub parent_run_id: Option<String>,
+
     /// Current status
     pub status: SubagentStatus,
 
@@ -275,6 +284,9 @@ pub struct SubagentResult {
 pub struct SubagentCompletion {
     /// Task ID
     pub id: String,
+
+    /// Parent run ID, when this completion belongs to a child run.
+    pub parent_run_id: Option<String>,
 
     /// Final terminal status.
     pub status: SubagentStatus,

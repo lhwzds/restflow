@@ -57,6 +57,9 @@ pub struct ExecutionPlan {
     /// Optional trace scope ID.
     #[serde(default)]
     pub trace_scope_id: Option<String>,
+    /// Optional authoritative run ID.
+    #[serde(default)]
+    pub run_id: Option<String>,
     /// Mode-specific metadata payload.
     #[serde(default)]
     pub metadata: Option<Value>,

@@ -18,6 +18,9 @@ pub struct SubagentTracker {
     /// All sub-agent states.
     states: DashMap<String, SubagentState>,
 
+    /// Parent-scoped completion backlog for active parent runs.
+    completion_backlog: DashMap<String, Vec<SubagentCompletion>>,
+
     /// Abort handles for cancelling running sub-agents.
     abort_handles: DashMap<String, AbortHandle>,
 
@@ -38,6 +41,14 @@ pub struct SubagentTracker {
 }
 
 impl SubagentTracker {
+    fn completion_backlog_key(parent_run_id: Option<&str>) -> String {
+        parent_run_id
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("__root__")
+            .to_string()
+    }
+
     fn is_terminal_status(status: &SubagentStatus) -> bool {
         matches!(
             status,
@@ -51,6 +62,7 @@ impl SubagentTracker {
     fn completion_for_state(id: &str, state: &SubagentState) -> SubagentCompletion {
         SubagentCompletion {
             id: id.to_string(),
+            parent_run_id: state.parent_run_id.clone(),
             status: state.status.clone(),
             result: state.result.clone(),
         }
@@ -88,11 +100,19 @@ impl SubagentTracker {
             self.abort_handles.remove(id);
             self.completion_waiters.remove(id);
 
-            let _ = self.completion_tx.try_send(SubagentCompletion {
+            let completion = SubagentCompletion {
                 id: id.to_string(),
+                parent_run_id: state.parent_run_id.clone(),
                 status,
                 result,
-            });
+            };
+            self.completion_backlog
+                .entry(Self::completion_backlog_key(
+                    completion.parent_run_id.as_deref(),
+                ))
+                .or_default()
+                .push(completion.clone());
+            let _ = self.completion_tx.try_send(completion);
             return true;
         }
 
@@ -106,6 +126,7 @@ impl SubagentTracker {
     ) -> Self {
         Self {
             states: DashMap::new(),
+            completion_backlog: DashMap::new(),
             abort_handles: DashMap::new(),
             completion_waiters: DashMap::new(),
             completion_tx,
@@ -129,11 +150,18 @@ impl SubagentTracker {
             .and_then(|guard| guard.clone())
     }
 
-    fn insert_running_state(&self, id: String, agent_name: String, task: String) {
+    fn insert_running_state(
+        &self,
+        id: String,
+        agent_name: String,
+        task: String,
+        parent_run_id: Option<String>,
+    ) {
         let state = SubagentState {
             id: id.clone(),
             agent_name,
             task,
+            parent_run_id,
             status: SubagentStatus::Running,
             started_at: chrono::Utc::now().timestamp_millis(),
             completed_at: None,
@@ -199,11 +227,12 @@ impl SubagentTracker {
         id: String,
         agent_name: String,
         task: String,
+        parent_run_id: Option<String>,
         handle: JoinHandle<SubagentResult>,
         completion_rx: oneshot::Receiver<SubagentResult>,
     ) {
         self.cleanup_completed(300_000);
-        self.insert_running_state(id.clone(), agent_name, task);
+        self.insert_running_state(id.clone(), agent_name, task, parent_run_id);
         let _ = self.attach_execution(id, handle, completion_rx);
     }
 
@@ -214,6 +243,7 @@ impl SubagentTracker {
         id: String,
         agent_name: String,
         task: String,
+        parent_run_id: Option<String>,
     ) -> Result<()> {
         let _guard = self
             .spawn_lock
@@ -231,22 +261,8 @@ impl SubagentTracker {
         if self.states.contains_key(&id) {
             return Err(AiError::Agent(format!("Sub-agent id already exists: {id}")));
         }
-        self.insert_running_state(id, agent_name, task);
+        self.insert_running_state(id, agent_name, task, parent_run_id);
         Ok(())
-    }
-
-    /// Atomically check the running count and register a new sub-agent.
-    pub fn try_register(
-        self: &Arc<Self>,
-        max_parallel: usize,
-        id: String,
-        agent_name: String,
-        task: String,
-        handle: JoinHandle<SubagentResult>,
-        completion_rx: oneshot::Receiver<SubagentResult>,
-    ) -> Result<()> {
-        self.try_reserve(max_parallel, id.clone(), agent_name, task)?;
-        self.attach_execution(id, handle, completion_rx)
     }
 
     /// Get state of a specific sub-agent.
@@ -432,6 +448,13 @@ impl SubagentTracker {
 
         completions
     }
+
+    pub fn poll_completions_for_parent(&self, parent_run_id: &str) -> Vec<SubagentCompletion> {
+        self.completion_backlog
+            .remove(&Self::completion_backlog_key(Some(parent_run_id)))
+            .map(|(_, completions)| completions)
+            .unwrap_or_default()
+    }
 }
 
 #[cfg(test)]
@@ -453,6 +476,7 @@ mod tests {
             id: "test-id".to_string(),
             agent_name: "test-agent".to_string(),
             task: "test task".to_string(),
+            parent_run_id: None,
             status: SubagentStatus::Interrupted,
             started_at: chrono::Utc::now().timestamp_millis(),
             completed_at: Some(chrono::Utc::now().timestamp_millis()),
@@ -485,6 +509,7 @@ mod tests {
             id: "test-id-2".to_string(),
             agent_name: "test-agent".to_string(),
             task: "test task".to_string(),
+            parent_run_id: None,
             status: SubagentStatus::TimedOut,
             started_at: chrono::Utc::now().timestamp_millis(),
             completed_at: Some(chrono::Utc::now().timestamp_millis()),
@@ -517,6 +542,7 @@ mod tests {
             id: "test-id-3".to_string(),
             agent_name: "test-agent".to_string(),
             task: "test task".to_string(),
+            parent_run_id: None,
             status: SubagentStatus::Interrupted,
             started_at: chrono::Utc::now().timestamp_millis(),
             completed_at: Some(chrono::Utc::now().timestamp_millis()),
@@ -562,6 +588,7 @@ mod tests {
             id: "race-test".to_string(),
             agent_name: "test-agent".to_string(),
             task: "test task".to_string(),
+            parent_run_id: None,
             status: SubagentStatus::Running,
             started_at: chrono::Utc::now().timestamp_millis(),
             completed_at: None,
@@ -613,6 +640,7 @@ mod tests {
             id: "timeout-race".to_string(),
             agent_name: "test-agent".to_string(),
             task: "test task".to_string(),
+            parent_run_id: None,
             status: SubagentStatus::Running,
             started_at: chrono::Utc::now().timestamp_millis(),
             completed_at: None,
@@ -673,6 +701,7 @@ mod tests {
             "cancelled".to_string(),
             "tester".to_string(),
             "cancel me".to_string(),
+            None,
             handle,
             completion_rx,
         );
@@ -716,6 +745,7 @@ mod tests {
             task_id.clone(),
             "tester".to_string(),
             "retry wait".to_string(),
+            None,
             handle,
             completion_rx,
         );

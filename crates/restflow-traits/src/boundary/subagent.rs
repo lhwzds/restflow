@@ -183,6 +183,7 @@ pub fn spawn_request_from_contract(
         parent_execution_id: request.parent_execution_id,
         trace_session_id: request.trace_session_id,
         trace_scope_id: request.trace_scope_id,
+        run_id: None,
     })
 }
 
