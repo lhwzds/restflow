@@ -19,7 +19,7 @@ test.describe('Daemon-served web app', () => {
     await page.goto('/workspace')
     await page.waitForLoadState('domcontentloaded')
 
-    await expect(page.getByRole('button', { name: 'New Session' })).toBeVisible({
+    await expect(page.getByTestId('session-list-new-session')).toBeVisible({
       timeout: 15000,
     })
     await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible()
