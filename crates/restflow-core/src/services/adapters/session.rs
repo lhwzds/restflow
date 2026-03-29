@@ -41,16 +41,11 @@ impl SessionStorageAdapter {
 impl SessionStore for SessionStorageAdapter {
     fn list_sessions(&self, filter: SessionListFilter) -> restflow_tools::Result<Value> {
         let include_archived = filter.include_archived.unwrap_or(false);
-        let sessions = match (&filter.agent_id, &filter.skill_id, include_archived) {
-            (Some(agent_id), _, true) => self.sessions.chat_sessions.list_by_agent_all(agent_id)?,
-            (Some(agent_id), _, false) => self.sessions.chat_sessions.list_by_agent(agent_id)?,
-            (None, Some(skill_id), true) => {
-                self.sessions.chat_sessions.list_by_skill_all(skill_id)?
-            }
-            (None, Some(skill_id), false) => self.sessions.chat_sessions.list_by_skill(skill_id)?,
-            (None, None, true) => self.sessions.chat_sessions.list_all()?,
-            (None, None, false) => self.sessions.chat_sessions.list()?,
-        };
+        let sessions = self.session_service().list_session_views(
+            filter.agent_id.as_deref(),
+            filter.skill_id.as_deref(),
+            include_archived,
+        )?;
 
         if filter.include_messages.unwrap_or(false) {
             Ok(serde_json::to_value(sessions)?)
@@ -105,32 +100,13 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn search_sessions(&self, query: SessionSearchQuery) -> restflow_tools::Result<Value> {
-        let include_archived = query.include_archived.unwrap_or(false);
-        let mut sessions = match (&query.agent_id, include_archived) {
-            (Some(agent_id), true) => self.sessions.chat_sessions.list_by_agent_all(agent_id)?,
-            (Some(agent_id), false) => self.sessions.chat_sessions.list_by_agent(agent_id)?,
-            (None, true) => self.sessions.chat_sessions.list_all()?,
-            (None, false) => self.sessions.chat_sessions.list()?,
-        };
-        if let Some(skill_id) = &query.skill_id {
-            sessions.retain(|session| session.skill_id.as_deref() == Some(skill_id.as_str()));
-        }
-
-        let keyword = query.query.to_lowercase();
-        let limit = query.limit.unwrap_or(20) as usize;
-
-        let matched: Vec<_> = sessions
-            .into_iter()
-            .filter(|s| {
-                let name_match = s.name.to_lowercase().contains(&keyword);
-                let msg_match = s
-                    .messages
-                    .iter()
-                    .any(|m| m.content.to_lowercase().contains(&keyword));
-                name_match || msg_match
-            })
-            .take(limit)
-            .collect();
+        let matched = self.session_service().search_session_views(
+            &query.query,
+            query.agent_id.as_deref(),
+            query.skill_id.as_deref(),
+            query.include_archived.unwrap_or(false),
+            query.limit.unwrap_or(20) as usize,
+        )?;
 
         Ok(serde_json::to_value(matched)?)
     }
@@ -351,6 +327,86 @@ mod tests {
         let result = adapter.search_sessions(query).unwrap();
         let sessions = result.as_array().unwrap();
         assert_eq!(sessions.len(), 1);
+    }
+
+    #[test]
+    fn test_list_sessions_applies_effective_source_normalization() {
+        let (adapter, _dir) = setup();
+        let agent_id = create_default_agent(&adapter);
+        let created = adapter
+            .create_session(SessionCreateRequest {
+                agent_id,
+                model: "gpt-4".to_string(),
+                name: Some("Telegram Session".to_string()),
+                skill_id: None,
+                retention: None,
+            })
+            .unwrap();
+        let session_id = created["id"].as_str().unwrap();
+        let mut stored = adapter
+            .sessions
+            .chat_sessions
+            .get(session_id)
+            .unwrap()
+            .unwrap();
+        stored.source_channel = Some(crate::models::ChatSessionSource::Telegram);
+        stored.source_conversation_id = Some("chat-42".to_string());
+        adapter.sessions.chat_sessions.update(&stored).unwrap();
+
+        let result = adapter
+            .list_sessions(SessionListFilter {
+                agent_id: None,
+                skill_id: None,
+                include_messages: None,
+                include_archived: None,
+            })
+            .unwrap();
+        let sessions = result.as_array().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0]["source_channel"], "telegram");
+        assert_eq!(sessions[0]["source_conversation_id"], "chat-42");
+    }
+
+    #[test]
+    fn test_search_sessions_applies_effective_source_normalization() {
+        let (adapter, _dir) = setup();
+        let agent_id = create_default_agent(&adapter);
+        let created = adapter
+            .create_session(SessionCreateRequest {
+                agent_id,
+                model: "gpt-4".to_string(),
+                name: Some("Remote Chat".to_string()),
+                skill_id: None,
+                retention: None,
+            })
+            .unwrap();
+        let session_id = created["id"].as_str().unwrap();
+        let mut stored = adapter
+            .sessions
+            .chat_sessions
+            .get(session_id)
+            .unwrap()
+            .unwrap();
+        stored.source_channel = Some(crate::models::ChatSessionSource::Telegram);
+        stored.source_conversation_id = Some("chat-search".to_string());
+        stored.add_message(crate::models::ChatMessage::user(
+            "find this remote chat".to_string(),
+        ));
+        adapter.sessions.chat_sessions.update(&stored).unwrap();
+
+        let result = adapter
+            .search_sessions(SessionSearchQuery {
+                query: "remote".to_string(),
+                agent_id: None,
+                skill_id: None,
+                include_archived: None,
+                limit: None,
+            })
+            .unwrap();
+        let sessions = result.as_array().unwrap();
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0]["source_channel"], "telegram");
+        assert_eq!(sessions[0]["source_conversation_id"], "chat-search");
     }
 
     #[test]
