@@ -42,11 +42,18 @@ impl BackgroundAgentRunner {
     /// Acquires all locks atomically to prevent partial cleanup on panic.
     pub(super) async fn cleanup_task_tracking(&self, task_id: &str) {
         // Acquire all locks concurrently to minimize inconsistency window
-        let (mut running, mut senders, mut receivers, mut states) = tokio::join!(
+        let (
+            mut running,
+            mut senders,
+            mut receivers,
+            mut states,
+            mut checkpoint_ids,
+        ) = tokio::join!(
             self.running_tasks.write(),
             self.stop_senders.write(),
             self.pending_stop_receivers.write(),
             self.resume_states.write(),
+            self.resume_checkpoint_ids.write(),
         );
 
         // Remove from all maps
@@ -54,9 +61,10 @@ impl BackgroundAgentRunner {
         senders.remove(task_id);
         receivers.remove(task_id);
         states.remove(task_id);
+        checkpoint_ids.remove(task_id);
 
         // Explicitly drop locks before unregister to avoid holding while calling external code
-        drop((running, senders, receivers, states));
+        drop((running, senders, receivers, states, checkpoint_ids));
 
         // Unregister from steer registry (may fail, but maps are already cleaned)
         self.steer_registry.unregister(task_id).await;

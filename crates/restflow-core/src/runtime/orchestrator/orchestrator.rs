@@ -13,12 +13,9 @@ use crate::runtime::background_agent::{
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
 use crate::runtime::orchestrator::modes::{background, interactive, subagent};
 use crate::storage::ExecutionTraceStorage;
-use crate::telemetry::{
-    build_execution_trace_sink, emit_run_completed, emit_run_failed, emit_run_started,
-};
 use restflow_ai::AgentState;
 use restflow_ai::agent::{NullEmitter, StreamEmitter};
-use restflow_telemetry::RestflowTrace;
+use restflow_telemetry::{RestflowTrace, RunDescriptor, RunKind, RunLifecycleService};
 use restflow_traits::{AgentOrchestrator, ExecutionOutcome, ExecutionPlan, ToolError};
 
 #[derive(Debug)]
@@ -136,15 +133,16 @@ impl AgentOrchestratorImpl {
             .backend()
             .prepare_interactive_session(session)
             .map_err(InteractiveExecutionError::Execution)?;
-        let trace = RestflowTrace::new(
+        let telemetry_sink = crate::telemetry::build_execution_trace_sink(&execution_trace_storage);
+        let run_handle = RunLifecycleService::new(telemetry_sink).handle(RunDescriptor::new(
+            RunKind::Interactive,
             run_id,
             session.id.clone(),
             session.id.clone(),
             session.agent_id.clone(),
-        );
-        let telemetry_context = restflow_telemetry::TelemetryContext::new(trace.clone());
-        let telemetry_sink = build_execution_trace_sink(&execution_trace_storage);
-        emit_run_started(&telemetry_sink, trace.clone()).await;
+        ));
+        let trace = run_handle.context().trace.clone();
+        run_handle.start().await;
 
         let inner_emitter = emitter.unwrap_or_else(|| Box::new(NullEmitter));
         let traced_emitter: Box<dyn StreamEmitter> = inner_emitter;
@@ -161,7 +159,7 @@ impl AgentOrchestratorImpl {
                     Some(traced_emitter),
                     SessionTurnRuntimeOptions {
                         steer_rx,
-                        telemetry_context: Some(telemetry_context.clone()),
+                        telemetry_context: Some(run_handle.cloned_context()),
                     },
                 ),
             )
@@ -171,13 +169,7 @@ impl AgentOrchestratorImpl {
                 Err(_) => {
                     let duration_ms = started_at.elapsed().as_millis() as u64;
                     let error = InteractiveExecutionError::Timeout { timeout_secs };
-                    emit_run_failed(
-                        &telemetry_sink,
-                        trace.clone(),
-                        &error.to_string(),
-                        Some(duration_ms),
-                    )
-                    .await;
+                    run_handle.fail(error.to_string(), Some(duration_ms)).await;
                     return Err(error);
                 }
             }
@@ -190,7 +182,7 @@ impl AgentOrchestratorImpl {
                 Some(traced_emitter),
                 SessionTurnRuntimeOptions {
                     steer_rx,
-                    telemetry_context: Some(telemetry_context),
+                    telemetry_context: Some(run_handle.cloned_context()),
                 },
             )
             .await
@@ -200,19 +192,15 @@ impl AgentOrchestratorImpl {
         let execution = match execution_result {
             Ok(result) => result.execution,
             Err(error) => {
-                emit_run_failed(
-                    &telemetry_sink,
-                    trace.clone(),
-                    &error.to_string(),
-                    Some(started_at.elapsed().as_millis() as u64),
-                )
-                .await;
+                run_handle
+                    .fail(error.to_string(), Some(started_at.elapsed().as_millis() as u64))
+                    .await;
                 return Err(error);
             }
         };
 
         let duration_ms = started_at.elapsed().as_millis() as u64;
-        emit_run_completed(&telemetry_sink, trace.clone(), Some(duration_ms)).await;
+        run_handle.complete(Some(duration_ms)).await;
 
         Ok(TracedInteractiveExecutionResult {
             trace,
