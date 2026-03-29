@@ -401,6 +401,13 @@ pub enum IpcRequest {
         #[serde(default)]
         confirmation_token: Option<String>,
     },
+    ConvertSessionToBackgroundAgent {
+        request: BackgroundAgentConvertSessionRequest,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
+    },
     UpdateBackgroundAgent {
         id: String,
         patch: BackgroundAgentPatch,
@@ -838,6 +845,29 @@ pub struct BackgroundAgentPatch {
     pub prerequisites: Option<Vec<String>>,
     #[serde(default)]
     pub continuation: Option<ContinuationConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct BackgroundAgentConvertSessionRequest {
+    pub session_id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub schedule: Option<TaskSchedule>,
+    #[serde(default)]
+    pub input: Option<String>,
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
+    #[serde(default)]
+    pub durability_mode: Option<DurabilityMode>,
+    #[serde(default)]
+    pub memory: Option<MemoryConfig>,
+    #[serde(default)]
+    pub memory_scope: Option<String>,
+    #[serde(default)]
+    pub resource_limits: Option<ResourceLimits>,
+    #[serde(default)]
+    pub run_now: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]

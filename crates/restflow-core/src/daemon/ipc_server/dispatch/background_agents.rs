@@ -6,10 +6,12 @@ use crate::boundary::background_agent::{
 };
 use crate::daemon::request_mapper::to_contract;
 use crate::services::operation_assessment::{
-    assess_background_agent_control, assess_background_agent_create,
+    assess_background_agent_control, assess_background_agent_convert_session,
+    assess_background_agent_create,
     assess_background_agent_update, assessment_requires_confirmation, assessment_summary,
     ensure_assessment_confirmed,
 };
+use crate::services::background_agent_command::BackgroundAgentCommandService;
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
 use restflow_traits::OperationAssessment;
@@ -82,6 +84,10 @@ fn resolve_agent_id(
         |trimmed| core.storage.agents.resolve_existing_agent_id(trimmed),
     )
     .map_err(|err| IpcResponse::error(400, err.to_string()))
+}
+
+fn command_service(core: &Arc<AppCore>) -> BackgroundAgentCommandService {
+    BackgroundAgentCommandService::from_storage(core.storage.as_ref())
 }
 
 impl IpcServer {
@@ -175,8 +181,30 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         }
 
-        match core.storage.background_agents.create_background_agent(spec) {
+        match command_service(core).create(spec) {
             Ok(task) => IpcResponse::success(task),
+            Err(err) => IpcResponse::error(500, err.to_string()),
+        }
+    }
+
+    pub(super) async fn handle_convert_session_to_background_agent(
+        core: &Arc<AppCore>,
+        request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> IpcResponse {
+        let assessment = match assess_background_agent_convert_session(core, request.clone()).await {
+            Ok(assessment) => assessment,
+            Err(err) => return IpcResponse::error(500, err.to_string()),
+        };
+        match maybe_preview_or_confirm(assessment, preview, confirmation_token) {
+            Ok(Some(response)) => return response,
+            Ok(None) => {}
+            Err(err) => return IpcResponse::error(500, err.to_string()),
+        }
+
+        match command_service(core).convert_session(request) {
+            Ok(result) => IpcResponse::success(result),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -214,11 +242,7 @@ impl IpcServer {
             Ok(None) => {}
             Err(err) => return IpcResponse::error(500, err.to_string()),
         }
-        match core
-            .storage
-            .background_agents
-            .update_background_agent(&resolved_id, patch)
-        {
+        match command_service(core).update(&resolved_id, patch) {
             Ok(task) => IpcResponse::success(task),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -232,7 +256,7 @@ impl IpcServer {
             Ok(id) => id,
             Err(response) => return response,
         };
-        match core.storage.background_agents.delete_task(&resolved_id) {
+        match command_service(core).delete(&resolved_id) {
             Ok(deleted) => IpcResponse::success(DeleteWithIdResponse {
                 id: resolved_id,
                 deleted,
@@ -272,11 +296,7 @@ impl IpcServer {
             Ok(None) => {}
             Err(err) => return IpcResponse::error(500, err.to_string()),
         }
-        match core
-            .storage
-            .background_agents
-            .control_background_agent(&resolved_id, action)
-        {
+        match command_service(core).control(&resolved_id, action) {
             Ok(task) => IpcResponse::success(task),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -291,11 +311,7 @@ impl IpcServer {
             Ok(id) => id,
             Err(response) => return response,
         };
-        match core
-            .storage
-            .background_agents
-            .get_background_agent_progress(&resolved_id, event_limit.unwrap_or(10))
-        {
+        match command_service(core).progress(&resolved_id, event_limit.unwrap_or(10)) {
             Ok(progress) => IpcResponse::success(progress),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -311,14 +327,11 @@ impl IpcServer {
             Ok(id) => id,
             Err(response) => return response,
         };
-        match core
-            .storage
-            .background_agents
-            .send_background_agent_message(
-                &resolved_id,
-                message,
-                source.unwrap_or(crate::models::BackgroundMessageSource::User),
-            ) {
+        match command_service(core).send_message(
+            &resolved_id,
+            message,
+            source.unwrap_or(crate::models::BackgroundMessageSource::User),
+        ) {
             Ok(msg) => IpcResponse::success(msg),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

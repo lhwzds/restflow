@@ -7,6 +7,7 @@ use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill};
 use crate::services::adapters::{
     AgentStoreAdapter, BackgroundAgentStoreAdapter, DbMemoryStoreAdapter, OpsProviderAdapter,
 };
+use crate::services::session::SessionService;
 use async_trait::async_trait;
 use futures::stream;
 use redb::Database;
@@ -1007,10 +1008,10 @@ fn test_task_store_adapter_background_agent_flow() {
 
     let (
         _skill_storage,
-        _memory_storage,
-        _chat_storage,
-        _channel_session_binding_storage,
-        _execution_trace_storage,
+        memory_storage,
+        chat_storage,
+        channel_session_binding_storage,
+        execution_trace_storage,
         _kv_store_storage,
         _work_item_storage,
         _secret_storage,
@@ -1030,9 +1031,19 @@ fn test_task_store_adapter_background_agent_flow() {
         )
         .unwrap();
     let adapter = BackgroundAgentStoreAdapter::new(
-        background_agent_storage,
-        agent_storage,
+        background_agent_storage.clone(),
+        agent_storage.clone(),
         deliverable_storage,
+        SessionService::new(
+            crate::storage::SessionStorage::new(
+                chat_storage,
+                channel_session_binding_storage,
+                execution_trace_storage,
+            ),
+            Some(agent_storage),
+            background_agent_storage,
+            Some(memory_storage),
+        ),
     );
 
     let created = BackgroundAgentStore::create_background_agent(

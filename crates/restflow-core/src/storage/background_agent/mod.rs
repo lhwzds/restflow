@@ -266,6 +266,7 @@ mod checkpoint_bridge;
 mod cleanup;
 mod event_log;
 mod message_queue;
+mod run_records;
 mod session_binding;
 mod task_lifecycle;
 

@@ -22,6 +22,12 @@ const BACKGROUND_AGENT_STATUS_INDEX_TABLE: TableDefinition<&str, &str> =
 /// Reverse index: task_id -> status:task_id (for direct status cleanup)
 const BACKGROUND_AGENT_STATUS_LOOKUP_TABLE: TableDefinition<&str, &str> =
     TableDefinition::new("background_agent_status_lookup");
+/// Background execution attempt payload table.
+const BACKGROUND_AGENT_RUN_TABLE: TableDefinition<&str, &[u8]> =
+    TableDefinition::new("background_agent_runs");
+/// Index table: task_id:run_id -> run_id
+const BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE: TableDefinition<&str, &str> =
+    TableDefinition::new("background_agent_run_task_index");
 /// Background message payload table
 const BACKGROUND_MESSAGE_TABLE: TableDefinition<&str, &[u8]> =
     TableDefinition::new("background_messages");
@@ -132,6 +138,8 @@ impl BackgroundAgentStorage {
         write_txn.open_table(BACKGROUND_AGENT_EVENT_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_AGENT_STATUS_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_AGENT_STATUS_LOOKUP_TABLE)?;
+        write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
         write_txn.open_table(BACKGROUND_MESSAGE_STATUS_INDEX_TABLE)?;
@@ -374,6 +382,19 @@ impl BackgroundAgentStorage {
                 event_table.remove(event_id.as_str())?;
             }
 
+            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+            let mut run_task_index =
+                write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let mut run_keys = Vec::new();
+            for item in run_task_index.range(start.as_str()..end.as_str())? {
+                let (key, value) = item?;
+                run_keys.push((key.value().to_string(), value.value().to_string()));
+            }
+            for (run_key, run_id) in run_keys {
+                run_task_index.remove(run_key.as_str())?;
+                run_table.remove(run_id.as_str())?;
+            }
+
             let mut message_table = write_txn.open_table(BACKGROUND_MESSAGE_TABLE)?;
             let mut message_task_index =
                 write_txn.open_table(BACKGROUND_MESSAGE_TASK_INDEX_TABLE)?;
@@ -412,6 +433,74 @@ impl BackgroundAgentStorage {
         };
         write_txn.commit()?;
         Ok(existed)
+    }
+
+    /// Store raw background run data with a task index entry.
+    pub fn put_run_raw(&self, run_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+            run_table.insert(run_id, data)?;
+
+            let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let task_key = format!("{}:{}", task_id, run_id);
+            task_index.insert(task_key.as_str(), run_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Update raw background run data while preserving the task index.
+    pub fn update_run_raw(&self, run_id: &str, task_id: &str, data: &[u8]) -> Result<()> {
+        let write_txn = self.db.begin_write()?;
+        {
+            let mut run_table = write_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+            run_table.insert(run_id, data)?;
+
+            let mut task_index = write_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+            let task_key = format!("{}:{}", task_id, run_id);
+            task_index.insert(task_key.as_str(), run_id)?;
+        }
+        write_txn.commit()?;
+        Ok(())
+    }
+
+    /// Get raw background run data by ID.
+    pub fn get_run_raw(&self, run_id: &str) -> Result<Option<Vec<u8>>> {
+        let read_txn = self.db.begin_read()?;
+        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        Ok(run_table.get(run_id)?.map(|value| value.value().to_vec()))
+    }
+
+    /// List all raw background run payloads.
+    pub fn list_runs_raw(&self) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+        let mut runs = Vec::new();
+        for item in run_table.iter()? {
+            let (key, value) = item?;
+            runs.push((key.value().to_string(), value.value().to_vec()));
+        }
+        Ok(runs)
+    }
+
+    /// List raw background run payloads for one task.
+    pub fn list_runs_by_task_raw(&self, task_id: &str) -> Result<Vec<(String, Vec<u8>)>> {
+        let read_txn = self.db.begin_read()?;
+        let task_index = read_txn.open_table(BACKGROUND_AGENT_RUN_TASK_INDEX_TABLE)?;
+        let run_table = read_txn.open_table(BACKGROUND_AGENT_RUN_TABLE)?;
+
+        let prefix = format!("{}:", task_id);
+        let (start, end) = prefix_range(&prefix);
+        let mut runs = Vec::new();
+        for item in task_index.range(start.as_str()..end.as_str())? {
+            let (_, value) = item?;
+            let run_id = value.value();
+            if let Some(data) = run_table.get(run_id)? {
+                runs.push((run_id.to_string(), data.value().to_vec()));
+            }
+        }
+        Ok(runs)
     }
 
     // ============== Background Message Operations ==============

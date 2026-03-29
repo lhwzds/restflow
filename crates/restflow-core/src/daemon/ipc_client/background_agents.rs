@@ -1,11 +1,15 @@
 #[cfg(unix)]
 use super::*;
 #[cfg(unix)]
-use crate::boundary::background_agent::{core_patch_to_contract, core_spec_to_contract};
+use crate::boundary::background_agent::{
+    core_patch_to_contract, core_spec_to_contract, store_convert_request_to_contract,
+};
 #[cfg(unix)]
 use crate::daemon::request_mapper::to_contract;
 #[cfg(unix)]
 use restflow_contracts::DeleteWithIdResponse;
+#[cfg(unix)]
+use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 #[cfg(unix)]
 impl IpcClient {
@@ -29,6 +33,19 @@ impl IpcClient {
         let spec = core_spec_to_contract(spec)?;
         self.request_typed(IpcRequest::CreateBackgroundAgent {
             spec,
+            preview: false,
+            confirmation_token: None,
+        })
+        .await
+    }
+
+    pub async fn convert_session_to_background_agent(
+        &mut self,
+        request: BackgroundAgentConvertSessionRequest,
+    ) -> Result<crate::models::BackgroundAgentConversionResult> {
+        let request = store_convert_request_to_contract(request)?;
+        self.request_typed(IpcRequest::ConvertSessionToBackgroundAgent {
+            request,
             preview: false,
             confirmation_token: None,
         })

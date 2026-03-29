@@ -36,11 +36,13 @@ pub use agent::{
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
 pub use background_agent::{
-    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent, BackgroundAgentEventType,
-    BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
-    BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus, BackgroundProgress,
-    CliExecutionConfig, ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig,
-    MemoryScope, NotificationConfig, ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
+    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
+    BackgroundAgentEvent, BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentRun,
+    BackgroundAgentRunMetrics, BackgroundAgentRunStatus, BackgroundAgentSchedule,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
+    BackgroundMessageStatus, BackgroundProgress, CliExecutionConfig, ContinuationConfig,
+    DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig,
+    ResourceLimits, TaskEvent, TaskEventType, TaskSchedule,
 };
 pub use channel_session_binding::ChannelSessionBinding;
 pub use checkpoint::{AgentCheckpoint, ResumePayload};

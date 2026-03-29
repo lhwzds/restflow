@@ -13,14 +13,15 @@ use restflow_core::daemon::request_mapper::to_contract;
 use restflow_core::daemon::{IpcClient, IpcRequest};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
-    BackgroundAgentSpec, BackgroundMessage, BackgroundProgress, ChatSession, ChatSessionSummary,
-    Deliverable, ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, ItemQuery,
-    MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
-    WorkItemPatch, WorkItemSpec,
+    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
+    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessage, BackgroundProgress, ChatSession,
+    ChatSessionSummary, Deliverable, ExecutionSessionListQuery, ExecutionSessionSummary,
+    ExecutionTimeline, ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret,
+    SharedEntry, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
+use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 pub struct IpcExecutor {
     client: Mutex<IpcClient>,
@@ -448,6 +449,14 @@ impl CommandExecutor for IpcExecutor {
     async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
         let mut client = self.client.lock().await;
         client.create_background_agent(spec).await
+    }
+
+    async fn convert_session_to_background_agent(
+        &self,
+        request: BackgroundAgentConvertSessionRequest,
+    ) -> Result<BackgroundAgentConversionResult> {
+        let mut client = self.client.lock().await;
+        client.convert_session_to_background_agent(request).await
     }
 
     async fn update_background_agent(
