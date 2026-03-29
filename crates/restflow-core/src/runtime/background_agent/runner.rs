@@ -210,6 +210,34 @@ pub trait AgentExecutor: Send + Sync {
             .await
     }
 
+    /// Execute an agent with an emitter and an explicit telemetry context.
+    ///
+    /// Background task execution should prefer this method so the runner can
+    /// provide the authoritative top-level run identity for the current
+    /// execution attempt.
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_with_emitter_and_telemetry(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        input: Option<&str>,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+    ) -> Result<ExecutionResult> {
+        let _ = telemetry_context;
+        self.execute_with_emitter(
+            agent_id,
+            background_task_id,
+            input,
+            memory_config,
+            steer_rx,
+            emitter,
+        )
+        .await
+    }
+
     /// Execute an agent from a previously persisted state.
     ///
     /// Default implementation falls back to a fresh execution.
@@ -227,6 +255,31 @@ pub trait AgentExecutor: Send + Sync {
             agent_id,
             background_task_id,
             None,
+            memory_config,
+            steer_rx,
+            emitter,
+        )
+        .await
+    }
+
+    /// Execute an agent from a previously persisted state with an explicit
+    /// telemetry context supplied by the runner.
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_from_state_with_emitter_and_telemetry(
+        &self,
+        agent_id: &str,
+        background_task_id: Option<&str>,
+        state: restflow_ai::AgentState,
+        memory_config: &MemoryConfig,
+        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+    ) -> Result<ExecutionResult> {
+        let _ = telemetry_context;
+        self.execute_from_state(
+            agent_id,
+            background_task_id,
+            state,
             memory_config,
             steer_rx,
             emitter,
@@ -1271,6 +1324,9 @@ impl BackgroundAgentRunner {
         let execution_trace_storage = self.execution_trace_storage();
         let telemetry_sink = build_execution_trace_sink(execution_trace_storage);
         emit_run_started(&telemetry_sink, restflow_telemetry.clone()).await;
+        let telemetry_context = Some(restflow_telemetry::TelemetryContext::new(
+            restflow_telemetry.clone(),
+        ));
 
         if resolved_input
             .as_deref()
@@ -1368,52 +1424,56 @@ impl BackgroundAgentRunner {
                         if let Some(timeout_secs) = execution_timeout_secs {
                             tokio::time::timeout(
                                 Duration::from_secs(timeout_secs),
-                                self.executor.execute_from_state(
+                                self.executor.execute_from_state_with_emitter_and_telemetry(
                                     &task.agent_id,
                                     Some(&task.id),
                                     state,
                                     &task.memory,
                                     steer_rx,
                                     step_emitter,
+                                    telemetry_context.clone(),
                                 ),
                             )
                             .await
                         } else {
                             Ok(self
                                 .executor
-                                .execute_from_state(
+                                .execute_from_state_with_emitter_and_telemetry(
                                     &task.agent_id,
                                     Some(&task.id),
                                     state,
                                     &task.memory,
                                     steer_rx,
                                     step_emitter,
+                                    telemetry_context.clone(),
                                 )
                                 .await)
                         }
                     } else if let Some(timeout_secs) = execution_timeout_secs {
                         tokio::time::timeout(
                             Duration::from_secs(timeout_secs),
-                            self.executor.execute_with_emitter(
+                            self.executor.execute_with_emitter_and_telemetry(
                                 &task.agent_id,
                                 Some(&task.id),
                                 resolved_input.as_deref(),
                                 &task.memory,
                                 steer_rx,
                                 step_emitter,
+                                telemetry_context.clone(),
                             ),
                         )
                         .await
                     } else {
                         Ok(self
                             .executor
-                            .execute_with_emitter(
+                            .execute_with_emitter_and_telemetry(
                                 &task.agent_id,
                                 Some(&task.id),
                                 resolved_input.as_deref(),
                                 &task.memory,
                                 steer_rx,
                                 step_emitter,
+                                telemetry_context.clone(),
                             )
                             .await)
                     }
