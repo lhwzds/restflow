@@ -1,6 +1,10 @@
 use anyhow::{Result, bail};
 use async_trait::async_trait;
-use restflow_contracts::{ClearResponse, IdResponse, OkResponse};
+use restflow_contracts::{
+    CleanupReportResponse, ClearResponse, IdResponse, OkResponse, PairingApprovalResponse,
+    PairingOwnerResponse, PairingStateResponse, RouteBindingResponse,
+    SessionSourceMigrationResponse,
+};
 use std::path::Path;
 use tokio::sync::Mutex;
 
@@ -322,6 +326,109 @@ impl CommandExecutor for IpcExecutor {
         let config = to_contract(config)?;
         let _: OkResponse = self.request_typed(IpcRequest::SetConfig { config }).await?;
         Ok(())
+    }
+
+    async fn list_hooks(&self) -> Result<Vec<restflow_core::models::Hook>> {
+        self.request_typed(IpcRequest::ListHooks).await
+    }
+
+    async fn create_hook(
+        &self,
+        hook: restflow_core::models::Hook,
+    ) -> Result<restflow_core::models::Hook> {
+        let hook = to_contract(hook)?;
+        self.request_typed(IpcRequest::CreateHook { hook }).await
+    }
+
+    async fn delete_hook(&self, id: &str) -> Result<bool> {
+        let resp: restflow_contracts::DeleteResponse = self
+            .request_typed(IpcRequest::DeleteHook { id: id.to_string() })
+            .await?;
+        Ok(resp.deleted)
+    }
+
+    async fn test_hook(&self, id: &str) -> Result<()> {
+        let _: OkResponse = self
+            .request_typed(IpcRequest::TestHook { id: id.to_string() })
+            .await?;
+        Ok(())
+    }
+
+    async fn list_pairing_state(&self) -> Result<PairingStateResponse> {
+        self.request_typed(IpcRequest::ListPairingState).await
+    }
+
+    async fn approve_pairing(&self, code: &str) -> Result<PairingApprovalResponse> {
+        self.request_typed(IpcRequest::ApprovePairing {
+            code: code.to_string(),
+        })
+        .await
+    }
+
+    async fn deny_pairing(&self, code: &str) -> Result<()> {
+        let _: OkResponse = self
+            .request_typed(IpcRequest::DenyPairing {
+                code: code.to_string(),
+            })
+            .await?;
+        Ok(())
+    }
+
+    async fn revoke_paired_peer(&self, peer_id: &str) -> Result<bool> {
+        let resp: restflow_contracts::DeleteResponse = self
+            .request_typed(IpcRequest::RevokePairedPeer {
+                peer_id: peer_id.to_string(),
+            })
+            .await?;
+        Ok(resp.deleted)
+    }
+
+    async fn get_pairing_owner(&self) -> Result<PairingOwnerResponse> {
+        self.request_typed(IpcRequest::GetPairingOwner).await
+    }
+
+    async fn set_pairing_owner(&self, chat_id: &str) -> Result<PairingOwnerResponse> {
+        self.request_typed(IpcRequest::SetPairingOwner {
+            chat_id: chat_id.to_string(),
+        })
+        .await
+    }
+
+    async fn list_route_bindings(&self) -> Result<Vec<RouteBindingResponse>> {
+        self.request_typed(IpcRequest::ListRouteBindings).await
+    }
+
+    async fn bind_route(
+        &self,
+        binding_type: &str,
+        target_id: &str,
+        agent_id: &str,
+    ) -> Result<RouteBindingResponse> {
+        self.request_typed(IpcRequest::BindRoute {
+            binding_type: binding_type.to_string(),
+            target_id: target_id.to_string(),
+            agent_id: agent_id.to_string(),
+        })
+        .await
+    }
+
+    async fn unbind_route(&self, id: &str) -> Result<bool> {
+        let resp: restflow_contracts::DeleteResponse = self
+            .request_typed(IpcRequest::UnbindRoute { id: id.to_string() })
+            .await?;
+        Ok(resp.deleted)
+    }
+
+    async fn run_cleanup(&self) -> Result<CleanupReportResponse> {
+        self.request_typed(IpcRequest::RunCleanup).await
+    }
+
+    async fn migrate_session_sources(
+        &self,
+        dry_run: bool,
+    ) -> Result<SessionSourceMigrationResponse> {
+        self.request_typed(IpcRequest::MigrateSessionSources { dry_run })
+            .await
     }
 
     // Background Agent operations - use IPC client methods
