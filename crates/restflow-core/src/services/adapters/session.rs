@@ -1,6 +1,5 @@
 //! SessionStore adapter backed by ChatSessionStorage.
 
-use crate::models::ChatSessionSource;
 use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, SessionStorage};
 use restflow_tools::ToolError;
@@ -66,9 +65,8 @@ impl SessionStore for SessionStorageAdapter {
 
     fn get_session(&self, id: &str) -> restflow_tools::Result<Value> {
         let session = self
-            .sessions
-            .chat_sessions
-            .get(id)?
+            .session_service()
+            .get_session_view(id)?
             .ok_or_else(|| ToolError::Tool(format!("Session {} not found", id)))?;
         Ok(serde_json::to_value(session)?)
     }
@@ -77,18 +75,13 @@ impl SessionStore for SessionStorageAdapter {
         let resolved_agent_id = self
             .agent_storage
             .resolve_existing_agent_id(&request.agent_id)?;
-        let mut session = crate::models::ChatSession::new(resolved_agent_id, request.model);
-        session.source_channel = Some(ChatSessionSource::Workspace);
-        if let Some(name) = request.name {
-            session = session.with_name(name);
-        }
-        if let Some(skill_id) = request.skill_id {
-            session = session.with_skill(skill_id);
-        }
-        if let Some(retention) = request.retention {
-            session = session.with_retention(retention);
-        }
-        self.sessions.chat_sessions.create(&session)?;
+        let session = self.session_service().create_workspace_session(
+            resolved_agent_id,
+            request.model,
+            request.name,
+            request.skill_id,
+            request.retention,
+        )?;
         Ok(serde_json::to_value(session)?)
     }
 
@@ -98,7 +91,7 @@ impl SessionStore for SessionStorageAdapter {
     }
 
     fn unarchive_session(&self, id: &str) -> restflow_tools::Result<Value> {
-        let unarchived = self.sessions.chat_sessions.unarchive(id)?;
+        let unarchived = self.session_service().unarchive_workspace_session(id)?;
         Ok(json!({ "id": id, "unarchived": unarchived }))
     }
 

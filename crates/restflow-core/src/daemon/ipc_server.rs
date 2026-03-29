@@ -2,15 +2,15 @@ use super::ipc_protocol::{
     IPC_PROTOCOL_VERSION, IpcDaemonStatus, IpcRequest, IpcResponse, IpcStreamEvent,
     MAX_MESSAGE_SIZE, StreamFrame, ToolDefinition,
 };
-use super::session_events::{ChatSessionEvent, publish_session_event, subscribe_session_events};
+use super::session_events::subscribe_session_events;
 use super::subscribe_background_events;
 use crate::AppCore;
 use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
     AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSource, ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery,
-    MessageExecution, ModelId, SteerMessage, SteerSource, TerminalSession,
+    ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery, MessageExecution,
+    ModelId, SteerMessage, SteerSource, TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};

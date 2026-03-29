@@ -337,8 +337,8 @@ impl IpcServer {
             IpcRequest::QueryExecutionRunLogs { run_id } => {
                 Self::handle_query_execution_run_logs(core, run_id).await
             }
-            IpcRequest::GetExecutionTraceStats { run_id } => {
-                Self::handle_get_execution_trace_stats(core, run_id).await
+            IpcRequest::GetExecutionTraceStats { run_id, task_id } => {
+                Self::handle_get_execution_trace_stats(core, run_id, task_id).await
             }
             IpcRequest::GetExecutionTraceById { id } => {
                 Self::handle_get_execution_trace_by_id(core, id).await

@@ -57,15 +57,86 @@ mod tests {
     use super::*;
     use redb::Database;
     use restflow_storage::SimpleStorage;
+    use std::env;
+    use std::path::Path;
+    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
-    #[test]
-    fn test_setup_telegram_channel_without_token() {
+    struct EnvGuard {
+        key: &'static str,
+        original: Option<std::ffi::OsString>,
+    }
+
+    impl EnvGuard {
+        fn set_path(key: &'static str, path: &Path) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::set_var(key, path);
+            }
+            Self { key, original }
+        }
+
+        fn clear(key: &'static str) -> Self {
+            let original = env::var_os(key);
+            unsafe {
+                env::remove_var(key);
+            }
+            Self { key, original }
+        }
+    }
+
+    impl Drop for EnvGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                unsafe {
+                    env::set_var(self.key, value);
+                }
+            } else {
+                unsafe {
+                    env::remove_var(self.key);
+                }
+            }
+        }
+    }
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+        LOCK.get_or_init(|| Mutex::new(()))
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    fn setup_channel_state(
+    ) -> (
+        SecretStorage,
+        DaemonStateStorage,
+        tempfile::TempDir,
+        EnvGuard,
+        EnvGuard,
+    ) {
         let temp_dir = tempdir().unwrap();
+        let restflow_dir = temp_dir.path().join("state");
+        std::fs::create_dir_all(&restflow_dir).unwrap();
+        let restflow_dir_guard = EnvGuard::set_path("RESTFLOW_DIR", &restflow_dir);
+        let master_key_guard = EnvGuard::clear("RESTFLOW_MASTER_KEY");
         let db_path = temp_dir.path().join("test.db");
         let db = Arc::new(Database::create(db_path).unwrap());
         let secrets = SecretStorage::new(db.clone()).unwrap();
         let daemon_state = DaemonStateStorage::new(db).unwrap();
+        (
+            secrets,
+            daemon_state,
+            temp_dir,
+            restflow_dir_guard,
+            master_key_guard,
+        )
+    }
+
+    #[test]
+    fn test_setup_telegram_channel_without_token() {
+        let _lock = env_lock();
+        let (secrets, daemon_state, _temp_dir, _restflow_dir_guard, _master_key_guard) =
+            setup_channel_state();
 
         let result =
             setup_telegram_channel(&secrets, &daemon_state, &ChannelSettings::default()).unwrap();
@@ -74,11 +145,9 @@ mod tests {
 
     #[test]
     fn test_setup_telegram_channel_with_default_chat_id() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let secrets = SecretStorage::new(db.clone()).unwrap();
-        let daemon_state = DaemonStateStorage::new(db).unwrap();
+        let _lock = env_lock();
+        let (secrets, daemon_state, _temp_dir, _restflow_dir_guard, _master_key_guard) =
+            setup_channel_state();
 
         secrets
             .set_secret("TELEGRAM_BOT_TOKEN", "bot-token", None)
@@ -96,11 +165,9 @@ mod tests {
 
     #[test]
     fn test_setup_telegram_channel_with_legacy_default_chat_id() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let secrets = SecretStorage::new(db.clone()).unwrap();
-        let daemon_state = DaemonStateStorage::new(db).unwrap();
+        let _lock = env_lock();
+        let (secrets, daemon_state, _temp_dir, _restflow_dir_guard, _master_key_guard) =
+            setup_channel_state();
 
         secrets
             .set_secret("TELEGRAM_BOT_TOKEN", "bot-token", None)
@@ -118,11 +185,9 @@ mod tests {
 
     #[test]
     fn test_setup_telegram_channel_falls_back_when_offset_is_malformed() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let secrets = SecretStorage::new(db.clone()).unwrap();
-        let daemon_state = DaemonStateStorage::new(db).unwrap();
+        let _lock = env_lock();
+        let (secrets, daemon_state, _temp_dir, _restflow_dir_guard, _master_key_guard) =
+            setup_channel_state();
 
         secrets
             .set_secret("TELEGRAM_BOT_TOKEN", "bot-token", None)
@@ -138,11 +203,9 @@ mod tests {
 
     #[test]
     fn test_setup_telegram_channel_applies_channel_defaults() {
-        let temp_dir = tempdir().unwrap();
-        let db_path = temp_dir.path().join("test.db");
-        let db = Arc::new(Database::create(db_path).unwrap());
-        let secrets = SecretStorage::new(db.clone()).unwrap();
-        let daemon_state = DaemonStateStorage::new(db).unwrap();
+        let _lock = env_lock();
+        let (secrets, daemon_state, _temp_dir, _restflow_dir_guard, _master_key_guard) =
+            setup_channel_state();
 
         secrets
             .set_secret("TELEGRAM_BOT_TOKEN", "bot-token", None)

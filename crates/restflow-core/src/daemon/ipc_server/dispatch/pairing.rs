@@ -220,7 +220,7 @@ fn parse_route_binding_type(
                 target_id = %target_id,
                 "Using deprecated --group flag, consider using --channel instead"
             );
-            Ok(crate::channel::RouteBindingType::Channel)
+            Ok(crate::channel::RouteBindingType::Group)
         }
         other => Err(format!("Unsupported route binding type: {other}")),
     }

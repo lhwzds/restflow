@@ -4,6 +4,7 @@ use crate::{
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace,
     LogRecordTrace, MetricSampleTrace,
 };
+use crate::models::ChatSessionSource;
 use restflow_contracts::request::ChildExecutionSessionQuery;
 use restflow_storage::SimpleStorage;
 
@@ -291,6 +292,7 @@ async fn get_execution_trace_stats_filters_by_run_id() {
         &runtime_tool_registry,
         IpcRequest::GetExecutionTraceStats {
             run_id: Some("run-1".to_string()),
+            task_id: None,
         },
     )
     .await;
@@ -303,6 +305,30 @@ async fn get_execution_trace_stats_filters_by_run_id() {
             assert_eq!(stats.lifecycle_count, 2);
         }
         other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn get_execution_trace_stats_rejects_legacy_task_id_filter() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetExecutionTraceStats {
+            run_id: None,
+            task_id: Some("task-1".to_string()),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert!(error.message.contains("use run_id instead"));
+        }
+        other => panic!("expected error response, got {other:?}"),
     }
 }
 

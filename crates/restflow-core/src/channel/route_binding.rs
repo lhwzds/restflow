@@ -212,7 +212,23 @@ impl RouteResolver {
             });
         }
 
-        // 4. Check default binding
+        // 4. Check legacy group binding keyed by conversation/chat id.
+        let group_key = format!("group:{}", chat_id);
+        if let Ok(Some(data)) = self.storage.resolve_route_by_key(&group_key)
+            && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
+        {
+            let session_key = format!(
+                "agent:{}:{}:{}:{}:{}",
+                binding.agent_id, channel_display, account_id, peer_id, chat_id
+            );
+            return Some(ResolvedRoute {
+                agent_id: binding.agent_id,
+                session_key,
+                matched_by: MatchedBy::Group,
+            });
+        }
+
+        // 5. Check default binding
         if let Ok(Some(data)) = self.storage.resolve_route_by_key("default:*")
             && let Ok(binding) = serde_json::from_slice::<RouteBinding>(&data)
         {

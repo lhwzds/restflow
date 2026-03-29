@@ -87,6 +87,41 @@ impl SessionService {
         Ok(())
     }
 
+    pub fn get_session_view(&self, session_id: &str) -> Result<Option<ChatSession>> {
+        let Some(mut session) = self.sessions.get_session(session_id)? else {
+            return Ok(None);
+        };
+        self.apply_effective_source(&mut session)?;
+        Ok(Some(session))
+    }
+
+    pub fn create_workspace_session(
+        &self,
+        agent_id: String,
+        model: String,
+        name: Option<String>,
+        skill_id: Option<String>,
+        retention: Option<String>,
+    ) -> Result<ChatSession> {
+        let mut session = ChatSession::new(agent_id, model);
+        session.source_channel = Some(ChatSessionSource::Workspace);
+        if let Some(name) = name {
+            session = session.with_name(name);
+        }
+        if let Some(skill_id) = skill_id {
+            session = session.with_skill(skill_id);
+        }
+        if let Some(retention) = retention {
+            session = session.with_retention(retention);
+        }
+        self.sessions.create_session(&session)?;
+        self.apply_effective_source(&mut session)?;
+        publish_session_event(ChatSessionEvent::Created {
+            session_id: session.id.clone(),
+        });
+        Ok(session)
+    }
+
     pub fn is_workspace_managed(&self, session: &ChatSession) -> Result<bool> {
         self.policy.is_workspace_managed(session)
     }
@@ -277,6 +312,21 @@ impl SessionService {
         Ok(archived)
     }
 
+    pub fn unarchive_session(&self, session_id: &str) -> Result<bool> {
+        let Some(session) = self.sessions.get_session(session_id)? else {
+            return Ok(false);
+        };
+        self.policy
+            .ensure_workspace_operation_allowed(&session, "unarchived")?;
+        let unarchived = self.sessions.unarchive_session(session_id)?;
+        if unarchived {
+            publish_session_event(ChatSessionEvent::Updated {
+                session_id: session_id.to_string(),
+            });
+        }
+        Ok(unarchived)
+    }
+
     pub fn delete_session(&self, session_id: &str) -> Result<bool> {
         let deleted = self.policy.delete_workspace_session(session_id)?;
         if deleted {
@@ -405,6 +455,10 @@ impl SessionService {
 
     pub fn archive_workspace_session(&self, session_id: &str) -> Result<bool> {
         self.archive_session(session_id)
+    }
+
+    pub fn unarchive_workspace_session(&self, session_id: &str) -> Result<bool> {
+        self.unarchive_session(session_id)
     }
 
     pub fn delete_workspace_session(&self, session_id: &str) -> Result<bool> {

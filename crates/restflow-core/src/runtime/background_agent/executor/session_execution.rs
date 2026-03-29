@@ -11,7 +11,17 @@ pub struct SessionTurnRuntimeOptions {
 }
 
 impl AgentRuntimeExecutor {
-    fn resolve_stored_agent_for_session(
+    fn normalize_session_telemetry_context(
+        telemetry_context: Option<restflow_telemetry::TelemetryContext>,
+        session: &ChatSession,
+    ) -> Option<restflow_telemetry::TelemetryContext> {
+        telemetry_context.map(|mut context| {
+            context.trace.actor_id = session.agent_id.clone();
+            context
+        })
+    }
+
+    pub(crate) fn resolve_stored_agent_for_session(
         &self,
         session: &mut ChatSession,
     ) -> Result<crate::storage::agent::StoredAgent> {
@@ -697,7 +707,10 @@ impl AgentRuntimeExecutor {
         let shared_emitter = share_stream_emitter(emitter);
         let mut steer_rx = steer_rx;
         let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
-        let base_telemetry_context = telemetry_context
+        let base_telemetry_context = Self::normalize_session_telemetry_context(
+            telemetry_context,
+            session,
+        )
             .unwrap_or_else(|| {
                 restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
                     session.id.clone(),
@@ -714,6 +727,7 @@ impl AgentRuntimeExecutor {
             let node = agent_node.clone();
             let session_for_execution = session_snapshot.clone();
             let mut previous_attempt_model: Option<ModelId> = None;
+            let mut attempt_number: u32 = 0;
             let telemetry_sink = telemetry_sink.clone();
             let base_telemetry_context = base_telemetry_context.clone();
             let result = execute_with_failover(&failover_manager, |model| {
@@ -721,13 +735,15 @@ impl AgentRuntimeExecutor {
                 let session_for_execution = session_for_execution.clone();
                 let agent_id = agent_id.clone();
                 let previous_model = previous_attempt_model.replace(model);
+                attempt_number = attempt_number.saturating_add(1);
+                let current_attempt = attempt_number;
                 let emitter = clone_shared_emitter(&shared_emitter);
                 let steer_rx = steer_rx.take();
                 let telemetry_sink = telemetry_sink.clone();
                 let telemetry_context = base_telemetry_context
                     .clone()
                     .with_effective_model(model.as_serialized_str())
-                    .with_attempt(previous_attempt_model.map(|_| 2).unwrap_or(1));
+                    .with_attempt(current_attempt);
                 async move {
                     if let Some(previous_model) = previous_model
                         && previous_model != model
@@ -789,6 +805,7 @@ impl AgentRuntimeExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_telemetry::{RestflowTrace, TelemetryContext};
 
     #[test]
     fn should_force_non_stream_for_all_cli_models() {
@@ -797,5 +814,22 @@ mod tests {
         assert!(should_force_non_stream(ModelId::GeminiCli));
         assert!(should_force_non_stream(ModelId::OpenCodeCli));
         assert!(!should_force_non_stream(ModelId::Gpt5));
+    }
+
+    #[test]
+    fn normalize_session_telemetry_context_uses_effective_session_agent() {
+        let session = ChatSession::new("agent-fallback".to_string(), "gpt-5".to_string());
+        let context = TelemetryContext::new(RestflowTrace::new(
+            "run-1",
+            session.id.clone(),
+            session.id.clone(),
+            "agent-stale",
+        ));
+
+        let normalized =
+            AgentRuntimeExecutor::normalize_session_telemetry_context(Some(context), &session)
+                .expect("telemetry context");
+
+        assert_eq!(normalized.trace.actor_id, "agent-fallback");
     }
 }

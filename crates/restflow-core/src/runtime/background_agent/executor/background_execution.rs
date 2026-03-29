@@ -5,7 +5,61 @@ fn should_force_non_stream(model: ModelId) -> bool {
     model.is_cli_model()
 }
 
+fn generated_run_id() -> String {
+    format!(
+        "{}-{}",
+        chrono::Utc::now().timestamp_millis(),
+        uuid::Uuid::new_v4()
+    )
+}
+
 impl AgentRuntimeExecutor {
+    fn resolve_background_run_id(&self, background_task_id: Option<&str>) -> String {
+        let Some(task_id) = background_task_id else {
+            return generated_run_id();
+        };
+
+        let query = crate::models::ExecutionTraceQuery {
+            task_id: Some(task_id.to_string()),
+            category: Some(crate::models::ExecutionTraceCategory::Lifecycle),
+            limit: Some(16),
+            ..crate::models::ExecutionTraceQuery::default()
+        };
+        if let Ok(events) = self.storage.execution_traces.query(&query)
+            && let Some(event) = events.into_iter().find(|event| event.parent_run_id.is_none())
+            && event
+                .lifecycle
+                .as_ref()
+                .is_some_and(|lifecycle| lifecycle.status == "run_started")
+            && let Some(run_id) = event.run_id
+        {
+            return run_id;
+        }
+
+        generated_run_id()
+    }
+
+    fn background_telemetry_context(
+        &self,
+        background_task_id: Option<&str>,
+        background_task_snapshot: Option<&crate::models::BackgroundAgent>,
+        agent_id: Option<&str>,
+    ) -> restflow_telemetry::TelemetryContext {
+        let run_id = self.resolve_background_run_id(background_task_id);
+        let session_id = background_task_snapshot
+            .as_ref()
+            .map(|task| task.chat_session_id.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| run_id.clone());
+        let scope_id = background_task_id.unwrap_or(run_id.as_str()).to_string();
+        restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
+            run_id,
+            session_id,
+            scope_id,
+            agent_id.unwrap_or("unknown-agent").to_string(),
+        ))
+    }
+
     #[allow(clippy::too_many_arguments)]
     async fn execute_agent_with_client(
         &self,
@@ -106,23 +160,15 @@ impl AgentRuntimeExecutor {
                 task_id,
             )
         });
-        let telemetry_context = {
-            let run_id = background_task_id.unwrap_or(agent_id.unwrap_or("background-run"));
-            let session_id = background_task_snapshot
-                .as_ref()
-                .map(|task| task.chat_session_id.trim().to_string())
-                .filter(|value| !value.is_empty())
-                .unwrap_or_else(|| run_id.to_string());
-            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
-                run_id.to_string(),
-                session_id,
-                background_task_id.unwrap_or(run_id).to_string(),
-                agent_id.unwrap_or("unknown-agent").to_string(),
-            ))
+        let telemetry_context = self
+            .background_telemetry_context(
+                background_task_id,
+                background_task_snapshot.as_ref(),
+                agent_id,
+            )
             .with_requested_model(model.as_serialized_str())
             .with_effective_model(model.as_serialized_str())
-            .with_provider(model.provider().as_canonical_str())
-        };
+            .with_provider(model.provider().as_canonical_str());
         if max_tool_result_length < resource_limits.max_output_bytes {
             debug!(
                 model = ?model,
@@ -643,22 +689,11 @@ impl AgentRuntimeExecutor {
         let mut steer_rx = steer_rx;
         let shared_emitter = share_stream_emitter(emitter);
         let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
-        let base_telemetry_context = {
-            let run_id = background_task_id.unwrap_or(agent_id);
-            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
-                run_id.to_string(),
-                background_task
-                    .as_ref()
-                    .map(|task| task.chat_session_id.trim().to_string())
-                    .filter(|value| !value.is_empty())
-                    .unwrap_or_else(|| run_id.to_string()),
-                background_task_id.unwrap_or(run_id).to_string(),
-                agent_id.to_string(),
-            ))
+        let base_telemetry_context = self
+            .background_telemetry_context(background_task_id, background_task.as_ref(), Some(agent_id))
             .with_requested_model(primary_model.as_serialized_str())
             .with_effective_model(primary_model.as_serialized_str())
-            .with_provider(primary_provider.as_canonical_str())
-        };
+            .with_provider(primary_provider.as_canonical_str());
 
         loop {
             let input_ref = input_owned.as_deref();
@@ -791,6 +826,30 @@ impl AgentRuntimeExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::auth::AuthProfileManager;
+    use crate::models::{BackgroundAgentSchedule, BackgroundAgentSpec, ExecutionMode, NotificationConfig};
+    use crate::process::ProcessRegistry;
+    use crate::runtime::subagent::AgentDefinitionRegistry;
+    use crate::storage::Storage;
+    use restflow_ai::agent::SubagentTracker;
+    use tempfile::tempdir;
+    use tokio::sync::mpsc;
+
+    fn create_executor(storage: Arc<Storage>) -> AgentRuntimeExecutor {
+        let auth_manager = Arc::new(AuthProfileManager::new(Arc::new(storage.secrets.clone())));
+        let (completion_tx, completion_rx) = mpsc::channel(10);
+        let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
+        let subagent_definitions = Arc::new(AgentDefinitionRegistry::with_builtins());
+        let subagent_config = restflow_ai::agent::SubagentConfig::default();
+        AgentRuntimeExecutor::new(
+            storage,
+            Arc::new(ProcessRegistry::new()),
+            auth_manager,
+            subagent_tracker,
+            subagent_definitions,
+            subagent_config,
+        )
+    }
 
     #[test]
     fn should_force_non_stream_for_all_cli_models() {
@@ -799,5 +858,89 @@ mod tests {
         assert!(should_force_non_stream(ModelId::GeminiCli));
         assert!(should_force_non_stream(ModelId::OpenCodeCli));
         assert!(!should_force_non_stream(ModelId::Gpt5));
+    }
+
+    #[test]
+    fn resolve_background_run_id_reuses_active_started_run() {
+        let temp_dir = tempdir().expect("tempdir");
+        let db_path = temp_dir.path().join("background-run-id.db");
+        let storage = Arc::new(Storage::new(db_path.to_str().expect("db path")).expect("storage"));
+        let executor = create_executor(storage.clone());
+        let task = storage
+            .background_agents
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Digest".to_string(),
+                description: None,
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                input: Some("digest".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: Some(NotificationConfig::default()),
+                execution_mode: Some(ExecutionMode::default()),
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("task");
+        let trace = restflow_telemetry::RestflowTrace::new(
+            "run-active",
+            task.chat_session_id.clone(),
+            task.id.clone(),
+            task.agent_id.clone(),
+        );
+        futures::executor::block_on(crate::telemetry::emit_run_started(
+            &crate::telemetry::build_execution_trace_sink(&storage.execution_traces),
+            trace,
+        ));
+
+        assert_eq!(
+            executor.resolve_background_run_id(Some(&task.id)),
+            "run-active"
+        );
+    }
+
+    #[test]
+    fn resolve_background_run_id_generates_new_run_after_terminal_lifecycle() {
+        let temp_dir = tempdir().expect("tempdir");
+        let db_path = temp_dir.path().join("background-run-id-finished.db");
+        let storage = Arc::new(Storage::new(db_path.to_str().expect("db path")).expect("storage"));
+        let executor = create_executor(storage.clone());
+        let task = storage
+            .background_agents
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Digest".to_string(),
+                description: None,
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                input: Some("digest".to_string()),
+                input_template: None,
+                schedule: BackgroundAgentSchedule::default(),
+                notification: Some(NotificationConfig::default()),
+                execution_mode: Some(ExecutionMode::default()),
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("task");
+        let sink = crate::telemetry::build_execution_trace_sink(&storage.execution_traces);
+        let trace = restflow_telemetry::RestflowTrace::new(
+            "run-finished",
+            task.chat_session_id.clone(),
+            task.id.clone(),
+            task.agent_id.clone(),
+        );
+        futures::executor::block_on(crate::telemetry::emit_run_started(&sink, trace.clone()));
+        futures::executor::block_on(crate::telemetry::emit_run_completed(&sink, trace, None));
+
+        let run_id = executor.resolve_background_run_id(Some(&task.id));
+        assert_ne!(run_id, task.id);
+        assert_ne!(run_id, "run-finished");
     }
 }

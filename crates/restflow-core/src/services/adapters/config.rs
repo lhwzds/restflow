@@ -1,4 +1,4 @@
-use restflow_storage::{ConfigStorage, load_cli_config, load_global_cli_config, write_cli_config};
+use restflow_storage::ConfigStorage;
 use restflow_traits::config_types::{CliConfig, ConfigDocument, SystemConfig};
 use restflow_traits::store::ConfigStore;
 use std::sync::Arc;
@@ -22,22 +22,22 @@ fn config_error(e: impl std::fmt::Display) -> restflow_traits::ToolError {
 impl ConfigStore for ConfigStoreAdapter {
     fn get_effective_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
         let system = self.storage.get_effective_config().map_err(config_error)?;
-        let cli = load_cli_config().map_err(config_error)?;
         let system = serde_json::from_value(serde_json::to_value(system).map_err(config_error)?)
             .map_err(config_error)?;
-        let cli = serde_json::from_value(serde_json::to_value(cli).map_err(config_error)?)
-            .map_err(config_error)?;
-        Ok(ConfigDocument::from_system_config(system, cli))
+        Ok(ConfigDocument::from_system_config(
+            system,
+            CliConfig::default(),
+        ))
     }
 
     fn get_writable_config(&self) -> restflow_traits::error::Result<ConfigDocument> {
         let system = self.storage.get_global_config().map_err(config_error)?;
-        let cli = load_global_cli_config().map_err(config_error)?;
         let system = serde_json::from_value(serde_json::to_value(system).map_err(config_error)?)
             .map_err(config_error)?;
-        let cli = serde_json::from_value(serde_json::to_value(cli).map_err(config_error)?)
-            .map_err(config_error)?;
-        Ok(ConfigDocument::from_system_config(system, cli))
+        Ok(ConfigDocument::from_system_config(
+            system,
+            CliConfig::default(),
+        ))
     }
 
     fn persist_config(&self, config: &ConfigDocument) -> restflow_traits::error::Result<()> {
@@ -45,11 +45,7 @@ impl ConfigStore for ConfigStoreAdapter {
             serde_json::to_value(config.system_config()).map_err(config_error)?,
         )
         .map_err(config_error)?;
-        let cli =
-            serde_json::from_value(serde_json::to_value(config.cli.clone()).map_err(config_error)?)
-                .map_err(config_error)?;
         self.storage.update_config(system).map_err(config_error)?;
-        write_cli_config(&cli).map_err(config_error)?;
         Ok(())
     }
 
@@ -59,11 +55,7 @@ impl ConfigStore for ConfigStoreAdapter {
             serde_json::to_value(doc.system_config()).map_err(config_error)?,
         )
         .map_err(config_error)?;
-        let cli =
-            serde_json::from_value(serde_json::to_value(doc.cli.clone()).map_err(config_error)?)
-                .map_err(config_error)?;
         self.storage.update_config(system).map_err(config_error)?;
-        write_cli_config(&cli).map_err(config_error)?;
         Ok(doc)
     }
 }

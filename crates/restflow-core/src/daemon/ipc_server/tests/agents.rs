@@ -595,7 +595,7 @@ async fn process_approve_pairing_auto_binds_owner_chat_id() {
 }
 
 #[tokio::test]
-async fn process_bind_route_maps_group_to_channel() {
+async fn process_bind_route_preserves_legacy_group_binding() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
@@ -614,13 +614,23 @@ async fn process_bind_route_maps_group_to_channel() {
         IpcResponse::Success(value) => {
             let binding: RouteBindingResponse =
                 serde_json::from_value(value).expect("route binding");
-            assert_eq!(binding.binding_type, "channel");
+            assert_eq!(binding.binding_type, "group");
             assert_eq!(binding.target_id, "chat-1");
             assert_eq!(binding.agent_id, "agent-1");
             assert_eq!(binding.priority, 2);
         }
         other => panic!("expected success response, got {other:?}"),
     }
+
+    let storage = Arc::new(crate::storage::PairingStorage::new(core.storage.get_db()).unwrap());
+    let resolver = crate::channel::RouteResolver::new(storage);
+    let resolved = resolver.resolve_route(
+        crate::channel::ChannelType::Telegram,
+        "bot-1",
+        "peer-1",
+        "chat-1",
+    );
+    assert_eq!(resolved.as_ref().map(|route| route.agent_id.as_str()), Some("agent-1"));
 }
 
 #[tokio::test]

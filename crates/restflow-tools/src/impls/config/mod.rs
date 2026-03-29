@@ -9,7 +9,7 @@ mod tests;
 mod update;
 
 use async_trait::async_trait;
-use restflow_traits::config_types::ConfigDocument;
+use restflow_traits::config_types::{CliConfig, ConfigDocument};
 use restflow_traits::store::ConfigStore;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -72,6 +72,35 @@ impl ConfigTool {
             .map_err(Self::storage_error)
     }
 
+    fn daemon_view(config: &ConfigDocument) -> Result<Value> {
+        let mut encoded = serde_json::to_value(config)?;
+        if let Some(object) = encoded.as_object_mut() {
+            object.remove("cli");
+        }
+        Ok(encoded)
+    }
+
+    fn reject_cli_local_config(config: &ConfigDocument) -> Result<()> {
+        let default_cli = CliConfig::default();
+        let cli = &config.cli;
+        let has_cli_overrides = cli.version != default_cli.version
+            || cli.agent.is_some()
+            || cli.model.is_some()
+            || cli.sandbox.enabled
+            || cli.sandbox.env.isolate
+            || !cli.sandbox.env.allow.is_empty()
+            || !cli.sandbox.env.block.is_empty()
+            || cli.sandbox.limits.timeout_secs != default_cli.sandbox.limits.timeout_secs
+            || cli.sandbox.limits.max_output_bytes
+                != default_cli.sandbox.limits.max_output_bytes;
+        if has_cli_overrides {
+            return Err(ToolError::Tool(
+                "CLI-local config fields are not available through manage_config. Use the CLI-local config command path for cli.* settings.".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     fn apply_update(&self, key: &str, value: &Value) -> Result<ConfigDocument> {
         let mut config = self.get_writable_config()?;
         update::apply_update(key, value, &mut config)?;
@@ -99,7 +128,7 @@ impl Tool for ConfigTool {
         let output = match action {
             ConfigAction::Get | ConfigAction::Show => {
                 let config = self.get_effective_config()?;
-                ToolOutput::success(serde_json::to_value(config)?)
+                ToolOutput::success(Self::daemon_view(&config)?)
             }
             ConfigAction::List => ToolOutput::success(json!({
                 "fields": fields::SUPPORTED_FIELDS,
@@ -107,11 +136,12 @@ impl Tool for ConfigTool {
             ConfigAction::Reset => {
                 self.write_guard()?;
                 let config = self.store.reset_config().map_err(Self::storage_error)?;
-                ToolOutput::success(serde_json::to_value(config)?)
+                ToolOutput::success(Self::daemon_view(&config)?)
             }
             ConfigAction::Set { config, key, value } => {
                 self.write_guard()?;
                 let updated = if let Some(config) = config {
+                    Self::reject_cli_local_config(&config)?;
                     *config
                 } else if let Some(key) = key {
                     let resolved_value = value.unwrap_or(Value::Null);
@@ -123,7 +153,7 @@ impl Tool for ConfigTool {
                 };
 
                 self.persist_config(&updated)?;
-                ToolOutput::success(serde_json::to_value(updated)?)
+                ToolOutput::success(Self::daemon_view(&updated)?)
             }
         };
 

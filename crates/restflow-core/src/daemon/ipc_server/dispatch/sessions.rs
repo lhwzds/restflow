@@ -148,13 +148,8 @@ impl IpcServer {
 
     pub(super) async fn handle_get_session(core: &Arc<AppCore>, id: String) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match core.storage.chat_sessions.get(&id) {
-            Ok(Some(mut session)) => {
-                if let Err(err) = session_service.apply_effective_source(&mut session) {
-                    return IpcResponse::error(500, err.to_string());
-                }
-                IpcResponse::success(session)
-            }
+        match session_service.get_session_view(&id) {
+            Ok(Some(session)) => IpcResponse::success(session),
             Ok(None) => IpcResponse::not_found("Session"),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -167,6 +162,7 @@ impl IpcServer {
         name: Option<String>,
         skill_id: Option<String>,
     ) -> IpcResponse {
+        let session_service = SessionService::from_storage(&core.storage);
         let agent_id = match resolve_agent_id(core, agent_id) {
             Ok(agent_id) => agent_id,
             Err(err) => return IpcResponse::error(400, err.to_string()),
@@ -186,21 +182,8 @@ impl IpcServer {
                 Err(err) => return IpcResponse::error(500, err.to_string()),
             },
         };
-        let mut session = crate::models::ChatSession::new(agent_id, model);
-        session.source_channel = Some(ChatSessionSource::Workspace);
-        if let Some(name) = name {
-            session = session.with_name(name);
-        }
-        if let Some(skill_id) = skill_id {
-            session = session.with_skill(skill_id);
-        }
-        match core.storage.chat_sessions.create(&session) {
-            Ok(()) => {
-                publish_session_event(ChatSessionEvent::Created {
-                    session_id: session.id.clone(),
-                });
-                IpcResponse::success(session)
-            }
+        match session_service.create_workspace_session(agent_id, model, name, skill_id, None) {
+            Ok(session) => IpcResponse::success(session),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -490,7 +473,17 @@ impl IpcServer {
     pub(super) async fn handle_get_execution_trace_stats(
         core: &Arc<AppCore>,
         run_id: Option<String>,
+        task_id: Option<String>,
     ) -> IpcResponse {
+        if task_id
+            .as_deref()
+            .is_some_and(|value| !value.trim().is_empty())
+        {
+            return IpcResponse::error(
+                400,
+                "task_id is no longer supported for execution trace stats; use run_id instead",
+            );
+        }
         match core.storage.execution_traces.stats(run_id.as_deref()) {
             Ok(stats) => IpcResponse::success(stats),
             Err(err) => IpcResponse::error(500, err.to_string()),
