@@ -1,13 +1,17 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use restflow_contracts::{
+    CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
+    RouteBindingResponse, SessionSourceMigrationResponse,
+};
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary, Deliverable,
-    ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, ItemQuery, MemoryChunk,
-    MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem, WorkItemPatch,
-    WorkItemSpec,
+    ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, Hook, ItemQuery,
+    MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
+    WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -93,6 +97,33 @@ pub trait CommandExecutor: Send + Sync {
     async fn get_config(&self) -> Result<SystemConfig>;
     async fn get_global_config(&self) -> Result<SystemConfig>;
     async fn set_config(&self, config: SystemConfig) -> Result<()>;
+
+    async fn list_hooks(&self) -> Result<Vec<Hook>>;
+    async fn create_hook(&self, hook: Hook) -> Result<Hook>;
+    async fn delete_hook(&self, id: &str) -> Result<bool>;
+    async fn test_hook(&self, id: &str) -> Result<()>;
+
+    async fn list_pairing_state(&self) -> Result<PairingStateResponse>;
+    async fn approve_pairing(&self, code: &str) -> Result<PairingApprovalResponse>;
+    async fn deny_pairing(&self, code: &str) -> Result<()>;
+    async fn revoke_paired_peer(&self, peer_id: &str) -> Result<bool>;
+    async fn get_pairing_owner(&self) -> Result<PairingOwnerResponse>;
+    async fn set_pairing_owner(&self, chat_id: &str) -> Result<PairingOwnerResponse>;
+
+    async fn list_route_bindings(&self) -> Result<Vec<RouteBindingResponse>>;
+    async fn bind_route(
+        &self,
+        binding_type: &str,
+        target_id: &str,
+        agent_id: &str,
+    ) -> Result<RouteBindingResponse>;
+    async fn unbind_route(&self, id: &str) -> Result<bool>;
+
+    async fn run_cleanup(&self) -> Result<CleanupReportResponse>;
+    async fn migrate_session_sources(
+        &self,
+        dry_run: bool,
+    ) -> Result<SessionSourceMigrationResponse>;
 
     // Background Agent operations
     async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<BackgroundAgent>>;

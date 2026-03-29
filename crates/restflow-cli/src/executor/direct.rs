@@ -4,11 +4,18 @@ use std::sync::Arc;
 
 use crate::executor::CommandExecutor;
 use crate::setup;
+use restflow_contracts::{
+    AllowedPeerResponse, CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse,
+    PairingRequestResponse, PairingStateResponse, RouteBindingResponse,
+    SessionSourceMigrationResponse,
+};
+use restflow_core::channel::pairing::PairingManager;
+use restflow_core::channel::route_binding::{RouteBindingType, RouteResolver};
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch,
     BackgroundAgentSpec, BackgroundProgress, Deliverable, ExecutionSessionListQuery,
-    ExecutionSessionSummary, ExecutionTimeline, ExecutionTraceQuery, SharedEntry,
+    ExecutionSessionSummary, ExecutionTimeline, ExecutionTraceQuery, Hook, SharedEntry,
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
@@ -23,6 +30,10 @@ use restflow_core::{
         MemorySearchResult, MemoryStats, Secret, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
     },
 };
+use restflow_storage::PairingStorage;
+
+const TELEGRAM_CHAT_ID_SECRET: &str = "TELEGRAM_CHAT_ID";
+const TELEGRAM_DEFAULT_CHAT_ID_SECRET: &str = "TELEGRAM_DEFAULT_CHAT_ID";
 
 pub struct DirectExecutor {
     core: Arc<AppCore>,
@@ -263,6 +274,164 @@ impl CommandExecutor for DirectExecutor {
         config_service::update_config(&self.core, config).await
     }
 
+    async fn list_hooks(&self) -> Result<Vec<Hook>> {
+        self.core.storage.hooks.list()
+    }
+
+    async fn create_hook(&self, hook: Hook) -> Result<Hook> {
+        self.core.storage.hooks.create(&hook)?;
+        Ok(hook)
+    }
+
+    async fn delete_hook(&self, id: &str) -> Result<bool> {
+        self.core.storage.hooks.delete(id)
+    }
+
+    async fn test_hook(&self, id: &str) -> Result<()> {
+        let hook = self
+            .core
+            .storage
+            .hooks
+            .get(id)?
+            .ok_or_else(|| anyhow::anyhow!("Hook not found: {id}"))?;
+        let scheduler = Arc::new(restflow_core::hooks::BackgroundAgentHookScheduler::new(
+            self.core.storage.background_agents.clone(),
+        ));
+        let executor =
+            restflow_core::hooks::HookExecutor::with_storage(self.core.storage.hooks.clone())
+                .with_task_scheduler(scheduler);
+        let context = sample_hook_context(&hook.event);
+        executor.execute_hook(&hook, &context).await
+    }
+
+    async fn list_pairing_state(&self) -> Result<PairingStateResponse> {
+        let manager = pairing_manager(&self.core)?;
+        Ok(PairingStateResponse {
+            allowed_peers: manager
+                .list_allowed()?
+                .into_iter()
+                .map(|peer| AllowedPeerResponse {
+                    peer_id: peer.peer_id,
+                    peer_name: peer.peer_name,
+                    approved_at: peer.approved_at,
+                    approved_by: peer.approved_by,
+                })
+                .collect(),
+            pending_requests: manager
+                .list_pending()?
+                .into_iter()
+                .map(|request| PairingRequestResponse {
+                    code: request.code,
+                    peer_id: request.peer_id,
+                    peer_name: request.peer_name,
+                    chat_id: request.chat_id,
+                    created_at: request.created_at,
+                    expires_at: request.expires_at,
+                })
+                .collect(),
+        })
+    }
+
+    async fn approve_pairing(&self, code: &str) -> Result<PairingApprovalResponse> {
+        let manager = pairing_manager(&self.core)?;
+        let (peer, request) = manager.approve_with_request(code, "cli")?;
+        let owner_auto_bound =
+            auto_bind_owner_chat_id_if_missing(&self.core.storage.secrets, &request.chat_id)?;
+        let owner = resolve_owner_chat_id(&self.core.storage.secrets)?;
+        Ok(PairingApprovalResponse {
+            approved: true,
+            peer_id: peer.peer_id,
+            peer_name: peer.peer_name,
+            owner_chat_id: owner.map(|value| value.0),
+            owner_auto_bound,
+        })
+    }
+
+    async fn deny_pairing(&self, code: &str) -> Result<()> {
+        pairing_manager(&self.core)?.deny(code)
+    }
+
+    async fn revoke_paired_peer(&self, peer_id: &str) -> Result<bool> {
+        pairing_manager(&self.core)?.revoke(peer_id)
+    }
+
+    async fn get_pairing_owner(&self) -> Result<PairingOwnerResponse> {
+        let owner = resolve_owner_chat_id(&self.core.storage.secrets)?;
+        Ok(PairingOwnerResponse {
+            owner_chat_id: owner.as_ref().map(|value| value.0.clone()),
+            source: owner.map(|value| value.1),
+        })
+    }
+
+    async fn set_pairing_owner(&self, chat_id: &str) -> Result<PairingOwnerResponse> {
+        let normalized_chat_id = chat_id.trim();
+        if normalized_chat_id.is_empty() {
+            bail!("chat_id cannot be empty");
+        }
+        self.core
+            .storage
+            .secrets
+            .set_secret(TELEGRAM_CHAT_ID_SECRET, normalized_chat_id, None)?;
+        Ok(PairingOwnerResponse {
+            owner_chat_id: Some(normalized_chat_id.to_string()),
+            source: Some(TELEGRAM_CHAT_ID_SECRET.to_string()),
+        })
+    }
+
+    async fn list_route_bindings(&self) -> Result<Vec<RouteBindingResponse>> {
+        route_resolver(&self.core)?
+            .list()?
+            .into_iter()
+            .map(route_binding_response)
+            .collect()
+    }
+
+    async fn bind_route(
+        &self,
+        binding_type: &str,
+        target_id: &str,
+        agent_id: &str,
+    ) -> Result<RouteBindingResponse> {
+        let binding_type = normalize_route_binding_type(binding_type, target_id);
+        let binding = route_resolver(&self.core)?.bind(binding_type, target_id, agent_id)?;
+        route_binding_response(binding)
+    }
+
+    async fn unbind_route(&self, id: &str) -> Result<bool> {
+        route_resolver(&self.core)?.unbind(id)
+    }
+
+    async fn run_cleanup(&self) -> Result<CleanupReportResponse> {
+        let report = restflow_core::services::cleanup::run_cleanup(&self.core).await?;
+        Ok(CleanupReportResponse {
+            chat_sessions: report.chat_sessions,
+            background_tasks: report.background_tasks,
+            checkpoints: report.checkpoints,
+            memory_chunks: report.memory_chunks,
+            memory_sessions: report.memory_sessions,
+            vector_orphans: report.vector_orphans,
+            daemon_log_files: report.daemon_log_files,
+        })
+    }
+
+    async fn migrate_session_sources(
+        &self,
+        dry_run: bool,
+    ) -> Result<SessionSourceMigrationResponse> {
+        let stats = self
+            .core
+            .storage
+            .chat_sessions
+            .migrate_legacy_channel_sources(dry_run)?;
+        Ok(SessionSourceMigrationResponse {
+            dry_run,
+            scanned: stats.scanned,
+            migrated: stats.migrated,
+            skipped: stats.skipped,
+            failed: stats.failed,
+        })
+    }
+
     // Background Agent operations - require daemon
     async fn list_background_agents(
         &self,
@@ -376,4 +545,99 @@ async fn resolve_agent_id(core: &Arc<AppCore>, agent_id: Option<String>) -> Resu
     }
 
     Ok(agents[0].id.clone())
+}
+
+fn pairing_manager(core: &Arc<AppCore>) -> Result<PairingManager> {
+    let storage = Arc::new(PairingStorage::new(core.storage.get_db())?);
+    Ok(PairingManager::new(storage))
+}
+
+fn route_resolver(core: &Arc<AppCore>) -> Result<RouteResolver> {
+    let storage = Arc::new(PairingStorage::new(core.storage.get_db())?);
+    Ok(RouteResolver::new(storage))
+}
+
+fn resolve_owner_chat_id(
+    secrets: &restflow_core::storage::SecretStorage,
+) -> Result<Option<(String, String)>> {
+    if let Some(value) = secrets.get_non_empty(TELEGRAM_CHAT_ID_SECRET)? {
+        return Ok(Some((value, TELEGRAM_CHAT_ID_SECRET.to_string())));
+    }
+
+    if let Some(value) = secrets.get_non_empty(TELEGRAM_DEFAULT_CHAT_ID_SECRET)? {
+        return Ok(Some((value, TELEGRAM_DEFAULT_CHAT_ID_SECRET.to_string())));
+    }
+
+    Ok(None)
+}
+
+fn auto_bind_owner_chat_id_if_missing(
+    secrets: &restflow_core::storage::SecretStorage,
+    chat_id: &str,
+) -> Result<bool> {
+    if resolve_owner_chat_id(secrets)?.is_some() {
+        return Ok(false);
+    }
+    secrets.set_secret(TELEGRAM_CHAT_ID_SECRET, chat_id, None)?;
+    Ok(true)
+}
+
+fn normalize_route_binding_type(binding_type: &str, target_id: &str) -> RouteBindingType {
+    match binding_type {
+        "peer" => RouteBindingType::Peer,
+        "default" => RouteBindingType::Default,
+        "group" => {
+            tracing::warn!(
+                target_id = %target_id,
+                "Using deprecated --group flag, consider using --channel instead"
+            );
+            RouteBindingType::Channel
+        }
+        _ => RouteBindingType::Channel,
+    }
+}
+
+fn route_binding_response(
+    binding: restflow_core::channel::route_binding::RouteBinding,
+) -> Result<RouteBindingResponse> {
+    Ok(RouteBindingResponse {
+        id: binding.id,
+        binding_type: binding.binding_type.to_string(),
+        target_id: binding.target_id,
+        agent_id: binding.agent_id,
+        created_at: binding.created_at,
+        priority: binding.priority,
+    })
+}
+
+fn sample_hook_context(
+    event: &restflow_core::models::HookEvent,
+) -> restflow_core::models::HookContext {
+    let now = chrono::Utc::now().timestamp_millis();
+
+    match event {
+        restflow_core::models::HookEvent::TaskFailed
+        | restflow_core::models::HookEvent::TaskInterrupted => restflow_core::models::HookContext {
+            event: event.clone(),
+            task_id: "hook-test-task".to_string(),
+            task_name: "hook-test-task".to_string(),
+            agent_id: "hook-test-agent".to_string(),
+            success: Some(false),
+            output: None,
+            error: Some("Hook test error".to_string()),
+            duration_ms: Some(200),
+            timestamp: now,
+        },
+        _ => restflow_core::models::HookContext {
+            event: event.clone(),
+            task_id: "hook-test-task".to_string(),
+            task_name: "hook-test-task".to_string(),
+            agent_id: "hook-test-agent".to_string(),
+            success: Some(true),
+            output: Some("Hook test output".to_string()),
+            error: None,
+            duration_ms: Some(200),
+            timestamp: now,
+        },
+    }
 }
