@@ -19,6 +19,7 @@ type TrackedState = {
 }
 
 const trackedState = new WeakMap<Page, TrackedState>()
+let seededProviderPromise: Promise<void> | null = null
 
 function getTrackedState(page: Page): TrackedState {
   const existing = trackedState.get(page)
@@ -50,6 +51,7 @@ function rememberBackgroundTaskId(page: Page, taskId: string) {
  * Navigate to the workspace and wait for it to load.
  */
 export async function goToWorkspace(page: Page) {
+  await ensureDefaultE2eProvider()
   await page.addInitScript(() => {
     window.localStorage.setItem('locale', 'en')
   })
@@ -58,6 +60,26 @@ export async function goToWorkspace(page: Page) {
   await expect(page.getByTestId('session-list-new-session')).toBeVisible({
     timeout: 15000,
   })
+}
+
+async function ensureDefaultE2eProvider() {
+  if (!seededProviderPromise) {
+    seededProviderPromise = requestIpcDirect({
+      type: 'SetSecret',
+      data: {
+        key: 'OPENAI_API_KEY',
+        value: 'e2e-openai-key',
+        description: 'Seeded E2E provider secret',
+      },
+    }).then(() => undefined)
+  }
+
+  try {
+    await seededProviderPromise
+  } catch (error) {
+    seededProviderPromise = null
+    throw error
+  }
 }
 
 /**

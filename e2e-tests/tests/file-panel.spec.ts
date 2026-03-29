@@ -163,7 +163,12 @@ test.describe('File Panel', () => {
     await page.goto(`/workspace/c/${sessionId}/r/${runId}`)
     await page.waitForLoadState('domcontentloaded')
 
-    await page.getByTestId('thread-item-view-event-file-edit-1').click()
+    await page
+      .getByTestId('run-group-run-group-turn-file-1')
+      .locator('button')
+      .first()
+      .click()
+    await page.getByTestId('run-group-child-view-event-file-edit-1').click()
 
     await expect(page.getByTestId('tool-panel')).toBeVisible()
     await expect(page.getByTestId('file-panel')).toBeVisible()
