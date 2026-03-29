@@ -8,6 +8,7 @@ use tokio::sync::mpsc;
 use crate::models::{ChatSession, MemoryConfig, SteerMessage};
 use crate::runtime::background_agent::{
     AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionInputMode,
+    SessionTurnRuntimeOptions,
 };
 use crate::runtime::orchestrator::kernel::{ExecutionBackend, ExecutionKernel};
 use crate::runtime::orchestrator::modes::{background, interactive, subagent};
@@ -95,6 +96,27 @@ impl AgentOrchestratorImpl {
         .await
     }
 
+    async fn run_interactive_session_turn_with_options(
+        &self,
+        session: &mut ChatSession,
+        user_input: &str,
+        max_history: usize,
+        input_mode: SessionInputMode,
+        emitter: Option<Box<dyn StreamEmitter>>,
+        options: SessionTurnRuntimeOptions,
+    ) -> Result<interactive::InteractiveExecutionResult> {
+        interactive::run_with_session_options(
+            self.kernel.as_ref(),
+            session,
+            user_input,
+            max_history,
+            input_mode,
+            emitter,
+            options,
+        )
+        .await
+    }
+
     pub async fn run_traced_interactive_session_turn(
         &self,
         request: InteractiveSessionRequest<'_>,
@@ -116,6 +138,7 @@ impl AgentOrchestratorImpl {
             session.id.clone(),
             session.agent_id.clone(),
         );
+        let telemetry_context = restflow_telemetry::TelemetryContext::new(trace.clone());
         let telemetry_sink = build_execution_trace_sink(&execution_trace_storage);
         emit_run_started(&telemetry_sink, trace.clone()).await;
 
@@ -126,13 +149,16 @@ impl AgentOrchestratorImpl {
         let execution_result = if let Some(timeout_secs) = timeout_secs {
             match tokio::time::timeout(
                 tokio::time::Duration::from_secs(timeout_secs),
-                self.run_interactive_session_turn(
+                self.run_interactive_session_turn_with_options(
                     session,
                     user_input,
                     max_history,
                     input_mode,
                     Some(traced_emitter),
-                    steer_rx,
+                    SessionTurnRuntimeOptions {
+                        steer_rx,
+                        telemetry_context: Some(telemetry_context.clone()),
+                    },
                 ),
             )
             .await
@@ -152,13 +178,16 @@ impl AgentOrchestratorImpl {
                 }
             }
         } else {
-            self.run_interactive_session_turn(
+            self.run_interactive_session_turn_with_options(
                 session,
                 user_input,
                 max_history,
                 input_mode,
                 Some(traced_emitter),
-                steer_rx,
+                SessionTurnRuntimeOptions {
+                    steer_rx,
+                    telemetry_context: Some(telemetry_context),
+                },
             )
             .await
             .map_err(InteractiveExecutionError::Execution)
@@ -390,7 +419,7 @@ mod tests {
             _max_history: usize,
             _input_mode: SessionInputMode,
             _emitter: Option<Box<dyn StreamEmitter>>,
-            _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+            _options: SessionTurnRuntimeOptions,
         ) -> Result<SessionExecutionResult> {
             session.agent_id = "fallback-agent".to_string();
             Ok(SessionExecutionResult::new(
@@ -557,22 +586,20 @@ mod tests {
 
             async fn execute_interactive_session_turn(
                 &self,
-                _session: &mut ChatSession,
+                session: &mut ChatSession,
                 _user_input: &str,
                 _max_history: usize,
                 _input_mode: SessionInputMode,
                 _emitter: Option<Box<dyn StreamEmitter>>,
-                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+                options: SessionTurnRuntimeOptions,
             ) -> Result<SessionExecutionResult> {
-                let trace = restflow_telemetry::RestflowTrace::new(
-                    "run-traced-llm",
-                    &_session.id,
-                    &_session.id,
-                    &_session.agent_id,
-                );
+                let telemetry_context = options
+                    .telemetry_context
+                    .expect("traced interactive execution should provide telemetry context");
+                let trace = telemetry_context.trace;
                 let model_switch = ExecutionTraceEvent::model_switch(
-                    _session.id.clone(),
-                    _session.agent_id.clone(),
+                    session.id.clone(),
+                    session.agent_id.clone(),
                     ModelSwitchTrace {
                         from_model: "minimax-coding-plan-m2-5-highspeed".to_string(),
                         to_model: "minimax-coding-plan-m2-5".to_string(),
@@ -587,8 +614,8 @@ mod tests {
                 self.execution_trace_storage.store(&model_switch)?;
 
                 let llm_call = ExecutionTraceEvent::llm_call(
-                    _session.id.clone(),
-                    _session.agent_id.clone(),
+                    session.id.clone(),
+                    session.agent_id.clone(),
                     LlmCallTrace {
                         model: "minimax-coding-plan-m2-5".to_string(),
                         input_tokens: Some(10),
@@ -709,6 +736,34 @@ mod tests {
                 .iter()
                 .any(|event| event.category == ExecutionTraceCategory::ModelSwitch)
         );
+
+        let by_run = execution_trace_storage
+            .query(&ExecutionTraceQuery {
+                task_id: Some(session_id),
+                run_id: Some("run-traced-llm".to_string()),
+                ..Default::default()
+            })
+            .expect("query by run");
+        assert!(
+            by_run
+                .iter()
+                .all(|event| event.run_id.as_deref() == Some("run-traced-llm"))
+        );
+        assert!(
+            by_run
+                .iter()
+                .any(|event| event.category == ExecutionTraceCategory::Lifecycle)
+        );
+        assert!(
+            by_run
+                .iter()
+                .any(|event| event.category == ExecutionTraceCategory::LlmCall)
+        );
+        assert!(
+            by_run
+                .iter()
+                .any(|event| event.category == ExecutionTraceCategory::ModelSwitch)
+        );
     }
 
     #[tokio::test]
@@ -729,7 +784,7 @@ mod tests {
                 _max_history: usize,
                 _input_mode: SessionInputMode,
                 _emitter: Option<Box<dyn StreamEmitter>>,
-                _steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+                _options: SessionTurnRuntimeOptions,
             ) -> Result<SessionExecutionResult> {
                 tokio::time::sleep(std::time::Duration::from_millis(50)).await;
                 Ok(SessionExecutionResult::new(

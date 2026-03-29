@@ -3,7 +3,9 @@ use serde_json::json;
 use tokio::sync::mpsc;
 
 use crate::models::{ChatSession, SteerMessage};
-use crate::runtime::background_agent::{SessionExecutionResult, SessionInputMode};
+use crate::runtime::background_agent::{
+    SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
+};
 use crate::runtime::orchestrator::kernel::{
     ExecutionKernel, map_anyhow_error, parse_optional_metadata, require_mode_input,
 };
@@ -26,6 +28,30 @@ pub async fn run_with_session(
     emitter: Option<Box<dyn StreamEmitter>>,
     steer_rx: Option<mpsc::Receiver<SteerMessage>>,
 ) -> Result<InteractiveExecutionResult> {
+    run_with_session_options(
+        kernel,
+        session,
+        user_input,
+        max_history,
+        input_mode,
+        emitter,
+        SessionTurnRuntimeOptions {
+            steer_rx,
+            telemetry_context: None,
+        },
+    )
+    .await
+}
+
+pub async fn run_with_session_options(
+    kernel: &ExecutionKernel,
+    session: &mut ChatSession,
+    user_input: &str,
+    max_history: usize,
+    input_mode: SessionInputMode,
+    emitter: Option<Box<dyn StreamEmitter>>,
+    options: SessionTurnRuntimeOptions,
+) -> Result<InteractiveExecutionResult> {
     let execution = kernel
         .backend()
         .execute_interactive_session_turn(
@@ -34,7 +60,7 @@ pub async fn run_with_session(
             max_history,
             input_mode,
             emitter,
-            steer_rx,
+            options,
         )
         .await?;
     let outcome = ExecutionOutcome {

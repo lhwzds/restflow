@@ -24,7 +24,7 @@ pub trait ExecutionBackend: Send + Sync {
         max_history: usize,
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        options: SessionTurnRuntimeOptions,
     ) -> Result<SessionExecutionResult>;
 
     async fn execute_background(
@@ -78,7 +78,7 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         max_history: usize,
         input_mode: SessionInputMode,
         emitter: Option<Box<dyn StreamEmitter>>,
-        steer_rx: Option<mpsc::Receiver<SteerMessage>>,
+        options: SessionTurnRuntimeOptions,
     ) -> Result<SessionExecutionResult> {
         self.execute_session_turn_with_emitter_and_steer(
             session,
@@ -86,10 +86,7 @@ impl ExecutionBackend for AgentRuntimeExecutor {
             max_history,
             input_mode,
             emitter,
-            SessionTurnRuntimeOptions {
-                steer_rx,
-                telemetry_context: None,
-            },
+            options,
         )
         .await
     }

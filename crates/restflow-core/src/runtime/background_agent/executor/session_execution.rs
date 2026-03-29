@@ -239,17 +239,18 @@ impl AgentRuntimeExecutor {
         );
         let execution_context =
             ExecutionContext::main(agent_id.unwrap_or(&session.agent_id), &session.id);
-        let telemetry_context = telemetry_context.unwrap_or_else(|| {
-            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
-                session.id.clone(),
-                session.id.clone(),
-                session.id.clone(),
-                agent_id.unwrap_or(&session.agent_id),
-            ))
+        let telemetry_context = telemetry_context
+            .unwrap_or_else(|| {
+                restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
+                    session.id.clone(),
+                    session.id.clone(),
+                    session.id.clone(),
+                    agent_id.unwrap_or(&session.agent_id),
+                ))
+            })
             .with_requested_model(model.as_serialized_str())
             .with_effective_model(model.as_serialized_str())
-            .with_provider(model.provider().as_canonical_str())
-        });
+            .with_provider(model.provider().as_canonical_str());
 
         let mut config = ReActAgentConfig::new(user_input.to_string())
             .with_system_prompt(system_prompt.clone())
@@ -696,17 +697,18 @@ impl AgentRuntimeExecutor {
         let shared_emitter = share_stream_emitter(emitter);
         let mut steer_rx = steer_rx;
         let telemetry_sink = crate::telemetry::build_core_telemetry_sink(self.storage.as_ref());
-        let base_telemetry_context = telemetry_context.unwrap_or_else(|| {
-            restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
-                session.id.clone(),
-                session.id.clone(),
-                session.id.clone(),
-                session.agent_id.clone(),
-            ))
+        let base_telemetry_context = telemetry_context
+            .unwrap_or_else(|| {
+                restflow_telemetry::TelemetryContext::new(restflow_telemetry::RestflowTrace::new(
+                    session.id.clone(),
+                    session.id.clone(),
+                    session.id.clone(),
+                    session.agent_id.clone(),
+                ))
+            })
             .with_requested_model(primary_model.as_serialized_str())
             .with_effective_model(primary_model.as_serialized_str())
-            .with_provider(primary_provider.as_canonical_str())
-        });
+            .with_provider(primary_provider.as_canonical_str());
 
         loop {
             let node = agent_node.clone();

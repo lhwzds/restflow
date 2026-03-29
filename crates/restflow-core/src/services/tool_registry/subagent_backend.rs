@@ -34,7 +34,7 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
         _max_history: usize,
         _input_mode: crate::runtime::SessionInputMode,
         _emitter: Option<Box<dyn StreamEmitter>>,
-        _steer_rx: Option<mpsc::Receiver<crate::models::SteerMessage>>,
+        _options: crate::runtime::background_agent::SessionTurnRuntimeOptions,
     ) -> anyhow::Result<crate::runtime::SessionExecutionResult> {
         anyhow::bail!("Interactive execution is not supported in service subagent backend")
     }
