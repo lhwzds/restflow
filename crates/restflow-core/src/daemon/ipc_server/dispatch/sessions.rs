@@ -60,17 +60,9 @@ impl IpcServer {
 
     pub(super) async fn handle_list_sessions(core: &Arc<AppCore>) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match core.storage.chat_sessions.list() {
-            Ok(mut sessions) => {
-                for session in &mut sessions {
-                    if let Err(err) = session_service.apply_effective_source(session) {
-                        return IpcResponse::error(500, err.to_string());
-                    }
-                }
-                let summaries = sessions
-                    .iter()
-                    .map(ChatSessionSummary::from)
-                    .collect::<Vec<_>>();
+        match session_service.list_session_views(None, None, false) {
+            Ok(sessions) => {
+                let summaries = sessions.iter().map(ChatSessionSummary::from).collect::<Vec<_>>();
                 IpcResponse::success(summaries)
             }
             Err(err) => IpcResponse::error(500, err.to_string()),
@@ -79,15 +71,8 @@ impl IpcServer {
 
     pub(super) async fn handle_list_full_sessions(core: &Arc<AppCore>) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match core.storage.chat_sessions.list() {
-            Ok(mut sessions) => {
-                for session in &mut sessions {
-                    if let Err(err) = session_service.apply_effective_source(session) {
-                        return IpcResponse::error(500, err.to_string());
-                    }
-                }
-                IpcResponse::success(sessions)
-            }
+        match session_service.list_session_views(None, None, false) {
+            Ok(sessions) => IpcResponse::success(sessions),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -97,15 +82,8 @@ impl IpcServer {
         agent_id: String,
     ) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match core.storage.chat_sessions.list_by_agent(&agent_id) {
-            Ok(mut sessions) => {
-                for session in &mut sessions {
-                    if let Err(err) = session_service.apply_effective_source(session) {
-                        return IpcResponse::error(500, err.to_string());
-                    }
-                }
-                IpcResponse::success(sessions)
-            }
+        match session_service.list_session_views(Some(&agent_id), None, false) {
+            Ok(sessions) => IpcResponse::success(sessions),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -115,15 +93,8 @@ impl IpcServer {
         skill_id: String,
     ) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match core.storage.chat_sessions.list_by_skill(&skill_id) {
-            Ok(mut sessions) => {
-                for session in &mut sessions {
-                    if let Err(err) = session_service.apply_effective_source(session) {
-                        return IpcResponse::error(500, err.to_string());
-                    }
-                }
-                IpcResponse::success(sessions)
-            }
+        match session_service.list_session_views(None, Some(&skill_id), false) {
+            Ok(sessions) => IpcResponse::success(sessions),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
     }
@@ -261,24 +232,11 @@ impl IpcServer {
 
     pub(super) async fn handle_search_sessions(core: &Arc<AppCore>, query: String) -> IpcResponse {
         let session_service = SessionService::from_storage(&core.storage);
-        match core.storage.chat_sessions.list() {
-            Ok(mut sessions) => {
-                let query = query.to_lowercase();
-                for session in &mut sessions {
-                    if let Err(err) = session_service.apply_effective_source(session) {
-                        return IpcResponse::error(500, err.to_string());
-                    }
-                }
+        match session_service.search_session_views(&query, None, None, false, usize::MAX) {
+            Ok(sessions) => {
                 let matches: Vec<ChatSessionSummary> = sessions
-                    .into_iter()
-                    .filter(|session| {
-                        session.name.to_lowercase().contains(&query)
-                            || session
-                                .messages
-                                .iter()
-                                .any(|message| message.content.to_lowercase().contains(&query))
-                    })
-                    .map(|session| ChatSessionSummary::from(&session))
+                    .iter()
+                    .map(ChatSessionSummary::from)
                     .collect();
                 IpcResponse::success(matches)
             }
@@ -484,7 +442,19 @@ impl IpcServer {
                 "task_id is no longer supported for execution trace stats; use run_id instead",
             );
         }
-        match core.storage.execution_traces.stats(run_id.as_deref()) {
+        let run_id_provided = run_id.is_some();
+        let normalized_run_id = run_id.and_then(|value| {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+        if run_id_provided && normalized_run_id.is_none() {
+            return IpcResponse::error(400, "run_id is required");
+        }
+        match core.storage.execution_traces.stats(normalized_run_id.as_deref()) {
             Ok(stats) => IpcResponse::success(stats),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

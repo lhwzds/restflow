@@ -333,6 +333,30 @@ async fn get_execution_trace_stats_rejects_legacy_task_id_filter() {
 }
 
 #[tokio::test]
+async fn get_execution_trace_stats_rejects_blank_run_id_filter() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::GetExecutionTraceStats {
+            run_id: Some("   ".to_string()),
+            task_id: None,
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Error(error) => {
+            assert_eq!(error.code, 400);
+            assert!(error.message.contains("run_id is required"));
+        }
+        other => panic!("expected error response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn get_execution_run_telemetry_requests_filter_by_run_id() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
