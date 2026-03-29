@@ -58,6 +58,10 @@ fn command_needs_direct_core(command: &Option<Commands>) -> bool {
     matches!(command, Some(Commands::Daemon { .. }))
 }
 
+fn executor_db_path_flag(raw_db_path: Option<String>, needs_direct_core: bool) -> Option<String> {
+    if needs_direct_core { None } else { raw_db_path }
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(err) = run().await {
@@ -126,10 +130,9 @@ async fn run() -> Result<()> {
     // Commands that need direct core access.
     let needs_direct_core = command_needs_direct_core(&cli.command);
 
-    let db_path = setup::resolve_db_path(cli.db_path.clone())?;
-
     if needs_direct_core {
         // Use direct core for commands that require it
+        let db_path = setup::resolve_db_path(cli.db_path.clone())?;
         let core = setup::prepare_core(Some(db_path)).await?;
 
         match cli.command {
@@ -138,7 +141,11 @@ async fn run() -> Result<()> {
         }
     } else {
         // Use executor for commands that support IPC
-        let exec = executor::create(Some(db_path)).await?;
+        let exec = executor::create(executor_db_path_flag(
+            cli.db_path.clone(),
+            needs_direct_core,
+        ))
+        .await?;
 
         match cli.command {
             Some(Commands::Agent { command }) => {
@@ -206,8 +213,10 @@ async fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::command_needs_direct_core;
-    use crate::cli::{Commands, HookCommands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs};
+    use super::{command_needs_direct_core, executor_db_path_flag};
+    use crate::cli::{
+        Commands, HookCommands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs,
+    };
 
     #[test]
     fn start_does_not_need_direct_core() {
@@ -245,5 +254,21 @@ mod tests {
             command: RouteCommands::List,
         });
         assert!(!command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn executor_db_path_flag_drops_default_path_for_direct_core_commands() {
+        assert_eq!(
+            executor_db_path_flag(Some("/tmp/restflow.db".to_string()), true),
+            None
+        );
+    }
+
+    #[test]
+    fn executor_db_path_flag_preserves_explicit_flag_for_daemon_routed_commands() {
+        assert_eq!(
+            executor_db_path_flag(Some("/tmp/restflow.db".to_string()), false),
+            Some("/tmp/restflow.db".to_string())
+        );
     }
 }

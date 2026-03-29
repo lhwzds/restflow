@@ -218,8 +218,9 @@ mod tests {
             Ok(_) => panic!("create should reject db_path for daemon-routed commands"),
             Err(err) => err,
         };
-        assert!(err
-            .to_string()
-            .contains("only supported for daemon lifecycle commands"));
+        assert!(
+            err.to_string()
+                .contains("only supported for daemon lifecycle commands")
+        );
     }
 }

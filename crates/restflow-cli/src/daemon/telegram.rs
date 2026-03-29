@@ -106,8 +106,7 @@ mod tests {
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
-    fn setup_channel_state(
-    ) -> (
+    fn setup_channel_state() -> (
         SecretStorage,
         DaemonStateStorage,
         tempfile::TempDir,
