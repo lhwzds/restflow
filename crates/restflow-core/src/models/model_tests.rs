@@ -288,7 +288,7 @@ fn test_display_name() {
 #[test]
 fn test_all_models() {
     let models = ModelId::all();
-    assert_eq!(models.len(), 63);
+    assert_eq!(models.len(), 64);
     assert!(models.contains(&ModelId::Gpt5));
     assert!(models.contains(&ModelId::Gpt5_1));
     assert!(models.contains(&ModelId::ClaudeOpus4_6));
@@ -872,7 +872,7 @@ fn test_flagship_model() {
     assert_eq!(Provider::Zai.flagship_model(), ModelId::Glm5);
     assert_eq!(
         Provider::ZaiCodingPlan.flagship_model(),
-        ModelId::Glm5CodingPlan
+        ModelId::Glm5_1CodingPlan
     );
     assert_eq!(
         Provider::MiniMaxCodingPlan.flagship_model(),

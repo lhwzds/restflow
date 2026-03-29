@@ -929,9 +929,13 @@ mod tests {
     use crate::storage::Storage;
     use crate::{ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource};
     use std::sync::Arc;
+    use tempfile::TempDir;
 
-    fn create_storage() -> Arc<Storage> {
-        Arc::new(Storage::new(":memory:").expect("storage"))
+    fn create_storage() -> (Arc<Storage>, TempDir) {
+        let temp_dir = tempfile::tempdir().expect("temp dir");
+        let db_path = temp_dir.path().join("execution-console-tests.redb");
+        let storage = Arc::new(Storage::new(db_path.to_str().expect("db path")).expect("storage"));
+        (storage, temp_dir)
     }
 
     fn store_run_events(
@@ -982,7 +986,7 @@ mod tests {
 
     #[test]
     fn lists_workspace_and_external_containers() {
-        let storage = create_storage();
+        let (storage, _temp_dir) = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
 
         let mut workspace = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
@@ -1033,7 +1037,7 @@ mod tests {
 
     #[test]
     fn excludes_background_bound_sessions_from_workspace_projection() {
-        let storage = create_storage();
+        let (storage, _temp_dir) = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
 
         let mut workspace = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
@@ -1080,7 +1084,7 @@ mod tests {
 
     #[test]
     fn lists_background_task_runs_and_child_runs() {
-        let storage = create_storage();
+        let (storage, _temp_dir) = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
 
         let task = storage
@@ -1153,7 +1157,7 @@ mod tests {
 
     #[test]
     fn workspace_container_exposes_latest_run_and_child_runs_via_relation_query() {
-        let storage = create_storage();
+        let (storage, _temp_dir) = create_storage();
         let service = ExecutionConsoleService::from_storage(&storage);
 
         let session = ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
