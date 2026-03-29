@@ -607,6 +607,29 @@ async fn test_set_rejects_cli_block_in_full_config_payload() {
 }
 
 #[tokio::test]
+async fn test_set_rejects_default_cli_block_in_full_config_payload() {
+    let ctx = setup_storage();
+    let tool = ConfigTool::new(ctx.store).with_write(true);
+
+    let err = tool
+        .execute(json!({
+            "operation": "set",
+            "config": {
+                "system": {
+                    "worker_count": 6
+                },
+                "cli": {}
+            }
+        }))
+        .await
+        .expect_err("default cli block should still be rejected");
+
+    assert!(err
+        .to_string()
+        .contains("CLI-local config fields are not available through manage_config"));
+}
+
+#[tokio::test]
 async fn test_set_api_defaults() {
     let ctx = setup_storage();
     let tool = ConfigTool::new(ctx.store).with_write(true);
