@@ -64,6 +64,8 @@ const scrollContainer = ref<HTMLElement | null>(null)
 const expandedItems = ref<Set<string>>(new Set())
 // Tracks failed items the user has explicitly collapsed to override auto-expand
 const manuallyCollapsed = ref<Set<string>>(new Set())
+// run_group expansion: running=always open, failed=default open, completed=default closed
+const expandedGroups = ref<Set<string>>(new Set())
 const loadedMediaUrls = ref<Map<string, { blobUrl: string; duration: number }>>(new Map())
 const loadingMediaPaths = ref<Set<string>>(new Set())
 
@@ -118,6 +120,47 @@ function emitSelection(item: ThreadItem) {
 
 function isMessageItem(item: ThreadItem): item is ThreadItem & { message: ChatMessage } {
   return item.kind === 'message' && !!item.message
+}
+
+function isRunGroup(item: ThreadItem): boolean {
+  return item.kind === 'run_group'
+}
+
+function isGroupExpanded(item: ThreadItem): boolean {
+  // Running groups are always expanded
+  if (item.status === 'running') return true
+  // Failed groups are expanded by default unless user closed them
+  if (item.status === 'failed' || item.status === 'interrupted') {
+    return !expandedGroups.value.has(`closed-${item.id}`)
+  }
+  // Completed groups are collapsed by default unless user opened them
+  return expandedGroups.value.has(item.id)
+}
+
+function toggleGroup(id: string, item: ThreadItem) {
+  if (item.status === 'running') return
+  const isFailed = item.status === 'failed' || item.status === 'interrupted'
+  if (isFailed) {
+    // Toggle the "force closed" marker
+    const closedKey = `closed-${id}`
+    if (expandedGroups.value.has(closedKey)) {
+      expandedGroups.value.delete(closedKey)
+    } else {
+      expandedGroups.value.add(closedKey)
+    }
+  } else {
+    if (expandedGroups.value.has(id)) {
+      expandedGroups.value.delete(id)
+    } else {
+      expandedGroups.value.add(id)
+    }
+  }
+}
+
+function childKindIcon(kind: string): 'tool' | 'llm' | 'other' {
+  if (kind === 'tool_call') return 'tool'
+  if (kind === 'llm_call') return 'llm'
+  return 'other'
 }
 
 function isLastAssistantMessage(messageId: string): boolean {
@@ -264,8 +307,88 @@ onMounted(() => {
   <div ref="scrollContainer" class="flex-1 overflow-auto px-4 py-4">
     <div class="mx-auto max-w-[48rem] space-y-4">
       <div v-for="item in renderedItems" :key="item.id" class="group relative">
+
+        <!-- Run group card -->
         <div
-          v-if="!isMessageItem(item)"
+          v-if="isRunGroup(item)"
+          :data-testid="`run-group-${item.id}`"
+          class="mr-auto max-w-[90%] overflow-hidden rounded-lg border border-border bg-background"
+        >
+          <!-- Group header -->
+          <button
+            class="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/50"
+            :class="{ 'cursor-default': item.status === 'running' }"
+            @click="toggleGroup(item.id, item)"
+          >
+            <Loader2 v-if="item.status === 'running'" :size="12" class="shrink-0 animate-spin text-primary" />
+            <Check v-else-if="item.status === 'completed'" :size="12" class="shrink-0 text-green-500" />
+            <X v-else :size="12" class="shrink-0 text-red-500" />
+
+            <span class="text-xs font-medium text-foreground/80">
+              {{ item.summary || 'Run' }}
+            </span>
+            <span v-if="item.durationLabel" class="text-[11px] text-muted-foreground">
+              · {{ item.durationLabel }}
+            </span>
+
+            <div class="flex-1" />
+
+            <ChevronDown v-if="isGroupExpanded(item) && item.status !== 'running'" :size="12" class="shrink-0 text-muted-foreground" />
+            <ChevronRight v-else-if="item.status !== 'running'" :size="12" class="shrink-0 text-muted-foreground" />
+          </button>
+
+          <!-- Children tree -->
+          <div v-if="isGroupExpanded(item) && item.children?.length" class="border-t border-border">
+            <div
+              v-for="(child, ci) in item.children"
+              :key="child.id"
+              class="flex items-center gap-2 px-3 py-1.5 text-xs transition-colors hover:bg-muted/30"
+              :class="{ 'border-b border-border/40': ci < (item.children?.length ?? 0) - 1 }"
+            >
+              <!-- Tree connector -->
+              <span class="shrink-0 text-border select-none font-mono text-[10px]">
+                {{ ci === (item.children?.length ?? 0) - 1 ? '└─' : '├─' }}
+              </span>
+
+              <!-- Status icon -->
+              <Loader2 v-if="child.status === 'running'" :size="10" class="shrink-0 animate-spin text-primary" />
+              <Check v-else-if="child.status === 'completed'" :size="10" class="shrink-0 text-green-500" />
+              <X v-else-if="child.status === 'failed'" :size="10" class="shrink-0 text-red-500" />
+              <Wrench v-else-if="childKindIcon(child.kind) === 'tool'" :size="10" class="shrink-0 text-muted-foreground" />
+              <Activity v-else :size="10" class="shrink-0 text-muted-foreground" />
+
+              <!-- Title -->
+              <span class="flex-1 truncate font-mono text-[12px]">{{ child.title }}</span>
+
+              <!-- Kind badge -->
+              <span class="shrink-0 rounded bg-muted px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                {{ itemKindLabel(child) }}
+              </span>
+
+              <!-- Duration -->
+              <span v-if="child.durationLabel" class="shrink-0 text-[11px] text-muted-foreground">
+                {{ child.durationLabel }}
+              </span>
+
+              <!-- View button -->
+              <Button
+                v-if="canInspect(child)"
+                :data-testid="`run-group-child-view-${child.id}`"
+                variant="ghost"
+                size="sm"
+                class="h-5 shrink-0 gap-1 px-1.5 text-[10px]"
+                @click.stop="emitSelection(child)"
+              >
+                <PanelRight :size="10" />
+                View
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Regular step items (non-grouped, no turn_id) -->
+        <div
+          v-else-if="!isMessageItem(item)"
           :data-testid="persistedStepIds(item)?.row ?? `thread-item-${item.id}`"
           :class="['bg-background mr-auto max-w-[90%] overflow-hidden rounded-lg border border-border border-l-4', itemAccentClass(item)]"
         >

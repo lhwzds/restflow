@@ -13,6 +13,7 @@ export type ThreadItemKind =
   | 'model_switch'
   | 'lifecycle'
   | 'log_record'
+  | 'run_group'
 
 export type ThreadSelectionKind = 'message' | 'step' | 'event'
 
@@ -38,6 +39,9 @@ export interface ThreadItem {
   message?: ChatMessage
   selection?: ThreadSelection
   expandable: boolean
+  // run_group fields
+  children?: ThreadItem[]
+  turnId?: string
 }
 
 interface ThreadEnvelope {
@@ -422,6 +426,7 @@ function buildExecutionEventItem(
     timestampLabel: formatTimestampLabel(event.timestamp),
     selection,
     expandable: true,
+    turnId: event.turn_id ?? undefined,
   }
 }
 
@@ -507,8 +512,14 @@ function resolveMessageMatches(
 
 function appendLiveOverlays(items: ThreadItem[], steps: StreamStep[] | undefined, streamContent: string | undefined) {
   if (steps?.length) {
-    steps.forEach((step, index) => {
-      items.push(buildStreamStepItem(step, index))
+    const children = steps.map((step, index) => buildStreamStepItem(step, index))
+    items.push({
+      id: 'live-run-group',
+      kind: 'run_group',
+      title: 'Run',
+      status: resolveGroupStatus(undefined, children),
+      expandable: false,
+      children,
     })
   }
 
@@ -519,6 +530,121 @@ function appendLiveOverlays(items: ThreadItem[], steps: StreamStep[] | undefined
 
 function isOptimisticMessage(message: ChatMessage): boolean {
   return message.id.startsWith('optimistic-')
+}
+
+interface TurnMeta {
+  status: string
+  durationMs?: number
+  toolCount: number
+  llmCount: number
+}
+
+function resolveGroupStatus(meta: Pick<TurnMeta, 'status'> | undefined, children: ThreadItem[]): string {
+  if (meta?.status && meta.status !== 'running') {
+    return meta.status
+  }
+
+  if (children.some((child) => child.status === 'running' || child.status === 'pending')) {
+    return 'running'
+  }
+
+  if (children.some((child) => child.status === 'failed' || child.status === 'interrupted')) {
+    return 'failed'
+  }
+
+  return children.length > 0 ? 'completed' : 'running'
+}
+
+function collectTurnMeta(events: ExecutionTraceEvent[]): Map<string, TurnMeta> {
+  const meta = new Map<string, TurnMeta>()
+  for (const event of events) {
+    if (!event.turn_id) continue
+    if (!meta.has(event.turn_id)) {
+      meta.set(event.turn_id, { status: 'running', toolCount: 0, llmCount: 0 })
+    }
+    const m = meta.get(event.turn_id)!
+    if (event.category === 'lifecycle') {
+      const s = event.lifecycle?.status ?? ''
+      if (s === 'completed' || s === 'failed' || s === 'run_failed' || s === 'interrupted') {
+        m.status = s.includes('fail') ? 'failed' : s.includes('interrupt') ? 'interrupted' : 'completed'
+        if (event.lifecycle?.ai_duration_ms != null) {
+          m.durationMs = Number(event.lifecycle.ai_duration_ms)
+        }
+      }
+    }
+    if (event.category === 'tool_call' && event.tool_call?.phase === 'completed') m.toolCount++
+    if (event.category === 'llm_call') m.llmCount++
+  }
+  return meta
+}
+
+function buildRunGroupSummary(meta: TurnMeta): string {
+  const parts: string[] = []
+  if (meta.toolCount > 0) parts.push(`${meta.toolCount} tool${meta.toolCount > 1 ? 's' : ''}`)
+  if (meta.llmCount > 0) parts.push(`${meta.llmCount} LLM call${meta.llmCount > 1 ? 's' : ''}`)
+  if (meta.durationMs != null) {
+    parts.push(meta.durationMs < 1000 ? `${meta.durationMs}ms` : `${(meta.durationMs / 1000).toFixed(1)}s`)
+  }
+  return parts.join(' · ')
+}
+
+// Post-process a flat sorted item list into run_group cards grouped by turn_id.
+// Lifecycle items become group metadata; tool/llm/model_switch items become children.
+// Message items remain at the top level.
+function groupItemsByTurn(items: ThreadItem[], turnMeta: Map<string, TurnMeta>): ThreadItem[] {
+  const result: ThreadItem[] = []
+  // Map from turnId → group item already pushed into result
+  const activeGroups = new Map<string, ThreadItem>()
+
+  function ensureGroup(turnId: string): ThreadItem {
+    if (!activeGroups.has(turnId)) {
+      const meta = turnMeta.get(turnId) ?? { status: 'running', toolCount: 0, llmCount: 0 }
+      const group: ThreadItem = {
+        id: `run-group-${turnId}`,
+        kind: 'run_group',
+        title: 'Run',
+        summary: buildRunGroupSummary(meta),
+        status: meta.status,
+        durationLabel: meta.durationMs != null
+          ? (meta.durationMs < 1000 ? `${meta.durationMs}ms` : `${(meta.durationMs / 1000).toFixed(1)}s`)
+          : null,
+        expandable: false,
+        turnId,
+        children: [],
+      }
+      activeGroups.set(turnId, group)
+      result.push(group)
+    }
+
+    return activeGroups.get(turnId)!
+  }
+
+  for (const item of items) {
+    if (item.kind === 'message') {
+      result.push(item)
+      continue
+    }
+
+    // Lifecycle items contribute run-group metadata. They should still create a
+    // group so lifecycle-only turns remain visible in the thread.
+    if (item.kind === 'lifecycle') {
+      if (item.turnId) ensureGroup(item.turnId)
+      continue
+    }
+
+    if (!item.turnId) {
+      result.push(item)
+      continue
+    }
+
+    ensureGroup(item.turnId).children!.push(item)
+  }
+
+  activeGroups.forEach((group, turnId) => {
+    group.status = resolveGroupStatus(turnMeta.get(turnId), group.children ?? [])
+  })
+
+  return result
 }
 
 function buildMessageOnlyItems(messages: ChatMessage[]): ThreadItem[] {
@@ -566,7 +692,14 @@ export function buildSessionThreadItems(input: {
 }): ThreadItem[] {
   if (!input.thread) {
     const items = buildMessageOnlyItems(input.messages)
-    appendLiveOverlays(items, input.steps, input.streamContent)
+    const hasActiveLiveSteps = input.steps?.some(
+      (s) => s.status === 'running' || s.status === 'pending',
+    )
+    if (hasActiveLiveSteps) {
+      appendLiveOverlays(items, input.steps, input.streamContent)
+    } else if (input.streamContent) {
+      items.push(buildStreamingAssistantItem(input.streamContent))
+    }
     return items
   }
 
@@ -600,7 +733,20 @@ export function buildSessionThreadItems(input: {
     return left.sortId.localeCompare(right.sortId)
   })
 
-  const items = envelopes.map((entry) => entry.item)
-  appendLiveOverlays(items, input.steps, input.streamContent)
-  return items
+  const flatItems = envelopes.map((entry) => entry.item)
+  const turnMeta = collectTurnMeta(canonicalEvents)
+  const grouped = groupItemsByTurn(flatItems, turnMeta)
+
+  // Only overlay live steps when something is still running.
+  // Once all steps are completed the thread already has those events — showing
+  // the live overlay too would produce a duplicate run_group card.
+  const hasActiveLiveSteps = input.steps?.some(
+    (s) => s.status === 'running' || s.status === 'pending',
+  )
+  if (hasActiveLiveSteps) {
+    appendLiveOverlays(grouped, input.steps, input.streamContent)
+  } else if (input.streamContent) {
+    grouped.push(buildStreamingAssistantItem(input.streamContent))
+  }
+  return grouped
 }

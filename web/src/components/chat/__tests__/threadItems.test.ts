@@ -127,7 +127,17 @@ describe('threadItems', () => {
       streamContent: '',
     })
 
-    expect(items.map((item) => item.kind)).toEqual(['message', 'tool_call', 'message'])
+    expect(items.map((item) => item.kind)).toEqual(['message', 'run_group', 'message'])
+    expect(items[1]).toMatchObject({
+      id: 'run-group-turn-1',
+      status: 'completed',
+      children: [
+        expect.objectContaining({
+          id: 'event-tool-1',
+          kind: 'tool_call',
+        }),
+      ],
+    })
     expect(items[0]?.message?.id).toBe('msg-user-1')
     expect(items[2]?.message?.content).toBe(
       'I found the release notes and summarized the changes in detail.',
@@ -204,9 +214,19 @@ describe('threadItems', () => {
     expect(items.map((item) => item.id)).toEqual([
       'event-assistant-1',
       'msg-optimistic-user-1',
-      'stream-tool-1',
+      'live-run-group',
       'streaming-assistant',
     ])
+    expect(items[2]).toMatchObject({
+      kind: 'run_group',
+      status: 'running',
+      children: [
+        expect.objectContaining({
+          id: 'stream-tool-1',
+          kind: 'tool_call',
+        }),
+      ],
+    })
     expect(items[1]?.message?.content).toBe('Follow up before trace sync')
     expect(items[3]?.message?.content).toBe('Streaming assistant reply')
   })
@@ -313,9 +333,18 @@ describe('threadItems', () => {
 
     expect(items.map((item) => item.id)).toEqual([
       'optimistic-123',
-      'stream-tool-1',
+      'live-run-group',
       'streaming-assistant',
     ])
+    expect(items[1]).toMatchObject({
+      kind: 'run_group',
+      status: 'running',
+      children: [
+        expect.objectContaining({
+          id: 'stream-tool-1',
+        }),
+      ],
+    })
   })
 
   it('appends optimistic messages after persisted history before live overlays when no canonical run exists yet', () => {
@@ -352,7 +381,7 @@ describe('threadItems', () => {
     expect(items.map((item) => item.id)).toEqual([
       'optimistic-123',
       'msg-user-1',
-      'stream-tool-1',
+      'live-run-group',
       'streaming-assistant',
     ])
   })
@@ -445,7 +474,12 @@ describe('threadItems', () => {
       streamContent: '',
     })
 
-    expect(items.map((item) => item.id)).toEqual(['event-tool', 'event-assistant'])
+    expect(items.map((item) => item.id)).toEqual(['run-group-turn-1', 'event-assistant'])
+    expect(items[0]?.children).toEqual([
+      expect.objectContaining({
+        id: 'event-tool',
+      }),
+    ])
   })
 
   it('does not emit synthetic child run rows inside the selected run thread', () => {
@@ -463,5 +497,155 @@ describe('threadItems', () => {
     })
 
     expect(items).toEqual([])
+  })
+
+  it('does not append a duplicate live overlay once stream steps are already completed', () => {
+    const items = buildSessionThreadItems({
+      thread: {
+        focus: {} as any,
+        timeline: {
+          events: [
+            {
+              id: 'event-tool-1',
+              task_id: 'task-1',
+              agent_id: 'agent-1',
+              category: 'tool_call',
+              source: 'agent_executor',
+              timestamp: 2000,
+              subflow_path: [],
+              run_id: 'run-1',
+              parent_run_id: null,
+              session_id: 'session-1',
+              turn_id: 'turn-1',
+              requested_model: 'gpt-5',
+              effective_model: 'gpt-5',
+              provider: 'openai',
+              attempt: 1,
+              llm_call: null,
+              tool_call: {
+                tool_call_id: 'tool-call-1',
+                tool_name: 'web_search',
+                phase: 'completed',
+                input: null,
+                input_summary: 'release notes',
+                output: null,
+                output_ref: null,
+                success: true,
+                error: null,
+                duration_ms: 1200n,
+              },
+              model_switch: null,
+              lifecycle: null,
+              message: null,
+              metric_sample: null,
+              provider_health: null,
+              log_record: null,
+            },
+          ],
+          stats: {} as any,
+        },
+      },
+      messages: [],
+      steps: [
+        {
+          type: 'tool_call',
+          name: 'web_search',
+          displayName: 'web_search',
+          status: 'completed',
+          toolId: 'stream-tool-1',
+        },
+      ],
+      streamContent: '',
+    })
+
+    expect(items.map((item) => item.id)).toEqual(['run-group-turn-1'])
+    expect(items.find((item) => item.id === 'live-run-group')).toBeUndefined()
+  })
+
+  it('keeps live run groups in running state while any child step is still active', () => {
+    const items = buildSessionThreadItems({
+      thread: null,
+      messages: [],
+      steps: [
+        {
+          type: 'tool_call',
+          name: 'bash',
+          displayName: 'bash',
+          status: 'failed',
+          toolId: 'stream-tool-failed',
+        },
+        {
+          type: 'tool_call',
+          name: 'web_search',
+          displayName: 'web_search',
+          status: 'running',
+          toolId: 'stream-tool-running',
+        },
+      ],
+      streamContent: '',
+    })
+
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      id: 'live-run-group',
+      kind: 'run_group',
+      status: 'running',
+    })
+  })
+
+  it('renders lifecycle-only turns as run groups so failed runs remain visible', () => {
+    const items = buildSessionThreadItems({
+      thread: {
+        focus: {} as any,
+        timeline: {
+          events: [
+            {
+              id: 'event-lifecycle-1',
+              task_id: 'task-1',
+              agent_id: 'agent-1',
+              category: 'lifecycle',
+              source: 'agent_executor',
+              timestamp: 3000,
+              subflow_path: [],
+              run_id: 'run-1',
+              parent_run_id: null,
+              session_id: 'session-1',
+              turn_id: 'turn-1',
+              requested_model: 'gpt-5',
+              effective_model: 'gpt-5',
+              provider: 'openai',
+              attempt: 1,
+              llm_call: null,
+              tool_call: null,
+              model_switch: null,
+              lifecycle: {
+                status: 'failed',
+                message: 'Run failed before tool execution',
+                error: 'boom',
+                ai_duration_ms: 250n,
+              },
+              message: null,
+              metric_sample: null,
+              provider_health: null,
+              log_record: null,
+            },
+          ],
+          stats: {} as any,
+        },
+      },
+      messages: [],
+      steps: [],
+      streamContent: '',
+    })
+
+    expect(items).toEqual([
+      expect.objectContaining({
+        id: 'run-group-turn-1',
+        kind: 'run_group',
+        status: 'failed',
+        durationLabel: '250ms',
+        children: [],
+      }),
+    ])
   })
 })

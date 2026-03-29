@@ -430,9 +430,13 @@ test.describe('Workspace Layout', () => {
     await page.goto(`/workspace/c/${sessionId}/r/${runId}`)
     await page.waitForLoadState('domcontentloaded')
 
-    await expect(page.getByTestId('thread-item-view-event-tool-1')).toBeVisible()
+    const runGroup = page.getByTestId('run-group-run-group-turn-1')
+    await expect(runGroup).toBeVisible()
+    await expect(page.getByTestId('run-group-child-view-event-tool-1')).toHaveCount(0)
+    await runGroup.locator('button').first().click()
+    await expect(page.getByTestId('run-group-child-view-event-tool-1')).toBeVisible()
     await expect(page.getByTestId(`chat-message-${assistantMessageId}`)).toBeVisible()
-    const toolRow = page.getByTestId('thread-item-event-tool-1')
+    const toolRow = page.getByTestId('run-group-run-group-turn-1')
     const assistantRow = page.getByTestId(`chat-message-${assistantMessageId}`)
     await expect(
       assistantRow.getByText('I found the release notes and summarized the changes in detail.'),

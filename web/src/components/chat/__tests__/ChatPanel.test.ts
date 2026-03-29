@@ -858,9 +858,15 @@ describe('ChatPanel', () => {
     expect(lastMessageListProps?.threadItems).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          id: 'event-tool-1',
-          kind: 'tool_call',
-          title: 'web_search',
+          id: 'run-group-turn-1',
+          kind: 'run_group',
+          children: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'event-tool-1',
+              kind: 'tool_call',
+              title: 'web_search',
+            }),
+          ]),
         }),
         expect.objectContaining({
           kind: 'message',

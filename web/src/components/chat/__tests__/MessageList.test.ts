@@ -603,4 +603,123 @@ describe('MessageList', () => {
       ],
     ])
   })
+
+  it('keeps completed run groups collapsed by default and expands them on demand', async () => {
+    const threadItems: ThreadItem[] = [
+      {
+        id: 'run-group-turn-1',
+        kind: 'run_group',
+        title: 'Run',
+        summary: '1 tool · 1.2s',
+        status: 'completed',
+        durationLabel: '1.2s',
+        expandable: false,
+        turnId: 'turn-1',
+        children: [
+          {
+            id: 'event-tool-1',
+            kind: 'tool_call',
+            title: 'web_search',
+            summary: 'Searching docs',
+            status: 'completed',
+            selection: {
+              id: 'event-tool-1',
+              kind: 'event',
+              title: 'web_search',
+              data: { event_id: 'event-tool-1' },
+            },
+            expandable: true,
+          },
+        ],
+      },
+    ]
+
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        isStreaming: false,
+        streamContent: '',
+        threadItems,
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('1 tool · 1.2s')
+    expect(wrapper.text()).not.toContain('web_search')
+
+    await wrapper.get('[data-testid="run-group-run-group-turn-1"] button').trigger('click')
+
+    expect(wrapper.text()).toContain('web_search')
+
+    await wrapper.get('[data-testid="run-group-child-view-event-tool-1"]').trigger('click')
+
+    expect(wrapper.emitted('selectThreadItem')).toEqual([
+      [
+        {
+          id: 'event-tool-1',
+          kind: 'event',
+          title: 'web_search',
+          data: { event_id: 'event-tool-1' },
+        },
+      ],
+    ])
+  })
+
+  it('shows failed run groups expanded by default and lets users collapse them', async () => {
+    const threadItems: ThreadItem[] = [
+      {
+        id: 'run-group-turn-failed',
+        kind: 'run_group',
+        title: 'Run',
+        summary: 'failed',
+        status: 'failed',
+        expandable: false,
+        turnId: 'turn-failed',
+        children: [
+          {
+            id: 'event-tool-failed',
+            kind: 'tool_call',
+            title: 'bash',
+            body: '{"error":"boom"}',
+            status: 'failed',
+            selection: {
+              id: 'event-tool-failed',
+              kind: 'event',
+              title: 'bash',
+              data: { event_id: 'event-tool-failed' },
+            },
+            expandable: true,
+          },
+        ],
+      },
+    ]
+
+    const wrapper = mount(MessageList, {
+      props: {
+        messages: [],
+        isStreaming: false,
+        streamContent: '',
+        threadItems,
+      },
+      global: {
+        stubs: {
+          StreamingMarkdown: StreamingMarkdownStub,
+          VoiceMessageBubble: VoiceMessageBubbleStub,
+          Button: ButtonStub,
+        },
+      },
+    })
+
+    expect(wrapper.text()).toContain('bash')
+
+    await wrapper.get('[data-testid="run-group-run-group-turn-failed"] button').trigger('click')
+
+    expect(wrapper.text()).not.toContain('bash')
+  })
 })
