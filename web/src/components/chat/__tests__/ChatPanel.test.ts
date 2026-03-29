@@ -348,6 +348,7 @@ describe('ChatPanel', () => {
     mockIsStreaming.value = false
     mockTokensPerSecond.value = 0
     mockDuration.value = 0
+    mockSendStream.mockResolvedValue('run-live-1')
 
     mockModels.length = 0
     mockConfirm.mockResolvedValue(true)
@@ -438,7 +439,15 @@ describe('ChatPanel', () => {
     vi.mocked(steerChatStream).mockImplementation(mockSteerChatStream)
     vi.mocked(sendChatMessage).mockImplementation(mockSendChatMessageApi)
     mockGetExecutionRunThread.mockResolvedValue({
-      focus: {},
+      focus: {
+        run_id: 'run-1',
+        container_id: 'session-1',
+        session_id: 'session-1',
+        started_at: 1000,
+        updated_at: 3000,
+        ended_at: 3000,
+        kind: 'workspace_run',
+      },
       timeline: {
         events: [],
         stats: {},
@@ -550,6 +559,35 @@ describe('ChatPanel', () => {
     expect(mockSteerChatStream).toHaveBeenCalledWith('session-1', 'follow-up')
     expect(mockSendChatMessageApi).not.toHaveBeenCalled()
     expect(mockSendStream).toHaveBeenCalledWith('follow-up')
+  })
+
+  it('emits a canonical runStarted event as soon as streaming begins', async () => {
+    const wrapper = mount(ChatPanel)
+    await flushPromises()
+
+    await wrapper.get('[data-testid="chatbox-send"]').trigger('click')
+    await flushPromises()
+
+    expect(mockSendStream).toHaveBeenCalledWith('follow-up')
+    expect(wrapper.emitted('runStarted')).toEqual([
+      [{ containerId: 'session-1', runId: 'run-live-1' }],
+    ])
+  })
+
+  it('emits the active container id when streaming starts inside a non-workspace container', async () => {
+    const wrapper = mount(ChatPanel, {
+      props: {
+        containerId: 'task-1',
+      },
+    })
+    await flushPromises()
+
+    await wrapper.get('[data-testid="chatbox-send"]').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.emitted('runStarted')).toEqual([
+      [{ containerId: 'task-1', runId: 'run-live-1' }],
+    ])
   })
 
   it('shows the execution status bar during the pre-stream sending phase', async () => {
@@ -750,7 +788,15 @@ describe('ChatPanel', () => {
       },
     ]
     mockGetExecutionRunThread.mockResolvedValue({
-      focus: {},
+      focus: {
+        run_id: 'run-1',
+        container_id: 'session-1',
+        session_id: 'session-1',
+        started_at: 1000,
+        updated_at: 3000,
+        ended_at: 3000,
+        kind: 'workspace_run',
+      },
       timeline: {
         events: [
           {
@@ -877,6 +923,223 @@ describe('ChatPanel', () => {
         }),
       ]),
     )
+  })
+
+  it('keeps selected run mode scoped to the active run instead of appending unrelated transcript messages', async () => {
+    mockMessages.value = [
+      {
+        id: 'msg-old',
+        role: 'assistant',
+        content: 'Older transcript from another run',
+        timestamp: 500n,
+        execution: null,
+      },
+      {
+        id: 'msg-run-1',
+        role: 'assistant',
+        content: 'Current run assistant reply',
+        timestamp: 2500n,
+        execution: null,
+      },
+    ]
+    mockGetExecutionRunThread.mockResolvedValue({
+      focus: {
+        run_id: 'run-1',
+        container_id: 'session-1',
+        session_id: 'session-1',
+        started_at: 1000,
+        updated_at: 3000,
+        ended_at: 3000,
+        kind: 'workspace_run',
+      },
+      timeline: {
+        events: [
+          {
+            id: 'event-tool-1',
+            task_id: 'task-1',
+            agent_id: 'agent-1',
+            category: 'tool_call',
+            source: 'agent_executor',
+            timestamp: 2000,
+            subflow_path: [],
+            run_id: 'run-1',
+            parent_run_id: null,
+            session_id: 'session-1',
+            turn_id: 'turn-1',
+            requested_model: 'gpt-5',
+            effective_model: 'gpt-5',
+            provider: 'openai',
+            attempt: 1,
+            llm_call: null,
+            tool_call: {
+              tool_call_id: 'tool-call-1',
+              tool_name: 'bash',
+              phase: 'completed',
+              input: null,
+              input_summary: 'echo hello',
+              output: 'hello',
+              output_ref: null,
+              success: true,
+              error: null,
+              duration_ms: 100n,
+            },
+            model_switch: null,
+            lifecycle: null,
+            message: null,
+            metric_sample: null,
+            provider_health: null,
+            log_record: null,
+          },
+        ],
+        stats: {},
+      },
+    } as any)
+
+    mount(ChatPanel, {
+      props: {
+        selectedRunId: 'run-1',
+      },
+    })
+    await flushPromises()
+
+    const threadItems = (lastMessageListProps?.threadItems ?? []) as Array<{ id: string; message?: { id: string } }>
+    expect(threadItems.some((item) => item.id === 'msg-old')).toBe(false)
+    expect(threadItems.some((item) => item.id === 'msg-run-1')).toBe(true)
+  })
+
+  it('uses adjacent container runs to keep neighboring run messages out of the current run view', async () => {
+    mockMessages.value = [
+      {
+        id: 'msg-prev-run',
+        role: 'assistant',
+        content: 'Previous run output',
+        timestamp: 800n,
+        execution: null,
+      },
+      {
+        id: 'msg-run-1',
+        role: 'assistant',
+        content: 'Current run assistant reply',
+        timestamp: 2500n,
+        execution: null,
+      },
+      {
+        id: 'msg-next-run',
+        role: 'assistant',
+        content: 'Next run output',
+        timestamp: 4500n,
+        execution: null,
+      },
+    ]
+    mockListExecutionSessions.mockResolvedValue([
+      {
+        id: 'run-summary-0',
+        kind: 'workspace_run',
+        container_id: 'session-1',
+        title: 'Previous run',
+        status: 'completed',
+        updated_at: 900,
+        started_at: 100,
+        ended_at: 900,
+        run_id: 'run-0',
+        event_count: 2,
+      },
+      {
+        id: 'run-summary-1',
+        kind: 'workspace_run',
+        container_id: 'session-1',
+        title: 'Current run',
+        status: 'completed',
+        updated_at: 3000,
+        started_at: 1000,
+        ended_at: 3000,
+        run_id: 'run-1',
+        event_count: 3,
+      },
+      {
+        id: 'run-summary-2',
+        kind: 'workspace_run',
+        container_id: 'session-1',
+        title: 'Next run',
+        status: 'completed',
+        updated_at: 5200,
+        started_at: 4000,
+        ended_at: 5200,
+        run_id: 'run-2',
+        event_count: 2,
+      },
+    ] as any)
+    mockGetExecutionRunThread.mockResolvedValue({
+      focus: {
+        run_id: 'run-1',
+        container_id: 'session-1',
+        session_id: 'session-1',
+        started_at: 1000,
+        updated_at: 3000,
+        ended_at: 3000,
+        kind: 'workspace_run',
+      },
+      timeline: {
+        events: [
+          {
+            id: 'event-tool-1',
+            task_id: 'task-1',
+            agent_id: 'agent-1',
+            category: 'tool_call',
+            source: 'agent_executor',
+            timestamp: 2000,
+            subflow_path: [],
+            run_id: 'run-1',
+            parent_run_id: null,
+            session_id: 'session-1',
+            turn_id: 'turn-1',
+            requested_model: 'gpt-5',
+            effective_model: 'gpt-5',
+            provider: 'openai',
+            attempt: 1,
+            llm_call: null,
+            tool_call: {
+              tool_call_id: 'tool-call-1',
+              tool_name: 'bash',
+              phase: 'completed',
+              input: null,
+              input_summary: 'echo hello',
+              output: 'hello',
+              output_ref: null,
+              success: true,
+              error: null,
+              duration_ms: 100n,
+            },
+            model_switch: null,
+            lifecycle: null,
+            message: null,
+            metric_sample: null,
+            provider_health: null,
+            log_record: null,
+          },
+        ],
+        stats: {},
+      },
+    } as any)
+
+    mount(ChatPanel, {
+      props: {
+        selectedRunId: 'run-1',
+      },
+    })
+    await flushPromises()
+
+    expect(mockListExecutionSessions).toHaveBeenCalledWith({
+      container: {
+        kind: 'workspace',
+        id: 'session-1',
+      },
+    })
+
+    const threadItems = (lastMessageListProps?.threadItems ?? []) as Array<{ id: string; message?: { id: string } }>
+    expect(threadItems.some((item) => item.id === 'msg-prev-run')).toBe(false)
+    expect(threadItems.some((item) => item.id === 'msg-run-1')).toBe(true)
+    expect(threadItems.some((item) => item.id === 'msg-next-run')).toBe(false)
   })
 
   it('shows a full breadcrumb chain for child runs and navigates to root and parent runs', async () => {

@@ -152,8 +152,9 @@ vi.mock('@/components/workspace/AgentEditorPanel.vue', () => ({
 vi.mock('@/components/chat/ChatPanel.vue', () => ({
   default: defineComponent({
     name: 'ChatPanel',
-    emits: ['threadLoaded', 'threadSelection'],
-    template: '<div data-testid="chat-panel" />',
+    emits: ['threadLoaded', 'threadSelection', 'runStarted'],
+    template:
+      '<div data-testid="chat-panel"><button data-testid="chat-panel-run-started" @click="$emit(\'runStarted\', { containerId: \'session-1\', runId: \'run-live-1\' })">start</button></div>',
   }),
 }))
 
@@ -415,6 +416,19 @@ describe('Workspace', () => {
     expect(mockRouterPush).toHaveBeenCalledWith({
       name: 'workspace-container-run',
       params: { containerId: 'session-1', runId: 'run-1' },
+    })
+  })
+
+  it('navigates to the canonical run route immediately when chat starts a new run', async () => {
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="chat-panel-run-started"]').trigger('click')
+    await flushPromises()
+
+    expect(mockRouterPush).toHaveBeenCalledWith({
+      name: 'workspace-container-run',
+      params: { containerId: 'session-1', runId: 'run-live-1' },
     })
   })
 

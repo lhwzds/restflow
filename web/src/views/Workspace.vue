@@ -114,6 +114,7 @@ const sidebarResizeStartX = ref(0)
 const sidebarResizeStartRatio = ref(DEFAULT_SIDEBAR_RATIO)
 let routeResolutionVersion = 0
 let toolPanelRunNavigationVersion = 0
+const pendingRunNavigation = ref<{ containerId: string; runId: string } | null>(null)
 
 interface ToolPanelRunNavigationNode {
   key: 'root' | 'parent' | 'current'
@@ -331,6 +332,9 @@ const containerNotFoundTitle = computed(() => t('workspace.container.notFoundTit
 const containerNotFoundDescription = computed(() => t('workspace.container.notFoundDescription'))
 
 const chatPanelSelectedRunId = computed(() => activeRunId.value ?? (routeContainerRunId.value || null))
+const chatPanelContainerId = computed(
+  () => activeContainerId.value ?? (routeContainerId.value || null) ?? chatSessionStore.currentSessionId ?? null,
+)
 const chatPanelAutoSelectRecent = computed(() => !routeContainerId.value && !routeContainerRunId.value)
 const showRunOverviewPanel = computed(
   () =>
@@ -550,6 +554,9 @@ function onThreadLoaded(thread: ExecutionThread | null) {
   activeExecutionThread.value = thread
   if (thread) {
     cacheExecutionThread(thread)
+    if (pendingRunNavigation.value?.runId === thread.focus.run_id) {
+      pendingRunNavigation.value = null
+    }
   }
   void syncToolPanelRunNavigation(thread)
   const runId = thread?.focus.run_id ?? null
@@ -561,6 +568,17 @@ function onThreadLoaded(thread: ExecutionThread | null) {
   if (routeContainerRunId.value === runId && routeContainerId.value === containerId) return
 
   void router.replace(canonicalContainerRunRoute(containerId, runId))
+}
+
+function onRunStarted(payload: { containerId: string; runId: string }) {
+  pendingRunNavigation.value = payload
+  sidebarMode.value = 'sessions'
+  activeContainerId.value = payload.containerId
+  activeRunId.value = payload.runId
+  selectedSessionId.value = chatSessionStore.currentSessionId
+  activeBackgroundTaskId.value =
+    findContainerById(payload.containerId)?.kind === 'background_task' ? payload.containerId : null
+  void router.push(canonicalContainerRunRoute(payload.containerId, payload.runId))
 }
 
 async function loadExecutionContainersProjection() {
@@ -1198,19 +1216,28 @@ watch(
           containerId && findContainerById(containerId)?.kind === 'background_task'
             ? containerId
             : null
-        selectedSessionId.value = null
-        await chatSessionStore.selectSession(null)
+        const pending = pendingRunNavigation.value
+        if (
+          pending &&
+          pending.runId === containerRunId &&
+          pending.containerId === (containerId || pending.containerId)
+        ) {
+          selectedSessionId.value = chatSessionStore.currentSessionId
+          return
+        }
         await resolveRunRoute(containerRunId, version, containerId || null)
         return
       }
 
       if (containerId) {
+        pendingRunNavigation.value = null
         await resolveContainerRoute(containerId, version)
         return
       }
 
       activeBackgroundTaskId.value = null
       activeRunId.value = null
+      pendingRunNavigation.value = null
       selectedSessionId.value = chatSessionStore.currentSessionId
       activeContainerId.value = chatSessionStore.currentSessionId
     } catch (error) {
@@ -1420,6 +1447,7 @@ onUnmounted(() => {
 
       <ChatPanel
         v-else-if="sidebarMode === 'sessions'"
+        :container-id="chatPanelContainerId"
         :selected-run-id="chatPanelSelectedRunId"
         :background-task-id="activeBackgroundTaskId"
         :auto-select-recent="chatPanelAutoSelectRecent"
@@ -1428,6 +1456,7 @@ onUnmounted(() => {
         @tool-result="onToolResult"
         @thread-selection="onThreadSelection"
         @thread-loaded="onThreadLoaded"
+        @run-started="onRunStarted"
       />
 
       <AgentEditorPanel

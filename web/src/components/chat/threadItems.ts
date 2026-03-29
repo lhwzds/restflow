@@ -685,7 +685,24 @@ export function buildExecutionThreadItems(thread: ExecutionThread | null): Threa
   return envelopes.map((entry) => entry.item)
 }
 
-export function buildSessionThreadItems(input: {
+export function buildTranscriptThreadItems(input: {
+  messages: ChatMessage[]
+  steps?: StreamStep[]
+  streamContent?: string
+}): ThreadItem[] {
+  const items = buildMessageOnlyItems(input.messages)
+  const hasActiveLiveSteps = input.steps?.some(
+    (s) => s.status === 'running' || s.status === 'pending',
+  )
+  if (hasActiveLiveSteps) {
+    appendLiveOverlays(items, input.steps, input.streamContent)
+  } else if (input.streamContent) {
+    items.push(buildStreamingAssistantItem(input.streamContent))
+  }
+  return items
+}
+
+export function buildRunThreadItems(input: {
   thread: ExecutionThread | null
   messages: ChatMessage[]
   steps?: StreamStep[]
@@ -693,10 +710,7 @@ export function buildSessionThreadItems(input: {
 }): ThreadItem[] {
   if (!input.thread) {
     const items = buildMessageOnlyItems(input.messages)
-    const hasActiveLiveSteps = input.steps?.some(
-      (s) => s.status === 'running' || s.status === 'pending',
-    )
-    if (hasActiveLiveSteps) {
+    if (input.steps?.length) {
       appendLiveOverlays(items, input.steps, input.streamContent)
     } else if (input.streamContent) {
       items.push(buildStreamingAssistantItem(input.streamContent))
@@ -751,4 +765,21 @@ export function buildSessionThreadItems(input: {
     grouped.push(buildStreamingAssistantItem(input.streamContent))
   }
   return grouped
+}
+
+export function buildSessionThreadItems(input: {
+  thread: ExecutionThread | null
+  messages: ChatMessage[]
+  steps?: StreamStep[]
+  streamContent?: string
+}): ThreadItem[] {
+  if (input.thread) {
+    return buildRunThreadItems(input)
+  }
+
+  return buildTranscriptThreadItems({
+    messages: input.messages,
+    steps: input.steps,
+    streamContent: input.streamContent,
+  })
 }
