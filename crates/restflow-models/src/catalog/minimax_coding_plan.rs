@@ -16,6 +16,12 @@ const M25_HIGHSPEED_ALIASES: &[&str] = &[
     "minimax-m2-5-highspeed",
     "minimax-m2.5-highspeed",
 ];
+const M27_ALIASES: &[&str] = &["minimax-coding-plan-m2.7", "minimax-m2-7", "minimax-m2.7"];
+const M27_HIGHSPEED_ALIASES: &[&str] = &[
+    "minimax-coding-plan-m2.7-highspeed",
+    "minimax-m2-7-highspeed",
+    "minimax-m2.7-highspeed",
+];
 
 pub const MODELS: &[ModelDescriptor] = &[
     ModelDescriptor::new(
@@ -49,10 +55,32 @@ pub const MODELS: &[ModelDescriptor] = &[
     .with_canonical_family("minimax-m2-5-highspeed")
     .with_same_provider_fallback(ModelId::MiniMaxM25CodingPlan)
     .with_openrouter_equivalent(ModelId::OrMinimaxM2_1),
+    ModelDescriptor::new(
+        ModelId::MiniMaxM27CodingPlan,
+        Provider::MiniMaxCodingPlan,
+        "MiniMax-M2.7",
+        "MiniMax M2.7 (Coding Plan)",
+        true,
+    )
+    .with_aliases(M27_ALIASES)
+    .with_canonical_family("minimax-m2-7")
+    .with_same_provider_fallback(ModelId::MiniMaxM25CodingPlan)
+    .with_openrouter_equivalent(ModelId::OrMinimaxM2_1),
+    ModelDescriptor::new(
+        ModelId::MiniMaxM27CodingPlanHighspeed,
+        Provider::MiniMaxCodingPlan,
+        "MiniMax-M2.7-highspeed",
+        "MiniMax M2.7 Highspeed (Coding Plan)",
+        true,
+    )
+    .with_aliases(M27_HIGHSPEED_ALIASES)
+    .with_canonical_family("minimax-m2-7-highspeed")
+    .with_same_provider_fallback(ModelId::MiniMaxM27CodingPlan)
+    .with_openrouter_equivalent(ModelId::OrMinimaxM2_1),
 ];
 
 pub const CATALOG: ProviderCatalog = ProviderCatalog::new(
     Provider::MiniMaxCodingPlan,
-    ModelId::MiniMaxM25CodingPlan,
+    ModelId::MiniMaxM27CodingPlan,
     MODELS,
 );
