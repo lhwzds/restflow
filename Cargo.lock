@@ -3665,6 +3665,7 @@ dependencies = [
  "regex",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]
