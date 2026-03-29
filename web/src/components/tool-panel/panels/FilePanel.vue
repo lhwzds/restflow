@@ -31,6 +31,53 @@ interface FileResult {
   entries?: FileEntry[]
 }
 
+type DiffLineType = 'added' | 'removed' | 'unchanged'
+
+interface DiffLine {
+  type: DiffLineType
+  text: string
+}
+
+// LCS-based line diff
+function computeDiff(oldText: string, newText: string): DiffLine[] {
+  const oldLines = oldText.split('\n')
+  const newLines = newText.split('\n')
+  const m = oldLines.length
+  const n = newLines.length
+
+  // Flat 1D table: dp[i * (n+1) + j] = LCS length of oldLines[0..i-1] and newLines[0..j-1]
+  const size = (m + 1) * (n + 1)
+  const dp = new Int32Array(size)
+  const idx = (r: number, c: number): number => r * (n + 1) + c
+
+  for (let i = 1; i <= m; i++) {
+    for (let j = 1; j <= n; j++) {
+      dp[idx(i, j)] =
+        oldLines[i - 1] === newLines[j - 1]
+          ? (dp[idx(i - 1, j - 1)] ?? 0) + 1
+          : Math.max(dp[idx(i - 1, j)] ?? 0, dp[idx(i, j - 1)] ?? 0)
+    }
+  }
+
+  const result: DiffLine[] = []
+  let i = m
+  let j = n
+  while (i > 0 || j > 0) {
+    if (i > 0 && j > 0 && oldLines[i - 1] === newLines[j - 1]) {
+      result.unshift({ type: 'unchanged', text: oldLines[i - 1] ?? '' })
+      i--
+      j--
+    } else if (j > 0 && (i === 0 || (dp[idx(i, j - 1)] ?? 0) >= (dp[idx(i - 1, j)] ?? 0))) {
+      result.unshift({ type: 'added', text: newLines[j - 1] ?? '' })
+      j--
+    } else {
+      result.unshift({ type: 'removed', text: oldLines[i - 1] ?? '' })
+      i--
+    }
+  }
+  return result
+}
+
 const props = defineProps<{
   step: StreamStep
 }>()
@@ -59,8 +106,44 @@ const contentLines = computed(() => contentText.value.split('\n'))
 const matches = computed(() => (Array.isArray(result.value.matches) ? result.value.matches : []))
 const entries = computed(() => (Array.isArray(result.value.entries) ? result.value.entries : []))
 
+// Diff view data for write/edit actions
+const writeContent = computed(() =>
+  typeof args.value.content === 'string' ? args.value.content : '',
+)
+const oldString = computed(() =>
+  typeof args.value.old_string === 'string' ? args.value.old_string : '',
+)
+const newString = computed(() =>
+  typeof args.value.new_string === 'string' ? args.value.new_string : '',
+)
+
+const diffLines = computed<DiffLine[]>(() => {
+  if (action.value === 'write' && writeContent.value) {
+    return writeContent.value.split('\n').map((line) => ({ type: 'added' as const, text: line }))
+  }
+  if (action.value === 'edit' && (oldString.value || newString.value)) {
+    return computeDiff(oldString.value, newString.value)
+  }
+  return []
+})
+
+const diffStats = computed(() => {
+  const added = diffLines.value.filter((l) => l.type === 'added').length
+  const removed = diffLines.value.filter((l) => l.type === 'removed').length
+  return { added, removed }
+})
+
+const showDiff = computed(() =>
+  (action.value === 'write' || action.value === 'edit') && diffLines.value.length > 0,
+)
+
+const diffCopyText = computed(() => {
+  if (action.value === 'write') return writeContent.value
+  return newString.value
+})
+
 async function onCopyContent(): Promise<void> {
-  await copyText(contentText.value)
+  await copyText(showDiff.value ? diffCopyText.value : contentText.value)
 }
 </script>
 
@@ -83,8 +166,38 @@ async function onCopyContent(): Promise<void> {
     </header>
 
     <div class="space-y-3 p-3">
+      <!-- Diff view for write / edit actions -->
+      <div v-if="showDiff" data-testid="file-diff-view">
+        <div class="mb-2 flex items-center gap-3 text-[11px]">
+          <span v-if="diffStats.added > 0" class="text-emerald-600">+{{ diffStats.added }}</span>
+          <span v-if="diffStats.removed > 0" class="text-rose-600">−{{ diffStats.removed }}</span>
+        </div>
+        <div class="overflow-hidden rounded border border-border font-mono text-xs">
+          <div
+            v-for="(line, index) in diffLines"
+            :key="index"
+            class="grid grid-cols-[1.5rem_1fr] border-b border-border/40 last:border-b-0"
+            :class="{
+              'bg-emerald-50 text-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200': line.type === 'added',
+              'bg-rose-50 text-rose-900 dark:bg-rose-950/40 dark:text-rose-200': line.type === 'removed',
+            }"
+          >
+            <span
+              class="select-none px-1 text-center"
+              :class="{
+                'text-emerald-500': line.type === 'added',
+                'text-rose-500': line.type === 'removed',
+                'text-muted-foreground/40': line.type === 'unchanged',
+              }"
+            >{{ line.type === 'added' ? '+' : line.type === 'removed' ? '−' : ' ' }}</span>
+            <span class="overflow-x-auto whitespace-pre px-2 py-0.5">{{ line.text }}</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Read: line-numbered content -->
       <div
-        v-if="action === 'read' && contentText"
+        v-else-if="action === 'read' && contentText"
         class="overflow-hidden rounded border border-border"
       >
         <div

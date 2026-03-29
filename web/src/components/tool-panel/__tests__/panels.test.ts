@@ -107,6 +107,57 @@ describe('tool panel components', () => {
     expect(wrapper.text()).toContain('fn main()')
   })
 
+  it('renders FilePanel write mode as an added-line diff and copies written content', async () => {
+    const step = createStep({
+      name: 'file',
+      result: JSON.stringify({
+        action: 'write',
+        path: '/src/test.txt',
+        written: true,
+      }),
+      arguments: JSON.stringify({
+        action: 'write',
+        path: '/src/test.txt',
+        content: 'hello\nworld',
+      }),
+    } as Partial<StreamStep> & { arguments: string })
+
+    const wrapper = mount(FilePanel, { props: { step } })
+
+    expect(wrapper.get('[data-testid="file-diff-view"]').text()).toContain('+2')
+    expect(wrapper.text()).toContain('hello')
+    expect(wrapper.text()).toContain('world')
+    await wrapper.get('button').trigger('click')
+    expect(writeText).toHaveBeenCalledWith('hello\nworld')
+  })
+
+  it('renders FilePanel edit mode with removed and added diff lines', () => {
+    const step = createStep({
+      name: 'file',
+      result: JSON.stringify({
+        action: 'edit',
+        path: '/src/main.ts',
+        written: true,
+      }),
+      arguments: JSON.stringify({
+        action: 'edit',
+        path: '/src/main.ts',
+        old_string: 'const foo = 1\nconst keep = 2',
+        new_string: 'const bar = 1\nconst keep = 2\nconst added = 3',
+      }),
+    } as Partial<StreamStep> & { arguments: string })
+
+    const wrapper = mount(FilePanel, { props: { step } })
+    const diffText = wrapper.get('[data-testid="file-diff-view"]').text()
+
+    expect(diffText).toContain('+2')
+    expect(diffText).toContain('−1')
+    expect(diffText).toContain('const foo = 1')
+    expect(diffText).toContain('const bar = 1')
+    expect(diffText).toContain('const keep = 2')
+    expect(diffText).toContain('const added = 3')
+  })
+
   it('renders SearchPanel web and memory payloads', () => {
     const webStep = createStep({
       name: 'web_search',
