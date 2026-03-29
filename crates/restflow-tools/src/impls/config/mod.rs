@@ -101,6 +101,23 @@ impl ConfigTool {
         Ok(())
     }
 
+    fn reject_cli_section_in_payload(input: &Value) -> Result<()> {
+        let has_cli_section = input
+            .get("operation")
+            .and_then(Value::as_str)
+            .is_some_and(|operation| operation == "set")
+            && input
+                .get("config")
+                .and_then(Value::as_object)
+                .is_some_and(|config| config.contains_key("cli"));
+        if has_cli_section {
+            return Err(ToolError::Tool(
+                "CLI-local config fields are not available through manage_config. Use the CLI-local config command path for cli.* settings.".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
     fn apply_update(&self, key: &str, value: &Value) -> Result<ConfigDocument> {
         let mut config = self.get_writable_config()?;
         update::apply_update(key, value, &mut config)?;
@@ -123,6 +140,7 @@ impl Tool for ConfigTool {
     }
 
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
+        Self::reject_cli_section_in_payload(&input)?;
         let action: ConfigAction = serde_json::from_value(input)?;
 
         let output = match action {
