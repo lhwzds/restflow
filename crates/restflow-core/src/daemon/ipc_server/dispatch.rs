@@ -8,8 +8,12 @@ mod background_agents;
 mod config;
 #[path = "dispatch/hooks.rs"]
 mod hooks;
+#[path = "dispatch/maintenance.rs"]
+mod maintenance;
 #[path = "dispatch/memory.rs"]
 mod memory;
+#[path = "dispatch/pairing.rs"]
+mod pairing;
 #[path = "dispatch/runtime_tools.rs"]
 mod runtime_tools;
 #[path = "dispatch/secrets.rs"]
@@ -116,6 +120,27 @@ impl IpcServer {
             },
             IpcRequest::DeleteHook { id } => Self::handle_delete_hook(core, id).await,
             IpcRequest::TestHook { id } => Self::handle_test_hook(core, id).await,
+            IpcRequest::ListPairingState => Self::handle_list_pairing_state(core).await,
+            IpcRequest::ApprovePairing { code } => Self::handle_approve_pairing(core, code).await,
+            IpcRequest::DenyPairing { code } => Self::handle_deny_pairing(core, code).await,
+            IpcRequest::RevokePairedPeer { peer_id } => {
+                Self::handle_revoke_paired_peer(core, peer_id).await
+            }
+            IpcRequest::GetPairingOwner => Self::handle_get_pairing_owner(core).await,
+            IpcRequest::SetPairingOwner { chat_id } => {
+                Self::handle_set_pairing_owner(core, chat_id).await
+            }
+            IpcRequest::ListRouteBindings => Self::handle_list_route_bindings(core).await,
+            IpcRequest::BindRoute {
+                binding_type,
+                target_id,
+                agent_id,
+            } => Self::handle_bind_route(core, binding_type, target_id, agent_id).await,
+            IpcRequest::UnbindRoute { id } => Self::handle_unbind_route(core, id).await,
+            IpcRequest::RunCleanup => Self::handle_run_cleanup(core).await,
+            IpcRequest::MigrateSessionSources { dry_run } => {
+                Self::handle_migrate_session_sources(core, dry_run).await
+            }
             IpcRequest::ListSecrets => Self::handle_list_secrets(core).await,
             IpcRequest::GetSecret { key } => Self::handle_get_secret(core, key).await,
             IpcRequest::SetSecret {
