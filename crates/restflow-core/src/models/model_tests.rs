@@ -241,7 +241,7 @@ fn test_remap_provider() {
     );
     assert_eq!(
         ModelId::MiniMaxM27.remap_provider(Provider::MiniMaxCodingPlan),
-        None
+        Some(ModelId::MiniMaxM27CodingPlan)
     );
     assert_eq!(
         ModelId::MiniMaxM25CodingPlanHighspeed.remap_provider(Provider::MiniMax),
@@ -288,7 +288,7 @@ fn test_display_name() {
 #[test]
 fn test_all_models() {
     let models = ModelId::all();
-    assert_eq!(models.len(), 64);
+    assert_eq!(models.len(), 66);
     assert!(models.contains(&ModelId::Gpt5));
     assert!(models.contains(&ModelId::Gpt5_1));
     assert!(models.contains(&ModelId::ClaudeOpus4_6));
@@ -308,6 +308,8 @@ fn test_all_models() {
     assert!(models.contains(&ModelId::MiniMaxM27));
     assert!(models.contains(&ModelId::MiniMaxM27Highspeed));
     assert!(models.contains(&ModelId::MiniMaxM21CodingPlan));
+    assert!(models.contains(&ModelId::MiniMaxM27CodingPlan));
+    assert!(models.contains(&ModelId::MiniMaxM27CodingPlanHighspeed));
     assert!(models.contains(&ModelId::MiniMaxM25CodingPlanHighspeed));
     assert!(models.contains(&ModelId::Glm5Turbo));
     assert!(models.contains(&ModelId::Glm5TurboCodingPlan));
@@ -876,7 +878,7 @@ fn test_flagship_model() {
     );
     assert_eq!(
         Provider::MiniMaxCodingPlan.flagship_model(),
-        ModelId::MiniMaxM25CodingPlan
+        ModelId::MiniMaxM27CodingPlan
     );
     assert_eq!(
         Provider::ClaudeCode.flagship_model(),

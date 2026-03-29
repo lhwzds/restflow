@@ -59,6 +59,8 @@ impl ModelId {
     pub const MiniMaxM21CodingPlan: Self = Self("minimax-coding-plan-m2-1");
     pub const MiniMaxM25CodingPlan: Self = Self("minimax-coding-plan-m2-5");
     pub const MiniMaxM25CodingPlanHighspeed: Self = Self("minimax-coding-plan-m2-5-highspeed");
+    pub const MiniMaxM27CodingPlan: Self = Self("minimax-coding-plan-m2-7");
+    pub const MiniMaxM27CodingPlanHighspeed: Self = Self("minimax-coding-plan-m2-7-highspeed");
     pub const Gpt5_4Codex: Self = Self("gpt-5.4");
     pub const Gpt5_4MiniCodex: Self = Self("gpt-5.4-mini");
     pub const Gpt5Codex: Self = Self("gpt-5-codex");
