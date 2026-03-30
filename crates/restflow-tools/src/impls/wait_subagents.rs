@@ -6,6 +6,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 use tokio::time::{Duration, timeout};
 
+use crate::impls::subagent_read_capability::SubagentReadCapabilityService;
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager, SubagentStatus};
@@ -24,6 +25,10 @@ pub struct WaitSubagentsParams {
     /// Task IDs to wait for.
     pub task_ids: Vec<String>,
 
+    /// Parent run scope that owns the requested tasks.
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
+
     /// Timeout in seconds.
     /// - `Some(0)` means wait without timeout.
     /// - `None` uses subagent manager default timeout.
@@ -33,11 +38,16 @@ pub struct WaitSubagentsParams {
 /// wait_subagents tool for the shared agent execution engine.
 pub struct WaitSubagentsTool {
     manager: Arc<dyn SubagentManager>,
+    capability: SubagentReadCapabilityService,
 }
 
 impl WaitSubagentsTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
-        Self { manager }
+        let capability = SubagentReadCapabilityService::new(manager.clone());
+        Self {
+            manager,
+            capability,
+        }
     }
 
     fn completion_entry(task_id: &str, completion: restflow_traits::SubagentCompletion) -> Value {
@@ -90,6 +100,10 @@ impl Tool for WaitSubagentsTool {
                     "items": { "type": "string" },
                     "description": "List of sub-agent task IDs to wait for"
                 },
+                "parent_run_id": {
+                    "type": "string",
+                    "description": "Required parent run scope that owns the requested task IDs"
+                },
                 "timeout_secs": {
                     "type": "integer",
                     "default": DEFAULT_SUBAGENT_TIMEOUT_SECS,
@@ -104,6 +118,14 @@ impl Tool for WaitSubagentsTool {
     async fn execute(&self, input: Value) -> Result<ToolOutput> {
         let params: WaitSubagentsParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
+        let parent_run_id = params
+            .parent_run_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                ToolError::Tool("parent_run_id is required for wait_subagents.".to_string())
+            })?;
 
         let wait_timeout = params
             .timeout_secs
@@ -112,15 +134,18 @@ impl Tool for WaitSubagentsTool {
         let mut results = Vec::new();
         for task_id in params.task_ids {
             let wait_result = if wait_timeout == 0 {
-                self.manager.wait(&task_id).await
+                self.capability
+                    .wait_for_parent_owned_task(&task_id, Some(parent_run_id))
+                    .await?
             } else {
                 match timeout(
                     Duration::from_secs(wait_timeout),
-                    self.manager.wait(&task_id),
+                    self.capability
+                        .wait_for_parent_owned_task(&task_id, Some(parent_run_id)),
                 )
                 .await
                 {
-                    Ok(result) => result,
+                    Ok(result) => result?,
                     Err(_) => {
                         results.push(json!({"task_id": task_id, "status": "timeout"}));
                         continue;
@@ -224,6 +249,7 @@ mod tests {
                 agent_id: Some("tester".to_string()),
                 task: "test task".to_string(),
                 timeout_secs: Some(10),
+                parent_execution_id: Some("parent-1".to_string()),
                 ..ContractSubagentSpawnRequest::default()
             })
             .expect("spawn should succeed");
@@ -232,9 +258,10 @@ mod tests {
 
     #[test]
     fn test_params_deserialization() {
-        let json = r#"{"task_ids": ["task-1", "task-2"], "timeout_secs": 120}"#;
+        let json = r#"{"task_ids": ["task-1", "task-2"], "parent_run_id": "parent-1", "timeout_secs": 120}"#;
         let params: WaitSubagentsParams = serde_json::from_str(json).unwrap();
         assert_eq!(params.task_ids.len(), 2);
+        assert_eq!(params.parent_run_id.as_deref(), Some("parent-1"));
         assert_eq!(params.timeout_secs, Some(120));
     }
 
@@ -256,7 +283,7 @@ mod tests {
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
-            .execute(json!({"task_ids": [task_id], "timeout_secs": 1}))
+            .execute(json!({"task_ids": [task_id], "parent_run_id": "parent-1", "timeout_secs": 1}))
             .await
             .unwrap();
         assert!(result.success);
@@ -270,7 +297,7 @@ mod tests {
         let (_deps, manager) = make_deps(vec![]);
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
-            .execute(json!({"task_ids": ["no-such-task"], "timeout_secs": 1}))
+            .execute(json!({"task_ids": ["no-such-task"], "parent_run_id": "parent-1", "timeout_secs": 1}))
             .await
             .unwrap();
         assert!(result.success);
@@ -286,7 +313,7 @@ mod tests {
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
-            .execute(json!({"task_ids": [task_id], "timeout_secs": 1}))
+            .execute(json!({"task_ids": [task_id], "parent_run_id": "parent-1", "timeout_secs": 1}))
             .await
             .unwrap();
         assert!(result.success);
@@ -303,7 +330,7 @@ mod tests {
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
-            .execute(json!({"task_ids": [task_id], "timeout_secs": 1}))
+            .execute(json!({"task_ids": [task_id], "parent_run_id": "parent-1", "timeout_secs": 1}))
             .await
             .unwrap();
 
@@ -322,7 +349,7 @@ mod tests {
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
-            .execute(json!({"task_ids": [id1, id2, "missing"], "timeout_secs": 1}))
+            .execute(json!({"task_ids": [id1, id2, "missing"], "parent_run_id": "parent-1", "timeout_secs": 1}))
             .await
             .unwrap();
         assert!(result.success);
@@ -339,7 +366,7 @@ mod tests {
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
-            .execute(json!({"task_ids": [task_id], "timeout_secs": 0}))
+            .execute(json!({"task_ids": [task_id], "parent_run_id": "parent-1", "timeout_secs": 0}))
             .await
             .unwrap();
 
@@ -356,12 +383,47 @@ mod tests {
 
         let tool = WaitSubagentsTool::new(manager);
         let result = tool
-            .execute(json!({"task_ids": [task_id], "timeout_secs": 1}))
+            .execute(json!({"task_ids": [task_id], "parent_run_id": "parent-1", "timeout_secs": 1}))
             .await
             .unwrap();
         assert!(result.success);
         let results = result.result["results"].as_array().unwrap();
         assert_eq!(results[0]["status"], "failed");
         assert!(results[0]["error"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_wait_requires_parent_scope() {
+        let (_deps, manager) = make_deps(vec![]);
+        let tool = WaitSubagentsTool::new(manager);
+        let err = tool
+            .execute(json!({"task_ids": ["task-1"], "timeout_secs": 1}))
+            .await
+            .expect_err("missing parent scope should fail");
+        assert!(err.to_string().contains("parent_run_id is required"));
+    }
+
+    #[tokio::test]
+    async fn test_wait_rejects_foreign_parent_scope() {
+        let (_deps, manager) = make_deps(vec![MockStep::text("done")]);
+        let task_id = manager
+            .spawn(ContractSubagentSpawnRequest {
+                agent_id: Some("tester".to_string()),
+                task: "test task".to_string(),
+                timeout_secs: Some(10),
+                parent_execution_id: Some("parent-1".to_string()),
+                ..ContractSubagentSpawnRequest::default()
+            })
+            .expect("spawn should succeed")
+            .id;
+
+        let tool = WaitSubagentsTool::new(manager);
+        let result = tool
+            .execute(json!({"task_ids": [task_id], "parent_run_id": "parent-2", "timeout_secs": 1}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        let results = result.result["results"].as_array().unwrap();
+        assert_eq!(results[0]["status"], "not_found");
     }
 }

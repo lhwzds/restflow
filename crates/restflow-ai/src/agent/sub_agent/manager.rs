@@ -120,6 +120,14 @@ impl SubagentManager for SubagentManagerImpl {
         self.tracker.wait(task_id).await
     }
 
+    async fn wait_for_parent_owned_task(
+        &self,
+        task_id: &str,
+        parent_run_id: &str,
+    ) -> Option<SubagentCompletion> {
+        self.tracker.wait_for_parent(task_id, parent_run_id).await
+    }
+
     fn config(&self) -> &SubagentConfig {
         &self.config
     }

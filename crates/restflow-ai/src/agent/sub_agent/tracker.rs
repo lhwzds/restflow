@@ -343,6 +343,43 @@ impl SubagentTracker {
         }
     }
 
+    pub async fn wait_for_parent(
+        &self,
+        id: &str,
+        parent_run_id: &str,
+    ) -> Option<SubagentCompletion> {
+        let parent_run_id = Self::normalized_parent_run_id(Some(parent_run_id))?;
+
+        loop {
+            if let Some(state) = self.states.get(id) {
+                if state.parent_run_id.as_deref() != Some(parent_run_id.as_str()) {
+                    return None;
+                }
+
+                if state.result.is_some()
+                    || !matches!(
+                        state.status,
+                        SubagentStatus::Pending | SubagentStatus::Running
+                    )
+                {
+                    return Some(Self::completion_for_state(id, &state));
+                }
+
+                drop(state);
+                tokio::time::sleep(Duration::from_millis(25)).await;
+                continue;
+            }
+
+            if let Some(scope) = self.parent_scopes.get(&parent_run_id)
+                && let Some(completion) = scope.backlog.iter().find(|entry| entry.id == id).cloned()
+            {
+                return Some(completion);
+            }
+
+            return None;
+        }
+    }
+
     /// Wait for all running sub-agents to complete.
     pub async fn wait_all(&self) -> Vec<SubagentCompletion> {
         let ids: Vec<String> = self
@@ -476,21 +513,12 @@ impl SubagentTracker {
             return Vec::new();
         };
 
-        let (completions, should_remove) =
-            if let Some(mut scope) = self.parent_scopes.get_mut(&parent_run_id) {
-                scope.last_activity_at = chrono::Utc::now().timestamp_millis();
-                let completions = std::mem::take(&mut scope.backlog);
-                let should_remove = scope.closed && scope.active_children == 0;
-                (completions, should_remove)
-            } else {
-                (Vec::new(), false)
-            };
-
-        if should_remove {
-            self.parent_scopes.remove(&parent_run_id);
+        if let Some(mut scope) = self.parent_scopes.get_mut(&parent_run_id) {
+            scope.last_activity_at = chrono::Utc::now().timestamp_millis();
+            return std::mem::take(&mut scope.backlog);
         }
 
-        completions
+        Vec::new()
     }
 
     pub fn close_parent_scope(&self, parent_run_id: &str) -> bool {
@@ -498,20 +526,14 @@ impl SubagentTracker {
             return false;
         };
 
-        let should_remove = if let Some(mut scope) = self.parent_scopes.get_mut(&parent_run_id) {
+        if let Some(mut scope) = self.parent_scopes.get_mut(&parent_run_id) {
             scope.closed = true;
             scope.backlog.clear();
             scope.last_activity_at = chrono::Utc::now().timestamp_millis();
-            scope.active_children == 0
+            true
         } else {
-            return false;
-        };
-
-        if should_remove {
-            self.parent_scopes.remove(&parent_run_id);
+            false
         }
-
-        true
     }
 
     fn register_parent_child(&self, parent_run_id: Option<&str>) -> Result<()> {
@@ -555,11 +577,6 @@ impl SubagentTracker {
             scope.last_activity_at = now;
             if !scope.closed {
                 scope.backlog.push(completion.clone());
-            }
-            let should_remove = scope.closed && scope.active_children == 0;
-            drop(scope);
-            if should_remove {
-                self.parent_scopes.remove(&parent_key);
             }
             return;
         }

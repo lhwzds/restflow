@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::Arc;
 
+use crate::impls::subagent_read_capability::SubagentReadCapabilityService;
 use crate::{Result, ToolError};
 use crate::{Tool, ToolOutput};
 use restflow_traits::SubagentManager;
@@ -23,6 +24,10 @@ pub struct ListSubagentsParams {
     /// Include currently running agents in the response.
     #[serde(default = "default_include_running")]
     pub include_running: bool,
+
+    /// Parent run scope for running agents.
+    #[serde(default)]
+    pub parent_run_id: Option<String>,
 }
 
 fn default_include_running() -> bool {
@@ -32,11 +37,16 @@ fn default_include_running() -> bool {
 /// list_subagents tool for the shared agent execution engine.
 pub struct ListSubagentsTool {
     manager: Arc<dyn SubagentManager>,
+    capability: SubagentReadCapabilityService,
 }
 
 impl ListSubagentsTool {
     pub fn new(manager: Arc<dyn SubagentManager>) -> Self {
-        Self { manager }
+        let capability = SubagentReadCapabilityService::new(manager.clone());
+        Self {
+            manager,
+            capability,
+        }
     }
 }
 
@@ -58,6 +68,10 @@ impl Tool for ListSubagentsTool {
                     "type": "boolean",
                     "default": true,
                     "description": "Include currently running agents"
+                },
+                "parent_run_id": {
+                    "type": "string",
+                    "description": "Optional parent run scope. When omitted, running_agents is hidden from the global view."
                 }
             }
         })
@@ -85,8 +99,8 @@ impl Tool for ListSubagentsTool {
 
         if params.include_running {
             let running: Vec<Value> = self
-                .manager
-                .list_running()
+                .capability
+                .list_running_for_parent(params.parent_run_id.as_deref())
                 .iter()
                 .map(|state| {
                     json!({
@@ -100,7 +114,10 @@ impl Tool for ListSubagentsTool {
                 .collect();
 
             response["running_agents"] = json!(running);
-            response["running_count"] = json!(self.manager.running_count());
+            response["running_count"] = json!(
+                self.capability
+                    .running_count_for_parent(params.parent_run_id.as_deref())
+            );
         }
 
         Ok(ToolOutput::success(response))
@@ -200,6 +217,7 @@ mod tests {
     fn test_params_default() {
         let params: ListSubagentsParams = serde_json::from_str("{}").unwrap();
         assert!(params.include_running);
+        assert!(params.parent_run_id.is_none());
     }
 
     #[test]
@@ -253,6 +271,7 @@ mod tests {
                 agent_id: Some("coder".to_string()),
                 task: "write code".to_string(),
                 timeout_secs: Some(30),
+                parent_execution_id: Some("parent-1".to_string()),
                 ..ContractSubagentSpawnRequest::default()
             })
             .expect("spawn should succeed");
@@ -261,9 +280,68 @@ mod tests {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         let tool = ListSubagentsTool::new(manager);
+        let result = tool
+            .execute(json!({"parent_run_id": "parent-1"}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(result.result["running_count"].as_u64().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_list_hides_running_agents_without_parent_scope() {
+        let deps = make_deps(
+            MockDefLookup::with_agents(vec![("coder", "Coder")]),
+            vec![MockStep::text("slow").with_delay(5000)],
+        );
+        let manager = as_manager(&deps);
+
+        let _handle = manager
+            .spawn(ContractSubagentSpawnRequest {
+                agent_id: Some("coder".to_string()),
+                task: "write code".to_string(),
+                timeout_secs: Some(30),
+                parent_execution_id: Some("parent-1".to_string()),
+                ..ContractSubagentSpawnRequest::default()
+            })
+            .expect("spawn should succeed");
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let tool = ListSubagentsTool::new(manager);
         let result = tool.execute(json!({})).await.unwrap();
         assert!(result.success);
-        assert!(result.result["running_count"].as_u64().unwrap() >= 1);
+        assert_eq!(result.result["running_count"], json!(0));
+        assert_eq!(result.result["running_agents"], json!([]));
+    }
+
+    #[tokio::test]
+    async fn test_list_scopes_running_agents_to_parent() {
+        let deps = make_deps(
+            MockDefLookup::with_agents(vec![("coder", "Coder")]),
+            vec![MockStep::text("slow").with_delay(5000)],
+        );
+        let manager = as_manager(&deps);
+
+        let _handle = manager
+            .spawn(ContractSubagentSpawnRequest {
+                agent_id: Some("coder".to_string()),
+                task: "write code".to_string(),
+                timeout_secs: Some(30),
+                parent_execution_id: Some("parent-1".to_string()),
+                ..ContractSubagentSpawnRequest::default()
+            })
+            .expect("spawn should succeed");
+
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        let tool = ListSubagentsTool::new(manager);
+        let result = tool
+            .execute(json!({"parent_run_id": "parent-1"}))
+            .await
+            .unwrap();
+        assert!(result.success);
+        assert_eq!(result.result["running_count"], json!(1));
     }
 
     #[tokio::test]

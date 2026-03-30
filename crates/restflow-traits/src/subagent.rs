@@ -334,6 +334,13 @@ pub trait SubagentManager: Send + Sync {
     /// Wait for a sub-agent to complete, returning its terminal outcome.
     async fn wait(&self, task_id: &str) -> Option<SubagentCompletion>;
 
+    /// Wait for a sub-agent that is owned by the given parent run.
+    async fn wait_for_parent_owned_task(
+        &self,
+        task_id: &str,
+        parent_run_id: &str,
+    ) -> Option<SubagentCompletion>;
+
     /// Access the sub-agent configuration.
     fn config(&self) -> &SubagentConfig;
 }
@@ -375,6 +382,14 @@ mod tests {
         }
 
         async fn wait(&self, _task_id: &str) -> Option<SubagentCompletion> {
+            None
+        }
+
+        async fn wait_for_parent_owned_task(
+            &self,
+            _task_id: &str,
+            _parent_run_id: &str,
+        ) -> Option<SubagentCompletion> {
             None
         }
 

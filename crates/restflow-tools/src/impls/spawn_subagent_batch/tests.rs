@@ -202,6 +202,16 @@ impl SubagentManager for FailingSpawnManager {
         self.inner.wait(task_id).await
     }
 
+    async fn wait_for_parent_owned_task(
+        &self,
+        task_id: &str,
+        parent_run_id: &str,
+    ) -> Option<SubagentCompletion> {
+        self.inner
+            .wait_for_parent_owned_task(task_id, parent_run_id)
+            .await
+    }
+
     fn config(&self) -> &SubagentConfig {
         self.inner.config()
     }
