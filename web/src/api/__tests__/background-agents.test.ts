@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   convertSessionToBackgroundAgent,
+  deleteBackgroundAgent,
   getBackgroundAgent,
   listMemoryChunksByTag,
   listMemoryChunksForSession,
@@ -133,6 +134,56 @@ describe('background-agents memory API', () => {
       details: {
         assessment: expect.objectContaining({
           confirmation_token: 'token-1',
+        }),
+      },
+    })
+    await expect(request).rejects.toBeInstanceOf(BackendError)
+  })
+
+  it('unwraps executed delete outcomes to a boolean', async () => {
+    vi.mocked(requestTyped).mockResolvedValueOnce({
+      status: 'executed',
+      result: {
+        id: 'bg-1',
+        deleted: true,
+      },
+    })
+
+    const result = await deleteBackgroundAgent('bg-1', 'token-1')
+
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'DeleteBackgroundAgent',
+      data: {
+        id: 'bg-1',
+        preview: false,
+        confirmation_token: 'token-1',
+      },
+    })
+    expect(result).toBe(true)
+  })
+
+  it('maps confirmation-required delete outcomes into BackendError', async () => {
+    vi.mocked(requestTyped).mockResolvedValueOnce({
+      status: 'confirmation_required',
+      assessment: {
+        operation: 'delete_background_agent',
+        intent: 'save',
+        status: 'warning',
+        warnings: [{ code: 'confirm', message: 'Delete requires confirmation.' }],
+        blockers: [],
+        requires_confirmation: true,
+        confirmation_token: 'delete-token-1',
+      },
+    })
+
+    const request = deleteBackgroundAgent('bg-1')
+
+    await expect(request).rejects.toMatchObject({
+      code: 428,
+      kind: 'conflict',
+      details: {
+        assessment: expect.objectContaining({
+          confirmation_token: 'delete-token-1',
         }),
       },
     })

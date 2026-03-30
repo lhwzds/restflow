@@ -20,6 +20,11 @@ export interface StreamingBackgroundAgentResponse {
   already_running: boolean
 }
 
+type DeleteBackgroundAgentResult = {
+  id: string
+  deleted: boolean
+}
+
 export async function listBackgroundAgents(): Promise<BackgroundAgent[]> {
   return requestTyped<BackgroundAgent[]>({
     type: 'ListBackgroundAgents',
@@ -103,12 +108,44 @@ export async function getHeartbeatEventName(): Promise<string> {
   return 'background-agent:heartbeat'
 }
 
-export async function deleteBackgroundAgent(id: string): Promise<boolean> {
-  const response = await requestTyped<{ deleted: boolean }>({
+export async function deleteBackgroundAgent(
+  id: string,
+  confirmationToken?: string,
+): Promise<boolean> {
+  const outcome = await requestTyped<BackgroundAgentCommandOutcome<DeleteBackgroundAgentResult>>({
     type: 'DeleteBackgroundAgent',
-    data: { id },
+    data: {
+      id,
+      preview: false,
+      confirmation_token: confirmationToken ?? null,
+    },
   })
-  return response.deleted
+
+  switch (outcome.status) {
+    case 'executed':
+      return outcome.result.deleted
+    case 'confirmation_required':
+      throw toAssessmentError(
+        428,
+        'conflict',
+        outcome.assessment,
+        'Confirmation required before deleting this background agent.',
+      )
+    case 'blocked':
+      throw toAssessmentError(
+        400,
+        'validation',
+        outcome.assessment,
+        'Failed to delete background agent.',
+      )
+    case 'preview':
+      throw toAssessmentError(
+        409,
+        'conflict',
+        outcome.assessment,
+        'Preview responses are not supported for direct background-agent deletion.',
+      )
+  }
 }
 
 export interface ConvertSessionToBackgroundAgentRequest {

@@ -12,6 +12,34 @@ type BackgroundAgentSummary = {
   chat_session_id?: string | null;
 };
 
+async function waitForBackgroundAgentBySession(
+  page: Page,
+  sessionId: string,
+): Promise<BackgroundAgentSummary> {
+  await expect
+    .poll(async () => {
+      const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
+        type: "ListBackgroundAgents",
+        data: { status: null },
+      });
+
+      return agents.find((agent) => agent.chat_session_id === sessionId) ?? null;
+    })
+    .not.toBeNull();
+
+  const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
+    type: "ListBackgroundAgents",
+    data: { status: null },
+  });
+  const agent = agents.find((item) => item.chat_session_id === sessionId);
+  if (!agent) {
+    throw new Error(
+      `Failed to find background agent for session ${sessionId} after conversion`,
+    );
+  }
+  return agent;
+}
+
 test.describe("Background Agent Web Flow", () => {
   test.describe.configure({ mode: "serial" });
 
@@ -75,25 +103,7 @@ test.describe("Background Agent Web Flow", () => {
     await convertButton.click();
     await expect(dialog).not.toBeVisible();
 
-    await expect
-      .poll(async () => {
-        const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
-          type: "ListBackgroundAgents",
-          data: { status: null },
-        });
-
-        return agents.some((agent) => agent.chat_session_id === sessionId);
-      })
-      .toBe(true);
-
-    const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
-      type: "ListBackgroundAgents",
-      data: { status: null },
-    });
-    const taskId = agents.find((agent) => agent.chat_session_id === sessionId)?.id;
-    if (!taskId) {
-      throw new Error("Failed to find background agent task after conversion");
-    }
+    const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
 
     await expect(page.getByTestId(`background-folder-${taskId}`)).toBeVisible();
@@ -120,16 +130,7 @@ test.describe("Background Agent Web Flow", () => {
     await dialog.getByRole("button", { name: "Convert" }).click();
     await expect(dialog).not.toBeVisible();
 
-    const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
-      type: "ListBackgroundAgents",
-      data: { status: null },
-    });
-    const taskId = agents.find(
-      (agent) => agent.chat_session_id === sessionId,
-    )?.id;
-    if (!taskId) {
-      throw new Error("Failed to find background agent task after conversion");
-    }
+    const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
     await page.goto(`/workspace/c/${taskId}`);
     await page.waitForLoadState("domcontentloaded");
@@ -246,14 +247,7 @@ test.describe("Background Agent Web Flow", () => {
     await dialog.getByRole("button", { name: "Convert" }).click();
     await expect(dialog).not.toBeVisible();
 
-    const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
-      type: "ListBackgroundAgents",
-      data: { status: null },
-    });
-    const taskId = agents.find((agent) => agent.chat_session_id === sessionId)?.id;
-    if (!taskId) {
-      throw new Error("Failed to find background agent task after conversion");
-    }
+    const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
 
     const runId = `run-${Date.now()}`;
@@ -361,14 +355,7 @@ test.describe("Background Agent Web Flow", () => {
     await dialog.getByRole("button", { name: "Convert" }).click();
     await expect(dialog).not.toBeVisible();
 
-    const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
-      type: "ListBackgroundAgents",
-      data: { status: null },
-    });
-    const taskId = agents.find((agent) => agent.chat_session_id === sessionId)?.id;
-    if (!taskId) {
-      throw new Error("Failed to find background agent task after conversion");
-    }
+    const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
 
     const folder = page.getByTestId(`background-folder-${taskId}`);

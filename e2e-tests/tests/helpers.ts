@@ -18,6 +18,10 @@ type TrackedState = {
   backgroundTaskIds: Set<string>
 }
 
+type BackgroundAgentDeleteOutcome =
+  | { status: 'preview' | 'blocked' | 'confirmation_required'; assessment: { confirmation_token?: string | null } }
+  | { status: 'executed'; result: { deleted: boolean } }
+
 const trackedState = new WeakMap<Page, TrackedState>()
 let seededProviderPromise: Promise<void> | null = null
 
@@ -175,6 +179,39 @@ async function requestIpcDirect<T>(request: Record<string, unknown>): Promise<T>
   throw new Error(`Unexpected daemon response: ${envelope.response_type}`)
 }
 
+async function deleteBackgroundTaskDirect(taskId: string): Promise<void> {
+  const initial = await requestIpcDirect<BackgroundAgentDeleteOutcome>({
+    type: 'DeleteBackgroundAgent',
+    data: {
+      id: taskId,
+      preview: true,
+      confirmation_token: null,
+    },
+  })
+
+  if (initial.status === 'executed') {
+    return
+  }
+
+  const confirmationToken = initial.assessment?.confirmation_token?.trim()
+  if (!confirmationToken) {
+    throw new Error(`Missing confirmation token while deleting background task ${taskId}`)
+  }
+
+  const confirmed = await requestIpcDirect<BackgroundAgentDeleteOutcome>({
+    type: 'DeleteBackgroundAgent',
+    data: {
+      id: taskId,
+      preview: false,
+      confirmation_token: confirmationToken,
+    },
+  })
+
+  if (confirmed.status !== 'executed' || !confirmed.result.deleted) {
+    throw new Error(`Failed to delete background task ${taskId}`)
+  }
+}
+
 export function trackCreatedSession(page: Page, sessionId: string) {
   rememberSessionId(page, sessionId)
 }
@@ -235,10 +272,7 @@ export async function cleanupTrackedState(page: Page) {
 
   for (const taskId of backgroundTaskIds) {
     try {
-      await requestIpcDirect<{ deleted?: boolean }>({
-        type: 'DeleteBackgroundAgent',
-        data: { id: taskId },
-      })
+      await deleteBackgroundTaskDirect(taskId)
     } catch (error) {
       if (!isNotFoundError(error)) {
         cleanupErrors.push(

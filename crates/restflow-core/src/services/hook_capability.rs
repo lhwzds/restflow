@@ -57,17 +57,47 @@ impl HookCapabilityService {
 }
 
 fn sample_hook_context(event: &HookEvent) -> HookContext {
-    HookContext {
+    let timestamp = chrono::Utc::now().timestamp_millis();
+    let mut context = HookContext {
         event: event.clone(),
         task_id: "hook-test-task".to_string(),
         task_name: "Hook Test Task".to_string(),
         agent_id: "hook-test-agent".to_string(),
-        success: Some(true),
-        output: Some("Sample hook output".to_string()),
+        success: None,
+        output: None,
         error: None,
-        duration_ms: Some(250),
-        timestamp: chrono::Utc::now().timestamp_millis(),
+        duration_ms: None,
+        timestamp,
+    };
+
+    match event {
+        HookEvent::TaskStarted => {}
+        HookEvent::TaskCompleted => {
+            context.success = Some(true);
+            context.output = Some("Sample hook output".to_string());
+            context.duration_ms = Some(250);
+        }
+        HookEvent::TaskFailed => {
+            context.success = Some(false);
+            context.error = Some("Sample hook failure".to_string());
+            context.duration_ms = Some(250);
+        }
+        HookEvent::TaskInterrupted => {
+            context.success = Some(false);
+            context.error = Some("Sample hook interruption".to_string());
+            context.duration_ms = Some(125);
+        }
+        HookEvent::ToolExecuted => {
+            context.success = Some(true);
+            context.output = Some("Sample tool execution output".to_string());
+            context.duration_ms = Some(80);
+        }
+        HookEvent::ApprovalRequired => {
+            context.error = Some("Sample approval required context".to_string());
+        }
     }
+
+    context
 }
 
 #[cfg(test)]
@@ -111,5 +141,38 @@ mod tests {
 
         assert!(service.delete(&created.id).expect("delete"));
         assert!(service.list().expect("list").is_empty());
+    }
+
+    #[test]
+    fn sample_context_matches_started_event_shape() {
+        let context = sample_hook_context(&HookEvent::TaskStarted);
+
+        assert_eq!(context.event, HookEvent::TaskStarted);
+        assert_eq!(context.success, None);
+        assert_eq!(context.output, None);
+        assert_eq!(context.error, None);
+        assert_eq!(context.duration_ms, None);
+    }
+
+    #[test]
+    fn sample_context_matches_failure_event_shape() {
+        let context = sample_hook_context(&HookEvent::TaskFailed);
+
+        assert_eq!(context.event, HookEvent::TaskFailed);
+        assert_eq!(context.success, Some(false));
+        assert_eq!(context.output, None);
+        assert_eq!(context.error.as_deref(), Some("Sample hook failure"));
+        assert_eq!(context.duration_ms, Some(250));
+    }
+
+    #[test]
+    fn sample_context_matches_interrupted_event_shape() {
+        let context = sample_hook_context(&HookEvent::TaskInterrupted);
+
+        assert_eq!(context.event, HookEvent::TaskInterrupted);
+        assert_eq!(context.success, Some(false));
+        assert_eq!(context.output, None);
+        assert_eq!(context.error.as_deref(), Some("Sample hook interruption"));
+        assert_eq!(context.duration_ms, Some(125));
     }
 }
