@@ -131,13 +131,20 @@ async fn wait_for_mcp_ready(client: &Client, url: &str, daemon: &mut DaemonChild
     bail!("timed out waiting for MCP HTTP server readiness")
 }
 
-fn tool_call_text(response: &Value) -> &str {
-    response["result"]["content"]
+fn tool_call_text(response: &Value) -> String {
+    let items = response["result"]["content"]
         .as_array()
-        .and_then(|items| items.first())
-        .and_then(|item| item.get("text"))
-        .and_then(Value::as_str)
+        .expect("tool response should contain content array");
+
+    items.iter()
+        .filter_map(|item| item.get("text").and_then(Value::as_str))
+        .find(|text| {
+            let trimmed = text.trim();
+            trimmed.starts_with('{') || trimmed.starts_with('[')
+        })
+        .or_else(|| items.iter().find_map(|item| item.get("text").and_then(Value::as_str)))
         .expect("tool response should contain text content")
+        .to_string()
 }
 
 #[allow(clippy::await_holding_lock)]
@@ -207,8 +214,9 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
         }),
     )
     .await?;
+    let save_text = tool_call_text(&save_team);
     let save_value: Value =
-        serde_json::from_str(tool_call_text(&save_team)).context("parse save_team tool text")?;
+        serde_json::from_str(&save_text).with_context(|| format!("parse save_team tool text: {save_text}"))?;
     assert_eq!(save_value["operation"], "save_team");
 
     let get_team = post_json_rpc(
@@ -228,8 +236,9 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
         }),
     )
     .await?;
+    let get_text = tool_call_text(&get_team);
     let get_value: Value =
-        serde_json::from_str(tool_call_text(&get_team)).context("parse get_team tool text")?;
+        serde_json::from_str(&get_text).with_context(|| format!("parse get_team tool text: {get_text}"))?;
     assert_eq!(get_value["operation"], "get_team");
     assert_eq!(get_value["member_groups"], 1);
     assert_eq!(get_value["total_instances"], 2);
@@ -261,8 +270,9 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
         }),
     )
     .await?;
+    let run_text = tool_call_text(&run_batch);
     let run_value: Value =
-        serde_json::from_str(tool_call_text(&run_batch)).context("parse run_batch tool text")?;
+        serde_json::from_str(&run_text).with_context(|| format!("parse run_batch tool text: {run_text}"))?;
     assert_eq!(run_value["operation"], "run_batch");
     assert_eq!(run_value["run_now"], false);
     assert_eq!(run_value["total"], 2);

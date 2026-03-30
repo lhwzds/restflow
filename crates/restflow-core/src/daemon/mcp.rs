@@ -1248,6 +1248,7 @@ mod tests {
         }
     }
 
+    #[allow(clippy::await_holding_lock)]
     #[tokio::test]
     async fn api_convert_session_returns_full_conversion_outcome() {
         let _env_lock = env_lock();
