@@ -304,6 +304,38 @@ describe('backgroundAgentStore', () => {
         expect(result).toBe(false)
         expect(store.error).toBe('Delete failed')
       })
+
+      it('retries delete after confirmation warning', async () => {
+        const confirmWarning = vi.fn().mockResolvedValue(true)
+        vi.mocked(api.deleteBackgroundAgent)
+          .mockRejectedValueOnce(
+            new BackendError({
+              code: 428,
+              kind: 'confirmation_required',
+              message: 'confirm',
+              details: {
+                assessment: {
+                  status: 'warning',
+                  warnings: [{ message: 'Delete requires confirmation.' }],
+                  blockers: [],
+                  requires_confirmation: true,
+                  confirmation_token: 'delete-token-1',
+                },
+              },
+            }),
+          )
+          .mockResolvedValueOnce(true)
+
+        const store = useBackgroundAgentStore()
+        store.agents = [createMockAgent('a1')]
+
+        const result = await store.deleteAgentWithConfirmation('a1', confirmWarning)
+
+        expect(result).toBe(true)
+        expect(confirmWarning).toHaveBeenCalledTimes(1)
+        expect(api.deleteBackgroundAgent).toHaveBeenNthCalledWith(1, 'a1')
+        expect(api.deleteBackgroundAgent).toHaveBeenNthCalledWith(2, 'a1', 'delete-token-1')
+      })
     })
 
     describe('convertSessionToAgent', () => {

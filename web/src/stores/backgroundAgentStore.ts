@@ -143,9 +143,19 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     },
 
     async deleteAgent(id: string): Promise<boolean> {
+      return this.deleteAgentWithConfirmation(id)
+    },
+
+    async deleteAgentWithConfirmation(
+      id: string,
+      confirmWarning?: AssessmentConfirmHandler,
+      confirmationToken?: string,
+    ): Promise<boolean> {
       this.error = null
       try {
-        const success = await api.deleteBackgroundAgent(id)
+        const success = confirmationToken
+          ? await api.deleteBackgroundAgent(id, confirmationToken)
+          : await api.deleteBackgroundAgent(id)
         if (success) {
           this.agents = this.agents.filter((a) => a.id !== id)
           if (this.selectedAgentId === id) {
@@ -154,6 +164,24 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
         }
         return success
       } catch (err) {
+        const assessment = extractOperationAssessment(err)
+        if (
+          err instanceof BackendError &&
+          err.code === 428 &&
+          assessment?.confirmation_token &&
+          confirmWarning
+        ) {
+          const confirmed = await confirmWarning(assessment)
+          if (confirmed) {
+            return this.deleteAgentWithConfirmation(
+              id,
+              undefined,
+              assessment.confirmation_token,
+            )
+          }
+          this.error = null
+          return false
+        }
         this.error = err instanceof Error ? err.message : 'Failed to delete agent'
         console.error('Failed to delete background agent:', err)
         return false
@@ -219,15 +247,10 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
           chat_session_id: target.chat_session_id,
         })
 
-        const deleted = await api.deleteBackgroundAgent(target.id)
+        const deleted = await this.deleteAgentWithConfirmation(target.id, async () => true)
         if (!deleted) {
           this.error = 'Failed to delete background agent'
           return false
-        }
-
-        this.agents = this.agents.filter((agent) => agent.id !== target.id)
-        if (this.selectedAgentId === target.id) {
-          this.selectedAgentId = null
         }
         return true
       } catch (err) {
