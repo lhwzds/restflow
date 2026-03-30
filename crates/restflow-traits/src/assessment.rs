@@ -69,6 +69,42 @@ impl OperationAssessment {
             blockers: Vec::new(),
         }
     }
+
+    pub fn warning_with_confirmation(
+        operation: impl Into<String>,
+        intent: OperationAssessmentIntent,
+        warnings: Vec<OperationAssessmentIssue>,
+    ) -> Self {
+        let mut assessment = Self {
+            operation: operation.into(),
+            intent,
+            status: OperationAssessmentStatus::Warning,
+            requires_confirmation: true,
+            confirmation_token: None,
+            effective_model_ref: None,
+            warnings,
+            blockers: Vec::new(),
+        };
+        assessment.confirmation_token = Some(build_confirmation_token(&assessment));
+        assessment
+    }
+}
+
+fn build_confirmation_token(assessment: &OperationAssessment) -> String {
+    let payload = serde_json::json!({
+        "operation": assessment.operation,
+        "intent": assessment.intent,
+        "effective_model_ref": assessment.effective_model_ref,
+        "warnings": assessment.warnings,
+        "blockers": assessment.blockers,
+    });
+    let encoded = serde_json::to_vec(&payload).unwrap_or_default();
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in encoded {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{hash:016x}")
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -206,6 +206,10 @@ pub(super) enum BackgroundAgentAction {
     },
     Delete {
         id: String,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     List {
         #[serde(default)]
@@ -263,6 +267,10 @@ pub(super) enum BackgroundAgentAction {
     },
     DeleteTeam {
         team: String,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     Control {
         id: String,

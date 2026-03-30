@@ -50,8 +50,10 @@ impl AgentExecutor {
             return;
         };
         if let Some(map) = args.as_object_mut() {
-            map.entry("parent_execution_id".to_string())
-                .or_insert_with(|| Value::String(parent_execution_id.to_string()));
+            map.insert(
+                "parent_execution_id".to_string(),
+                Value::String(parent_execution_id.to_string()),
+            );
         }
     }
 
@@ -68,12 +70,16 @@ impl AgentExecutor {
             return;
         };
         if let Some(trace_session_id) = trace_session_id {
-            map.entry("trace_session_id".to_string())
-                .or_insert_with(|| Value::String(trace_session_id.to_string()));
+            map.insert(
+                "trace_session_id".to_string(),
+                Value::String(trace_session_id.to_string()),
+            );
         }
         if let Some(trace_scope_id) = trace_scope_id {
-            map.entry("trace_scope_id".to_string())
-                .or_insert_with(|| Value::String(trace_scope_id.to_string()));
+            map.insert(
+                "trace_scope_id".to_string(),
+                Value::String(trace_scope_id.to_string()),
+            );
         }
     }
 
@@ -117,8 +123,10 @@ impl AgentExecutor {
         let Some(map) = args.as_object_mut() else {
             return;
         };
-        map.entry("parent_run_id".to_string())
-            .or_insert_with(|| Value::String(parent_execution_id.to_string()));
+        map.insert(
+            "parent_run_id".to_string(),
+            Value::String(parent_execution_id.to_string()),
+        );
     }
 
     pub(crate) async fn execute_tools_with_events(

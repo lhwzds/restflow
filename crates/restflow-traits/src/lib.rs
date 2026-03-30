@@ -70,7 +70,8 @@ pub use skill::{SkillContent, SkillInfo, SkillProvider, SkillRecord, SkillUpdate
 pub use store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, AuthProfileCreateRequest, AuthProfileStore,
     AuthProfileTestRequest, BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
+    BackgroundAgentDeliverableListRequest,
     BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
     BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, ConfigStore, CredentialInput,

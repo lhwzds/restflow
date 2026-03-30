@@ -169,8 +169,12 @@ impl Tool for BackgroundAgentTool {
             }
             BackgroundAgentAction::ListTeams => handlers_read::execute_list_teams(self),
             BackgroundAgentAction::GetTeam { team } => handlers_read::execute_get_team(self, team),
-            BackgroundAgentAction::DeleteTeam { team } => {
-                handlers_write::execute_delete_team(self, team)
+            BackgroundAgentAction::DeleteTeam {
+                team,
+                preview,
+                confirmation_token,
+            } => {
+                handlers_write::execute_delete_team(self, team, preview, confirmation_token).await
             }
             BackgroundAgentAction::Create {
                 name,
@@ -308,7 +312,11 @@ impl Tool for BackgroundAgentTool {
                 )
                 .await
             }
-            BackgroundAgentAction::Delete { id } => handlers_write::execute_delete(self, id),
+            BackgroundAgentAction::Delete {
+                id,
+                preview,
+                confirmation_token,
+            } => handlers_write::execute_delete(self, id, preview, confirmation_token).await,
             BackgroundAgentAction::Pause { id } => control::execute_pause(self, id).await,
             BackgroundAgentAction::Start { id } => control::execute_start(self, id).await,
             BackgroundAgentAction::Resume { id } => control::execute_resume(self, id).await,

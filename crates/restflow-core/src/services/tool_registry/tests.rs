@@ -1315,11 +1315,29 @@ fn test_task_store_adapter_background_agent_flow() {
     );
     assert!(trace_result.is_err());
 
-    let deleted = BackgroundAgentStore::delete_background_agent(&adapter, &task_id).unwrap();
-    assert_eq!(
-        deleted.get("deleted").and_then(|value| value.as_bool()),
-        Some(true)
-    );
+    let delete_preview = BackgroundAgentStore::delete_background_agent(
+        &adapter,
+        restflow_traits::store::BackgroundAgentDeleteRequest {
+            id: task_id.clone(),
+            preview: true,
+            confirmation_token: None,
+        },
+    )
+    .unwrap();
+    let token = delete_preview["assessment"]["confirmation_token"]
+        .as_str()
+        .expect("delete preview token")
+        .to_string();
+    let deleted = BackgroundAgentStore::delete_background_agent(
+        &adapter,
+        restflow_traits::store::BackgroundAgentDeleteRequest {
+            id: task_id,
+            preview: false,
+            confirmation_token: Some(token),
+        },
+    )
+    .unwrap();
+    assert_eq!(deleted["result"]["deleted"].as_bool(), Some(true));
 }
 
 #[tokio::test(flavor = "current_thread")]

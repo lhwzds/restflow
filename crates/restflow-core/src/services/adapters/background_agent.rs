@@ -13,7 +13,8 @@ use restflow_tools::ToolError;
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
+    BackgroundAgentDeliverableListRequest,
     BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
     BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
@@ -75,19 +76,29 @@ impl BackgroundAgentStoreAdapter {
 
     fn run_async<T, Fut, E>(&self, future: Fut) -> Result<T, ToolError>
     where
-        Fut: Future<Output = Result<T, E>>,
-        E: Into<ToolError>,
+        T: Send + 'static,
+        Fut: Future<Output = Result<T, E>> + Send + 'static,
+        E: Into<ToolError> + Send + 'static,
     {
-        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        if let Ok(handle) = tokio::runtime::Handle::try_current()
+            && matches!(
+                handle.runtime_flavor(),
+                tokio::runtime::RuntimeFlavor::MultiThread
+            )
+        {
             return tokio::task::block_in_place(|| handle.block_on(future).map_err(Into::into));
         }
 
-        tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|error| ToolError::Tool(error.to_string()))?
-            .block_on(future)
-            .map_err(Into::into)
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|error| ToolError::Tool(error.to_string()))?
+                .block_on(future)
+                .map_err(Into::into)
+        })
+        .join()
+        .map_err(|_| ToolError::Tool("background-agent async bridge thread panicked".to_string()))?
     }
 
     fn parse_message_source(source: Option<&str>) -> Result<BackgroundMessageSource, ToolError> {
@@ -271,7 +282,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentCreateRequest,
     ) -> restflow_tools::Result<Value> {
-        let outcome = self.run_async(self.command_service.create_from_request(request))?;
+        let command_service = self.command_service.clone();
+        let outcome = self.run_async(async move { command_service.create_from_request(request).await })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -279,7 +291,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> restflow_tools::Result<Value> {
-        let outcome = self.run_async(self.command_service.convert_session(request))?;
+        let command_service = self.command_service.clone();
+        let outcome = self.run_async(async move { command_service.convert_session(request).await })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -287,14 +300,20 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         &self,
         request: BackgroundAgentUpdateRequest,
     ) -> restflow_tools::Result<Value> {
-        let outcome = self.run_async(self.command_service.update_from_request(request))?;
+        let command_service = self.command_service.clone();
+        let outcome =
+            self.run_async(async move { command_service.update_from_request(request).await })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
-    fn delete_background_agent(&self, id: &str) -> restflow_tools::Result<Value> {
-        let resolved_id = self.resolve_task_id(id)?;
-        let deleted = self.command_service.delete(&resolved_id)?;
-        Ok(json!({ "id": resolved_id, "deleted": deleted }))
+    fn delete_background_agent(
+        &self,
+        request: BackgroundAgentDeleteRequest,
+    ) -> restflow_tools::Result<Value> {
+        let command_service = self.command_service.clone();
+        let outcome =
+            self.run_async(async move { command_service.delete_from_request(request).await })?;
+        Ok(serde_json::to_value(outcome)?)
     }
 
     fn list_background_agents(&self, status: Option<String>) -> restflow_tools::Result<Value> {
@@ -313,7 +332,9 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentControlRequest,
     ) -> restflow_tools::Result<Value> {
         let _ = parse_control_action(&request.action)?;
-        let outcome = self.run_async(self.command_service.control_from_request(request))?;
+        let command_service = self.command_service.clone();
+        let outcome =
+            self.run_async(async move { command_service.control_from_request(request).await })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -793,8 +814,28 @@ mod tests {
         let created = adapter.create_background_agent(request).unwrap();
         let id = created["result"]["id"].as_str().unwrap();
 
-        let result = adapter.delete_background_agent(id).unwrap();
-        assert_eq!(result["deleted"], true);
+        let preview = adapter
+            .delete_background_agent(BackgroundAgentDeleteRequest {
+                id: id.to_string(),
+                preview: true,
+                confirmation_token: None,
+            })
+            .unwrap();
+        assert_eq!(preview["status"], "preview");
+
+        let token = preview["assessment"]["confirmation_token"]
+            .as_str()
+            .expect("preview should return confirmation token")
+            .to_string();
+        let result = adapter
+            .delete_background_agent(BackgroundAgentDeleteRequest {
+                id: id.to_string(),
+                preview: false,
+                confirmation_token: Some(token),
+            })
+            .unwrap();
+        assert_eq!(result["status"], "executed");
+        assert_eq!(result["result"]["deleted"], true);
     }
 
     #[test]
@@ -821,9 +862,26 @@ mod tests {
         let id = created["result"]["id"].as_str().unwrap().to_string();
         let prefix = &id[..8];
 
-        let result = adapter.delete_background_agent(prefix).unwrap();
-        assert_eq!(result["id"], id);
-        assert_eq!(result["deleted"], true);
+        let preview = adapter
+            .delete_background_agent(BackgroundAgentDeleteRequest {
+                id: prefix.to_string(),
+                preview: true,
+                confirmation_token: None,
+            })
+            .unwrap();
+        let token = preview["assessment"]["confirmation_token"]
+            .as_str()
+            .expect("preview should return confirmation token")
+            .to_string();
+        let result = adapter
+            .delete_background_agent(BackgroundAgentDeleteRequest {
+                id: prefix.to_string(),
+                preview: false,
+                confirmation_token: Some(token),
+            })
+            .unwrap();
+        assert_eq!(result["result"]["id"], id);
+        assert_eq!(result["result"]["deleted"], true);
     }
 
     #[test]

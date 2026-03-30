@@ -16,13 +16,16 @@ use crate::services::operation_assessment::{
 };
 use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, Storage};
-use restflow_contracts::{ErrorKind, ErrorPayload};
+use restflow_contracts::{DeleteWithIdResponse, ErrorKind, ErrorPayload};
 use restflow_tools::ToolError;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
 };
-use restflow_traits::{AgentOperationAssessor, BackgroundAgentCommandOutcome, OperationAssessment};
+use restflow_traits::{
+    AgentOperationAssessor, BackgroundAgentCommandOutcome, OperationAssessment,
+    OperationAssessmentIntent, OperationAssessmentIssue,
+};
 use std::sync::Arc;
 
 type CommandResult<T> = std::result::Result<T, BackgroundAgentCommandError>;
@@ -222,6 +225,25 @@ impl BackgroundAgentCommandService {
             .map_err(BackgroundAgentCommandError::from_anyhow)
     }
 
+    pub async fn delete_from_request(
+        &self,
+        request: BackgroundAgentDeleteRequest,
+    ) -> CommandResult<BackgroundAgentCommandOutcome<DeleteWithIdResponse>> {
+        let request = self.normalize_delete_request(request)?;
+        self.validate_delete_request(&request)?;
+        let resolved_id = request.id.clone();
+        let preview = request.preview;
+        let confirmation_token = request.confirmation_token.clone();
+        let assessment = Self::build_delete_assessment(&resolved_id);
+        self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
+            let deleted = self.delete(&resolved_id)?;
+            Ok(DeleteWithIdResponse {
+                id: resolved_id,
+                deleted,
+            })
+        })
+    }
+
     fn control(
         &self,
         id: &str,
@@ -406,6 +428,22 @@ impl BackgroundAgentCommandService {
         Ok((request, action))
     }
 
+    fn normalize_delete_request(
+        &self,
+        mut request: BackgroundAgentDeleteRequest,
+    ) -> CommandResult<BackgroundAgentDeleteRequest> {
+        if request.id.trim().is_empty() {
+            return Err(BackgroundAgentCommandError::validation(
+                "id must not be empty",
+            ));
+        }
+        request.id = self
+            .storage
+            .resolve_existing_task_id(&request.id)
+            .map_err(BackgroundAgentCommandError::from_anyhow)?;
+        Ok(request)
+    }
+
     fn normalize_convert_session_request(
         &self,
         mut request: BackgroundAgentConvertSessionRequest,
@@ -442,6 +480,15 @@ impl BackgroundAgentCommandService {
         if request.action.trim().is_empty() {
             return Err(BackgroundAgentCommandError::validation(
                 "action must not be empty",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_delete_request(&self, request: &BackgroundAgentDeleteRequest) -> CommandResult<()> {
+        if request.id.trim().is_empty() {
+            return Err(BackgroundAgentCommandError::validation(
+                "id must not be empty",
             ));
         }
         Ok(())
@@ -486,12 +533,30 @@ impl BackgroundAgentCommandService {
         }
         Ok(BackgroundAgentCommandOutcome::Executed { result: execute()? })
     }
+
+    fn build_delete_assessment(id: &str) -> OperationAssessment {
+        OperationAssessment::warning_with_confirmation(
+            "delete_background_agent",
+            OperationAssessmentIntent::Save,
+            vec![OperationAssessmentIssue {
+                code: "destructive_delete".to_string(),
+                message: format!(
+                    "Deleting background agent '{id}' removes its persisted definition and run history."
+                ),
+                field: Some("id".to_string()),
+                suggestion: Some(
+                    "Confirm the deletion only if you intend to permanently remove this background agent."
+                        .to_string(),
+                ),
+            }],
+        )
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::BackgroundAgentCommandService;
-    use crate::models::{AgentNode, ChatMessage, ChatSession, ModelId};
+    use crate::models::{AgentNode, BackgroundAgentSpec, ChatMessage, ChatSession, ModelId};
     use crate::prompt_files;
     use crate::services::session::SessionService;
     use crate::storage::{
@@ -508,6 +573,7 @@ mod tests {
     use restflow_traits::store::{
         AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
         BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
+        BackgroundAgentDeleteRequest,
         BackgroundAgentUpdateRequest,
     };
     use std::sync::Arc;
@@ -761,5 +827,172 @@ mod tests {
             .await
             .expect_err("blank name should fail");
         assert!(err.to_string().contains("name must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn delete_preview_returns_confirmation_assessment_without_removing_task() {
+        let (service, session, _dir) = setup();
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Delete Preview".to_string(),
+                agent_id: session.agent_id.clone(),
+                chat_session_id: None,
+                description: None,
+                input: Some("delete preview".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let result = service
+            .delete_from_request(BackgroundAgentDeleteRequest {
+                id: task.id.clone(),
+                preview: true,
+                confirmation_token: None,
+            })
+            .await
+            .expect("delete preview");
+
+        match result {
+            BackgroundAgentCommandOutcome::Preview { assessment } => {
+                assert_eq!(assessment.operation, "delete_background_agent");
+                assert!(assessment.requires_confirmation);
+                assert!(assessment.confirmation_token.is_some());
+            }
+            other => panic!("expected preview outcome, got {other:?}"),
+        }
+
+        assert!(
+            service
+                .storage
+                .get_task(&task.id)
+                .expect("load task")
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_requires_confirmation_before_execution() {
+        let (service, session, _dir) = setup();
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Delete Requires Confirmation".to_string(),
+                agent_id: session.agent_id.clone(),
+                chat_session_id: None,
+                description: None,
+                input: Some("delete requires confirmation".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let result = service
+            .delete_from_request(BackgroundAgentDeleteRequest {
+                id: task.id.clone(),
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("delete should return confirmation_required");
+
+        match result {
+            BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
+                assert_eq!(assessment.operation, "delete_background_agent");
+                assert!(assessment.requires_confirmation);
+            }
+            other => panic!("expected confirmation_required outcome, got {other:?}"),
+        }
+
+        assert!(
+            service
+                .storage
+                .get_task(&task.id)
+                .expect("load task")
+                .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_executes_when_confirmation_token_matches() {
+        let (service, session, _dir) = setup();
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Delete Confirmed".to_string(),
+                agent_id: session.agent_id.clone(),
+                chat_session_id: None,
+                description: None,
+                input: Some("delete confirmed".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let preview = service
+            .delete_from_request(BackgroundAgentDeleteRequest {
+                id: task.id.clone(),
+                preview: true,
+                confirmation_token: None,
+            })
+            .await
+            .expect("delete preview");
+
+        let token = match preview {
+            BackgroundAgentCommandOutcome::Preview { assessment } => assessment
+                .confirmation_token
+                .expect("delete preview should carry confirmation token"),
+            other => panic!("expected preview outcome, got {other:?}"),
+        };
+
+        let result = service
+            .delete_from_request(BackgroundAgentDeleteRequest {
+                id: task.id.clone(),
+                preview: false,
+                confirmation_token: Some(token),
+            })
+            .await
+            .expect("delete confirmed");
+
+        match result {
+            BackgroundAgentCommandOutcome::Executed { result } => {
+                assert_eq!(result.id, task.id);
+                assert!(result.deleted);
+            }
+            other => panic!("expected executed outcome, got {other:?}"),
+        }
+
+        assert!(
+            service
+                .storage
+                .get_task(&task.id)
+                .expect("load task")
+                .is_none()
+        );
     }
 }

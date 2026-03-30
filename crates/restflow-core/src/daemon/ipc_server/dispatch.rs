@@ -473,8 +473,12 @@ impl IpcServer {
                 }
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::DeleteBackgroundAgent { id } => {
-                Self::handle_delete_background_agent(core, id).await
+            IpcRequest::DeleteBackgroundAgent {
+                id,
+                preview,
+                confirmation_token,
+            } => {
+                Self::handle_delete_background_agent(core, id, preview, confirmation_token).await
             }
             IpcRequest::ControlBackgroundAgent {
                 id,

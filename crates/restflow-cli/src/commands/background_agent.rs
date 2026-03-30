@@ -1,5 +1,6 @@
 use anyhow::Result;
 use comfy_table::{Cell, Table};
+use restflow_contracts::DeleteWithIdResponse;
 use restflow_traits::{BackgroundAgentCommandOutcome, OperationAssessment};
 use std::sync::Arc;
 
@@ -103,8 +104,8 @@ pub async fn run(
             )
             .await
         }
-        BackgroundAgentCommands::Delete { id } => {
-            delete_background_agent(executor, &id, format).await
+        BackgroundAgentCommands::Delete { id, guard } => {
+            delete_background_agent(executor, &id, guard, format).await
         }
         BackgroundAgentCommands::Control { id, action, guard } => {
             control_background_agent(executor, &id, &action, guard, format).await
@@ -418,16 +419,18 @@ async fn update_background_agent(
 async fn delete_background_agent(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
+    guard: MutationGuardArgs,
     format: OutputFormat,
 ) -> Result<()> {
-    executor.delete_background_agent(id).await?;
+    let (preview, confirmation_token) = guard_parts(guard);
+    let outcome = executor
+        .delete_background_agent(id, preview, confirmation_token)
+        .await?;
 
-    if format.is_json() {
-        return print_json(&serde_json::json!({"deleted": true}));
-    }
-
-    println!("Background agent deleted: {}", id);
-    Ok(())
+    handle_mutation_outcome(outcome, format, |result: DeleteWithIdResponse| {
+        println!("Background agent deleted: {}", result.id);
+        Ok(())
+    })
 }
 
 async fn control_background_agent(

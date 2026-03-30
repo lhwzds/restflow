@@ -150,7 +150,12 @@ pub trait CommandExecutor: Send + Sync {
         preview: bool,
         confirmation_token: Option<String>,
     ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>>;
-    async fn delete_background_agent(&self, id: &str) -> Result<()>;
+    async fn delete_background_agent(
+        &self,
+        id: &str,
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>>;
     async fn control_background_agent(
         &self,
         id: &str,

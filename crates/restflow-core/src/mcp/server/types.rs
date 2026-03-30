@@ -132,7 +132,7 @@ pub struct ChatSessionGetParams {
 }
 
 /// Parameters for manage_background_agents tool
-#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
 pub struct ManageBackgroundAgentsParams {
     /// Operation to perform
     pub operation: String,
@@ -244,6 +244,12 @@ pub struct ManageBackgroundAgentsParams {
     /// Whether to trigger immediate run after convert_session/promote_to_background (default true)
     #[serde(default)]
     pub run_now: Option<bool>,
+    /// Whether to return assessment preview instead of executing
+    #[serde(default)]
+    pub preview: Option<bool>,
+    /// Confirmation token returned by a prior preview/confirmation_required response
+    #[serde(default)]
+    pub confirmation_token: Option<String>,
 }
 
 /// Parameters for manage_hooks tool
@@ -259,7 +265,7 @@ pub struct ManageHooksParams {
     pub name: Option<String>,
     /// Optional description
     #[serde(default)]
-    pub description: Option<String>,
+    pub description: Option<Option<String>>,
     /// Hook event trigger (required for create): task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required
     #[serde(default)]
     pub event: Option<String>,
@@ -268,7 +274,7 @@ pub struct ManageHooksParams {
     pub action: Option<Value>,
     /// Optional filter to limit when the hook fires
     #[serde(default)]
-    pub filter: Option<Value>,
+    pub filter: Option<Option<Value>>,
     /// Whether the hook is enabled (default: true)
     #[serde(default)]
     pub enabled: Option<bool>,

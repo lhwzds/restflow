@@ -10,7 +10,9 @@ use restflow_contracts::DeleteWithIdResponse;
 #[cfg(unix)]
 use restflow_traits::BackgroundAgentCommandOutcome;
 #[cfg(unix)]
-use restflow_traits::store::BackgroundAgentConvertSessionRequest;
+use restflow_traits::store::{
+    BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest,
+};
 
 #[cfg(unix)]
 impl IpcClient {
@@ -74,11 +76,23 @@ impl IpcClient {
         .await
     }
 
-    pub async fn delete_background_agent(&mut self, id: String) -> Result<bool> {
-        let resp: DeleteWithIdResponse = self
-            .request_typed(IpcRequest::DeleteBackgroundAgent { id })
-            .await?;
-        Ok(resp.deleted)
+    pub async fn delete_background_agent(
+        &mut self,
+        id: String,
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>> {
+        let request = BackgroundAgentDeleteRequest {
+            id,
+            preview,
+            confirmation_token,
+        };
+        self.request_typed(IpcRequest::DeleteBackgroundAgent {
+            id: request.id,
+            preview: request.preview,
+            confirmation_token: request.confirmation_token,
+        })
+        .await
     }
 
     pub async fn control_background_agent(
