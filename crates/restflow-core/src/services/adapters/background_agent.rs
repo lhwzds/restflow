@@ -73,16 +73,13 @@ impl BackgroundAgentStoreAdapter {
         }
     }
 
-    fn run_async<T, Fut>(&self, future: Fut) -> Result<T, ToolError>
+    fn run_async<T, Fut, E>(&self, future: Fut) -> Result<T, ToolError>
     where
-        Fut: Future<Output = anyhow::Result<T>>,
+        Fut: Future<Output = Result<T, E>>,
+        E: Into<ToolError>,
     {
         if let Ok(handle) = tokio::runtime::Handle::try_current() {
-            return tokio::task::block_in_place(|| {
-                handle
-                    .block_on(future)
-                    .map_err(|error| ToolError::Tool(error.to_string()))
-            });
+            return tokio::task::block_in_place(|| handle.block_on(future).map_err(Into::into));
         }
 
         tokio::runtime::Builder::new_current_thread()
@@ -90,7 +87,7 @@ impl BackgroundAgentStoreAdapter {
             .build()
             .map_err(|error| ToolError::Tool(error.to_string()))?
             .block_on(future)
-            .map_err(|error| ToolError::Tool(error.to_string()))
+            .map_err(Into::into)
     }
 
     fn parse_message_source(source: Option<&str>) -> Result<BackgroundMessageSource, ToolError> {
@@ -652,7 +649,7 @@ mod tests {
             chat_session_id: None,
             input: Some("Do something".to_string()),
             input_template: None,
-            schedule: Some(default_schedule()),
+            schedule: default_schedule(),
             timeout_secs: None,
             memory: None,
             memory_scope: None,
@@ -680,7 +677,7 @@ mod tests {
                 chat_session_id: None,
                 input: Some("use default alias".to_string()),
                 input_template: None,
-                schedule: Some(default_schedule()),
+                schedule: default_schedule(),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
@@ -784,7 +781,7 @@ mod tests {
             chat_session_id: None,
             input: Some("task to delete".to_string()),
             input_template: None,
-            schedule: Some(default_schedule()),
+            schedule: default_schedule(),
             timeout_secs: None,
             memory: None,
             memory_scope: None,
@@ -811,7 +808,7 @@ mod tests {
                 chat_session_id: None,
                 input: Some("task to delete".to_string()),
                 input_template: None,
-                schedule: Some(default_schedule()),
+                schedule: default_schedule(),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
@@ -840,7 +837,7 @@ mod tests {
                 chat_session_id: None,
                 input: Some("messaging task".to_string()),
                 input_template: None,
-                schedule: Some(default_schedule()),
+                schedule: default_schedule(),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
@@ -881,7 +878,7 @@ mod tests {
                 chat_session_id: None,
                 input: Some("deliverables task".to_string()),
                 input_template: None,
-                schedule: Some(default_schedule()),
+                schedule: default_schedule(),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,
@@ -939,7 +936,7 @@ mod tests {
                 chat_session_id: None,
                 input: Some("trace task".to_string()),
                 input_template: None,
-                schedule: Some(default_schedule()),
+                schedule: default_schedule(),
                 timeout_secs: None,
                 memory: None,
                 memory_scope: None,

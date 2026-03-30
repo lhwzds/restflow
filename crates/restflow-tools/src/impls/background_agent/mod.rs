@@ -84,6 +84,10 @@ impl BackgroundAgentTool {
     }
 }
 
+pub fn tool_parameters_schema() -> Value {
+    schema::parameters_schema()
+}
+
 #[async_trait]
 impl Tool for BackgroundAgentTool {
     fn name(&self) -> &str {

@@ -16,13 +16,112 @@ use crate::services::operation_assessment::{
 };
 use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, Storage};
-use anyhow::{Result, anyhow};
+use restflow_contracts::{ErrorKind, ErrorPayload};
+use restflow_tools::ToolError;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
     BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
 };
 use restflow_traits::{AgentOperationAssessor, BackgroundAgentCommandOutcome, OperationAssessment};
 use std::sync::Arc;
+
+type CommandResult<T> = std::result::Result<T, BackgroundAgentCommandError>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BackgroundAgentCommandError {
+    Validation(String),
+    NotFound(String),
+    Conflict(String),
+    Internal(String),
+}
+
+impl std::fmt::Display for BackgroundAgentCommandError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Validation(message)
+            | Self::NotFound(message)
+            | Self::Conflict(message)
+            | Self::Internal(message) => write!(f, "{message}"),
+        }
+    }
+}
+
+impl std::error::Error for BackgroundAgentCommandError {}
+
+impl From<BackgroundAgentCommandError> for ToolError {
+    fn from(error: BackgroundAgentCommandError) -> Self {
+        ToolError::Tool(error.to_string())
+    }
+}
+
+impl BackgroundAgentCommandError {
+    fn validation(message: impl Into<String>) -> Self {
+        Self::Validation(message.into())
+    }
+
+    fn not_found(message: impl Into<String>) -> Self {
+        Self::NotFound(message.into())
+    }
+
+    fn conflict(message: impl Into<String>) -> Self {
+        Self::Conflict(message.into())
+    }
+
+    fn internal(message: impl Into<String>) -> Self {
+        Self::Internal(message.into())
+    }
+
+    fn classify(message: String) -> Self {
+        let normalized = message.trim().to_ascii_lowercase();
+        if normalized.contains("not found") {
+            Self::not_found(message)
+        } else if normalized.contains("ambiguous")
+            || normalized.contains("already exists")
+            || normalized.contains("conflict")
+        {
+            Self::conflict(message)
+        } else if normalized.contains("missing required field")
+            || normalized.contains("must not be empty")
+            || normalized.contains("invalid")
+            || normalized.contains("unknown")
+            || normalized.contains("required")
+        {
+            Self::validation(message)
+        } else {
+            Self::internal(message)
+        }
+    }
+
+    fn from_tool_error(error: ToolError) -> Self {
+        Self::classify(error.to_string())
+    }
+
+    fn from_anyhow(error: anyhow::Error) -> Self {
+        Self::classify(error.to_string())
+    }
+
+    pub fn code(&self) -> i32 {
+        match self {
+            Self::Validation(_) => 400,
+            Self::NotFound(_) => 404,
+            Self::Conflict(_) => 409,
+            Self::Internal(_) => 500,
+        }
+    }
+
+    pub fn kind(&self) -> ErrorKind {
+        match self {
+            Self::Validation(_) => ErrorKind::Validation,
+            Self::NotFound(_) => ErrorKind::NotFound,
+            Self::Conflict(_) => ErrorKind::Conflict,
+            Self::Internal(_) => ErrorKind::Internal,
+        }
+    }
+
+    pub fn payload(&self) -> ErrorPayload {
+        ErrorPayload::with_kind(self.code(), self.kind(), self.to_string(), None)
+    }
+}
 
 #[derive(Clone)]
 pub struct BackgroundAgentCommandService {
@@ -64,61 +163,79 @@ impl BackgroundAgentCommandService {
         self
     }
 
-    fn create(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
-        self.storage.create_background_agent(spec)
+    fn create(&self, spec: BackgroundAgentSpec) -> CommandResult<BackgroundAgent> {
+        self.storage
+            .create_background_agent(spec)
+            .map_err(BackgroundAgentCommandError::from_anyhow)
     }
 
     pub async fn create_from_request(
         &self,
         request: BackgroundAgentCreateRequest,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let request = self.normalize_create_request(request)?;
+        self.validate_create_request(&request)?;
         let assessment = self
             .assessor()?
             .assess_background_agent_create(request.clone())
             .await
-            .map_err(|error| anyhow!(error.to_string()))?;
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
         let preview = request.preview;
         let confirmation_token = request.confirmation_token.clone();
-        let spec = create_request_to_spec(request).map_err(|error| anyhow!(error.to_string()))?;
+        let spec = create_request_to_spec(request)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
         self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
             self.create(spec)
         })
     }
 
-    fn update(&self, id: &str, patch: BackgroundAgentPatch) -> Result<BackgroundAgent> {
-        self.storage.update_background_agent(id, patch)
+    fn update(&self, id: &str, patch: BackgroundAgentPatch) -> CommandResult<BackgroundAgent> {
+        self.storage
+            .update_background_agent(id, patch)
+            .map_err(BackgroundAgentCommandError::from_anyhow)
     }
 
     pub async fn update_from_request(
         &self,
         request: BackgroundAgentUpdateRequest,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let request = self.normalize_update_request(request)?;
+        self.validate_update_request(&request)?;
         let resolved_id = request.id.clone();
         let assessment = self
             .assessor()?
             .assess_background_agent_update(request.clone())
             .await
-            .map_err(|error| anyhow!(error.to_string()))?;
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
         let preview = request.preview;
         let confirmation_token = request.confirmation_token.clone();
-        let patch = update_request_to_patch(request).map_err(|error| anyhow!(error.to_string()))?;
+        let patch = update_request_to_patch(request)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
         self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
             self.update(&resolved_id, patch)
         })
     }
 
-    pub fn delete(&self, id: &str) -> Result<bool> {
-        self.storage.delete_task(id)
+    pub fn delete(&self, id: &str) -> CommandResult<bool> {
+        self.storage
+            .delete_task(id)
+            .map_err(BackgroundAgentCommandError::from_anyhow)
     }
 
-    fn control(&self, id: &str, action: BackgroundAgentControlAction) -> Result<BackgroundAgent> {
-        self.storage.control_background_agent(id, action)
+    fn control(
+        &self,
+        id: &str,
+        action: BackgroundAgentControlAction,
+    ) -> CommandResult<BackgroundAgent> {
+        self.storage
+            .control_background_agent(id, action)
+            .map_err(BackgroundAgentCommandError::from_anyhow)
     }
 
-    pub fn progress(&self, id: &str, event_limit: usize) -> Result<BackgroundProgress> {
-        self.storage.get_background_agent_progress(id, event_limit)
+    pub fn progress(&self, id: &str, event_limit: usize) -> CommandResult<BackgroundProgress> {
+        self.storage
+            .get_background_agent_progress(id, event_limit)
+            .map_err(BackgroundAgentCommandError::from_anyhow)
     }
 
     pub fn send_message(
@@ -126,22 +243,24 @@ impl BackgroundAgentCommandService {
         id: &str,
         message: String,
         source: BackgroundMessageSource,
-    ) -> Result<BackgroundMessage> {
+    ) -> CommandResult<BackgroundMessage> {
         self.storage
             .send_background_agent_message(id, message, source)
+            .map_err(BackgroundAgentCommandError::from_anyhow)
     }
 
     pub async fn control_from_request(
         &self,
         request: BackgroundAgentControlRequest,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let (request, action) = self.normalize_control_request(request)?;
+        self.validate_control_request(&request)?;
         let resolved_id = request.id.clone();
         let assessment = self
             .assessor()?
             .assess_background_agent_control(request.clone())
             .await
-            .map_err(|error| anyhow!(error.to_string()))?;
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
         let preview = request.preview;
         let confirmation_token = request.confirmation_token.clone();
         self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
@@ -152,27 +271,28 @@ impl BackgroundAgentCommandService {
     pub async fn convert_session(
         &self,
         request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
+    ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
         let request = self.normalize_convert_session_request(request);
+        self.validate_convert_session_request(&request)?;
         let session_id = request.session_id.clone();
-        if session_id.is_empty() {
-            return Err(anyhow!("session_id must not be empty"));
-        }
 
         let assessment = self
             .assessor()?
             .assess_background_agent_convert_session(request.clone())
             .await
-            .map_err(|error| anyhow!(error.to_string()))?;
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
         let preview = request.preview;
         let confirmation_token = request.confirmation_token.clone();
 
         let session = self
             .session_service
-            .get_session_view(&session_id)?
-            .ok_or_else(|| anyhow!("Session not found: {}", session_id))?;
+            .get_session_view(&session_id)
+            .map_err(BackgroundAgentCommandError::from_anyhow)?
+            .ok_or_else(|| {
+                BackgroundAgentCommandError::not_found(format!("Session not found: {}", session_id))
+            })?;
         let options = convert_session_request_to_options(request)
-            .map_err(|error| anyhow!(error.to_string()))?;
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
         let spec = build_convert_session_spec(
             &session,
             ConvertSessionSpecOptions {
@@ -190,14 +310,18 @@ impl BackgroundAgentCommandService {
                 continuation: None,
             },
         )
-        .map_err(|error| anyhow!(error))?;
+        .map_err(|error| BackgroundAgentCommandError::internal(error.to_string()))?;
 
         self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
-            let mut task = self.storage.create_background_agent(spec)?;
+            let mut task = self
+                .storage
+                .create_background_agent(spec)
+                .map_err(BackgroundAgentCommandError::from_anyhow)?;
             if options.run_now {
                 task = self
                     .storage
-                    .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)?;
+                    .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)
+                    .map_err(BackgroundAgentCommandError::from_anyhow)?;
             }
             Ok(BackgroundAgentConversionResult {
                 task,
@@ -208,24 +332,32 @@ impl BackgroundAgentCommandService {
         })
     }
 
-    pub fn resolve_default_or_existing_agent_id(&self, id_or_alias: &str) -> Result<String> {
+    pub fn resolve_default_or_existing_agent_id(&self, id_or_alias: &str) -> CommandResult<String> {
         crate::boundary::background_agent::resolve_agent_id_alias(
             id_or_alias,
             || self.agents.resolve_default_agent_id(),
             |trimmed| self.agents.resolve_existing_agent_id(trimmed),
         )
+        .map_err(BackgroundAgentCommandError::from_anyhow)
     }
 
-    fn assessor(&self) -> Result<Arc<dyn AgentOperationAssessor>> {
+    fn assessor(&self) -> CommandResult<Arc<dyn AgentOperationAssessor>> {
         self.assessor.clone().ok_or_else(|| {
-            anyhow!("Background-agent capability assessment is unavailable in this runtime.")
+            BackgroundAgentCommandError::internal(
+                "Background-agent capability assessment is unavailable in this runtime.",
+            )
         })
     }
 
     fn normalize_create_request(
         &self,
         mut request: BackgroundAgentCreateRequest,
-    ) -> Result<BackgroundAgentCreateRequest> {
+    ) -> CommandResult<BackgroundAgentCreateRequest> {
+        if request.agent_id.trim().is_empty() {
+            return Err(BackgroundAgentCommandError::validation(
+                "agent_id must not be empty",
+            ));
+        }
         request.agent_id = self.resolve_default_or_existing_agent_id(&request.agent_id)?;
         Ok(request)
     }
@@ -233,9 +365,22 @@ impl BackgroundAgentCommandService {
     fn normalize_update_request(
         &self,
         mut request: BackgroundAgentUpdateRequest,
-    ) -> Result<BackgroundAgentUpdateRequest> {
-        request.id = self.storage.resolve_existing_task_id(&request.id)?;
+    ) -> CommandResult<BackgroundAgentUpdateRequest> {
+        if request.id.trim().is_empty() {
+            return Err(BackgroundAgentCommandError::validation(
+                "id must not be empty",
+            ));
+        }
+        request.id = self
+            .storage
+            .resolve_existing_task_id(&request.id)
+            .map_err(BackgroundAgentCommandError::from_anyhow)?;
         if let Some(agent_id) = request.agent_id.clone() {
+            if agent_id.trim().is_empty() {
+                return Err(BackgroundAgentCommandError::validation(
+                    "agent_id must not be empty",
+                ));
+            }
             request.agent_id = Some(self.resolve_default_or_existing_agent_id(&agent_id)?);
         }
         Ok(request)
@@ -244,11 +389,20 @@ impl BackgroundAgentCommandService {
     fn normalize_control_request(
         &self,
         mut request: BackgroundAgentControlRequest,
-    ) -> Result<(BackgroundAgentControlRequest, BackgroundAgentControlAction)> {
-        request.id = self.storage.resolve_existing_task_id(&request.id)?;
-        let action =
-            parse_control_action(&request.action).map_err(|error| anyhow!(error.to_string()))?;
-        request.action = to_contract(action.clone()).map_err(|error| anyhow!(error.to_string()))?;
+    ) -> CommandResult<(BackgroundAgentControlRequest, BackgroundAgentControlAction)> {
+        if request.id.trim().is_empty() {
+            return Err(BackgroundAgentCommandError::validation(
+                "id must not be empty",
+            ));
+        }
+        request.id = self
+            .storage
+            .resolve_existing_task_id(&request.id)
+            .map_err(BackgroundAgentCommandError::from_anyhow)?;
+        let action = parse_control_action(&request.action)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        request.action =
+            to_contract(action.clone()).map_err(BackgroundAgentCommandError::from_anyhow)?;
         Ok((request, action))
     }
 
@@ -261,13 +415,64 @@ impl BackgroundAgentCommandService {
         request
     }
 
+    fn validate_create_request(&self, request: &BackgroundAgentCreateRequest) -> CommandResult<()> {
+        if request.name.trim().is_empty() {
+            return Err(BackgroundAgentCommandError::validation(
+                "name must not be empty",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_update_request(&self, request: &BackgroundAgentUpdateRequest) -> CommandResult<()> {
+        if let Some(name) = request.name.as_deref()
+            && name.trim().is_empty()
+        {
+            return Err(BackgroundAgentCommandError::validation(
+                "name must not be empty",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_control_request(
+        &self,
+        request: &BackgroundAgentControlRequest,
+    ) -> CommandResult<()> {
+        if request.action.trim().is_empty() {
+            return Err(BackgroundAgentCommandError::validation(
+                "action must not be empty",
+            ));
+        }
+        Ok(())
+    }
+
+    fn validate_convert_session_request(
+        &self,
+        request: &BackgroundAgentConvertSessionRequest,
+    ) -> CommandResult<()> {
+        if request.session_id.is_empty() {
+            return Err(BackgroundAgentCommandError::validation(
+                "session_id must not be empty",
+            ));
+        }
+        if let Some(name) = request.name.as_deref()
+            && name.trim().is_empty()
+        {
+            return Err(BackgroundAgentCommandError::validation(
+                "name must not be empty",
+            ));
+        }
+        Ok(())
+    }
+
     fn finish_mutation<T>(
         &self,
         assessment: OperationAssessment,
         preview: bool,
         confirmation_token: Option<&str>,
-        execute: impl FnOnce() -> Result<T>,
-    ) -> Result<BackgroundAgentCommandOutcome<T>> {
+        execute: impl FnOnce() -> CommandResult<T>,
+    ) -> CommandResult<BackgroundAgentCommandOutcome<T>> {
         if preview {
             return Ok(BackgroundAgentCommandOutcome::Preview { assessment });
         }
@@ -535,14 +740,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn create_fails_without_schedule() {
+    async fn create_rejects_blank_name_before_assessment() {
         let (service, _session, _dir) = setup();
         let err = service
             .create_from_request(BackgroundAgentCreateRequest {
-                name: "Missing Schedule".to_string(),
+                name: "   ".to_string(),
                 agent_id: "default".to_string(),
                 chat_session_id: None,
-                schedule: None,
+                schedule: restflow_contracts::request::TaskSchedule::default(),
                 input: Some("run".to_string()),
                 input_template: None,
                 timeout_secs: None,
@@ -554,7 +759,7 @@ mod tests {
                 confirmation_token: None,
             })
             .await
-            .expect_err("missing schedule should fail");
-        assert!(err.to_string().contains("Missing required field: schedule"));
+            .expect_err("blank name should fail");
+        assert!(err.to_string().contains("name must not be empty"));
     }
 }

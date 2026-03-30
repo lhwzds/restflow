@@ -44,7 +44,7 @@ pub(super) fn parameters_schema() -> Value {
             },
             "schedule": {
                 "type": "object",
-                "description": "Background agent schedule object (for create/update)"
+                "description": "Background agent schedule object (required for create, optional for update/convert_session/promote_to_background)"
             },
             "notification": {
                 "type": "object",
@@ -146,6 +146,41 @@ pub(super) fn parameters_schema() -> Value {
                 "description": "Maximum number of trailing lines returned by read_trace"
             }
         },
-        "required": ["operation"]
+        "required": ["operation"],
+        "allOf": [
+            {
+                "if": {
+                    "properties": {
+                        "operation": { "const": "create" }
+                    },
+                    "required": ["operation"]
+                },
+                "then": {
+                    "required": ["operation", "name", "agent_id", "schedule"]
+                }
+            },
+            {
+                "if": {
+                    "properties": {
+                        "operation": { "const": "convert_session" }
+                    },
+                    "required": ["operation"]
+                },
+                "then": {
+                    "required": ["operation", "session_id"]
+                }
+            },
+            {
+                "if": {
+                    "properties": {
+                        "operation": { "const": "promote_to_background" }
+                    },
+                    "required": ["operation"]
+                },
+                "then": {
+                    "required": ["operation"]
+                }
+            }
+        ]
     })
 }

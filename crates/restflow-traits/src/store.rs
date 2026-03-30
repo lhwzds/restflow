@@ -136,8 +136,7 @@ pub struct BackgroundAgentCreateRequest {
     pub agent_id: String,
     #[serde(default)]
     pub chat_session_id: Option<String>,
-    #[serde(default)]
-    pub schedule: Option<ContractTaskSchedule>,
+    pub schedule: ContractTaskSchedule,
     #[serde(default)]
     pub input: Option<String>,
     #[serde(default)]

@@ -417,10 +417,9 @@ async fn api_convert_session_to_background_agent(
     .convert_session(store_request)
     .await
     .map_err(|error| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorPayload::new(400, error.to_string(), None)),
-        )
+        let status =
+            StatusCode::from_u16(error.code() as u16).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+        (status, Json(error.payload()))
     })?;
 
     Ok(Json(outcome))

@@ -65,7 +65,7 @@ pub(super) async fn execute_create(
     name: String,
     agent_id: String,
     chat_session_id: Option<String>,
-    schedule: Option<ContractTaskSchedule>,
+    schedule: ContractTaskSchedule,
     input: Option<String>,
     input_template: Option<String>,
     timeout_secs: Option<u64>,

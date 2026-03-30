@@ -9,8 +9,8 @@ use crate::auth::{AuthManagerConfig, AuthProfileManager};
 use crate::memory::{MemoryExporter, MemoryExporterBuilder, SearchEngineBuilder};
 use crate::models::{
     AgentNode, BackgroundAgentStatus, ChatExecutionStatus, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, HookContext, HookEvent, MemoryChunk, MemorySearchQuery, MessageExecution,
-    ModelId, SteerMessage, SteerSource, TerminalSession,
+    ChatSessionSummary, MemoryChunk, MemorySearchQuery, MessageExecution, ModelId, SteerMessage,
+    SteerSource, TerminalSession,
 };
 use crate::process::ProcessRegistry;
 use crate::runtime::background_agent::{AgentRuntimeExecutor, SessionInputMode};

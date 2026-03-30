@@ -435,34 +435,6 @@ pub(super) fn parse_background_agent_status(status: &str) -> Result<BackgroundAg
     }
 }
 
-pub(super) fn sample_hook_context(event: &HookEvent) -> HookContext {
-    let now = chrono::Utc::now().timestamp_millis();
-    match event {
-        HookEvent::TaskFailed | HookEvent::TaskInterrupted => HookContext {
-            event: event.clone(),
-            task_id: "hook-test-task".to_string(),
-            task_name: "hook test task".to_string(),
-            agent_id: "hook-test-agent".to_string(),
-            success: Some(false),
-            output: None,
-            error: Some("Hook test error".to_string()),
-            duration_ms: Some(321),
-            timestamp: now,
-        },
-        _ => HookContext {
-            event: event.clone(),
-            task_id: "hook-test-task".to_string(),
-            task_name: "hook test task".to_string(),
-            agent_id: "hook-test-agent".to_string(),
-            success: Some(true),
-            output: Some("Hook test output".to_string()),
-            error: None,
-            duration_ms: Some(321),
-            timestamp: now,
-        },
-    }
-}
-
 pub(super) fn build_agent_system_prompt(
     core: &Arc<AppCore>,
     agent_node: AgentNode,
