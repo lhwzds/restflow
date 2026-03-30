@@ -232,6 +232,15 @@ pub struct BackgroundAgentControlRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BackgroundAgentDeleteRequest {
+    pub id: String,
+    #[serde(default)]
+    pub preview: bool,
+    #[serde(default)]
+    pub confirmation_token: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct BackgroundAgentProgressRequest {
     pub id: String,
     #[serde(default)]
@@ -280,7 +289,7 @@ pub trait BackgroundAgentStore: Send + Sync {
         request: BackgroundAgentConvertSessionRequest,
     ) -> Result<Value>;
     fn update_background_agent(&self, request: BackgroundAgentUpdateRequest) -> Result<Value>;
-    fn delete_background_agent(&self, id: &str) -> Result<Value>;
+    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value>;
     fn list_background_agents(&self, status: Option<String>) -> Result<Value>;
     fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value>;
     fn get_background_agent_progress(

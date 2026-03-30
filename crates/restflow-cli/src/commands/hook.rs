@@ -121,10 +121,18 @@ async fn update_hook(
 ) -> Result<()> {
     let event = parse_event(&event)?;
     let action = build_action(action, url, script, channel, message, agent, input)?;
+    let mut hook = executor
+        .list_hooks()
+        .await?
+        .into_iter()
+        .find(|hook| hook.id == id)
+        .ok_or_else(|| anyhow::anyhow!("Hook not found: {}", id))?;
+    hook.name = name;
+    hook.event = event;
+    hook.action = action;
+    hook.touch();
 
-    let hook = executor
-        .update_hook(id, Hook::new(name, event, action))
-        .await?;
+    let hook = executor.update_hook(id, hook).await?;
 
     if format.is_json() {
         return print_json(&hook);
@@ -580,7 +588,14 @@ mod tests {
             panic!("unexpected executor call")
         }
 
-        async fn delete_background_agent(&self, _id: &str) -> anyhow::Result<()> {
+        async fn delete_background_agent(
+            &self,
+            _id: &str,
+            _preview: bool,
+            _confirmation_token: Option<String>,
+        ) -> anyhow::Result<
+            BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>,
+        > {
             panic!("unexpected executor call")
         }
 
@@ -797,17 +812,36 @@ mod tests {
 
     #[tokio::test]
     async fn hook_update_dispatches_through_executor() {
-        let updated_hook = Hook::new(
-            "updated".to_string(),
-            HookEvent::TaskFailed,
-            HookAction::Script {
-                path: "/tmp/update-hook.sh".to_string(),
-                args: None,
-                timeout_secs: None,
+        let mut existing_hook = Hook::new(
+            "existing".to_string(),
+            HookEvent::TaskCompleted,
+            HookAction::SendMessage {
+                channel_type: "telegram".to_string(),
+                message_template: "done".to_string(),
             },
         );
+        existing_hook.id = "hook-456".to_string();
+        existing_hook.description = Some("keep-me".to_string());
+        existing_hook.filter = Some(restflow_core::models::HookFilter {
+            task_name_pattern: Some("deploy-*".to_string()),
+            agent_id: Some("agent-1".to_string()),
+            success_only: Some(true),
+        });
+        existing_hook.enabled = false;
+        existing_hook.created_at = 123;
+        existing_hook.updated_at = 456;
+
+        let mut updated_hook = existing_hook.clone();
+        updated_hook.name = "updated".to_string();
+        updated_hook.event = HookEvent::TaskFailed;
+        updated_hook.action = HookAction::Script {
+            path: "/tmp/update-hook.sh".to_string(),
+            args: None,
+            timeout_secs: None,
+        };
+        updated_hook.updated_at = 789;
         let executor = Arc::new(RecordingExecutor::new(
-            Vec::new(),
+            vec![existing_hook.clone()],
             updated_hook.clone(),
             true,
         ));
@@ -832,13 +866,20 @@ mod tests {
         .expect("hook update should succeed");
 
         let calls = executor.calls();
-        assert_eq!(calls.len(), 1);
-        match &calls[0] {
+        assert_eq!(calls.len(), 2);
+        assert!(matches!(calls[0], HookCall::List));
+        match &calls[1] {
             HookCall::Update(id, hook) => {
                 assert_eq!(id, "hook-456");
                 assert_eq!(hook.name, updated_hook.name);
                 assert_eq!(hook.event, updated_hook.event);
                 assert_eq!(hook.action, updated_hook.action);
+                assert_eq!(hook.id, existing_hook.id);
+                assert_eq!(hook.description, existing_hook.description);
+                assert_eq!(hook.filter, existing_hook.filter);
+                assert_eq!(hook.enabled, existing_hook.enabled);
+                assert_eq!(hook.created_at, existing_hook.created_at);
+                assert!(hook.updated_at >= existing_hook.updated_at);
             }
             other => panic!("unexpected call: {other:?}"),
         }

@@ -1929,7 +1929,7 @@ async fn test_spawn_subagent_tool_call_injects_parent_execution_id() {
 }
 
 #[tokio::test]
-async fn test_spawn_subagent_tool_call_preserves_explicit_parent_execution_id() {
+async fn test_spawn_subagent_tool_call_overrides_explicit_parent_execution_id() {
     let mut tools = ToolRegistry::new();
     tools.register(SpawnSubagentCaptureTool);
 
@@ -1972,13 +1972,13 @@ async fn test_spawn_subagent_tool_call_preserves_explicit_parent_execution_id() 
     let output = result
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
-    assert_eq!(output.result["parent_execution_id"], "explicit-parent");
+    assert_eq!(output.result["parent_execution_id"], "runtime-parent");
     assert_eq!(output.result["trace_session_id"], "runtime-session");
     assert_eq!(output.result["trace_scope_id"], "runtime-scope");
 }
 
 #[tokio::test]
-async fn test_spawn_subagent_tool_call_preserves_explicit_trace_context() {
+async fn test_spawn_subagent_tool_call_overrides_explicit_trace_context() {
     let mut tools = ToolRegistry::new();
     tools.register(SpawnSubagentCaptureTool);
 
@@ -2023,9 +2023,9 @@ async fn test_spawn_subagent_tool_call_preserves_explicit_trace_context() {
     let output = result
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
-    assert_eq!(output.result["parent_execution_id"], "explicit-parent");
-    assert_eq!(output.result["trace_session_id"], "explicit-session");
-    assert_eq!(output.result["trace_scope_id"], "explicit-scope");
+    assert_eq!(output.result["parent_execution_id"], "runtime-parent");
+    assert_eq!(output.result["trace_session_id"], "runtime-session");
+    assert_eq!(output.result["trace_scope_id"], "runtime-scope");
 }
 
 #[tokio::test]
@@ -2174,7 +2174,7 @@ async fn test_list_subagents_injects_parent_run_id() {
 }
 
 #[tokio::test]
-async fn test_wait_subagents_preserves_explicit_parent_run_id() {
+async fn test_wait_subagents_overrides_explicit_parent_run_id() {
     let mut tools = ToolRegistry::new();
     tools.register(SubagentReadCaptureTool {
         tool_name: "wait_subagents",
@@ -2216,7 +2216,7 @@ async fn test_wait_subagents_preserves_explicit_parent_run_id() {
     let output = result
         .as_ref()
         .unwrap_or_else(|e| panic!("wait_call should succeed: {e}"));
-    assert_eq!(output.result["parent_run_id"], "explicit-parent");
+    assert_eq!(output.result["parent_run_id"], "runtime-parent");
 }
 
 #[test]

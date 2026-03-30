@@ -25,8 +25,8 @@ impl RestFlowMcpServer {
                 let action: HookAction = serde_json::from_value(action_value)
                     .map_err(|e| format!("Invalid action: {}", e))?;
                 let mut hook = Hook::new(name, event, action);
-                hook.description = params.description;
-                if let Some(filter_value) = params.filter {
+                hook.description = params.description.flatten();
+                if let Some(filter_value) = params.filter.flatten() {
                     hook.filter = Some(
                         serde_json::from_value::<HookFilter>(filter_value)
                             .map_err(|e| format!("Invalid filter: {}", e))?,
@@ -49,7 +49,7 @@ impl RestFlowMcpServer {
                     hook.name = name;
                 }
                 if let Some(desc) = params.description {
-                    hook.description = Some(desc);
+                    hook.description = desc;
                 }
                 if let Some(event_str) = params.event {
                     hook.event = serde_json::from_value(Value::String(event_str.clone()))
@@ -60,10 +60,13 @@ impl RestFlowMcpServer {
                         .map_err(|e| format!("Invalid action: {}", e))?;
                 }
                 if let Some(filter_value) = params.filter {
-                    hook.filter = Some(
-                        serde_json::from_value::<HookFilter>(filter_value)
-                            .map_err(|e| format!("Invalid filter: {}", e))?,
-                    );
+                    hook.filter = match filter_value {
+                        Some(filter_value) => Some(
+                            serde_json::from_value::<HookFilter>(filter_value)
+                                .map_err(|e| format!("Invalid filter: {}", e))?,
+                        ),
+                        None => None,
+                    };
                 }
                 if let Some(enabled) = params.enabled {
                     hook.enabled = enabled;

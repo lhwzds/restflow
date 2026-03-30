@@ -75,7 +75,7 @@ async function submit() {
     if (result) {
       toast.success(t('workspace.session.convertSuccess'))
       emit('update:open', false)
-    } else {
+    } else if (backgroundAgentStore.error) {
       toast.error(backgroundAgentStore.error || t('workspace.session.convertFailed'))
     }
   } finally {

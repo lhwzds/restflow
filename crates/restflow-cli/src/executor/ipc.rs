@@ -497,10 +497,16 @@ impl CommandExecutor for IpcExecutor {
             .await
     }
 
-    async fn delete_background_agent(&self, id: &str) -> Result<()> {
+    async fn delete_background_agent(
+        &self,
+        id: &str,
+        preview: bool,
+        confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>> {
         let mut client = self.client.lock().await;
-        client.delete_background_agent(id.to_string()).await?;
-        Ok(())
+        client
+            .delete_background_agent(id.to_string(), preview, confirmation_token)
+            .await
     }
 
     async fn control_background_agent(

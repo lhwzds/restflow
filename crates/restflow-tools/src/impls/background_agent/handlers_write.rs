@@ -10,8 +10,9 @@ use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::OperationAssessmentIntent;
 use restflow_traits::store::{
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentMessageRequest, BackgroundAgentUpdateRequest,
+    BackgroundAgentDeleteRequest, BackgroundAgentMessageRequest, BackgroundAgentUpdateRequest,
 };
+use restflow_traits::{OperationAssessment, OperationAssessmentIssue};
 
 use super::BackgroundAgentTool;
 use super::team::{delete_team, save_team_workers};
@@ -49,8 +50,32 @@ pub(super) async fn execute_save_team(
     })))
 }
 
-pub(super) fn execute_delete_team(tool: &BackgroundAgentTool, team: String) -> Result<ToolOutput> {
+pub(super) async fn execute_delete_team(
+    tool: &BackgroundAgentTool,
+    team: String,
+    preview: bool,
+    confirmation_token: Option<String>,
+) -> Result<ToolOutput> {
     tool.write_guard()?;
+    let assessment = OperationAssessment::warning_with_confirmation(
+        "delete_team",
+        OperationAssessmentIntent::Save,
+        vec![OperationAssessmentIssue {
+            code: "destructive_delete".to_string(),
+            message: format!(
+                "Deleting team '{team}' permanently removes the saved batch template."
+            ),
+            field: Some("team".to_string()),
+            suggestion: Some(
+                "Confirm the deletion only if you want to remove this reusable team definition."
+                    .to_string(),
+            ),
+        }],
+    );
+    if preview {
+        return Ok(preview_output(assessment));
+    }
+    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
     let store = tool.team_store()?;
     let payload = delete_team(store.as_ref(), &team)?;
     Ok(ToolOutput::success(json!({
@@ -237,11 +262,21 @@ pub(super) async fn execute_update(
     Ok(ToolOutput::success(result))
 }
 
-pub(super) fn execute_delete(tool: &BackgroundAgentTool, id: String) -> Result<ToolOutput> {
+pub(super) async fn execute_delete(
+    tool: &BackgroundAgentTool,
+    id: String,
+    preview: bool,
+    confirmation_token: Option<String>,
+) -> Result<ToolOutput> {
     tool.write_guard()?;
+    let request = BackgroundAgentDeleteRequest {
+        id,
+        preview,
+        confirmation_token,
+    };
     let result = tool
         .store
-        .delete_background_agent(&id)
+        .delete_background_agent(request)
         .map_err(|e| ToolError::Tool(format!("Failed to delete background agent: {e}.")))?;
     Ok(ToolOutput::success(result))
 }

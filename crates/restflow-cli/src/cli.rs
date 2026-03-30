@@ -1246,6 +1246,9 @@ pub enum BackgroundAgentCommands {
     Delete {
         /// Background agent ID
         id: String,
+
+        #[command(flatten)]
+        guard: MutationGuardArgs,
     },
 
     /// Control a background agent (start, pause, resume, stop, run_now)

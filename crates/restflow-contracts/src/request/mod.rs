@@ -418,6 +418,10 @@ pub enum IpcRequest {
     },
     DeleteBackgroundAgent {
         id: String,
+        #[serde(default)]
+        preview: bool,
+        #[serde(default)]
+        confirmation_token: Option<String>,
     },
     ControlBackgroundAgent {
         id: String,

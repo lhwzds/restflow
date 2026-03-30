@@ -932,6 +932,7 @@ struct MockBackend {
     skills: Vec<Skill>,
     session: ChatSession,
     api_defaults: ApiDefaults,
+    hooks: Vec<Hook>,
 }
 
 impl MockBackend {
@@ -949,6 +950,14 @@ impl MockBackend {
             skills: vec![skill],
             session,
             api_defaults: ApiDefaults::default(),
+            hooks: Vec::new(),
+        }
+    }
+
+    fn with_hooks(hooks: Vec<Hook>) -> Self {
+        Self {
+            hooks,
+            ..Self::new()
         }
     }
 
@@ -1314,7 +1323,7 @@ impl McpBackend for MockBackend {
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
-        Ok(Vec::new())
+        Ok(self.hooks.clone())
     }
 
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
@@ -1519,6 +1528,8 @@ async fn test_manage_background_agents_list_operation() {
         trace_id: None,
         line_limit: None,
         run_now: None,
+        preview: None,
+        confirmation_token: None,
     };
 
     let json = server
@@ -1833,49 +1844,56 @@ async fn test_mcp_manage_background_agents_start_returns_active_status() {
 async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefix() {
     let (server, _core, _temp_dir, _temp_agents, _guard) = create_test_server().await;
 
-    let create = call_tool_through_mcp(
-        server.clone(),
-        "manage_background_agents",
-        serde_json::json!({
-            "operation": "create",
-            "name": "delete-prefix-contract",
-            "agent_id": "default",
-            "input": "delete later",
-            "schedule": {
-                "type": "interval",
-                "interval_ms": 60000,
-                "start_at": null
-            }
-        }),
-    )
-    .await;
-    assert!(
-        !create.is_error.unwrap_or(false),
-        "{}",
-        call_tool_text(&create)
-    );
+    let create = server
+        .handle_manage_background_agents(ManageBackgroundAgentsParams {
+            operation: "create".to_string(),
+            name: Some("delete-prefix-contract".to_string()),
+            agent_id: Some("default".to_string()),
+            input: Some("delete later".to_string()),
+            schedule: Some(serde_json::json!(restflow_contracts::request::TaskSchedule::Interval {
+                interval_ms: 60_000,
+                start_at: None,
+            })),
+            ..ManageBackgroundAgentsParams::default()
+        })
+        .await
+        .expect("create response");
     let created: serde_json::Value =
-        serde_json::from_str(call_tool_text(&create)).expect("create response json");
+        serde_json::from_str(&create).expect("create response json");
     let task_id = created["result"]["id"]
         .as_str()
         .expect("created task should have id")
         .to_string();
     let prefix = &task_id[..8];
 
-    let delete = call_tool_through_mcp(
-        server,
-        "manage_background_agents",
-        serde_json::json!({
-            "operation": "delete",
-            "id": prefix
-        }),
-    )
-    .await;
-    assert!(!delete.is_error.unwrap_or(false));
+    let delete_preview = server
+        .handle_manage_background_agents(ManageBackgroundAgentsParams {
+            operation: "delete".to_string(),
+            id: Some(prefix.to_string()),
+            preview: Some(true),
+            ..ManageBackgroundAgentsParams::default()
+        })
+        .await
+        .expect("delete preview response");
+    let preview: serde_json::Value =
+        serde_json::from_str(&delete_preview).expect("delete preview response");
+    let token = preview["assessment"]["confirmation_token"]
+        .as_str()
+        .expect("delete preview should return confirmation token");
+
+    let delete = server
+        .handle_manage_background_agents(ManageBackgroundAgentsParams {
+            operation: "delete".to_string(),
+            id: Some(prefix.to_string()),
+            confirmation_token: Some(token.to_string()),
+            ..ManageBackgroundAgentsParams::default()
+        })
+        .await
+        .expect("delete response");
     let deleted: serde_json::Value =
-        serde_json::from_str(call_tool_text(&delete)).expect("delete response json");
-    assert_eq!(deleted["id"], task_id);
-    assert_eq!(deleted["deleted"], true);
+        serde_json::from_str(&delete).expect("delete response json");
+    assert_eq!(deleted["result"]["id"], task_id);
+    assert_eq!(deleted["result"]["deleted"], true);
 }
 
 #[tokio::test]
@@ -2028,7 +2046,7 @@ async fn test_manage_hooks_create_operation() {
         operation: "create".to_string(),
         id: None,
         name: Some("Test Hook".to_string()),
-        description: Some("A test hook".to_string()),
+        description: Some(Some("A test hook".to_string())),
         event: Some("task_completed".to_string()),
         action: Some(serde_json::json!({
             "type": "webhook",
@@ -2082,6 +2100,45 @@ async fn test_manage_hooks_test_operation() {
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(value["id"], "hook-1");
     assert_eq!(value["tested"], true);
+}
+
+#[tokio::test]
+async fn test_manage_hooks_update_operation_can_clear_description_and_filter() {
+    let mut existing_hook = Hook::new(
+        "Test Hook".to_string(),
+        HookEvent::TaskCompleted,
+        HookAction::Webhook {
+            url: "https://example.com/hook".to_string(),
+            method: None,
+            headers: None,
+        },
+    );
+    existing_hook.id = "hook-1".to_string();
+    existing_hook.description = Some("A test hook".to_string());
+    existing_hook.filter = Some(HookFilter {
+        task_name_pattern: Some("deploy-*".to_string()),
+        agent_id: Some("agent-1".to_string()),
+        success_only: Some(true),
+    });
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_hooks(vec![
+        existing_hook,
+    ])));
+    let params = ManageHooksParams {
+        operation: "update".to_string(),
+        id: Some("hook-1".to_string()),
+        name: None,
+        description: Some(None),
+        event: None,
+        action: None,
+        filter: Some(None),
+        enabled: None,
+    };
+
+    let json = server.handle_manage_hooks(params).await.unwrap();
+    let hook: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(hook["id"], "hook-1");
+    assert_eq!(hook["description"], serde_json::Value::Null);
+    assert_eq!(hook["filter"], serde_json::Value::Null);
 }
 
 #[tokio::test]
@@ -2618,6 +2675,8 @@ fn base_manage_background_params(operation: &str) -> ManageBackgroundAgentsParam
         trace_id: None,
         line_limit: None,
         run_now: None,
+        preview: None,
+        confirmation_token: None,
     }
 }
 

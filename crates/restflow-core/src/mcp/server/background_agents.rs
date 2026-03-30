@@ -224,8 +224,9 @@ impl RestFlowMcpServer {
         &self,
         params: &ManageBackgroundAgentsParams,
     ) -> Result<Value, String> {
-        let tool_input = serde_json::to_value(params)
+        let mut tool_input = serde_json::to_value(params)
             .map_err(|e| format!("Failed to serialize params: {}", e))?;
+        strip_null_fields(&mut tool_input);
         let tool_result = self
             .backend
             .execute_runtime_tool("manage_background_agents", tool_input)
@@ -237,5 +238,22 @@ impl RestFlowMcpServer {
                 .unwrap_or_else(|| "manage_background_agents tool failed".to_string()));
         }
         Ok(tool_result.result)
+    }
+}
+
+fn strip_null_fields(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            map.retain(|_, child| !child.is_null());
+            for child in map.values_mut() {
+                strip_null_fields(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_null_fields(item);
+            }
+        }
+        _ => {}
     }
 }

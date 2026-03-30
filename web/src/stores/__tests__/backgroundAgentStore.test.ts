@@ -381,6 +381,39 @@ describe('backgroundAgentStore', () => {
         })
         expect(result).toEqual(converted)
       })
+
+      it('returns null without error when confirmation is cancelled', async () => {
+        const confirmWarning = vi.fn().mockResolvedValue(false)
+        vi.mocked(api.convertSessionToBackgroundAgent).mockRejectedValue(
+          new BackendError({
+            code: 428,
+            kind: 'confirmation_required',
+            message: 'confirm',
+            details: {
+              assessment: {
+                status: 'warning',
+                warnings: [{ message: 'Provider is not configured.' }],
+                blockers: [],
+                requires_confirmation: true,
+                confirmation_token: 'token-1',
+              },
+            },
+          } as any),
+        )
+
+        const store = useBackgroundAgentStore()
+        const result = await store.convertSessionToAgent(
+          {
+            session_id: 'session-1',
+          },
+          confirmWarning,
+        )
+
+        expect(result).toBeNull()
+        expect(confirmWarning).toHaveBeenCalledOnce()
+        expect(store.error).toBeNull()
+        expect(api.convertSessionToBackgroundAgent).toHaveBeenCalledTimes(1)
+      })
     })
 
     describe('convertSessionToWorkspace', () => {

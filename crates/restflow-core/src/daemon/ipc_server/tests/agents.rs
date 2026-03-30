@@ -145,16 +145,23 @@ async fn process_delete_background_agent_returns_delete_with_id_response() {
         &runtime_tool_registry,
         IpcRequest::DeleteBackgroundAgent {
             id: task.id.clone(),
+            preview: true,
+            confirmation_token: None,
         },
     )
     .await;
 
     match response {
         IpcResponse::Success(value) => {
-            let deleted: DeleteWithIdResponse =
+            let outcome: BackgroundAgentCommandOutcome<DeleteWithIdResponse> =
                 serde_json::from_value(value).expect("delete response");
-            assert_eq!(deleted.id, task.id);
-            assert!(deleted.deleted);
+            match outcome {
+                BackgroundAgentCommandOutcome::Preview { assessment } => {
+                    assert_eq!(assessment.operation, "delete_background_agent");
+                    assert!(assessment.confirmation_token.is_some());
+                }
+                other => panic!("expected preview outcome, got {other:?}"),
+            }
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -402,14 +409,16 @@ async fn process_delete_background_agent_rejects_ambiguous_prefix() {
         &runtime_tool_registry,
         IpcRequest::DeleteBackgroundAgent {
             id: "dup-delete".to_string(),
+            preview: false,
+            confirmation_token: None,
         },
     )
     .await;
 
     match response {
         IpcResponse::Error(error) => {
-            assert_eq!(error.code, 400);
-            assert_eq!(error.kind, restflow_contracts::ErrorKind::Validation);
+            assert_eq!(error.code, 409);
+            assert_eq!(error.kind, restflow_contracts::ErrorKind::Conflict);
             assert!(error.message.contains("ambiguous"));
         }
         other => panic!("expected error response, got {other:?}"),

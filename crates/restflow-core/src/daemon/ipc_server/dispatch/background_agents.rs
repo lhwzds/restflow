@@ -9,8 +9,8 @@ use crate::services::background_agent_command::{
 };
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::storage::background_agent::ResolveTaskIdError;
-use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
-use restflow_traits::store::BackgroundAgentControlRequest;
+use restflow_contracts::ApprovalHandledResponse;
+use restflow_traits::store::{BackgroundAgentControlRequest, BackgroundAgentDeleteRequest};
 
 fn resolve_background_agent_id(
     core: &Arc<AppCore>,
@@ -160,16 +160,16 @@ impl IpcServer {
     pub(super) async fn handle_delete_background_agent(
         core: &Arc<AppCore>,
         id: String,
+        preview: bool,
+        confirmation_token: Option<String>,
     ) -> IpcResponse {
-        let resolved_id = match resolve_background_agent_id(core, &id) {
-            Ok(id) => id,
-            Err(response) => return response,
+        let request = BackgroundAgentDeleteRequest {
+            id,
+            preview,
+            confirmation_token,
         };
-        match command_service(core).delete(&resolved_id) {
-            Ok(deleted) => IpcResponse::success(DeleteWithIdResponse {
-                id: resolved_id,
-                deleted,
-            }),
+        match command_service(core).delete_from_request(request).await {
+            Ok(outcome) => IpcResponse::success(outcome),
             Err(err) => command_error_response(err),
         }
     }

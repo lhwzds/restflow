@@ -468,7 +468,12 @@ impl CommandExecutor for DirectExecutor {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn delete_background_agent(&self, _id: &str) -> Result<()> {
+    async fn delete_background_agent(
+        &self,
+        _id: &str,
+        _preview: bool,
+        _confirmation_token: Option<String>,
+    ) -> Result<BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }
 

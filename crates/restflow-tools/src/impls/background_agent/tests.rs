@@ -5,7 +5,8 @@ use restflow_traits::assessment::{
 };
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentDeliverableListRequest,
+    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
+    BackgroundAgentDeliverableListRequest,
     BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
     BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
     BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, KvStore,
@@ -263,8 +264,32 @@ impl BackgroundAgentStore for MockStore {
         }))
     }
 
-    fn delete_background_agent(&self, _id: &str) -> Result<Value> {
-        Ok(json!({ "deleted": true }))
+    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
+        if request.preview {
+            return Ok(json!({
+                "status": "preview",
+                "assessment": {
+                    "operation": "delete_background_agent",
+                    "confirmation_token": "confirm-delete"
+                }
+            }));
+        }
+        if request.confirmation_token.as_deref() != Some("confirm-delete") {
+            return Ok(json!({
+                "status": "confirmation_required",
+                "assessment": {
+                    "operation": "delete_background_agent",
+                    "confirmation_token": "confirm-delete"
+                }
+            }));
+        }
+        Ok(json!({
+            "status": "executed",
+            "result": {
+                "id": request.id,
+                "deleted": true
+            }
+        }))
     }
 
     fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
@@ -392,8 +417,11 @@ impl BackgroundAgentStore for FailingListStore {
         }))
     }
 
-    fn delete_background_agent(&self, _id: &str) -> Result<Value> {
-        Ok(json!({ "deleted": true }))
+    fn delete_background_agent(&self, request: BackgroundAgentDeleteRequest) -> Result<Value> {
+        Ok(json!({
+            "status": "executed",
+            "result": { "id": request.id, "deleted": true }
+        }))
     }
 
     fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
@@ -484,7 +512,12 @@ async fn test_write_guard() {
         .execute(json!({
             "operation": "create",
             "name": "A",
-            "agent_id": "agent-1"
+            "agent_id": "agent-1",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 60000,
+                "start_at": null
+            }
         }))
         .await;
     let err = result.expect_err("expected write-guard error");
@@ -557,6 +590,43 @@ async fn test_create_preview_returns_store_outcome() {
     assert_eq!(
         output.result["assessment"]["operation"],
         "create_background_agent"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_preview_returns_store_outcome() {
+    let tool = writable_tool();
+    let output = tool
+        .execute(json!({
+            "operation": "delete",
+            "id": "task-1",
+            "preview": true
+        }))
+        .await
+        .unwrap();
+    assert!(output.success);
+    assert_eq!(output.result["status"], "preview");
+    assert_eq!(
+        output.result["assessment"]["operation"],
+        "delete_background_agent"
+    );
+}
+
+#[tokio::test]
+async fn test_delete_requires_confirmation_token() {
+    let tool = writable_tool();
+    let output = tool
+        .execute(json!({
+            "operation": "delete",
+            "id": "task-1"
+        }))
+        .await
+        .unwrap();
+    assert!(output.success);
+    assert_eq!(output.result["status"], "confirmation_required");
+    assert_eq!(
+        output.result["assessment"]["confirmation_token"],
+        "confirm-delete"
     );
 }
 
@@ -895,10 +965,26 @@ async fn test_team_management_round_trip() {
             || get.result["members"][0]["input"].is_null()
     );
 
+    let delete_preview = tool
+        .execute(json!({
+            "operation": "delete_team",
+            "team": "TeamA",
+            "preview": true
+        }))
+        .await
+        .unwrap();
+    assert!(delete_preview.success);
+    assert_eq!(delete_preview.result["status"], "preview");
+    let token = delete_preview.result["assessment"]["confirmation_token"]
+        .as_str()
+        .expect("delete team preview token")
+        .to_string();
+
     let delete = tool
         .execute(json!({
             "operation": "delete_team",
-            "team": "TeamA"
+            "team": "TeamA",
+            "confirmation_token": token
         }))
         .await
         .unwrap();
