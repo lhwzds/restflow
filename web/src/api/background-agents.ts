@@ -5,10 +5,12 @@
  */
 
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
+import type { BackgroundAgentConversionResult } from '@/types/generated/BackgroundAgentConversionResult'
 import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 import type { MemorySession } from '@/types/generated/MemorySession'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
-import { fetchJson, requestOptional, requestTyped } from './http-client'
+import type { OperationAssessment } from '@/utils/operationAssessment'
+import { BackendError, fetchJson, requestOptional, requestTyped } from './http-client'
 
 export type { BackgroundAgent, TaskEvent }
 
@@ -129,14 +131,70 @@ export interface UpdateBackgroundAgentRequest {
   confirmation_token?: string
 }
 
+type BackgroundAgentCommandOutcome<T> =
+  | { status: 'preview'; assessment: OperationAssessment }
+  | { status: 'blocked'; assessment: OperationAssessment }
+  | { status: 'confirmation_required'; assessment: OperationAssessment }
+  | { status: 'executed'; result: T }
+
+function firstAssessmentMessage(
+  assessment: OperationAssessment,
+  fallback: string,
+): string {
+  return assessment.blockers[0]?.message ?? assessment.warnings[0]?.message ?? fallback
+}
+
+function toAssessmentError(
+  code: number,
+  kind: 'validation' | 'conflict',
+  assessment: OperationAssessment,
+  fallbackMessage: string,
+): BackendError {
+  return new BackendError({
+    code,
+    kind,
+    message: firstAssessmentMessage(assessment, fallbackMessage),
+    details: { assessment },
+  })
+}
+
 export async function convertSessionToBackgroundAgent(
   request: ConvertSessionToBackgroundAgentRequest,
 ): Promise<BackgroundAgent> {
-  return fetchJson<BackgroundAgent>('/api/background-agents/convert-session', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(request),
-  })
+  const outcome = await fetchJson<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>(
+    '/api/background-agents/convert-session',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    },
+  )
+
+  switch (outcome.status) {
+    case 'executed':
+      return outcome.result.task
+    case 'confirmation_required':
+      throw toAssessmentError(
+        428,
+        'conflict',
+        outcome.assessment,
+        'Confirmation required before converting this session.',
+      )
+    case 'blocked':
+      throw toAssessmentError(
+        400,
+        'validation',
+        outcome.assessment,
+        'Failed to convert session to background agent.',
+      )
+    case 'preview':
+      throw toAssessmentError(
+        409,
+        'conflict',
+        outcome.assessment,
+        'Preview responses are not supported for direct session conversion.',
+      )
+  }
 }
 
 export async function updateBackgroundAgent(
