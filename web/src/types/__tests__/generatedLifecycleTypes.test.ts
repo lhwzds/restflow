@@ -9,6 +9,12 @@ import type { SubagentStatus } from '@/types/generated/SubagentStatus'
 // @ts-expect-error Legacy lifecycle term must stay removed.
 const legacyHookEvent: HookEvent = 'task_cancelled'
 
+// @ts-expect-error Unsupported runtime hook events must stay removed.
+const unsupportedToolEvent: HookEvent = 'tool_executed'
+
+// @ts-expect-error Unsupported runtime hook events must stay removed.
+const unsupportedApprovalEvent: HookEvent = 'approval_required'
+
 // @ts-expect-error Legacy lifecycle term must stay removed.
 const legacySubagentStatus: SubagentStatus = 'Cancelled'
 
@@ -36,6 +42,8 @@ describe('generated lifecycle types', () => {
 
   it('keeps legacy markers unreachable at runtime', () => {
     expect(legacyHookEvent).toBe('task_cancelled')
+    expect(unsupportedToolEvent).toBe('tool_executed')
+    expect(unsupportedApprovalEvent).toBe('approval_required')
     expect(legacySubagentStatus).toBe('Cancelled')
   })
 })

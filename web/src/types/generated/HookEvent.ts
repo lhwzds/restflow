@@ -3,4 +3,4 @@
 /**
  * Hook trigger event.
  */
-export type HookEvent = "task_started" | "task_completed" | "task_failed" | "task_interrupted" | "tool_executed" | "approval_required";
+export type HookEvent = "task_started" | "task_completed" | "task_failed" | "task_interrupted";

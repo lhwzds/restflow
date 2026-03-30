@@ -961,10 +961,6 @@ pub enum HookEvent {
     TaskFailed,
     #[serde(rename = "task_interrupted")]
     TaskInterrupted,
-    #[serde(rename = "tool_executed")]
-    ToolExecuted,
-    #[serde(rename = "approval_required")]
-    ApprovalRequired,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
