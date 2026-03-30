@@ -225,11 +225,13 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     },
 
     /**
-     * Convert a background-linked session back to a normal workspace session.
-     * This detaches session ownership from the background task and then deletes
-     * the task so the chat session remains available in workspace.
+     * Convert a background-linked session back to a normal workspace session by
+     * removing the background task binding while keeping the chat session.
      */
-    async convertSessionToWorkspace(sessionId: string): Promise<boolean> {
+    async convertSessionToWorkspace(
+      sessionId: string,
+      confirmWarning?: AssessmentConfirmHandler,
+    ): Promise<boolean> {
       this.error = null
       try {
         let target = this.agents.find((agent) => agent.chat_session_id === sessionId) ?? null
@@ -243,13 +245,8 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
           return false
         }
 
-        await api.updateBackgroundAgent(target.id, {
-          chat_session_id: target.chat_session_id,
-        })
-
-        const deleted = await this.deleteAgentWithConfirmation(target.id, async () => true)
+        const deleted = await this.deleteAgentWithConfirmation(target.id, confirmWarning)
         if (!deleted) {
-          this.error = 'Failed to delete background agent'
           return false
         }
         return true

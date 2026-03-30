@@ -1201,8 +1201,16 @@ impl McpBackend for MockBackend {
         Err("not implemented in mock backend".to_string())
     }
 
-    async fn delete_background_agent(&self, _id: &str) -> Result<bool, String> {
-        Ok(true)
+    async fn delete_background_agent(
+        &self,
+        request: restflow_traits::store::BackgroundAgentDeleteRequest,
+    ) -> Result<restflow_traits::BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>, String> {
+        Ok(restflow_traits::BackgroundAgentCommandOutcome::Executed {
+            result: restflow_contracts::DeleteWithIdResponse {
+                id: request.id,
+                deleted: true,
+            },
+        })
     }
 
     async fn control_background_agent(
@@ -2100,6 +2108,30 @@ async fn test_manage_hooks_test_operation() {
     let value: serde_json::Value = serde_json::from_str(&json).unwrap();
     assert_eq!(value["id"], "hook-1");
     assert_eq!(value["tested"], true);
+}
+
+#[tokio::test]
+async fn test_manage_hooks_rejects_unsupported_runtime_event() {
+    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
+    let params = ManageHooksParams {
+        operation: "create".to_string(),
+        id: None,
+        name: Some("Unsupported Hook".to_string()),
+        description: None,
+        event: Some("tool_executed".to_string()),
+        action: Some(serde_json::json!({
+            "type": "webhook",
+            "url": "https://example.com/hook"
+        })),
+        filter: None,
+        enabled: None,
+    };
+
+    let error = server
+        .handle_manage_hooks(params)
+        .await
+        .expect_err("unsupported event should fail");
+    assert!(error.contains("Unsupported event: tool_executed"));
 }
 
 #[tokio::test]

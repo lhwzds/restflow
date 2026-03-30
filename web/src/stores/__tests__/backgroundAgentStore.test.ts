@@ -449,21 +449,18 @@ describe('backgroundAgentStore', () => {
     })
 
     describe('convertSessionToWorkspace', () => {
-      it('detaches ownership and deletes background agent while preserving the session', async () => {
+      it('deletes background agent binding while preserving the session', async () => {
         const store = useBackgroundAgentStore()
         const target = createMockAgent('bg-1', 'active')
         target.chat_session_id = 'session-keep'
         store.agents = [target, createMockAgent('bg-2', 'paused')]
 
-        vi.mocked(api.updateBackgroundAgent).mockResolvedValue(target)
         vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(true)
 
         const result = await store.convertSessionToWorkspace('session-keep')
 
         expect(result).toBe(true)
-        expect(api.updateBackgroundAgent).toHaveBeenCalledWith('bg-1', {
-          chat_session_id: 'session-keep',
-        })
+        expect(api.updateBackgroundAgent).not.toHaveBeenCalled()
         expect(api.deleteBackgroundAgent).toHaveBeenCalledWith('bg-1')
         expect(store.agents.map((agent) => agent.id)).toEqual(['bg-2'])
         expect(store.error).toBeNull()
@@ -475,16 +472,13 @@ describe('backgroundAgentStore', () => {
         fetched.chat_session_id = 'session-fetched'
 
         vi.mocked(api.listBackgroundAgents).mockResolvedValue([fetched])
-        vi.mocked(api.updateBackgroundAgent).mockResolvedValue(fetched)
         vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(true)
 
         const result = await store.convertSessionToWorkspace('session-fetched')
 
         expect(result).toBe(true)
         expect(api.listBackgroundAgents).toHaveBeenCalledOnce()
-        expect(api.updateBackgroundAgent).toHaveBeenCalledWith('bg-3', {
-          chat_session_id: 'session-fetched',
-        })
+        expect(api.updateBackgroundAgent).not.toHaveBeenCalled()
         expect(api.deleteBackgroundAgent).toHaveBeenCalledWith('bg-3')
       })
 
@@ -500,19 +494,70 @@ describe('backgroundAgentStore', () => {
         expect(api.deleteBackgroundAgent).not.toHaveBeenCalled()
       })
 
-      it('returns false and sets error when detach update fails', async () => {
+      it('retries background binding deletion after confirmation warning', async () => {
         const store = useBackgroundAgentStore()
         const target = createMockAgent('bg-4', 'active')
         target.chat_session_id = 'session-err'
         store.agents = [target]
+        const confirmWarning = vi.fn().mockResolvedValue(true)
 
-        vi.mocked(api.updateBackgroundAgent).mockRejectedValue(new Error('Detach failed'))
+        vi.mocked(api.deleteBackgroundAgent)
+          .mockRejectedValueOnce(
+            new BackendError({
+              code: 428,
+              kind: 'confirmation_required',
+              message: 'confirm',
+              details: {
+                assessment: {
+                  status: 'warning',
+                  warnings: [{ message: 'Delete requires confirmation.' }],
+                  blockers: [],
+                  requires_confirmation: true,
+                  confirmation_token: 'delete-token-1',
+                },
+              },
+            }),
+          )
+          .mockResolvedValueOnce(true)
 
-        const result = await store.convertSessionToWorkspace('session-err')
+        const result = await store.convertSessionToWorkspace('session-err', confirmWarning)
+
+        expect(result).toBe(true)
+        expect(confirmWarning).toHaveBeenCalledOnce()
+        expect(api.deleteBackgroundAgent).toHaveBeenNthCalledWith(1, 'bg-4')
+        expect(api.deleteBackgroundAgent).toHaveBeenNthCalledWith(2, 'bg-4', 'delete-token-1')
+        expect(store.error).toBeNull()
+      })
+
+      it('returns false without error when confirmation warning is cancelled', async () => {
+        const store = useBackgroundAgentStore()
+        const target = createMockAgent('bg-4', 'active')
+        target.chat_session_id = 'session-err'
+        store.agents = [target]
+        const confirmWarning = vi.fn().mockResolvedValue(false)
+
+        vi.mocked(api.deleteBackgroundAgent).mockRejectedValueOnce(
+          new BackendError({
+            code: 428,
+            kind: 'confirmation_required',
+            message: 'confirm',
+            details: {
+              assessment: {
+                status: 'warning',
+                warnings: [{ message: 'Delete requires confirmation.' }],
+                blockers: [],
+                requires_confirmation: true,
+                confirmation_token: 'delete-token-1',
+              },
+            },
+          }),
+        )
+
+        const result = await store.convertSessionToWorkspace('session-err', confirmWarning)
 
         expect(result).toBe(false)
-        expect(store.error).toBe('Detach failed')
-        expect(api.deleteBackgroundAgent).not.toHaveBeenCalled()
+        expect(confirmWarning).toHaveBeenCalledOnce()
+        expect(store.error).toBeNull()
       })
     })
 

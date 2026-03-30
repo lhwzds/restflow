@@ -1538,6 +1538,29 @@ impl Tool for SpawnSubagentCaptureTool {
     }
 }
 
+/// A spawn_subagent_batch-shaped tool that returns input as output so tests can
+/// verify runtime-owned parent/trace injection.
+struct SpawnSubagentBatchCaptureTool;
+
+#[async_trait]
+impl Tool for SpawnSubagentBatchCaptureTool {
+    fn name(&self) -> &str {
+        "spawn_subagent_batch"
+    }
+
+    fn description(&self) -> &str {
+        "Capture spawn_subagent_batch input payload"
+    }
+
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({"type": "object"})
+    }
+
+    async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
+        Ok(ToolOutput::success(input))
+    }
+}
+
 /// A manage_background_agents-shaped tool that returns input as output so tests
 /// can verify session_id injection for promote_to_background.
 struct PromoteBackgroundCaptureTool;
@@ -2029,6 +2052,67 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_trace_context() {
 }
 
 #[tokio::test]
+async fn test_spawn_subagent_batch_overrides_explicit_parent_and_trace_context() {
+    let mut tools = ToolRegistry::new();
+    tools.register(SpawnSubagentBatchCaptureTool);
+
+    let llm = Arc::new(MockLlmClient::new(vec![]));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+
+    let calls = vec![ToolCall {
+        id: "spawn_batch_call".to_string(),
+        name: "spawn_subagent_batch".to_string(),
+        arguments: serde_json::json!({
+            "operation": "spawn",
+            "specs": [
+                {
+                    "agent": "default",
+                    "task": "Investigate"
+                }
+            ],
+            "parent_execution_id": "explicit-parent",
+            "trace_session_id": "explicit-session",
+            "trace_scope_id": "explicit-scope"
+        }),
+    }];
+
+    let mut emitter = ToolStartCaptureEmitter::new();
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_execution_id: Some("runtime-parent"),
+                    chat_session_id: None,
+                    trace_session_id: Some("runtime-session"),
+                    trace_scope_id: Some("runtime-scope"),
+                },
+            },
+        )
+        .await;
+
+    let (_, result) = &results[0];
+    let output = result
+        .as_ref()
+        .unwrap_or_else(|e| panic!("spawn_batch_call should succeed: {e}"));
+    assert_eq!(output.result["parent_execution_id"], "runtime-parent");
+    assert_eq!(output.result["trace_session_id"], "runtime-session");
+    assert_eq!(output.result["trace_scope_id"], "runtime-scope");
+
+    let start_arguments = emitter.start_arguments.lock().await;
+    let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
+    assert_eq!(start_payload["parent_execution_id"], "runtime-parent");
+    assert_eq!(start_payload["trace_session_id"], "runtime-session");
+    assert_eq!(start_payload["trace_scope_id"], "runtime-scope");
+}
+
+#[tokio::test]
 async fn test_promote_to_background_injects_chat_session_id() {
     let mut tools = ToolRegistry::new();
     tools.register(PromoteBackgroundCaptureTool);
@@ -2080,7 +2164,7 @@ async fn test_promote_to_background_injects_chat_session_id() {
 }
 
 #[tokio::test]
-async fn test_promote_to_background_keeps_explicit_session_id() {
+async fn test_promote_to_background_overrides_explicit_session_id() {
     let mut tools = ToolRegistry::new();
     tools.register(PromoteBackgroundCaptureTool);
 
@@ -2123,7 +2207,7 @@ async fn test_promote_to_background_keeps_explicit_session_id() {
     let output = result
         .as_ref()
         .unwrap_or_else(|e| panic!("promote_call should succeed: {e}"));
-    assert_eq!(output.result["session_id"], "session-explicit");
+    assert_eq!(output.result["session_id"], "session-main-1");
 }
 
 #[tokio::test]

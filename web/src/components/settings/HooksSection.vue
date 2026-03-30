@@ -73,8 +73,6 @@ const hookEvents: HookEvent[] = [
   'task_completed',
   'task_failed',
   'task_interrupted',
-  'tool_executed',
-  'approval_required',
 ]
 
 function resetForm() {

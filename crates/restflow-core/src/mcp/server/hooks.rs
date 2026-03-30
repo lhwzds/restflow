@@ -1,5 +1,26 @@
 use super::*;
 
+fn parse_supported_hook_event(event_str: &str) -> Result<HookEvent, String> {
+    let event: HookEvent =
+        serde_json::from_value(Value::String(event_str.to_string())).map_err(|_| {
+            format!(
+                "Invalid event: {}. Supported: task_started, task_completed, task_failed, task_interrupted",
+                event_str
+            )
+        })?;
+
+    match event {
+        HookEvent::TaskStarted
+        | HookEvent::TaskCompleted
+        | HookEvent::TaskFailed
+        | HookEvent::TaskInterrupted => Ok(event),
+        HookEvent::ToolExecuted | HookEvent::ApprovalRequired => Err(format!(
+            "Unsupported event: {}. Supported: task_started, task_completed, task_failed, task_interrupted",
+            event_str
+        )),
+    }
+}
+
 impl RestFlowMcpServer {
     pub(crate) async fn handle_manage_hooks(
         &self,
@@ -14,13 +35,7 @@ impl RestFlowMcpServer {
             "create" => {
                 let name = Self::required_string(params.name, "name")?;
                 let event_str = Self::required_string(params.event, "event")?;
-                let event: HookEvent = serde_json::from_value(Value::String(event_str.clone()))
-                    .map_err(|_| {
-                        format!(
-                            "Invalid event: {}. Supported: task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required",
-                            event_str
-                        )
-                    })?;
+                let event = parse_supported_hook_event(&event_str)?;
                 let action_value = params.action.ok_or("Missing required field: action")?;
                 let action: HookAction = serde_json::from_value(action_value)
                     .map_err(|e| format!("Invalid action: {}", e))?;
@@ -52,8 +67,7 @@ impl RestFlowMcpServer {
                     hook.description = desc;
                 }
                 if let Some(event_str) = params.event {
-                    hook.event = serde_json::from_value(Value::String(event_str.clone()))
-                        .map_err(|_| format!("Invalid event: {}", event_str))?;
+                    hook.event = parse_supported_hook_event(&event_str)?;
                 }
                 if let Some(action_value) = params.action {
                     hook.action = serde_json::from_value(action_value)

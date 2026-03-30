@@ -1,3 +1,4 @@
+import { nextTick } from 'vue'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useConfirm } from '../useConfirm'
 
@@ -38,16 +39,19 @@ describe('useConfirm', () => {
   })
 
   it('should queue multiple confirm calls and resolve in order', async () => {
-    const { confirm, handleConfirm, handleCancel } = useConfirm()
+    const { confirm, handleConfirm, handleCancel, options } = useConfirm()
     
     // Call confirm twice rapidly
     const promise1 = confirm({ title: 'First', description: 'First call' })
     const promise2 = confirm({ title: 'Second', description: 'Second call' })
+
+    expect(options.value.title).toBe('First')
     
     // First user confirms
     handleConfirm()
     const result1 = await promise1
     expect(result1).toBe(true)
+    expect(options.value.title).toBe('Second')
     
     // Second user cancels
     handleCancel()
@@ -140,5 +144,51 @@ describe('useConfirm', () => {
 
     expect(options.value.variant).toBe('destructive')
     handleConfirm()
+  })
+
+  it('resolves only after the close tick completes', async () => {
+    const { confirm, handleConfirm } = useConfirm()
+
+    let resolved = false
+    const promise = confirm({
+      title: 'Chained',
+      description: 'Wait for close tick',
+    }).then((value) => {
+      resolved = true
+      return value
+    })
+
+    handleConfirm()
+
+    expect(resolved).toBe(false)
+    await nextTick()
+    await expect(promise).resolves.toBe(true)
+    expect(resolved).toBe(true)
+  })
+
+  it('opens the next queued confirmation only after the current one settles', async () => {
+    const { confirm, handleConfirm, options, isOpen } = useConfirm()
+
+    const first = confirm({
+      title: 'First',
+      description: 'First confirmation',
+    })
+    const second = confirm({
+      title: 'Second',
+      description: 'Second confirmation',
+    })
+
+    expect(isOpen.value).toBe(true)
+    expect(options.value.title).toBe('First')
+
+    handleConfirm()
+    expect(options.value.title).toBe('First')
+
+    await first
+    expect(isOpen.value).toBe(true)
+    expect(options.value.title).toBe('Second')
+
+    handleConfirm()
+    await expect(second).resolves.toBe(true)
   })
 })

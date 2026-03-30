@@ -11,6 +11,19 @@ pub struct HookCapabilityService {
 }
 
 impl HookCapabilityService {
+    fn validate_runtime_event(event: &HookEvent) -> Result<()> {
+        match event {
+            HookEvent::TaskStarted
+            | HookEvent::TaskCompleted
+            | HookEvent::TaskFailed
+            | HookEvent::TaskInterrupted => Ok(()),
+            HookEvent::ToolExecuted | HookEvent::ApprovalRequired => Err(anyhow!(
+                "Unsupported hook event: {}. Supported: task_started, task_completed, task_failed, task_interrupted",
+                event.as_str()
+            )),
+        }
+    }
+
     pub fn new(hooks: HookStorage, background_agents: BackgroundAgentStorage) -> Self {
         Self {
             hooks,
@@ -27,11 +40,13 @@ impl HookCapabilityService {
     }
 
     pub fn create(&self, hook: Hook) -> Result<Hook> {
+        Self::validate_runtime_event(&hook.event)?;
         self.hooks.create(&hook)?;
         Ok(hook)
     }
 
     pub fn update(&self, id: &str, hook: Hook) -> Result<Hook> {
+        Self::validate_runtime_event(&hook.event)?;
         self.hooks.update(id, &hook)?;
         Ok(hook)
     }
@@ -45,6 +60,7 @@ impl HookCapabilityService {
             .hooks
             .get(id)?
             .ok_or_else(|| anyhow!("Hook not found: {id}"))?;
+        Self::validate_runtime_event(&hook.event)?;
         let scheduler = Arc::new(BackgroundAgentHookScheduler::new(
             self.background_agents.clone(),
         ));
@@ -87,14 +103,9 @@ fn sample_hook_context(event: &HookEvent) -> HookContext {
             context.error = Some("Sample hook interruption".to_string());
             context.duration_ms = Some(125);
         }
-        HookEvent::ToolExecuted => {
-            context.success = Some(true);
-            context.output = Some("Sample tool execution output".to_string());
-            context.duration_ms = Some(80);
-        }
-        HookEvent::ApprovalRequired => {
-            context.error = Some("Sample approval required context".to_string());
-        }
+        HookEvent::ToolExecuted | HookEvent::ApprovalRequired => unreachable!(
+            "unsupported hook events should be rejected before test context generation"
+        ),
     }
 
     context
@@ -174,5 +185,24 @@ mod tests {
         assert_eq!(context.output, None);
         assert_eq!(context.error.as_deref(), Some("Sample hook interruption"));
         assert_eq!(context.duration_ms, Some(125));
+    }
+
+    #[test]
+    fn create_rejects_unsupported_runtime_event() {
+        let (service, _dir) = setup();
+        let hook = Hook::new(
+            "Unsupported".to_string(),
+            HookEvent::ToolExecuted,
+            HookAction::Webhook {
+                url: "https://example.invalid/hook".to_string(),
+                method: None,
+                headers: None,
+            },
+        );
+
+        let error = service.create(hook).expect_err("create should reject unsupported event");
+        assert!(error
+            .to_string()
+            .contains("Unsupported hook event: tool_executed"));
     }
 }

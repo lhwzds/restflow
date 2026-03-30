@@ -2,7 +2,6 @@ use super::*;
 use crate::boundary::background_agent::{core_patch_to_contract, core_spec_to_contract};
 use crate::daemon::tool_result_mapper::to_tool_execution_result;
 use crate::services::background_agent_command::BackgroundAgentCommandService;
-use crate::services::operation_assessment::assessment_summary;
 use crate::services::hook_capability::HookCapabilityService;
 
 fn resolve_task_id(
@@ -209,24 +208,15 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn delete_background_agent(&self, id: &str) -> Result<bool, String> {
+    async fn delete_background_agent(
+        &self,
+        request: BackgroundAgentDeleteRequest,
+    ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>, String> {
         let service = BackgroundAgentCommandService::from_storage(self.core.storage.as_ref(), None);
-        let outcome = service
-            .delete_from_request(BackgroundAgentDeleteRequest {
-                id: id.to_string(),
-                preview: false,
-                confirmation_token: None,
-            })
+        service
+            .delete_from_request(request)
             .await
-            .map_err(|e| e.to_string())?;
-        match outcome {
-            BackgroundAgentCommandOutcome::Executed { result } => Ok(result.deleted),
-            BackgroundAgentCommandOutcome::Preview { assessment }
-            | BackgroundAgentCommandOutcome::Blocked { assessment }
-            | BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
-                Err(assessment_summary(&assessment))
-            }
-        }
+            .map_err(|e| e.to_string())
     }
 
     async fn control_background_agent(
@@ -583,22 +573,17 @@ impl McpBackend for IpcBackend {
         .await
     }
 
-    async fn delete_background_agent(&self, id: &str) -> Result<bool, String> {
-        let response: BackgroundAgentCommandOutcome<DeleteWithIdResponse> = self
+    async fn delete_background_agent(
+        &self,
+        request: BackgroundAgentDeleteRequest,
+    ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>, String> {
+        self
             .request_typed(IpcRequest::DeleteBackgroundAgent {
-                id: id.to_string(),
-                preview: false,
-                confirmation_token: None,
+                id: request.id,
+                preview: request.preview,
+                confirmation_token: request.confirmation_token,
             })
-            .await?;
-        match response {
-            BackgroundAgentCommandOutcome::Executed { result } => Ok(result.deleted),
-            BackgroundAgentCommandOutcome::Preview { assessment }
-            | BackgroundAgentCommandOutcome::Blocked { assessment }
-            | BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
-                Err(assessment_summary(&assessment))
-            }
-        }
+            .await
     }
 
     async fn control_background_agent(

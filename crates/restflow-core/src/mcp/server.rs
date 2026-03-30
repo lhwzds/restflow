@@ -27,11 +27,14 @@ use restflow_ai::llm::{
 use restflow_ai::tools::Tool as RuntimeTool;
 pub(crate) use restflow_contracts::ToolDefinition as RuntimeToolDefinition;
 pub(crate) use restflow_contracts::ToolExecutionResult as RuntimeToolResult;
+use restflow_contracts::DeleteWithIdResponse;
 use restflow_storage::ApiDefaults;
 use restflow_tools::SwitchModelTool;
 use restflow_traits::store::{
+    BackgroundAgentDeleteRequest,
     MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
 };
+use restflow_traits::BackgroundAgentCommandOutcome;
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -128,7 +131,10 @@ pub trait McpBackend: Send + Sync {
         id: &str,
         patch: BackgroundAgentPatch,
     ) -> Result<BackgroundAgent, String>;
-    async fn delete_background_agent(&self, id: &str) -> Result<bool, String>;
+    async fn delete_background_agent(
+        &self,
+        request: BackgroundAgentDeleteRequest,
+    ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>, String>;
     async fn control_background_agent(
         &self,
         id: &str,
@@ -876,7 +882,7 @@ impl ServerHandler for RestFlowMcpServer {
             ),
             Tool::new(
                 "manage_hooks",
-                "Create, list, update, delete, and test lifecycle hooks. Hooks trigger actions (webhook, script, send_message, run_task) when events occur (task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required).",
+                "Create, list, update, delete, and test lifecycle hooks. Hooks trigger actions (webhook, script, send_message, run_task) when events occur (task_started, task_completed, task_failed, task_interrupted).",
                 schema_for_type::<ManageHooksParams>(),
             ),
         ];
