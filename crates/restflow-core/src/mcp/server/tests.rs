@@ -2111,7 +2111,7 @@ async fn test_manage_hooks_test_operation() {
 }
 
 #[tokio::test]
-async fn test_manage_hooks_rejects_unsupported_runtime_event() {
+async fn test_manage_hooks_rejects_invalid_runtime_event() {
     let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::new()));
     let params = ManageHooksParams {
         operation: "create".to_string(),
@@ -2130,8 +2130,8 @@ async fn test_manage_hooks_rejects_unsupported_runtime_event() {
     let error = server
         .handle_manage_hooks(params)
         .await
-        .expect_err("unsupported event should fail");
-    assert!(error.contains("Unsupported event: tool_executed"));
+        .expect_err("invalid event should fail");
+    assert!(error.contains("Invalid event: tool_executed"));
 }
 
 #[tokio::test]

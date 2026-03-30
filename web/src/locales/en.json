@@ -293,9 +293,7 @@
         "task_started": "Task Started",
         "task_completed": "Task Completed",
         "task_failed": "Task Failed",
-        "task_interrupted": "Task Interrupted",
-        "tool_executed": "Tool Executed",
-        "approval_required": "Approval Required"
+        "task_interrupted": "Task Interrupted"
       },
       "actionSummaryWebhook": "Webhook: {value}",
       "actionSummaryScript": "Script: {value}",

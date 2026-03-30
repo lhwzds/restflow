@@ -293,9 +293,7 @@
         "task_started": "任务开始",
         "task_completed": "任务完成",
         "task_failed": "任务失败",
-        "task_interrupted": "任务中断",
-        "tool_executed": "工具执行",
-        "approval_required": "需要审批"
+        "task_interrupted": "任务中断"
       },
       "actionSummaryWebhook": "Webhook：{value}",
       "actionSummaryScript": "脚本：{value}",

@@ -1,24 +1,12 @@
 use super::*;
 
 fn parse_supported_hook_event(event_str: &str) -> Result<HookEvent, String> {
-    let event: HookEvent =
-        serde_json::from_value(Value::String(event_str.to_string())).map_err(|_| {
-            format!(
-                "Invalid event: {}. Supported: task_started, task_completed, task_failed, task_interrupted",
-                event_str
-            )
-        })?;
-
-    match event {
-        HookEvent::TaskStarted
-        | HookEvent::TaskCompleted
-        | HookEvent::TaskFailed
-        | HookEvent::TaskInterrupted => Ok(event),
-        HookEvent::ToolExecuted | HookEvent::ApprovalRequired => Err(format!(
-            "Unsupported event: {}. Supported: task_started, task_completed, task_failed, task_interrupted",
+    serde_json::from_value(Value::String(event_str.to_string())).map_err(|_| {
+        format!(
+            "Invalid event: {}. Supported: task_started, task_completed, task_failed, task_interrupted",
             event_str
-        )),
-    }
+        )
+    })
 }
 
 impl RestFlowMcpServer {
