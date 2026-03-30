@@ -1561,6 +1561,29 @@ impl Tool for PromoteBackgroundCaptureTool {
     }
 }
 
+struct SubagentReadCaptureTool {
+    tool_name: &'static str,
+}
+
+#[async_trait]
+impl Tool for SubagentReadCaptureTool {
+    fn name(&self) -> &str {
+        self.tool_name
+    }
+
+    fn description(&self) -> &str {
+        "Capture subagent read input payload"
+    }
+
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({"type": "object"})
+    }
+
+    async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
+        Ok(ToolOutput::success(input))
+    }
+}
+
 struct ToolStartCaptureEmitter {
     start_arguments: Arc<AsyncMutex<Vec<String>>>,
 }
@@ -2101,6 +2124,99 @@ async fn test_promote_to_background_keeps_explicit_session_id() {
         .as_ref()
         .unwrap_or_else(|e| panic!("promote_call should succeed: {e}"));
     assert_eq!(output.result["session_id"], "session-explicit");
+}
+
+#[tokio::test]
+async fn test_list_subagents_injects_parent_run_id() {
+    let mut tools = ToolRegistry::new();
+    tools.register(SubagentReadCaptureTool {
+        tool_name: "list_subagents",
+    });
+
+    let llm = Arc::new(MockLlmClient::new(vec![]));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+    let calls = vec![ToolCall {
+        id: "list_call".to_string(),
+        name: "list_subagents".to_string(),
+        arguments: serde_json::json!({}),
+    }];
+
+    let mut emitter = ToolStartCaptureEmitter::new();
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_execution_id: Some("parent-run-1"),
+                    chat_session_id: None,
+                    trace_session_id: None,
+                    trace_scope_id: None,
+                },
+            },
+        )
+        .await;
+
+    let (_, result) = &results[0];
+    let output = result
+        .as_ref()
+        .unwrap_or_else(|e| panic!("list_call should succeed: {e}"));
+    assert_eq!(output.result["parent_run_id"], "parent-run-1");
+
+    let start_arguments = emitter.start_arguments.lock().await;
+    let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
+    assert_eq!(start_payload["parent_run_id"], "parent-run-1");
+}
+
+#[tokio::test]
+async fn test_wait_subagents_preserves_explicit_parent_run_id() {
+    let mut tools = ToolRegistry::new();
+    tools.register(SubagentReadCaptureTool {
+        tool_name: "wait_subagents",
+    });
+
+    let llm = Arc::new(MockLlmClient::new(vec![]));
+    let executor = AgentExecutor::new(llm, Arc::new(tools));
+    let calls = vec![ToolCall {
+        id: "wait_call".to_string(),
+        name: "wait_subagents".to_string(),
+        arguments: serde_json::json!({
+            "task_ids": ["child-1"],
+            "parent_run_id": "explicit-parent"
+        }),
+    }];
+
+    let mut emitter = NullEmitter;
+    let results = executor
+        .execute_tools_parallel(
+            &calls,
+            &mut emitter,
+            ToolExecutionOptions {
+                tool_timeout: Duration::from_secs(5),
+                yolo_mode: false,
+                max_concurrency: DEFAULT_MAX_TOOL_CONCURRENCY,
+                telemetry_sink: None,
+                telemetry_context: None,
+                invocation: ToolInvocationContext {
+                    parent_execution_id: Some("runtime-parent"),
+                    chat_session_id: None,
+                    trace_session_id: None,
+                    trace_scope_id: None,
+                },
+            },
+        )
+        .await;
+
+    let (_, result) = &results[0];
+    let output = result
+        .as_ref()
+        .unwrap_or_else(|e| panic!("wait_call should succeed: {e}"));
+    assert_eq!(output.result["parent_run_id"], "explicit-parent");
 }
 
 #[test]

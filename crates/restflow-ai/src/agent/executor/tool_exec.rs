@@ -103,6 +103,24 @@ impl AgentExecutor {
         );
     }
 
+    fn inject_subagent_parent_scope(
+        tool_name: &str,
+        args: &mut Value,
+        parent_execution_id: Option<&str>,
+    ) {
+        if tool_name != "list_subagents" && tool_name != "wait_subagents" {
+            return;
+        }
+        let Some(parent_execution_id) = parent_execution_id else {
+            return;
+        };
+        let Some(map) = args.as_object_mut() else {
+            return;
+        };
+        map.entry("parent_run_id".to_string())
+            .or_insert_with(|| Value::String(parent_execution_id.to_string()));
+    }
+
     pub(crate) async fn execute_tools_with_events(
         &self,
         tool_calls: &[ToolCall],
@@ -277,6 +295,7 @@ impl AgentExecutor {
                 context.trace_scope_id,
             );
             Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
+            Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_execution_id);
             let arguments = serde_json::to_string(&args).unwrap_or_default();
             emitter
                 .emit_tool_call_start(&call.id, &call.name, &arguments)
@@ -318,6 +337,7 @@ impl AgentExecutor {
                 context.trace_scope_id,
             );
             Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
+            Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_execution_id);
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
 

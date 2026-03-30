@@ -4,6 +4,7 @@
 pub(crate) mod operation_assessment;
 pub(crate) mod path_utils;
 pub(crate) mod shared;
+pub(crate) mod subagent_read_capability;
 pub(crate) mod team_template;
 
 // Original 7 tools

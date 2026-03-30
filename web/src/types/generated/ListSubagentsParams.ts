@@ -7,4 +7,8 @@ export type ListSubagentsParams = {
 /**
  * Include currently running agents in the response.
  */
-include_running: boolean, };
+include_running: boolean, 
+/**
+ * Parent run scope for running agents.
+ */
+parent_run_id: string | null, };
