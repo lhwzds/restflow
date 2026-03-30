@@ -98,8 +98,7 @@ pub(super) enum BackgroundAgentAction {
         agent_id: String,
         #[serde(default)]
         chat_session_id: Option<String>,
-        #[serde(default)]
-        schedule: Option<ContractTaskSchedule>,
+        schedule: ContractTaskSchedule,
         #[serde(default)]
         input: Option<String>,
         #[serde(default)]

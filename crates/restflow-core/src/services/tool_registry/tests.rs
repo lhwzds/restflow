@@ -1155,7 +1155,7 @@ fn test_task_store_adapter_background_agent_flow() {
             name: "Background Agent".to_string(),
             agent_id: created_agent.id,
             chat_session_id: None,
-            schedule: Some(restflow_contracts::request::TaskSchedule::default()),
+            schedule: restflow_contracts::request::TaskSchedule::default(),
             input: Some("Run periodic checks".to_string()),
             input_template: Some("Template {{task.id}}".to_string()),
             timeout_secs: Some(1800),

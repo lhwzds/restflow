@@ -297,7 +297,7 @@ pub(super) async fn execute_run_batch(
                     .schedule
                     .clone()
                     .or_else(|| schedule.clone())
-                    .or_else(|| Some(ContractTaskSchedule::default())),
+                    .unwrap_or_else(ContractTaskSchedule::default),
                 input: Some(worker_input),
                 input_template: None,
                 timeout_secs: worker_spec.timeout_secs.or(timeout_secs),

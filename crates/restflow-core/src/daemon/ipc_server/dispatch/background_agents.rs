@@ -4,7 +4,9 @@ use crate::boundary::background_agent::{
     core_patch_to_update_request, core_spec_to_create_request,
 };
 use crate::daemon::request_mapper::to_contract;
-use crate::services::background_agent_command::BackgroundAgentCommandService;
+use crate::services::background_agent_command::{
+    BackgroundAgentCommandError, BackgroundAgentCommandService,
+};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::storage::background_agent::ResolveTaskIdError;
 use restflow_contracts::{ApprovalHandledResponse, DeleteWithIdResponse};
@@ -34,6 +36,10 @@ fn command_service(core: &Arc<AppCore>) -> BackgroundAgentCommandService {
         core.storage.as_ref(),
         Some(Arc::new(OperationAssessorAdapter::new(core.clone()))),
     )
+}
+
+fn command_error_response(error: BackgroundAgentCommandError) -> IpcResponse {
+    IpcResponse::error_payload(error.payload())
 }
 
 impl IpcServer {
@@ -113,7 +119,7 @@ impl IpcServer {
         request.confirmation_token = confirmation_token;
         match command_service(core).create_from_request(request).await {
             Ok(outcome) => IpcResponse::success(outcome),
-            Err(err) => IpcResponse::error(500, err.to_string()),
+            Err(err) => command_error_response(err),
         }
     }
 
@@ -128,7 +134,7 @@ impl IpcServer {
         request.confirmation_token = confirmation_token;
         match command_service(core).convert_session(request).await {
             Ok(outcome) => IpcResponse::success(outcome),
-            Err(err) => IpcResponse::error(500, err.to_string()),
+            Err(err) => command_error_response(err),
         }
     }
 
@@ -147,7 +153,7 @@ impl IpcServer {
         request.confirmation_token = confirmation_token;
         match command_service(core).update_from_request(request).await {
             Ok(outcome) => IpcResponse::success(outcome),
-            Err(err) => IpcResponse::error(500, err.to_string()),
+            Err(err) => command_error_response(err),
         }
     }
 
@@ -164,7 +170,7 @@ impl IpcServer {
                 id: resolved_id,
                 deleted,
             }),
-            Err(err) => IpcResponse::error(500, err.to_string()),
+            Err(err) => command_error_response(err),
         }
     }
 
@@ -187,7 +193,7 @@ impl IpcServer {
         };
         match command_service(core).control_from_request(request).await {
             Ok(outcome) => IpcResponse::success(outcome),
-            Err(err) => IpcResponse::error(500, err.to_string()),
+            Err(err) => command_error_response(err),
         }
     }
 
@@ -202,7 +208,7 @@ impl IpcServer {
         };
         match command_service(core).progress(&resolved_id, event_limit.unwrap_or(10)) {
             Ok(progress) => IpcResponse::success(progress),
-            Err(err) => IpcResponse::error(500, err.to_string()),
+            Err(err) => command_error_response(err),
         }
     }
 
@@ -222,7 +228,7 @@ impl IpcServer {
             source.unwrap_or(crate::models::BackgroundMessageSource::User),
         ) {
             Ok(msg) => IpcResponse::success(msg),
-            Err(err) => IpcResponse::error(500, err.to_string()),
+            Err(err) => command_error_response(err),
         }
     }
 

@@ -19,6 +19,7 @@ use self::assembly::{
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
+use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
 use crate::storage::Storage;
 use restflow_storage::{AgentSettings, ApiSettings};
@@ -401,9 +402,10 @@ pub fn registry_from_allowlist_with_security_gate(
                         s.deliverables.clone(),
                         SessionService::from_storage(s),
                     ));
-                    builder.with_background_agent_and_kv(
+                    builder.with_background_agent_and_kv_and_assessor(
                         store,
                         Arc::new(KvStoreAdapter::new(s.kv_store.clone(), None)),
+                        Arc::new(OperationAssessorAdapter::from_storage(s)),
                     )
                 });
             }

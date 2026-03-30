@@ -44,7 +44,7 @@ use rmcp::{
 };
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Map, Value};
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use tokio::io::{stdin, stdout};
@@ -71,6 +71,13 @@ mod types;
 
 use self::backends::{CoreBackend, IpcBackend};
 use self::types::*;
+
+fn schema_map_from_value(schema: Value) -> Map<String, Value> {
+    schema
+        .as_object()
+        .cloned()
+        .unwrap_or_else(serde_json::Map::new)
+}
 
 /// RestFlow MCP Server
 ///
@@ -164,6 +171,7 @@ pub trait McpBackend: Send + Sync {
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
     async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String>;
     async fn delete_hook(&self, id: &str) -> Result<bool, String>;
+    async fn test_hook(&self, id: &str) -> Result<(), String>;
 
     async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String>;
     async fn execute_runtime_tool(
@@ -862,11 +870,13 @@ impl ServerHandler for RestFlowMcpServer {
             Tool::new(
                 "manage_background_agents",
                 MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
-                schema_for_type::<ManageBackgroundAgentsParams>(),
+                schema_map_from_value(
+                    restflow_tools::impls::background_agent::tool_parameters_schema(),
+                ),
             ),
             Tool::new(
                 "manage_hooks",
-                "Create, list, update, and delete lifecycle hooks. Hooks trigger actions (webhook, script, send_message, run_task) when events occur (task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required).",
+                "Create, list, update, delete, and test lifecycle hooks. Hooks trigger actions (webhook, script, send_message, run_task) when events occur (task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required).",
                 schema_for_type::<ManageHooksParams>(),
             ),
         ];

@@ -17,6 +17,11 @@ use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, Valida
 use crate::runtime::subagent::StorageBackedSubagentLookup;
 use crate::services::background_agent_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
+use crate::storage::{
+    AgentStorage, BackgroundAgentStorage, ChannelSessionBindingStorage, ConfigStorage,
+    DeliverableStorage, ExecutionTraceStorage, KvStoreStorage, MemoryStorage, SecretStorage,
+    SkillStorage, Storage, TerminalSessionStorage, TriggerStorage, WorkItemStorage,
+};
 use restflow_tools::ToolError;
 use restflow_traits::assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
@@ -32,12 +37,65 @@ use restflow_traits::subagent::{SpawnRequest, SubagentDefLookup};
 
 #[derive(Clone)]
 pub struct OperationAssessorAdapter {
-    core: Arc<AppCore>,
+    context: AssessmentContext,
+}
+
+#[derive(Clone)]
+struct AssessmentContext {
+    db: Arc<redb::Database>,
+    secrets: SecretStorage,
+    skills: SkillStorage,
+    memory: MemoryStorage,
+    chat_sessions: crate::storage::ChatSessionStorage,
+    channel_session_bindings: ChannelSessionBindingStorage,
+    execution_traces: ExecutionTraceStorage,
+    kv_store: KvStoreStorage,
+    work_items: WorkItemStorage,
+    config: ConfigStorage,
+    agents: AgentStorage,
+    background_agents: BackgroundAgentStorage,
+    triggers: TriggerStorage,
+    terminal_sessions: TerminalSessionStorage,
+    deliverables: DeliverableStorage,
+}
+
+impl AssessmentContext {
+    fn from_core(core: &Arc<AppCore>) -> Self {
+        Self::from_storage(core.storage.as_ref())
+    }
+
+    fn from_storage(storage: &Storage) -> Self {
+        Self {
+            db: storage.get_db(),
+            secrets: storage.secrets.clone(),
+            skills: storage.skills.clone(),
+            memory: storage.memory.clone(),
+            chat_sessions: storage.chat_sessions.clone(),
+            channel_session_bindings: storage.channel_session_bindings.clone(),
+            execution_traces: storage.execution_traces.clone(),
+            kv_store: storage.kv_store.clone(),
+            work_items: storage.work_items.clone(),
+            config: storage.config.clone(),
+            agents: storage.agents.clone(),
+            background_agents: storage.background_agents.clone(),
+            triggers: storage.triggers.clone(),
+            terminal_sessions: storage.terminal_sessions.clone(),
+            deliverables: storage.deliverables.clone(),
+        }
+    }
 }
 
 impl OperationAssessorAdapter {
     pub fn new(core: Arc<AppCore>) -> Self {
-        Self { core }
+        Self {
+            context: AssessmentContext::from_core(&core),
+        }
+    }
+
+    pub fn from_storage(storage: &Storage) -> Self {
+        Self {
+            context: AssessmentContext::from_storage(storage),
+        }
     }
 }
 
@@ -47,7 +105,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         &self,
         request: AgentCreateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_agent_create(&self.core, request)
+        assess_agent_create_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -56,7 +114,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         &self,
         request: AgentUpdateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_agent_update(&self.core, request)
+        assess_agent_update_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -65,7 +123,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         &self,
         request: BackgroundAgentCreateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_create(&self.core, request)
+        assess_background_agent_create_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -74,7 +132,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_convert_session(&self.core, request)
+        assess_background_agent_convert_session_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -83,7 +141,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         &self,
         request: BackgroundAgentUpdateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_update(&self.core, request)
+        assess_background_agent_update_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -92,7 +150,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         &self,
         request: BackgroundAgentControlRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_control(&self.core, request)
+        assess_background_agent_control_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -104,9 +162,15 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         agent_ids: Vec<String>,
         template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_template(&self.core, operation, intent, agent_ids, template_mode)
-            .await
-            .map_err(|error| ToolError::Tool(error.to_string()))
+        assess_background_agent_template_with_context(
+            &self.context,
+            operation,
+            intent,
+            agent_ids,
+            template_mode,
+        )
+        .await
+        .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     async fn assess_subagent_spawn(
@@ -115,7 +179,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         request: ContractSubagentSpawnRequest,
         template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_subagent_spawn(&self.core, operation, request, template_mode)
+        assess_subagent_spawn_with_context(&self.context, operation, request, template_mode)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -126,7 +190,7 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         requests: Vec<ContractSubagentSpawnRequest>,
         template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_subagent_batch(&self.core, operation, requests, template_mode)
+        assess_subagent_batch_with_context(&self.context, operation, requests, template_mode)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -202,47 +266,46 @@ fn issues_from_validation(errors: Vec<ValidationError>) -> Vec<OperationAssessme
         .collect()
 }
 
-async fn build_auth(core: &Arc<AppCore>) -> Result<AuthProfileManager> {
+async fn build_auth(context: &AssessmentContext) -> Result<AuthProfileManager> {
     let config = AuthManagerConfig {
         auto_discover: false,
         ..AuthManagerConfig::default()
     };
-    let db = core.storage.get_db();
-    let secrets = Arc::new(core.storage.secrets.clone());
-    let profile_storage = AuthProfileStorage::new(db)?;
+    let secrets = Arc::new(context.secrets.clone());
+    let profile_storage = AuthProfileStorage::new(context.db.clone())?;
     let manager = AuthProfileManager::with_storage(config, secrets, Some(profile_storage));
     manager.initialize().await?;
     let _ = manager.discover().await;
     Ok(manager)
 }
 
-fn agent_has_local_credential(core: &Arc<AppCore>, agent: &AgentNode) -> bool {
+fn agent_has_local_credential(context: &AssessmentContext, agent: &AgentNode) -> bool {
     match agent.api_key_config.as_ref() {
         Some(ApiKeyConfig::Direct(value)) => !value.trim().is_empty(),
         Some(ApiKeyConfig::Secret(secret_name)) => {
-            secret_or_env_exists(&core.storage.secrets, secret_name)
+            secret_or_env_exists(&context.secrets, secret_name)
         }
         None => false,
     }
 }
 
 async fn provider_available(
-    core: &Arc<AppCore>,
+    context: &AssessmentContext,
     auth_manager: &AuthProfileManager,
     provider: Provider,
 ) -> bool {
     auth_provider_available(auth_manager, provider, |key| {
-        secret_or_env_exists(&core.storage.secrets, key)
+        secret_or_env_exists(&context.secrets, key)
     })
     .await
 }
 
 async fn resolve_model_from_stored_credentials(
-    core: &Arc<AppCore>,
+    context: &AssessmentContext,
     auth_manager: &AuthProfileManager,
 ) -> Result<Option<ModelId>> {
     Ok(resolve_model_from_credentials(auth_manager, |key| {
-        secret_or_env_exists(&core.storage.secrets, key)
+        secret_or_env_exists(&context.secrets, key)
     })
     .await)
 }
@@ -294,31 +357,127 @@ fn parse_agent_node(value: ContractAgentNode) -> Result<AgentNode> {
         .map_err(|errors| anyhow!(crate::models::encode_validation_error(errors)))
 }
 
-async fn load_agent(core: &Arc<AppCore>, id_or_prefix: &str) -> Result<StoredAgent> {
+async fn load_agent(context: &AssessmentContext, id_or_prefix: &str) -> Result<StoredAgent> {
     let trimmed = id_or_prefix.trim();
     let resolved_id = if trimmed.eq_ignore_ascii_case("default") {
-        core.storage.agents.resolve_default_agent_id()?
+        context.agents.resolve_default_agent_id()?
     } else {
-        core.storage.agents.resolve_existing_agent_id(trimmed)?
+        context.agents.resolve_existing_agent_id(trimmed)?
     };
-    core.storage
+    context
         .agents
         .get_agent(resolved_id.clone())?
         .ok_or_else(|| anyhow!("Agent not found: {resolved_id}"))
 }
 
 fn normalize_subagent_request(
-    core: &Arc<AppCore>,
+    context: &AssessmentContext,
     request: ContractSubagentSpawnRequest,
 ) -> Result<SpawnRequest> {
-    let definitions = StorageBackedSubagentLookup::new(core.storage.agents.clone());
+    let definitions = StorageBackedSubagentLookup::new(context.agents.clone());
     let available_agents = definitions.list_callable();
     spawn_request_from_contract(&available_agents, request)
         .map_err(|error| anyhow!(error.to_string()))
 }
 
+async fn validate_agent_async(
+    context: &AssessmentContext,
+    agent: &AgentNode,
+) -> std::result::Result<(), Vec<ValidationError>> {
+    let mut errors = Vec::new();
+
+    let tool_registry = match crate::services::tool_registry::create_tool_registry(
+        context.skills.clone(),
+        context.memory.clone(),
+        context.chat_sessions.clone(),
+        context.channel_session_bindings.clone(),
+        context.execution_traces.clone(),
+        context.kv_store.clone(),
+        context.work_items.clone(),
+        context.secrets.clone(),
+        context.config.clone(),
+        context.agents.clone(),
+        context.background_agents.clone(),
+        context.triggers.clone(),
+        context.terminal_sessions.clone(),
+        context.deliverables.clone(),
+        None,
+        None,
+        None,
+    ) {
+        Ok(registry) => registry,
+        Err(err) => {
+            errors.push(ValidationError::new(
+                "tools",
+                format!("Failed to create tool registry: {err}"),
+            ));
+            return Err(errors);
+        }
+    };
+
+    if let Some(tools) = &agent.tools {
+        for tool_name in tools {
+            let normalized = tool_name.trim();
+            if normalized.is_empty() {
+                errors.push(ValidationError::new("tools", "tool name must not be empty"));
+                continue;
+            }
+            if !tool_registry.has(normalized) {
+                errors.push(ValidationError::new(
+                    "tools",
+                    format!("unknown tool: {}", normalized),
+                ));
+            }
+        }
+    }
+
+    if let Some(skills) = &agent.skills {
+        for skill_id in skills {
+            let normalized = skill_id.trim();
+            if normalized.is_empty() {
+                errors.push(ValidationError::new("skills", "skill ID must not be empty"));
+                continue;
+            }
+            match context.skills.exists(normalized) {
+                Ok(true) => {}
+                Ok(false) => errors.push(ValidationError::new(
+                    "skills",
+                    format!("unknown skill: {}", normalized),
+                )),
+                Err(err) => errors.push(ValidationError::new(
+                    "skills",
+                    format!("failed to verify skill '{}': {}", normalized, err),
+                )),
+            }
+        }
+    }
+
+    if let Some(ApiKeyConfig::Secret(secret_name)) = &agent.api_key_config {
+        let normalized = secret_name.trim();
+        if !normalized.is_empty() {
+            match context.secrets.has_available_secret(normalized) {
+                Ok(true) => {}
+                Ok(false) => errors.push(ValidationError::new(
+                    "api_key_config",
+                    format!("secret not found in storage or env: {}", normalized),
+                )),
+                Err(err) => errors.push(ValidationError::new(
+                    "api_key_config",
+                    format!("failed to verify secret '{}': {}", normalized, err),
+                )),
+            }
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
+}
+
 async fn assess_agent_node(
-    core: &Arc<AppCore>,
+    context: &AssessmentContext,
     auth_manager: &AuthProfileManager,
     operation: &str,
     intent: OperationAssessmentIntent,
@@ -330,7 +489,7 @@ async fn assess_agent_node(
     if let Err(errors) = agent.validate() {
         assessment.blockers.extend(issues_from_validation(errors));
     }
-    if let Err(errors) = agent.validate_async(core).await {
+    if let Err(errors) = validate_agent_async(context, agent).await {
         assessment.blockers.extend(issues_from_validation(errors));
     }
 
@@ -340,8 +499,8 @@ async fn assess_agent_node(
 
     if let Some(model_ref) = agent.resolved_model_ref() {
         assessment.effective_model_ref = Some(to_assessment_model_ref(model_ref));
-        if !provider_available(core, auth_manager, model_ref.provider).await
-            && !agent_has_local_credential(core, agent)
+        if !provider_available(context, auth_manager, model_ref.provider).await
+            && !agent_has_local_credential(context, agent)
         {
             let current_issue = issue(
                 "provider_unavailable",
@@ -370,7 +529,7 @@ async fn assess_agent_node(
         return Ok(finalize_assessment(assessment));
     }
 
-    match resolve_model_from_stored_credentials(core, auth_manager).await? {
+    match resolve_model_from_stored_credentials(context, auth_manager).await? {
         Some(model) => {
             let model_ref = ModelRef::from_model(model);
             assessment.effective_model_ref = Some(to_assessment_model_ref(model_ref));
@@ -427,10 +586,18 @@ pub async fn assess_agent_create(
     core: &Arc<AppCore>,
     request: AgentCreateRequest,
 ) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(core).await?;
+    let context = AssessmentContext::from_core(core);
+    assess_agent_create_with_context(&context, request).await
+}
+
+async fn assess_agent_create_with_context(
+    context: &AssessmentContext,
+    request: AgentCreateRequest,
+) -> Result<OperationAssessment> {
+    let auth_manager = build_auth(context).await?;
     let agent = parse_agent_node(request.agent)?;
     assess_agent_node(
-        core,
+        context,
         &auth_manager,
         "create_agent",
         OperationAssessmentIntent::Save,
@@ -444,7 +611,15 @@ pub async fn assess_agent_update(
     core: &Arc<AppCore>,
     request: AgentUpdateRequest,
 ) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(core).await?;
+    let context = AssessmentContext::from_core(core);
+    assess_agent_update_with_context(&context, request).await
+}
+
+async fn assess_agent_update_with_context(
+    context: &AssessmentContext,
+    request: AgentUpdateRequest,
+) -> Result<OperationAssessment> {
+    let auth_manager = build_auth(context).await?;
     let Some(agent_value) = request.agent else {
         return Ok(OperationAssessment::ok(
             "update_agent",
@@ -453,7 +628,7 @@ pub async fn assess_agent_update(
     };
     let agent = parse_agent_node(agent_value)?;
     assess_agent_node(
-        core,
+        context,
         &auth_manager,
         "update_agent",
         OperationAssessmentIntent::Save,
@@ -467,10 +642,18 @@ pub async fn assess_background_agent_create(
     core: &Arc<AppCore>,
     request: BackgroundAgentCreateRequest,
 ) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(core).await?;
-    let stored_agent = load_agent(core, &request.agent_id).await?;
+    let context = AssessmentContext::from_core(core);
+    assess_background_agent_create_with_context(&context, request).await
+}
+
+async fn assess_background_agent_create_with_context(
+    context: &AssessmentContext,
+    request: BackgroundAgentCreateRequest,
+) -> Result<OperationAssessment> {
+    let auth_manager = build_auth(context).await?;
+    let stored_agent = load_agent(context, &request.agent_id).await?;
     assess_agent_node(
-        core,
+        context,
         &auth_manager,
         "create_background_agent",
         OperationAssessmentIntent::Save,
@@ -484,9 +667,16 @@ pub async fn assess_background_agent_convert_session(
     core: &Arc<AppCore>,
     request: BackgroundAgentConvertSessionRequest,
 ) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(core).await?;
-    let session = core
-        .storage
+    let context = AssessmentContext::from_core(core);
+    assess_background_agent_convert_session_with_context(&context, request).await
+}
+
+async fn assess_background_agent_convert_session_with_context(
+    context: &AssessmentContext,
+    request: BackgroundAgentConvertSessionRequest,
+) -> Result<OperationAssessment> {
+    let auth_manager = build_auth(context).await?;
+    let session = context
         .chat_sessions
         .get(&request.session_id)?
         .ok_or_else(|| anyhow!("Session not found: {}", request.session_id))?;
@@ -505,9 +695,9 @@ pub async fn assess_background_agent_convert_session(
         ));
         return Ok(finalize_assessment(assessment));
     }
-    let stored_agent = load_agent(core, &session.agent_id).await?;
+    let stored_agent = load_agent(context, &session.agent_id).await?;
     assess_agent_node(
-        core,
+        context,
         &auth_manager,
         "convert_session_to_background_agent",
         intent,
@@ -521,13 +711,19 @@ pub async fn assess_background_agent_update(
     core: &Arc<AppCore>,
     request: BackgroundAgentUpdateRequest,
 ) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(core).await?;
-    let task_id = core
-        .storage
+    let context = AssessmentContext::from_core(core);
+    assess_background_agent_update_with_context(&context, request).await
+}
+
+async fn assess_background_agent_update_with_context(
+    context: &AssessmentContext,
+    request: BackgroundAgentUpdateRequest,
+) -> Result<OperationAssessment> {
+    let auth_manager = build_auth(context).await?;
+    let task_id = context
         .background_agents
         .resolve_existing_task_id(&request.id)?;
-    let task = core
-        .storage
+    let task = context
         .background_agents
         .get_task(&task_id)?
         .ok_or_else(|| anyhow!("Background agent not found: {task_id}"))?;
@@ -535,9 +731,9 @@ pub async fn assess_background_agent_update(
         .agent_id
         .as_deref()
         .unwrap_or(task.agent_id.as_str());
-    let stored_agent = load_agent(core, next_agent_id).await?;
+    let stored_agent = load_agent(context, next_agent_id).await?;
     assess_agent_node(
-        core,
+        context,
         &auth_manager,
         "update_background_agent",
         OperationAssessmentIntent::Save,
@@ -551,6 +747,14 @@ pub async fn assess_background_agent_control(
     core: &Arc<AppCore>,
     request: BackgroundAgentControlRequest,
 ) -> Result<OperationAssessment> {
+    let context = AssessmentContext::from_core(core);
+    assess_background_agent_control_with_context(&context, request).await
+}
+
+async fn assess_background_agent_control_with_context(
+    context: &AssessmentContext,
+    request: BackgroundAgentControlRequest,
+) -> Result<OperationAssessment> {
     let action = request.action.trim().to_lowercase();
     if action != "run_now" && action != "run-now" && action != "runnow" {
         return Ok(OperationAssessment::ok(
@@ -559,19 +763,17 @@ pub async fn assess_background_agent_control(
         ));
     }
 
-    let auth_manager = build_auth(core).await?;
-    let task_id = core
-        .storage
+    let auth_manager = build_auth(context).await?;
+    let task_id = context
         .background_agents
         .resolve_existing_task_id(&request.id)?;
-    let task = core
-        .storage
+    let task = context
         .background_agents
         .get_task(&task_id)?
         .ok_or_else(|| anyhow!("Background agent not found: {task_id}"))?;
-    let stored_agent = load_agent(core, &task.agent_id).await?;
+    let stored_agent = load_agent(context, &task.agent_id).await?;
     assess_agent_node(
-        core,
+        context,
         &auth_manager,
         "run_background_agent",
         OperationAssessmentIntent::Run,
@@ -588,14 +790,32 @@ pub async fn assess_background_agent_template(
     agent_ids: Vec<String>,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
-    let auth_manager = build_auth(core).await?;
+    let context = AssessmentContext::from_core(core);
+    assess_background_agent_template_with_context(
+        &context,
+        operation,
+        intent,
+        agent_ids,
+        template_mode,
+    )
+    .await
+}
+
+async fn assess_background_agent_template_with_context(
+    context: &AssessmentContext,
+    operation: &str,
+    intent: OperationAssessmentIntent,
+    agent_ids: Vec<String>,
+    template_mode: bool,
+) -> Result<OperationAssessment> {
+    let auth_manager = build_auth(context).await?;
     let mut assessment = OperationAssessment::ok(operation.to_string(), intent.clone());
 
     for agent_id in agent_ids {
-        match load_agent(core, &agent_id).await {
+        match load_agent(context, &agent_id).await {
             Ok(agent) => {
                 let child = assess_agent_node(
-                    core,
+                    context,
                     &auth_manager,
                     operation,
                     intent.clone(),
@@ -629,8 +849,18 @@ pub async fn assess_subagent_spawn(
     request: ContractSubagentSpawnRequest,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
-    let request = normalize_subagent_request(core, request)?;
-    let auth_manager = build_auth(core).await?;
+    let context = AssessmentContext::from_core(core);
+    assess_subagent_spawn_with_context(&context, operation, request, template_mode).await
+}
+
+async fn assess_subagent_spawn_with_context(
+    context: &AssessmentContext,
+    operation: &str,
+    request: ContractSubagentSpawnRequest,
+    template_mode: bool,
+) -> Result<OperationAssessment> {
+    let request = normalize_subagent_request(context, request)?;
+    let auth_manager = build_auth(context).await?;
     let intent = if template_mode {
         OperationAssessmentIntent::Save
     } else {
@@ -674,7 +904,7 @@ pub async fn assess_subagent_spawn(
             return Ok(finalize_assessment(assessment));
         }
 
-        if !provider_available(core, &auth_manager, requested_provider).await {
+        if !provider_available(context, &auth_manager, requested_provider).await {
             let current_issue = issue(
                 "provider_unavailable",
                 format!(
@@ -694,9 +924,9 @@ pub async fn assess_subagent_spawn(
     }
 
     if let Some(agent_id) = request.agent_id.as_deref() {
-        let stored_agent = load_agent(core, agent_id).await?;
+        let stored_agent = load_agent(context, agent_id).await?;
         return assess_agent_node(
-            core,
+            context,
             &auth_manager,
             operation,
             intent,
@@ -722,6 +952,16 @@ pub async fn assess_subagent_batch(
     requests: Vec<ContractSubagentSpawnRequest>,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
+    let context = AssessmentContext::from_core(core);
+    assess_subagent_batch_with_context(&context, operation, requests, template_mode).await
+}
+
+async fn assess_subagent_batch_with_context(
+    context: &AssessmentContext,
+    operation: &str,
+    requests: Vec<ContractSubagentSpawnRequest>,
+    template_mode: bool,
+) -> Result<OperationAssessment> {
     let intent = if template_mode {
         OperationAssessmentIntent::Save
     } else {
@@ -730,7 +970,8 @@ pub async fn assess_subagent_batch(
     let mut assessment = OperationAssessment::ok(operation.to_string(), intent);
 
     for (index, request) in requests.into_iter().enumerate() {
-        let child = assess_subagent_spawn(core, operation, request, template_mode).await?;
+        let child =
+            assess_subagent_spawn_with_context(context, operation, request, template_mode).await?;
         merge_assessment(&mut assessment, child, &format!("Worker {}", index + 1));
     }
 

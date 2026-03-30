@@ -249,9 +249,9 @@ pub struct ManageBackgroundAgentsParams {
 /// Parameters for manage_hooks tool
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ManageHooksParams {
-    /// Operation to perform: list, create, update, delete
+    /// Operation to perform: list, create, update, delete, test
     pub operation: String,
-    /// Hook ID (required for update/delete)
+    /// Hook ID (required for update/delete/test)
     #[serde(default)]
     pub id: Option<String>,
     /// Hook name (required for create)

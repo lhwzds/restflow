@@ -106,7 +106,7 @@ pub(crate) fn core_spec_to_create_request(
         name: spec.name.clone(),
         agent_id: spec.agent_id.clone(),
         chat_session_id: spec.chat_session_id.clone(),
-        schedule: Some(to_contract(spec.schedule.clone())?),
+        schedule: to_contract(spec.schedule.clone())?,
         input: spec.input.clone(),
         input_template: spec.input_template.clone(),
         timeout_secs: spec.timeout_secs,
@@ -147,11 +147,10 @@ pub(crate) fn core_patch_to_update_request(
 pub(crate) fn create_request_to_spec(
     request: BackgroundAgentCreateRequest,
 ) -> Result<BackgroundAgentSpec, ToolError> {
-    let schedule = decode_optional_contract::<ContractTaskSchedule, BackgroundAgentSchedule>(
+    let schedule = decode_contract::<ContractTaskSchedule, BackgroundAgentSchedule>(
         "schedule",
         request.schedule,
-    )?
-    .ok_or_else(|| ToolError::Tool("Missing required field: schedule".to_string()))?;
+    )?;
 
     Ok(BackgroundAgentSpec {
         name: request.name,
@@ -410,10 +409,10 @@ mod tests {
             name: "nightly".to_string(),
             agent_id: "agent-1".to_string(),
             chat_session_id: None,
-            schedule: Some(ContractTaskSchedule::Interval {
+            schedule: ContractTaskSchedule::Interval {
                 interval_ms: 60_000,
                 start_at: None,
-            }),
+            },
             input: None,
             input_template: None,
             timeout_secs: None,
@@ -430,28 +429,6 @@ mod tests {
             spec.memory.expect("memory").memory_scope,
             MemoryScope::PerBackgroundAgent
         );
-    }
-
-    #[test]
-    fn create_request_to_spec_requires_schedule() {
-        let err = create_request_to_spec(BackgroundAgentCreateRequest {
-            name: "nightly".to_string(),
-            agent_id: "agent-1".to_string(),
-            chat_session_id: None,
-            schedule: None,
-            input: None,
-            input_template: None,
-            timeout_secs: None,
-            durability_mode: None,
-            memory: None,
-            memory_scope: None,
-            resource_limits: None,
-            preview: false,
-            confirmation_token: None,
-        })
-        .expect_err("missing schedule should fail");
-
-        assert!(err.to_string().contains("Missing required field: schedule"));
     }
 
     #[test]

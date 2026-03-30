@@ -77,9 +77,14 @@ impl RestFlowMcpServer {
                 let deleted = self.backend.delete_hook(&id).await?;
                 serde_json::json!({ "id": id, "deleted": deleted })
             }
+            "test" => {
+                let id = Self::required_string(params.id, "id")?;
+                self.backend.test_hook(&id).await?;
+                serde_json::json!({ "id": id, "tested": true })
+            }
             _ => {
                 return Err(format!(
-                    "Unknown operation: {}. Supported: list, create, update, delete",
+                    "Unknown operation: {}. Supported: list, create, update, delete, test",
                     operation
                 ));
             }
