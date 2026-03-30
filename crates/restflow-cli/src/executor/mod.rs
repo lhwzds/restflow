@@ -102,6 +102,7 @@ pub trait CommandExecutor: Send + Sync {
 
     async fn list_hooks(&self) -> Result<Vec<Hook>>;
     async fn create_hook(&self, hook: Hook) -> Result<Hook>;
+    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook>;
     async fn delete_hook(&self, id: &str) -> Result<bool>;
     async fn test_hook(&self, id: &str) -> Result<()>;
 

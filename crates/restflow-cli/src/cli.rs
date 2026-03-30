@@ -577,6 +577,46 @@ pub enum HookCommands {
         input: Option<String>,
     },
 
+    /// Update a hook quickly from CLI
+    Update {
+        id: String,
+
+        #[arg(long)]
+        name: String,
+
+        /// One of: task_started, task_completed, task_failed, task_interrupted
+        #[arg(long)]
+        event: String,
+
+        /// One of: webhook, script, send_message, run_task
+        #[arg(long)]
+        action: String,
+
+        /// URL for webhook action
+        #[arg(long)]
+        url: Option<String>,
+
+        /// Script path for script action
+        #[arg(long)]
+        script: Option<String>,
+
+        /// Channel type for send_message action
+        #[arg(long)]
+        channel: Option<String>,
+
+        /// Message template for send_message action
+        #[arg(long)]
+        message: Option<String>,
+
+        /// Agent ID for run_task action
+        #[arg(long)]
+        agent: Option<String>,
+
+        /// Input template for run_task action
+        #[arg(long)]
+        input: Option<String>,
+    },
+
     /// Delete a hook
     Delete { id: String },
 

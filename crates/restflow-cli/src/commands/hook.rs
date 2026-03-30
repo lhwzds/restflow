@@ -29,6 +29,24 @@ pub async fn run(
             )
             .await
         }
+        HookCommands::Update {
+            id,
+            name,
+            event,
+            action,
+            url,
+            script,
+            channel,
+            message,
+            agent,
+            input,
+        } => {
+            update_hook(
+                executor, &id, name, event, action, url, script, channel, message, agent, input,
+                format,
+            )
+            .await
+        }
         HookCommands::Delete { id } => delete_hook(executor, &id, format).await,
         HookCommands::Test { id } => test_hook(executor, &id, format).await,
     }
@@ -83,6 +101,36 @@ async fn create_hook(
     }
 
     println!("Hook created: {} ({})", hook.name, hook.id);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn update_hook(
+    executor: Arc<dyn CommandExecutor>,
+    id: &str,
+    name: String,
+    event: String,
+    action: String,
+    url: Option<String>,
+    script: Option<String>,
+    channel: Option<String>,
+    message: Option<String>,
+    agent: Option<String>,
+    input: Option<String>,
+    format: OutputFormat,
+) -> Result<()> {
+    let event = parse_event(&event)?;
+    let action = build_action(action, url, script, channel, message, agent, input)?;
+
+    let hook = executor
+        .update_hook(id, Hook::new(name, event, action))
+        .await?;
+
+    if format.is_json() {
+        return print_json(&hook);
+    }
+
+    println!("Hook updated: {} ({})", hook.name, hook.id);
     Ok(())
 }
 
@@ -173,8 +221,8 @@ mod tests {
     use crate::output::OutputFormat;
     use async_trait::async_trait;
     use restflow_contracts::{
-        CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse,
-        PairingStateResponse, RouteBindingResponse, SessionSourceMigrationResponse,
+        CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
+        RouteBindingResponse, SessionSourceMigrationResponse,
     };
     use restflow_core::memory::ExportResult;
     use restflow_core::models::{
@@ -196,6 +244,7 @@ mod tests {
     enum HookCall {
         List,
         Create(Hook),
+        Update(String, Hook),
         Delete(String),
         Test(String),
     }
@@ -335,10 +384,7 @@ mod tests {
             panic!("unexpected executor call")
         }
 
-        async fn search_sessions(
-            &self,
-            _query: String,
-        ) -> anyhow::Result<Vec<ChatSessionSummary>> {
+        async fn search_sessions(&self, _query: String) -> anyhow::Result<Vec<ChatSessionSummary>> {
             panic!("unexpected executor call")
         }
 
@@ -354,11 +400,7 @@ mod tests {
             panic!("unexpected executor call")
         }
 
-        async fn update_note(
-            &self,
-            _id: &str,
-            _patch: WorkItemPatch,
-        ) -> anyhow::Result<WorkItem> {
+        async fn update_note(&self, _id: &str, _patch: WorkItemPatch) -> anyhow::Result<WorkItem> {
             panic!("unexpected executor call")
         }
 
@@ -428,6 +470,11 @@ mod tests {
 
         async fn create_hook(&self, hook: Hook) -> anyhow::Result<Hook> {
             self.record(HookCall::Create(hook));
+            Ok(self.created_hook.clone())
+        }
+
+        async fn update_hook(&self, id: &str, hook: Hook) -> anyhow::Result<Hook> {
+            self.record(HookCall::Update(id.to_string(), hook));
             Ok(self.created_hook.clone())
         }
 
@@ -518,7 +565,8 @@ mod tests {
             _request: BackgroundAgentConvertSessionRequest,
             _preview: bool,
             _confirmation_token: Option<String>,
-        ) -> anyhow::Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
+        ) -> anyhow::Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>
+        {
             panic!("unexpected executor call")
         }
 
@@ -576,7 +624,10 @@ mod tests {
             panic!("unexpected executor call")
         }
 
-        async fn list_kv_store(&self, _namespace: Option<&str>) -> anyhow::Result<Vec<SharedEntry>> {
+        async fn list_kv_store(
+            &self,
+            _namespace: Option<&str>,
+        ) -> anyhow::Result<Vec<SharedEntry>> {
             panic!("unexpected executor call")
         }
 
@@ -745,6 +796,55 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn hook_update_dispatches_through_executor() {
+        let updated_hook = Hook::new(
+            "updated".to_string(),
+            HookEvent::TaskFailed,
+            HookAction::Script {
+                path: "/tmp/update-hook.sh".to_string(),
+                args: None,
+                timeout_secs: None,
+            },
+        );
+        let executor = Arc::new(RecordingExecutor::new(
+            Vec::new(),
+            updated_hook.clone(),
+            true,
+        ));
+
+        run(
+            executor.clone(),
+            HookCommands::Update {
+                id: "hook-456".to_string(),
+                name: "updated".to_string(),
+                event: "task_failed".to_string(),
+                action: "script".to_string(),
+                url: None,
+                script: Some("/tmp/update-hook.sh".to_string()),
+                channel: None,
+                message: None,
+                agent: None,
+                input: None,
+            },
+            OutputFormat::Json,
+        )
+        .await
+        .expect("hook update should succeed");
+
+        let calls = executor.calls();
+        assert_eq!(calls.len(), 1);
+        match &calls[0] {
+            HookCall::Update(id, hook) => {
+                assert_eq!(id, "hook-456");
+                assert_eq!(hook.name, updated_hook.name);
+                assert_eq!(hook.event, updated_hook.event);
+                assert_eq!(hook.action, updated_hook.action);
+            }
+            other => panic!("unexpected call: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
     async fn hook_test_dispatches_through_executor() {
         let executor = Arc::new(RecordingExecutor::new(
             Vec::new(),
@@ -769,6 +869,9 @@ mod tests {
         .await
         .expect("hook test should succeed");
 
-        assert_eq!(executor.calls(), vec![HookCall::Test("hook-xyz".to_string())]);
+        assert_eq!(
+            executor.calls(),
+            vec![HookCall::Test("hook-xyz".to_string())]
+        );
     }
 }
