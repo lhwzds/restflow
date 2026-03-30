@@ -20,7 +20,8 @@ use restflow_core::models::{
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
-    secrets as secrets_service, session::SessionService, skills as skills_service,
+    hook_capability::HookCapabilityService, secrets as secrets_service, session::SessionService,
+    skills as skills_service,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -278,33 +279,25 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>> {
-        self.core.storage.hooks.list()
+        HookCapabilityService::from_storage(&self.core.storage).list()
     }
 
     async fn create_hook(&self, hook: Hook) -> Result<Hook> {
-        self.core.storage.hooks.create(&hook)?;
-        Ok(hook)
+        HookCapabilityService::from_storage(&self.core.storage).create(hook)
+    }
+
+    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook> {
+        HookCapabilityService::from_storage(&self.core.storage).update(id, hook)
     }
 
     async fn delete_hook(&self, id: &str) -> Result<bool> {
-        self.core.storage.hooks.delete(id)
+        HookCapabilityService::from_storage(&self.core.storage).delete(id)
     }
 
     async fn test_hook(&self, id: &str) -> Result<()> {
-        let hook = self
-            .core
-            .storage
-            .hooks
-            .get(id)?
-            .ok_or_else(|| anyhow::anyhow!("Hook not found: {id}"))?;
-        let scheduler = Arc::new(restflow_core::hooks::BackgroundAgentHookScheduler::new(
-            self.core.storage.background_agents.clone(),
-        ));
-        let executor =
-            restflow_core::hooks::HookExecutor::with_storage(self.core.storage.hooks.clone())
-                .with_task_scheduler(scheduler);
-        let context = sample_hook_context(&hook.event);
-        executor.execute_hook(&hook, &context).await
+        HookCapabilityService::from_storage(&self.core.storage)
+            .test(id)
+            .await
     }
 
     async fn list_pairing_state(&self) -> Result<PairingStateResponse> {
@@ -629,36 +622,4 @@ fn route_binding_response(
         created_at: binding.created_at,
         priority: binding.priority,
     })
-}
-
-fn sample_hook_context(
-    event: &restflow_core::models::HookEvent,
-) -> restflow_core::models::HookContext {
-    let now = chrono::Utc::now().timestamp_millis();
-
-    match event {
-        restflow_core::models::HookEvent::TaskFailed
-        | restflow_core::models::HookEvent::TaskInterrupted => restflow_core::models::HookContext {
-            event: event.clone(),
-            task_id: "hook-test-task".to_string(),
-            task_name: "hook-test-task".to_string(),
-            agent_id: "hook-test-agent".to_string(),
-            success: Some(false),
-            output: None,
-            error: Some("Hook test error".to_string()),
-            duration_ms: Some(200),
-            timestamp: now,
-        },
-        _ => restflow_core::models::HookContext {
-            event: event.clone(),
-            task_id: "hook-test-task".to_string(),
-            task_name: "hook-test-task".to_string(),
-            agent_id: "hook-test-agent".to_string(),
-            success: Some(true),
-            output: Some("Hook test output".to_string()),
-            error: None,
-            duration_ms: Some(200),
-            timestamp: now,
-        },
-    }
 }

@@ -342,6 +342,19 @@ impl CommandExecutor for IpcExecutor {
         self.request_typed(IpcRequest::CreateHook { hook }).await
     }
 
+    async fn update_hook(
+        &self,
+        id: &str,
+        hook: restflow_core::models::Hook,
+    ) -> Result<restflow_core::models::Hook> {
+        let hook = to_contract(hook)?;
+        self.request_typed(IpcRequest::UpdateHook {
+            id: id.to_string(),
+            hook,
+        })
+        .await
+    }
+
     async fn delete_hook(&self, id: &str) -> Result<bool> {
         let resp: restflow_contracts::DeleteResponse = self
             .request_typed(IpcRequest::DeleteHook { id: id.to_string() })
