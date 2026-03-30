@@ -322,7 +322,7 @@ describe('backgroundAgentStore', () => {
                   confirmation_token: 'delete-token-1',
                 },
               },
-            }),
+            } as any),
           )
           .mockResolvedValueOnce(true)
 
@@ -516,7 +516,7 @@ describe('backgroundAgentStore', () => {
                   confirmation_token: 'delete-token-1',
                 },
               },
-            }),
+            } as any),
           )
           .mockResolvedValueOnce(true)
 
@@ -550,7 +550,7 @@ describe('backgroundAgentStore', () => {
                 confirmation_token: 'delete-token-1',
               },
             },
-          }),
+          } as any),
         )
 
         const result = await store.convertSessionToWorkspace('session-err', confirmWarning)

@@ -6,21 +6,17 @@ use super::BackgroundAgent;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::BTreeMap;
-use std::path::PathBuf;
 use ts_rs::TS;
 
 /// Hook trigger event.
-#[derive(Debug, Clone, Serialize, Deserialize, Type, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum HookEvent {
     TaskStarted,
     TaskCompleted,
     TaskFailed,
     TaskInterrupted,
-    /// Legacy-only compatibility value for persisted hooks created before runtime support was removed.
-    ToolExecuted,
-    /// Legacy-only compatibility value for persisted hooks created before runtime support was removed.
-    ApprovalRequired,
 }
 
 impl HookEvent {
@@ -30,45 +26,7 @@ impl HookEvent {
             Self::TaskCompleted => "task_completed",
             Self::TaskFailed => "task_failed",
             Self::TaskInterrupted => "task_interrupted",
-            Self::ToolExecuted => "tool_executed",
-            Self::ApprovalRequired => "approval_required",
         }
-    }
-}
-
-impl TS for HookEvent {
-    type WithoutGenerics = Self;
-    type OptionInnerType = Self;
-
-    const IS_ENUM: bool = true;
-
-    fn docs() -> Option<String> {
-        Some("/**\n * Hook trigger event.\n */\n".to_string())
-    }
-
-    fn name(_: &ts_rs::Config) -> String {
-        "HookEvent".to_string()
-    }
-
-    fn decl(cfg: &ts_rs::Config) -> String {
-        format!(
-            "type {} = {};",
-            Self::name(cfg),
-            <Self as TS>::inline(cfg)
-        )
-    }
-
-    fn decl_concrete(cfg: &ts_rs::Config) -> String {
-        Self::decl(cfg)
-    }
-
-    fn inline(_: &ts_rs::Config) -> String {
-        "\"task_started\" | \"task_completed\" | \"task_failed\" | \"task_interrupted\""
-            .to_string()
-    }
-
-    fn output_path() -> Option<PathBuf> {
-        Some(PathBuf::from("HookEvent.ts"))
     }
 }
 
@@ -291,7 +249,7 @@ mod tests {
     }
 
     #[test]
-    fn export_hook_event_hides_legacy_variants() {
+    fn export_hook_event_matches_runtime_events() {
         let exported = HookEvent::export_to_string(&ts_rs::Config::default()).expect("export");
         assert!(exported.contains("\"task_started\" | \"task_completed\""));
         assert!(!exported.contains("tool_executed"));
