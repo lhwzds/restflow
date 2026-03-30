@@ -38,12 +38,16 @@ pub(crate) struct ToolExecutionOptions<'a> {
 }
 
 impl AgentExecutor {
+    fn is_subagent_spawn_tool(tool_name: &str) -> bool {
+        tool_name == "spawn_subagent" || tool_name == "spawn_subagent_batch"
+    }
+
     fn inject_spawn_parent_execution_id(
         tool_name: &str,
         args: &mut Value,
         parent_execution_id: Option<&str>,
     ) {
-        if tool_name != "spawn_subagent" {
+        if !Self::is_subagent_spawn_tool(tool_name) {
             return;
         }
         let Some(parent_execution_id) = parent_execution_id else {
@@ -63,7 +67,7 @@ impl AgentExecutor {
         trace_session_id: Option<&str>,
         trace_scope_id: Option<&str>,
     ) {
-        if tool_name != "spawn_subagent" {
+        if !Self::is_subagent_spawn_tool(tool_name) {
             return;
         }
         let Some(map) = args.as_object_mut() else {
@@ -93,9 +97,6 @@ impl AgentExecutor {
         let Some(map) = args.as_object_mut() else {
             return;
         };
-        if map.contains_key("session_id") {
-            return;
-        }
         let operation = map
             .get("operation")
             .and_then(Value::as_str)

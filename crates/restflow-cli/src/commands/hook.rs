@@ -182,8 +182,6 @@ fn parse_event(value: &str) -> Result<HookEvent> {
         "task_completed" | "completed" => Ok(HookEvent::TaskCompleted),
         "task_failed" | "failed" => Ok(HookEvent::TaskFailed),
         "task_interrupted" | "interrupted" => Ok(HookEvent::TaskInterrupted),
-        "tool_executed" => Ok(HookEvent::ToolExecuted),
-        "approval_required" => Ok(HookEvent::ApprovalRequired),
         _ => anyhow::bail!("Unsupported hook event: {}", value),
     }
 }
@@ -674,6 +672,7 @@ mod tests {
             parse_event("task_completed").expect("parse"),
             HookEvent::TaskCompleted
         ));
+        assert!(parse_event("tool_executed").is_err());
         assert!(parse_event("unknown").is_err());
     }
 

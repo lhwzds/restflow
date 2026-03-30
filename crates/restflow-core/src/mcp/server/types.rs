@@ -266,7 +266,7 @@ pub struct ManageHooksParams {
     /// Optional description
     #[serde(default)]
     pub description: Option<Option<String>>,
-    /// Hook event trigger (required for create): task_started, task_completed, task_failed, task_interrupted, tool_executed, approval_required
+    /// Hook event trigger (required for create): task_started, task_completed, task_failed, task_interrupted
     #[serde(default)]
     pub event: Option<String>,
     /// Hook action payload (required for create)

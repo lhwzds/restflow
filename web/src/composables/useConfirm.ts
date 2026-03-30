@@ -1,4 +1,4 @@
-import { ref } from 'vue'
+import { nextTick, ref } from 'vue'
 
 export interface ConfirmOptions {
   title: string
@@ -18,8 +18,38 @@ const options = ref<ConfirmOptions>({
   variant: 'default',
 })
 
-// Queue of pending promise resolvers - allows multiple confirm() calls
-const resolverQueue: Array<(value: boolean) => void> = []
+type PendingConfirm = {
+  options: ConfirmOptions
+  resolve: (value: boolean) => void
+}
+
+const pendingQueue: PendingConfirm[] = []
+let activeConfirm: PendingConfirm | null = null
+let isSettling = false
+
+function normalizeOptions(opts: ConfirmOptions): ConfirmOptions {
+  return {
+    ...opts,
+    confirmText: opts.confirmText ?? 'Confirm',
+    cancelText: opts.cancelText ?? 'Cancel',
+    variant: opts.variant ?? 'default',
+  }
+}
+
+function showNextConfirm() {
+  if (activeConfirm || isSettling) {
+    return
+  }
+
+  const next = pendingQueue.shift() ?? null
+  if (!next) {
+    return
+  }
+
+  activeConfirm = next
+  options.value = next.options
+  isOpen.value = true
+}
 
 /**
  * Confirm dialog composable
@@ -27,33 +57,36 @@ const resolverQueue: Array<(value: boolean) => void> = []
  */
 export function useConfirm() {
   function confirm(opts: ConfirmOptions): Promise<boolean> {
-    options.value = {
-      ...opts,
-      confirmText: opts.confirmText ?? 'Confirm',
-      cancelText: opts.cancelText ?? 'Cancel',
-      variant: opts.variant ?? 'default',
-    }
-    isOpen.value = true
-
     return new Promise((resolve) => {
-      resolverQueue.push(resolve)
+      pendingQueue.push({
+        options: normalizeOptions(opts),
+        resolve,
+      })
+      showNextConfirm()
     })
   }
 
-  function handleConfirm() {
-    isOpen.value = false
-    const resolve = resolverQueue.shift()
-    if (resolve) {
-      resolve(true)
+  async function settleConfirmation(value: boolean) {
+    const current = activeConfirm
+    if (!current) {
+      return
     }
+
+    isSettling = true
+    isOpen.value = false
+    await nextTick()
+    activeConfirm = null
+    isSettling = false
+    current.resolve(value)
+    showNextConfirm()
+  }
+
+  function handleConfirm() {
+    void settleConfirmation(true)
   }
 
   function handleCancel() {
-    isOpen.value = false
-    const resolve = resolverQueue.shift()
-    if (resolve) {
-      resolve(false)
-    }
+    void settleConfirmation(false)
   }
 
   return {

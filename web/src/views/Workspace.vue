@@ -44,6 +44,10 @@ import {
 } from '@/api/execution-console'
 import { rebuildExternalChatSession } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
+import {
+  formatOperationAssessment,
+  type OperationAssessment,
+} from '@/utils/operationAssessment'
 import type {
   AgentFile,
   BackgroundTaskFolder,
@@ -1044,8 +1048,23 @@ async function onConvertToWorkspaceSession(id: string, name: string) {
   })
   if (!confirmed) return
 
-  const success = await backgroundAgentStore.convertSessionToWorkspace(id)
+  const confirmWarning = (assessment: OperationAssessment) =>
+    confirm({
+      title: t('workspace.session.convertToWorkspace'),
+      description: formatOperationAssessment(assessment),
+      confirmText: t('workspace.session.convertToWorkspaceConfirm'),
+      cancelText: t('common.cancel'),
+      variant: 'destructive',
+    })
+
+  const success = await backgroundAgentStore.convertSessionToWorkspace(
+    id,
+    confirmWarning,
+  )
   if (!success) {
+    if (!backgroundAgentStore.error) {
+      return
+    }
     toast.error(backgroundAgentStore.error || t('workspace.session.convertToWorkspaceFailed'))
     return
   }
