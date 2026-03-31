@@ -120,13 +120,16 @@ async fn update_hook(
     format: OutputFormat,
 ) -> Result<()> {
     let event = parse_event(&event)?;
-    let action = build_action(action, url, script, channel, message, agent, input)?;
     let mut hook = executor
         .list_hooks()
         .await?
         .into_iter()
         .find(|hook| hook.id == id)
         .ok_or_else(|| anyhow::anyhow!("Hook not found: {}", id))?;
+    let action = merge_update_action(
+        &hook.action,
+        build_action(action, url, script, channel, message, agent, input)?,
+    );
     hook.name = name;
     hook.event = event;
     hook.action = action;
@@ -218,6 +221,32 @@ fn build_action(
             input_template: input.unwrap_or_default(),
         }),
         _ => anyhow::bail!("Unsupported hook action: {}", action),
+    }
+}
+
+fn merge_update_action(existing: &HookAction, updated: HookAction) -> HookAction {
+    match (existing, updated) {
+        (
+            HookAction::Webhook {
+                method, headers, ..
+            },
+            HookAction::Webhook { url, .. },
+        ) => HookAction::Webhook {
+            url,
+            method: method.clone(),
+            headers: headers.clone(),
+        },
+        (
+            HookAction::Script {
+                args, timeout_secs, ..
+            },
+            HookAction::Script { path, .. },
+        ) => HookAction::Script {
+            path,
+            args: args.clone(),
+            timeout_secs: *timeout_secs,
+        },
+        (_, updated) => updated,
     }
 }
 
@@ -591,9 +620,8 @@ mod tests {
             _id: &str,
             _preview: bool,
             _confirmation_token: Option<String>,
-        ) -> anyhow::Result<
-            BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>,
-        > {
+        ) -> anyhow::Result<BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>>
+        {
             panic!("unexpected executor call")
         }
 
@@ -879,6 +907,140 @@ mod tests {
                 assert_eq!(hook.enabled, existing_hook.enabled);
                 assert_eq!(hook.created_at, existing_hook.created_at);
                 assert!(hook.updated_at >= existing_hook.updated_at);
+            }
+            other => panic!("unexpected call: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn merge_update_action_preserves_webhook_advanced_fields() {
+        let existing = HookAction::Webhook {
+            url: "https://example.com/original".to_string(),
+            method: Some("PATCH".to_string()),
+            headers: Some(std::collections::BTreeMap::from([(
+                "Authorization".to_string(),
+                "Bearer token".to_string(),
+            )])),
+        };
+
+        let updated = merge_update_action(
+            &existing,
+            HookAction::Webhook {
+                url: "https://example.com/updated".to_string(),
+                method: None,
+                headers: None,
+            },
+        );
+
+        assert_eq!(
+            updated,
+            HookAction::Webhook {
+                url: "https://example.com/updated".to_string(),
+                method: Some("PATCH".to_string()),
+                headers: Some(std::collections::BTreeMap::from([(
+                    "Authorization".to_string(),
+                    "Bearer token".to_string(),
+                )])),
+            }
+        );
+    }
+
+    #[test]
+    fn merge_update_action_preserves_script_advanced_fields() {
+        let existing = HookAction::Script {
+            path: "/tmp/original.sh".to_string(),
+            args: Some(vec!["--flag".to_string(), "value".to_string()]),
+            timeout_secs: Some(45),
+        };
+
+        let updated = merge_update_action(
+            &existing,
+            HookAction::Script {
+                path: "/tmp/updated.sh".to_string(),
+                args: None,
+                timeout_secs: None,
+            },
+        );
+
+        assert_eq!(
+            updated,
+            HookAction::Script {
+                path: "/tmp/updated.sh".to_string(),
+                args: Some(vec!["--flag".to_string(), "value".to_string()]),
+                timeout_secs: Some(45),
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn hook_update_preserves_existing_webhook_advanced_fields() {
+        let mut existing_hook = Hook::new(
+            "existing".to_string(),
+            HookEvent::TaskCompleted,
+            HookAction::Webhook {
+                url: "https://example.com/original".to_string(),
+                method: Some("PATCH".to_string()),
+                headers: Some(std::collections::BTreeMap::from([(
+                    "Authorization".to_string(),
+                    "Bearer token".to_string(),
+                )])),
+            },
+        );
+        existing_hook.id = "hook-advanced".to_string();
+
+        let mut updated_hook = existing_hook.clone();
+        updated_hook.name = "updated".to_string();
+        updated_hook.event = HookEvent::TaskFailed;
+        updated_hook.action = HookAction::Webhook {
+            url: "https://example.com/updated".to_string(),
+            method: Some("PATCH".to_string()),
+            headers: Some(std::collections::BTreeMap::from([(
+                "Authorization".to_string(),
+                "Bearer token".to_string(),
+            )])),
+        };
+
+        let executor = Arc::new(RecordingExecutor::new(
+            vec![existing_hook.clone()],
+            updated_hook,
+            true,
+        ));
+
+        run(
+            executor.clone(),
+            HookCommands::Update {
+                id: "hook-advanced".to_string(),
+                name: "updated".to_string(),
+                event: "task_failed".to_string(),
+                action: "webhook".to_string(),
+                url: Some("https://example.com/updated".to_string()),
+                script: None,
+                channel: None,
+                message: None,
+                agent: None,
+                input: None,
+            },
+            OutputFormat::Json,
+        )
+        .await
+        .expect("hook update should preserve advanced webhook fields");
+
+        let calls = executor.calls();
+        assert_eq!(calls.len(), 2);
+        match &calls[1] {
+            HookCall::Update(id, hook) => {
+                assert_eq!(id, "hook-advanced");
+                assert_eq!(
+                    hook.action,
+                    HookAction::Webhook {
+                        url: "https://example.com/updated".to_string(),
+                        method: Some("PATCH".to_string()),
+                        headers: Some(std::collections::BTreeMap::from([(
+                            "Authorization".to_string(),
+                            "Bearer token".to_string(),
+                        )])),
+                    }
+                );
             }
             other => panic!("unexpected call: {other:?}"),
         }

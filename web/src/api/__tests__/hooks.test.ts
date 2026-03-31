@@ -101,6 +101,41 @@ describe('Hooks API', () => {
     expect(result.enabled).toBe(false)
   })
 
+  it('allows clearing nullable fields during update', async () => {
+    const existing = createHook('hook-1', {
+      description: 'Has description',
+      filter: {
+        task_name_pattern: 'deploy-*',
+        agent_id: 'agent-1',
+        success_only: true,
+      } as HookFilter,
+    })
+    const updated = createHook('hook-1', {
+      description: null,
+      filter: null,
+    })
+    mockedRequestTyped.mockResolvedValueOnce([existing]).mockResolvedValueOnce(updated)
+
+    await hooksApi.updateHook('hook-1', {
+      description: null,
+      filter: null,
+    })
+
+    expect(mockedRequestTyped).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        type: 'UpdateHook',
+        data: expect.objectContaining({
+          id: 'hook-1',
+          hook: expect.objectContaining({
+            description: null,
+            filter: null,
+          }),
+        }),
+      }),
+    )
+  })
+
   it('deletes and tests hooks', async () => {
     mockedRequestTyped.mockResolvedValue(undefined)
 
