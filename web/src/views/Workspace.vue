@@ -1033,20 +1033,11 @@ function onConvertToBackgroundAgent(id: string, name: string) {
   convertDialogOpen.value = true
 }
 
-async function onConvertToWorkspaceSession(id: string, name: string) {
+async function onConvertToWorkspaceSession(id: string, _name: string) {
   if (isExternallyManagedSession(id)) {
     toast.error(t('workspace.session.managedExternally'))
     return
   }
-
-  const confirmed = await confirm({
-    title: t('workspace.session.convertToWorkspace'),
-    description: t('workspace.session.convertToWorkspaceDescription', { name }),
-    confirmText: t('workspace.session.convertToWorkspaceConfirm'),
-    cancelText: t('common.cancel'),
-    variant: 'destructive',
-  })
-  if (!confirmed) return
 
   const confirmWarning = (assessment: OperationAssessment) =>
     confirm({

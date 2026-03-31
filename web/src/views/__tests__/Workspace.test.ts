@@ -16,6 +16,7 @@ const mockListExecutionContainers = vi.fn()
 const mockListExecutionSessions = vi.fn()
 const mockListChildExecutionSessions = vi.fn()
 const mockGetExecutionRunThread = vi.fn()
+const mockConfirm = vi.fn()
 const mockRoute = reactive<{ name: string; params: Record<string, string>; query: Record<string, string> }>({
   name: 'workspace',
   params: {},
@@ -78,7 +79,7 @@ vi.mock('@/composables/useToast', () => ({
 
 vi.mock('@/composables/useConfirm', () => ({
   useConfirm: () => ({
-    confirm: vi.fn().mockResolvedValue(true),
+    confirm: mockConfirm,
   }),
   confirmDelete: vi.fn().mockResolvedValue(true),
 }))
@@ -96,7 +97,13 @@ vi.mock('@/components/workspace/SessionList.vue', () => ({
         default: () => [],
       },
     },
-    emits: ['newSession', 'selectRun', 'selectContainer', 'toggleRunChildren'],
+    emits: [
+      'newSession',
+      'selectRun',
+      'selectContainer',
+      'toggleRunChildren',
+      'convertToWorkspaceSession',
+    ],
     setup(props) {
       function flattenRuns(runs: any[]): any[] {
         return runs.flatMap((run) => [run, ...flattenRuns(run.childRuns ?? [])])
@@ -116,6 +123,7 @@ vi.mock('@/components/workspace/SessionList.vue', () => ({
         <button data-testid="select-run" @click="$emit('selectRun', 'session-1', 'run-1')">run</button>
         <button data-testid="select-container" @click="$emit('selectContainer', 'workspace', 'session-1')">container</button>
         <button data-testid="toggle-run-children" @click="$emit('toggleRunChildren', 'session-1', 'run-1')">toggle</button>
+        <button data-testid="convert-to-workspace" @click="$emit('convertToWorkspaceSession', 'session-1', 'Workspace Session')">convert-to-workspace</button>
         <template v-for="folder in flattenedWorkspaceFolders()" :key="folder.containerId">
           <button
             v-for="run in folder.flattenedRuns"
@@ -265,6 +273,8 @@ function mountWorkspace() {
 describe('Workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockConfirm.mockReset()
+    mockConfirm.mockResolvedValue(true)
     mockRouterPush.mockReset()
     mockRouterReplace.mockReset()
     useCommandPalette().close()
@@ -332,6 +342,7 @@ describe('Workspace', () => {
       agents: [],
       fetchAgents: mockFetchBackgroundAgents,
       agentBySessionId: vi.fn(() => null),
+      convertSessionToWorkspace: vi.fn().mockResolvedValue(true),
     }
     mockToolPanel = {
       visible: ref(false),
@@ -1028,5 +1039,43 @@ describe('Workspace', () => {
       name: 'workspace-container-run',
       params: { containerId: 'session-1', runId: 'run-root' },
     })
+  })
+
+  it('uses only the assessment confirmation when converting a background session back to workspace', async () => {
+    mockBackgroundStore.convertSessionToWorkspace.mockImplementation(
+      async (_sessionId: string, confirmWarning?: (assessment: any) => Promise<boolean>) => {
+        if (!confirmWarning) {
+          return false
+        }
+
+        return confirmWarning({
+          status: 'warning',
+          warnings: [{ message: 'Delete requires confirmation.' }],
+          blockers: [],
+          requires_confirmation: true,
+          confirmation_token: 'delete-token-1',
+        })
+      },
+    )
+
+    const wrapper = mountWorkspace()
+    await flushPromises()
+
+    await wrapper.get('[data-testid="convert-to-workspace"]').trigger('click')
+    await flushPromises()
+
+    expect(mockBackgroundStore.convertSessionToWorkspace).toHaveBeenCalledWith(
+      'session-1',
+      expect.any(Function),
+    )
+    expect(mockConfirm).toHaveBeenCalledTimes(1)
+    expect(mockConfirm).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: 'workspace.session.convertToWorkspace',
+        confirmText: 'workspace.session.convertToWorkspaceConfirm',
+        cancelText: 'common.cancel',
+        variant: 'destructive',
+      }),
+    )
   })
 })
