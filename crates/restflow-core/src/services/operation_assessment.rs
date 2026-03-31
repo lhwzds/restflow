@@ -317,7 +317,14 @@ fn to_assessment_model_ref(model_ref: ModelRef) -> AssessmentModelRef {
     }
 }
 
-fn finalize_assessment(mut assessment: OperationAssessment) -> OperationAssessment {
+fn finalize_assessment(assessment: OperationAssessment) -> OperationAssessment {
+    finalize_assessment_with_seed(assessment, None)
+}
+
+fn finalize_assessment_with_seed(
+    mut assessment: OperationAssessment,
+    confirmation_seed: Option<serde_json::Value>,
+) -> OperationAssessment {
     if !assessment.blockers.is_empty() {
         assessment.status = OperationAssessmentStatus::Block;
         assessment.requires_confirmation = false;
@@ -328,7 +335,10 @@ fn finalize_assessment(mut assessment: OperationAssessment) -> OperationAssessme
     if !assessment.warnings.is_empty() {
         assessment.status = OperationAssessmentStatus::Warning;
         assessment.requires_confirmation = true;
-        assessment.confirmation_token = Some(build_confirmation_token(&assessment));
+        assessment.confirmation_token = Some(build_confirmation_token(
+            &assessment,
+            confirmation_seed.as_ref(),
+        ));
         return assessment;
     }
 
@@ -338,13 +348,17 @@ fn finalize_assessment(mut assessment: OperationAssessment) -> OperationAssessme
     assessment
 }
 
-fn build_confirmation_token(assessment: &OperationAssessment) -> String {
+fn build_confirmation_token(
+    assessment: &OperationAssessment,
+    confirmation_seed: Option<&serde_json::Value>,
+) -> String {
     let payload = serde_json::json!({
         "operation": assessment.operation,
         "intent": assessment.intent,
         "effective_model_ref": assessment.effective_model_ref,
         "warnings": assessment.warnings,
         "blockers": assessment.blockers,
+        "confirmation_seed": confirmation_seed,
     });
     let encoded = serde_json::to_vec(&payload).unwrap_or_default();
     let mut hasher = Sha256::new();
@@ -696,7 +710,7 @@ async fn assess_background_agent_convert_session_with_context(
         return Ok(finalize_assessment(assessment));
     }
     let stored_agent = load_agent(context, &session.agent_id).await?;
-    assess_agent_node(
+    let assessment = assess_agent_node(
         context,
         &auth_manager,
         "convert_session_to_background_agent",
@@ -704,7 +718,14 @@ async fn assess_background_agent_convert_session_with_context(
         &stored_agent.agent,
         false,
     )
-    .await
+    .await?;
+
+    Ok(finalize_assessment_with_seed(
+        assessment,
+        Some(serde_json::json!({
+            "session_id": request.session_id,
+        })),
+    ))
 }
 
 pub async fn assess_background_agent_update(
@@ -1296,5 +1317,140 @@ mod tests {
         assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
         assert_eq!(assessment.blockers.len(), 1);
         assert_eq!(assessment.blockers[0].code, "missing_conversion_input");
+    }
+
+    #[tokio::test]
+    async fn assess_background_agent_convert_session_confirmation_token_is_bound_to_session() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let created = create_agent(
+            &core,
+            "Warning Agent".to_string(),
+            AgentNode {
+                prompt: Some("Assess conversions".to_string()),
+                ..AgentNode::default()
+            },
+        )
+        .await
+        .expect("agent");
+
+        let mut first_session = crate::models::ChatSession::new(
+            created.id.clone(),
+            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
+        );
+        first_session.add_message(ChatMessage::user("Summarize this session"));
+        core.storage
+            .chat_sessions
+            .create(&first_session)
+            .expect("first session");
+
+        let mut second_session = crate::models::ChatSession::new(
+            created.id.clone(),
+            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
+        );
+        second_session.add_message(ChatMessage::user("Summarize this session"));
+        core.storage
+            .chat_sessions
+            .create(&second_session)
+            .expect("second session");
+
+        let first_assessment = assess_background_agent_convert_session(
+            &core,
+            BackgroundAgentConvertSessionRequest {
+                session_id: first_session.id.clone(),
+                name: None,
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: None,
+                preview: false,
+                confirmation_token: None,
+            },
+        )
+        .await
+        .expect("first assessment");
+        let second_assessment = assess_background_agent_convert_session(
+            &core,
+            BackgroundAgentConvertSessionRequest {
+                session_id: second_session.id.clone(),
+                name: None,
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: None,
+                preview: false,
+                confirmation_token: None,
+            },
+        )
+        .await
+        .expect("second assessment");
+
+        assert_eq!(first_assessment.status, OperationAssessmentStatus::Warning);
+        assert_eq!(second_assessment.status, OperationAssessmentStatus::Warning);
+        assert_ne!(
+            first_assessment.confirmation_token,
+            second_assessment.confirmation_token
+        );
+    }
+
+    #[tokio::test]
+    async fn assess_background_agent_convert_session_confirmation_token_is_stable_for_same_session()
+    {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let created = create_agent(
+            &core,
+            "Warning Agent".to_string(),
+            AgentNode {
+                prompt: Some("Assess conversions".to_string()),
+                ..AgentNode::default()
+            },
+        )
+        .await
+        .expect("agent");
+
+        let mut session = crate::models::ChatSession::new(
+            created.id.clone(),
+            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
+        );
+        session.add_message(ChatMessage::user("Summarize this session"));
+        core.storage
+            .chat_sessions
+            .create(&session)
+            .expect("session");
+
+        let request = BackgroundAgentConvertSessionRequest {
+            session_id: session.id.clone(),
+            name: None,
+            schedule: None,
+            input: None,
+            timeout_secs: None,
+            durability_mode: None,
+            memory: None,
+            memory_scope: None,
+            resource_limits: None,
+            run_now: None,
+            preview: false,
+            confirmation_token: None,
+        };
+
+        let first_assessment = assess_background_agent_convert_session(&core, request.clone())
+            .await
+            .expect("first assessment");
+        let second_assessment = assess_background_agent_convert_session(&core, request)
+            .await
+            .expect("second assessment");
+
+        assert_eq!(first_assessment.status, OperationAssessmentStatus::Warning);
+        assert_eq!(
+            first_assessment.confirmation_token,
+            second_assessment.confirmation_token
+        );
     }
 }
