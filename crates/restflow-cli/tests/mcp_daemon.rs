@@ -376,12 +376,12 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
             || get_value["members"][0]["inputs"].is_null()
     );
 
-    let run_batch = post_json_rpc(
+    let run_batch_initial = post_json_rpc(
         &client,
         &url,
         json!({
             "jsonrpc": "2.0",
-            "id": 5,
+            "id": 6,
             "method": "tools/call",
             "params": {
                 "name": "manage_background_agents",
@@ -395,8 +395,37 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
         }),
     )
     .await?;
-    let run_text = tool_call_text(&run_batch);
-    let run_value = parse_tool_text_json(&run_text)?;
+    let run_initial_text = tool_call_text(&run_batch_initial);
+    let run_initial_value = parse_tool_text_json(&run_initial_text)?;
+    let run_value = if run_initial_value["operation"] == "run_batch" {
+        run_initial_value
+    } else {
+        let confirmation_token = run_initial_value["assessment"]["confirmation_token"]
+            .as_str()
+            .context("run_batch should return confirmation token on guarded response")?;
+        let run_batch = post_json_rpc(
+            &client,
+            &url,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 7,
+                "method": "tools/call",
+                "params": {
+                    "name": "manage_background_agents",
+                    "arguments": {
+                        "operation": "run_batch",
+                        "team": "daemon-bg-team",
+                        "inputs": ["alpha", "beta"],
+                        "run_now": false,
+                        "confirmation_token": confirmation_token
+                    }
+                }
+            }),
+        )
+        .await?;
+        let run_text = tool_call_text(&run_batch);
+        parse_tool_text_json(&run_text)?
+    };
     assert_eq!(run_value["operation"], "run_batch");
     assert_eq!(run_value["run_now"], false);
     assert_eq!(run_value["total"], 2);
