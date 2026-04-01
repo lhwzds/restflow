@@ -774,25 +774,21 @@ impl RestFlowMcpServer {
 
 impl ServerHandler for RestFlowMcpServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo {
-            protocol_version: Default::default(),
-            capabilities: ServerCapabilities::builder().enable_tools().build(),
-            server_info: Implementation {
-                name: "restflow".to_string(),
-                title: Some("RestFlow MCP Server".to_string()),
-                version: env!("CARGO_PKG_VERSION").to_string(),
-                icons: None,
-                website_url: None,
-            },
-            instructions: Some(
-                "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and hooks. \
-                Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
-                memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
-                manage_hooks for lifecycle hook automation, \
-                and manage_background_agents for background agent lifecycle, session conversion, progress, and messaging operations."
-                    .to_string(),
-            ),
-        }
+        let mut info = ServerInfo::default();
+        info.protocol_version = Default::default();
+        info.capabilities = ServerCapabilities::builder().enable_tools().build();
+        info.server_info =
+            Implementation::new("restflow", env!("CARGO_PKG_VERSION"))
+                .with_title("RestFlow MCP Server");
+        info.instructions = Some(
+            "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and hooks. \
+            Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
+            memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
+            manage_hooks for lifecycle hook automation, \
+            and manage_background_agents for background agent lifecycle, session conversion, progress, and messaging operations."
+                .to_string(),
+        );
+        info
     }
 
     async fn list_tools(

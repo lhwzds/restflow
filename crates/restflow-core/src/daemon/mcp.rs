@@ -924,11 +924,9 @@ fn build_mcp_server_factory(
 fn build_streamable_http_server_config(
     cancellation_token: CancellationToken,
 ) -> StreamableHttpServerConfig {
-    StreamableHttpServerConfig {
-        stateful_mode: false,
-        cancellation_token,
-        ..Default::default()
-    }
+    StreamableHttpServerConfig::default()
+        .with_stateful_mode(false)
+        .with_cancellation_token(cancellation_token)
 }
 
 fn classify_error_status(status: StatusCode) -> Option<(&'static str, &'static str, bool)> {

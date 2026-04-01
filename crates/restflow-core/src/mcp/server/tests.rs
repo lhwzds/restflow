@@ -1017,13 +1017,11 @@ async fn call_tool_through_mcp(
         Value::Object(map) => Some(map),
         _ => None,
     };
+    let request = arguments
+        .map(|map| CallToolRequestParams::new(name.to_string()).with_arguments(map))
+        .unwrap_or_else(|| CallToolRequestParams::new(name.to_string()));
     let result = client
-        .call_tool(CallToolRequestParams {
-            name: name.to_string().into(),
-            arguments,
-            meta: None,
-            task: None,
-        })
+        .call_tool(request)
         .await
         .expect("tool call should return a result");
 
@@ -2605,7 +2603,7 @@ async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
         .expect("create operation should succeed");
     let created: serde_json::Value =
         serde_json::from_str(&created_json).expect("create response should be valid json");
-    let task_id = created["id"]
+    let task_id = created["result"]["id"]
         .as_str()
         .expect("created task id should be present")
         .to_string();
