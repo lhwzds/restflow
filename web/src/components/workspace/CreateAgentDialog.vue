@@ -22,7 +22,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { createAgent } from '@/api/agents'
-import { BackendError } from '@/api/http-client'
 import { useModelsStore } from '@/stores/modelsStore'
 import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
@@ -31,9 +30,10 @@ import type { Provider } from '@/types/generated/Provider'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
 import { getProviderDisplayName } from '@/utils/providerCatalog'
 import {
-  extractOperationAssessment,
   formatOperationAssessment,
 } from '@/utils/operationAssessment'
+import { runGuardedMutation } from '@/utils/guardedMutation'
+import type { StoredAgent } from '@/types/generated/StoredAgent'
 
 const props = defineProps<{ open: boolean }>()
 
@@ -115,32 +115,29 @@ async function submit() {
         },
       },
     }
-    let agent
-    try {
-      agent = await createAgent(request)
-    } catch (error) {
-      const assessment = extractOperationAssessment(error)
-      if (
-        error instanceof BackendError &&
-        error.code === 428 &&
-        assessment?.confirmation_token
-      ) {
-        const confirmed = await confirm({
-          title: 'Confirmation required',
-          description: formatOperationAssessment(assessment),
-          confirmText: 'Create anyway',
-          cancelText: 'Cancel',
-        })
-        if (!confirmed) {
-          return
-        }
-        agent = await createAgent({
-          ...request,
-          confirmation_token: assessment.confirmation_token,
-        })
-      } else {
-        throw error
-      }
+    const agent = await runGuardedMutation<StoredAgent | null>(
+      (confirmationToken) =>
+        createAgent(
+          confirmationToken
+            ? {
+                ...request,
+                confirmation_token: confirmationToken,
+              }
+            : request,
+        ),
+      {
+        confirmWarning: async (assessment) =>
+          confirm({
+            title: 'Confirmation required',
+            description: formatOperationAssessment(assessment),
+            confirmText: 'Create anyway',
+            cancelText: 'Cancel',
+          }),
+        onCancel: async () => null,
+      },
+    )
+    if (!agent) {
+      return
     }
     toast.success(t('workspace.agent.createSuccess'))
     const emittedModelRef = agent.agent.model_ref ?? {

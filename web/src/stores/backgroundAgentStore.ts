@@ -8,12 +8,11 @@
 import { defineStore } from 'pinia'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 import type { BackgroundAgentStatus } from '@/types/generated/BackgroundAgentStatus'
-import { BackendError } from '@/api/http-client'
 import * as api from '@/api/background-agents'
-import type { OperationAssessment } from '@/utils/operationAssessment'
-import { extractOperationAssessment } from '@/utils/operationAssessment'
-
-type AssessmentConfirmHandler = (assessment: OperationAssessment) => Promise<boolean>
+import {
+  runGuardedMutation,
+  type AssessmentConfirmHandler,
+} from '@/utils/guardedMutation'
 
 interface BackgroundAgentState {
   agents: BackgroundAgent[]
@@ -112,30 +111,25 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     async runAgentNow(
       id: string,
       confirmWarning?: AssessmentConfirmHandler,
-      confirmationToken?: string,
     ): Promise<api.StreamingBackgroundAgentResponse | null> {
       this.error = null
       try {
-        const response = confirmationToken
-          ? await api.runBackgroundAgentStreaming(id, confirmationToken)
-          : await api.runBackgroundAgentStreaming(id)
+        const response = await runGuardedMutation<api.StreamingBackgroundAgentResponse | null>(
+          (confirmationToken) =>
+            confirmationToken
+              ? api.runBackgroundAgentStreaming(id, confirmationToken)
+              : api.runBackgroundAgentStreaming(id),
+          {
+            confirmWarning,
+            onCancel: async () => null,
+          },
+        )
+        if (!response) {
+          return null
+        }
         await this.fetchAgents()
         return response
       } catch (err) {
-        const assessment = extractOperationAssessment(err)
-        if (
-          err instanceof BackendError &&
-          err.code === 428 &&
-          assessment?.confirmation_token &&
-          confirmWarning
-        ) {
-          const confirmed = await confirmWarning(assessment)
-          if (confirmed) {
-            return this.runAgentNow(id, undefined, assessment.confirmation_token)
-          }
-          this.error = null
-          return null
-        }
         this.error = err instanceof Error ? err.message : 'Failed to run agent'
         console.error('Failed to run background agent:', err)
         return null
@@ -149,13 +143,19 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     async deleteAgentWithConfirmation(
       id: string,
       confirmWarning?: AssessmentConfirmHandler,
-      confirmationToken?: string,
     ): Promise<boolean> {
       this.error = null
       try {
-        const success = confirmationToken
-          ? await api.deleteBackgroundAgent(id, confirmationToken)
-          : await api.deleteBackgroundAgent(id)
+        const success = await runGuardedMutation(
+          (confirmationToken) =>
+            confirmationToken
+              ? api.deleteBackgroundAgent(id, confirmationToken)
+              : api.deleteBackgroundAgent(id),
+          {
+            confirmWarning,
+            onCancel: async () => false,
+          },
+        )
         if (success) {
           this.agents = this.agents.filter((a) => a.id !== id)
           if (this.selectedAgentId === id) {
@@ -164,24 +164,6 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
         }
         return success
       } catch (err) {
-        const assessment = extractOperationAssessment(err)
-        if (
-          err instanceof BackendError &&
-          err.code === 428 &&
-          assessment?.confirmation_token &&
-          confirmWarning
-        ) {
-          const confirmed = await confirmWarning(assessment)
-          if (confirmed) {
-            return this.deleteAgentWithConfirmation(
-              id,
-              undefined,
-              assessment.confirmation_token,
-            )
-          }
-          this.error = null
-          return false
-        }
         this.error = err instanceof Error ? err.message : 'Failed to delete agent'
         console.error('Failed to delete background agent:', err)
         return false
@@ -194,30 +176,27 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     ): Promise<BackgroundAgent | null> {
       this.error = null
       try {
-        const agent = await api.convertSessionToBackgroundAgent(request)
+        const agent = await runGuardedMutation<BackgroundAgent | null>(
+          (confirmationToken) =>
+            api.convertSessionToBackgroundAgent(
+              confirmationToken
+                ? {
+                    ...request,
+                    confirmation_token: confirmationToken,
+                  }
+                : request,
+            ),
+          {
+            confirmWarning,
+            onCancel: async () => null,
+          },
+        )
+        if (!agent) {
+          return null
+        }
         this.agents.push(agent)
         return agent
       } catch (err) {
-        const assessment = extractOperationAssessment(err)
-        if (
-          err instanceof BackendError &&
-          err.code === 428 &&
-          assessment?.confirmation_token &&
-          confirmWarning
-        ) {
-          const confirmed = await confirmWarning(assessment)
-          if (confirmed) {
-            return this.convertSessionToAgent(
-              {
-                ...request,
-                confirmation_token: assessment.confirmation_token,
-              },
-              undefined,
-            )
-          }
-          this.error = null
-          return null
-        }
         this.error = err instanceof Error ? err.message : 'Failed to convert session'
         console.error('Failed to convert session to background agent:', err)
         return null

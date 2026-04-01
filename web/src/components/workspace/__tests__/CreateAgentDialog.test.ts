@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import CreateAgentDialog from '../CreateAgentDialog.vue'
 import { BackendError } from '@/api/http-client'
 
@@ -212,6 +212,7 @@ describe('CreateAgentDialog', () => {
       .findAll('button')
       .find((button) => button.text().includes('workspace.agent.createButton'))
     await createButton!.trigger('click')
+    await flushPromises()
 
     expect(mockConfirm).toHaveBeenCalledOnce()
     expect(mockCreateAgent).toHaveBeenNthCalledWith(

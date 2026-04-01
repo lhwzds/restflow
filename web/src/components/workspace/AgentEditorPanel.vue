@@ -14,7 +14,6 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { getAgent, updateAgent } from '@/api/agents'
-import { BackendError } from '@/api/http-client'
 import { listSkills } from '@/api/skills'
 import { getAvailableTools } from '@/api/config'
 import { useModelsStore } from '@/stores/modelsStore'
@@ -26,9 +25,9 @@ import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
 import { getProviderDisplayName } from '@/utils/providerCatalog'
 import {
-  extractOperationAssessment,
   formatOperationAssessment,
 } from '@/utils/operationAssessment'
+import { runGuardedMutation } from '@/utils/guardedMutation'
 
 const props = defineProps<{
   agentId: string | null
@@ -153,6 +152,7 @@ async function loadReferenceCounts() {
 
 async function save() {
   if (!props.agentId || !current.value) return
+  const agentId = props.agentId
   const nextName = name.value.trim()
   if (!nextName) return
   if (!provider.value || !model.value) {
@@ -185,32 +185,30 @@ async function save() {
         temperature: parsedTemperature,
       },
     }
-    let updated
-    try {
-      updated = await updateAgent(props.agentId, request)
-    } catch (error) {
-      const assessment = extractOperationAssessment(error)
-      if (
-        error instanceof BackendError &&
-        error.code === 428 &&
-        assessment?.confirmation_token
-      ) {
-        const confirmed = await confirm({
-          title: 'Confirmation required',
-          description: formatOperationAssessment(assessment),
-          confirmText: 'Save anyway',
-          cancelText: 'Cancel',
-        })
-        if (!confirmed) {
-          return
-        }
-        updated = await updateAgent(props.agentId, {
-          ...request,
-          confirmation_token: assessment.confirmation_token,
-        })
-      } else {
-        throw error
-      }
+    const updated = await runGuardedMutation<StoredAgent | null>(
+      (confirmationToken) =>
+        updateAgent(
+          agentId,
+          confirmationToken
+            ? {
+                ...request,
+                confirmation_token: confirmationToken,
+              }
+            : request,
+        ),
+      {
+        confirmWarning: async (assessment) =>
+          confirm({
+            title: 'Confirmation required',
+            description: formatOperationAssessment(assessment),
+            confirmText: 'Save anyway',
+            cancelText: 'Cancel',
+          }),
+        onCancel: async () => null,
+      },
+    )
+    if (!updated) {
+      return
     }
     applyForm(updated)
     const emittedModelRef =
