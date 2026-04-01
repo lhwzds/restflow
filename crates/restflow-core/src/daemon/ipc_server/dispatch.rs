@@ -477,9 +477,7 @@ impl IpcServer {
                 id,
                 preview,
                 confirmation_token,
-            } => {
-                Self::handle_delete_background_agent(core, id, preview, confirmation_token).await
-            }
+            } => Self::handle_delete_background_agent(core, id, preview, confirmation_token).await,
             IpcRequest::ControlBackgroundAgent {
                 id,
                 action,

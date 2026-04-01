@@ -14,10 +14,9 @@ use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
     BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
-    BackgroundAgentDeliverableListRequest,
-    BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
-    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
 };
 use restflow_traits::{
     DEFAULT_BG_MESSAGE_LIST_LIMIT, DEFAULT_BG_PROGRESS_EVENT_LIMIT, DEFAULT_BG_TRACE_LINE_LIMIT,
@@ -283,7 +282,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentCreateRequest,
     ) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
-        let outcome = self.run_async(async move { command_service.create_from_request(request).await })?;
+        let outcome =
+            self.run_async(async move { command_service.create_from_request(request).await })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -292,7 +292,8 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentConvertSessionRequest,
     ) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
-        let outcome = self.run_async(async move { command_service.convert_session(request).await })?;
+        let outcome =
+            self.run_async(async move { command_service.convert_session(request).await })?;
         Ok(serde_json::to_value(outcome)?)
     }
 

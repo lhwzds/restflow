@@ -167,5 +167,4 @@ mod tests {
         assert_eq!(context.error.as_deref(), Some("Sample hook interruption"));
         assert_eq!(context.duration_ms, Some(125));
     }
-
 }

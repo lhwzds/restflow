@@ -577,13 +577,12 @@ impl McpBackend for IpcBackend {
         &self,
         request: BackgroundAgentDeleteRequest,
     ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>, String> {
-        self
-            .request_typed(IpcRequest::DeleteBackgroundAgent {
-                id: request.id,
-                preview: request.preview,
-                confirmation_token: request.confirmation_token,
-            })
-            .await
+        self.request_typed(IpcRequest::DeleteBackgroundAgent {
+            id: request.id,
+            preview: request.preview,
+            confirmation_token: request.confirmation_token,
+        })
+        .await
     }
 
     async fn control_background_agent(
