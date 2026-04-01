@@ -49,10 +49,10 @@ import {
   type ThreadItem,
 } from './threadItems'
 import {
-  extractOperationAssessment,
   formatOperationAssessment,
   type OperationAssessment,
 } from '@/utils/operationAssessment'
+import { runGuardedMutation } from '@/utils/guardedMutation'
 import { buildVoiceMessageContent } from './voiceMessageContent'
 
 const props = withDefaults(
@@ -1033,29 +1033,30 @@ async function onUpdateSelectedModel(model: string) {
             : undefined,
         },
       }
-      try {
-        await updateAgent(agentId, request)
-      } catch (error) {
-        const assessment = extractOperationAssessment(error)
-        if (
-          error instanceof BackendError &&
-          error.code === 428 &&
-          assessment?.confirmation_token
-        ) {
-          const confirmed = await confirm({
-            title: 'Confirmation required',
-            description: formatOperationAssessment(assessment),
-            confirmText: 'Update anyway',
-            cancelText: 'Cancel',
-          })
-          if (confirmed) {
-            await updateAgent(agentId, {
-              ...request,
-              confirmation_token: assessment.confirmation_token,
-            })
-          }
-        }
-      }
+      await runGuardedMutation<null>(
+        async (confirmationToken) => {
+          await updateAgent(
+            agentId,
+            confirmationToken
+              ? {
+                  ...request,
+                  confirmation_token: confirmationToken,
+                }
+              : request,
+          )
+          return null
+        },
+        {
+          confirmWarning: async (assessment) =>
+            confirm({
+              title: 'Confirmation required',
+              description: formatOperationAssessment(assessment),
+              confirmText: 'Update anyway',
+              cancelText: 'Cancel',
+            }),
+          onCancel: async () => null,
+        },
+      )
     } catch {
       // Non-critical: session model was updated, agent default is best-effort
     }
