@@ -78,6 +78,7 @@ test.describe('Provider Catalog', () => {
       .filter((provider, index, allProviders) => allProviders.indexOf(provider) === index)
 
     expect(models.length).toBeGreaterThan(0)
+    expect(providers).toContain('openai')
     expect(new Set(providers).size).toBe(providers.length)
 
     const orderedProviders = providers.filter((provider) => PROVIDER_DISPLAY_ORDER.includes(provider))
@@ -92,6 +93,50 @@ test.describe('Provider Catalog', () => {
       expect(model.provider).toBeTruthy()
       expect(model.name).toBeTruthy()
     }
+  })
+
+  test('workspace selectors surface actual daemon catalog models', async ({ page }) => {
+    await goToWorkspace(page)
+
+    const models = await requestIpc<ModelMetadata[]>(page, { type: 'GetAvailableModels' })
+    const daemonModelNames = new Set(models.map((model) => model.name))
+
+    expect(daemonModelNames.size).toBeGreaterThan(0)
+
+    const chatModelSelector = page
+      .locator('button[role="combobox"]')
+      .filter({ has: page.locator('svg.lucide-cpu') })
+      .first()
+    await chatModelSelector.click()
+    const chatListbox = page.getByRole('listbox').last()
+    const chatOptions = (await chatListbox.getByRole('option').allTextContents())
+      .map((value) => value.trim())
+      .filter(Boolean)
+    expect(chatOptions.length).toBeGreaterThan(0)
+    for (const name of chatOptions) {
+      expect(daemonModelNames.has(name)).toBe(true)
+    }
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: 'Agents' }).click()
+    await page.getByRole('button', { name: 'Create Agent' }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    const createModelSelector = dialog.locator('button[role="combobox"]').nth(1)
+    await createModelSelector.click()
+    const createModelListbox = page.getByRole('listbox').last()
+    const createOptions = (await createModelListbox.getByRole('option').allTextContents())
+      .map((value) => value.trim())
+      .filter(Boolean)
+    expect(createOptions.length).toBeGreaterThan(0)
+    for (const name of createOptions) {
+      expect(daemonModelNames.has(name)).toBe(true)
+    }
+    await page.keyboard.press('Escape')
+
+    await dialog.getByRole('button', { name: 'Cancel' }).click()
+    await expect(dialog).not.toBeVisible()
   })
 
   test('workspace selectors show provider labels from daemon catalog', async ({ page }) => {

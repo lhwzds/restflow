@@ -275,7 +275,9 @@ impl BackgroundAgentCommandService {
         mode: BackgroundAgentExecutionMode,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let (guard, assessment, resolved_id, action) = self.prepare_control(request).await?;
-        self.finish_request(mode, guard, assessment, || self.control(&resolved_id, action))
+        self.finish_request(mode, guard, assessment, || {
+            self.control(&resolved_id, action)
+        })
     }
 
     pub async fn convert_session(
@@ -503,20 +505,18 @@ impl BackgroundAgentCommandService {
         }
     }
 
-    pub fn into_direct_result<T>(
-        outcome: BackgroundAgentCommandOutcome<T>,
-    ) -> CommandResult<T> {
+    pub fn into_direct_result<T>(outcome: BackgroundAgentCommandOutcome<T>) -> CommandResult<T> {
         match outcome {
             BackgroundAgentCommandOutcome::Executed { result } => Ok(result),
             BackgroundAgentCommandOutcome::Blocked { assessment } => Err(
                 BackgroundAgentCommandError::classify(assessment_summary(&assessment)),
             ),
             BackgroundAgentCommandOutcome::Preview { .. }
-            | BackgroundAgentCommandOutcome::ConfirmationRequired { .. } => Err(
-                BackgroundAgentCommandError::internal(
+            | BackgroundAgentCommandOutcome::ConfirmationRequired { .. } => {
+                Err(BackgroundAgentCommandError::internal(
                     "Direct background-agent execution returned a guarded outcome.",
-                ),
-            ),
+                ))
+            }
         }
     }
 
@@ -1063,20 +1063,23 @@ mod tests {
     async fn convert_session_returns_conversion_result() {
         let (service, session, _dir) = setup();
         let result = service
-            .convert_session(BackgroundAgentConvertSessionRequest {
-                session_id: session.id.clone(),
-                name: Some("Converted Session".to_string()),
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                run_now: Some(false),
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .convert_session(
+                BackgroundAgentConvertSessionRequest {
+                    session_id: session.id.clone(),
+                    name: Some("Converted Session".to_string()),
+                    schedule: None,
+                    input: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    run_now: Some(false),
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("convert session");
 
@@ -1096,20 +1099,23 @@ mod tests {
     async fn convert_session_preview_does_not_create_task() {
         let (service, session, _dir) = setup();
         let result = service
-            .convert_session(BackgroundAgentConvertSessionRequest {
-                session_id: session.id,
-                name: Some("Preview Convert".to_string()),
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                run_now: None,
-                preview: true,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .convert_session(
+                BackgroundAgentConvertSessionRequest {
+                    session_id: session.id,
+                    name: Some("Preview Convert".to_string()),
+                    schedule: None,
+                    input: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    run_now: None,
+                    preview: true,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("preview convert");
 
@@ -1126,21 +1132,24 @@ mod tests {
     async fn create_rejects_blank_name_before_assessment() {
         let (service, _session, _dir) = setup();
         let err = service
-            .create_from_request(BackgroundAgentCreateRequest {
-                name: "   ".to_string(),
-                agent_id: "default".to_string(),
-                chat_session_id: None,
-                schedule: restflow_contracts::request::TaskSchedule::default(),
-                input: Some("run".to_string()),
-                input_template: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .create_from_request(
+                BackgroundAgentCreateRequest {
+                    name: "   ".to_string(),
+                    agent_id: "default".to_string(),
+                    chat_session_id: None,
+                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    input: Some("run".to_string()),
+                    input_template: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect_err("blank name should fail");
         assert!(err.to_string().contains("name must not be empty"));
@@ -1151,21 +1160,24 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
 
         let result = service
-            .create_from_request(BackgroundAgentCreateRequest {
-                name: "Create Guarded Warning".to_string(),
-                agent_id: session.agent_id,
-                chat_session_id: None,
-                schedule: restflow_contracts::request::TaskSchedule::default(),
-                input: Some("run".to_string()),
-                input_template: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .create_from_request(
+                BackgroundAgentCreateRequest {
+                    name: "Create Guarded Warning".to_string(),
+                    agent_id: session.agent_id,
+                    chat_session_id: None,
+                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    input: Some("run".to_string()),
+                    input_template: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("create should return confirmation_required");
 
@@ -1205,25 +1217,28 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .update_from_request(BackgroundAgentUpdateRequest {
-                id: task.id.clone(),
-                name: Some("Should Not Persist".to_string()),
-                description: None,
-                agent_id: None,
-                chat_session_id: None,
-                input: None,
-                input_template: None,
-                schedule: None,
-                notification: None,
-                execution_mode: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .update_from_request(
+                BackgroundAgentUpdateRequest {
+                    id: task.id.clone(),
+                    name: Some("Should Not Persist".to_string()),
+                    description: None,
+                    agent_id: None,
+                    chat_session_id: None,
+                    input: None,
+                    input_template: None,
+                    schedule: None,
+                    notification: None,
+                    execution_mode: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("update should return confirmation_required");
 
@@ -1268,12 +1283,15 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .control_from_request(BackgroundAgentControlRequest {
-                id: task.id.clone(),
-                action: "pause".to_string(),
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .control_from_request(
+                BackgroundAgentControlRequest {
+                    id: task.id.clone(),
+                    action: "pause".to_string(),
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("control should return confirmation_required");
 
@@ -1298,20 +1316,23 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
 
         let result = service
-            .convert_session(BackgroundAgentConvertSessionRequest {
-                session_id: session.id.clone(),
-                name: Some("Convert Guarded Warning".to_string()),
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                run_now: Some(false),
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .convert_session(
+                BackgroundAgentConvertSessionRequest {
+                    session_id: session.id.clone(),
+                    name: Some("Convert Guarded Warning".to_string()),
+                    schedule: None,
+                    input: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    run_now: Some(false),
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("convert should return confirmation_required");
 
@@ -1351,11 +1372,14 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .delete_from_request(BackgroundAgentDeleteRequest {
-                id: task.id.clone(),
-                preview: true,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .delete_from_request(
+                BackgroundAgentDeleteRequest {
+                    id: task.id.clone(),
+                    preview: true,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("delete preview");
 
@@ -1406,11 +1430,14 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .delete_from_request(BackgroundAgentDeleteRequest {
-                id: task.id.clone(),
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .delete_from_request(
+                BackgroundAgentDeleteRequest {
+                    id: task.id.clone(),
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("delete should return confirmation_required");
 
@@ -1460,11 +1487,14 @@ mod tests {
             .expect("create task");
 
         let preview = service
-            .delete_from_request(BackgroundAgentDeleteRequest {
-                id: task.id.clone(),
-                preview: true,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .delete_from_request(
+                BackgroundAgentDeleteRequest {
+                    id: task.id.clone(),
+                    preview: true,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("delete preview");
 
@@ -1476,11 +1506,14 @@ mod tests {
         };
 
         let result = service
-            .delete_from_request(BackgroundAgentDeleteRequest {
-                id: task.id.clone(),
-                preview: false,
-                confirmation_token: Some(token),
-            }, BackgroundAgentExecutionMode::Guarded)
+            .delete_from_request(
+                BackgroundAgentDeleteRequest {
+                    id: task.id.clone(),
+                    preview: false,
+                    confirmation_token: Some(token),
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect("delete confirmed");
 
@@ -1526,11 +1559,14 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .delete_from_request(BackgroundAgentDeleteRequest {
-                id: task.id.clone(),
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Direct)
+            .delete_from_request(
+                BackgroundAgentDeleteRequest {
+                    id: task.id.clone(),
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Direct,
+            )
             .await
             .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("delete direct");
@@ -1551,21 +1587,24 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
 
         let result = service
-            .create_from_request(BackgroundAgentCreateRequest {
-                name: "Create Direct Warning".to_string(),
-                agent_id: session.agent_id,
-                chat_session_id: None,
-                schedule: restflow_contracts::request::TaskSchedule::default(),
-                input: Some("run".to_string()),
-                input_template: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Direct)
+            .create_from_request(
+                BackgroundAgentCreateRequest {
+                    name: "Create Direct Warning".to_string(),
+                    agent_id: session.agent_id,
+                    chat_session_id: None,
+                    schedule: restflow_contracts::request::TaskSchedule::default(),
+                    input: Some("run".to_string()),
+                    input_template: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Direct,
+            )
             .await
             .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("create direct");
@@ -1598,25 +1637,28 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .update_from_request(BackgroundAgentUpdateRequest {
-                id: task.id.clone(),
-                name: Some("Updated Name".to_string()),
-                description: None,
-                agent_id: None,
-                chat_session_id: None,
-                input: None,
-                input_template: None,
-                schedule: None,
-                notification: None,
-                execution_mode: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Direct)
+            .update_from_request(
+                BackgroundAgentUpdateRequest {
+                    id: task.id.clone(),
+                    name: Some("Updated Name".to_string()),
+                    description: None,
+                    agent_id: None,
+                    chat_session_id: None,
+                    input: None,
+                    input_template: None,
+                    schedule: None,
+                    notification: None,
+                    execution_mode: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Direct,
+            )
             .await
             .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("update direct");
@@ -1650,12 +1692,15 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .control_from_request(BackgroundAgentControlRequest {
-                id: task.id.clone(),
-                action: "pause".to_string(),
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Direct)
+            .control_from_request(
+                BackgroundAgentControlRequest {
+                    id: task.id.clone(),
+                    action: "pause".to_string(),
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Direct,
+            )
             .await
             .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("control direct");
@@ -1669,20 +1714,23 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
 
         let result = service
-            .convert_session(BackgroundAgentConvertSessionRequest {
-                session_id: session.id.clone(),
-                name: Some("Converted Direct Warning".to_string()),
-                schedule: None,
-                input: None,
-                timeout_secs: None,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                run_now: Some(false),
-                preview: false,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Direct)
+            .convert_session(
+                BackgroundAgentConvertSessionRequest {
+                    session_id: session.id.clone(),
+                    name: Some("Converted Direct Warning".to_string()),
+                    schedule: None,
+                    input: None,
+                    timeout_secs: None,
+                    durability_mode: None,
+                    memory: None,
+                    memory_scope: None,
+                    resource_limits: None,
+                    run_now: Some(false),
+                    preview: false,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Direct,
+            )
             .await
             .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("convert direct");
@@ -1723,11 +1771,14 @@ mod tests {
             .expect("create task");
 
         let err = service
-            .delete_from_request(BackgroundAgentDeleteRequest {
-                id: task.id,
-                preview: true,
-                confirmation_token: None,
-            }, BackgroundAgentExecutionMode::Guarded)
+            .delete_from_request(
+                BackgroundAgentDeleteRequest {
+                    id: task.id,
+                    preview: true,
+                    confirmation_token: None,
+                },
+                BackgroundAgentExecutionMode::Guarded,
+            )
             .await
             .expect_err("delete should fail closed without assessor");
 

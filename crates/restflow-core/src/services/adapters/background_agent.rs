@@ -941,7 +941,15 @@ mod tests {
             .unwrap();
 
         assert_eq!(created["status"], "confirmation_required");
-        assert_eq!(adapter.list_background_agents(None).unwrap().as_array().unwrap().len(), 0);
+        assert_eq!(
+            adapter
+                .list_background_agents(None)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]
@@ -1010,7 +1018,15 @@ mod tests {
             .unwrap();
 
         assert_eq!(converted["status"], "confirmation_required");
-        assert_eq!(adapter.list_background_agents(None).unwrap().as_array().unwrap().len(), 0);
+        assert_eq!(
+            adapter
+                .list_background_agents(None)
+                .unwrap()
+                .as_array()
+                .unwrap()
+                .len(),
+            0
+        );
     }
 
     #[test]

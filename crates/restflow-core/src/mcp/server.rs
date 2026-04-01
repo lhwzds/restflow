@@ -777,9 +777,8 @@ impl ServerHandler for RestFlowMcpServer {
         let mut info = ServerInfo::default();
         info.protocol_version = Default::default();
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
-        info.server_info =
-            Implementation::new("restflow", env!("CARGO_PKG_VERSION"))
-                .with_title("RestFlow MCP Server");
+        info.server_info = Implementation::new("restflow", env!("CARGO_PKG_VERSION"))
+            .with_title("RestFlow MCP Server");
         info.instructions = Some(
             "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and hooks. \
             Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \

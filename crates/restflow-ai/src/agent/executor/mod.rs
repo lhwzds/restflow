@@ -711,11 +711,15 @@ impl AgentExecutor {
                                     .get("approval_id")
                                     .and_then(Value::as_str)
                                     .map(str::to_string);
+                                let deferred_args = inject_confirmation_token(
+                                    &tool_call.arguments,
+                                    approval_id.as_deref(),
+                                );
                                 deferred_manager
                                     .defer(
                                         &tool_call_id,
                                         &tool_call.name,
-                                        tool_call.arguments.clone(),
+                                        deferred_args,
                                         approval_id.clone(),
                                     )
                                     .await;
@@ -835,6 +839,17 @@ impl AgentExecutor {
             resource_usage,
         })
     }
+}
+
+fn inject_confirmation_token(args: &Value, approval_id: Option<&str>) -> Value {
+    let mut deferred_args = args.clone();
+    if let Some(approval_id) = approval_id
+        && let Some(map) = deferred_args.as_object_mut()
+    {
+        map.entry("confirmation_token".to_string())
+            .or_insert_with(|| Value::String(approval_id.to_string()));
+    }
+    deferred_args
 }
 
 fn sanitize_tool_call_history(messages: Vec<Message>) -> Vec<Message> {

@@ -43,13 +43,17 @@ pub struct SpawnSubagentParams {
     pub wait: bool,
 
     /// Timeout in seconds. If omitted, uses sub-agent manager default timeout.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub timeout_secs: Option<u64>,
 
     /// Optional model override for this spawn (e.g., "minimax/coding-plan").
+    #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub model: Option<String>,
 
     /// Optional provider selector paired with model (e.g., "openai-codex").
+    #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub provider: Option<String>,
 

@@ -1,4 +1,4 @@
-use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
+use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use restflow_contracts::request::{
     DurabilityMode as ContractDurabilityMode, MemoryConfig as ContractMemoryConfig,
     ResourceLimits as ContractResourceLimits, TaskSchedule as ContractTaskSchedule,
@@ -270,7 +270,10 @@ pub(super) async fn execute_run_batch(
     if preview {
         return Ok(preview_output(assessment));
     }
-    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
+    if let Some(output) = enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
+    {
+        return Ok(output);
+    }
     let default_name_prefix = name.unwrap_or_else(|| format!("Background Batch {}", run_group_id));
     let mut tasks = Vec::with_capacity(expanded_workers.len());
 

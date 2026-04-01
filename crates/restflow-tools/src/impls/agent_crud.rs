@@ -7,7 +7,7 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::Result;
-use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
+use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
@@ -159,7 +159,11 @@ impl Tool for AgentCrudTool {
                     if preview {
                         return Ok(preview_output(assessment));
                     }
-                    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
+                    if let Some(output) =
+                        enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
+                    {
+                        return Ok(output);
+                    }
                 } else if preview {
                     return Err(ToolError::Tool(
                         "Agent operation preview is unavailable in this runtime.".to_string(),
@@ -192,7 +196,11 @@ impl Tool for AgentCrudTool {
                     if preview {
                         return Ok(preview_output(assessment));
                     }
-                    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
+                    if let Some(output) =
+                        enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
+                    {
+                        return Ok(output);
+                    }
                 } else if preview {
                     return Err(ToolError::Tool(
                         "Agent operation preview is unavailable in this runtime.".to_string(),
@@ -224,6 +232,10 @@ impl Tool for AgentCrudTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_traits::{
+        AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
+        OperationAssessmentIssue,
+    };
     use std::sync::Mutex;
 
     struct MockStore;
@@ -376,5 +388,116 @@ mod tests {
             .expect_err("invalid payload should be rejected");
 
         assert!(err.to_string().contains("Invalid agent payload"));
+    }
+
+    struct WarningAssessor;
+
+    #[async_trait]
+    impl AgentOperationAssessor for WarningAssessor {
+        async fn assess_agent_create(
+            &self,
+            _request: AgentCreateRequest,
+        ) -> Result<OperationAssessment> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "create_agent",
+                OperationAssessmentIntent::Save,
+                vec![OperationAssessmentIssue {
+                    code: "review".to_string(),
+                    message: "Review this change before creating the agent.".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_agent_update(
+            &self,
+            _request: AgentUpdateRequest,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+
+        async fn assess_background_agent_create(
+            &self,
+            _request: restflow_traits::store::BackgroundAgentCreateRequest,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+
+        async fn assess_background_agent_convert_session(
+            &self,
+            _request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+
+        async fn assess_background_agent_update(
+            &self,
+            _request: restflow_traits::store::BackgroundAgentUpdateRequest,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+
+        async fn assess_background_agent_delete(
+            &self,
+            _request: restflow_traits::store::BackgroundAgentDeleteRequest,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+
+        async fn assess_background_agent_control(
+            &self,
+            _request: restflow_traits::store::BackgroundAgentControlRequest,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+
+        async fn assess_background_agent_template(
+            &self,
+            _operation: &str,
+            _intent: OperationAssessmentIntent,
+            _agent_ids: Vec<String>,
+            _template_mode: bool,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+
+        async fn assess_subagent_spawn(
+            &self,
+            _operation: &str,
+            _request: restflow_traits::subagent::ContractSubagentSpawnRequest,
+            _template_mode: bool,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+
+        async fn assess_subagent_batch(
+            &self,
+            _operation: &str,
+            _requests: Vec<restflow_traits::subagent::ContractSubagentSpawnRequest>,
+            _template_mode: bool,
+        ) -> Result<OperationAssessment> {
+            unreachable!("unused in this test")
+        }
+    }
+
+    #[tokio::test]
+    async fn test_create_returns_pending_approval_when_assessment_requires_confirmation() {
+        let tool = AgentCrudTool::new(Arc::new(MockStore))
+            .with_assessor(Arc::new(WarningAssessor))
+            .with_write(true);
+
+        let output = tool
+            .execute(json!({
+                "operation": "create",
+                "name": "Agent",
+                "agent": {}
+            }))
+            .await
+            .expect("tool should return structured pending approval");
+
+        assert!(!output.success);
+        assert_eq!(output.result["pending_approval"], true);
+        assert!(output.result["approval_id"].as_str().is_some());
     }
 }

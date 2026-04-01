@@ -7,6 +7,10 @@ use restflow_ai::agent::{
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_traits::store::KvStore;
+use restflow_traits::{
+    AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
+    OperationAssessmentIssue,
+};
 use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
 use serde_json::{Value, json};
 use std::collections::HashMap;
@@ -154,6 +158,97 @@ fn make_test_deps(
     ))
 }
 
+struct WarningAssessor;
+
+#[async_trait]
+impl AgentOperationAssessor for WarningAssessor {
+    async fn assess_agent_create(
+        &self,
+        _request: restflow_traits::store::AgentCreateRequest,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+
+    async fn assess_agent_update(
+        &self,
+        _request: restflow_traits::store::AgentUpdateRequest,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+
+    async fn assess_background_agent_create(
+        &self,
+        _request: restflow_traits::store::BackgroundAgentCreateRequest,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+
+    async fn assess_background_agent_convert_session(
+        &self,
+        _request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+
+    async fn assess_background_agent_update(
+        &self,
+        _request: restflow_traits::store::BackgroundAgentUpdateRequest,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+
+    async fn assess_background_agent_delete(
+        &self,
+        _request: restflow_traits::store::BackgroundAgentDeleteRequest,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+
+    async fn assess_background_agent_control(
+        &self,
+        _request: restflow_traits::store::BackgroundAgentControlRequest,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+
+    async fn assess_background_agent_template(
+        &self,
+        _operation: &str,
+        _intent: OperationAssessmentIntent,
+        _agent_ids: Vec<String>,
+        _template_mode: bool,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+
+    async fn assess_subagent_spawn(
+        &self,
+        _operation: &str,
+        _request: restflow_traits::subagent::ContractSubagentSpawnRequest,
+        _template_mode: bool,
+    ) -> crate::Result<OperationAssessment> {
+        Ok(OperationAssessment::warning_with_confirmation(
+            "spawn_subagent",
+            OperationAssessmentIntent::Run,
+            vec![OperationAssessmentIssue {
+                code: "review".to_string(),
+                message: "Review this batch before spawning.".to_string(),
+                field: None,
+                suggestion: None,
+            }],
+        ))
+    }
+
+    async fn assess_subagent_batch(
+        &self,
+        _operation: &str,
+        _requests: Vec<restflow_traits::subagent::ContractSubagentSpawnRequest>,
+        _template_mode: bool,
+    ) -> crate::Result<OperationAssessment> {
+        unreachable!("unused in this test")
+    }
+}
+
 #[test]
 fn test_params_deserialization() {
     let json = r#"{"agent": "researcher", "task": "Research topic X"}"#;
@@ -259,6 +354,24 @@ async fn test_spawn_subagent_wait_timeout_returns_task_id() {
     assert!(result.success);
     assert_eq!(result.result["status"], "timeout");
     assert!(result.result["task_id"].as_str().is_some());
+}
+
+#[tokio::test]
+async fn test_spawn_subagent_returns_pending_approval_when_assessment_requires_confirmation() {
+    let deps = make_test_deps(
+        vec![("coder", "Coder")],
+        vec![MockStep::text("function written")],
+    );
+    let tool = SpawnSubagentTool::new(deps).with_assessor(Arc::new(WarningAssessor));
+
+    let result = tool
+        .execute(json!({"agent": "coder", "task": "Review code"}))
+        .await
+        .expect("tool should return structured pending approval");
+
+    assert!(!result.success);
+    assert_eq!(result.result["pending_approval"], true);
+    assert!(result.result["approval_id"].as_str().is_some());
 }
 
 #[tokio::test]

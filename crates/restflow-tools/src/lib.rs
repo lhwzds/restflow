@@ -67,9 +67,8 @@ pub use impls::BatchTool;
 
 // Re-export core-migrated tools
 pub use impls::{
-    BashConfig, FileConfig, ListSubagentsTool, SecretsConfig, SpawnSubagentBatchTool,
-    SpawnSubagentTool, SpawnTool, ToolRegistryBuilder, UseSkillTool, WaitSubagentsTool,
-    default_registry,
+    BashConfig, FileConfig, ListSubagentsTool, SecretsConfig, SpawnSubagentTool, SpawnTool,
+    ToolRegistryBuilder, UseSkillTool, WaitSubagentsTool, default_registry,
 };
 
 // Re-export skill types from restflow-traits

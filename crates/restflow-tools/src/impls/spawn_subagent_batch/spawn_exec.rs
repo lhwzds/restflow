@@ -1,4 +1,4 @@
-use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
+use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 
@@ -195,7 +195,11 @@ pub(super) async fn spawn_batch(
         if params.preview {
             return Ok(preview_output(assessment));
         }
-        enforce_confirmation(&assessment, params.confirmation_token.as_deref())?;
+        if let Some(output) =
+            enforce_confirmation_or_defer(&assessment, params.confirmation_token.as_deref())?
+        {
+            return Ok(output);
+        }
     } else if params.preview {
         return Err(ToolError::Tool(
             "Sub-agent capability preview is unavailable in this runtime.".to_string(),

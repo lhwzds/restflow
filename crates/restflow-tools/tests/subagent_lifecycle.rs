@@ -17,6 +17,8 @@ use restflow_traits::SubagentManager;
 use serde_json::json;
 use tokio::sync::mpsc;
 
+const TEST_PARENT_RUN_ID: &str = "parent-1";
+
 // ── Shared mock infrastructure ──────────────────────────────────────────────
 
 struct MockDefLookup {
@@ -98,7 +100,12 @@ async fn test_spawn_then_wait_lifecycle() {
     // 1. Spawn in background
     let spawn_tool = SpawnSubagentTool::new(deps.clone());
     let spawn_result = spawn_tool
-        .execute(json!({"agent": "researcher", "task": "Find info", "wait": false}))
+        .execute(json!({
+            "agent": "researcher",
+            "task": "Find info",
+            "wait": false,
+            "parent_execution_id": TEST_PARENT_RUN_ID
+        }))
         .await
         .unwrap();
     assert!(spawn_result.success);
@@ -108,7 +115,11 @@ async fn test_spawn_then_wait_lifecycle() {
     // 2. Wait for completion
     let wait_tool = WaitSubagentsTool::new(deps);
     let wait_result = wait_tool
-        .execute(json!({"task_ids": [task_id], "timeout_secs": 10}))
+        .execute(json!({
+            "task_ids": [task_id],
+            "parent_run_id": TEST_PARENT_RUN_ID,
+            "timeout_secs": 10
+        }))
         .await
         .unwrap();
     assert!(wait_result.success);
@@ -128,7 +139,12 @@ async fn test_spawn_then_list_shows_running() {
     // Spawn in background
     let spawn_tool = SpawnSubagentTool::new(deps.clone());
     let spawn_result = spawn_tool
-        .execute(json!({"agent": "coder", "task": "Write code", "wait": false}))
+        .execute(json!({
+            "agent": "coder",
+            "task": "Write code",
+            "wait": false,
+            "parent_execution_id": TEST_PARENT_RUN_ID
+        }))
         .await
         .unwrap();
     assert!(spawn_result.success);
@@ -138,7 +154,10 @@ async fn test_spawn_then_list_shows_running() {
 
     // List should show the running agent
     let list_tool = ListSubagentsTool::new(deps);
-    let list_result = list_tool.execute(json!({})).await.unwrap();
+    let list_result = list_tool
+        .execute(json!({"parent_run_id": TEST_PARENT_RUN_ID}))
+        .await
+        .unwrap();
     assert!(list_result.success);
     assert!(list_result.result["running_count"].as_u64().unwrap() >= 1);
 }
@@ -164,7 +183,12 @@ async fn test_spawn_multiple_then_wait_all() {
         ("researcher", "task 3"),
     ] {
         let result = spawn_tool
-            .execute(json!({"agent": agent, "task": task_desc, "wait": false}))
+            .execute(json!({
+                "agent": agent,
+                "task": task_desc,
+                "wait": false,
+                "parent_execution_id": TEST_PARENT_RUN_ID
+            }))
             .await
             .unwrap();
         assert!(result.success);
@@ -174,7 +198,11 @@ async fn test_spawn_multiple_then_wait_all() {
     // Wait for all 3
     let wait_tool = WaitSubagentsTool::new(deps);
     let wait_result = wait_tool
-        .execute(json!({"task_ids": task_ids, "timeout_secs": 10}))
+        .execute(json!({
+            "task_ids": task_ids,
+            "parent_run_id": TEST_PARENT_RUN_ID,
+            "timeout_secs": 10
+        }))
         .await
         .unwrap();
     assert!(wait_result.success);
@@ -214,7 +242,12 @@ async fn test_spawn_wait_timeout_then_list() {
     // Spawn in background
     let spawn_tool = SpawnSubagentTool::new(deps.clone());
     let spawn_result = spawn_tool
-        .execute(json!({"agent": "coder", "task": "infinite task", "wait": false}))
+        .execute(json!({
+            "agent": "coder",
+            "task": "infinite task",
+            "wait": false,
+            "parent_execution_id": TEST_PARENT_RUN_ID
+        }))
         .await
         .unwrap();
     let task_id = spawn_result.result["task_id"].as_str().unwrap().to_string();
@@ -222,7 +255,11 @@ async fn test_spawn_wait_timeout_then_list() {
     // Wait with short timeout — should timeout
     let wait_tool = WaitSubagentsTool::new(deps.clone());
     let wait_result = wait_tool
-        .execute(json!({"task_ids": [task_id], "timeout_secs": 1}))
+        .execute(json!({
+            "task_ids": [task_id],
+            "parent_run_id": TEST_PARENT_RUN_ID,
+            "timeout_secs": 1
+        }))
         .await
         .unwrap();
     assert!(wait_result.success);
@@ -231,7 +268,10 @@ async fn test_spawn_wait_timeout_then_list() {
 
     // List should still show the agent (it's not done yet)
     let list_tool = ListSubagentsTool::new(deps);
-    let list_result = list_tool.execute(json!({})).await.unwrap();
+    let list_result = list_tool
+        .execute(json!({"parent_run_id": TEST_PARENT_RUN_ID}))
+        .await
+        .unwrap();
     assert!(list_result.success);
     // Agent may still be running or may have been cleaned up — just verify the call works
     assert!(list_result.result["running_count"].as_u64().is_some());

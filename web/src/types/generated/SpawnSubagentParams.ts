@@ -35,7 +35,7 @@ wait: boolean,
 /**
  * Timeout in seconds. If omitted, uses sub-agent manager default timeout.
  */
-timeout_secs: bigint | null, 
+timeout_secs?: bigint, 
 /**
  * Optional model override for this spawn (e.g., "minimax/coding-plan").
  */

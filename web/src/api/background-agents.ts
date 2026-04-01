@@ -13,12 +13,6 @@ import { fetchJson, requestOptional, requestTyped } from './http-client'
 
 export type { BackgroundAgent, TaskEvent }
 
-export interface StreamingBackgroundAgentResponse {
-  task_id: string
-  event_channel: string
-  already_running: boolean
-}
-
 type DeleteBackgroundAgentResult = {
   id: string
   deleted: boolean
@@ -60,17 +54,11 @@ export async function stopBackgroundAgent(taskId: string): Promise<boolean> {
   return true
 }
 
-export async function runBackgroundAgentStreaming(id: string): Promise<StreamingBackgroundAgentResponse> {
-  const agent = await requestTyped<BackgroundAgent>({
+export async function runBackgroundAgentStreaming(id: string): Promise<BackgroundAgent> {
+  return requestTyped<BackgroundAgent>({
     type: 'ControlBackgroundAgent',
     data: { id, action: 'run_now' },
   })
-
-  return {
-    task_id: agent.id,
-    event_channel: '/api/stream',
-    already_running: false,
-  }
 }
 
 export async function steerTask(taskId: string, instruction: string): Promise<boolean> {

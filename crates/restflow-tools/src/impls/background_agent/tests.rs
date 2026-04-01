@@ -632,8 +632,9 @@ async fn test_delete_requires_confirmation_token() {
         }))
         .await
         .unwrap();
-    assert!(output.success);
-    assert_eq!(output.result["status"], "confirmation_required");
+    assert!(!output.success);
+    assert_eq!(output.result["pending_approval"], true);
+    assert_eq!(output.result["approval_id"], "confirm-delete");
     assert_eq!(
         output.result["assessment"]["confirmation_token"],
         "confirm-delete"

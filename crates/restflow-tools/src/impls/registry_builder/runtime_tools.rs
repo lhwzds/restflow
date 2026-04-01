@@ -3,7 +3,6 @@ use std::sync::Arc;
 use crate::impls::list_subagents::ListSubagentsTool;
 use crate::impls::spawn::SpawnTool;
 use crate::impls::spawn_subagent::SpawnSubagentTool;
-use crate::impls::spawn_subagent_batch::SpawnSubagentBatchTool;
 use crate::impls::task_list::TaskListTool;
 use crate::impls::use_skill::UseSkillTool;
 use crate::impls::wait_subagents::WaitSubagentsTool;
@@ -32,21 +31,6 @@ impl ToolRegistryBuilder {
     ) -> Self {
         self.registry
             .register(SpawnSubagentTool::new(manager).with_kv_store(kv_store));
-        self
-    }
-
-    pub fn with_spawn_subagent_batch(mut self, manager: Arc<dyn SubagentManager>) -> Self {
-        self.registry.register(SpawnSubagentBatchTool::new(manager));
-        self
-    }
-
-    pub fn with_spawn_subagent_batch_with_store(
-        mut self,
-        manager: Arc<dyn SubagentManager>,
-        kv_store: Arc<dyn KvStore>,
-    ) -> Self {
-        self.registry
-            .register(SpawnSubagentBatchTool::new(manager).with_kv_store(kv_store));
         self
     }
 

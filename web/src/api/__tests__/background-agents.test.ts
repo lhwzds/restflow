@@ -6,6 +6,7 @@ import {
   listMemoryChunksByTag,
   listMemoryChunksForSession,
   listMemorySessions,
+  runBackgroundAgentStreaming,
 } from '../background-agents'
 import { fetchJson, requestOptional, requestTyped } from '../http-client'
 
@@ -91,6 +92,19 @@ describe('background-agents memory API', () => {
         name: 'Background Session',
         run_now: false,
       }),
+    })
+    expect(result).toEqual(payload)
+  })
+
+  it('returns the canonical run-now agent payload', async () => {
+    const payload = { id: 'bg-1', status: 'running' }
+    vi.mocked(requestTyped).mockResolvedValueOnce(payload)
+
+    const result = await runBackgroundAgentStreaming('bg-1')
+
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'ControlBackgroundAgent',
+      data: { id: 'bg-1', action: 'run_now' },
     })
     expect(result).toEqual(payload)
   })
