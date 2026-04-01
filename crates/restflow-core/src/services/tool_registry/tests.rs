@@ -26,9 +26,10 @@ use restflow_traits::security::{SecurityDecision, ToolAction};
 use restflow_traits::skill::SkillProvider as _;
 use restflow_traits::store::{
     AgentCreateRequest, AgentStore, AgentUpdateRequest, BackgroundAgentControlRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentMessageListRequest, BackgroundAgentMessageRequest,
-    BackgroundAgentProgressRequest, BackgroundAgentStore, BackgroundAgentTraceListRequest,
-    BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest, MemoryStore as _,
+    BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest, BackgroundAgentMessageListRequest,
+    BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+    BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
+    MemoryStore as _,
 };
 use serde_json::json;
 use tempfile::tempdir;
@@ -108,6 +109,17 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
         Ok(OperationAssessment::ok(
             "update_background_agent",
             OperationAssessmentIntent::Save,
+        ))
+    }
+
+    async fn assess_background_agent_delete(
+        &self,
+        _request: BackgroundAgentDeleteRequest,
+    ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
+        Ok(OperationAssessment::warning_with_confirmation(
+            "delete_background_agent",
+            OperationAssessmentIntent::Save,
+            vec![],
         ))
     }
 

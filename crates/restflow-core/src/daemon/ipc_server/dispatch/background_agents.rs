@@ -126,12 +126,7 @@ impl IpcServer {
     pub(super) async fn handle_convert_session_to_background_agent(
         core: &Arc<AppCore>,
         request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
-        preview: bool,
-        confirmation_token: Option<String>,
     ) -> IpcResponse {
-        let mut request = request;
-        request.preview = preview;
-        request.confirmation_token = confirmation_token;
         match command_service(core).convert_session(request).await {
             Ok(outcome) => IpcResponse::success(outcome),
             Err(err) => command_error_response(err),

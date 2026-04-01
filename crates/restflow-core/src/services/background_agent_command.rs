@@ -24,7 +24,6 @@ use restflow_traits::store::{
 };
 use restflow_traits::{
     AgentOperationAssessor, BackgroundAgentCommandOutcome, OperationAssessment,
-    OperationAssessmentIntent, OperationAssessmentIssue,
 };
 use std::sync::Arc;
 
@@ -234,7 +233,11 @@ impl BackgroundAgentCommandService {
         let resolved_id = request.id.clone();
         let preview = request.preview;
         let confirmation_token = request.confirmation_token.clone();
-        let assessment = Self::build_delete_assessment(&resolved_id);
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_delete(request)
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
         self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
             let deleted = self.delete(&resolved_id)?;
             Ok(DeleteWithIdResponse {
@@ -533,24 +536,6 @@ impl BackgroundAgentCommandService {
         }
         Ok(BackgroundAgentCommandOutcome::Executed { result: execute()? })
     }
-
-    fn build_delete_assessment(id: &str) -> OperationAssessment {
-        OperationAssessment::warning_with_confirmation(
-            "delete_background_agent",
-            OperationAssessmentIntent::Save,
-            vec![OperationAssessmentIssue {
-                code: "destructive_delete".to_string(),
-                message: format!(
-                    "Deleting background agent '{id}' removes its persisted definition and run history."
-                ),
-                field: Some("id".to_string()),
-                suggestion: Some(
-                    "Confirm the deletion only if you intend to permanently remove this background agent."
-                        .to_string(),
-                ),
-            }],
-        )
-    }
 }
 
 #[cfg(test)]
@@ -629,6 +614,22 @@ mod tests {
             Ok(OperationAssessment::ok(
                 "update_background_agent",
                 OperationAssessmentIntent::Save,
+            ))
+        }
+
+        async fn assess_background_agent_delete(
+            &self,
+            request: BackgroundAgentDeleteRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "delete_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "destructive_delete".to_string(),
+                    message: format!("delete guard for {}", request.id),
+                    field: Some("id".to_string()),
+                    suggestion: Some("Confirm delete".to_string()),
+                }],
             ))
         }
 
@@ -866,6 +867,10 @@ mod tests {
                 assert_eq!(assessment.operation, "delete_background_agent");
                 assert!(assessment.requires_confirmation);
                 assert!(assessment.confirmation_token.is_some());
+                assert_eq!(
+                    assessment.warnings[0].message,
+                    format!("delete guard for {}", task.id)
+                );
             }
             other => panic!("expected preview outcome, got {other:?}"),
         }
@@ -916,6 +921,10 @@ mod tests {
             BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
                 assert_eq!(assessment.operation, "delete_background_agent");
                 assert!(assessment.requires_confirmation);
+                assert_eq!(
+                    assessment.warnings[0].message,
+                    format!("delete guard for {}", task.id)
+                );
             }
             other => panic!("expected confirmation_required outcome, got {other:?}"),
         }
@@ -992,6 +1001,51 @@ mod tests {
                 .get_task(&task.id)
                 .expect("load task")
                 .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_requires_assessor_availability() {
+        let (service_with_assessor, session, _dir) = setup();
+        let service = BackgroundAgentCommandService::new(
+            service_with_assessor.storage.clone(),
+            service_with_assessor.agents.clone(),
+            service_with_assessor.session_service.clone(),
+            None,
+        );
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Delete Without Assessor".to_string(),
+                agent_id: session.agent_id,
+                chat_session_id: None,
+                description: None,
+                input: Some("delete requires assessor".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let err = service
+            .delete_from_request(BackgroundAgentDeleteRequest {
+                id: task.id,
+                preview: true,
+                confirmation_token: None,
+            })
+            .await
+            .expect_err("delete should fail closed without assessor");
+
+        assert!(
+            err.to_string()
+                .contains("Background-agent capability assessment is unavailable")
         );
     }
 }

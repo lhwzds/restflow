@@ -118,10 +118,11 @@ impl IpcClient {
         fn clear_auth_profiles(&mut self) -> ();
         fn list_background_agents(&mut self, _status: Option<String>) -> Vec<BackgroundAgent>;
         fn get_background_agent(&mut self, _id: String) -> Option<BackgroundAgent>;
-        fn create_background_agent(&mut self, _spec: BackgroundAgentSpec) -> BackgroundAgent;
-        fn update_background_agent(&mut self, _id: String, _patch: BackgroundAgentPatch) -> BackgroundAgent;
-        fn delete_background_agent(&mut self, _id: String) -> bool;
-        fn control_background_agent(&mut self, _id: String, _action: BackgroundAgentControlAction) -> BackgroundAgent;
+        fn create_background_agent(&mut self, _spec: BackgroundAgentSpec, _preview: bool, _confirmation_token: Option<String>) -> BackgroundAgentCommandOutcome<BackgroundAgent>;
+        fn convert_session_to_background_agent(&mut self, _request: restflow_traits::store::BackgroundAgentConvertSessionRequest) -> BackgroundAgentCommandOutcome<crate::models::BackgroundAgentConversionResult>;
+        fn update_background_agent(&mut self, _id: String, _patch: BackgroundAgentPatch, _preview: bool, _confirmation_token: Option<String>) -> BackgroundAgentCommandOutcome<BackgroundAgent>;
+        fn delete_background_agent(&mut self, _id: String, _preview: bool, _confirmation_token: Option<String>) -> BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>;
+        fn control_background_agent(&mut self, _id: String, _action: BackgroundAgentControlAction, _preview: bool, _confirmation_token: Option<String>) -> BackgroundAgentCommandOutcome<BackgroundAgent>;
         fn get_background_agent_history(&mut self, _id: String) -> Vec<BackgroundAgentEvent>;
         fn build_agent_system_prompt(&mut self, _agent_node: AgentNode) -> String;
         fn init_python(&mut self) -> bool;

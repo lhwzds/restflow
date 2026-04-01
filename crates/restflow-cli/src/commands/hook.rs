@@ -598,8 +598,6 @@ mod tests {
         async fn convert_session_to_background_agent(
             &self,
             _request: BackgroundAgentConvertSessionRequest,
-            _preview: bool,
-            _confirmation_token: Option<String>,
         ) -> anyhow::Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>
         {
             panic!("unexpected executor call")

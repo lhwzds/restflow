@@ -439,22 +439,14 @@ impl IpcServer {
                 }
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::ConvertSessionToBackgroundAgent {
-                request,
-                preview,
-                confirmation_token,
-            } => match contract_convert_request_to_store(request) {
-                Ok(request) => {
-                    Self::handle_convert_session_to_background_agent(
-                        core,
-                        request,
-                        preview,
-                        confirmation_token,
-                    )
-                    .await
+            IpcRequest::ConvertSessionToBackgroundAgent { request } => {
+                match contract_convert_request_to_store(request) {
+                    Ok(request) => {
+                        Self::handle_convert_session_to_background_agent(core, request).await
+                    }
+                    Err(err) => invalid_request_response(err),
                 }
-                Err(err) => invalid_request_response(err),
-            },
+            }
             IpcRequest::UpdateBackgroundAgent {
                 id,
                 patch,

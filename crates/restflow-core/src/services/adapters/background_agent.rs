@@ -487,8 +487,8 @@ mod tests {
     };
     use restflow_traits::store::{
         AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
-        BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest, BackgroundAgentStore,
-        BackgroundAgentUpdateRequest,
+        BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
+        BackgroundAgentDeleteRequest, BackgroundAgentStore, BackgroundAgentUpdateRequest,
     };
     use restflow_traits::{ContractSubagentSpawnRequest, ToolError};
     use std::sync::Arc;
@@ -545,6 +545,17 @@ mod tests {
             Ok(OperationAssessment::ok(
                 "update_background_agent",
                 OperationAssessmentIntent::Save,
+            ))
+        }
+
+        async fn assess_background_agent_delete(
+            &self,
+            _request: BackgroundAgentDeleteRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "delete_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![],
             ))
         }
 

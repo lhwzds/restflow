@@ -45,16 +45,10 @@ impl IpcClient {
     pub async fn convert_session_to_background_agent(
         &mut self,
         request: BackgroundAgentConvertSessionRequest,
-        preview: bool,
-        confirmation_token: Option<String>,
     ) -> Result<BackgroundAgentCommandOutcome<crate::models::BackgroundAgentConversionResult>> {
         let request = store_convert_request_to_contract(request)?;
-        self.request_typed(IpcRequest::ConvertSessionToBackgroundAgent {
-            request,
-            preview,
-            confirmation_token,
-        })
-        .await
+        self.request_typed(IpcRequest::ConvertSessionToBackgroundAgent { request })
+            .await
     }
 
     pub async fn update_background_agent(

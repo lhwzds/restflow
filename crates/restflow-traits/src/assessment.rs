@@ -5,7 +5,7 @@ use crate::error::ToolError;
 use crate::store::{
     AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentUpdateRequest,
+    BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
 };
 use crate::subagent::ContractSubagentSpawnRequest;
 
@@ -141,6 +141,11 @@ pub trait AgentOperationAssessor: Send + Sync {
     async fn assess_background_agent_update(
         &self,
         request: BackgroundAgentUpdateRequest,
+    ) -> Result<OperationAssessment, ToolError>;
+
+    async fn assess_background_agent_delete(
+        &self,
+        request: BackgroundAgentDeleteRequest,
     ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_background_agent_control(

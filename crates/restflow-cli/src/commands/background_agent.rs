@@ -270,26 +270,22 @@ async fn convert_session_to_background_agent(
     let (preview, confirmation_token) = guard_parts(guard);
 
     let outcome = executor
-        .convert_session_to_background_agent(
-            BackgroundAgentConvertSessionRequest {
-                session_id: session_id.to_string(),
-                name,
-                schedule: schedule
-                    .map(restflow_core::daemon::request_mapper::to_contract)
-                    .transpose()?,
-                input,
-                timeout_secs,
-                durability_mode: None,
-                memory: None,
-                memory_scope: None,
-                resource_limits: None,
-                run_now: Some(run_now),
-                preview: false,
-                confirmation_token: None,
-            },
+        .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+            session_id: session_id.to_string(),
+            name,
+            schedule: schedule
+                .map(restflow_core::daemon::request_mapper::to_contract)
+                .transpose()?,
+            input,
+            timeout_secs,
+            durability_mode: None,
+            memory: None,
+            memory_scope: None,
+            resource_limits: None,
+            run_now: Some(run_now),
             preview,
             confirmation_token,
-        )
+        })
         .await?;
 
     handle_mutation_outcome(outcome, format, |result| {

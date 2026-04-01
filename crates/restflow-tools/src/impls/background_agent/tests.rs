@@ -75,6 +75,17 @@ impl AgentOperationAssessor for MockAssessor {
         ))
     }
 
+    async fn assess_background_agent_delete(
+        &self,
+        _request: BackgroundAgentDeleteRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        Ok(OperationAssessment::warning_with_confirmation(
+            "delete_background_agent",
+            OperationAssessmentIntent::Save,
+            vec![],
+        ))
+    }
+
     async fn assess_background_agent_control(
         &self,
         _request: BackgroundAgentControlRequest,

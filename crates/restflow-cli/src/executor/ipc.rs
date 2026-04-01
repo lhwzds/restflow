@@ -475,13 +475,9 @@ impl CommandExecutor for IpcExecutor {
     async fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
-        preview: bool,
-        confirmation_token: Option<String>,
     ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
         let mut client = self.client.lock().await;
-        client
-            .convert_session_to_background_agent(request, preview, confirmation_token)
-            .await
+        client.convert_session_to_background_agent(request).await
     }
 
     async fn update_background_agent(

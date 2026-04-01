@@ -31,7 +31,7 @@ use restflow_traits::boundary::subagent::spawn_request_from_contract;
 use restflow_traits::store::{
     AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
     BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentUpdateRequest,
+    BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
 };
 use restflow_traits::subagent::{SpawnRequest, SubagentDefLookup};
 
@@ -142,6 +142,15 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         request: BackgroundAgentUpdateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         assess_background_agent_update_with_context(&self.context, request)
+            .await
+            .map_err(|error| ToolError::Tool(error.to_string()))
+    }
+
+    async fn assess_background_agent_delete(
+        &self,
+        request: BackgroundAgentDeleteRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        assess_background_agent_delete_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -762,6 +771,46 @@ async fn assess_background_agent_update_with_context(
         false,
     )
     .await
+}
+
+pub async fn assess_background_agent_delete(
+    core: &Arc<AppCore>,
+    request: BackgroundAgentDeleteRequest,
+) -> Result<OperationAssessment> {
+    let context = AssessmentContext::from_core(core);
+    assess_background_agent_delete_with_context(&context, request).await
+}
+
+async fn assess_background_agent_delete_with_context(
+    context: &AssessmentContext,
+    request: BackgroundAgentDeleteRequest,
+) -> Result<OperationAssessment> {
+    let task_id = context
+        .background_agents
+        .resolve_existing_task_id(&request.id)?;
+    let task = context
+        .background_agents
+        .get_task(&task_id)?
+        .ok_or_else(|| anyhow!("Background agent not found: {task_id}"))?;
+    let mut assessment =
+        OperationAssessment::ok("delete_background_agent", OperationAssessmentIntent::Save);
+    assessment.warnings.push(issue(
+        "destructive_delete",
+        format!(
+            "Deleting background agent '{}' removes its persisted definition and run history.",
+            task.name
+        ),
+        Some("id"),
+        Some(
+            "Confirm the deletion only if you intend to permanently remove this background agent.",
+        ),
+    ));
+    Ok(finalize_assessment_with_seed(
+        assessment,
+        Some(serde_json::json!({
+            "background_agent_id": task.id,
+        })),
+    ))
 }
 
 pub async fn assess_background_agent_control(
@@ -1452,5 +1501,55 @@ mod tests {
             first_assessment.confirmation_token,
             second_assessment.confirmation_token
         );
+    }
+
+    #[tokio::test]
+    async fn assess_background_agent_delete_returns_warning_with_bound_token() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let created = create_agent(
+            &core,
+            "Delete Warning Agent".to_string(),
+            create_test_agent_node("Assess deletions"),
+        )
+        .await
+        .expect("agent");
+
+        let task = core
+            .storage
+            .background_agents
+            .create_background_agent(crate::models::BackgroundAgentSpec {
+                name: "Delete Target".to_string(),
+                agent_id: created.id.clone(),
+                chat_session_id: None,
+                description: None,
+                input: Some("run".to_string()),
+                input_template: None,
+                schedule: crate::models::BackgroundAgentSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("task");
+
+        let assessment = assess_background_agent_delete(
+            &core,
+            BackgroundAgentDeleteRequest {
+                id: task.id.clone(),
+                preview: true,
+                confirmation_token: None,
+            },
+        )
+        .await
+        .expect("assessment");
+
+        assert_eq!(assessment.status, OperationAssessmentStatus::Warning);
+        assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
+        assert_eq!(assessment.warnings[0].code, "destructive_delete");
+        assert!(assessment.confirmation_token.is_some());
     }
 }
