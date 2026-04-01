@@ -5,7 +5,9 @@ use crate::models::{
     BackgroundAgentStatus, BackgroundMessageSource, ExecutionTraceCategory, ExecutionTraceEvent,
     ExecutionTraceQuery,
 };
-use crate::services::background_agent_command::BackgroundAgentCommandService;
+use crate::services::background_agent_command::{
+    BackgroundAgentCommandService, BackgroundAgentExecutionMode,
+};
 use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, DeliverableStorage};
 use crate::telemetry::get_execution_timeline;
@@ -282,8 +284,11 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentCreateRequest,
     ) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
-        let outcome =
-            self.run_async(async move { command_service.create_from_request(request).await })?;
+        let outcome = self.run_async(async move {
+            command_service
+                .create_from_request(request, BackgroundAgentExecutionMode::Guarded)
+                .await
+        })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -292,8 +297,11 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentConvertSessionRequest,
     ) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
-        let outcome =
-            self.run_async(async move { command_service.convert_session(request).await })?;
+        let outcome = self.run_async(async move {
+            command_service
+                .convert_session(request, BackgroundAgentExecutionMode::Guarded)
+                .await
+        })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -302,8 +310,11 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentUpdateRequest,
     ) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
-        let outcome =
-            self.run_async(async move { command_service.update_from_request(request).await })?;
+        let outcome = self.run_async(async move {
+            command_service
+                .update_from_request(request, BackgroundAgentExecutionMode::Guarded)
+                .await
+        })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -312,8 +323,11 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         request: BackgroundAgentDeleteRequest,
     ) -> restflow_tools::Result<Value> {
         let command_service = self.command_service.clone();
-        let outcome =
-            self.run_async(async move { command_service.delete_from_request(request).await })?;
+        let outcome = self.run_async(async move {
+            command_service
+                .delete_from_request(request, BackgroundAgentExecutionMode::Guarded)
+                .await
+        })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -334,8 +348,11 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
     ) -> restflow_tools::Result<Value> {
         let _ = parse_control_action(&request.action)?;
         let command_service = self.command_service.clone();
-        let outcome =
-            self.run_async(async move { command_service.control_from_request(request).await })?;
+        let outcome = self.run_async(async move {
+            command_service
+                .control_from_request(request, BackgroundAgentExecutionMode::Guarded)
+                .await
+        })?;
         Ok(serde_json::to_value(outcome)?)
     }
 
@@ -495,6 +512,7 @@ mod tests {
     use tempfile::tempdir;
 
     struct MockAssessor;
+    struct WarningAssessor;
 
     #[async_trait]
     impl AgentOperationAssessor for MockAssessor {
@@ -604,6 +622,126 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl AgentOperationAssessor for WarningAssessor {
+        async fn assess_agent_create(
+            &self,
+            _request: AgentCreateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "create_agent",
+                OperationAssessmentIntent::Save,
+                vec![],
+            ))
+        }
+
+        async fn assess_agent_update(
+            &self,
+            _request: AgentUpdateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "update_agent",
+                OperationAssessmentIntent::Save,
+                vec![],
+            ))
+        }
+
+        async fn assess_background_agent_create(
+            &self,
+            _request: BackgroundAgentCreateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "create_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![],
+            ))
+        }
+
+        async fn assess_background_agent_convert_session(
+            &self,
+            _request: BackgroundAgentConvertSessionRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "convert_session_to_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![],
+            ))
+        }
+
+        async fn assess_background_agent_update(
+            &self,
+            _request: BackgroundAgentUpdateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "update_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![],
+            ))
+        }
+
+        async fn assess_background_agent_delete(
+            &self,
+            _request: BackgroundAgentDeleteRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "delete_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![],
+            ))
+        }
+
+        async fn assess_background_agent_control(
+            &self,
+            _request: BackgroundAgentControlRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "control_background_agent",
+                OperationAssessmentIntent::Run,
+                vec![],
+            ))
+        }
+
+        async fn assess_background_agent_template(
+            &self,
+            operation: &str,
+            intent: OperationAssessmentIntent,
+            _agent_ids: Vec<String>,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                operation,
+                intent,
+                vec![],
+            ))
+        }
+
+        async fn assess_subagent_spawn(
+            &self,
+            operation: &str,
+            _request: ContractSubagentSpawnRequest,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                operation,
+                OperationAssessmentIntent::Run,
+                vec![],
+            ))
+        }
+
+        async fn assess_subagent_batch(
+            &self,
+            operation: &str,
+            _requests: Vec<ContractSubagentSpawnRequest>,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                operation,
+                OperationAssessmentIntent::Run,
+                vec![],
+            ))
+        }
+    }
+
     fn default_schedule() -> ContractTaskSchedule {
         ContractTaskSchedule::Interval {
             interval_ms: 60_000,
@@ -612,6 +750,16 @@ mod tests {
     }
 
     fn setup() -> (
+        BackgroundAgentStoreAdapter,
+        tempfile::TempDir,
+        std::sync::MutexGuard<'static, ()>,
+    ) {
+        setup_with_assessor(Arc::new(MockAssessor))
+    }
+
+    fn setup_with_assessor(
+        assessor: Arc<dyn AgentOperationAssessor>,
+    ) -> (
         BackgroundAgentStoreAdapter,
         tempfile::TempDir,
         std::sync::MutexGuard<'static, ()>,
@@ -661,7 +809,7 @@ mod tests {
                 deliverable_storage,
                 session_service,
             )
-            .with_assessor(Arc::new(MockAssessor)),
+            .with_assessor(assessor),
             temp_dir,
             guard,
         )
@@ -770,6 +918,33 @@ mod tests {
     }
 
     #[test]
+    fn test_create_background_agent_returns_confirmation_required_for_warning_assessment() {
+        let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
+        let agent_id = get_agent_id(&adapter);
+
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Guarded Create".to_string(),
+                agent_id,
+                chat_session_id: None,
+                input: Some("guarded".to_string()),
+                input_template: None,
+                schedule: default_schedule(),
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+                preview: false,
+                confirmation_token: None,
+            })
+            .unwrap();
+
+        assert_eq!(created["status"], "confirmation_required");
+        assert_eq!(adapter.list_background_agents(None).unwrap().as_array().unwrap().len(), 0);
+    }
+
+    #[test]
     fn test_convert_session_requires_input_or_existing_user_message() {
         let (adapter, _dir, _guard) = setup();
         let agent_id = get_agent_id(&adapter);
@@ -803,6 +978,39 @@ mod tests {
             ),
             "unexpected error: {error}"
         );
+    }
+
+    #[test]
+    fn test_convert_session_returns_confirmation_required_for_warning_assessment() {
+        let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
+        let agent_id = get_agent_id(&adapter);
+
+        let mut session = crate::models::ChatSession::new(
+            agent_id,
+            crate::models::ModelId::Gpt5.as_serialized_str().to_string(),
+        );
+        session.add_message(crate::models::ChatMessage::user("Continue guarded task"));
+        adapter.storage.chat_sessions().create(&session).unwrap();
+
+        let converted = adapter
+            .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
+                session_id: session.id,
+                name: Some("Guarded Convert".to_string()),
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: Some(false),
+                preview: false,
+                confirmation_token: None,
+            })
+            .unwrap();
+
+        assert_eq!(converted["status"], "confirmation_required");
+        assert_eq!(adapter.list_background_agents(None).unwrap().as_array().unwrap().len(), 0);
     }
 
     #[test]
@@ -895,6 +1103,135 @@ mod tests {
             .unwrap();
         assert_eq!(result["result"]["id"], id);
         assert_eq!(result["result"]["deleted"], true);
+    }
+
+    #[test]
+    fn test_update_background_agent_returns_confirmation_required_for_warning_assessment() {
+        let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
+        let agent_id = get_agent_id(&adapter);
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Update Guarded".to_string(),
+                agent_id,
+                chat_session_id: None,
+                input: Some("update".to_string()),
+                input_template: None,
+                schedule: default_schedule(),
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+                preview: true,
+                confirmation_token: None,
+            })
+            .unwrap();
+        let preview_token = created["assessment"]["confirmation_token"]
+            .as_str()
+            .expect("preview token")
+            .to_string();
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Update Guarded".to_string(),
+                agent_id: "default".to_string(),
+                chat_session_id: None,
+                input: Some("update".to_string()),
+                input_template: None,
+                schedule: default_schedule(),
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+                preview: false,
+                confirmation_token: Some(preview_token),
+            })
+            .unwrap();
+        let id = created["result"]["id"].as_str().unwrap().to_string();
+
+        let updated = adapter
+            .update_background_agent(BackgroundAgentUpdateRequest {
+                id: id.clone(),
+                name: Some("Updated Name".to_string()),
+                description: None,
+                agent_id: None,
+                chat_session_id: None,
+                input: None,
+                input_template: None,
+                schedule: None,
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                preview: false,
+                confirmation_token: None,
+            })
+            .unwrap();
+
+        assert_eq!(updated["status"], "confirmation_required");
+        let stored = adapter.storage.get_task(&id).unwrap().unwrap();
+        assert_eq!(stored.name, "Update Guarded");
+    }
+
+    #[test]
+    fn test_control_background_agent_returns_confirmation_required_for_warning_assessment() {
+        let (adapter, _dir, _guard) = setup_with_assessor(Arc::new(WarningAssessor));
+        let agent_id = get_agent_id(&adapter);
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Control Guarded".to_string(),
+                agent_id: agent_id.clone(),
+                chat_session_id: None,
+                input: Some("control".to_string()),
+                input_template: None,
+                schedule: default_schedule(),
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+                preview: true,
+                confirmation_token: None,
+            })
+            .unwrap();
+        let preview_token = created["assessment"]["confirmation_token"]
+            .as_str()
+            .expect("preview token")
+            .to_string();
+        let created = adapter
+            .create_background_agent(BackgroundAgentCreateRequest {
+                name: "Control Guarded".to_string(),
+                agent_id,
+                chat_session_id: None,
+                input: Some("control".to_string()),
+                input_template: None,
+                schedule: default_schedule(),
+                timeout_secs: None,
+                memory: None,
+                memory_scope: None,
+                durability_mode: None,
+                resource_limits: None,
+                preview: false,
+                confirmation_token: Some(preview_token),
+            })
+            .unwrap();
+        let id = created["result"]["id"].as_str().unwrap().to_string();
+
+        let updated = adapter
+            .control_background_agent(BackgroundAgentControlRequest {
+                id: id.clone(),
+                action: "pause".to_string(),
+                preview: false,
+                confirmation_token: None,
+            })
+            .unwrap();
+
+        assert_eq!(updated["status"], "confirmation_required");
+        let stored = adapter.storage.get_task(&id).unwrap().unwrap();
+        assert_eq!(stored.status.as_str(), "active");
     }
 
     #[test]

@@ -5,7 +5,7 @@ use crate::boundary::background_agent::{
 };
 use crate::daemon::request_mapper::to_contract;
 use crate::services::background_agent_command::{
-    BackgroundAgentCommandError, BackgroundAgentCommandService,
+    BackgroundAgentCommandError, BackgroundAgentCommandService, BackgroundAgentExecutionMode,
 };
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::storage::background_agent::ResolveTaskIdError;
@@ -114,8 +114,9 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         match command_service(core)
-            .create_direct_from_request(request)
+            .create_from_request(request, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
         {
             Ok(agent) => IpcResponse::success(agent),
             Err(err) => command_error_response(err),
@@ -126,7 +127,11 @@ impl IpcServer {
         core: &Arc<AppCore>,
         request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
     ) -> IpcResponse {
-        match command_service(core).convert_session_direct(request).await {
+        match command_service(core)
+            .convert_session(request, BackgroundAgentExecutionMode::Direct)
+            .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
+        {
             Ok(result) => IpcResponse::success(result),
             Err(err) => command_error_response(err),
         }
@@ -142,8 +147,9 @@ impl IpcServer {
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
         match command_service(core)
-            .update_direct_from_request(request)
+            .update_from_request(request, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
         {
             Ok(agent) => IpcResponse::success(agent),
             Err(err) => command_error_response(err),
@@ -160,8 +166,9 @@ impl IpcServer {
             confirmation_token: None,
         };
         match command_service(core)
-            .delete_direct_from_request(request)
+            .delete_from_request(request, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
         {
             Ok(result) => IpcResponse::success(result),
             Err(err) => command_error_response(err),
@@ -184,8 +191,9 @@ impl IpcServer {
             confirmation_token: None,
         };
         match command_service(core)
-            .control_direct_from_request(request)
+            .control_from_request(request, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
         {
             Ok(agent) => IpcResponse::success(agent),
             Err(err) => command_error_response(err),

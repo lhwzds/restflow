@@ -1,7 +1,9 @@
 use super::*;
 use crate::boundary::background_agent::{core_patch_to_contract, core_spec_to_contract};
 use crate::daemon::tool_result_mapper::to_tool_execution_result;
-use crate::services::background_agent_command::BackgroundAgentCommandService;
+use crate::services::background_agent_command::{
+    BackgroundAgentCommandService, BackgroundAgentExecutionMode,
+};
 use crate::services::hook_capability::HookCapabilityService;
 
 fn resolve_task_id(
@@ -214,7 +216,7 @@ impl McpBackend for CoreBackend {
     ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>, String> {
         let service = BackgroundAgentCommandService::from_storage(self.core.storage.as_ref(), None);
         service
-            .delete_from_request(request)
+            .delete_from_request(request, BackgroundAgentExecutionMode::Guarded)
             .await
             .map_err(|e| e.to_string())
     }
