@@ -550,12 +550,8 @@ impl McpBackend for IpcBackend {
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent, String> {
         let spec = core_spec_to_contract(spec).map_err(|e| e.to_string())?;
-        self.request_typed(IpcRequest::CreateBackgroundAgent {
-            spec,
-            preview: false,
-            confirmation_token: None,
-        })
-        .await
+        self.request_typed(IpcRequest::CreateBackgroundAgent { spec })
+            .await
     }
 
     async fn update_background_agent(
@@ -567,8 +563,6 @@ impl McpBackend for IpcBackend {
         self.request_typed(IpcRequest::UpdateBackgroundAgent {
             id: id.to_string(),
             patch,
-            preview: false,
-            confirmation_token: None,
         })
         .await
     }
@@ -577,12 +571,16 @@ impl McpBackend for IpcBackend {
         &self,
         request: BackgroundAgentDeleteRequest,
     ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>, String> {
-        self.request_typed(IpcRequest::DeleteBackgroundAgent {
-            id: request.id,
-            preview: request.preview,
-            confirmation_token: request.confirmation_token,
-        })
-        .await
+        if request.preview || request.confirmation_token.is_some() {
+            return Err(
+                "Preview and confirmation replay are no longer available for IPC background-agent deletions."
+                    .to_string(),
+            );
+        }
+        let result = self
+            .request_typed(IpcRequest::DeleteBackgroundAgent { id: request.id })
+            .await?;
+        Ok(BackgroundAgentCommandOutcome::Executed { result })
     }
 
     async fn control_background_agent(
@@ -594,8 +592,6 @@ impl McpBackend for IpcBackend {
         self.request_typed(IpcRequest::ControlBackgroundAgent {
             id: id.to_string(),
             action,
-            preview: false,
-            confirmation_token: None,
         })
         .await
     }

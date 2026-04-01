@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import AgentEditorPanel from '../AgentEditorPanel.vue'
-import { BackendError } from '@/api/http-client'
 
 const mockGetAgent = vi.fn()
 const mockUpdateAgent = vi.fn()
@@ -254,26 +253,9 @@ describe('AgentEditorPanel', () => {
     expect(wrapper.text()).not.toContain('>openai<')
   })
 
-  it('retries save with confirmation token after warning', async () => {
+  it('saves directly without confirmation retry', async () => {
     mockGetAgent.mockResolvedValue(baseAgent())
-    mockUpdateAgent
-      .mockRejectedValueOnce(
-        new BackendError({
-          code: 428,
-          kind: 'confirmation_required',
-          message: 'confirm',
-          details: {
-            assessment: {
-              status: 'warning',
-              warnings: [{ message: 'Provider is not configured.' }],
-              blockers: [],
-              requires_confirmation: true,
-              confirmation_token: 'token-1',
-            },
-          },
-        } as any),
-      )
-      .mockResolvedValueOnce({
+    mockUpdateAgent.mockResolvedValueOnce({
         ...baseAgent(),
         agent: {
           ...baseAgent().agent,
@@ -310,13 +292,7 @@ describe('AgentEditorPanel', () => {
     await saveButton!.trigger('click')
     await flushPromises()
 
-    expect(mockConfirm).toHaveBeenCalledOnce()
-    expect(mockUpdateAgent).toHaveBeenNthCalledWith(
-      2,
-      'agent-1',
-      expect.objectContaining({
-        confirmation_token: 'token-1',
-      }),
-    )
+    expect(mockConfirm).not.toHaveBeenCalled()
+    expect(mockUpdateAgent).toHaveBeenCalledTimes(1)
   })
 })

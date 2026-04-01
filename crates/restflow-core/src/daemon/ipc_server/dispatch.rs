@@ -48,29 +48,18 @@ impl IpcServer {
             IpcRequest::GetStatus => Self::handle_get_status().await,
             IpcRequest::ListAgents => Self::handle_list_agents(core).await,
             IpcRequest::GetAgent { id } => Self::handle_get_agent(core, id).await,
-            IpcRequest::CreateAgent {
-                name,
-                agent,
-                preview,
-                confirmation_token,
-            } => match crate::models::AgentNode::try_from(agent) {
-                Ok(agent) => {
-                    Self::handle_create_agent(core, name, agent, preview, confirmation_token).await
+            IpcRequest::CreateAgent { name, agent } => {
+                match crate::models::AgentNode::try_from(agent) {
+                    Ok(agent) => Self::handle_create_agent(core, name, agent).await,
+                    Err(errors) => invalid_validation_response(errors),
                 }
-                Err(errors) => invalid_validation_response(errors),
-            },
-            IpcRequest::UpdateAgent {
-                id,
-                name,
-                agent,
-                preview,
-                confirmation_token,
-            } => {
+            }
+            IpcRequest::UpdateAgent { id, name, agent } => {
                 let agent = match agent.map(crate::models::AgentNode::try_from).transpose() {
                     Ok(agent) => agent,
                     Err(errors) => return invalid_validation_response(errors),
                 };
-                Self::handle_update_agent(core, id, name, agent, preview, confirmation_token).await
+                Self::handle_update_agent(core, id, name, agent).await
             }
             IpcRequest::DeleteAgent { id } => Self::handle_delete_agent(core, id).await,
             IpcRequest::ListSkills => Self::handle_list_skills(core).await,
@@ -428,15 +417,8 @@ impl IpcServer {
             IpcRequest::GetBackgroundAgentHistory { id } => {
                 Self::handle_get_background_agent_history(core, id).await
             }
-            IpcRequest::CreateBackgroundAgent {
-                spec,
-                preview,
-                confirmation_token,
-            } => match contract_spec_to_core(spec) {
-                Ok(spec) => {
-                    Self::handle_create_background_agent(core, spec, preview, confirmation_token)
-                        .await
-                }
+            IpcRequest::CreateBackgroundAgent { spec } => match contract_spec_to_core(spec) {
+                Ok(spec) => Self::handle_create_background_agent(core, spec).await,
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::ConvertSessionToBackgroundAgent { request } => {
@@ -447,45 +429,17 @@ impl IpcServer {
                     Err(err) => invalid_request_response(err),
                 }
             }
-            IpcRequest::UpdateBackgroundAgent {
-                id,
-                patch,
-                preview,
-                confirmation_token,
-            } => match contract_patch_to_core(patch) {
-                Ok(patch) => {
-                    Self::handle_update_background_agent(
-                        core,
-                        id,
-                        patch,
-                        preview,
-                        confirmation_token,
-                    )
-                    .await
+            IpcRequest::UpdateBackgroundAgent { id, patch } => {
+                match contract_patch_to_core(patch) {
+                    Ok(patch) => Self::handle_update_background_agent(core, id, patch).await,
+                    Err(err) => invalid_request_response(err),
                 }
-                Err(err) => invalid_request_response(err),
-            },
-            IpcRequest::DeleteBackgroundAgent {
-                id,
-                preview,
-                confirmation_token,
-            } => Self::handle_delete_background_agent(core, id, preview, confirmation_token).await,
-            IpcRequest::ControlBackgroundAgent {
-                id,
-                action,
-                preview,
-                confirmation_token,
-            } => match from_contract(action) {
-                Ok(action) => {
-                    Self::handle_control_background_agent(
-                        core,
-                        id,
-                        action,
-                        preview,
-                        confirmation_token,
-                    )
-                    .await
-                }
+            }
+            IpcRequest::DeleteBackgroundAgent { id } => {
+                Self::handle_delete_background_agent(core, id).await
+            }
+            IpcRequest::ControlBackgroundAgent { id, action } => match from_contract(action) {
+                Ok(action) => Self::handle_control_background_agent(core, id, action).await,
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::GetBackgroundAgentProgress { id, event_limit } => {

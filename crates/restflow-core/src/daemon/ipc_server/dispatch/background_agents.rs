@@ -108,17 +108,16 @@ impl IpcServer {
     pub(super) async fn handle_create_background_agent(
         core: &Arc<AppCore>,
         spec: crate::models::BackgroundAgentSpec,
-        preview: bool,
-        confirmation_token: Option<String>,
     ) -> IpcResponse {
-        let mut request = match core_spec_to_create_request(&spec) {
+        let request = match core_spec_to_create_request(&spec) {
             Ok(request) => request,
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
-        request.preview = preview;
-        request.confirmation_token = confirmation_token;
-        match command_service(core).create_from_request(request).await {
-            Ok(outcome) => IpcResponse::success(outcome),
+        match command_service(core)
+            .create_direct_from_request(request)
+            .await
+        {
+            Ok(agent) => IpcResponse::success(agent),
             Err(err) => command_error_response(err),
         }
     }
@@ -127,8 +126,8 @@ impl IpcServer {
         core: &Arc<AppCore>,
         request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
     ) -> IpcResponse {
-        match command_service(core).convert_session(request).await {
-            Ok(outcome) => IpcResponse::success(outcome),
+        match command_service(core).convert_session_direct(request).await {
+            Ok(result) => IpcResponse::success(result),
             Err(err) => command_error_response(err),
         }
     }
@@ -137,17 +136,16 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
         patch: crate::models::BackgroundAgentPatch,
-        preview: bool,
-        confirmation_token: Option<String>,
     ) -> IpcResponse {
-        let mut request = match core_patch_to_update_request(id, &patch) {
+        let request = match core_patch_to_update_request(id, &patch) {
             Ok(request) => request,
             Err(err) => return IpcResponse::error(500, err.to_string()),
         };
-        request.preview = preview;
-        request.confirmation_token = confirmation_token;
-        match command_service(core).update_from_request(request).await {
-            Ok(outcome) => IpcResponse::success(outcome),
+        match command_service(core)
+            .update_direct_from_request(request)
+            .await
+        {
+            Ok(agent) => IpcResponse::success(agent),
             Err(err) => command_error_response(err),
         }
     }
@@ -155,16 +153,17 @@ impl IpcServer {
     pub(super) async fn handle_delete_background_agent(
         core: &Arc<AppCore>,
         id: String,
-        preview: bool,
-        confirmation_token: Option<String>,
     ) -> IpcResponse {
         let request = BackgroundAgentDeleteRequest {
             id,
-            preview,
-            confirmation_token,
+            preview: false,
+            confirmation_token: None,
         };
-        match command_service(core).delete_from_request(request).await {
-            Ok(outcome) => IpcResponse::success(outcome),
+        match command_service(core)
+            .delete_direct_from_request(request)
+            .await
+        {
+            Ok(result) => IpcResponse::success(result),
             Err(err) => command_error_response(err),
         }
     }
@@ -173,8 +172,6 @@ impl IpcServer {
         core: &Arc<AppCore>,
         id: String,
         action: crate::models::BackgroundAgentControlAction,
-        preview: bool,
-        confirmation_token: Option<String>,
     ) -> IpcResponse {
         let action = match to_contract(action) {
             Ok(value) => value,
@@ -183,11 +180,14 @@ impl IpcServer {
         let request = BackgroundAgentControlRequest {
             id,
             action,
-            preview,
-            confirmation_token,
+            preview: false,
+            confirmation_token: None,
         };
-        match command_service(core).control_from_request(request).await {
-            Ok(outcome) => IpcResponse::success(outcome),
+        match command_service(core)
+            .control_direct_from_request(request)
+            .await
+        {
+            Ok(agent) => IpcResponse::success(agent),
             Err(err) => command_error_response(err),
         }
     }

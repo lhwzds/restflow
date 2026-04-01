@@ -21,7 +21,6 @@ use restflow_core::models::{
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::BackgroundAgentCommandOutcome;
 use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 pub struct IpcExecutor {
@@ -63,13 +62,8 @@ impl CommandExecutor for IpcExecutor {
 
     async fn create_agent(&self, name: String, agent: AgentNode) -> Result<StoredAgent> {
         let agent = to_contract(agent)?;
-        self.request_typed(IpcRequest::CreateAgent {
-            name,
-            agent,
-            preview: false,
-            confirmation_token: None,
-        })
-        .await
+        self.request_typed(IpcRequest::CreateAgent { name, agent })
+            .await
     }
 
     async fn update_agent(
@@ -83,8 +77,6 @@ impl CommandExecutor for IpcExecutor {
             id: id.to_string(),
             name,
             agent,
-            preview: false,
-            confirmation_token: None,
         })
         .await
     }
@@ -460,22 +452,15 @@ impl CommandExecutor for IpcExecutor {
             .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", id))
     }
 
-    async fn create_background_agent(
-        &self,
-        spec: BackgroundAgentSpec,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
         let mut client = self.client.lock().await;
-        client
-            .create_background_agent(spec, preview, confirmation_token)
-            .await
+        client.create_background_agent(spec).await
     }
 
     async fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
+    ) -> Result<BackgroundAgentConversionResult> {
         let mut client = self.client.lock().await;
         client.convert_session_to_background_agent(request).await
     }
@@ -484,37 +469,27 @@ impl CommandExecutor for IpcExecutor {
         &self,
         id: &str,
         patch: BackgroundAgentPatch,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    ) -> Result<BackgroundAgent> {
         let mut client = self.client.lock().await;
-        client
-            .update_background_agent(id.to_string(), patch, preview, confirmation_token)
-            .await
+        client.update_background_agent(id.to_string(), patch).await
     }
 
     async fn delete_background_agent(
         &self,
         id: &str,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>> {
+    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
         let mut client = self.client.lock().await;
-        client
-            .delete_background_agent(id.to_string(), preview, confirmation_token)
-            .await
+        client.delete_background_agent(id.to_string()).await
     }
 
     async fn control_background_agent(
         &self,
         id: &str,
         action: BackgroundAgentControlAction,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    ) -> Result<BackgroundAgent> {
         let mut client = self.client.lock().await;
         client
-            .control_background_agent(id.to_string(), action, preview, confirmation_token)
+            .control_background_agent(id.to_string(), action)
             .await
     }
 

@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, h, nextTick, ref } from 'vue'
 import ChatPanel from '../ChatPanel.vue'
-import { BackendError } from '@/api/http-client'
 import { useChatSession } from '@/composables/workspace/useChatSession'
 import { useChatStream } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
@@ -639,29 +638,12 @@ describe('ChatPanel', () => {
     })
   })
 
-  it('retries agent model persistence after confirmation warning', async () => {
+  it('persists agent model directly without confirmation retry', async () => {
     mockUpdateSessionModel.mockResolvedValue({
       ...mockCurrentSession.value!,
       model: 'gpt-5',
     })
-    mockUpdateAgentApi
-      .mockRejectedValueOnce(
-        new BackendError({
-          code: 428,
-          kind: 'confirmation_required',
-          message: 'confirm',
-          details: {
-            assessment: {
-              status: 'warning',
-              warnings: [{ message: 'Provider is not configured.' }],
-              blockers: [],
-              requires_confirmation: true,
-              confirmation_token: 'token-1',
-            },
-          },
-        } as any),
-      )
-      .mockResolvedValueOnce({
+    mockUpdateAgentApi.mockResolvedValueOnce({
         id: 'agent-1',
         name: 'Agent One',
         agent: {
@@ -679,14 +661,8 @@ describe('ChatPanel', () => {
     await wrapper.get('[data-testid="chatbox-model-change"]').trigger('click')
     await flushPromises()
 
-    expect(mockConfirm).toHaveBeenCalledOnce()
-    expect(mockUpdateAgentApi).toHaveBeenNthCalledWith(
-      2,
-      'agent-1',
-      expect.objectContaining({
-        confirmation_token: 'token-1',
-      }),
-    )
+    expect(mockConfirm).not.toHaveBeenCalled()
+    expect(mockUpdateAgentApi).toHaveBeenCalledTimes(1)
   })
 
   it('emits toolResult for failed tool calls with result payload', async () => {

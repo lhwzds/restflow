@@ -1041,22 +1041,8 @@ describe('Workspace', () => {
     })
   })
 
-  it('uses only the assessment confirmation when converting a background session back to workspace', async () => {
-    mockBackgroundStore.convertSessionToWorkspace.mockImplementation(
-      async (_sessionId: string, confirmWarning?: (assessment: any) => Promise<boolean>) => {
-        if (!confirmWarning) {
-          return false
-        }
-
-        return confirmWarning({
-          status: 'warning',
-          warnings: [{ message: 'Delete requires confirmation.' }],
-          blockers: [],
-          requires_confirmation: true,
-          confirmation_token: 'delete-token-1',
-        })
-      },
-    )
+  it('converts a background session back to workspace without assessment confirmation callbacks', async () => {
+    mockBackgroundStore.convertSessionToWorkspace.mockResolvedValue(true)
 
     const wrapper = mountWorkspace()
     await flushPromises()
@@ -1064,18 +1050,7 @@ describe('Workspace', () => {
     await wrapper.get('[data-testid="convert-to-workspace"]').trigger('click')
     await flushPromises()
 
-    expect(mockBackgroundStore.convertSessionToWorkspace).toHaveBeenCalledWith(
-      'session-1',
-      expect.any(Function),
-    )
-    expect(mockConfirm).toHaveBeenCalledTimes(1)
-    expect(mockConfirm).toHaveBeenCalledWith(
-      expect.objectContaining({
-        title: 'workspace.session.convertToWorkspace',
-        confirmText: 'workspace.session.convertToWorkspaceConfirm',
-        cancelText: 'common.cancel',
-        variant: 'destructive',
-      }),
-    )
+    expect(mockBackgroundStore.convertSessionToWorkspace).toHaveBeenCalledWith('session-1')
+    expect(mockConfirm).not.toHaveBeenCalled()
   })
 })

@@ -18,19 +18,11 @@ pub enum IpcRequest {
     CreateAgent {
         name: String,
         agent: AgentNode,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
     },
     UpdateAgent {
         id: String,
         name: Option<String>,
         agent: Option<AgentNode>,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
     },
     DeleteAgent {
         id: String,
@@ -396,10 +388,6 @@ pub enum IpcRequest {
     },
     CreateBackgroundAgent {
         spec: BackgroundAgentSpec,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
     },
     ConvertSessionToBackgroundAgent {
         request: BackgroundAgentConvertSessionRequest,
@@ -407,25 +395,13 @@ pub enum IpcRequest {
     UpdateBackgroundAgent {
         id: String,
         patch: BackgroundAgentPatch,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
     },
     DeleteBackgroundAgent {
         id: String,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
     },
     ControlBackgroundAgent {
         id: String,
         action: String,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
     },
     GetBackgroundAgentProgress {
         id: String,
@@ -868,10 +844,6 @@ pub struct BackgroundAgentConvertSessionRequest {
     pub resource_limits: Option<ResourceLimits>,
     #[serde(default)]
     pub run_now: Option<bool>,
-    #[serde(default)]
-    pub preview: bool,
-    #[serde(default)]
-    pub confirmation_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1564,8 +1536,6 @@ mod tests {
                     inter_segment_pause_ms: 500,
                 }),
             },
-            preview: false,
-            confirmation_token: None,
         };
         assert_roundtrip(&request);
     }
@@ -1592,8 +1562,6 @@ mod tests {
                     max_cost_usd: Some(1.5),
                 }),
                 run_now: Some(true),
-                preview: true,
-                confirmation_token: Some("confirm-1".to_string()),
             },
         };
         assert_roundtrip(&request);
@@ -1608,8 +1576,6 @@ mod tests {
             .expect("convert defaults");
 
         assert_eq!(contract.run_now, None);
-        assert!(!contract.preview);
-        assert_eq!(contract.confirmation_token, None);
     }
 
     #[test]

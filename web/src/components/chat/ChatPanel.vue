@@ -33,7 +33,6 @@ import {
   listExecutionContainers,
   listExecutionSessions,
 } from '@/api/execution-console'
-import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
 import type { ModelId } from '@/types/generated/ModelId'
@@ -48,11 +47,6 @@ import {
   buildTranscriptThreadItems,
   type ThreadItem,
 } from './threadItems'
-import {
-  formatOperationAssessment,
-  type OperationAssessment,
-} from '@/utils/operationAssessment'
-import { runGuardedMutation } from '@/utils/guardedMutation'
 import { buildVoiceMessageContent } from './voiceMessageContent'
 
 const props = withDefaults(
@@ -79,7 +73,6 @@ const emit = defineEmits<{
 }>()
 
 const toast = useToast()
-const { confirm } = useConfirm()
 const { t } = useI18n()
 const router = useRouter()
 const chatSessionStore = useChatSessionStore()
@@ -423,16 +416,7 @@ async function handleBgResume() {
 
 async function handleBgRun() {
   if (!linkedBgAgent.value) return
-  await backgroundAgentStore.runAgentNow(
-    linkedBgAgent.value.id,
-    async (assessment: OperationAssessment) =>
-      confirm({
-        title: 'Confirmation required',
-        description: formatOperationAssessment(assessment),
-        confirmText: 'Run anyway',
-        cancelText: 'Cancel',
-      }),
-  )
+  await backgroundAgentStore.runAgentNow(linkedBgAgent.value.id)
 }
 
 async function handleBgStop() {
@@ -1033,30 +1017,7 @@ async function onUpdateSelectedModel(model: string) {
             : undefined,
         },
       }
-      await runGuardedMutation<null>(
-        async (confirmationToken) => {
-          await updateAgent(
-            agentId,
-            confirmationToken
-              ? {
-                  ...request,
-                  confirmation_token: confirmationToken,
-                }
-              : request,
-          )
-          return null
-        },
-        {
-          confirmWarning: async (assessment) =>
-            confirm({
-              title: 'Confirmation required',
-              description: formatOperationAssessment(assessment),
-              confirmText: 'Update anyway',
-              cancelText: 'Cancel',
-            }),
-          onCancel: async () => null,
-        },
-      )
+      await updateAgent(agentId, request)
     } catch {
       // Non-critical: session model was updated, agent default is best-effort
     }

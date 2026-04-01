@@ -64,12 +64,7 @@ impl CoreAccess {
             CoreAccess::Remote(client) => {
                 let agent = restflow_contracts::request::AgentNode::from(agent);
                 client
-                    .request_typed(IpcRequest::CreateAgent {
-                        name,
-                        agent,
-                        preview: false,
-                        confirmation_token: None,
-                    })
+                    .request_typed(IpcRequest::CreateAgent { name, agent })
                     .await
             }
         }
@@ -90,8 +85,6 @@ impl CoreAccess {
                         id: id.to_string(),
                         name,
                         agent,
-                        preview: false,
-                        confirmation_token: None,
                     })
                     .await
             }
@@ -208,11 +201,7 @@ impl CoreAccess {
             CoreAccess::Remote(client) => {
                 let spec = core_spec_to_contract(spec)?;
                 client
-                    .request_typed(IpcRequest::CreateBackgroundAgent {
-                        spec,
-                        preview: false,
-                        confirmation_token: None,
-                    })
+                    .request_typed(IpcRequest::CreateBackgroundAgent { spec })
                     .await
             }
         }

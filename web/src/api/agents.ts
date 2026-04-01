@@ -5,15 +5,11 @@ import type { AgentNode } from '@/types/generated/AgentNode'
 export interface CreateAgentRequest {
   name: string
   agent: AgentNode
-  preview?: boolean
-  confirmation_token?: string
 }
 
 export interface UpdateAgentRequest {
   name?: string
   agent?: AgentNode
-  preview?: boolean
-  confirmation_token?: string
 }
 
 export async function listAgents(): Promise<StoredAgent[]> {
@@ -27,11 +23,7 @@ export async function getAgent(id: string): Promise<StoredAgent> {
 export async function createAgent(data: CreateAgentRequest): Promise<StoredAgent> {
   return requestTyped<StoredAgent>({
     type: 'CreateAgent',
-    data: {
-      ...data,
-      preview: data.preview ?? false,
-      confirmation_token: data.confirmation_token ?? null,
-    },
+    data,
   })
 }
 
@@ -42,8 +34,6 @@ export async function updateAgent(id: string, data: UpdateAgentRequest): Promise
       id,
       name: data.name ?? null,
       agent: data.agent ?? null,
-      preview: data.preview ?? false,
-      confirmation_token: data.confirmation_token ?? null,
     },
   })
 }

@@ -269,7 +269,6 @@ mod tests {
     };
     use restflow_core::storage::SystemConfig;
     use restflow_core::storage::agent::StoredAgent;
-    use restflow_traits::BackgroundAgentCommandOutcome;
     use restflow_traits::store::BackgroundAgentConvertSessionRequest;
     use std::sync::Mutex;
 
@@ -589,17 +588,14 @@ mod tests {
         async fn create_background_agent(
             &self,
             _spec: BackgroundAgentSpec,
-            _preview: bool,
-            _confirmation_token: Option<String>,
-        ) -> anyhow::Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+        ) -> anyhow::Result<BackgroundAgent> {
             panic!("unexpected executor call")
         }
 
         async fn convert_session_to_background_agent(
             &self,
             _request: BackgroundAgentConvertSessionRequest,
-        ) -> anyhow::Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>
-        {
+        ) -> anyhow::Result<BackgroundAgentConversionResult> {
             panic!("unexpected executor call")
         }
 
@@ -607,19 +603,14 @@ mod tests {
             &self,
             _id: &str,
             _patch: BackgroundAgentPatch,
-            _preview: bool,
-            _confirmation_token: Option<String>,
-        ) -> anyhow::Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+        ) -> anyhow::Result<BackgroundAgent> {
             panic!("unexpected executor call")
         }
 
         async fn delete_background_agent(
             &self,
             _id: &str,
-            _preview: bool,
-            _confirmation_token: Option<String>,
-        ) -> anyhow::Result<BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>>
-        {
+        ) -> anyhow::Result<restflow_contracts::DeleteWithIdResponse> {
             panic!("unexpected executor call")
         }
 
@@ -627,9 +618,7 @@ mod tests {
             &self,
             _id: &str,
             _action: BackgroundAgentControlAction,
-            _preview: bool,
-            _confirmation_token: Option<String>,
-        ) -> anyhow::Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+        ) -> anyhow::Result<BackgroundAgent> {
             panic!("unexpected executor call")
         }
 

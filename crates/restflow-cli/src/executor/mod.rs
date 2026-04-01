@@ -16,7 +16,6 @@ use restflow_core::models::{
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::BackgroundAgentCommandOutcome;
 use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 use std::sync::Arc;
 
@@ -131,36 +130,25 @@ pub trait CommandExecutor: Send + Sync {
     // Background Agent operations
     async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<BackgroundAgent>>;
     async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent>;
-    async fn create_background_agent(
-        &self,
-        spec: BackgroundAgentSpec,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>>;
+    async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent>;
     async fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>;
+    ) -> Result<BackgroundAgentConversionResult>;
     async fn update_background_agent(
         &self,
         id: &str,
         patch: BackgroundAgentPatch,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>>;
+    ) -> Result<BackgroundAgent>;
     async fn delete_background_agent(
         &self,
         id: &str,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>>;
+    ) -> Result<restflow_contracts::DeleteWithIdResponse>;
     async fn control_background_agent(
         &self,
         id: &str,
         action: BackgroundAgentControlAction,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>>;
+    ) -> Result<BackgroundAgent>;
     async fn get_background_agent_progress(
         &self,
         id: &str,
