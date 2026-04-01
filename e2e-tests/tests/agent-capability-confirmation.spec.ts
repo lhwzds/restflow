@@ -5,28 +5,12 @@ import {
   goToWorkspace,
 } from './helpers'
 
-function confirmationError(token: string, message: string) {
+function backendError(message: string) {
   return {
-    code: 428,
-    kind: 'confirmation_required',
-    message: 'Confirmation required',
-    details: {
-      assessment: {
-        operation: 'test',
-        intent: 'save',
-        status: 'warning',
-        effective_model_ref: null,
-        warnings: [
-          {
-            code: 'provider_unavailable',
-            message,
-          },
-        ],
-        blockers: [],
-        requires_confirmation: true,
-        confirmation_token: token,
-      },
-    },
+    code: 400,
+    kind: 'invalid',
+    message,
+    details: null,
   }
 }
 
@@ -58,19 +42,21 @@ test.describe('Agent capability confirmation', () => {
     await cleanupTrackedState(page)
   })
 
-  test('shows confirmation dialog when create agent needs provider confirmation', async ({ page }) => {
+  test('shows an error toast when create agent fails provider validation', async ({ page }) => {
+    let createRequestCount = 0
     await page.route('**/api/request', async (route) => {
       const payload = route.request().postDataJSON()
       if (payload?.type !== 'CreateAgent') {
         await route.continue()
         return
       }
+      createRequestCount += 1
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
         body: JSON.stringify({
           response_type: 'Error',
-          data: confirmationError('token-create-1', 'Provider is not configured.'),
+          data: backendError('Provider is not configured.'),
         }),
       })
     })
@@ -92,22 +78,22 @@ test.describe('Agent capability confirmation', () => {
     await dialog.getByRole('button', { name: 'Create' }).click()
     await createResponse
 
-    const confirmDialog = page.getByRole('alertdialog')
-    await expect(confirmDialog).toBeVisible()
-    await expect(confirmDialog).toContainText('Provider is not configured.')
-    await expect(confirmDialog.getByRole('button', { name: 'Create anyway' })).toBeVisible()
+    await expect(dialog).toBeVisible()
+    await expect(page.getByText('Provider is not configured.')).toBeVisible()
+    await expect(page.getByRole('alertdialog')).toHaveCount(0)
+    expect(createRequestCount).toBe(1)
   })
 
-  test('shows confirmation dialog when session conversion needs provider confirmation', async ({
+  test('shows an error toast when session conversion fails provider validation', async ({
     page,
   }) => {
+    let convertRequestCount = 0
     await page.route('**/api/background-agents/convert-session', async (route) => {
+      convertRequestCount += 1
       await route.fulfill({
-        status: 428,
+        status: 400,
         contentType: 'application/json',
-        body: JSON.stringify(
-          confirmationError('token-convert-1', 'Background agent provider needs confirmation.'),
-        ),
+        body: JSON.stringify(backendError('Background agent provider needs confirmation.')),
       })
     })
 
@@ -130,9 +116,9 @@ test.describe('Agent capability confirmation', () => {
     await dialog.getByRole('button', { name: 'Convert' }).click()
     await convertResponse
 
-    const confirmDialog = page.getByRole('alertdialog')
-    await expect(confirmDialog).toBeVisible()
-    await expect(confirmDialog).toContainText('Background agent provider needs confirmation.')
-    await expect(confirmDialog.getByRole('button', { name: 'Create anyway' })).toBeVisible()
+    await expect(dialog).toBeVisible()
+    await expect(page.getByText('Background agent provider needs confirmation.')).toBeVisible()
+    await expect(page.getByRole('alertdialog')).toHaveCount(0)
+    expect(convertRequestCount).toBe(1)
   })
 })
