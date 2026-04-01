@@ -173,9 +173,7 @@ impl Tool for BackgroundAgentTool {
                 team,
                 preview,
                 confirmation_token,
-            } => {
-                handlers_write::execute_delete_team(self, team, preview, confirmation_token).await
-            }
+            } => handlers_write::execute_delete_team(self, team, preview, confirmation_token).await,
             BackgroundAgentAction::Create {
                 name,
                 agent_id,

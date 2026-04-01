@@ -10,9 +10,7 @@ use restflow_contracts::DeleteWithIdResponse;
 #[cfg(unix)]
 use restflow_traits::BackgroundAgentCommandOutcome;
 #[cfg(unix)]
-use restflow_traits::store::{
-    BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest,
-};
+use restflow_traits::store::{BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest};
 
 #[cfg(unix)]
 impl IpcClient {

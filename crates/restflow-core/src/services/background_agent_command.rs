@@ -573,8 +573,7 @@ mod tests {
     use restflow_traits::store::{
         AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
         BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-        BackgroundAgentDeleteRequest,
-        BackgroundAgentUpdateRequest,
+        BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
     };
     use std::sync::Arc;
     use tempfile::tempdir;
