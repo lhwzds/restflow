@@ -403,6 +403,38 @@ mod tests {
     }
 
     #[test]
+    fn rejects_background_agent_create_confirm_flag() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "background-agent",
+            "create",
+            "--name",
+            "guarded-task",
+            "--agent",
+            "default",
+            "--schedule",
+            "interval",
+            "--schedule-value",
+            "60000",
+            "--confirm",
+            "token-123",
+        ]);
+        assert!(cli.is_err());
+    }
+
+    #[test]
+    fn rejects_background_agent_convert_session_preview_flag() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "background-agent",
+            "convert-session",
+            "session-123",
+            "--preview",
+        ]);
+        assert!(cli.is_err());
+    }
+
+    #[test]
     fn rejects_agent_exec_command() {
         let cli = Cli::try_parse_from(["restflow", "agent", "exec", "agent-1"]);
         assert!(cli.is_err());

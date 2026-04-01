@@ -7,7 +7,7 @@ use crate::setup;
 use restflow_contracts::{
     AllowedPeerResponse, CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse,
     PairingRequestResponse, PairingStateResponse, RouteBindingResponse,
-    SessionSourceMigrationResponse,
+    SessionSourceMigrationResponse, request::BackgroundAgentConvertSessionRequest,
 };
 use restflow_core::channel::pairing::PairingManager;
 use restflow_core::channel::route_binding::{RouteBindingType, RouteResolver};
@@ -33,7 +33,6 @@ use restflow_core::{
     },
 };
 use restflow_storage::PairingStorage;
-use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 const TELEGRAM_CHAT_ID_SECRET: &str = "TELEGRAM_CHAT_ID";
 const TELEGRAM_DEFAULT_CHAT_ID_SECRET: &str = "TELEGRAM_DEFAULT_CHAT_ID";

@@ -3,6 +3,7 @@ use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
     RouteBindingResponse, SessionSourceMigrationResponse,
+    request::BackgroundAgentConvertSessionRequest,
 };
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
@@ -16,7 +17,6 @@ use restflow_core::models::{
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 use std::sync::Arc;
 
 #[cfg(test)]

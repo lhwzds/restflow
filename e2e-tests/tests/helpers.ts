@@ -18,9 +18,10 @@ type TrackedState = {
   backgroundTaskIds: Set<string>
 }
 
-type BackgroundAgentDeleteOutcome =
-  | { status: 'preview' | 'blocked' | 'confirmation_required'; assessment: { confirmation_token?: string | null } }
-  | { status: 'executed'; result: { deleted: boolean } }
+type BackgroundAgentDeleteResult = {
+  id: string
+  deleted: boolean
+}
 
 const trackedState = new WeakMap<Page, TrackedState>()
 let seededProviderPromise: Promise<void> | null = null
@@ -180,34 +181,12 @@ async function requestIpcDirect<T>(request: Record<string, unknown>): Promise<T>
 }
 
 async function deleteBackgroundTaskDirect(taskId: string): Promise<void> {
-  const initial = await requestIpcDirect<BackgroundAgentDeleteOutcome>({
+  const result = await requestIpcDirect<BackgroundAgentDeleteResult>({
     type: 'DeleteBackgroundAgent',
-    data: {
-      id: taskId,
-      preview: true,
-      confirmation_token: null,
-    },
+    data: { id: taskId },
   })
 
-  if (initial.status === 'executed') {
-    return
-  }
-
-  const confirmationToken = initial.assessment?.confirmation_token?.trim()
-  if (!confirmationToken) {
-    throw new Error(`Missing confirmation token while deleting background task ${taskId}`)
-  }
-
-  const confirmed = await requestIpcDirect<BackgroundAgentDeleteOutcome>({
-    type: 'DeleteBackgroundAgent',
-    data: {
-      id: taskId,
-      preview: false,
-      confirmation_token: confirmationToken,
-    },
-  })
-
-  if (confirmed.status !== 'executed' || !confirmed.result.deleted) {
+  if (!result.deleted) {
     throw new Error(`Failed to delete background task ${taskId}`)
   }
 }

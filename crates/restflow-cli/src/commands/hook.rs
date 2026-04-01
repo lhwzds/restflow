@@ -255,6 +255,7 @@ mod tests {
     use super::*;
     use crate::output::OutputFormat;
     use async_trait::async_trait;
+    use restflow_contracts::request::BackgroundAgentConvertSessionRequest;
     use restflow_contracts::{
         CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
         RouteBindingResponse, SessionSourceMigrationResponse,
@@ -269,7 +270,6 @@ mod tests {
     };
     use restflow_core::storage::SystemConfig;
     use restflow_core::storage::agent::StoredAgent;
-    use restflow_traits::store::BackgroundAgentConvertSessionRequest;
     use std::sync::Mutex;
 
     use crate::executor::CommandExecutor;

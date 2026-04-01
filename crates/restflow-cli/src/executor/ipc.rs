@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, ClearResponse, IdResponse, OkResponse, PairingApprovalResponse,
     PairingOwnerResponse, PairingStateResponse, RouteBindingResponse,
-    SessionSourceMigrationResponse,
+    SessionSourceMigrationResponse, request::BackgroundAgentConvertSessionRequest,
 };
 use std::path::Path;
 use tokio::sync::Mutex;
@@ -21,7 +21,6 @@ use restflow_core::models::{
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
-use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 pub struct IpcExecutor {
     client: Mutex<IpcClient>,
