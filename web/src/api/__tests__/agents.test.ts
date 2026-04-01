@@ -65,11 +65,7 @@ describe('Agents API', () => {
 
     expect(mockedRequestTyped).toHaveBeenNthCalledWith(1, {
       type: 'CreateAgent',
-      data: {
-        ...request,
-        preview: false,
-        confirmation_token: null,
-      },
+      data: request,
     })
     expect(mockedRequestTyped).toHaveBeenNthCalledWith(2, {
       type: 'UpdateAgent',
@@ -77,8 +73,6 @@ describe('Agents API', () => {
         id: 'agent1',
         name: 'Updated Name',
         agent: null,
-        preview: false,
-        confirmation_token: null,
       },
     })
   })

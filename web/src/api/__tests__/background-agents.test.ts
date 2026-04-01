@@ -7,22 +7,9 @@ import {
   listMemoryChunksForSession,
   listMemorySessions,
 } from '../background-agents'
-import { BackendError, fetchJson, requestOptional, requestTyped } from '../http-client'
+import { fetchJson, requestOptional, requestTyped } from '../http-client'
 
 vi.mock('../http-client', () => ({
-  BackendError: class BackendError extends Error {
-    code: number
-    kind: string
-    details: unknown
-
-    constructor(payload: { code: number; kind: string; message: string; details?: unknown }) {
-      super(payload.message)
-      this.name = 'BackendError'
-      this.code = payload.code
-      this.kind = payload.kind
-      this.details = payload.details ?? null
-    }
-  },
   fetchJson: vi.fn(),
   requestOptional: vi.fn(),
   requestTyped: vi.fn(),
@@ -83,13 +70,10 @@ describe('background-agents memory API', () => {
 
   it('unwraps executed convert-session outcomes to the created task', async () => {
     vi.mocked(fetchJson).mockResolvedValueOnce({
-      status: 'executed',
-      result: {
-        task: { id: 'bg-1' },
-        source_session_id: 'session-1',
-        source_session_agent_id: 'default',
-        run_now: false,
-      },
+      task: { id: 'bg-1' },
+      source_session_id: 'session-1',
+      source_session_agent_id: 'default',
+      run_now: false,
     })
 
     const result = await convertSessionToBackgroundAgent({
@@ -110,83 +94,18 @@ describe('background-agents memory API', () => {
     expect(result).toEqual({ id: 'bg-1' })
   })
 
-  it('maps confirmation-required convert-session outcomes into BackendError', async () => {
-    vi.mocked(fetchJson).mockResolvedValueOnce({
-      status: 'confirmation_required',
-      assessment: {
-        operation: 'convert_session',
-        intent: 'save',
-        status: 'warning',
-        warnings: [{ code: 'confirm', message: 'Credential missing.' }],
-        blockers: [],
-        requires_confirmation: true,
-        confirmation_token: 'token-1',
-      },
-    })
-
-    const request = convertSessionToBackgroundAgent({
-      session_id: 'session-1',
-    })
-
-    await expect(request).rejects.toMatchObject({
-      code: 428,
-      kind: 'conflict',
-      details: {
-        assessment: expect.objectContaining({
-          confirmation_token: 'token-1',
-        }),
-      },
-    })
-    await expect(request).rejects.toBeInstanceOf(BackendError)
-  })
-
   it('unwraps executed delete outcomes to a boolean', async () => {
     vi.mocked(requestTyped).mockResolvedValueOnce({
-      status: 'executed',
-      result: {
-        id: 'bg-1',
-        deleted: true,
-      },
+      id: 'bg-1',
+      deleted: true,
     })
 
-    const result = await deleteBackgroundAgent('bg-1', 'token-1')
+    const result = await deleteBackgroundAgent('bg-1')
 
     expect(requestTyped).toHaveBeenCalledWith({
       type: 'DeleteBackgroundAgent',
-      data: {
-        id: 'bg-1',
-        preview: false,
-        confirmation_token: 'token-1',
-      },
+      data: { id: 'bg-1' },
     })
     expect(result).toBe(true)
-  })
-
-  it('maps confirmation-required delete outcomes into BackendError', async () => {
-    vi.mocked(requestTyped).mockResolvedValueOnce({
-      status: 'confirmation_required',
-      assessment: {
-        operation: 'delete_background_agent',
-        intent: 'save',
-        status: 'warning',
-        warnings: [{ code: 'confirm', message: 'Delete requires confirmation.' }],
-        blockers: [],
-        requires_confirmation: true,
-        confirmation_token: 'delete-token-1',
-      },
-    })
-
-    const request = deleteBackgroundAgent('bg-1')
-
-    await expect(request).rejects.toMatchObject({
-      code: 428,
-      kind: 'conflict',
-      details: {
-        assessment: expect.objectContaining({
-          confirmation_token: 'delete-token-1',
-        }),
-      },
-    })
-    await expect(request).rejects.toBeInstanceOf(BackendError)
   })
 })

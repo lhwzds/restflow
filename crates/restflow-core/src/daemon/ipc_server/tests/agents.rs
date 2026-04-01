@@ -7,7 +7,6 @@ use restflow_contracts::{
     PairingStateResponse, RouteBindingResponse, SessionSourceMigrationResponse,
 };
 use restflow_storage::SimpleStorage;
-use restflow_traits::BackgroundAgentCommandOutcome;
 
 fn raw_agent_storage(core: &Arc<AppCore>) -> restflow_storage::AgentStorage {
     restflow_storage::AgentStorage::new(core.storage.get_db()).unwrap()
@@ -145,30 +144,23 @@ async fn process_delete_background_agent_returns_delete_with_id_response() {
         &runtime_tool_registry,
         IpcRequest::DeleteBackgroundAgent {
             id: task.id.clone(),
-            preview: true,
-            confirmation_token: None,
         },
     )
     .await;
 
     match response {
         IpcResponse::Success(value) => {
-            let outcome: BackgroundAgentCommandOutcome<DeleteWithIdResponse> =
+            let deleted: DeleteWithIdResponse =
                 serde_json::from_value(value).expect("delete response");
-            match outcome {
-                BackgroundAgentCommandOutcome::Preview { assessment } => {
-                    assert_eq!(assessment.operation, "delete_background_agent");
-                    assert!(assessment.confirmation_token.is_some());
-                }
-                other => panic!("expected preview outcome, got {other:?}"),
-            }
+            assert_eq!(deleted.id, task.id);
+            assert!(deleted.deleted);
         }
         other => panic!("expected success response, got {other:?}"),
     }
 }
 
 #[tokio::test]
-async fn process_convert_session_background_agent_uses_request_guard_fields() {
+async fn process_convert_session_background_agent_returns_direct_result() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     ensure_test_agent_with_id(&core, "agent-1");
@@ -195,8 +187,6 @@ async fn process_convert_session_background_agent_uses_request_guard_fields() {
                 memory_scope: None,
                 resource_limits: None,
                 run_now: Some(false),
-                preview: true,
-                confirmation_token: None,
             },
         },
     )
@@ -204,15 +194,11 @@ async fn process_convert_session_background_agent_uses_request_guard_fields() {
 
     match response {
         IpcResponse::Success(value) => {
-            let outcome: BackgroundAgentCommandOutcome<
-                crate::models::BackgroundAgentConversionResult,
-            > = serde_json::from_value(value).expect("convert response");
-            match outcome {
-                BackgroundAgentCommandOutcome::Preview { assessment } => {
-                    assert_eq!(assessment.operation, "convert_session_to_background_agent");
-                }
-                other => panic!("expected preview outcome, got {other:?}"),
-            }
+            let result: crate::models::BackgroundAgentConversionResult =
+                serde_json::from_value(value).expect("convert response");
+            assert_eq!(result.source_session_id, session.id);
+            assert!(!result.run_now);
+            assert_eq!(result.task.chat_session_id, session.id);
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -349,23 +335,16 @@ async fn process_update_background_agent_resolves_unique_prefix() {
                 ..Default::default()
             })
             .expect("contract patch"),
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
 
     match response {
         IpcResponse::Success(value) => {
-            let updated: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
+            let updated: crate::models::BackgroundAgent =
                 serde_json::from_value(value).expect("background agent");
-            match updated {
-                BackgroundAgentCommandOutcome::Executed { result } => {
-                    assert_eq!(result.id, task.id);
-                    assert_eq!(result.description.as_deref(), Some("updated description"));
-                }
-                other => panic!("expected executed outcome, got {other:?}"),
-            }
+            assert_eq!(updated.id, task.id);
+            assert_eq!(updated.description.as_deref(), Some("updated description"));
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -386,23 +365,16 @@ async fn process_create_background_agent_accepts_default_agent_alias() {
                 ..background_agent_spec("ipc-default-alias")
             })
             .expect("contract spec"),
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
 
     match response {
         IpcResponse::Success(value) => {
-            let created: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
+            let created: crate::models::BackgroundAgent =
                 serde_json::from_value(value).expect("background agent");
-            match created {
-                BackgroundAgentCommandOutcome::Executed { result } => {
-                    assert_eq!(result.agent_id, default_agent_id);
-                    assert_eq!(result.name, "ipc-default-alias");
-                }
-                other => panic!("expected executed outcome, got {other:?}"),
-            }
+            assert_eq!(created.agent_id, default_agent_id);
+            assert_eq!(created.name, "ipc-default-alias");
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -425,23 +397,16 @@ async fn process_update_background_agent_accepts_default_agent_alias() {
                 ..Default::default()
             })
             .expect("contract patch"),
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
 
     match response {
         IpcResponse::Success(value) => {
-            let updated: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
+            let updated: crate::models::BackgroundAgent =
                 serde_json::from_value(value).expect("background agent");
-            match updated {
-                BackgroundAgentCommandOutcome::Executed { result } => {
-                    assert_eq!(result.id, task.id);
-                    assert_eq!(result.agent_id, default_agent_id);
-                }
-                other => panic!("expected executed outcome, got {other:?}"),
-            }
+            assert_eq!(updated.id, task.id);
+            assert_eq!(updated.agent_id, default_agent_id);
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -460,8 +425,6 @@ async fn process_delete_background_agent_rejects_ambiguous_prefix() {
         &runtime_tool_registry,
         IpcRequest::DeleteBackgroundAgent {
             id: "dup-delete".to_string(),
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
@@ -540,23 +503,16 @@ async fn process_control_background_agent_resolves_unique_prefix() {
             id: "prefix-control".to_string(),
             action: to_contract(crate::models::BackgroundAgentControlAction::Pause)
                 .expect("contract action"),
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
 
     match response {
         IpcResponse::Success(value) => {
-            let updated: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
+            let updated: crate::models::BackgroundAgent =
                 serde_json::from_value(value).expect("background agent");
-            match updated {
-                BackgroundAgentCommandOutcome::Executed { result } => {
-                    assert_eq!(result.id, task.id);
-                    assert_eq!(result.status, crate::models::BackgroundAgentStatus::Paused);
-                }
-                other => panic!("expected executed outcome, got {other:?}"),
-            }
+            assert_eq!(updated.id, task.id);
+            assert_eq!(updated.status, crate::models::BackgroundAgentStatus::Paused);
         }
         other => panic!("expected success response, got {other:?}"),
     }
@@ -891,8 +847,6 @@ async fn process_create_agent_returns_stored_agent() {
                 model_routing: None,
             })
             .expect("contract agent node"),
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
@@ -907,37 +861,7 @@ async fn process_create_agent_returns_stored_agent() {
 }
 
 #[tokio::test]
-async fn process_create_agent_preview_returns_warning_assessment_without_persisting() {
-    let (core, _temp) = create_test_core().await;
-    let runtime_tool_registry = OnceLock::new();
-
-    let response = IpcServer::process(
-        &core,
-        &runtime_tool_registry,
-        IpcRequest::CreateAgent {
-            name: "preview-agent".to_string(),
-            agent: to_contract(AgentNode::new()).expect("contract agent"),
-            preview: true,
-            confirmation_token: None,
-        },
-    )
-    .await;
-
-    match response {
-        IpcResponse::Success(value) => {
-            assert_eq!(value["status"], "preview");
-            assert_eq!(value["assessment"]["status"], "warning");
-            assert_eq!(value["assessment"]["requires_confirmation"], true);
-            assert!(value["assessment"]["confirmation_token"].is_string());
-            let agents = core.storage.agents.list_agents().unwrap();
-            assert_eq!(agents.len(), 1, "preview must not persist a new agent");
-        }
-        other => panic!("expected preview response, got {other:?}"),
-    }
-}
-
-#[tokio::test]
-async fn process_create_agent_requires_confirmation_for_unconfigured_provider() {
+async fn process_create_agent_with_warning_persists_without_confirmation() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
 
@@ -947,24 +871,42 @@ async fn process_create_agent_requires_confirmation_for_unconfigured_provider() 
         IpcRequest::CreateAgent {
             name: "warning-agent".to_string(),
             agent: to_contract(AgentNode::new()).expect("contract agent"),
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
 
     match response {
-        IpcResponse::Error(error) => {
-            assert_eq!(error.code, 428);
-            assert_eq!(
-                error.kind,
-                restflow_contracts::ErrorKind::ConfirmationRequired
-            );
-            let details = error.details.expect("confirmation details");
-            assert_eq!(details["assessment"]["status"], "warning");
-            assert!(details["assessment"]["confirmation_token"].is_string());
+        IpcResponse::Success(value) => {
+            assert_eq!(value["name"], "warning-agent");
+            assert!(value["id"].as_str().is_some());
+            let agents = core.storage.agents.list_agents().unwrap();
+            assert_eq!(agents.len(), 2, "warning should not block persistence");
         }
-        other => panic!("expected confirmation_required response, got {other:?}"),
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn process_create_agent_still_returns_stored_agent_when_provider_is_unconfigured() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::CreateAgent {
+            name: "warning-agent".to_string(),
+            agent: to_contract(AgentNode::new()).expect("contract agent"),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            assert_eq!(value["name"], "warning-agent");
+            assert!(value["id"].as_str().is_some());
+        }
+        other => panic!("expected success response, got {other:?}"),
     }
 }
 
@@ -986,8 +928,6 @@ async fn process_create_agent_rejects_invalid_wire_model_ref() {
                 }),
                 ..ContractAgentNode::default()
             },
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
@@ -1005,7 +945,7 @@ async fn process_create_agent_rejects_invalid_wire_model_ref() {
 }
 
 #[tokio::test]
-async fn process_create_background_agent_requires_confirmation_when_agent_provider_missing() {
+async fn process_create_background_agent_persists_when_agent_provider_missing() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();
     let stored_agent = core
@@ -1036,26 +976,16 @@ async fn process_create_background_agent_requires_confirmation_when_agent_provid
                 continuation: None,
             })
             .expect("contract spec"),
-            preview: false,
-            confirmation_token: None,
         },
     )
     .await;
 
     match response {
         IpcResponse::Success(value) => {
-            let outcome: BackgroundAgentCommandOutcome<crate::models::BackgroundAgent> =
-                serde_json::from_value(value).expect("background agent outcome");
-            match outcome {
-                BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
-                    assert_eq!(
-                        assessment.status,
-                        restflow_traits::OperationAssessmentStatus::Warning
-                    );
-                    assert!(assessment.confirmation_token.is_some());
-                }
-                other => panic!("expected confirmation_required outcome, got {other:?}"),
-            }
+            let created: crate::models::BackgroundAgent =
+                serde_json::from_value(value).expect("background agent");
+            assert_eq!(created.name, "bg-warning");
+            assert_eq!(created.agent_id, stored_agent.id);
         }
         other => panic!("expected success response, got {other:?}"),
     }

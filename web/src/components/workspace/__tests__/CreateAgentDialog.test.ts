@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import CreateAgentDialog from '../CreateAgentDialog.vue'
-import { BackendError } from '@/api/http-client'
 
 const mockCreateAgent = vi.fn()
 const mockConfirm = vi.fn()
@@ -163,29 +162,12 @@ describe('CreateAgentDialog', () => {
     expect(wrapper.text()).not.toContain('>openai<')
   })
 
-  it('retries creation with confirmation token after warning', async () => {
-    mockCreateAgent
-      .mockRejectedValueOnce(
-        new BackendError({
-          code: 428,
-          kind: 'confirmation_required',
-          message: 'confirm',
-          details: {
-            assessment: {
-              status: 'warning',
-              warnings: [{ message: 'Provider is not configured.' }],
-              blockers: [],
-              requires_confirmation: true,
-              confirmation_token: 'token-1',
-            },
-          },
-        } as any),
-      )
-      .mockResolvedValueOnce({
-        id: 'agent-1',
-        name: 'Agent 20260101010101',
-        agent: {},
-      })
+  it('creates agent directly without confirmation retry', async () => {
+    mockCreateAgent.mockResolvedValueOnce({
+      id: 'agent-1',
+      name: 'Agent 20260101010101',
+      agent: {},
+    })
 
     const wrapper = mount(CreateAgentDialog, {
       props: { open: true },
@@ -214,12 +196,7 @@ describe('CreateAgentDialog', () => {
     await createButton!.trigger('click')
     await flushPromises()
 
-    expect(mockConfirm).toHaveBeenCalledOnce()
-    expect(mockCreateAgent).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({
-        confirmation_token: 'token-1',
-      }),
-    )
+    expect(mockConfirm).not.toHaveBeenCalled()
+    expect(mockCreateAgent).toHaveBeenCalledTimes(1)
   })
 })

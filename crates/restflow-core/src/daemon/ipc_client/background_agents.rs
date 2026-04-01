@@ -8,9 +8,7 @@ use crate::boundary::background_agent::{
 use crate::daemon::request_mapper::to_contract;
 use restflow_contracts::DeleteWithIdResponse;
 #[cfg(unix)]
-use restflow_traits::BackgroundAgentCommandOutcome;
-#[cfg(unix)]
-use restflow_traits::store::{BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest};
+use restflow_traits::store::BackgroundAgentConvertSessionRequest;
 
 #[cfg(unix)]
 impl IpcClient {
@@ -30,22 +28,16 @@ impl IpcClient {
     pub async fn create_background_agent(
         &mut self,
         spec: BackgroundAgentSpec,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    ) -> Result<BackgroundAgent> {
         let spec = core_spec_to_contract(spec)?;
-        self.request_typed(IpcRequest::CreateBackgroundAgent {
-            spec,
-            preview,
-            confirmation_token,
-        })
-        .await
+        self.request_typed(IpcRequest::CreateBackgroundAgent { spec })
+            .await
     }
 
     pub async fn convert_session_to_background_agent(
         &mut self,
         request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentCommandOutcome<crate::models::BackgroundAgentConversionResult>> {
+    ) -> Result<crate::models::BackgroundAgentConversionResult> {
         let request = store_convert_request_to_contract(request)?;
         self.request_typed(IpcRequest::ConvertSessionToBackgroundAgent { request })
             .await
@@ -55,53 +47,25 @@ impl IpcClient {
         &mut self,
         id: String,
         patch: BackgroundAgentPatch,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    ) -> Result<BackgroundAgent> {
         let patch = core_patch_to_contract(patch)?;
-        self.request_typed(IpcRequest::UpdateBackgroundAgent {
-            id,
-            patch,
-            preview,
-            confirmation_token,
-        })
-        .await
+        self.request_typed(IpcRequest::UpdateBackgroundAgent { id, patch })
+            .await
     }
 
-    pub async fn delete_background_agent(
-        &mut self,
-        id: String,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>> {
-        let request = BackgroundAgentDeleteRequest {
-            id,
-            preview,
-            confirmation_token,
-        };
-        self.request_typed(IpcRequest::DeleteBackgroundAgent {
-            id: request.id,
-            preview: request.preview,
-            confirmation_token: request.confirmation_token,
-        })
-        .await
+    pub async fn delete_background_agent(&mut self, id: String) -> Result<DeleteWithIdResponse> {
+        self.request_typed(IpcRequest::DeleteBackgroundAgent { id })
+            .await
     }
 
     pub async fn control_background_agent(
         &mut self,
         id: String,
         action: BackgroundAgentControlAction,
-        preview: bool,
-        confirmation_token: Option<String>,
-    ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgent>> {
+    ) -> Result<BackgroundAgent> {
         let action = to_contract(action)?;
-        self.request_typed(IpcRequest::ControlBackgroundAgent {
-            id,
-            action,
-            preview,
-            confirmation_token,
-        })
-        .await
+        self.request_typed(IpcRequest::ControlBackgroundAgent { id, action })
+            .await
     }
 
     pub async fn get_background_agent_history(

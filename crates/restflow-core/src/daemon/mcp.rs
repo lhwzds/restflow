@@ -29,7 +29,6 @@ use http::{
 };
 use http_body_util::{BodyExt, Full, combinators::BoxBody};
 use restflow_contracts::ErrorPayload;
-use restflow_traits::BackgroundAgentCommandOutcome;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -385,10 +384,7 @@ fn manifest_to_skill(manifest: SkillManifest, content: String) -> Skill {
 async fn api_convert_session_to_background_agent(
     State(state): State<DaemonHttpState>,
     Json(request): Json<restflow_contracts::request::BackgroundAgentConvertSessionRequest>,
-) -> std::result::Result<
-    Json<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>,
-    (StatusCode, Json<ErrorPayload>),
-> {
+) -> std::result::Result<Json<BackgroundAgentConversionResult>, (StatusCode, Json<ErrorPayload>)> {
     let store_request = crate::boundary::background_agent::contract_convert_request_to_store(
         request,
     )
@@ -403,7 +399,7 @@ async fn api_convert_session_to_background_agent(
         state.core.storage.as_ref(),
         Some(Arc::new(OperationAssessorAdapter::new(state.core.clone()))),
     )
-    .convert_session(store_request)
+    .convert_session_direct(store_request)
     .await
     .map_err(|error| {
         let status =

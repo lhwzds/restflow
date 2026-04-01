@@ -17,17 +17,12 @@ import { getAgent, updateAgent } from '@/api/agents'
 import { listSkills } from '@/api/skills'
 import { getAvailableTools } from '@/api/config'
 import { useModelsStore } from '@/stores/modelsStore'
-import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { ModelId } from '@/types/generated/ModelId'
 import type { Provider } from '@/types/generated/Provider'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
 import { getProviderDisplayName } from '@/utils/providerCatalog'
-import {
-  formatOperationAssessment,
-} from '@/utils/operationAssessment'
-import { runGuardedMutation } from '@/utils/guardedMutation'
 
 const props = defineProps<{
   agentId: string | null
@@ -40,7 +35,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
-const { confirm } = useConfirm()
 const modelsStore = useModelsStore()
 
 const loading = ref(false)
@@ -185,31 +179,7 @@ async function save() {
         temperature: parsedTemperature,
       },
     }
-    const updated = await runGuardedMutation<StoredAgent | null>(
-      (confirmationToken) =>
-        updateAgent(
-          agentId,
-          confirmationToken
-            ? {
-                ...request,
-                confirmation_token: confirmationToken,
-              }
-            : request,
-        ),
-      {
-        confirmWarning: async (assessment) =>
-          confirm({
-            title: 'Confirmation required',
-            description: formatOperationAssessment(assessment),
-            confirmText: 'Save anyway',
-            cancelText: 'Cancel',
-          }),
-        onCancel: async () => null,
-      },
-    )
-    if (!updated) {
-      return
-    }
+    const updated = await updateAgent(agentId, request)
     applyForm(updated)
     const emittedModelRef =
       updated.agent.model_ref ??

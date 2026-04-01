@@ -9,10 +9,6 @@ import { defineStore } from 'pinia'
 import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
 import type { BackgroundAgentStatus } from '@/types/generated/BackgroundAgentStatus'
 import * as api from '@/api/background-agents'
-import {
-  runGuardedMutation,
-  type AssessmentConfirmHandler,
-} from '@/utils/guardedMutation'
 
 interface BackgroundAgentState {
   agents: BackgroundAgent[]
@@ -108,25 +104,10 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
       }
     },
 
-    async runAgentNow(
-      id: string,
-      confirmWarning?: AssessmentConfirmHandler,
-    ): Promise<api.StreamingBackgroundAgentResponse | null> {
+    async runAgentNow(id: string): Promise<api.StreamingBackgroundAgentResponse | null> {
       this.error = null
       try {
-        const response = await runGuardedMutation<api.StreamingBackgroundAgentResponse | null>(
-          (confirmationToken) =>
-            confirmationToken
-              ? api.runBackgroundAgentStreaming(id, confirmationToken)
-              : api.runBackgroundAgentStreaming(id),
-          {
-            confirmWarning,
-            onCancel: async () => null,
-          },
-        )
-        if (!response) {
-          return null
-        }
+        const response = await api.runBackgroundAgentStreaming(id)
         await this.fetchAgents()
         return response
       } catch (err) {
@@ -137,25 +118,9 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     },
 
     async deleteAgent(id: string): Promise<boolean> {
-      return this.deleteAgentWithConfirmation(id)
-    },
-
-    async deleteAgentWithConfirmation(
-      id: string,
-      confirmWarning?: AssessmentConfirmHandler,
-    ): Promise<boolean> {
       this.error = null
       try {
-        const success = await runGuardedMutation(
-          (confirmationToken) =>
-            confirmationToken
-              ? api.deleteBackgroundAgent(id, confirmationToken)
-              : api.deleteBackgroundAgent(id),
-          {
-            confirmWarning,
-            onCancel: async () => false,
-          },
-        )
+        const success = await api.deleteBackgroundAgent(id)
         if (success) {
           this.agents = this.agents.filter((a) => a.id !== id)
           if (this.selectedAgentId === id) {
@@ -172,28 +137,10 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
 
     async convertSessionToAgent(
       request: api.ConvertSessionToBackgroundAgentRequest,
-      confirmWarning?: AssessmentConfirmHandler,
     ): Promise<BackgroundAgent | null> {
       this.error = null
       try {
-        const agent = await runGuardedMutation<BackgroundAgent | null>(
-          (confirmationToken) =>
-            api.convertSessionToBackgroundAgent(
-              confirmationToken
-                ? {
-                    ...request,
-                    confirmation_token: confirmationToken,
-                  }
-                : request,
-            ),
-          {
-            confirmWarning,
-            onCancel: async () => null,
-          },
-        )
-        if (!agent) {
-          return null
-        }
+        const agent = await api.convertSessionToBackgroundAgent(request)
         this.agents.push(agent)
         return agent
       } catch (err) {
@@ -207,10 +154,7 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
      * Convert a background-linked session back to a normal workspace session by
      * removing the background task binding while keeping the chat session.
      */
-    async convertSessionToWorkspace(
-      sessionId: string,
-      confirmWarning?: AssessmentConfirmHandler,
-    ): Promise<boolean> {
+    async convertSessionToWorkspace(sessionId: string): Promise<boolean> {
       this.error = null
       try {
         let target = this.agents.find((agent) => agent.chat_session_id === sessionId) ?? null
@@ -224,7 +168,7 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
           return false
         }
 
-        const deleted = await this.deleteAgentWithConfirmation(target.id, confirmWarning)
+        const deleted = await this.deleteAgent(target.id)
         if (!deleted) {
           return false
         }

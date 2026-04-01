@@ -23,16 +23,11 @@ import {
 } from '@/components/ui/select'
 import { createAgent } from '@/api/agents'
 import { useModelsStore } from '@/stores/modelsStore'
-import { useConfirm } from '@/composables/useConfirm'
 import { useToast } from '@/composables/useToast'
 import type { ModelId } from '@/types/generated/ModelId'
 import type { Provider } from '@/types/generated/Provider'
 import type { WorkspaceAgentModelSelection } from '@/types/workspace'
 import { getProviderDisplayName } from '@/utils/providerCatalog'
-import {
-  formatOperationAssessment,
-} from '@/utils/operationAssessment'
-import { runGuardedMutation } from '@/utils/guardedMutation'
 import type { StoredAgent } from '@/types/generated/StoredAgent'
 
 const props = defineProps<{ open: boolean }>()
@@ -44,7 +39,6 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const toast = useToast()
-const { confirm } = useConfirm()
 const modelsStore = useModelsStore()
 
 const name = ref('')
@@ -115,30 +109,7 @@ async function submit() {
         },
       },
     }
-    const agent = await runGuardedMutation<StoredAgent | null>(
-      (confirmationToken) =>
-        createAgent(
-          confirmationToken
-            ? {
-                ...request,
-                confirmation_token: confirmationToken,
-              }
-            : request,
-        ),
-      {
-        confirmWarning: async (assessment) =>
-          confirm({
-            title: 'Confirmation required',
-            description: formatOperationAssessment(assessment),
-            confirmText: 'Create anyway',
-            cancelText: 'Cancel',
-          }),
-        onCancel: async () => null,
-      },
-    )
-    if (!agent) {
-      return
-    }
+    const agent: StoredAgent = await createAgent(request)
     toast.success(t('workspace.agent.createSuccess'))
     const emittedModelRef = agent.agent.model_ref ?? {
       provider: selectedProvider as Provider,

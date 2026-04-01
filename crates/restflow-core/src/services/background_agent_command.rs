@@ -12,7 +12,7 @@ use crate::services::background_agent_conversion::{
     ConvertSessionSpecOptions, build_convert_session_spec,
 };
 use crate::services::operation_assessment::{
-    assessment_requires_confirmation, ensure_assessment_confirmed,
+    assessment_requires_confirmation, assessment_summary, ensure_assessment_confirmed,
 };
 use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, Storage};
@@ -22,9 +22,7 @@ use restflow_traits::store::{
     BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
     BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
 };
-use restflow_traits::{
-    AgentOperationAssessor, BackgroundAgentCommandOutcome, OperationAssessment,
-};
+use restflow_traits::{AgentOperationAssessor, BackgroundAgentCommandOutcome, OperationAssessment};
 use std::sync::Arc;
 
 type CommandResult<T> = std::result::Result<T, BackgroundAgentCommandError>;
@@ -191,6 +189,22 @@ impl BackgroundAgentCommandService {
         })
     }
 
+    pub async fn create_direct_from_request(
+        &self,
+        request: BackgroundAgentCreateRequest,
+    ) -> CommandResult<BackgroundAgent> {
+        let request = self.normalize_create_request(request)?;
+        self.validate_create_request(&request)?;
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_create(request.clone())
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let spec = create_request_to_spec(request)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        self.finish_direct_mutation(assessment, || self.create(spec))
+    }
+
     fn update(&self, id: &str, patch: BackgroundAgentPatch) -> CommandResult<BackgroundAgent> {
         self.storage
             .update_background_agent(id, patch)
@@ -218,6 +232,23 @@ impl BackgroundAgentCommandService {
         })
     }
 
+    pub async fn update_direct_from_request(
+        &self,
+        request: BackgroundAgentUpdateRequest,
+    ) -> CommandResult<BackgroundAgent> {
+        let request = self.normalize_update_request(request)?;
+        self.validate_update_request(&request)?;
+        let resolved_id = request.id.clone();
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_update(request.clone())
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let patch = update_request_to_patch(request)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        self.finish_direct_mutation(assessment, || self.update(&resolved_id, patch))
+    }
+
     pub fn delete(&self, id: &str) -> CommandResult<bool> {
         self.storage
             .delete_task(id)
@@ -239,6 +270,27 @@ impl BackgroundAgentCommandService {
             .await
             .map_err(BackgroundAgentCommandError::from_tool_error)?;
         self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
+            let deleted = self.delete(&resolved_id)?;
+            Ok(DeleteWithIdResponse {
+                id: resolved_id,
+                deleted,
+            })
+        })
+    }
+
+    pub async fn delete_direct_from_request(
+        &self,
+        request: BackgroundAgentDeleteRequest,
+    ) -> CommandResult<DeleteWithIdResponse> {
+        let request = self.normalize_delete_request(request)?;
+        self.validate_delete_request(&request)?;
+        let resolved_id = request.id.clone();
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_delete(request)
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        self.finish_direct_mutation(assessment, || {
             let deleted = self.delete(&resolved_id)?;
             Ok(DeleteWithIdResponse {
                 id: resolved_id,
@@ -293,6 +345,21 @@ impl BackgroundAgentCommandService {
         })
     }
 
+    pub async fn control_direct_from_request(
+        &self,
+        request: BackgroundAgentControlRequest,
+    ) -> CommandResult<BackgroundAgent> {
+        let (request, action) = self.normalize_control_request(request)?;
+        self.validate_control_request(&request)?;
+        let resolved_id = request.id.clone();
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_control(request.clone())
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        self.finish_direct_mutation(assessment, || self.control(&resolved_id, action))
+    }
+
     pub async fn convert_session(
         &self,
         request: BackgroundAgentConvertSessionRequest,
@@ -338,6 +405,68 @@ impl BackgroundAgentCommandService {
         .map_err(|error| BackgroundAgentCommandError::internal(error.to_string()))?;
 
         self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
+            let mut task = self
+                .storage
+                .create_background_agent(spec)
+                .map_err(BackgroundAgentCommandError::from_anyhow)?;
+            if options.run_now {
+                task = self
+                    .storage
+                    .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)
+                    .map_err(BackgroundAgentCommandError::from_anyhow)?;
+            }
+            Ok(BackgroundAgentConversionResult {
+                task,
+                source_session_id: session.id,
+                source_session_agent_id: session.agent_id,
+                run_now: options.run_now,
+            })
+        })
+    }
+
+    pub async fn convert_session_direct(
+        &self,
+        request: BackgroundAgentConvertSessionRequest,
+    ) -> CommandResult<BackgroundAgentConversionResult> {
+        let request = self.normalize_convert_session_request(request);
+        self.validate_convert_session_request(&request)?;
+        let session_id = request.session_id.clone();
+
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_convert_session(request.clone())
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+
+        let session = self
+            .session_service
+            .get_session_view(&session_id)
+            .map_err(BackgroundAgentCommandError::from_anyhow)?
+            .ok_or_else(|| {
+                BackgroundAgentCommandError::not_found(format!("Session not found: {}", session_id))
+            })?;
+        let options = convert_session_request_to_options(request)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let spec = build_convert_session_spec(
+            &session,
+            ConvertSessionSpecOptions {
+                name: options.name,
+                description: None,
+                schedule: Some(options.schedule),
+                input: options.input,
+                notification: None,
+                execution_mode: None,
+                timeout_secs: options.timeout_secs,
+                memory: options.memory,
+                durability_mode: options.durability_mode,
+                resource_limits: options.resource_limits,
+                prerequisites: Vec::new(),
+                continuation: None,
+            },
+        )
+        .map_err(|error| BackgroundAgentCommandError::internal(error.to_string()))?;
+
+        self.finish_direct_mutation(assessment, || {
             let mut task = self
                 .storage
                 .create_background_agent(spec)
@@ -535,6 +664,19 @@ impl BackgroundAgentCommandService {
             return Ok(BackgroundAgentCommandOutcome::ConfirmationRequired { assessment });
         }
         Ok(BackgroundAgentCommandOutcome::Executed { result: execute()? })
+    }
+
+    fn finish_direct_mutation<T>(
+        &self,
+        assessment: OperationAssessment,
+        execute: impl FnOnce() -> CommandResult<T>,
+    ) -> CommandResult<T> {
+        if !assessment.blockers.is_empty() {
+            return Err(BackgroundAgentCommandError::classify(assessment_summary(
+                &assessment,
+            )));
+        }
+        execute()
     }
 }
 
@@ -995,6 +1137,50 @@ mod tests {
             other => panic!("expected executed outcome, got {other:?}"),
         }
 
+        assert!(
+            service
+                .storage
+                .get_task(&task.id)
+                .expect("load task")
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn delete_direct_executes_without_confirmation_token() {
+        let (service, session, _dir) = setup();
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Delete Direct".to_string(),
+                agent_id: session.agent_id,
+                chat_session_id: None,
+                description: None,
+                input: Some("delete direct".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let result = service
+            .delete_direct_from_request(BackgroundAgentDeleteRequest {
+                id: task.id.clone(),
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("delete direct");
+
+        assert_eq!(result.id, task.id);
+        assert!(result.deleted);
         assert!(
             service
                 .storage

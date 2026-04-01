@@ -9,8 +9,7 @@ import type { BackgroundAgentConversionResult } from '@/types/generated/Backgrou
 import type { MemoryChunk } from '@/types/generated/MemoryChunk'
 import type { MemorySession } from '@/types/generated/MemorySession'
 import type { TaskEvent } from '@/types/generated/TaskEvent'
-import type { OperationAssessment } from '@/utils/operationAssessment'
-import { BackendError, fetchJson, requestOptional, requestTyped } from './http-client'
+import { fetchJson, requestOptional, requestTyped } from './http-client'
 
 export type { BackgroundAgent, TaskEvent }
 
@@ -42,37 +41,29 @@ export async function getBackgroundAgent(id: string): Promise<BackgroundAgent | 
 export async function pauseBackgroundAgent(id: string): Promise<BackgroundAgent> {
   return requestTyped<BackgroundAgent>({
     type: 'ControlBackgroundAgent',
-    data: { id, action: 'pause', preview: false, confirmation_token: null },
+    data: { id, action: 'pause' },
   })
 }
 
 export async function resumeBackgroundAgent(id: string): Promise<BackgroundAgent> {
   return requestTyped<BackgroundAgent>({
     type: 'ControlBackgroundAgent',
-    data: { id, action: 'resume', preview: false, confirmation_token: null },
+    data: { id, action: 'resume' },
   })
 }
 
 export async function stopBackgroundAgent(taskId: string): Promise<boolean> {
   await requestTyped({
     type: 'ControlBackgroundAgent',
-    data: { id: taskId, action: 'stop', preview: false, confirmation_token: null },
+    data: { id: taskId, action: 'stop' },
   })
   return true
 }
 
-export async function runBackgroundAgentStreaming(
-  id: string,
-  confirmationToken?: string,
-): Promise<StreamingBackgroundAgentResponse> {
+export async function runBackgroundAgentStreaming(id: string): Promise<StreamingBackgroundAgentResponse> {
   const agent = await requestTyped<BackgroundAgent>({
     type: 'ControlBackgroundAgent',
-    data: {
-      id,
-      action: 'run_now',
-      preview: false,
-      confirmation_token: confirmationToken ?? null,
-    },
+    data: { id, action: 'run_now' },
   })
 
   return {
@@ -110,42 +101,12 @@ export async function getHeartbeatEventName(): Promise<string> {
 
 export async function deleteBackgroundAgent(
   id: string,
-  confirmationToken?: string,
 ): Promise<boolean> {
-  const outcome = await requestTyped<BackgroundAgentCommandOutcome<DeleteBackgroundAgentResult>>({
+  const result = await requestTyped<DeleteBackgroundAgentResult>({
     type: 'DeleteBackgroundAgent',
-    data: {
-      id,
-      preview: false,
-      confirmation_token: confirmationToken ?? null,
-    },
+    data: { id },
   })
-
-  switch (outcome.status) {
-    case 'executed':
-      return outcome.result.deleted
-    case 'confirmation_required':
-      throw toAssessmentError(
-        428,
-        'conflict',
-        outcome.assessment,
-        'Confirmation required before deleting this background agent.',
-      )
-    case 'blocked':
-      throw toAssessmentError(
-        400,
-        'validation',
-        outcome.assessment,
-        'Failed to delete background agent.',
-      )
-    case 'preview':
-      throw toAssessmentError(
-        409,
-        'conflict',
-        outcome.assessment,
-        'Preview responses are not supported for direct background-agent deletion.',
-      )
-  }
+  return result.deleted
 }
 
 export interface ConvertSessionToBackgroundAgentRequest {
@@ -153,7 +114,6 @@ export interface ConvertSessionToBackgroundAgentRequest {
   name?: string
   input?: string
   run_now?: boolean
-  confirmation_token?: string
 }
 
 export interface UpdateBackgroundAgentRequest {
@@ -164,41 +124,12 @@ export interface UpdateBackgroundAgentRequest {
   input?: string
   input_template?: string
   timeout_secs?: number
-  preview?: boolean
-  confirmation_token?: string
-}
-
-type BackgroundAgentCommandOutcome<T> =
-  | { status: 'preview'; assessment: OperationAssessment }
-  | { status: 'blocked'; assessment: OperationAssessment }
-  | { status: 'confirmation_required'; assessment: OperationAssessment }
-  | { status: 'executed'; result: T }
-
-function firstAssessmentMessage(
-  assessment: OperationAssessment,
-  fallback: string,
-): string {
-  return assessment.blockers[0]?.message ?? assessment.warnings[0]?.message ?? fallback
-}
-
-function toAssessmentError(
-  code: number,
-  kind: 'validation' | 'conflict',
-  assessment: OperationAssessment,
-  fallbackMessage: string,
-): BackendError {
-  return new BackendError({
-    code,
-    kind,
-    message: firstAssessmentMessage(assessment, fallbackMessage),
-    details: { assessment },
-  })
 }
 
 export async function convertSessionToBackgroundAgent(
   request: ConvertSessionToBackgroundAgentRequest,
 ): Promise<BackgroundAgent> {
-  const outcome = await fetchJson<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>(
+  const result = await fetchJson<BackgroundAgentConversionResult>(
     '/api/background-agents/convert-session',
     {
       method: 'POST',
@@ -206,32 +137,7 @@ export async function convertSessionToBackgroundAgent(
       body: JSON.stringify(request),
     },
   )
-
-  switch (outcome.status) {
-    case 'executed':
-      return outcome.result.task
-    case 'confirmation_required':
-      throw toAssessmentError(
-        428,
-        'conflict',
-        outcome.assessment,
-        'Confirmation required before converting this session.',
-      )
-    case 'blocked':
-      throw toAssessmentError(
-        400,
-        'validation',
-        outcome.assessment,
-        'Failed to convert session to background agent.',
-      )
-    case 'preview':
-      throw toAssessmentError(
-        409,
-        'conflict',
-        outcome.assessment,
-        'Preview responses are not supported for direct session conversion.',
-      )
-  }
+  return result.task
 }
 
 export async function updateBackgroundAgent(
@@ -242,13 +148,7 @@ export async function updateBackgroundAgent(
     type: 'UpdateBackgroundAgent',
     data: {
       id,
-      patch: {
-        ...request,
-        preview: undefined,
-        confirmation_token: undefined,
-      },
-      preview: request.preview ?? false,
-      confirmation_token: request.confirmation_token ?? null,
+      patch: request,
     },
   })
 }

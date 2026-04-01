@@ -1,10 +1,9 @@
 use anyhow::Result;
 use comfy_table::{Cell, Table};
 use restflow_contracts::DeleteWithIdResponse;
-use restflow_traits::{BackgroundAgentCommandOutcome, OperationAssessment};
 use std::sync::Arc;
 
-use crate::cli::{BackgroundAgentCommands, MutationGuardArgs, OutputFormat};
+use crate::cli::{BackgroundAgentCommands, OutputFormat};
 use crate::commands::utils::format_timestamp;
 use crate::executor::CommandExecutor;
 use crate::output::json::print_json;
@@ -41,7 +40,6 @@ pub async fn run(
             input_template,
             timeout,
             notify,
-            guard,
         } => {
             create_background_agent(
                 executor,
@@ -53,7 +51,6 @@ pub async fn run(
                 input_template,
                 timeout,
                 notify,
-                guard,
                 format,
             )
             .await
@@ -66,7 +63,6 @@ pub async fn run(
             schedule_value,
             timeout,
             run_now,
-            guard,
         } => {
             convert_session_to_background_agent(
                 executor,
@@ -77,7 +73,6 @@ pub async fn run(
                 schedule_value,
                 timeout,
                 run_now,
-                guard,
                 format,
             )
             .await
@@ -89,7 +84,6 @@ pub async fn run(
             schedule,
             schedule_value,
             timeout,
-            guard,
         } => {
             update_background_agent(
                 executor,
@@ -99,16 +93,15 @@ pub async fn run(
                 schedule,
                 schedule_value,
                 timeout,
-                guard,
                 format,
             )
             .await
         }
-        BackgroundAgentCommands::Delete { id, guard } => {
-            delete_background_agent(executor, &id, guard, format).await
+        BackgroundAgentCommands::Delete { id } => {
+            delete_background_agent(executor, &id, format).await
         }
-        BackgroundAgentCommands::Control { id, action, guard } => {
-            control_background_agent(executor, &id, &action, guard, format).await
+        BackgroundAgentCommands::Control { id, action } => {
+            control_background_agent(executor, &id, &action, format).await
         }
         BackgroundAgentCommands::Progress { id, limit } => {
             show_progress(executor, &id, limit, format).await
@@ -195,60 +188,6 @@ async fn show_background_agent(
     Ok(())
 }
 
-fn guard_parts(guard: MutationGuardArgs) -> (bool, Option<String>) {
-    (guard.preview, guard.confirmation_token)
-}
-
-fn print_assessment(status: &str, assessment: &OperationAssessment) {
-    println!("Status: {}", status);
-    println!("Operation: {}", assessment.operation);
-    println!("Intent: {:?}", assessment.intent);
-    if let Some(token) = assessment.confirmation_token.as_deref() {
-        println!("Confirmation Token: {}", token);
-    }
-    if !assessment.warnings.is_empty() {
-        println!("Warnings:");
-        for warning in &assessment.warnings {
-            println!("- {}", warning.message);
-        }
-    }
-    if !assessment.blockers.is_empty() {
-        println!("Blockers:");
-        for blocker in &assessment.blockers {
-            println!("- {}", blocker.message);
-        }
-    }
-}
-
-fn handle_mutation_outcome<T>(
-    outcome: BackgroundAgentCommandOutcome<T>,
-    format: OutputFormat,
-    on_executed: impl FnOnce(T) -> Result<()>,
-) -> Result<()>
-where
-    T: serde::Serialize,
-{
-    if format.is_json() {
-        return print_json(&outcome);
-    }
-
-    match outcome {
-        BackgroundAgentCommandOutcome::Executed { result } => on_executed(result),
-        BackgroundAgentCommandOutcome::Preview { assessment } => {
-            print_assessment("preview", &assessment);
-            Ok(())
-        }
-        BackgroundAgentCommandOutcome::Blocked { assessment } => {
-            print_assessment("blocked", &assessment);
-            Ok(())
-        }
-        BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
-            print_assessment("confirmation_required", &assessment);
-            Ok(())
-        }
-    }
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn convert_session_to_background_agent(
     executor: Arc<dyn CommandExecutor>,
@@ -259,7 +198,6 @@ async fn convert_session_to_background_agent(
     schedule_value: Option<String>,
     timeout_secs: Option<u64>,
     run_now: bool,
-    guard: MutationGuardArgs,
     format: OutputFormat,
 ) -> Result<()> {
     let schedule = if let Some(schedule_type) = schedule_type {
@@ -267,9 +205,7 @@ async fn convert_session_to_background_agent(
     } else {
         None
     };
-    let (preview, confirmation_token) = guard_parts(guard);
-
-    let outcome = executor
+    let result = executor
         .convert_session_to_background_agent(BackgroundAgentConvertSessionRequest {
             session_id: session_id.to_string(),
             name,
@@ -283,23 +219,25 @@ async fn convert_session_to_background_agent(
             memory_scope: None,
             resource_limits: None,
             run_now: Some(run_now),
-            preview,
-            confirmation_token,
+            preview: false,
+            confirmation_token: None,
         })
         .await?;
 
-    handle_mutation_outcome(outcome, format, |result| {
-        println!(
-            "Converted session {} -> background agent {} ({})",
-            session_id,
-            result.task.name,
-            &result.task.id[..8.min(result.task.id.len())]
-        );
-        if result.run_now {
-            println!("Triggered immediate run.");
-        }
-        Ok(())
-    })
+    if format.is_json() {
+        return print_json(&result);
+    }
+
+    println!(
+        "Converted session {} -> background agent {} ({})",
+        session_id,
+        result.task.name,
+        &result.task.id[..8.min(result.task.id.len())]
+    );
+    if result.run_now {
+        println!("Triggered immediate run.");
+    }
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -313,7 +251,6 @@ async fn create_background_agent(
     input_template: Option<String>,
     timeout_secs: Option<u64>,
     notify: bool,
-    guard: MutationGuardArgs,
     format: OutputFormat,
 ) -> Result<()> {
     let schedule = parse_schedule(&schedule_type, schedule_value)?;
@@ -346,19 +283,18 @@ async fn create_background_agent(
         continuation: None,
     };
 
-    let (preview, confirmation_token) = guard_parts(guard);
-    let outcome = executor
-        .create_background_agent(spec, preview, confirmation_token)
-        .await?;
+    let agent = executor.create_background_agent(spec).await?;
 
-    handle_mutation_outcome(outcome, format, |agent| {
-        println!(
-            "Background agent created: {} ({})",
-            agent.name,
-            &agent.id[..8.min(agent.id.len())]
-        );
-        Ok(())
-    })
+    if format.is_json() {
+        return print_json(&agent);
+    }
+
+    println!(
+        "Background agent created: {} ({})",
+        agent.name,
+        &agent.id[..8.min(agent.id.len())]
+    );
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -370,7 +306,6 @@ async fn update_background_agent(
     schedule_type: Option<String>,
     schedule_value: Option<String>,
     timeout_secs: Option<u64>,
-    guard: MutationGuardArgs,
     format: OutputFormat,
 ) -> Result<()> {
     let schedule = if let (Some(st), sv) = (schedule_type, schedule_value) {
@@ -397,58 +332,55 @@ async fn update_background_agent(
         continuation: None,
     };
 
-    let (preview, confirmation_token) = guard_parts(guard);
-    let outcome = executor
-        .update_background_agent(id, patch, preview, confirmation_token)
-        .await?;
+    let agent = executor.update_background_agent(id, patch).await?;
 
-    handle_mutation_outcome(outcome, format, |agent| {
-        println!(
-            "Background agent updated: {} ({})",
-            agent.name,
-            &agent.id[..8.min(agent.id.len())]
-        );
-        Ok(())
-    })
+    if format.is_json() {
+        return print_json(&agent);
+    }
+
+    println!(
+        "Background agent updated: {} ({})",
+        agent.name,
+        &agent.id[..8.min(agent.id.len())]
+    );
+    Ok(())
 }
 
 async fn delete_background_agent(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
-    guard: MutationGuardArgs,
     format: OutputFormat,
 ) -> Result<()> {
-    let (preview, confirmation_token) = guard_parts(guard);
-    let outcome = executor
-        .delete_background_agent(id, preview, confirmation_token)
-        .await?;
+    let result: DeleteWithIdResponse = executor.delete_background_agent(id).await?;
 
-    handle_mutation_outcome(outcome, format, |result: DeleteWithIdResponse| {
-        println!("Background agent deleted: {}", result.id);
-        Ok(())
-    })
+    if format.is_json() {
+        return print_json(&result);
+    }
+
+    println!("Background agent deleted: {}", result.id);
+    Ok(())
 }
 
 async fn control_background_agent(
     executor: Arc<dyn CommandExecutor>,
     id: &str,
     action: &str,
-    guard: MutationGuardArgs,
     format: OutputFormat,
 ) -> Result<()> {
     let parsed_action = parse_control_action(action)?;
-    let (preview, confirmation_token) = guard_parts(guard);
-    let outcome = executor
-        .control_background_agent(id, parsed_action.clone(), preview, confirmation_token)
+    let agent = executor
+        .control_background_agent(id, parsed_action.clone())
         .await?;
 
-    handle_mutation_outcome(outcome, format, |agent| {
-        println!(
-            "Background agent {} action: {:?} -> {:?}",
-            id, parsed_action, agent.status
-        );
-        Ok(())
-    })
+    if format.is_json() {
+        return print_json(&agent);
+    }
+
+    println!(
+        "Background agent {} action: {:?} -> {:?}",
+        id, parsed_action, agent.status
+    );
+    Ok(())
 }
 
 async fn show_progress(
