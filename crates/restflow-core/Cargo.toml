@@ -50,7 +50,7 @@ rand = "0.10"
 portable-pty = "0.9"
 redb = "3.1.0"
 regex = "1.11.1"
-rmcp = { version = "0.14", features = ["client", "server", "transport-streamable-http-server"] }
+rmcp = { version = "1.2", features = ["client", "server", "transport-streamable-http-server"] }
 schemars = "1.2"
 lsp-types = "0.97"
 notify = "8.2"
