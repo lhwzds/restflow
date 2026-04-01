@@ -1204,7 +1204,10 @@ impl McpBackend for MockBackend {
     async fn delete_background_agent(
         &self,
         request: restflow_traits::store::BackgroundAgentDeleteRequest,
-    ) -> Result<restflow_traits::BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>, String> {
+    ) -> Result<
+        restflow_traits::BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>,
+        String,
+    > {
         Ok(restflow_traits::BackgroundAgentCommandOutcome::Executed {
             result: restflow_contracts::DeleteWithIdResponse {
                 id: request.id,
@@ -1398,7 +1401,7 @@ impl McpBackend for MockBackend {
                     let run_now = input
                         .get("run_now")
                         .and_then(Value::as_bool)
-                        .unwrap_or(true);
+                        .unwrap_or(false);
                     json!({
                         "status": "executed",
                         "result": {
@@ -1614,6 +1617,27 @@ async fn test_manage_background_agents_convert_session_operation() {
 }
 
 #[tokio::test]
+async fn test_manage_background_agents_convert_session_defaults_run_now_to_false() {
+    let backend = Arc::new(MockBackend::new());
+    let session_id = backend.session.id.clone();
+    let server = RestFlowMcpServer::with_backend(backend);
+    let mut params = base_manage_background_params("convert_session");
+    params.session_id = Some(session_id.clone());
+    params.input = Some("Continue in background".to_string());
+    params.run_now = None;
+
+    let json = server
+        .handle_manage_background_agents(params)
+        .await
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["status"], "executed");
+    assert_eq!(value["result"]["source_session_id"], session_id);
+    assert_eq!(value["result"]["task"]["chat_session_id"], session_id);
+    assert_eq!(value["result"]["run_now"], false);
+}
+
+#[tokio::test]
 async fn test_manage_background_agents_promote_to_background_operation() {
     let backend = Arc::new(MockBackend::new());
     let session_id = backend.session.id.clone();
@@ -1632,6 +1656,27 @@ async fn test_manage_background_agents_promote_to_background_operation() {
     assert_eq!(value["result"]["source_session_id"], session_id);
     assert_eq!(value["result"]["task"]["chat_session_id"], session_id);
     assert_eq!(value["result"]["run_now"], true);
+}
+
+#[tokio::test]
+async fn test_manage_background_agents_promote_to_background_defaults_run_now_to_false() {
+    let backend = Arc::new(MockBackend::new());
+    let session_id = backend.session.id.clone();
+    let server = RestFlowMcpServer::with_backend(backend);
+    let mut params = base_manage_background_params("promote_to_background");
+    params.session_id = Some(session_id.clone());
+    params.input = Some("Promote this chat".to_string());
+    params.run_now = None;
+
+    let json = server
+        .handle_manage_background_agents(params)
+        .await
+        .unwrap();
+    let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+    assert_eq!(value["status"], "executed");
+    assert_eq!(value["result"]["source_session_id"], session_id);
+    assert_eq!(value["result"]["task"]["chat_session_id"], session_id);
+    assert_eq!(value["result"]["run_now"], false);
 }
 
 #[tokio::test]
@@ -1858,16 +1903,17 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
             name: Some("delete-prefix-contract".to_string()),
             agent_id: Some("default".to_string()),
             input: Some("delete later".to_string()),
-            schedule: Some(serde_json::json!(restflow_contracts::request::TaskSchedule::Interval {
-                interval_ms: 60_000,
-                start_at: None,
-            })),
+            schedule: Some(serde_json::json!(
+                restflow_contracts::request::TaskSchedule::Interval {
+                    interval_ms: 60_000,
+                    start_at: None,
+                }
+            )),
             ..ManageBackgroundAgentsParams::default()
         })
         .await
         .expect("create response");
-    let created: serde_json::Value =
-        serde_json::from_str(&create).expect("create response json");
+    let created: serde_json::Value = serde_json::from_str(&create).expect("create response json");
     let task_id = created["result"]["id"]
         .as_str()
         .expect("created task should have id")
@@ -1898,8 +1944,7 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
         })
         .await
         .expect("delete response");
-    let deleted: serde_json::Value =
-        serde_json::from_str(&delete).expect("delete response json");
+    let deleted: serde_json::Value = serde_json::from_str(&delete).expect("delete response json");
     assert_eq!(deleted["result"]["id"], task_id);
     assert_eq!(deleted["result"]["deleted"], true);
 }
@@ -2152,9 +2197,8 @@ async fn test_manage_hooks_update_operation_can_clear_description_and_filter() {
         agent_id: Some("agent-1".to_string()),
         success_only: Some(true),
     });
-    let server = RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_hooks(vec![
-        existing_hook,
-    ])));
+    let server =
+        RestFlowMcpServer::with_backend(Arc::new(MockBackend::with_hooks(vec![existing_hook])));
     let params = ManageHooksParams {
         operation: "update".to_string(),
         id: Some("hook-1".to_string()),
