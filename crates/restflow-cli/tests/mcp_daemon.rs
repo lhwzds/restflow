@@ -1,12 +1,14 @@
 use anyhow::{Context, Result, bail};
 use reqwest::Client;
 use serde_json::{Value, json};
+use std::fs::File;
 use std::net::TcpListener;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 use tempfile::tempdir;
-use tokio::time::sleep;
+use tokio::time::{Instant, sleep};
 
 fn env_lock() -> MutexGuard<'static, ()> {
     static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -15,20 +17,22 @@ fn env_lock() -> MutexGuard<'static, ()> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
-fn reserve_port() -> u16 {
-    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
-    let port = listener.local_addr().expect("local addr").port();
-    drop(listener);
-    port
-}
-
 struct DaemonChild {
     child: Child,
+    log_path: PathBuf,
 }
 
 impl DaemonChild {
     fn try_wait(&mut self) -> std::io::Result<Option<std::process::ExitStatus>> {
         self.child.try_wait()
+    }
+
+    fn diagnostics(&self) -> String {
+        let body = std::fs::read_to_string(&self.log_path).unwrap_or_else(|error| {
+            format!("<failed to read log {}: {error}>", self.log_path.display())
+        });
+        let tail = tail_text(&body, 8000);
+        format!("daemon_log_path={}\n{}", self.log_path.display(), tail)
     }
 }
 
@@ -41,6 +45,11 @@ impl Drop for DaemonChild {
 
 fn spawn_daemon(db_path: &str, state_dir: &str, port: u16) -> Result<DaemonChild> {
     let web_dist_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../web/dist");
+    let log_path = Path::new(state_dir).join("mcp-daemon-test.log");
+    let log_file = File::create(&log_path).context("create daemon test log")?;
+    let stderr_file = log_file
+        .try_clone()
+        .context("clone daemon test log handle")?;
     let child = Command::new(assert_cmd::cargo::cargo_bin!("restflow"))
         .args([
             "--db-path",
@@ -53,11 +62,18 @@ fn spawn_daemon(db_path: &str, state_dir: &str, port: u16) -> Result<DaemonChild
         ])
         .env("RESTFLOW_DIR", state_dir)
         .env("RESTFLOW_WEB_DIST_DIR", web_dist_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
+        .stdout(Stdio::from(log_file))
+        .stderr(Stdio::from(stderr_file))
         .spawn()
         .context("failed to spawn restflow daemon")?;
-    Ok(DaemonChild { child })
+    Ok(DaemonChild { child, log_path })
+}
+
+fn reserve_port() -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+    let port = listener.local_addr().expect("local addr").port();
+    drop(listener);
+    port
 }
 
 async fn post_json_rpc(client: &Client, url: &str, payload: Value) -> Result<Value> {
@@ -80,6 +96,14 @@ async fn post_json_rpc(client: &Client, url: &str, payload: Value) -> Result<Val
     parse_json_rpc_response(&body)
 }
 
+fn tail_text(body: &str, max_chars: usize) -> String {
+    let count = body.chars().count();
+    if count <= max_chars {
+        return body.to_string();
+    }
+    body.chars().skip(count - max_chars).collect()
+}
+
 fn parse_json_rpc_response(body: &str) -> Result<Value> {
     let trimmed = body.trim();
     if trimmed.starts_with("data:") {
@@ -99,7 +123,7 @@ fn parse_json_rpc_response(body: &str) -> Result<Value> {
     serde_json::from_str(trimmed).with_context(|| format!("invalid JSON response: {}", body))
 }
 
-async fn wait_for_mcp_ready(client: &Client, url: &str, daemon: &mut DaemonChild) -> Result<()> {
+async fn wait_for_mcp_ready(url: &str, daemon: &mut DaemonChild) -> Result<()> {
     let initialize = json!({
         "jsonrpc": "2.0",
         "id": 1,
@@ -113,22 +137,73 @@ async fn wait_for_mcp_ready(client: &Client, url: &str, daemon: &mut DaemonChild
             }
         }
     });
+    let probe_client = Client::builder()
+        .timeout(Duration::from_millis(250))
+        .connect_timeout(Duration::from_millis(250))
+        .build()
+        .context("build MCP readiness client")?;
+    let deadline = Instant::now() + Duration::from_secs(12);
+    let mut last_error = String::from("daemon has not responded yet");
 
-    for _ in 0..120 {
+    while Instant::now() < deadline {
         if let Some(status) = daemon
             .try_wait()
             .context("failed to poll daemon child status")?
         {
-            bail!("daemon exited before MCP was ready: {}", status);
+            bail!(
+                "daemon exited before MCP was ready: {}\n{}",
+                status,
+                daemon.diagnostics()
+            );
         }
 
-        match post_json_rpc(client, url, initialize.clone()).await {
+        match post_json_rpc(&probe_client, url, initialize.clone()).await {
             Ok(response) if response.get("result").is_some() => return Ok(()),
-            Ok(_) | Err(_) => sleep(Duration::from_millis(100)).await,
+            Ok(response) => {
+                last_error = format!("unexpected initialize response: {response}");
+            }
+            Err(error) => {
+                last_error = error.to_string();
+            }
+        }
+
+        sleep(Duration::from_millis(100)).await;
+    }
+
+    bail!(
+        "timed out waiting for MCP HTTP server readiness; last_error: {}\n{}",
+        last_error,
+        daemon.diagnostics()
+    )
+}
+
+async fn spawn_ready_daemon(db_path: &str, state_dir: &str) -> Result<(DaemonChild, String)> {
+    let mut failures = Vec::new();
+
+    for attempt in 0..3 {
+        let port = reserve_port();
+        let url = format!("http://127.0.0.1:{port}/mcp");
+        let mut daemon = spawn_daemon(db_path, state_dir, port)
+            .with_context(|| format!("spawn daemon for attempt {}", attempt + 1))?;
+
+        match wait_for_mcp_ready(&url, &mut daemon).await {
+            Ok(()) => return Ok((daemon, url)),
+            Err(error) => {
+                failures.push(format!(
+                    "attempt {} on port {} failed: {:#}",
+                    attempt + 1,
+                    port,
+                    error
+                ));
+                drop(daemon);
+            }
         }
     }
 
-    bail!("timed out waiting for MCP HTTP server readiness")
+    bail!(
+        "failed to start MCP daemon after retries:\n{}",
+        failures.join("\n\n")
+    )
 }
 
 fn tool_call_text(response: &Value) -> String {
@@ -136,15 +211,27 @@ fn tool_call_text(response: &Value) -> String {
         .as_array()
         .expect("tool response should contain content array");
 
-    items.iter()
+    items
+        .iter()
         .filter_map(|item| item.get("text").and_then(Value::as_str))
         .find(|text| {
             let trimmed = text.trim();
             trimmed.starts_with('{') || trimmed.starts_with('[')
         })
-        .or_else(|| items.iter().find_map(|item| item.get("text").and_then(Value::as_str)))
+        .or_else(|| {
+            items
+                .iter()
+                .find_map(|item| item.get("text").and_then(Value::as_str))
+        })
         .expect("tool response should contain text content")
         .to_string()
+}
+
+#[test]
+fn tail_text_keeps_suffix() {
+    let body = "abcdefghij";
+    assert_eq!(tail_text(body, 4), "ghij");
+    assert_eq!(tail_text(body, 16), body);
 }
 
 #[allow(clippy::await_holding_lock)]
@@ -155,20 +242,16 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     let state_dir = temp.path().join("state");
     std::fs::create_dir_all(&state_dir).context("create state dir")?;
     let db_path = temp.path().join("restflow.db");
-    let port = reserve_port();
-    let url = format!("http://127.0.0.1:{}/mcp", port);
 
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
         .build()
         .context("build reqwest client")?;
-    let mut daemon = spawn_daemon(
+    let (_daemon, url) = spawn_ready_daemon(
         db_path.to_str().expect("db path utf8"),
         state_dir.to_str().expect("state dir utf8"),
-        port,
-    )?;
-
-    wait_for_mcp_ready(&client, &url, &mut daemon).await?;
+    )
+    .await?;
 
     let tools = post_json_rpc(
         &client,
@@ -215,8 +298,8 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     )
     .await?;
     let save_text = tool_call_text(&save_team);
-    let save_value: Value =
-        serde_json::from_str(&save_text).with_context(|| format!("parse save_team tool text: {save_text}"))?;
+    let save_value: Value = serde_json::from_str(&save_text)
+        .with_context(|| format!("parse save_team tool text: {save_text}"))?;
     assert_eq!(save_value["operation"], "save_team");
 
     let get_team = post_json_rpc(
@@ -237,8 +320,8 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     )
     .await?;
     let get_text = tool_call_text(&get_team);
-    let get_value: Value =
-        serde_json::from_str(&get_text).with_context(|| format!("parse get_team tool text: {get_text}"))?;
+    let get_value: Value = serde_json::from_str(&get_text)
+        .with_context(|| format!("parse get_team tool text: {get_text}"))?;
     assert_eq!(get_value["operation"], "get_team");
     assert_eq!(get_value["member_groups"], 1);
     assert_eq!(get_value["total_instances"], 2);
@@ -271,8 +354,8 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     )
     .await?;
     let run_text = tool_call_text(&run_batch);
-    let run_value: Value =
-        serde_json::from_str(&run_text).with_context(|| format!("parse run_batch tool text: {run_text}"))?;
+    let run_value: Value = serde_json::from_str(&run_text)
+        .with_context(|| format!("parse run_batch tool text: {run_text}"))?;
     assert_eq!(run_value["operation"], "run_batch");
     assert_eq!(run_value["run_now"], false);
     assert_eq!(run_value["total"], 2);
