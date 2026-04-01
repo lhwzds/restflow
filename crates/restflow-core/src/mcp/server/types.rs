@@ -241,7 +241,7 @@ pub struct ManageBackgroundAgentsParams {
     /// Optional trailing line limit for read_trace
     #[serde(default)]
     pub line_limit: Option<usize>,
-    /// Whether to trigger immediate run after convert_session/promote_to_background (default true)
+    /// Whether to trigger immediate run after convert_session/promote_to_background (default false)
     #[serde(default)]
     pub run_now: Option<bool>,
     /// Whether to return assessment preview instead of executing
