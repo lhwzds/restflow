@@ -24,6 +24,9 @@ async function waitForBackgroundAgentBySession(
       });
 
       return agents.find((agent) => agent.chat_session_id === sessionId) ?? null;
+    }, {
+      timeout: 15000,
+      message: `Timed out waiting for background agent bound to session ${sessionId}`,
     })
     .not.toBeNull();
 
@@ -132,9 +135,6 @@ test.describe("Background Agent Web Flow", () => {
 
     const taskId = (await waitForBackgroundAgentBySession(page, sessionId)).id;
     trackCreatedBackgroundTask(page, taskId);
-    await page.goto(`/workspace/c/${taskId}`);
-    await page.waitForLoadState("domcontentloaded");
-
     const runId = `run-${Date.now()}`;
     await page.route("**/api/request", async (route) => {
       const payload = route.request().postDataJSON();
@@ -210,6 +210,8 @@ test.describe("Background Agent Web Flow", () => {
 
       await route.continue();
     });
+    await page.goto(`/workspace/c/${taskId}`);
+    await page.waitForLoadState("domcontentloaded");
 
     await expect(
       page.getByRole("button", { name: "Open Run Trace", exact: true }),
