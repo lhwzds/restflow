@@ -140,9 +140,9 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     ): Promise<BackgroundAgent | null> {
       this.error = null
       try {
-        const agent = await api.convertSessionToBackgroundAgent(request)
-        this.agents.push(agent)
-        return agent
+        const result = await api.convertSessionToBackgroundAgent(request)
+        this.updateAgentLocally(result.task)
+        return result.task
       } catch (err) {
         this.error = err instanceof Error ? err.message : 'Failed to convert session'
         console.error('Failed to convert session to background agent:', err)

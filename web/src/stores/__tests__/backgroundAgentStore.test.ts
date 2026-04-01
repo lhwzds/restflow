@@ -307,9 +307,14 @@ describe('backgroundAgentStore', () => {
     })
 
     describe('convertSessionToAgent', () => {
-      it('calls API, appends converted agent, and returns it on success', async () => {
+      it('calls API, stores converted agent, and returns it on success', async () => {
         const converted = createMockAgent('a-converted', 'active')
-        vi.mocked(api.convertSessionToBackgroundAgent).mockResolvedValue(converted)
+        vi.mocked(api.convertSessionToBackgroundAgent).mockResolvedValue({
+          task: converted,
+          source_session_id: 'session-1',
+          source_session_agent_id: 'test-agent',
+          run_now: true,
+        })
 
         const store = useBackgroundAgentStore()
         store.agents = [createMockAgent('a1')]
@@ -328,6 +333,30 @@ describe('backgroundAgentStore', () => {
         expect(result).toEqual(converted)
         expect(store.agents.map((agent) => agent.id)).toEqual(['a1', 'a-converted'])
         expect(store.error).toBeNull()
+      })
+
+      it('updates an existing agent locally instead of appending duplicates', async () => {
+        const existing = createMockAgent('a-converted', 'paused')
+        const updated = { ...existing, status: 'running' as const, name: 'Converted Updated' }
+        vi.mocked(api.convertSessionToBackgroundAgent).mockResolvedValue({
+          task: updated,
+          source_session_id: 'session-1',
+          source_session_agent_id: 'test-agent',
+          run_now: true,
+        })
+
+        const store = useBackgroundAgentStore()
+        store.agents = [createMockAgent('a1'), existing]
+
+        const result = await store.convertSessionToAgent({
+          session_id: 'session-1',
+          name: 'Converted Updated',
+          run_now: true,
+        })
+
+        expect(result).toEqual(updated)
+        expect(store.agents).toHaveLength(2)
+        expect(store.agents[1]).toEqual(updated)
       })
 
       it('returns null and sets error on failure', async () => {
