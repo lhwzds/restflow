@@ -25,7 +25,7 @@ mod tests {
     use redb::Database;
     use std::env;
     use std::path::Path;
-    use std::sync::{Arc, Mutex, OnceLock};
+    use std::sync::Arc;
     use tempfile::tempdir;
 
     struct EnvGuard {
@@ -66,10 +66,7 @@ mod tests {
     }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::test_support::env_lock()
     }
 
     fn setup_secrets() -> (SecretStorage, tempfile::TempDir, EnvGuard, EnvGuard) {

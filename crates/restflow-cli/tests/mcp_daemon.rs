@@ -227,6 +227,17 @@ fn tool_call_text(response: &Value) -> String {
         .to_string()
 }
 
+fn parse_tool_text_json(text: &str) -> Result<Value> {
+    if let Ok(value) = serde_json::from_str(text) {
+        return Ok(value);
+    }
+
+    let start = text
+        .find(['{', '['])
+        .context("tool text should contain JSON payload")?;
+    serde_json::from_str(&text[start..]).with_context(|| format!("parse tool text json: {text}"))
+}
+
 #[test]
 fn tail_text_keeps_suffix() {
     let body = "abcdefghij";
@@ -274,7 +285,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
         "manage_background_agents must be exposed over MCP"
     );
 
-    let save_team = post_json_rpc(
+    let save_team_initial = post_json_rpc(
         &client,
         &url,
         json!({
@@ -297,9 +308,41 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
         }),
     )
     .await?;
-    let save_text = tool_call_text(&save_team);
-    let save_value: Value = serde_json::from_str(&save_text)
-        .with_context(|| format!("parse save_team tool text: {save_text}"))?;
+    let save_initial_text = tool_call_text(&save_team_initial);
+    let save_initial_value = parse_tool_text_json(&save_initial_text)?;
+    let save_value = if save_initial_value["operation"] == "save_team" {
+        save_initial_value
+    } else {
+        let confirmation_token = save_initial_value["assessment"]["confirmation_token"]
+            .as_str()
+            .context("save_team should return confirmation token on guarded response")?;
+        let save_team = post_json_rpc(
+            &client,
+            &url,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 4,
+                "method": "tools/call",
+                "params": {
+                    "name": "manage_background_agents",
+                    "arguments": {
+                        "operation": "save_team",
+                        "team": "daemon-bg-team",
+                        "confirmation_token": confirmation_token,
+                        "workers": [
+                            {
+                                "count": 2,
+                                "agent_id": "default"
+                            }
+                        ]
+                    }
+                }
+            }),
+        )
+        .await?;
+        let save_text = tool_call_text(&save_team);
+        parse_tool_text_json(&save_text)?
+    };
     assert_eq!(save_value["operation"], "save_team");
 
     let get_team = post_json_rpc(
@@ -307,7 +350,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
         &url,
         json!({
             "jsonrpc": "2.0",
-            "id": 4,
+            "id": 5,
             "method": "tools/call",
             "params": {
                 "name": "manage_background_agents",
@@ -320,8 +363,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     )
     .await?;
     let get_text = tool_call_text(&get_team);
-    let get_value: Value = serde_json::from_str(&get_text)
-        .with_context(|| format!("parse get_team tool text: {get_text}"))?;
+    let get_value = parse_tool_text_json(&get_text)?;
     assert_eq!(get_value["operation"], "get_team");
     assert_eq!(get_value["member_groups"], 1);
     assert_eq!(get_value["total_instances"], 2);
@@ -354,8 +396,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     )
     .await?;
     let run_text = tool_call_text(&run_batch);
-    let run_value: Value = serde_json::from_str(&run_text)
-        .with_context(|| format!("parse run_batch tool text: {run_text}"))?;
+    let run_value = parse_tool_text_json(&run_text)?;
     assert_eq!(run_value["operation"], "run_batch");
     assert_eq!(run_value["run_now"], false);
     assert_eq!(run_value["total"], 2);

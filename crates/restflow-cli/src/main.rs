@@ -6,6 +6,8 @@ mod error;
 mod executor;
 mod output;
 mod setup;
+#[cfg(test)]
+mod test_support;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
