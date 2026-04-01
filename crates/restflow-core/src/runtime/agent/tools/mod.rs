@@ -396,16 +396,20 @@ pub fn registry_from_allowlist_with_security_gate(
             // --- Storage-backed tools ---
             "manage_background_agents" => {
                 with_storage!(storage, "manage_background_agents", builder, |s| {
-                    let store = Arc::new(BackgroundAgentStoreAdapter::new(
-                        s.background_agents.clone(),
-                        s.agents.clone(),
-                        s.deliverables.clone(),
-                        SessionService::from_storage(s),
-                    ));
+                    let assessor = Arc::new(OperationAssessorAdapter::from_storage(s));
+                    let store = Arc::new(
+                        BackgroundAgentStoreAdapter::new(
+                            s.background_agents.clone(),
+                            s.agents.clone(),
+                            s.deliverables.clone(),
+                            SessionService::from_storage(s),
+                        )
+                        .with_assessor(assessor.clone()),
+                    );
                     builder.with_background_agent_and_kv_and_assessor(
                         store,
                         Arc::new(KvStoreAdapter::new(s.kv_store.clone(), None)),
-                        Arc::new(OperationAssessorAdapter::from_storage(s)),
+                        assessor,
                     )
                 });
             }
@@ -692,8 +696,10 @@ mod tests {
     use super::{
         effective_main_agent_tool_names, main_agent_default_tool_names, registry_from_allowlist,
     };
-    use crate::models::Skill;
+    use crate::models::{AgentNode, Skill};
+    use crate::prompt_files;
     use crate::storage::Storage;
+    use serde_json::json;
     use tempfile::tempdir;
 
     #[test]
@@ -949,5 +955,54 @@ mod tests {
             !registry.has("diagnostics"),
             "diagnostics should not be registered without an explicit workspace root"
         );
+    }
+
+    #[tokio::test]
+    async fn test_manage_background_agents_runtime_registry_injects_store_assessor() {
+        let dir = tempdir().expect("temp dir should be created");
+        let db_path = dir.path().join("registry-bg-runtime.db");
+        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
+            .expect("storage should be created");
+        let prompts_dir = dir.path().join("agents");
+        std::fs::create_dir_all(&prompts_dir).expect("prompts dir should be created");
+
+        let previous_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
+        let agent_id = storage
+            .agents
+            .create_agent("Runtime Owner".to_string(), AgentNode::default())
+            .expect("agent should be created")
+            .id;
+        unsafe {
+            match previous_agents_dir {
+                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
+                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
+            }
+        }
+
+        let names = vec!["manage_background_agents".to_string()];
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
+                .expect("registry should be built");
+        let output = registry
+            .get("manage_background_agents")
+            .expect("manage_background_agents should be registered")
+            .execute(json!({
+                "operation": "create",
+                "name": "Runtime Preview Task",
+                "agent_id": agent_id,
+                "input": "Run checks",
+                "schedule": {
+                    "type": "interval",
+                    "interval_ms": 60000,
+                    "start_at": null
+                },
+                "preview": true
+            }))
+            .await
+            .expect("runtime tool should not fail when store assessor is injected");
+
+        assert!(output.success);
+        assert_eq!(output.result["status"], "preview");
     }
 }

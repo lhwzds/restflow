@@ -796,11 +796,12 @@ mod tests {
                 preview: false,
                 confirmation_token: None,
             })
-            .expect("conversion should return blocked outcome");
-        assert_eq!(error["status"], "blocked");
-        assert_eq!(
-            error["assessment"]["blockers"][0]["code"],
-            "missing_conversion_input"
+            .expect_err("conversion should fail when no input can be derived");
+        assert!(
+            error.to_string().contains(
+                crate::services::background_agent_conversion::MISSING_CONVERSION_INPUT_ERROR
+            ),
+            "unexpected error: {error}"
         );
     }
 

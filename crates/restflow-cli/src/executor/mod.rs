@@ -192,14 +192,10 @@ pub async fn create(db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>>
 #[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::test_support::env_lock()
     }
 
     #[tokio::test]

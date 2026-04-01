@@ -712,7 +712,6 @@ mod tests {
     use restflow_storage::{load_cli_config, load_global_cli_config};
     use std::env;
     use std::path::Path;
-    use std::sync::{Mutex, OnceLock};
     use tempfile::tempdir;
 
     struct EnvGuard {
@@ -745,10 +744,7 @@ mod tests {
     }
 
     fn env_lock() -> std::sync::MutexGuard<'static, ()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        crate::test_support::env_lock()
     }
 
     struct TestContext {
