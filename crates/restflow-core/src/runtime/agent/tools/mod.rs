@@ -12,6 +12,7 @@ use std::sync::{Arc, RwLock};
 use tracing::{debug, warn};
 
 use self::assembly::{
+    build_agent_crud_store, build_background_agent_runtime_components,
     populate_known_tools_from_registry, register_bash_execution_tool, register_file_execution_tool,
     register_http_execution_tool, register_python_execution_tools,
     register_send_email_execution_tool,
@@ -20,7 +21,6 @@ use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::services::operation_assessment::OperationAssessorAdapter;
-use crate::services::session::SessionService;
 use crate::storage::Storage;
 use restflow_storage::{AgentSettings, ApiSettings};
 use restflow_traits::security::SecurityGate;
@@ -396,33 +396,18 @@ pub fn registry_from_allowlist_with_security_gate(
             // --- Storage-backed tools ---
             "manage_background_agents" => {
                 with_storage!(storage, "manage_background_agents", builder, |s| {
-                    let assessor = Arc::new(OperationAssessorAdapter::from_storage(s));
-                    let store = Arc::new(
-                        BackgroundAgentStoreAdapter::new(
-                            s.background_agents.clone(),
-                            s.agents.clone(),
-                            s.deliverables.clone(),
-                            SessionService::from_storage(s),
-                        )
-                        .with_assessor(assessor.clone()),
-                    );
-                    builder.with_background_agent_and_kv_and_assessor(
-                        store,
-                        Arc::new(KvStoreAdapter::new(s.kv_store.clone(), None)),
-                        assessor,
-                    )
+                    let (store, kv_store, assessor) =
+                        build_background_agent_runtime_components(s, None);
+                    builder.with_background_agent_and_kv_and_assessor(store, kv_store, assessor)
                 });
             }
             "manage_agents" => {
                 with_storage!(storage, "manage_agents", builder, |s| {
-                    let store = Arc::new(AgentStoreAdapter::new(
-                        s.agents.clone(),
-                        s.skills.clone(),
-                        s.secrets.clone(),
-                        s.background_agents.clone(),
-                        known_tools.clone(),
-                    ));
-                    builder.with_agent_crud(store)
+                    let store = build_agent_crud_store(s, known_tools.clone());
+                    builder.with_agent_crud_and_assessor(
+                        store,
+                        Arc::new(OperationAssessorAdapter::from_storage(s)),
+                    )
                 });
             }
             "manage_marketplace" => {

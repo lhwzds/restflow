@@ -104,12 +104,12 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
       }
     },
 
-    async runAgentNow(id: string): Promise<api.StreamingBackgroundAgentResponse | null> {
+    async runAgentNow(id: string): Promise<BackgroundAgent | null> {
       this.error = null
       try {
-        const response = await api.runBackgroundAgentStreaming(id)
-        await this.fetchAgents()
-        return response
+        const agent = await api.runBackgroundAgentStreaming(id)
+        this.updateAgentLocally(agent)
+        return agent
       } catch (err) {
         this.error = err instanceof Error ? err.message : 'Failed to run agent'
         console.error('Failed to run background agent:', err)

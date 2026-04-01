@@ -1,4 +1,6 @@
-use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
+use crate::impls::operation_assessment::{
+    enforce_confirmation_or_defer, guarded_confirmation_required_output, preview_output,
+};
 use restflow_contracts::request::{
     DurabilityMode as ContractDurabilityMode, ExecutionMode as ContractExecutionMode,
     MemoryConfig as ContractMemoryConfig, NotificationConfig as ContractNotificationConfig,
@@ -41,7 +43,10 @@ pub(super) async fn execute_save_team(
     if preview {
         return Ok(preview_output(assessment));
     }
-    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
+    if let Some(output) = enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
+    {
+        return Ok(output);
+    }
     let store = tool.team_store()?;
     let payload = save_team_workers(store.as_ref(), &team, &workers, true)?;
     Ok(ToolOutput::success(json!({
@@ -75,7 +80,10 @@ pub(super) async fn execute_delete_team(
     if preview {
         return Ok(preview_output(assessment));
     }
-    enforce_confirmation(&assessment, confirmation_token.as_deref())?;
+    if let Some(output) = enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
+    {
+        return Ok(output);
+    }
     let store = tool.team_store()?;
     let payload = delete_team(store.as_ref(), &team)?;
     Ok(ToolOutput::success(json!({
@@ -121,6 +129,9 @@ pub(super) async fn execute_create(
         .store
         .create_background_agent(request)
         .map_err(|e| ToolError::Tool(format!("Failed to create background agent: {e}.")))?;
+    if let Some(output) = guarded_confirmation_required_output(&result) {
+        return Ok(output);
+    }
     Ok(ToolOutput::success(result))
 }
 
@@ -163,6 +174,9 @@ pub(super) async fn execute_convert_session(
                 "Failed to convert session into background agent: {e}."
             ))
         })?;
+    if let Some(output) = guarded_confirmation_required_output(&result) {
+        return Ok(output);
+    }
     Ok(ToolOutput::success(result))
 }
 
@@ -211,6 +225,9 @@ pub(super) async fn execute_promote_to_background(
                 "Failed to promote session into background agent: {e}."
             ))
         })?;
+    if let Some(output) = guarded_confirmation_required_output(&result) {
+        return Ok(output);
+    }
     Ok(ToolOutput::success(result))
 }
 
@@ -259,6 +276,9 @@ pub(super) async fn execute_update(
         .store
         .update_background_agent(request)
         .map_err(|e| ToolError::Tool(format!("Failed to update background agent: {e}.")))?;
+    if let Some(output) = guarded_confirmation_required_output(&result) {
+        return Ok(output);
+    }
     Ok(ToolOutput::success(result))
 }
 
@@ -278,6 +298,9 @@ pub(super) async fn execute_delete(
         .store
         .delete_background_agent(request)
         .map_err(|e| ToolError::Tool(format!("Failed to delete background agent: {e}.")))?;
+    if let Some(output) = guarded_confirmation_required_output(&result) {
+        return Ok(output);
+    }
     Ok(ToolOutput::success(result))
 }
 

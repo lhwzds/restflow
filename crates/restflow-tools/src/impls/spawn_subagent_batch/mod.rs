@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use std::sync::Arc;
 
-use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
+use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
 use restflow_traits::AgentOperationAssessor;
@@ -23,7 +23,7 @@ use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
 
 use self::resolve::preview_request_from_spec;
 use types::SpawnSubagentBatchParams as ParsedSpawnSubagentBatchParams;
-pub use types::{BatchSubagentSpec, SpawnSubagentBatchOperation, SpawnSubagentBatchParams};
+pub use types::{BatchSubagentSpec, SpawnSubagentBatchOperation};
 
 /// spawn_subagent_batch tool for shared agent execution engine.
 pub struct SpawnSubagentBatchTool {
@@ -108,7 +108,12 @@ impl Tool for SpawnSubagentBatchTool {
                     if params.preview {
                         return Ok(preview_output(assessment));
                     }
-                    enforce_confirmation(&assessment, params.confirmation_token.as_deref())?;
+                    if let Some(output) = enforce_confirmation_or_defer(
+                        &assessment,
+                        params.confirmation_token.as_deref(),
+                    )? {
+                        return Ok(output);
+                    }
                 } else if params.preview {
                     return Err(ToolError::Tool(
                         "Sub-agent capability preview is unavailable in this runtime.".to_string(),

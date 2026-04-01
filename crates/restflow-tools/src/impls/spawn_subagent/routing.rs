@@ -1,7 +1,7 @@
 use serde_json::{Value, json};
 use tokio::time::{Duration, timeout};
 
-use crate::impls::operation_assessment::{enforce_confirmation, preview_output};
+use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::impls::spawn_subagent_batch::{SpawnSubagentBatchOperation, SpawnSubagentBatchTool};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_contracts::request::{
@@ -196,7 +196,11 @@ pub(super) async fn execute(
         if params.preview {
             return Ok(preview_output(assessment));
         }
-        enforce_confirmation(&assessment, params.confirmation_token.as_deref())?;
+        if let Some(output) =
+            enforce_confirmation_or_defer(&assessment, params.confirmation_token.as_deref())?
+        {
+            return Ok(output);
+        }
     } else if params.preview {
         return Err(ToolError::Tool(
             "Sub-agent capability preview is unavailable in this runtime.".to_string(),

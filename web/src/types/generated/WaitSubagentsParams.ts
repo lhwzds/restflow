@@ -11,10 +11,10 @@ task_ids: Array<string>,
 /**
  * Parent run scope that owns the requested tasks.
  */
-parent_run_id: string | null, 
+parent_run_id?: string, 
 /**
  * Timeout in seconds.
  * - `Some(0)` means wait without timeout.
  * - `None` uses subagent manager default timeout.
  */
-timeout_secs: bigint | null, };
+timeout_secs?: bigint, };

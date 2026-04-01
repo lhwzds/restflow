@@ -27,11 +27,14 @@ pub struct WaitSubagentsParams {
 
     /// Parent run scope that owns the requested tasks.
     #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub parent_run_id: Option<String>,
 
     /// Timeout in seconds.
     /// - `Some(0)` means wait without timeout.
     /// - `None` uses subagent manager default timeout.
+    #[serde(default)]
+    #[cfg_attr(feature = "ts", ts(optional))]
     pub timeout_secs: Option<u64>,
 }
 

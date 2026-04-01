@@ -106,21 +106,33 @@ fn tail_text(body: &str, max_chars: usize) -> String {
 
 fn parse_json_rpc_response(body: &str) -> Result<Value> {
     let trimmed = body.trim();
-    if trimmed.starts_with("data:") {
-        let payload = trimmed
+    if let Ok(value) = serde_json::from_str(trimmed) {
+        return Ok(value);
+    }
+
+    let mut parsed_event = None;
+    for event in trimmed.split("\n\n") {
+        let payload = event
             .lines()
+            .filter(|line| !line.trim_start().starts_with(':'))
             .filter_map(|line| line.strip_prefix("data:"))
             .map(str::trim)
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>()
             .join("\n");
         if payload.is_empty() {
-            bail!("empty SSE MCP response: {}", body);
+            continue;
         }
-        return serde_json::from_str(&payload)
-            .with_context(|| format!("invalid SSE JSON response: {}", body));
+        match serde_json::from_str(&payload) {
+            Ok(value) => {
+                parsed_event = Some(value);
+                break;
+            }
+            Err(_) => continue,
+        }
     }
-    serde_json::from_str(trimmed).with_context(|| format!("invalid JSON response: {}", body))
+
+    parsed_event.with_context(|| format!("invalid JSON response: {}", body))
 }
 
 async fn wait_for_mcp_ready(url: &str, daemon: &mut DaemonChild) -> Result<()> {
@@ -180,7 +192,7 @@ async fn wait_for_mcp_ready(url: &str, daemon: &mut DaemonChild) -> Result<()> {
 async fn spawn_ready_daemon(db_path: &str, state_dir: &str) -> Result<(DaemonChild, String)> {
     let mut failures = Vec::new();
 
-    for attempt in 0..3 {
+    for attempt in 0..6 {
         let port = reserve_port();
         let url = format!("http://127.0.0.1:{port}/mcp");
         let mut daemon = spawn_daemon(db_path, state_dir, port)
@@ -243,6 +255,13 @@ fn tail_text_keeps_suffix() {
     let body = "abcdefghij";
     assert_eq!(tail_text(body, 4), "ghij");
     assert_eq!(tail_text(body, 16), body);
+}
+
+#[test]
+fn parse_json_rpc_response_accepts_sse_with_comment_and_event_lines() {
+    let body = ": keepalive\nevent: message\ndata: {\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"ok\":true}}\n\n";
+    let parsed = parse_json_rpc_response(body).expect("SSE response should parse");
+    assert_eq!(parsed["result"]["ok"], true);
 }
 
 #[allow(clippy::await_holding_lock)]

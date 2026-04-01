@@ -1,11 +1,17 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
+use crate::services::adapters::{AgentStoreAdapter, BackgroundAgentStoreAdapter, KvStoreAdapter};
+use crate::services::operation_assessment::OperationAssessorAdapter;
+use crate::services::session::SessionService;
+use crate::storage::Storage;
 use restflow_tools::{
     BashConfig, EmailTool, FileConfig, HttpTool, PythonTool, RunPythonTool, ToolRegistryBuilder,
 };
+use restflow_traits::AgentOperationAssessor;
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
+use restflow_traits::store::{AgentStore, BackgroundAgentStore, KvStore};
 
 pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 7] = [
     ("http", "http_request"),
@@ -126,4 +132,41 @@ pub(crate) fn populate_known_tools_from_registry(
             }
         }
     }
+}
+
+pub(crate) fn build_agent_crud_store(
+    storage: &Storage,
+    known_tools: Arc<RwLock<HashSet<String>>>,
+) -> Arc<dyn AgentStore> {
+    Arc::new(AgentStoreAdapter::new(
+        storage.agents.clone(),
+        storage.skills.clone(),
+        storage.secrets.clone(),
+        storage.background_agents.clone(),
+        known_tools,
+    ))
+}
+
+pub(crate) fn build_background_agent_runtime_components(
+    storage: &Storage,
+    accessor_id: Option<String>,
+) -> (
+    Arc<dyn BackgroundAgentStore>,
+    Arc<dyn KvStore>,
+    Arc<dyn AgentOperationAssessor>,
+) {
+    let assessor: Arc<dyn AgentOperationAssessor> =
+        Arc::new(OperationAssessorAdapter::from_storage(storage));
+    let store: Arc<dyn BackgroundAgentStore> = Arc::new(
+        BackgroundAgentStoreAdapter::new(
+            storage.background_agents.clone(),
+            storage.agents.clone(),
+            storage.deliverables.clone(),
+            SessionService::from_storage(storage),
+        )
+        .with_assessor(assessor.clone()),
+    );
+    let kv_store: Arc<dyn KvStore> =
+        Arc::new(KvStoreAdapter::new(storage.kv_store.clone(), accessor_id));
+    (store, kv_store, assessor)
 }

@@ -500,21 +500,18 @@ describe('backgroundAgentStore', () => {
     })
 
     describe('runAgentNow', () => {
-      it('calls streaming API and re-fetches agents', async () => {
-        const streamingResponse = {
-          task_id: 'task-1',
-          event_channel: 'channel-1',
-          already_running: false,
-        }
-        vi.mocked(api.runBackgroundAgentStreaming).mockResolvedValue(streamingResponse)
-        vi.mocked(api.listBackgroundAgents).mockResolvedValue([])
+      it('calls run-now API and updates the agent locally', async () => {
+        const runningAgent = createMockAgent('a1', 'running')
+        vi.mocked(api.runBackgroundAgentStreaming).mockResolvedValue(runningAgent)
 
         const store = useBackgroundAgentStore()
+        store.agents = [createMockAgent('a1', 'active')]
         const result = await store.runAgentNow('a1')
 
         expect(api.runBackgroundAgentStreaming).toHaveBeenCalledWith('a1')
-        expect(api.listBackgroundAgents).toHaveBeenCalledOnce()
-        expect(result).toEqual(streamingResponse)
+        expect(api.listBackgroundAgents).not.toHaveBeenCalled()
+        expect(result).toEqual(runningAgent)
+        expect(store.agents[0]).toEqual(runningAgent)
       })
 
       it('returns null and sets error on failure', async () => {

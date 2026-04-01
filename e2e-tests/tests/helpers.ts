@@ -24,7 +24,6 @@ type BackgroundAgentDeleteResult = {
 }
 
 const trackedState = new WeakMap<Page, TrackedState>()
-let seededProviderPromise: Promise<void> | null = null
 
 function getTrackedState(page: Page): TrackedState {
   const existing = trackedState.get(page)
@@ -68,23 +67,14 @@ export async function goToWorkspace(page: Page) {
 }
 
 async function ensureDefaultE2eProvider() {
-  if (!seededProviderPromise) {
-    seededProviderPromise = requestIpcDirect({
-      type: 'SetSecret',
-      data: {
-        key: 'OPENAI_API_KEY',
-        value: 'e2e-openai-key',
-        description: 'Seeded E2E provider secret',
-      },
-    }).then(() => undefined)
-  }
-
-  try {
-    await seededProviderPromise
-  } catch (error) {
-    seededProviderPromise = null
-    throw error
-  }
+  await requestIpcDirect({
+    type: 'SetSecret',
+    data: {
+      key: 'OPENAI_API_KEY',
+      value: 'e2e-openai-key',
+      description: 'Seeded E2E provider secret',
+    },
+  })
 }
 
 /**

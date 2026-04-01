@@ -1,3 +1,4 @@
+use crate::impls::operation_assessment::guarded_confirmation_required_output;
 use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::store::BackgroundAgentControlRequest;
 
@@ -22,6 +23,9 @@ async fn execute_named_control(
         .store
         .control_background_agent(request)
         .map_err(|e| ToolError::Tool(format!("Failed to {verb} background agent: {e}.")))?;
+    if let Some(output) = guarded_confirmation_required_output(&result) {
+        return Ok(output);
+    }
     Ok(ToolOutput::success(result))
 }
 
