@@ -27,6 +27,28 @@ use std::sync::Arc;
 
 type CommandResult<T> = std::result::Result<T, BackgroundAgentCommandError>;
 
+#[derive(Debug, Clone)]
+struct RequestGuard {
+    preview: bool,
+    confirmation_token: Option<String>,
+}
+
+impl RequestGuard {
+    fn capture(preview: bool, confirmation_token: Option<String>) -> Self {
+        Self {
+            preview,
+            confirmation_token,
+        }
+    }
+}
+
+struct PreparedSessionConversion {
+    spec: BackgroundAgentSpec,
+    source_session_id: String,
+    source_session_agent_id: String,
+    run_now: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackgroundAgentCommandError {
     Validation(String),
@@ -173,35 +195,20 @@ impl BackgroundAgentCommandService {
         &self,
         request: BackgroundAgentCreateRequest,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
-        let request = self.normalize_create_request(request)?;
-        self.validate_create_request(&request)?;
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_create(request.clone())
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        let preview = request.preview;
-        let confirmation_token = request.confirmation_token.clone();
-        let spec = create_request_to_spec(request)
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
-            self.create(spec)
-        })
+        let (guard, assessment, spec) = self.prepare_create(request).await?;
+        self.finish_mutation(
+            assessment,
+            guard.preview,
+            guard.confirmation_token.as_deref(),
+            || self.create(spec),
+        )
     }
 
     pub async fn create_direct_from_request(
         &self,
         request: BackgroundAgentCreateRequest,
     ) -> CommandResult<BackgroundAgent> {
-        let request = self.normalize_create_request(request)?;
-        self.validate_create_request(&request)?;
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_create(request.clone())
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        let spec = create_request_to_spec(request)
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let (_guard, assessment, spec) = self.prepare_create(request).await?;
         self.finish_direct_mutation(assessment, || self.create(spec))
     }
 
@@ -215,37 +222,20 @@ impl BackgroundAgentCommandService {
         &self,
         request: BackgroundAgentUpdateRequest,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
-        let request = self.normalize_update_request(request)?;
-        self.validate_update_request(&request)?;
-        let resolved_id = request.id.clone();
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_update(request.clone())
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        let preview = request.preview;
-        let confirmation_token = request.confirmation_token.clone();
-        let patch = update_request_to_patch(request)
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
-            self.update(&resolved_id, patch)
-        })
+        let (guard, assessment, resolved_id, patch) = self.prepare_update(request).await?;
+        self.finish_mutation(
+            assessment,
+            guard.preview,
+            guard.confirmation_token.as_deref(),
+            || self.update(&resolved_id, patch),
+        )
     }
 
     pub async fn update_direct_from_request(
         &self,
         request: BackgroundAgentUpdateRequest,
     ) -> CommandResult<BackgroundAgent> {
-        let request = self.normalize_update_request(request)?;
-        self.validate_update_request(&request)?;
-        let resolved_id = request.id.clone();
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_update(request.clone())
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        let patch = update_request_to_patch(request)
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let (_guard, assessment, resolved_id, patch) = self.prepare_update(request).await?;
         self.finish_direct_mutation(assessment, || self.update(&resolved_id, patch))
     }
 
@@ -259,37 +249,26 @@ impl BackgroundAgentCommandService {
         &self,
         request: BackgroundAgentDeleteRequest,
     ) -> CommandResult<BackgroundAgentCommandOutcome<DeleteWithIdResponse>> {
-        let request = self.normalize_delete_request(request)?;
-        self.validate_delete_request(&request)?;
-        let resolved_id = request.id.clone();
-        let preview = request.preview;
-        let confirmation_token = request.confirmation_token.clone();
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_delete(request)
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
-            let deleted = self.delete(&resolved_id)?;
-            Ok(DeleteWithIdResponse {
-                id: resolved_id,
-                deleted,
-            })
-        })
+        let (guard, assessment, resolved_id) = self.prepare_delete(request).await?;
+        self.finish_mutation(
+            assessment,
+            guard.preview,
+            guard.confirmation_token.as_deref(),
+            || {
+                let deleted = self.delete(&resolved_id)?;
+                Ok(DeleteWithIdResponse {
+                    id: resolved_id,
+                    deleted,
+                })
+            },
+        )
     }
 
     pub async fn delete_direct_from_request(
         &self,
         request: BackgroundAgentDeleteRequest,
     ) -> CommandResult<DeleteWithIdResponse> {
-        let request = self.normalize_delete_request(request)?;
-        self.validate_delete_request(&request)?;
-        let resolved_id = request.id.clone();
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_delete(request)
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let (_guard, assessment, resolved_id) = self.prepare_delete(request).await?;
         self.finish_direct_mutation(assessment, || {
             let deleted = self.delete(&resolved_id)?;
             Ok(DeleteWithIdResponse {
@@ -330,33 +309,20 @@ impl BackgroundAgentCommandService {
         &self,
         request: BackgroundAgentControlRequest,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
-        let (request, action) = self.normalize_control_request(request)?;
-        self.validate_control_request(&request)?;
-        let resolved_id = request.id.clone();
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_control(request.clone())
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        let preview = request.preview;
-        let confirmation_token = request.confirmation_token.clone();
-        self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
-            self.control(&resolved_id, action)
-        })
+        let (guard, assessment, resolved_id, action) = self.prepare_control(request).await?;
+        self.finish_mutation(
+            assessment,
+            guard.preview,
+            guard.confirmation_token.as_deref(),
+            || self.control(&resolved_id, action),
+        )
     }
 
     pub async fn control_direct_from_request(
         &self,
         request: BackgroundAgentControlRequest,
     ) -> CommandResult<BackgroundAgent> {
-        let (request, action) = self.normalize_control_request(request)?;
-        self.validate_control_request(&request)?;
-        let resolved_id = request.id.clone();
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_control(request.clone())
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let (_guard, assessment, resolved_id, action) = self.prepare_control(request).await?;
         self.finish_direct_mutation(assessment, || self.control(&resolved_id, action))
     }
 
@@ -364,126 +330,21 @@ impl BackgroundAgentCommandService {
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
-        let request = self.normalize_convert_session_request(request);
-        self.validate_convert_session_request(&request)?;
-        let session_id = request.session_id.clone();
-
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_convert_session(request.clone())
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        let preview = request.preview;
-        let confirmation_token = request.confirmation_token.clone();
-
-        let session = self
-            .session_service
-            .get_session_view(&session_id)
-            .map_err(BackgroundAgentCommandError::from_anyhow)?
-            .ok_or_else(|| {
-                BackgroundAgentCommandError::not_found(format!("Session not found: {}", session_id))
-            })?;
-        let options = convert_session_request_to_options(request)
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        let spec = build_convert_session_spec(
-            &session,
-            ConvertSessionSpecOptions {
-                name: options.name,
-                description: None,
-                schedule: Some(options.schedule),
-                input: options.input,
-                notification: None,
-                execution_mode: None,
-                timeout_secs: options.timeout_secs,
-                memory: options.memory,
-                durability_mode: options.durability_mode,
-                resource_limits: options.resource_limits,
-                prerequisites: Vec::new(),
-                continuation: None,
-            },
+        let (guard, assessment, prepared) = self.prepare_convert_session(request).await?;
+        self.finish_mutation(
+            assessment,
+            guard.preview,
+            guard.confirmation_token.as_deref(),
+            || self.execute_convert_session(prepared),
         )
-        .map_err(|error| BackgroundAgentCommandError::internal(error.to_string()))?;
-
-        self.finish_mutation(assessment, preview, confirmation_token.as_deref(), || {
-            let mut task = self
-                .storage
-                .create_background_agent(spec)
-                .map_err(BackgroundAgentCommandError::from_anyhow)?;
-            if options.run_now {
-                task = self
-                    .storage
-                    .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)
-                    .map_err(BackgroundAgentCommandError::from_anyhow)?;
-            }
-            Ok(BackgroundAgentConversionResult {
-                task,
-                source_session_id: session.id,
-                source_session_agent_id: session.agent_id,
-                run_now: options.run_now,
-            })
-        })
     }
 
     pub async fn convert_session_direct(
         &self,
         request: BackgroundAgentConvertSessionRequest,
     ) -> CommandResult<BackgroundAgentConversionResult> {
-        let request = self.normalize_convert_session_request(request);
-        self.validate_convert_session_request(&request)?;
-        let session_id = request.session_id.clone();
-
-        let assessment = self
-            .assessor()?
-            .assess_background_agent_convert_session(request.clone())
-            .await
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-
-        let session = self
-            .session_service
-            .get_session_view(&session_id)
-            .map_err(BackgroundAgentCommandError::from_anyhow)?
-            .ok_or_else(|| {
-                BackgroundAgentCommandError::not_found(format!("Session not found: {}", session_id))
-            })?;
-        let options = convert_session_request_to_options(request)
-            .map_err(BackgroundAgentCommandError::from_tool_error)?;
-        let spec = build_convert_session_spec(
-            &session,
-            ConvertSessionSpecOptions {
-                name: options.name,
-                description: None,
-                schedule: Some(options.schedule),
-                input: options.input,
-                notification: None,
-                execution_mode: None,
-                timeout_secs: options.timeout_secs,
-                memory: options.memory,
-                durability_mode: options.durability_mode,
-                resource_limits: options.resource_limits,
-                prerequisites: Vec::new(),
-                continuation: None,
-            },
-        )
-        .map_err(|error| BackgroundAgentCommandError::internal(error.to_string()))?;
-
-        self.finish_direct_mutation(assessment, || {
-            let mut task = self
-                .storage
-                .create_background_agent(spec)
-                .map_err(BackgroundAgentCommandError::from_anyhow)?;
-            if options.run_now {
-                task = self
-                    .storage
-                    .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)
-                    .map_err(BackgroundAgentCommandError::from_anyhow)?;
-            }
-            Ok(BackgroundAgentConversionResult {
-                task,
-                source_session_id: session.id,
-                source_session_agent_id: session.agent_id,
-                run_now: options.run_now,
-            })
-        })
+        let (_guard, assessment, prepared) = self.prepare_convert_session(request).await?;
+        self.finish_direct_mutation(assessment, || self.execute_convert_session(prepared))
     }
 
     pub fn resolve_default_or_existing_agent_id(&self, id_or_alias: &str) -> CommandResult<String> {
@@ -677,6 +538,159 @@ impl BackgroundAgentCommandService {
             )));
         }
         execute()
+    }
+
+    async fn prepare_create(
+        &self,
+        request: BackgroundAgentCreateRequest,
+    ) -> CommandResult<(RequestGuard, OperationAssessment, BackgroundAgentSpec)> {
+        let request = self.normalize_create_request(request)?;
+        self.validate_create_request(&request)?;
+        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_create(request.clone())
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let spec = create_request_to_spec(request)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        Ok((guard, assessment, spec))
+    }
+
+    async fn prepare_update(
+        &self,
+        request: BackgroundAgentUpdateRequest,
+    ) -> CommandResult<(
+        RequestGuard,
+        OperationAssessment,
+        String,
+        BackgroundAgentPatch,
+    )> {
+        let request = self.normalize_update_request(request)?;
+        self.validate_update_request(&request)?;
+        let resolved_id = request.id.clone();
+        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_update(request.clone())
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let patch = update_request_to_patch(request)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        Ok((guard, assessment, resolved_id, patch))
+    }
+
+    async fn prepare_delete(
+        &self,
+        request: BackgroundAgentDeleteRequest,
+    ) -> CommandResult<(RequestGuard, OperationAssessment, String)> {
+        let request = self.normalize_delete_request(request)?;
+        self.validate_delete_request(&request)?;
+        let resolved_id = request.id.clone();
+        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_delete(request)
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        Ok((guard, assessment, resolved_id))
+    }
+
+    async fn prepare_control(
+        &self,
+        request: BackgroundAgentControlRequest,
+    ) -> CommandResult<(
+        RequestGuard,
+        OperationAssessment,
+        String,
+        BackgroundAgentControlAction,
+    )> {
+        let (request, action) = self.normalize_control_request(request)?;
+        self.validate_control_request(&request)?;
+        let resolved_id = request.id.clone();
+        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_control(request.clone())
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        Ok((guard, assessment, resolved_id, action))
+    }
+
+    async fn prepare_convert_session(
+        &self,
+        request: BackgroundAgentConvertSessionRequest,
+    ) -> CommandResult<(RequestGuard, OperationAssessment, PreparedSessionConversion)> {
+        let request = self.normalize_convert_session_request(request);
+        self.validate_convert_session_request(&request)?;
+        let session_id = request.session_id.clone();
+        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let assessment = self
+            .assessor()?
+            .assess_background_agent_convert_session(request.clone())
+            .await
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+
+        let session = self
+            .session_service
+            .get_session_view(&session_id)
+            .map_err(BackgroundAgentCommandError::from_anyhow)?
+            .ok_or_else(|| {
+                BackgroundAgentCommandError::not_found(format!("Session not found: {}", session_id))
+            })?;
+        let options = convert_session_request_to_options(request)
+            .map_err(BackgroundAgentCommandError::from_tool_error)?;
+        let spec = build_convert_session_spec(
+            &session,
+            ConvertSessionSpecOptions {
+                name: options.name,
+                description: None,
+                schedule: Some(options.schedule),
+                input: options.input,
+                notification: None,
+                execution_mode: None,
+                timeout_secs: options.timeout_secs,
+                memory: options.memory,
+                durability_mode: options.durability_mode,
+                resource_limits: options.resource_limits,
+                prerequisites: Vec::new(),
+                continuation: None,
+            },
+        )
+        .map_err(|error| BackgroundAgentCommandError::internal(error.to_string()))?;
+
+        Ok((
+            guard,
+            assessment,
+            PreparedSessionConversion {
+                spec,
+                source_session_id: session.id,
+                source_session_agent_id: session.agent_id,
+                run_now: options.run_now,
+            },
+        ))
+    }
+
+    fn execute_convert_session(
+        &self,
+        prepared: PreparedSessionConversion,
+    ) -> CommandResult<BackgroundAgentConversionResult> {
+        let mut task = self
+            .storage
+            .create_background_agent(prepared.spec)
+            .map_err(BackgroundAgentCommandError::from_anyhow)?;
+        if prepared.run_now {
+            task = self
+                .storage
+                .control_background_agent(&task.id, BackgroundAgentControlAction::RunNow)
+                .map_err(BackgroundAgentCommandError::from_anyhow)?;
+        }
+        Ok(BackgroundAgentConversionResult {
+            task,
+            source_session_id: prepared.source_session_id,
+            source_session_agent_id: prepared.source_session_agent_id,
+            run_now: prepared.run_now,
+        })
     }
 }
 
@@ -1150,6 +1164,186 @@ mod tests {
             .await
             .expect_err("blank name should fail");
         assert!(err.to_string().contains("name must not be empty"));
+    }
+
+    #[tokio::test]
+    async fn create_requires_confirmation_when_warning_assessment_requires_it() {
+        let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
+
+        let result = service
+            .create_from_request(BackgroundAgentCreateRequest {
+                name: "Create Guarded Warning".to_string(),
+                agent_id: session.agent_id,
+                chat_session_id: None,
+                schedule: restflow_contracts::request::TaskSchedule::default(),
+                input: Some("run".to_string()),
+                input_template: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("create should return confirmation_required");
+
+        match result {
+            BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
+                assert_eq!(assessment.operation, "create_background_agent");
+                assert!(assessment.requires_confirmation);
+            }
+            other => panic!("expected confirmation_required outcome, got {other:?}"),
+        }
+
+        assert!(service.storage.list_tasks().expect("list tasks").is_empty());
+    }
+
+    #[tokio::test]
+    async fn update_requires_confirmation_when_warning_assessment_requires_it() {
+        let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Update Guarded Warning".to_string(),
+                agent_id: session.agent_id,
+                chat_session_id: None,
+                description: None,
+                input: Some("update guarded".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let result = service
+            .update_from_request(BackgroundAgentUpdateRequest {
+                id: task.id.clone(),
+                name: Some("Should Not Persist".to_string()),
+                description: None,
+                agent_id: None,
+                chat_session_id: None,
+                input: None,
+                input_template: None,
+                schedule: None,
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("update should return confirmation_required");
+
+        match result {
+            BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
+                assert_eq!(assessment.operation, "update_background_agent");
+                assert!(assessment.requires_confirmation);
+            }
+            other => panic!("expected confirmation_required outcome, got {other:?}"),
+        }
+
+        let stored = service
+            .storage
+            .get_task(&task.id)
+            .expect("load task")
+            .expect("task should still exist");
+        assert_eq!(stored.name, "Update Guarded Warning");
+    }
+
+    #[tokio::test]
+    async fn control_requires_confirmation_when_warning_assessment_requires_it() {
+        let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Control Guarded Warning".to_string(),
+                agent_id: session.agent_id,
+                chat_session_id: None,
+                description: None,
+                input: Some("control guarded".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let result = service
+            .control_from_request(BackgroundAgentControlRequest {
+                id: task.id.clone(),
+                action: "pause".to_string(),
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("control should return confirmation_required");
+
+        match result {
+            BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
+                assert_eq!(assessment.operation, "control_background_agent");
+                assert!(assessment.requires_confirmation);
+            }
+            other => panic!("expected confirmation_required outcome, got {other:?}"),
+        }
+
+        let stored = service
+            .storage
+            .get_task(&task.id)
+            .expect("load task")
+            .expect("task should still exist");
+        assert_eq!(stored.status, crate::models::BackgroundAgentStatus::Active);
+    }
+
+    #[tokio::test]
+    async fn convert_session_requires_confirmation_when_warning_assessment_requires_it() {
+        let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
+
+        let result = service
+            .convert_session(BackgroundAgentConvertSessionRequest {
+                session_id: session.id.clone(),
+                name: Some("Convert Guarded Warning".to_string()),
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: Some(false),
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("convert should return confirmation_required");
+
+        match result {
+            BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
+                assert_eq!(assessment.operation, "convert_session_to_background_agent");
+                assert!(assessment.requires_confirmation);
+            }
+            other => panic!("expected confirmation_required outcome, got {other:?}"),
+        }
+
+        assert!(service.storage.list_tasks().expect("list tasks").is_empty());
     }
 
     #[tokio::test]
