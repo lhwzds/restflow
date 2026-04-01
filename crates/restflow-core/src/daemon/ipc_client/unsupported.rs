@@ -119,7 +119,7 @@ impl IpcClient {
         fn list_background_agents(&mut self, _status: Option<String>) -> Vec<BackgroundAgent>;
         fn get_background_agent(&mut self, _id: String) -> Option<BackgroundAgent>;
         fn create_background_agent(&mut self, _spec: BackgroundAgentSpec) -> BackgroundAgent;
-        fn convert_session_to_background_agent(&mut self, _request: restflow_traits::store::BackgroundAgentConvertSessionRequest) -> crate::models::BackgroundAgentConversionResult;
+        fn convert_session_to_background_agent(&mut self, _request: restflow_contracts::request::BackgroundAgentConvertSessionRequest) -> crate::models::BackgroundAgentConversionResult;
         fn update_background_agent(&mut self, _id: String, _patch: BackgroundAgentPatch) -> BackgroundAgent;
         fn delete_background_agent(&mut self, _id: String) -> restflow_contracts::DeleteWithIdResponse;
         fn control_background_agent(&mut self, _id: String, _action: BackgroundAgentControlAction) -> BackgroundAgent;

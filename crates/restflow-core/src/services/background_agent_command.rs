@@ -706,6 +706,7 @@ mod tests {
     use tempfile::tempdir;
 
     struct MockAssessor;
+    struct WarningAssessor;
 
     #[async_trait]
     impl AgentOperationAssessor for MockAssessor {
@@ -820,7 +821,187 @@ mod tests {
         }
     }
 
+    #[async_trait]
+    impl AgentOperationAssessor for WarningAssessor {
+        async fn assess_agent_create(
+            &self,
+            _request: AgentCreateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "create_agent",
+                OperationAssessmentIntent::Save,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_agent_update(
+            &self,
+            _request: AgentUpdateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "update_agent",
+                OperationAssessmentIntent::Save,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_background_agent_create(
+            &self,
+            _request: BackgroundAgentCreateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "create_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_background_agent_convert_session(
+            &self,
+            _request: BackgroundAgentConvertSessionRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "convert_session_to_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_background_agent_update(
+            &self,
+            _request: BackgroundAgentUpdateRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "update_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_background_agent_delete(
+            &self,
+            request: BackgroundAgentDeleteRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "delete_background_agent",
+                OperationAssessmentIntent::Save,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "destructive_delete".to_string(),
+                    message: format!("delete guard for {}", request.id),
+                    field: Some("id".to_string()),
+                    suggestion: Some("Confirm delete".to_string()),
+                }],
+            ))
+        }
+
+        async fn assess_background_agent_control(
+            &self,
+            _request: BackgroundAgentControlRequest,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                "control_background_agent",
+                OperationAssessmentIntent::Run,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_background_agent_template(
+            &self,
+            operation: &str,
+            intent: OperationAssessmentIntent,
+            _agent_ids: Vec<String>,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                operation,
+                intent,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_subagent_spawn(
+            &self,
+            operation: &str,
+            _request: ContractSubagentSpawnRequest,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                operation,
+                OperationAssessmentIntent::Run,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+
+        async fn assess_subagent_batch(
+            &self,
+            operation: &str,
+            _requests: Vec<ContractSubagentSpawnRequest>,
+            _template_mode: bool,
+        ) -> std::result::Result<OperationAssessment, ToolError> {
+            Ok(OperationAssessment::warning_with_confirmation(
+                operation,
+                OperationAssessmentIntent::Run,
+                vec![restflow_traits::OperationAssessmentIssue {
+                    code: "warn".to_string(),
+                    message: "warning".to_string(),
+                    field: None,
+                    suggestion: None,
+                }],
+            ))
+        }
+    }
+
     fn setup() -> (
+        BackgroundAgentCommandService,
+        ChatSession,
+        tempfile::TempDir,
+    ) {
+        setup_with_assessor(Arc::new(MockAssessor))
+    }
+
+    fn setup_with_assessor(
+        assessor: Arc<dyn AgentOperationAssessor>,
+    ) -> (
         BackgroundAgentCommandService,
         ChatSession,
         tempfile::TempDir,
@@ -877,7 +1058,7 @@ mod tests {
                 background_storage,
                 agent_storage,
                 session_service,
-                Some(Arc::new(MockAssessor)),
+                Some(assessor),
             ),
             session,
             temp_dir,
@@ -1188,6 +1369,148 @@ mod tests {
                 .expect("load task")
                 .is_none()
         );
+    }
+
+    #[tokio::test]
+    async fn create_direct_executes_with_warning_assessment() {
+        let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
+
+        let result = service
+            .create_direct_from_request(BackgroundAgentCreateRequest {
+                name: "Create Direct Warning".to_string(),
+                agent_id: session.agent_id,
+                chat_session_id: None,
+                schedule: restflow_contracts::request::TaskSchedule::default(),
+                input: Some("run".to_string()),
+                input_template: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("create direct");
+
+        assert_eq!(result.name, "Create Direct Warning");
+    }
+
+    #[tokio::test]
+    async fn update_direct_executes_with_warning_assessment() {
+        let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Update Direct Warning".to_string(),
+                agent_id: session.agent_id,
+                chat_session_id: None,
+                description: None,
+                input: Some("update direct".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let result = service
+            .update_direct_from_request(BackgroundAgentUpdateRequest {
+                id: task.id.clone(),
+                name: Some("Updated Name".to_string()),
+                description: None,
+                agent_id: None,
+                chat_session_id: None,
+                input: None,
+                input_template: None,
+                schedule: None,
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("update direct");
+
+        assert_eq!(result.id, task.id);
+        assert_eq!(result.name, "Updated Name");
+    }
+
+    #[tokio::test]
+    async fn control_direct_executes_with_warning_assessment() {
+        let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
+        let task = service
+            .storage
+            .create_background_agent(BackgroundAgentSpec {
+                name: "Control Direct Warning".to_string(),
+                agent_id: session.agent_id,
+                chat_session_id: None,
+                description: None,
+                input: Some("control direct".to_string()),
+                input_template: None,
+                schedule: crate::models::TaskSchedule::default(),
+                notification: None,
+                execution_mode: None,
+                timeout_secs: None,
+                memory: None,
+                durability_mode: None,
+                resource_limits: None,
+                prerequisites: Vec::new(),
+                continuation: None,
+            })
+            .expect("create task");
+
+        let result = service
+            .control_direct_from_request(BackgroundAgentControlRequest {
+                id: task.id.clone(),
+                action: "pause".to_string(),
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("control direct");
+
+        assert_eq!(result.id, task.id);
+        assert_eq!(result.status, crate::models::BackgroundAgentStatus::Paused);
+    }
+
+    #[tokio::test]
+    async fn convert_session_direct_executes_with_warning_assessment() {
+        let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
+
+        let result = service
+            .convert_session_direct(BackgroundAgentConvertSessionRequest {
+                session_id: session.id.clone(),
+                name: Some("Converted Direct Warning".to_string()),
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: Some(false),
+                preview: false,
+                confirmation_token: None,
+            })
+            .await
+            .expect("convert direct");
+
+        assert_eq!(result.source_session_id, session.id);
+        assert_eq!(result.task.name, "Converted Direct Warning");
+        assert!(!result.run_now);
     }
 
     #[tokio::test]

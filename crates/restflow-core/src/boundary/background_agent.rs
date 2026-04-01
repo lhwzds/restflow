@@ -292,23 +292,6 @@ pub(crate) fn contract_convert_request_to_store(
     })
 }
 
-pub(crate) fn store_convert_request_to_contract(
-    request: StoreBackgroundAgentConvertSessionRequest,
-) -> anyhow::Result<ContractBackgroundAgentConvertSessionRequest> {
-    Ok(ContractBackgroundAgentConvertSessionRequest {
-        session_id: request.session_id,
-        name: request.name,
-        schedule: request.schedule,
-        input: request.input,
-        timeout_secs: request.timeout_secs,
-        durability_mode: request.durability_mode,
-        memory: request.memory,
-        memory_scope: request.memory_scope,
-        resource_limits: request.resource_limits,
-        run_now: request.run_now,
-    })
-}
-
 fn decode_contract<T: Serialize, U: DeserializeOwned>(
     field: &str,
     value: T,

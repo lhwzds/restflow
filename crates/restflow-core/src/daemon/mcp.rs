@@ -1037,7 +1037,6 @@ mod tests {
     use futures::StreamExt;
     use http::Response;
     use http_body_util::{BodyExt, Full};
-    use restflow_traits::BackgroundAgentCommandOutcome;
     use serde_json::Value;
     use std::env;
     use std::path::{Path, PathBuf};
@@ -1235,7 +1234,7 @@ mod tests {
 
     #[allow(clippy::await_holding_lock)]
     #[tokio::test]
-    async fn api_convert_session_returns_full_conversion_outcome() {
+    async fn api_convert_session_returns_direct_conversion_result() {
         let _env_lock = env_lock();
         let core = test_core().await;
         let agents_dir = tempdir().expect("agents tempdir");
@@ -1284,50 +1283,12 @@ mod tests {
         let body = body::to_bytes(response.into_body(), usize::MAX)
             .await
             .unwrap();
-        let outcome: BackgroundAgentCommandOutcome<crate::models::BackgroundAgentConversionResult> =
+        let result: crate::models::BackgroundAgentConversionResult =
             serde_json::from_slice(&body).expect("conversion outcome");
-        let confirmation_token = match outcome {
-            BackgroundAgentCommandOutcome::ConfirmationRequired { assessment } => {
-                assessment.confirmation_token.expect("confirmation token")
-            }
-            other => panic!("expected confirmation_required outcome, got {other:?}"),
-        };
-
-        let response = app
-            .oneshot(
-                Request::builder()
-                    .method("POST")
-                    .uri("/api/background-agents/convert-session")
-                    .header(CONTENT_TYPE, "application/json")
-                    .body(Body::from(
-                        serde_json::to_vec(&serde_json::json!({
-                            "session_id": session.id,
-                            "name": "HTTP Converted Task",
-                            "run_now": false,
-                            "confirmation_token": confirmation_token
-                        }))
-                        .unwrap(),
-                    ))
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
-
-        let body = body::to_bytes(response.into_body(), usize::MAX)
-            .await
-            .unwrap();
-        let outcome: BackgroundAgentCommandOutcome<crate::models::BackgroundAgentConversionResult> =
-            serde_json::from_slice(&body).expect("conversion outcome");
-        match outcome {
-            BackgroundAgentCommandOutcome::Executed { result } => {
-                assert_eq!(result.source_session_id, session.id);
-                assert_eq!(result.task.chat_session_id, session.id);
-                assert_eq!(result.task.name, "HTTP Converted Task");
-                assert!(!result.run_now);
-            }
-            other => panic!("expected executed outcome, got {other:?}"),
-        }
+        assert_eq!(result.source_session_id, session.id);
+        assert_eq!(result.task.chat_session_id, session.id);
+        assert_eq!(result.task.name, "HTTP Converted Task");
+        assert!(!result.run_now);
     }
 
     #[tokio::test]

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use comfy_table::{Cell, Table};
-use restflow_contracts::DeleteWithIdResponse;
+use restflow_contracts::{DeleteWithIdResponse, request::BackgroundAgentConvertSessionRequest};
 use std::sync::Arc;
 
 use crate::cli::{BackgroundAgentCommands, OutputFormat};
@@ -19,8 +19,6 @@ use restflow_core::models::{
 use restflow_core::services::background_agent_conversion::{
     derive_conversion_input, derive_conversion_name,
 };
-use restflow_traits::store::BackgroundAgentConvertSessionRequest;
-
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
     command: BackgroundAgentCommands,
@@ -219,8 +217,6 @@ async fn convert_session_to_background_agent(
             memory_scope: None,
             resource_limits: None,
             run_now: Some(run_now),
-            preview: false,
-            confirmation_token: None,
         })
         .await?;
 
