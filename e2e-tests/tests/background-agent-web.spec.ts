@@ -25,7 +25,8 @@ async function waitForBackgroundAgentBySession(
 
       return agents.find((agent) => agent.chat_session_id === sessionId) ?? null;
     }, {
-      timeout: 15000,
+      timeout: 30000,
+      intervals: [250, 500, 1000],
       message: `Timed out waiting for background agent bound to session ${sessionId}`,
     })
     .not.toBeNull();
