@@ -14,6 +14,7 @@ use ts_rs::TS;
 /// the serialized `AgentState`, the reason for interruption, and
 /// metadata for the caller that triggered the interrupt.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct AgentCheckpoint {
     /// Unique checkpoint ID.
@@ -114,6 +115,7 @@ impl AgentCheckpoint {
 
 /// Payload provided when resuming from a checkpoint.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ResumePayload {
     /// The checkpoint ID to resume from.

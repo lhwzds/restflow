@@ -10,6 +10,7 @@ mod constants;
 /// This replaces the old large enum with a lightweight value object backed by
 /// the provider/model catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(type = "string")]
 pub struct ModelId(&'static str);
 

@@ -9,6 +9,7 @@ use ts_rs::TS;
 
 /// Webhook configuration for a task
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct WebhookConfig {
     /// Whether webhook trigger is enabled
@@ -86,6 +87,7 @@ pub struct WebhookRequest {
 
 /// Webhook trigger response
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct WebhookResponse {
     /// Whether the webhook was accepted

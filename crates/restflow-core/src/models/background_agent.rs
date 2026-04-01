@@ -13,6 +13,7 @@ use ts_rs::TS;
 
 /// Execution mode for agent tasks
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum ExecutionMode {
@@ -25,6 +26,7 @@ pub enum ExecutionMode {
 
 /// Durability mode for checkpoint persistence.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum DurabilityMode {
@@ -39,6 +41,7 @@ pub enum DurabilityMode {
 
 /// Configuration for CLI-based execution
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct CliExecutionConfig {
     /// CLI binary name (e.g., "claude", "aider")
@@ -75,6 +78,7 @@ impl Default for CliExecutionConfig {
 
 /// Status of an agent task
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum BackgroundAgentStatus {
@@ -112,6 +116,7 @@ fn failed_status_is_schedulable(next_run_at: Option<i64>) -> bool {
 
 /// Schedule configuration for agent tasks
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum TaskSchedule {
@@ -151,6 +156,7 @@ impl Default for TaskSchedule {
 
 /// Notification configuration for task results
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct NotificationConfig {
     /// Only notify on failure
@@ -213,6 +219,7 @@ fn default_inter_segment_pause_ms() -> u64 {
 /// Controls whether long-term memory is shared across all background agents of
 /// an agent or isolated per background agent.
 #[derive(Debug, Clone, Default, Serialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryScope {
@@ -249,6 +256,7 @@ fn default_memory_scope() -> MemoryScope {
 ///
 /// Controls working memory behavior and persistence settings.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct MemoryConfig {
     /// Maximum number of messages to keep in working memory
@@ -312,6 +320,7 @@ impl Default for NotificationConfig {
 
 /// Resource guardrails for background agent executions.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ResourceLimits {
     /// Maximum tool calls allowed in one execution.
@@ -341,6 +350,7 @@ impl Default for ResourceLimits {
 
 /// Configuration for long-horizon execution continuation.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ContinuationConfig {
     /// Automatically continue with additional segments when an execution reaches
@@ -375,6 +385,7 @@ impl Default for ContinuationConfig {
 
 /// Creation payload for background agents.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct BackgroundAgentSpec {
     /// Display name of the background agent
@@ -425,6 +436,7 @@ pub struct BackgroundAgentSpec {
 
 /// Partial update payload for background agents.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct BackgroundAgentPatch {
     /// New display name
@@ -476,6 +488,7 @@ pub struct BackgroundAgentPatch {
 
 /// Control actions for a background agent.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundAgentControlAction {
@@ -493,6 +506,7 @@ pub enum BackgroundAgentControlAction {
 
 /// Source for background communication messages.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundMessageSource {
@@ -507,6 +521,7 @@ pub enum BackgroundMessageSource {
 
 /// Delivery state of background communication messages.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum BackgroundMessageStatus {
@@ -534,6 +549,7 @@ impl BackgroundMessageStatus {
 
 /// A communication message sent to a background agent.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct BackgroundMessage {
     /// Message ID
@@ -605,6 +621,7 @@ impl BackgroundMessage {
 
 /// Aggregated progress snapshot for a background agent.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct BackgroundProgress {
     /// Background agent ID
@@ -647,6 +664,7 @@ pub struct BackgroundProgress {
 
 /// Result payload for converting an existing chat session into a background agent.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct BackgroundAgentConversionResult {
     /// Created or updated background agent task.
@@ -775,6 +793,7 @@ impl BackgroundAgentRun {
 /// When Agent A spawns Agent B, Agent B's events include Agent A's subflow path
 /// plus its own tool_call_id. This enables hierarchical execution tracking.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(type = "string[]")]
 pub struct SubflowPath(pub Vec<String>);
 
@@ -789,6 +808,7 @@ impl SubflowPath {
 
 /// Record of a task execution event
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct TaskEvent {
     /// Unique event ID
@@ -825,6 +845,7 @@ pub struct TaskEvent {
 
 /// Type of task event
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskEventType {
@@ -852,6 +873,7 @@ pub enum TaskEventType {
 
 /// An agent task represents a scheduled execution of an agent
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct BackgroundAgent {
     /// Unique identifier for the task

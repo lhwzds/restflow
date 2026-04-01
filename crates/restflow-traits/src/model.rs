@@ -12,7 +12,6 @@ macro_rules! define_model_provider {
             $(
                 #[serde(rename = $canonical)]
                 #[cfg_attr(feature = "ts", ts(rename = $canonical))]
-                #[cfg_attr(feature = "specta", specta(rename = $canonical))]
                 $variant,
             )+
         }

@@ -8,6 +8,7 @@ use ts_rs::TS;
 
 /// Channel type identifier
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChannelType {
@@ -55,6 +56,7 @@ impl std::fmt::Display for ChannelType {
 
 /// Message level for formatting
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MessageLevel {

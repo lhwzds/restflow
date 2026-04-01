@@ -18,6 +18,7 @@ use ts_rs::TS;
 
 /// Codex CLI execution mode.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum CodexCliExecutionMode {
@@ -39,6 +40,7 @@ impl CodexCliExecutionMode {
 
 /// Skill preflight policy mode.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum SkillPreflightPolicyMode {
@@ -53,6 +55,7 @@ pub enum SkillPreflightPolicyMode {
 
 /// Model routing configuration for automatic tier-based model selection.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ModelRoutingConfig {
     /// Enable automatic model routing.
@@ -99,6 +102,7 @@ impl From<&ModelRoutingConfig> for restflow_ai::agent::ModelRoutingConfig {
 
 /// API key or password configuration (direct value or secret reference)
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case", tag = "type", content = "value")]
 pub enum ApiKeyConfig {
@@ -110,6 +114,7 @@ pub enum ApiKeyConfig {
 
 /// Agent configuration for AI-powered execution
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct AgentNode {
     /// AI model to use for this agent (None = auto-select based on auth profile)

@@ -14,6 +14,7 @@ use ts_rs::TS;
 
 /// Execution trace event category.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionTraceCategory {
@@ -37,6 +38,7 @@ pub enum ExecutionTraceCategory {
 
 /// Source of the execution trace event.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionTraceSource {
@@ -54,6 +56,7 @@ pub enum ExecutionTraceSource {
 
 /// Tool call phase represented in the telemetry stream.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ToolCallPhase {
@@ -63,6 +66,7 @@ pub enum ToolCallPhase {
 
 /// Metric dimension attached to a metric sample.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct MetricDimension {
     pub key: String,
@@ -71,6 +75,7 @@ pub struct MetricDimension {
 
 /// LLM call trace data.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct LlmCallTrace {
     /// Canonical model used for the call.
@@ -93,6 +98,7 @@ pub struct LlmCallTrace {
 
 /// Tool call trace data.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ToolCallTrace {
     /// Phase of the tool event.
@@ -119,6 +125,7 @@ pub struct ToolCallTrace {
 
 /// Tool completion payload used by runtime helpers that consume tool-call outputs.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ToolCallCompletion {
     /// Optional tool output payload (JSON string or raw text).
@@ -140,6 +147,7 @@ pub struct ToolCallCompletion {
 
 /// Model switch trace data.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ModelSwitchTrace {
     /// Previous model.
@@ -154,6 +162,7 @@ pub struct ModelSwitchTrace {
 
 /// Lifecycle event trace data.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct LifecycleTrace {
     /// Current status after the lifecycle event.
@@ -168,6 +177,7 @@ pub struct LifecycleTrace {
 
 /// Message event trace data.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct MessageTrace {
     /// Role of the message sender.
@@ -180,6 +190,7 @@ pub struct MessageTrace {
 
 /// Metric sample trace data.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct MetricSampleTrace {
     pub name: String,
@@ -190,6 +201,7 @@ pub struct MetricSampleTrace {
 
 /// Provider health trace data.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ProviderHealthTrace {
     pub provider: String,
@@ -201,6 +213,7 @@ pub struct ProviderHealthTrace {
 
 /// Structured execution log field.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionLogField {
     pub key: String,
@@ -209,6 +222,7 @@ pub struct ExecutionLogField {
 
 /// Structured execution log record.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct LogRecordTrace {
     pub level: String,
@@ -218,6 +232,7 @@ pub struct LogRecordTrace {
 
 /// Unified execution trace event structure.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionTraceEvent {
     /// Unique event ID.
@@ -534,6 +549,7 @@ impl ExecutionTraceEvent {
 
 /// Query filters for retrieving execution trace events.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionTraceQuery {
     /// Filter by task ID.
@@ -564,6 +580,7 @@ pub struct ExecutionTraceQuery {
 
 /// Statistics about execution trace events.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionTraceStats {
     /// Total number of events.
@@ -594,6 +611,7 @@ pub struct ExecutionTraceStats {
 
 /// Time range of execution trace events.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionTraceTimeRange {
     /// Earliest timestamp.
@@ -606,6 +624,7 @@ pub struct ExecutionTraceTimeRange {
 
 /// Timeline payload for a trace or execution scope.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionTimeline {
     pub events: Vec<ExecutionTraceEvent>,
@@ -614,6 +633,7 @@ pub struct ExecutionTimeline {
 
 /// Query for metric samples.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionMetricQuery {
     pub task_id: Option<String>,
@@ -626,6 +646,7 @@ pub struct ExecutionMetricQuery {
 
 /// Aggregated execution metrics response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionMetricsResponse {
     pub samples: Vec<ExecutionTraceEvent>,
@@ -633,6 +654,7 @@ pub struct ExecutionMetricsResponse {
 
 /// Query for provider health snapshots.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ProviderHealthQuery {
     pub provider: Option<String>,
@@ -642,6 +664,7 @@ pub struct ProviderHealthQuery {
 
 /// Provider health query response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ProviderHealthResponse {
     pub events: Vec<ExecutionTraceEvent>,
@@ -649,6 +672,7 @@ pub struct ProviderHealthResponse {
 
 /// Query for structured execution logs.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionLogQuery {
     pub task_id: Option<String>,
@@ -661,6 +685,7 @@ pub struct ExecutionLogQuery {
 
 /// Structured execution logs response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionLogResponse {
     pub events: Vec<ExecutionTraceEvent>,

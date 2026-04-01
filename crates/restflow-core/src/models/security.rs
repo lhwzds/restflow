@@ -22,6 +22,7 @@ use ts_rs::TS;
 /// Defines which commands are allowed, blocked, or require approval.
 /// Commands are checked in order: blocklist → allowlist → approval_required → default_action.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SecurityPolicy {
     /// Default action for commands not matching any pattern
@@ -52,6 +53,7 @@ pub struct SecurityPolicy {
 /// Generic tool operation for policy evaluation.
 /// Replaces the bash-only command string approach.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ToolAction {
     pub tool_name: String,
@@ -80,6 +82,7 @@ impl From<&restflow_traits::security::ToolAction> for ToolAction {
 
 /// Tool-specific security rule.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ToolRule {
     pub id: String,
@@ -100,6 +103,7 @@ fn default_approval_timeout() -> u64 {
 
 /// Action to take for a command based on security policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum SecurityAction {
@@ -114,6 +118,7 @@ pub enum SecurityAction {
 
 /// Security mode for a given agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum SecurityMode {
@@ -128,6 +133,7 @@ pub enum SecurityMode {
 
 /// Approval behavior for commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum AskMode {
@@ -142,6 +148,7 @@ pub enum AskMode {
 
 /// Per-agent security configuration.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct AgentSecurityConfig {
     /// Security mode for this agent
@@ -247,6 +254,7 @@ impl Default for AgentSecurityConfig {
 ///
 /// Supports glob-style patterns with `*` for wildcard matching.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct CommandPattern {
     /// Pattern to match (supports glob-style wildcards)
@@ -341,6 +349,7 @@ pub(crate) fn glob_match(pattern: &str, text: &str) -> bool {
 
 /// Record of a pending approval request.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct PendingApproval {
     /// Unique identifier for this approval request
@@ -425,6 +434,7 @@ impl PendingApproval {
 
 /// Status of an approval request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ApprovalStatus {

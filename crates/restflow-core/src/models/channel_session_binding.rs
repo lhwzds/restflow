@@ -4,6 +4,7 @@ use ts_rs::TS;
 
 /// Persistent mapping between an external channel route and a chat session.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChannelSessionBinding {
     pub id: String,

@@ -8,6 +8,7 @@ use crate::models::{ApiKeyConfig, ModelId, StorageMode};
 
 /// Agent metadata stored in the database (file content lives on disk).
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct AgentMeta {
     pub id: String,
@@ -53,6 +54,7 @@ pub struct AgentMeta {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub enum AgentType {
     Main,

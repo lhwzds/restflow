@@ -35,6 +35,7 @@ pub const HEARTBEAT_EVENT: &str = "background-agent:heartbeat";
 
 /// Heartbeat event sent to connected daemon clients.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum HeartbeatEvent {
@@ -48,6 +49,7 @@ pub enum HeartbeatEvent {
 
 /// Regular heartbeat pulse data
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct HeartbeatPulse {
     /// Sequence number for this heartbeat
@@ -70,6 +72,7 @@ pub struct HeartbeatPulse {
 
 /// System statistics included in heartbeat
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SystemStats {
     /// Memory usage in bytes (if available)
@@ -81,6 +84,7 @@ pub struct SystemStats {
 
 /// Runner status change event
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct RunnerStatusEvent {
     /// Current runner status
@@ -95,6 +99,7 @@ pub struct RunnerStatusEvent {
 
 /// Runner status enumeration
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum RunnerStatus {
@@ -114,6 +119,7 @@ pub enum RunnerStatus {
 
 /// Warning event for issues detected during execution
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct HeartbeatWarning {
     /// Warning code for categorization

@@ -10,6 +10,7 @@ use crate::models::skill_folder::{SkillGating, SkillReference, SkillScript};
 
 /// Skill lifecycle status used for discovery and planning.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[serde(rename_all = "lowercase")]
 #[ts(export)]
 pub enum SkillStatus {
@@ -22,6 +23,7 @@ pub enum SkillStatus {
 
 /// A skill represents a reusable AI prompt template
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct Skill {
     /// Unique identifier for the skill

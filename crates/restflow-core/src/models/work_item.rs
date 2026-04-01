@@ -3,6 +3,7 @@ use specta::Type;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, Default, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ItemStatus {
@@ -14,6 +15,7 @@ pub enum ItemStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct WorkItem {
     pub id: String,
@@ -32,6 +34,7 @@ pub struct WorkItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct WorkItemSpec {
     pub folder: String,
@@ -44,6 +47,7 @@ pub struct WorkItemSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct WorkItemPatch {
     #[serde(default)]
@@ -63,6 +67,7 @@ pub struct WorkItemPatch {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ItemQuery {
     #[serde(default)]

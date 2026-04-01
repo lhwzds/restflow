@@ -12,6 +12,7 @@ use ts_rs::TS;
 
 /// System status for /status command
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SystemStatus {
     /// Whether the task runner is active

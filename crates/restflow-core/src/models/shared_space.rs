@@ -5,6 +5,7 @@ use specta::Type;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SharedEntry {
     pub key: String,
@@ -21,6 +22,7 @@ pub struct SharedEntry {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, Default, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
 pub enum Visibility {
