@@ -10,7 +10,9 @@ use crate::registry::{
     SkillSearchResult, SkillSortOrder,
 };
 use crate::runtime::channel::transcribe_media_file;
-use crate::services::background_agent_command::BackgroundAgentCommandService;
+use crate::services::background_agent_command::{
+    BackgroundAgentCommandService, BackgroundAgentExecutionMode,
+};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use anyhow::Result;
 use axum::Json;
@@ -399,8 +401,9 @@ async fn api_convert_session_to_background_agent(
         state.core.storage.as_ref(),
         Some(Arc::new(OperationAssessorAdapter::new(state.core.clone()))),
     )
-    .convert_session_direct(store_request)
+    .convert_session(store_request, BackgroundAgentExecutionMode::Direct)
     .await
+    .and_then(BackgroundAgentCommandService::into_direct_result)
     .map_err(|error| {
         let status =
             StatusCode::from_u16(error.code() as u16).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);

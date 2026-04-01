@@ -49,6 +49,12 @@ struct PreparedSessionConversion {
     run_now: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BackgroundAgentExecutionMode {
+    Guarded,
+    Direct,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BackgroundAgentCommandError {
     Validation(String),
@@ -194,22 +200,10 @@ impl BackgroundAgentCommandService {
     pub async fn create_from_request(
         &self,
         request: BackgroundAgentCreateRequest,
+        mode: BackgroundAgentExecutionMode,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let (guard, assessment, spec) = self.prepare_create(request).await?;
-        self.finish_mutation(
-            assessment,
-            guard.preview,
-            guard.confirmation_token.as_deref(),
-            || self.create(spec),
-        )
-    }
-
-    pub async fn create_direct_from_request(
-        &self,
-        request: BackgroundAgentCreateRequest,
-    ) -> CommandResult<BackgroundAgent> {
-        let (_guard, assessment, spec) = self.prepare_create(request).await?;
-        self.finish_direct_mutation(assessment, || self.create(spec))
+        self.finish_request(mode, guard, assessment, || self.create(spec))
     }
 
     fn update(&self, id: &str, patch: BackgroundAgentPatch) -> CommandResult<BackgroundAgent> {
@@ -221,22 +215,10 @@ impl BackgroundAgentCommandService {
     pub async fn update_from_request(
         &self,
         request: BackgroundAgentUpdateRequest,
+        mode: BackgroundAgentExecutionMode,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let (guard, assessment, resolved_id, patch) = self.prepare_update(request).await?;
-        self.finish_mutation(
-            assessment,
-            guard.preview,
-            guard.confirmation_token.as_deref(),
-            || self.update(&resolved_id, patch),
-        )
-    }
-
-    pub async fn update_direct_from_request(
-        &self,
-        request: BackgroundAgentUpdateRequest,
-    ) -> CommandResult<BackgroundAgent> {
-        let (_guard, assessment, resolved_id, patch) = self.prepare_update(request).await?;
-        self.finish_direct_mutation(assessment, || self.update(&resolved_id, patch))
+        self.finish_request(mode, guard, assessment, || self.update(&resolved_id, patch))
     }
 
     pub fn delete(&self, id: &str) -> CommandResult<bool> {
@@ -248,28 +230,10 @@ impl BackgroundAgentCommandService {
     pub async fn delete_from_request(
         &self,
         request: BackgroundAgentDeleteRequest,
+        mode: BackgroundAgentExecutionMode,
     ) -> CommandResult<BackgroundAgentCommandOutcome<DeleteWithIdResponse>> {
         let (guard, assessment, resolved_id) = self.prepare_delete(request).await?;
-        self.finish_mutation(
-            assessment,
-            guard.preview,
-            guard.confirmation_token.as_deref(),
-            || {
-                let deleted = self.delete(&resolved_id)?;
-                Ok(DeleteWithIdResponse {
-                    id: resolved_id,
-                    deleted,
-                })
-            },
-        )
-    }
-
-    pub async fn delete_direct_from_request(
-        &self,
-        request: BackgroundAgentDeleteRequest,
-    ) -> CommandResult<DeleteWithIdResponse> {
-        let (_guard, assessment, resolved_id) = self.prepare_delete(request).await?;
-        self.finish_direct_mutation(assessment, || {
+        self.finish_request(mode, guard, assessment, || {
             let deleted = self.delete(&resolved_id)?;
             Ok(DeleteWithIdResponse {
                 id: resolved_id,
@@ -308,43 +272,21 @@ impl BackgroundAgentCommandService {
     pub async fn control_from_request(
         &self,
         request: BackgroundAgentControlRequest,
+        mode: BackgroundAgentExecutionMode,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgent>> {
         let (guard, assessment, resolved_id, action) = self.prepare_control(request).await?;
-        self.finish_mutation(
-            assessment,
-            guard.preview,
-            guard.confirmation_token.as_deref(),
-            || self.control(&resolved_id, action),
-        )
-    }
-
-    pub async fn control_direct_from_request(
-        &self,
-        request: BackgroundAgentControlRequest,
-    ) -> CommandResult<BackgroundAgent> {
-        let (_guard, assessment, resolved_id, action) = self.prepare_control(request).await?;
-        self.finish_direct_mutation(assessment, || self.control(&resolved_id, action))
+        self.finish_request(mode, guard, assessment, || self.control(&resolved_id, action))
     }
 
     pub async fn convert_session(
         &self,
         request: BackgroundAgentConvertSessionRequest,
+        mode: BackgroundAgentExecutionMode,
     ) -> CommandResult<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
         let (guard, assessment, prepared) = self.prepare_convert_session(request).await?;
-        self.finish_mutation(
-            assessment,
-            guard.preview,
-            guard.confirmation_token.as_deref(),
-            || self.execute_convert_session(prepared),
-        )
-    }
-
-    pub async fn convert_session_direct(
-        &self,
-        request: BackgroundAgentConvertSessionRequest,
-    ) -> CommandResult<BackgroundAgentConversionResult> {
-        let (_guard, assessment, prepared) = self.prepare_convert_session(request).await?;
-        self.finish_direct_mutation(assessment, || self.execute_convert_session(prepared))
+        self.finish_request(mode, guard, assessment, || {
+            self.execute_convert_session(prepared)
+        })
     }
 
     pub fn resolve_default_or_existing_agent_id(&self, id_or_alias: &str) -> CommandResult<String> {
@@ -540,6 +482,44 @@ impl BackgroundAgentCommandService {
         execute()
     }
 
+    fn finish_request<T>(
+        &self,
+        mode: BackgroundAgentExecutionMode,
+        guard: RequestGuard,
+        assessment: OperationAssessment,
+        execute: impl FnOnce() -> CommandResult<T>,
+    ) -> CommandResult<BackgroundAgentCommandOutcome<T>> {
+        match mode {
+            BackgroundAgentExecutionMode::Guarded => self.finish_mutation(
+                assessment,
+                guard.preview,
+                guard.confirmation_token.as_deref(),
+                execute,
+            ),
+            BackgroundAgentExecutionMode::Direct => {
+                let result = self.finish_direct_mutation(assessment, execute)?;
+                Ok(BackgroundAgentCommandOutcome::Executed { result })
+            }
+        }
+    }
+
+    pub fn into_direct_result<T>(
+        outcome: BackgroundAgentCommandOutcome<T>,
+    ) -> CommandResult<T> {
+        match outcome {
+            BackgroundAgentCommandOutcome::Executed { result } => Ok(result),
+            BackgroundAgentCommandOutcome::Blocked { assessment } => Err(
+                BackgroundAgentCommandError::classify(assessment_summary(&assessment)),
+            ),
+            BackgroundAgentCommandOutcome::Preview { .. }
+            | BackgroundAgentCommandOutcome::ConfirmationRequired { .. } => Err(
+                BackgroundAgentCommandError::internal(
+                    "Direct background-agent execution returned a guarded outcome.",
+                ),
+            ),
+        }
+    }
+
     async fn prepare_create(
         &self,
         request: BackgroundAgentCreateRequest,
@@ -696,7 +676,7 @@ impl BackgroundAgentCommandService {
 
 #[cfg(test)]
 mod tests {
-    use super::BackgroundAgentCommandService;
+    use super::{BackgroundAgentCommandService, BackgroundAgentExecutionMode};
     use crate::models::{AgentNode, BackgroundAgentSpec, ChatMessage, ChatSession, ModelId};
     use crate::prompt_files;
     use crate::services::session::SessionService;
@@ -1096,7 +1076,7 @@ mod tests {
                 run_now: Some(false),
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("convert session");
 
@@ -1129,7 +1109,7 @@ mod tests {
                 run_now: None,
                 preview: true,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("preview convert");
 
@@ -1160,7 +1140,7 @@ mod tests {
                 resource_limits: None,
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect_err("blank name should fail");
         assert!(err.to_string().contains("name must not be empty"));
@@ -1185,7 +1165,7 @@ mod tests {
                 resource_limits: None,
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("create should return confirmation_required");
 
@@ -1243,7 +1223,7 @@ mod tests {
                 resource_limits: None,
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("update should return confirmation_required");
 
@@ -1293,7 +1273,7 @@ mod tests {
                 action: "pause".to_string(),
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("control should return confirmation_required");
 
@@ -1331,7 +1311,7 @@ mod tests {
                 run_now: Some(false),
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("convert should return confirmation_required");
 
@@ -1375,7 +1355,7 @@ mod tests {
                 id: task.id.clone(),
                 preview: true,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("delete preview");
 
@@ -1430,7 +1410,7 @@ mod tests {
                 id: task.id.clone(),
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("delete should return confirmation_required");
 
@@ -1484,7 +1464,7 @@ mod tests {
                 id: task.id.clone(),
                 preview: true,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("delete preview");
 
@@ -1500,7 +1480,7 @@ mod tests {
                 id: task.id.clone(),
                 preview: false,
                 confirmation_token: Some(token),
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect("delete confirmed");
 
@@ -1546,12 +1526,13 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .delete_direct_from_request(BackgroundAgentDeleteRequest {
+            .delete_from_request(BackgroundAgentDeleteRequest {
                 id: task.id.clone(),
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("delete direct");
 
         assert_eq!(result.id, task.id);
@@ -1570,7 +1551,7 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
 
         let result = service
-            .create_direct_from_request(BackgroundAgentCreateRequest {
+            .create_from_request(BackgroundAgentCreateRequest {
                 name: "Create Direct Warning".to_string(),
                 agent_id: session.agent_id,
                 chat_session_id: None,
@@ -1584,8 +1565,9 @@ mod tests {
                 resource_limits: None,
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("create direct");
 
         assert_eq!(result.name, "Create Direct Warning");
@@ -1616,7 +1598,7 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .update_direct_from_request(BackgroundAgentUpdateRequest {
+            .update_from_request(BackgroundAgentUpdateRequest {
                 id: task.id.clone(),
                 name: Some("Updated Name".to_string()),
                 description: None,
@@ -1634,8 +1616,9 @@ mod tests {
                 resource_limits: None,
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("update direct");
 
         assert_eq!(result.id, task.id);
@@ -1667,13 +1650,14 @@ mod tests {
             .expect("create task");
 
         let result = service
-            .control_direct_from_request(BackgroundAgentControlRequest {
+            .control_from_request(BackgroundAgentControlRequest {
                 id: task.id.clone(),
                 action: "pause".to_string(),
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("control direct");
 
         assert_eq!(result.id, task.id);
@@ -1685,7 +1669,7 @@ mod tests {
         let (service, session, _dir) = setup_with_assessor(Arc::new(WarningAssessor));
 
         let result = service
-            .convert_session_direct(BackgroundAgentConvertSessionRequest {
+            .convert_session(BackgroundAgentConvertSessionRequest {
                 session_id: session.id.clone(),
                 name: Some("Converted Direct Warning".to_string()),
                 schedule: None,
@@ -1698,8 +1682,9 @@ mod tests {
                 run_now: Some(false),
                 preview: false,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Direct)
             .await
+            .and_then(BackgroundAgentCommandService::into_direct_result)
             .expect("convert direct");
 
         assert_eq!(result.source_session_id, session.id);
@@ -1742,7 +1727,7 @@ mod tests {
                 id: task.id,
                 preview: true,
                 confirmation_token: None,
-            })
+            }, BackgroundAgentExecutionMode::Guarded)
             .await
             .expect_err("delete should fail closed without assessor");
 
