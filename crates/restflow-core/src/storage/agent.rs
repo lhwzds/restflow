@@ -19,6 +19,7 @@ pub const LEGACY_DEFAULT_ASSISTANT_NAME: &str = "default";
 
 /// Stored agent with metadata
 #[derive(Serialize, Deserialize, Debug, Clone, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct StoredAgent {
     pub id: String,

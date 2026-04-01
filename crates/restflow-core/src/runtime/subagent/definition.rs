@@ -36,6 +36,7 @@ fn subagent_default_tool_names() -> Vec<String> {
 
 /// Agent definition describing a spawnable agent type
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct AgentDefinition {
     /// Unique identifier (e.g., "researcher", "coder")

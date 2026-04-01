@@ -30,6 +30,7 @@ use ts_rs::TS;
 
 /// Role of a message sender in a chat session.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatRole {
@@ -44,6 +45,7 @@ pub enum ChatRole {
 
 /// Status of message execution (distinct from workflow ExecutionStatus).
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatExecutionStatus {
@@ -58,6 +60,7 @@ pub enum ChatExecutionStatus {
 
 /// Structured media type for a chat message.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatMediaType {
@@ -67,6 +70,7 @@ pub enum ChatMediaType {
 
 /// Structured media payload for a chat message.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChatMessageMedia {
     /// Media kind.
@@ -92,6 +96,7 @@ impl ChatMessageMedia {
 
 /// Structured transcript payload for a chat message.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChatMessageTranscript {
     /// Final transcript text.
@@ -123,6 +128,7 @@ impl ChatMessageTranscript {
 /// Tracks individual steps taken during agent execution, such as
 /// tool calls, API requests, or thinking processes.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionStepInfo {
     /// Type of step (e.g., "tool_call", "api_request", "thinking")
@@ -165,6 +171,7 @@ impl ExecutionStepInfo {
 /// Contains information about what the agent did to generate the response,
 /// including tool calls, duration, and token usage.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct MessageExecution {
     /// Individual steps taken during execution
@@ -232,6 +239,7 @@ impl MessageExecution {
 /// Represents either a user message, assistant response, or system instruction.
 /// Assistant messages may include execution details showing what the agent did.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChatMessage {
     /// Unique identifier for this message
@@ -323,6 +331,7 @@ impl ChatMessage {
 ///
 /// Tracks aggregate statistics about the session.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChatSessionMetadata {
     /// Total tokens used across all messages
@@ -352,6 +361,7 @@ impl ChatSessionMetadata {
 
 /// Origin of a chat session.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ChatSessionSource {
@@ -386,6 +396,7 @@ pub enum ChatSessionSource {
 /// session.add_message(ChatMessage::assistant("Hi there! How can I help?"));
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChatSession {
     /// Unique identifier for this session
@@ -436,6 +447,7 @@ pub struct ChatSession {
 
 /// Partial update payload for a chat session.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, Default, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChatSessionUpdate {
     pub agent_id: Option<String>,
@@ -569,6 +581,7 @@ impl ChatSession {
 
 /// Summary view of a chat session (for listing).
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChatSessionSummary {
     /// Session ID

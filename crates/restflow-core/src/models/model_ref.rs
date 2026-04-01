@@ -7,6 +7,7 @@ use super::{ModelId, Provider, ValidationError};
 
 /// Provider + model pair used by API and persistence layers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ModelRef {
     pub provider: Provider,

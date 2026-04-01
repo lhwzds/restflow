@@ -3,6 +3,7 @@ use specta::Type;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SkillScript {
     pub id: String,
@@ -12,6 +13,7 @@ pub struct SkillScript {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SkillReference {
     pub id: String,
@@ -23,6 +25,7 @@ pub struct SkillReference {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SkillGating {
     #[serde(skip_serializing_if = "Option::is_none")]

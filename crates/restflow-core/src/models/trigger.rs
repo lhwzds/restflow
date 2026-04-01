@@ -4,6 +4,7 @@ use specta::Type;
 use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[serde(tag = "type", rename_all = "lowercase")]
 #[ts(export)]
 pub enum TriggerConfig {
@@ -23,6 +24,7 @@ pub enum TriggerConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[serde(tag = "type")]
 #[ts(export)]
 pub enum AuthConfig {
@@ -41,6 +43,7 @@ pub enum AuthConfig {
 
 // Store active trigger information
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ActiveTrigger {
     pub id: String,

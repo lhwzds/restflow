@@ -12,6 +12,7 @@ use ts_rs::TS;
 
 /// Source of a unified search result.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum SearchResultSource {
@@ -26,6 +27,7 @@ pub enum SearchResultSource {
 
 /// Unified search result across memory and chat sessions.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct UnifiedSearchResult {
     /// Unique identifier for this result.
@@ -45,6 +47,7 @@ pub struct UnifiedSearchResult {
 
 /// Result counts grouped by source.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SourceCounts {
     pub memory: u32,
@@ -53,6 +56,7 @@ pub struct SourceCounts {
 
 /// Unified search result set.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct UnifiedSearchResults {
     pub results: Vec<UnifiedSearchResult>,

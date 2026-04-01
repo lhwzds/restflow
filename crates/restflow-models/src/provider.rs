@@ -6,6 +6,7 @@ use ts_rs::TS;
 
 /// API-facing provider wrapper backed by the shared canonical provider identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[repr(transparent)]
 #[ts(export, as = "ModelProvider")]
 #[specta(transparent)]

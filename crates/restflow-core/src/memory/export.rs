@@ -40,6 +40,7 @@ use ts_rs::TS;
 
 /// Options for customizing the export format.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExportOptions {
     /// Include metadata as HTML comments
@@ -142,6 +143,7 @@ impl ExportOptions {
 
 /// Result of an export operation.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExportResult {
     /// The exported Markdown content

@@ -10,6 +10,7 @@ use ts_rs::TS;
 
 /// Hook trigger event.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum HookEvent {
@@ -32,6 +33,7 @@ impl HookEvent {
 
 /// Hook action definition.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum HookAction {
@@ -65,6 +67,7 @@ pub enum HookAction {
 
 /// Optional filter to limit when a hook is executed.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct HookFilter {
     #[serde(default)]
@@ -77,6 +80,7 @@ pub struct HookFilter {
 
 /// Persisted hook definition.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct Hook {
     pub id: String,
@@ -124,6 +128,7 @@ impl Hook {
 
 /// Runtime context passed to hook actions.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct HookContext {
     pub event: HookEvent,

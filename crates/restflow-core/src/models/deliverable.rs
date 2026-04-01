@@ -5,6 +5,7 @@ use ts_rs::TS;
 
 /// Type of deliverable produced by an agent.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum DeliverableType {
@@ -20,6 +21,7 @@ pub enum DeliverableType {
 
 /// A typed output produced by a background agent execution.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct Deliverable {
     pub id: String,

@@ -6,6 +6,7 @@ use crate::models::{SkillGating, SkillReference, SkillScript, StorageMode};
 
 /// Skill metadata stored in the database (content lives on disk).
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct SkillMeta {
     pub id: String,

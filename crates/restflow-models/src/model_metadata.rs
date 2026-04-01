@@ -14,6 +14,7 @@ pub struct ModelMetadata {
 
 /// Serializable model metadata for transferring to frontend.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS, Type)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ModelMetadataDTO {
     pub model: ModelId,

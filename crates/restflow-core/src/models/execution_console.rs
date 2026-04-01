@@ -5,6 +5,7 @@ use ts_rs::TS;
 use crate::models::{ChatSessionSource, ExecutionTimeline};
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionContainerKind {
@@ -14,6 +15,7 @@ pub enum ExecutionContainerKind {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionSessionKind {
@@ -24,6 +26,7 @@ pub enum ExecutionSessionKind {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionContainerSummary {
     pub id: String,
@@ -50,6 +53,7 @@ pub struct ExecutionContainerSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionContainerRef {
     pub kind: ExecutionContainerKind,
@@ -57,6 +61,7 @@ pub struct ExecutionContainerRef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionSessionSummary {
     pub id: String,
@@ -100,18 +105,21 @@ pub struct ExecutionSessionSummary {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionSessionListQuery {
     pub container: ExecutionContainerRef,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ChildExecutionSessionQuery {
     pub parent_run_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionThread {
     pub focus: ExecutionSessionSummary,
