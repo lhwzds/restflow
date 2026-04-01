@@ -287,8 +287,8 @@ pub(crate) fn contract_convert_request_to_store(
         memory_scope: request.memory_scope,
         resource_limits: request.resource_limits,
         run_now: request.run_now,
-        preview: false,
-        confirmation_token: None,
+        preview: request.preview,
+        confirmation_token: request.confirmation_token,
     })
 }
 
@@ -306,6 +306,8 @@ pub(crate) fn store_convert_request_to_contract(
         memory_scope: request.memory_scope,
         resource_limits: request.resource_limits,
         run_now: request.run_now,
+        preview: request.preview,
+        confirmation_token: request.confirmation_token,
     })
 }
 

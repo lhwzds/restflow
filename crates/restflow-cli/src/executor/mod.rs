@@ -140,8 +140,6 @@ pub trait CommandExecutor: Send + Sync {
     async fn convert_session_to_background_agent(
         &self,
         request: BackgroundAgentConvertSessionRequest,
-        preview: bool,
-        confirmation_token: Option<String>,
     ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>;
     async fn update_background_agent(
         &self,

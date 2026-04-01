@@ -403,10 +403,6 @@ pub enum IpcRequest {
     },
     ConvertSessionToBackgroundAgent {
         request: BackgroundAgentConvertSessionRequest,
-        #[serde(default)]
-        preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
     },
     UpdateBackgroundAgent {
         id: String,
@@ -872,6 +868,10 @@ pub struct BackgroundAgentConvertSessionRequest {
     pub resource_limits: Option<ResourceLimits>,
     #[serde(default)]
     pub run_now: Option<bool>,
+    #[serde(default)]
+    pub preview: bool,
+    #[serde(default)]
+    pub confirmation_token: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
@@ -1568,6 +1568,48 @@ mod tests {
             confirmation_token: None,
         };
         assert_roundtrip(&request);
+    }
+
+    #[test]
+    fn ipc_request_convert_background_agent_round_trips() {
+        let request = IpcRequest::ConvertSessionToBackgroundAgent {
+            request: BackgroundAgentConvertSessionRequest {
+                session_id: "session-1".to_string(),
+                name: Some("Converted Session".to_string()),
+                schedule: Some(TaskSchedule::Cron {
+                    expression: "0 9 * * *".to_string(),
+                    timezone: Some("America/Los_Angeles".to_string()),
+                }),
+                input: Some("execute".to_string()),
+                timeout_secs: Some(300),
+                durability_mode: Some(DurabilityMode::Async),
+                memory: Some(MemoryConfig::default()),
+                memory_scope: Some("shared_agent".to_string()),
+                resource_limits: Some(ResourceLimits {
+                    max_tool_calls: 10,
+                    max_duration_secs: 60,
+                    max_output_bytes: 1024,
+                    max_cost_usd: Some(1.5),
+                }),
+                run_now: Some(true),
+                preview: true,
+                confirmation_token: Some("confirm-1".to_string()),
+            },
+        };
+        assert_roundtrip(&request);
+    }
+
+    #[test]
+    fn background_agent_convert_contract_defaults_match_expected_semantics() {
+        let contract: BackgroundAgentConvertSessionRequest =
+            serde_json::from_value(serde_json::json!({
+                "session_id": "session-1"
+            }))
+            .expect("convert defaults");
+
+        assert_eq!(contract.run_now, None);
+        assert!(!contract.preview);
+        assert_eq!(contract.confirmation_token, None);
     }
 
     #[test]

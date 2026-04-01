@@ -452,8 +452,6 @@ impl CommandExecutor for DirectExecutor {
     async fn convert_session_to_background_agent(
         &self,
         _request: BackgroundAgentConvertSessionRequest,
-        _preview: bool,
-        _confirmation_token: Option<String>,
     ) -> Result<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>> {
         bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
     }

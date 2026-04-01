@@ -168,6 +168,57 @@ async fn process_delete_background_agent_returns_delete_with_id_response() {
 }
 
 #[tokio::test]
+async fn process_convert_session_background_agent_uses_request_guard_fields() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+    ensure_test_agent_with_id(&core, "agent-1");
+
+    let mut session = crate::models::ChatSession::new("agent-1".to_string(), "gpt-5".to_string());
+    session.add_message(crate::models::ChatMessage::user("continue this task"));
+    core.storage
+        .chat_sessions
+        .create(&session)
+        .expect("create session");
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ConvertSessionToBackgroundAgent {
+            request: restflow_contracts::request::BackgroundAgentConvertSessionRequest {
+                session_id: session.id.clone(),
+                name: Some("Converted Preview".to_string()),
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: Some(false),
+                preview: true,
+                confirmation_token: None,
+            },
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let outcome: BackgroundAgentCommandOutcome<
+                crate::models::BackgroundAgentConversionResult,
+            > = serde_json::from_value(value).expect("convert response");
+            match outcome {
+                BackgroundAgentCommandOutcome::Preview { assessment } => {
+                    assert_eq!(assessment.operation, "convert_session_to_background_agent");
+                }
+                other => panic!("expected preview outcome, got {other:?}"),
+            }
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn process_handle_background_agent_approval_returns_typed_response() {
     let (core, _temp) = create_test_core().await;
     let runtime_tool_registry = OnceLock::new();

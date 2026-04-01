@@ -68,16 +68,6 @@ struct DaemonHttpState {
 }
 
 #[derive(Debug, Deserialize)]
-struct ConvertSessionToBackgroundAgentRequest {
-    #[serde(flatten)]
-    request: restflow_contracts::request::BackgroundAgentConvertSessionRequest,
-    #[serde(default)]
-    preview: bool,
-    #[serde(default)]
-    confirmation_token: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
 struct VoiceTranscribeRequest {
     audio_base64: String,
     #[serde(default)]
@@ -394,21 +384,20 @@ fn manifest_to_skill(manifest: SkillManifest, content: String) -> Skill {
 
 async fn api_convert_session_to_background_agent(
     State(state): State<DaemonHttpState>,
-    Json(request): Json<ConvertSessionToBackgroundAgentRequest>,
+    Json(request): Json<restflow_contracts::request::BackgroundAgentConvertSessionRequest>,
 ) -> std::result::Result<
     Json<BackgroundAgentCommandOutcome<BackgroundAgentConversionResult>>,
     (StatusCode, Json<ErrorPayload>),
 > {
-    let mut store_request =
-        crate::boundary::background_agent::contract_convert_request_to_store(request.request)
-            .map_err(|error| {
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(ErrorPayload::new(400, error.to_string(), None)),
-                )
-            })?;
-    store_request.preview = request.preview;
-    store_request.confirmation_token = request.confirmation_token;
+    let store_request = crate::boundary::background_agent::contract_convert_request_to_store(
+        request,
+    )
+    .map_err(|error| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorPayload::new(400, error.to_string(), None)),
+        )
+    })?;
 
     let outcome = BackgroundAgentCommandService::from_storage(
         state.core.storage.as_ref(),
