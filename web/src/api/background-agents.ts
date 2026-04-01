@@ -128,8 +128,8 @@ export interface UpdateBackgroundAgentRequest {
 
 export async function convertSessionToBackgroundAgent(
   request: ConvertSessionToBackgroundAgentRequest,
-): Promise<BackgroundAgent> {
-  const result = await fetchJson<BackgroundAgentConversionResult>(
+): Promise<BackgroundAgentConversionResult> {
+  return fetchJson<BackgroundAgentConversionResult>(
     '/api/background-agents/convert-session',
     {
       method: 'POST',
@@ -137,7 +137,6 @@ export async function convertSessionToBackgroundAgent(
       body: JSON.stringify(request),
     },
   )
-  return result.task
 }
 
 export async function updateBackgroundAgent(

@@ -68,13 +68,14 @@ describe('background-agents memory API', () => {
     expect(chunks).toEqual([{ id: 'chunk-1' }])
   })
 
-  it('unwraps executed convert-session outcomes to the created task', async () => {
-    vi.mocked(fetchJson).mockResolvedValueOnce({
+  it('returns the canonical convert-session result payload', async () => {
+    const payload = {
       task: { id: 'bg-1' },
       source_session_id: 'session-1',
       source_session_agent_id: 'default',
       run_now: false,
-    })
+    }
+    vi.mocked(fetchJson).mockResolvedValueOnce(payload)
 
     const result = await convertSessionToBackgroundAgent({
       session_id: 'session-1',
@@ -91,7 +92,7 @@ describe('background-agents memory API', () => {
         run_now: false,
       }),
     })
-    expect(result).toEqual({ id: 'bg-1' })
+    expect(result).toEqual(payload)
   })
 
   it('unwraps executed delete outcomes to a boolean', async () => {
