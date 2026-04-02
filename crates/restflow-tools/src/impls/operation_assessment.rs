@@ -64,7 +64,7 @@ pub(crate) fn confirmation_required_output(assessment: OperationAssessment) -> T
 
 pub(crate) fn enforce_confirmation_or_defer(
     assessment: &OperationAssessment,
-    confirmation_token: Option<&str>,
+    approval_id: Option<&str>,
 ) -> Result<Option<ToolOutput>> {
     match assessment.status {
         OperationAssessmentStatus::Ok => Ok(None),
@@ -77,9 +77,7 @@ pub(crate) fn enforce_confirmation_or_defer(
             }
 
             let expected = assessment.confirmation_token.as_deref();
-            let provided = confirmation_token
-                .map(str::trim)
-                .filter(|value| !value.is_empty());
+            let provided = approval_id.map(str::trim).filter(|value| !value.is_empty());
 
             if expected.is_some() && provided == expected {
                 Ok(None)

@@ -115,8 +115,8 @@ pub struct SpawnSubagentParams {
     #[serde(default)]
     pub preview: bool,
 
-    /// Confirmation token returned by preview when warnings require explicit confirmation.
-    #[serde(default)]
+    /// Approval ID returned by preview when warnings require explicit confirmation.
+    #[serde(default, alias = "confirmation_token")]
     #[cfg_attr(feature = "ts", ts(optional))]
-    pub confirmation_token: Option<String>,
+    pub approval_id: Option<String>,
 }

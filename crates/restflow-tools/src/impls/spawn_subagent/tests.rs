@@ -289,6 +289,13 @@ fn test_params_with_team_operation() {
     assert!(params.tasks.is_none());
 }
 
+#[test]
+fn test_params_accept_legacy_confirmation_token_alias() {
+    let json = r#"{"task":"Review work","confirmation_token":"approval-1"}"#;
+    let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
+    assert_eq!(params.approval_id.as_deref(), Some("approval-1"));
+}
+
 #[tokio::test]
 async fn test_spawn_subagent_background() {
     let deps = make_test_deps(

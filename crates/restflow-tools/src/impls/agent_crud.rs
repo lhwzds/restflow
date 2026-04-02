@@ -66,8 +66,8 @@ enum AgentAction {
         agent: Value,
         #[serde(default)]
         preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
+        #[serde(default, alias = "confirmation_token")]
+        approval_id: Option<String>,
     },
     Update {
         id: String,
@@ -77,8 +77,8 @@ enum AgentAction {
         agent: Option<Value>,
         #[serde(default)]
         preview: bool,
-        #[serde(default)]
-        confirmation_token: Option<String>,
+        #[serde(default, alias = "confirmation_token")]
+        approval_id: Option<String>,
     },
     Delete {
         id: String,
@@ -120,9 +120,9 @@ impl Tool for AgentCrudTool {
                     "type": "boolean",
                     "description": "If true, validate and preview warnings/blockers without persisting changes."
                 },
-                "confirmation_token": {
+                "approval_id": {
                     "type": "string",
-                    "description": "Confirmation token returned by preview when warnings require explicit confirmation."
+                    "description": "Approval ID returned by preview when warnings require explicit confirmation."
                 }
             },
             "required": ["operation"]
@@ -147,7 +147,7 @@ impl Tool for AgentCrudTool {
                 name,
                 agent,
                 preview,
-                confirmation_token,
+                approval_id,
             } => {
                 self.write_guard()?;
                 let request = AgentCreateRequest {
@@ -160,7 +160,7 @@ impl Tool for AgentCrudTool {
                         return Ok(preview_output(assessment));
                     }
                     if let Some(output) =
-                        enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
+                        enforce_confirmation_or_defer(&assessment, approval_id.as_deref())?
                     {
                         return Ok(output);
                     }
@@ -183,7 +183,7 @@ impl Tool for AgentCrudTool {
                 name,
                 agent,
                 preview,
-                confirmation_token,
+                approval_id,
             } => {
                 self.write_guard()?;
                 let request = AgentUpdateRequest {
@@ -197,7 +197,7 @@ impl Tool for AgentCrudTool {
                         return Ok(preview_output(assessment));
                     }
                     if let Some(output) =
-                        enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
+                        enforce_confirmation_or_defer(&assessment, approval_id.as_deref())?
                     {
                         return Ok(output);
                     }
@@ -499,5 +499,38 @@ mod tests {
         assert!(!output.success);
         assert_eq!(output.result["pending_approval"], true);
         assert!(output.result["approval_id"].as_str().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_create_accepts_legacy_confirmation_token_alias() {
+        let tool = AgentCrudTool::new(Arc::new(MockStore))
+            .with_assessor(Arc::new(WarningAssessor))
+            .with_write(true);
+
+        let preview = tool
+            .execute(json!({
+                "operation": "create",
+                "name": "Agent",
+                "agent": {}
+            }))
+            .await
+            .expect("initial guarded execution should succeed");
+
+        let approval_id = preview.result["approval_id"]
+            .as_str()
+            .expect("pending approval id")
+            .to_string();
+
+        let replay = tool
+            .execute(json!({
+                "operation": "create",
+                "name": "Agent",
+                "agent": {},
+                "confirmation_token": approval_id,
+            }))
+            .await
+            .expect("legacy alias should replay successfully");
+
+        assert!(replay.success);
     }
 }

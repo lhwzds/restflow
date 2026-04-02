@@ -711,7 +711,7 @@ impl AgentExecutor {
                                     .get("approval_id")
                                     .and_then(Value::as_str)
                                     .map(str::to_string);
-                                let deferred_args = inject_confirmation_token(
+                                let deferred_args = inject_approval_id(
                                     &tool_call.arguments,
                                     approval_id.as_deref(),
                                 );
@@ -841,12 +841,12 @@ impl AgentExecutor {
     }
 }
 
-fn inject_confirmation_token(args: &Value, approval_id: Option<&str>) -> Value {
+fn inject_approval_id(args: &Value, approval_id: Option<&str>) -> Value {
     let mut deferred_args = args.clone();
     if let Some(approval_id) = approval_id
         && let Some(map) = deferred_args.as_object_mut()
     {
-        map.entry("confirmation_token".to_string())
+        map.entry("approval_id".to_string())
             .or_insert_with(|| Value::String(approval_id.to_string()));
     }
     deferred_args

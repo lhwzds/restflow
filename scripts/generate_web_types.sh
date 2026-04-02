@@ -17,3 +17,22 @@ cargo test -p restflow-traits --features ts --lib export_bindings -- --test-thre
 cargo test -p restflow-models --lib export_bindings -- --test-threads=1
 cargo test -p restflow-core --lib export_bindings -- --test-threads=1
 cargo test -p restflow-tools --features ts --lib export_bindings -- --test-threads=1
+
+GENERATED_DIR="${REPO_ROOT}/web/src/types/generated"
+STALE_GENERATED_FILES=(
+  "AuditEvent.ts"
+  "AuditEventCategory.ts"
+  "AuditEventSource.ts"
+  "AuditQuery.ts"
+  "AuditStats.ts"
+  "AuditTimeRange.ts"
+  "LifecycleAudit.ts"
+  "LlmCallAudit.ts"
+  "MessageAudit.ts"
+  "ModelSwitchAudit.ts"
+  "ToolCallAudit.ts"
+)
+
+for file in "${STALE_GENERATED_FILES[@]}"; do
+  rm -f "${GENERATED_DIR}/${file}"
+done

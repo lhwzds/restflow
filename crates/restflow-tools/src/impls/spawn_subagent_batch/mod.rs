@@ -108,10 +108,9 @@ impl Tool for SpawnSubagentBatchTool {
                     if params.preview {
                         return Ok(preview_output(assessment));
                     }
-                    if let Some(output) = enforce_confirmation_or_defer(
-                        &assessment,
-                        params.confirmation_token.as_deref(),
-                    )? {
+                    if let Some(output) =
+                        enforce_confirmation_or_defer(&assessment, params.approval_id.as_deref())?
+                    {
                         return Ok(output);
                     }
                 } else if params.preview {

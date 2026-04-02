@@ -18,6 +18,10 @@ type DeleteBackgroundAgentResult = {
   deleted: boolean
 }
 
+type SteerTaskResult = {
+  steered: boolean
+}
+
 export async function listBackgroundAgents(): Promise<BackgroundAgent[]> {
   return requestTyped<BackgroundAgent[]>({
     type: 'ListBackgroundAgents',
@@ -46,12 +50,11 @@ export async function resumeBackgroundAgent(id: string): Promise<BackgroundAgent
   })
 }
 
-export async function stopBackgroundAgent(taskId: string): Promise<boolean> {
-  await requestTyped({
+export async function stopBackgroundAgent(taskId: string): Promise<BackgroundAgent> {
+  return requestTyped<BackgroundAgent>({
     type: 'ControlBackgroundAgent',
     data: { id: taskId, action: 'stop' },
   })
-  return true
 }
 
 export async function runBackgroundAgentStreaming(id: string): Promise<BackgroundAgent> {
@@ -61,12 +64,11 @@ export async function runBackgroundAgentStreaming(id: string): Promise<Backgroun
   })
 }
 
-export async function steerTask(taskId: string, instruction: string): Promise<boolean> {
-  const response = await requestTyped<{ steered: boolean }>({
+export async function steerTask(taskId: string, instruction: string): Promise<SteerTaskResult> {
+  return requestTyped<SteerTaskResult>({
     type: 'SendBackgroundAgentMessage',
     data: { id: taskId, message: instruction, source: 'user' },
   })
-  return response.steered
 }
 
 export async function getBackgroundAgentEvents(
@@ -89,12 +91,11 @@ export async function getHeartbeatEventName(): Promise<string> {
 
 export async function deleteBackgroundAgent(
   id: string,
-): Promise<boolean> {
-  const result = await requestTyped<DeleteBackgroundAgentResult>({
+): Promise<DeleteBackgroundAgentResult> {
+  return requestTyped<DeleteBackgroundAgentResult>({
     type: 'DeleteBackgroundAgent',
     data: { id },
   })
-  return result.deleted
 }
 
 export interface ConvertSessionToBackgroundAgentRequest {

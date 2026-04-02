@@ -236,18 +236,18 @@ fn sanitize_tool_call_history_filters_assistant_orphan_tool_calls() {
 }
 
 #[test]
-fn inject_confirmation_token_adds_replay_token_without_clobbering_existing_value() {
-    let injected = inject_confirmation_token(
+fn inject_approval_id_adds_replay_token_without_clobbering_existing_value() {
+    let injected = inject_approval_id(
         &serde_json::json!({"operation":"delete"}),
         Some("approval-1"),
     );
-    assert_eq!(injected["confirmation_token"], "approval-1");
+    assert_eq!(injected["approval_id"], "approval-1");
 
-    let preserved = inject_confirmation_token(
-        &serde_json::json!({"operation":"delete","confirmation_token":"existing"}),
+    let preserved = inject_approval_id(
+        &serde_json::json!({"operation":"delete","approval_id":"existing"}),
         Some("approval-2"),
     );
-    assert_eq!(preserved["confirmation_token"], "existing");
+    assert_eq!(preserved["approval_id"], "existing");
 }
 
 struct EchoTool;

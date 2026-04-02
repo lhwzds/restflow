@@ -1,5 +1,6 @@
 use super::*;
 use crate::Tool;
+use crate::impls::spawn_subagent_batch::types::SpawnSubagentBatchParams;
 use restflow_ai::agent::{
     SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
     SubagentManagerImpl, SubagentTracker,
@@ -639,4 +640,12 @@ async fn test_get_team_rejects_legacy_specs_payload() {
             .to_string()
             .contains("Failed to decode team 'LegacyTeam'")
     );
+}
+
+#[test]
+fn test_batch_params_accept_legacy_confirmation_token_alias() {
+    let params: SpawnSubagentBatchParams =
+        serde_json::from_str(r#"{"team":"reviewers","confirmation_token":"approval-1"}"#)
+            .expect("params should deserialize");
+    assert_eq!(params.approval_id.as_deref(), Some("approval-1"));
 }

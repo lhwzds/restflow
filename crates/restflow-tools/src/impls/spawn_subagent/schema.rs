@@ -124,9 +124,9 @@ pub(super) fn parameters_schema(available: &[SubagentDefSummary]) -> Value {
                 "type": "boolean",
                 "description": "If true, validate capability warnings/blockers without executing."
             },
-            "confirmation_token": {
+            "approval_id": {
                 "type": "string",
-                "description": "Confirmation token returned by preview when warnings require explicit confirmation."
+                "description": "Approval ID returned by preview when warnings require explicit confirmation."
             }
         }
     })

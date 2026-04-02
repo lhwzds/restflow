@@ -179,7 +179,7 @@ pub(super) async fn execute(
                 "trace_session_id": params.trace_session_id,
                 "trace_scope_id": params.trace_scope_id,
                 "preview": params.preview,
-                "confirmation_token": params.confirmation_token
+                "approval_id": params.approval_id
             }))
             .await;
     }
@@ -197,7 +197,7 @@ pub(super) async fn execute(
             return Ok(preview_output(assessment));
         }
         if let Some(output) =
-            enforce_confirmation_or_defer(&assessment, params.confirmation_token.as_deref())?
+            enforce_confirmation_or_defer(&assessment, params.approval_id.as_deref())?
         {
             return Ok(output);
         }

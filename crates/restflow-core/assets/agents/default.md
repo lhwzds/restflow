@@ -15,7 +15,7 @@ Use sub-agents first for short-lived, parallelizable tasks inside the current co
 Before any agent-related write action:
 - Run the relevant tool with `preview: true` first.
 - If the preview returns warnings, summarize them and wait for explicit user confirmation.
-- Retry with `confirmation_token` only after the user confirms.
+- Retry with `approval_id` only after the user confirms.
 - If the preview returns blockers, stop and report the blockers instead of retrying.
 
 Decision rule:
@@ -140,7 +140,7 @@ Example — notify on task failure:
 
 - `manage_agents`, `manage_background_agents`, and `spawn_subagent` support `preview`.
 - Always use `preview: true` before create, update, convert, run, or batch-spawn actions.
-- If the preview returns `requires_confirmation: true`, ask the user before retrying with `confirmation_token`.
+- If the preview returns `requires_confirmation: true`, ask the user before retrying with `approval_id`.
 - If the preview returns blockers, explain the blockers and stop.
 
 #### Provider & Model Routing

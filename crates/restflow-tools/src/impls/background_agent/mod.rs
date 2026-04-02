@@ -133,7 +133,7 @@ impl Tool for BackgroundAgentTool {
                 resource_limits,
                 run_now,
                 preview,
-                confirmation_token,
+                approval_id,
             } => {
                 batch::execute_run_batch(
                     self,
@@ -154,7 +154,7 @@ impl Tool for BackgroundAgentTool {
                     resource_limits,
                     run_now,
                     preview,
-                    confirmation_token,
+                    approval_id,
                 )
                 .await
             }
@@ -162,18 +162,15 @@ impl Tool for BackgroundAgentTool {
                 team,
                 workers,
                 preview,
-                confirmation_token,
-            } => {
-                handlers_write::execute_save_team(self, team, workers, preview, confirmation_token)
-                    .await
-            }
+                approval_id,
+            } => handlers_write::execute_save_team(self, team, workers, preview, approval_id).await,
             BackgroundAgentAction::ListTeams => handlers_read::execute_list_teams(self),
             BackgroundAgentAction::GetTeam { team } => handlers_read::execute_get_team(self, team),
             BackgroundAgentAction::DeleteTeam {
                 team,
                 preview,
-                confirmation_token,
-            } => handlers_write::execute_delete_team(self, team, preview, confirmation_token).await,
+                approval_id,
+            } => handlers_write::execute_delete_team(self, team, preview, approval_id).await,
             BackgroundAgentAction::Create {
                 name,
                 agent_id,
@@ -187,7 +184,7 @@ impl Tool for BackgroundAgentTool {
                 memory_scope,
                 resource_limits,
                 preview,
-                confirmation_token,
+                approval_id,
             } => {
                 handlers_write::execute_create(
                     self,
@@ -203,7 +200,7 @@ impl Tool for BackgroundAgentTool {
                     memory_scope,
                     resource_limits,
                     preview,
-                    confirmation_token,
+                    approval_id,
                 )
                 .await
             }
@@ -219,7 +216,7 @@ impl Tool for BackgroundAgentTool {
                 resource_limits,
                 run_now,
                 preview,
-                confirmation_token,
+                approval_id,
             } => {
                 handlers_write::execute_convert_session(
                     self,
@@ -234,7 +231,7 @@ impl Tool for BackgroundAgentTool {
                     resource_limits,
                     run_now,
                     preview,
-                    confirmation_token,
+                    approval_id,
                 )
                 .await
             }
@@ -250,7 +247,7 @@ impl Tool for BackgroundAgentTool {
                 resource_limits,
                 run_now,
                 preview,
-                confirmation_token,
+                approval_id,
             } => {
                 handlers_write::execute_promote_to_background(
                     self,
@@ -265,7 +262,7 @@ impl Tool for BackgroundAgentTool {
                     resource_limits,
                     run_now,
                     preview,
-                    confirmation_token,
+                    approval_id,
                 )
                 .await
             }
@@ -286,7 +283,7 @@ impl Tool for BackgroundAgentTool {
                 memory_scope,
                 resource_limits,
                 preview,
-                confirmation_token,
+                approval_id,
             } => {
                 handlers_write::execute_update(
                     self,
@@ -306,15 +303,15 @@ impl Tool for BackgroundAgentTool {
                     memory_scope,
                     resource_limits,
                     preview,
-                    confirmation_token,
+                    approval_id,
                 )
                 .await
             }
             BackgroundAgentAction::Delete {
                 id,
                 preview,
-                confirmation_token,
-            } => handlers_write::execute_delete(self, id, preview, confirmation_token).await,
+                approval_id,
+            } => handlers_write::execute_delete(self, id, preview, approval_id).await,
             BackgroundAgentAction::Pause { id } => control::execute_pause(self, id).await,
             BackgroundAgentAction::Start { id } => control::execute_start(self, id).await,
             BackgroundAgentAction::Resume { id } => control::execute_resume(self, id).await,
@@ -322,14 +319,14 @@ impl Tool for BackgroundAgentTool {
             BackgroundAgentAction::Run {
                 id,
                 preview,
-                confirmation_token,
-            } => control::execute_run(self, id, preview, confirmation_token).await,
+                approval_id,
+            } => control::execute_run(self, id, preview, approval_id).await,
             BackgroundAgentAction::Control {
                 id,
                 action,
                 preview,
-                confirmation_token,
-            } => control::execute_control(self, id, action, preview, confirmation_token).await,
+                approval_id,
+            } => control::execute_control(self, id, action, preview, approval_id).await,
             BackgroundAgentAction::Progress { id, event_limit } => {
                 handlers_read::execute_progress(self, id, event_limit)
             }

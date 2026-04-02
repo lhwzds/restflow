@@ -247,9 +247,9 @@ pub struct ManageBackgroundAgentsParams {
     /// Whether to return assessment preview instead of executing
     #[serde(default)]
     pub preview: Option<bool>,
-    /// Confirmation token returned by a prior preview/confirmation_required response
-    #[serde(default)]
-    pub confirmation_token: Option<String>,
+    /// Approval ID returned by a prior preview/confirmation_required response
+    #[serde(default, alias = "confirmation_token")]
+    pub approval_id: Option<String>,
 }
 
 /// Parameters for manage_hooks tool

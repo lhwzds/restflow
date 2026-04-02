@@ -30,7 +30,7 @@ Use this skill for long-running or scheduled work executed by background agents.
 - For new work, create an agent definition.
 - Trigger execution with `operation: run`.
 - Before `create`, `convert_session`, `promote_to_background`, `run`, `run_batch`, or `control` with `run_now`, call `manage_background_agents` with `preview: true`.
-- If preview returns warnings, summarize them and wait for user confirmation before retrying with `confirmation_token`.
+- If preview returns warnings, summarize them and wait for user confirmation before retrying with `approval_id`.
 - If preview returns blockers, stop and report the blockers.
 
 3. Track health and progress.

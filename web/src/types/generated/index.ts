@@ -141,13 +141,6 @@ export * from './WebhookTriggerInput'
 export * from './WebhookTriggerOutput'
 export * from './Workflow'
 
-// Legacy audit aliases (deprecated, use trace names above)
-export * from './AuditEvent'
-export * from './AuditEventCategory'
-export * from './AuditEventSource'
-export * from './AuditQuery'
-export * from './AuditStats'
-export * from './AuditTimeRange'
 export * from './ErrorKind'
 export * from './ErrorPayload'
 export * from './IpcRequest'

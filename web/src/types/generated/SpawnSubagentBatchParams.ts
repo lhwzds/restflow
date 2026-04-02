@@ -61,6 +61,6 @@ trace_scope_id?: string,
  */
 preview: boolean, 
 /**
- * Confirmation token returned by preview when warnings require explicit confirmation.
+ * Approval ID returned by preview when warnings require explicit confirmation.
  */
-confirmation_token?: string, };
+approval_id?: string, };

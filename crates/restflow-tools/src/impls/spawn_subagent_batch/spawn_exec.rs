@@ -196,7 +196,7 @@ pub(super) async fn spawn_batch(
             return Ok(preview_output(assessment));
         }
         if let Some(output) =
-            enforce_confirmation_or_defer(&assessment, params.confirmation_token.as_deref())?
+            enforce_confirmation_or_defer(&assessment, params.approval_id.as_deref())?
         {
             return Ok(output);
         }

@@ -623,7 +623,7 @@ async fn test_delete_preview_returns_store_outcome() {
 }
 
 #[tokio::test]
-async fn test_delete_requires_confirmation_token() {
+async fn test_delete_requires_approval_id() {
     let tool = writable_tool();
     let output = tool
         .execute(json!({
@@ -639,6 +639,22 @@ async fn test_delete_requires_confirmation_token() {
         output.result["assessment"]["confirmation_token"],
         "confirm-delete"
     );
+}
+
+#[tokio::test]
+async fn test_delete_accepts_approval_id_for_replay() {
+    let tool = writable_tool();
+    let output = tool
+        .execute(json!({
+            "operation": "delete",
+            "id": "task-1",
+            "approval_id": "confirm-delete"
+        }))
+        .await
+        .unwrap();
+    assert!(output.success);
+    assert_eq!(output.result["result"]["id"], "task-1");
+    assert_eq!(output.result["result"]["deleted"], true);
 }
 
 #[tokio::test]
@@ -995,7 +1011,7 @@ async fn test_team_management_round_trip() {
         .execute(json!({
             "operation": "delete_team",
             "team": "TeamA",
-            "confirmation_token": token
+            "approval_id": token
         }))
         .await
         .unwrap();
