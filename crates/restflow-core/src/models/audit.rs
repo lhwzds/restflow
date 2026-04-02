@@ -63,11 +63,12 @@ pub type MessageAudit = MessageTrace;
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::models::execution_trace_builders;
 
     #[test]
     fn test_legacy_type_aliases() {
         // Verify that legacy type aliases work correctly
-        let event: AuditEvent = ExecutionTraceEvent::llm_call(
+        let event: AuditEvent = execution_trace_builders::llm_call(
             "task-123",
             "agent-456",
             LlmCallAudit {

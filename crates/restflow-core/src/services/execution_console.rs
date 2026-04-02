@@ -923,11 +923,11 @@ fn latest_run_by_task_id(
 mod tests {
     use super::*;
     use crate::models::{
-        BackgroundAgentSchedule, BackgroundAgentSpec, ChatMessage, ChatSession,
-        ExecutionContainerRef, ExecutionMode, LifecycleTrace, NotificationConfig,
+        execution_trace_builders, BackgroundAgentSchedule, BackgroundAgentSpec, ChatMessage,
+        ChatSession, ExecutionContainerRef, ExecutionMode, LifecycleTrace, NotificationConfig,
     };
     use crate::storage::Storage;
-    use crate::{ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource};
+    use crate::{ExecutionTraceCategory, ExecutionTraceSource};
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -952,34 +952,48 @@ mod tests {
             "agent-1".to_string(),
         )
         .with_parent_run_id(parent_run_id.map(|value| value.to_string()));
-        let start = ExecutionTraceEvent::lifecycle(
-            task_id,
-            "agent-1",
-            LifecycleTrace {
-                status: "running".to_string(),
-                message: Some("started".to_string()),
-                error: None,
-                ai_duration_ms: None,
-            },
-        )
-        .with_trace_context(&trace)
-        .with_effective_model("openai/gpt-5")
-        .with_provider("openai");
-        let end = ExecutionTraceEvent::new(
-            task_id,
-            "agent-1",
-            ExecutionTraceCategory::Lifecycle,
-            ExecutionTraceSource::Runtime,
-        )
-        .with_trace_context(&trace)
-        .with_lifecycle(LifecycleTrace {
-            status: "completed".to_string(),
-            message: Some("done".to_string()),
-            error: None,
-            ai_duration_ms: Some(1200),
-        })
-        .with_effective_model("openai/gpt-5")
-        .with_provider("openai");
+        let start = execution_trace_builders::with_provider(
+            execution_trace_builders::with_effective_model(
+                execution_trace_builders::with_trace_context(
+                    execution_trace_builders::lifecycle(
+                        task_id,
+                        "agent-1",
+                        LifecycleTrace {
+                            status: "running".to_string(),
+                            message: Some("started".to_string()),
+                            error: None,
+                            ai_duration_ms: None,
+                        },
+                    ),
+                    &trace,
+                ),
+                "openai/gpt-5",
+            ),
+            "openai",
+        );
+        let end = execution_trace_builders::with_provider(
+            execution_trace_builders::with_effective_model(
+                execution_trace_builders::with_lifecycle(
+                    execution_trace_builders::with_trace_context(
+                        execution_trace_builders::new_event(
+                            task_id,
+                            "agent-1",
+                            ExecutionTraceCategory::Lifecycle,
+                            ExecutionTraceSource::Runtime,
+                        ),
+                        &trace,
+                    ),
+                    LifecycleTrace {
+                        status: "completed".to_string(),
+                        message: Some("done".to_string()),
+                        error: None,
+                        ai_duration_ms: Some(1200),
+                    },
+                ),
+                "openai/gpt-5",
+            ),
+            "openai",
+        );
         storage.execution_traces.store(&start).expect("store start");
         storage.execution_traces.store(&end).expect("store end");
     }

@@ -2,7 +2,4 @@
 import type { ExecutionTraceEvent } from "./ExecutionTraceEvent";
 import type { ExecutionTraceStats } from "./ExecutionTraceStats";
 
-/**
- * Timeline payload for a trace or execution scope.
- */
 export type ExecutionTimeline = { events: Array<ExecutionTraceEvent>, stats: ExecutionTraceStats, };

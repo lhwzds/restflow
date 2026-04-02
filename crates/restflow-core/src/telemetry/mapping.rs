@@ -4,9 +4,9 @@ use restflow_telemetry::{
 };
 
 use crate::models::{
-    ExecutionStepInfo, ExecutionTraceCategory, ExecutionTraceEvent, LifecycleTrace, LogRecordTrace,
-    MetricDimension, MetricSampleTrace, ModelSwitchTrace, ProviderHealthTrace, ToolCallPhase,
-    ToolCallTrace,
+    execution_trace_builders, ExecutionStepInfo, ExecutionTraceCategory, ExecutionTraceEvent,
+    LifecycleTrace, LogRecordTrace, MetricDimension, MetricSampleTrace, ModelSwitchTrace,
+    ProviderHealthTrace, ToolCallPhase, ToolCallTrace,
 };
 
 /// Build persisted execution steps from unified execution-trace events.
@@ -162,7 +162,7 @@ fn truncate_step_name(value: &str, max_chars: usize) -> String {
 
 pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> ExecutionTraceEvent {
     let mut trace_event = match &event.event {
-        ExecutionEvent::RunStarted => ExecutionTraceEvent::lifecycle(
+        ExecutionEvent::RunStarted => execution_trace_builders::lifecycle(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             LifecycleTrace {
@@ -172,7 +172,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
                 ai_duration_ms: None,
             },
         ),
-        ExecutionEvent::RunCompleted { ai_duration_ms } => ExecutionTraceEvent::lifecycle(
+        ExecutionEvent::RunCompleted { ai_duration_ms } => execution_trace_builders::lifecycle(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             LifecycleTrace {
@@ -185,7 +185,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
         ExecutionEvent::RunFailed {
             error,
             ai_duration_ms,
-        } => ExecutionTraceEvent::lifecycle(
+        } => execution_trace_builders::lifecycle(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             LifecycleTrace {
@@ -198,7 +198,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
         ExecutionEvent::RunInterrupted {
             reason,
             ai_duration_ms,
-        } => ExecutionTraceEvent::lifecycle(
+        } => execution_trace_builders::lifecycle(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             LifecycleTrace {
@@ -213,7 +213,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
             to_model,
             reason,
             success,
-        } => ExecutionTraceEvent::model_switch(
+        } => execution_trace_builders::model_switch(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             ModelSwitchTrace {
@@ -223,7 +223,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
                 success: *success,
             },
         ),
-        ExecutionEvent::LlmCall(trace) => ExecutionTraceEvent::llm_call(
+        ExecutionEvent::LlmCall(trace) => execution_trace_builders::llm_call(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             crate::models::LlmCallTrace {
@@ -237,7 +237,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
                 message_count: trace.message_count,
             },
         ),
-        ExecutionEvent::ToolCallStarted(trace) => ExecutionTraceEvent::tool_call(
+        ExecutionEvent::ToolCallStarted(trace) => execution_trace_builders::tool_call(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             ToolCallTrace {
@@ -253,7 +253,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
                 duration_ms: None,
             },
         ),
-        ExecutionEvent::ToolCallCompleted(trace) => ExecutionTraceEvent::tool_call(
+        ExecutionEvent::ToolCallCompleted(trace) => execution_trace_builders::tool_call(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             ToolCallTrace {
@@ -269,7 +269,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
                 duration_ms: trace.duration_ms.map(|value| value as i64),
             },
         ),
-        ExecutionEvent::Message(trace) => ExecutionTraceEvent::message(
+        ExecutionEvent::Message(trace) => execution_trace_builders::message(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             crate::models::MessageTrace {
@@ -278,7 +278,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
                 tool_call_count: trace.tool_call_count,
             },
         ),
-        ExecutionEvent::MetricSample(trace) => ExecutionTraceEvent::metric_sample(
+        ExecutionEvent::MetricSample(trace) => execution_trace_builders::metric_sample(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             MetricSampleTrace {
@@ -295,7 +295,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
                     .collect(),
             },
         ),
-        ExecutionEvent::ProviderHealthChanged(trace) => ExecutionTraceEvent::provider_health(
+        ExecutionEvent::ProviderHealthChanged(trace) => execution_trace_builders::provider_health(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             ProviderHealthTrace {
@@ -306,7 +306,7 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
                 error_kind: trace.error_kind.clone(),
             },
         ),
-        ExecutionEvent::LogRecord(trace) => ExecutionTraceEvent::log_record(
+        ExecutionEvent::LogRecord(trace) => execution_trace_builders::log_record(
             event.trace.scope_id.clone(),
             event.trace.actor_id.clone(),
             LogRecordTrace {
@@ -326,18 +326,20 @@ pub fn execution_event_to_trace_event(event: &ExecutionEventEnvelope) -> Executi
 
     trace_event.id = event.event_id.clone();
     trace_event.timestamp = event.occurred_at_ms;
-    trace_event = trace_event.with_trace_context(&event.trace);
+    trace_event = execution_trace_builders::with_trace_context(trace_event, &event.trace);
     if let Some(requested_model) = event.requested_model.as_ref() {
-        trace_event = trace_event.with_requested_model(requested_model.clone());
+        trace_event =
+            execution_trace_builders::with_requested_model(trace_event, requested_model.clone());
     }
     if let Some(effective_model) = event.effective_model.as_ref() {
-        trace_event = trace_event.with_effective_model(effective_model.clone());
+        trace_event =
+            execution_trace_builders::with_effective_model(trace_event, effective_model.clone());
     }
     if let Some(provider) = event.provider.as_ref() {
-        trace_event = trace_event.with_provider(provider.clone());
+        trace_event = execution_trace_builders::with_provider(trace_event, provider.clone());
     }
     if let Some(attempt) = event.attempt {
-        trace_event = trace_event.with_attempt(attempt);
+        trace_event = execution_trace_builders::with_attempt(trace_event, attempt);
     }
     trace_event
 }
@@ -412,13 +414,13 @@ pub fn build_log_record_event(
 mod tests {
     use super::build_execution_steps;
     use crate::models::{
-        ExecutionTraceEvent, LifecycleTrace, LlmCallTrace, ModelSwitchTrace, ToolCallPhase,
+        execution_trace_builders, LifecycleTrace, LlmCallTrace, ModelSwitchTrace, ToolCallPhase,
         ToolCallTrace,
     };
 
     #[test]
     fn build_execution_steps_includes_non_tool_events_in_time_order() {
-        let mut run_started = ExecutionTraceEvent::lifecycle(
+        let mut run_started = execution_trace_builders::lifecycle(
             "session-1",
             "agent-1",
             LifecycleTrace {
@@ -431,7 +433,7 @@ mod tests {
         run_started.id = "evt-1".to_string();
         run_started.timestamp = 10;
 
-        let mut llm_call = ExecutionTraceEvent::llm_call(
+        let mut llm_call = execution_trace_builders::llm_call(
             "session-1",
             "agent-1",
             LlmCallTrace {
@@ -448,7 +450,7 @@ mod tests {
         llm_call.id = "evt-2".to_string();
         llm_call.timestamp = 20;
 
-        let mut model_switch = ExecutionTraceEvent::model_switch(
+        let mut model_switch = execution_trace_builders::model_switch(
             "session-1",
             "agent-1",
             ModelSwitchTrace {
@@ -461,7 +463,7 @@ mod tests {
         model_switch.id = "evt-3".to_string();
         model_switch.timestamp = 30;
 
-        let mut tool_completed = ExecutionTraceEvent::tool_call(
+        let mut tool_completed = execution_trace_builders::tool_call(
             "session-1",
             "agent-1",
             ToolCallTrace {
@@ -480,7 +482,7 @@ mod tests {
         tool_completed.id = "evt-4".to_string();
         tool_completed.timestamp = 40;
 
-        let mut run_failed = ExecutionTraceEvent::lifecycle(
+        let mut run_failed = execution_trace_builders::lifecycle(
             "session-1",
             "agent-1",
             LifecycleTrace {

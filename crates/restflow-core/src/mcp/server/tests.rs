@@ -1305,7 +1305,7 @@ impl McpBackend for MockBackend {
         run_id: &str,
         _limit: usize,
     ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
-        let mut event = crate::models::ExecutionTraceEvent::message(
+        let mut event = crate::models::execution_trace_builders::message(
             "task-1".to_string(),
             "agent-1".to_string(),
             crate::models::MessageTrace {

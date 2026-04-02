@@ -280,12 +280,13 @@ impl ExecutionTraceStorage {
 mod tests {
     use super::*;
     use crate::models::execution_trace::LlmCallTrace;
+    use crate::models::execution_trace_builders;
 
     #[test]
     fn test_execution_trace_storage() {
         let storage = ExecutionTraceStorage::in_memory().unwrap();
 
-        let event = ExecutionTraceEvent::llm_call(
+        let event = execution_trace_builders::llm_call(
             "task-123",
             "agent-456",
             LlmCallTrace {
@@ -328,7 +329,8 @@ mod tests {
         let other_trace =
             restflow_telemetry::RestflowTrace::new("run-2", "session-1", "task-1", "agent-1");
 
-        let llm = ExecutionTraceEvent::llm_call(
+        let llm = execution_trace_builders::with_trace_context(
+            execution_trace_builders::llm_call(
             "task-1",
             "agent-1",
             LlmCallTrace {
@@ -341,9 +343,11 @@ mod tests {
                 is_reasoning: Some(false),
                 message_count: Some(2),
             },
-        )
-        .with_trace_context(&base_trace);
-        let metric = ExecutionTraceEvent::metric_sample(
+            ),
+            &base_trace,
+        );
+        let metric = execution_trace_builders::with_trace_context(
+            execution_trace_builders::metric_sample(
             "task-1",
             "agent-1",
             crate::models::MetricSampleTrace {
@@ -352,9 +356,11 @@ mod tests {
                 unit: Some("tokens".to_string()),
                 dimensions: Vec::new(),
             },
-        )
-        .with_trace_context(&base_trace);
-        let health = ExecutionTraceEvent::provider_health(
+            ),
+            &base_trace,
+        );
+        let health = execution_trace_builders::with_trace_context(
+            execution_trace_builders::provider_health(
             "task-1",
             "agent-1",
             crate::models::ProviderHealthTrace {
@@ -364,9 +370,11 @@ mod tests {
                 reason: Some("failover".to_string()),
                 error_kind: None,
             },
-        )
-        .with_trace_context(&base_trace);
-        let log = ExecutionTraceEvent::log_record(
+            ),
+            &base_trace,
+        );
+        let log = execution_trace_builders::with_trace_context(
+            execution_trace_builders::log_record(
             "task-1",
             "agent-1",
             crate::models::LogRecordTrace {
@@ -374,9 +382,11 @@ mod tests {
                 message: "failover".to_string(),
                 fields: Vec::new(),
             },
-        )
-        .with_trace_context(&base_trace);
-        let other_run_log = ExecutionTraceEvent::log_record(
+            ),
+            &base_trace,
+        );
+        let other_run_log = execution_trace_builders::with_trace_context(
+            execution_trace_builders::log_record(
             "task-1",
             "agent-1",
             crate::models::LogRecordTrace {
@@ -384,8 +394,9 @@ mod tests {
                 message: "other run".to_string(),
                 fields: Vec::new(),
             },
-        )
-        .with_trace_context(&other_trace);
+            ),
+            &other_trace,
+        );
 
         for event in [&llm, &metric, &health, &log, &other_run_log] {
             storage.store(event).unwrap();
