@@ -25,7 +25,7 @@ pub(super) async fn execute_save_team(
     team: String,
     workers: Vec<BackgroundBatchWorkerSpec>,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let assessor = tool.assessor()?;
@@ -43,8 +43,7 @@ pub(super) async fn execute_save_team(
     if preview {
         return Ok(preview_output(assessment));
     }
-    if let Some(output) = enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
-    {
+    if let Some(output) = enforce_confirmation_or_defer(&assessment, approval_id.as_deref())? {
         return Ok(output);
     }
     let store = tool.team_store()?;
@@ -59,7 +58,7 @@ pub(super) async fn execute_delete_team(
     tool: &BackgroundAgentTool,
     team: String,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let assessment = OperationAssessment::warning_with_confirmation(
@@ -80,8 +79,7 @@ pub(super) async fn execute_delete_team(
     if preview {
         return Ok(preview_output(assessment));
     }
-    if let Some(output) = enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
-    {
+    if let Some(output) = enforce_confirmation_or_defer(&assessment, approval_id.as_deref())? {
         return Ok(output);
     }
     let store = tool.team_store()?;
@@ -107,7 +105,7 @@ pub(super) async fn execute_create(
     memory_scope: Option<String>,
     resource_limits: Option<ContractResourceLimits>,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let request = BackgroundAgentCreateRequest {
@@ -123,7 +121,7 @@ pub(super) async fn execute_create(
         memory_scope,
         resource_limits,
         preview,
-        confirmation_token,
+        confirmation_token: approval_id,
     };
     let result = tool
         .store
@@ -149,7 +147,7 @@ pub(super) async fn execute_convert_session(
     resource_limits: Option<ContractResourceLimits>,
     run_now: Option<bool>,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let request = BackgroundAgentConvertSessionRequest {
@@ -164,7 +162,7 @@ pub(super) async fn execute_convert_session(
         resource_limits,
         run_now,
         preview,
-        confirmation_token,
+        confirmation_token: approval_id,
     };
     let result = tool
         .store
@@ -194,7 +192,7 @@ pub(super) async fn execute_promote_to_background(
     resource_limits: Option<ContractResourceLimits>,
     run_now: Option<bool>,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let session_id = session_id.ok_or_else(|| {
@@ -215,7 +213,7 @@ pub(super) async fn execute_promote_to_background(
         resource_limits,
         run_now,
         preview,
-        confirmation_token,
+        confirmation_token: approval_id,
     };
     let result = tool
         .store
@@ -250,7 +248,7 @@ pub(super) async fn execute_update(
     memory_scope: Option<String>,
     resource_limits: Option<ContractResourceLimits>,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let request = BackgroundAgentUpdateRequest {
@@ -270,7 +268,7 @@ pub(super) async fn execute_update(
         memory_scope,
         resource_limits,
         preview,
-        confirmation_token,
+        confirmation_token: approval_id,
     };
     let result = tool
         .store
@@ -286,13 +284,13 @@ pub(super) async fn execute_delete(
     tool: &BackgroundAgentTool,
     id: String,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let request = BackgroundAgentDeleteRequest {
         id,
         preview,
-        confirmation_token,
+        confirmation_token: approval_id,
     };
     let result = tool
         .store

@@ -10,14 +10,14 @@ async fn execute_named_control(
     action: &str,
     verb: &str,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     let request = BackgroundAgentControlRequest {
         id,
         action: action.to_string(),
         preview,
-        confirmation_token,
+        confirmation_token: approval_id,
     };
     let result = tool
         .store
@@ -49,9 +49,9 @@ pub(super) async fn execute_run(
     tool: &BackgroundAgentTool,
     id: String,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
-    execute_named_control(tool, id, "run_now", "run", preview, confirmation_token).await
+    execute_named_control(tool, id, "run_now", "run", preview, approval_id).await
 }
 
 pub(super) async fn execute_control(
@@ -59,7 +59,7 @@ pub(super) async fn execute_control(
     id: String,
     action: String,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
-    execute_named_control(tool, id, &action, "control", preview, confirmation_token).await
+    execute_named_control(tool, id, &action, "control", preview, approval_id).await
 }

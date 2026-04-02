@@ -254,7 +254,7 @@ describe('backgroundAgentStore', () => {
 
     describe('deleteAgent', () => {
       it('removes agent from local list on success', async () => {
-        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(true)
+        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue({ id: 'a1', deleted: true })
 
         const store = useBackgroundAgentStore()
         store.agents = [createMockAgent('a1'), createMockAgent('a2')]
@@ -271,7 +271,7 @@ describe('backgroundAgentStore', () => {
       })
 
       it('does not remove agent when API returns false', async () => {
-        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(false)
+        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue({ id: 'a1', deleted: false })
 
         const store = useBackgroundAgentStore()
         store.agents = [createMockAgent('a1')]
@@ -283,7 +283,7 @@ describe('backgroundAgentStore', () => {
       })
 
       it('does not clear selectedAgentId when deleting a different agent', async () => {
-        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(true)
+        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue({ id: 'a1', deleted: true })
 
         const store = useBackgroundAgentStore()
         store.agents = [createMockAgent('a1'), createMockAgent('a2')]
@@ -382,7 +382,7 @@ describe('backgroundAgentStore', () => {
         target.chat_session_id = 'session-keep'
         store.agents = [target, createMockAgent('bg-2', 'paused')]
 
-        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(true)
+        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue({ id: 'bg-1', deleted: true })
 
         const result = await store.convertSessionToWorkspace('session-keep')
 
@@ -399,7 +399,7 @@ describe('backgroundAgentStore', () => {
         fetched.chat_session_id = 'session-fetched'
 
         vi.mocked(api.listBackgroundAgents).mockResolvedValue([fetched])
-        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue(true)
+        vi.mocked(api.deleteBackgroundAgent).mockResolvedValue({ id: 'bg-3', deleted: true })
 
         const result = await store.convertSessionToWorkspace('session-fetched')
 
@@ -478,15 +478,16 @@ describe('backgroundAgentStore', () => {
     })
 
     describe('stopAgent', () => {
-      it('calls stop API and re-fetches agents', async () => {
-        vi.mocked(api.stopBackgroundAgent).mockResolvedValue(true)
-        vi.mocked(api.listBackgroundAgents).mockResolvedValue([])
+      it('calls stop API and updates the agent locally', async () => {
+        vi.mocked(api.stopBackgroundAgent).mockResolvedValue(createMockAgent('task-1', 'paused'))
 
         const store = useBackgroundAgentStore()
+        store.agents = [createMockAgent('task-1', 'running')]
         await store.stopAgent('task-1')
 
         expect(api.stopBackgroundAgent).toHaveBeenCalledWith('task-1')
-        expect(api.listBackgroundAgents).toHaveBeenCalledOnce()
+        expect(api.listBackgroundAgents).not.toHaveBeenCalled()
+        expect(store.agents[0]!.status).toBe('paused')
       })
 
       it('sets error on failure', async () => {

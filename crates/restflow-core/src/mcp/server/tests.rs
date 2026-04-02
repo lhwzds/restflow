@@ -1538,7 +1538,7 @@ async fn test_manage_background_agents_list_operation() {
         line_limit: None,
         run_now: None,
         preview: None,
-        confirmation_token: None,
+        approval_id: None,
     };
 
     let json = server
@@ -1937,7 +1937,7 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
         .handle_manage_background_agents(ManageBackgroundAgentsParams {
             operation: "delete".to_string(),
             id: Some(prefix.to_string()),
-            confirmation_token: Some(token.to_string()),
+            approval_id: Some(token.to_string()),
             ..ManageBackgroundAgentsParams::default()
         })
         .await
@@ -2750,7 +2750,7 @@ fn base_manage_background_params(operation: &str) -> ManageBackgroundAgentsParam
         line_limit: None,
         run_now: None,
         preview: None,
-        confirmation_token: None,
+        approval_id: None,
     }
 }
 

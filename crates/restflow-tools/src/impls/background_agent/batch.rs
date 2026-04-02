@@ -202,7 +202,7 @@ pub(super) async fn execute_run_batch(
     resource_limits: Option<ContractResourceLimits>,
     run_now: Option<bool>,
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
     if input_template.is_some() {
@@ -270,8 +270,7 @@ pub(super) async fn execute_run_batch(
     if preview {
         return Ok(preview_output(assessment));
     }
-    if let Some(output) = enforce_confirmation_or_defer(&assessment, confirmation_token.as_deref())?
-    {
+    if let Some(output) = enforce_confirmation_or_defer(&assessment, approval_id.as_deref())? {
         return Ok(output);
     }
     let default_name_prefix = name.unwrap_or_else(|| format!("Background Batch {}", run_group_id));

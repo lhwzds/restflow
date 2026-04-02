@@ -34,9 +34,7 @@ use restflow_ai::llm::{
 };
 use restflow_models::LlmProvider;
 use restflow_storage::{AgentDefaults, ApiDefaults, SystemConfig};
-use restflow_tools::{
-    ProcessTool, ReplyTool, SwitchModelTool, ToolRegistryBuilder,
-};
+use restflow_tools::{ProcessTool, ReplyTool, SwitchModelTool, ToolRegistryBuilder};
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::store::{ProcessManager, ReplySender};

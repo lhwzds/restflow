@@ -15,8 +15,8 @@ use self::assembly::{
     KNOWN_TOOL_ALIASES, build_agent_crud_components, build_background_agent_runtime_components,
     build_kv_store, build_runtime_assessor, populate_known_tools_from_registry,
     register_bash_execution_tool, register_file_execution_tool, register_http_execution_tool,
-    register_management_tools, register_python_execution_tools,
-    register_send_email_execution_tool, register_subagent_management_tools,
+    register_management_tools, register_python_execution_tools, register_send_email_execution_tool,
+    register_subagent_management_tools,
 };
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
@@ -174,12 +174,12 @@ pub fn registry_from_allowlist_with_security_gate(
     let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
     let wants_guarded_assessor =
         wants_manage_agents || wants_manage_background_agents || wants_spawn_subagent;
-    let wants_shared_kv_store =
-        wants_manage_background_agents || wants_spawn_subagent || tool_names.iter().any(|name| name == "kv_store");
+    let wants_shared_kv_store = wants_manage_background_agents
+        || wants_spawn_subagent
+        || tool_names.iter().any(|name| name == "kv_store");
 
-    let shared_assessor = storage.and_then(|value| {
-        wants_guarded_assessor.then(|| build_runtime_assessor(value))
-    });
+    let shared_assessor =
+        storage.and_then(|value| wants_guarded_assessor.then(|| build_runtime_assessor(value)));
     let shared_kv_store = storage.and_then(|value| {
         wants_shared_kv_store.then(|| build_kv_store(value.kv_store.clone(), None))
     });

@@ -109,11 +109,12 @@ describe('background-agents memory API', () => {
     expect(result).toEqual(payload)
   })
 
-  it('unwraps executed delete outcomes to a boolean', async () => {
-    vi.mocked(requestTyped).mockResolvedValueOnce({
+  it('returns the canonical delete result payload', async () => {
+    const payload = {
       id: 'bg-1',
       deleted: true,
-    })
+    }
+    vi.mocked(requestTyped).mockResolvedValueOnce(payload)
 
     const result = await deleteBackgroundAgent('bg-1')
 
@@ -121,6 +122,6 @@ describe('background-agents memory API', () => {
       type: 'DeleteBackgroundAgent',
       data: { id: 'bg-1' },
     })
-    expect(result).toBe(true)
+    expect(result).toEqual(payload)
   })
 })

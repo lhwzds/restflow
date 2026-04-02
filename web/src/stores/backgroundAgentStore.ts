@@ -96,8 +96,8 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     async stopAgent(taskId: string): Promise<void> {
       this.error = null
       try {
-        await api.stopBackgroundAgent(taskId)
-        await this.fetchAgents()
+        const updated = await api.stopBackgroundAgent(taskId)
+        this.updateAgentLocally(updated)
       } catch (err) {
         this.error = err instanceof Error ? err.message : 'Failed to stop agent'
         console.error('Failed to stop background agent:', err)
@@ -120,14 +120,14 @@ export const useBackgroundAgentStore = defineStore('backgroundAgent', {
     async deleteAgent(id: string): Promise<boolean> {
       this.error = null
       try {
-        const success = await api.deleteBackgroundAgent(id)
-        if (success) {
+        const result = await api.deleteBackgroundAgent(id)
+        if (result.deleted) {
           this.agents = this.agents.filter((a) => a.id !== id)
           if (this.selectedAgentId === id) {
             this.selectedAgentId = null
           }
         }
-        return success
+        return result.deleted
       } catch (err) {
         this.error = err instanceof Error ? err.message : 'Failed to delete agent'
         console.error('Failed to delete background agent:', err)

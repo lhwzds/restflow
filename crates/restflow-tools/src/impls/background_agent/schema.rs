@@ -98,9 +98,9 @@ pub(super) fn parameters_schema() -> Value {
                 "type": "boolean",
                 "description": "If true, validate capability warnings/blockers without applying changes."
             },
-            "confirmation_token": {
+            "approval_id": {
                 "type": "string",
-                "description": "Confirmation token returned by preview when warnings require explicit confirmation."
+                "description": "Approval ID returned by preview when warnings require explicit confirmation."
             },
             "team": {
                 "type": "string",

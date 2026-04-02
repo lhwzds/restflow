@@ -34,7 +34,7 @@ Use this skill when a task should be split into one or more specialized subagent
 - Use `workers[].tasks` when each parallel instance needs a distinct prompt instead of one shared task.
 - Prefer a single subagent unless parallel execution is clearly beneficial.
 - Before spawning or saving a team, call `spawn_subagent` with `preview: true`.
-- If preview returns warnings, summarize them and wait for user confirmation before retrying with `confirmation_token`.
+- If preview returns warnings, summarize them and wait for user confirmation before retrying with `approval_id`.
 - If preview returns blockers, stop and report the blockers instead of partially spawning work.
 
 Example: build and reuse a mixed-provider planning team.

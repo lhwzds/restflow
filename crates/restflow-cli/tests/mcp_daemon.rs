@@ -274,7 +274,7 @@ fn tool_call_text_prefers_structured_content_payload() {
     assert_eq!(parsed["team"], "demo");
 }
 
-fn guarded_confirmation_token(value: &Value) -> Result<&str> {
+fn guarded_approval_id(value: &Value) -> Result<&str> {
     value["approval_id"]
         .as_str()
         .or_else(|| value["assessment"]["confirmation_token"].as_str())
@@ -363,7 +363,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     let save_value = if save_initial_value["operation"] == "save_team" {
         save_initial_value
     } else {
-        let confirmation_token = guarded_confirmation_token(&save_initial_value)?;
+        let approval_id = guarded_approval_id(&save_initial_value)?;
         let save_team = post_json_rpc(
             &client,
             &url,
@@ -376,7 +376,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
                     "arguments": {
                         "operation": "save_team",
                         "team": "daemon-bg-team",
-                        "confirmation_token": confirmation_token,
+                        "approval_id": approval_id,
                         "workers": [
                             {
                                 "count": 2,
@@ -448,7 +448,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     let run_value = if run_initial_value["operation"] == "run_batch" {
         run_initial_value
     } else {
-        let confirmation_token = guarded_confirmation_token(&run_initial_value)?;
+        let approval_id = guarded_approval_id(&run_initial_value)?;
         let run_batch = post_json_rpc(
             &client,
             &url,
@@ -463,7 +463,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
                         "team": "daemon-bg-team",
                         "inputs": ["alpha", "beta"],
                         "run_now": false,
-                        "confirmation_token": confirmation_token
+                        "approval_id": approval_id
                     }
                 }
             }),
