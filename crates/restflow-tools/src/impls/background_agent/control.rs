@@ -17,7 +17,7 @@ async fn execute_named_control(
         id,
         action: action.to_string(),
         preview,
-        confirmation_token: approval_id,
+        approval_id,
     };
     let result = tool
         .store

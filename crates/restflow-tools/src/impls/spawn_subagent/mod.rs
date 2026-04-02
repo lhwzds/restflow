@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use crate::{Result, Tool, ToolError, ToolOutput};
-use restflow_traits::AgentOperationAssessor;
+use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::store::KvStore;
 use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
 
@@ -64,7 +64,8 @@ impl Tool for SpawnSubagentTool {
         schema::parameters_schema(&self.available_agents())
     }
 
-    async fn execute(&self, input: Value) -> Result<ToolOutput> {
+    async fn execute(&self, mut input: Value) -> Result<ToolOutput> {
+        normalize_legacy_approval_replay(&mut input);
         let params: ParsedSpawnSubagentParams = serde_json::from_value(input)
             .map_err(|e| ToolError::Tool(format!("Invalid parameters: {}", e)))?;
         routing::execute(self, params).await

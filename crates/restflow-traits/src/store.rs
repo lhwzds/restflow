@@ -154,7 +154,7 @@ pub struct BackgroundAgentCreateRequest {
     #[serde(default)]
     pub preview: bool,
     #[serde(default)]
-    pub confirmation_token: Option<String>,
+    pub approval_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -181,7 +181,7 @@ pub struct BackgroundAgentConvertSessionRequest {
     #[serde(default)]
     pub preview: bool,
     #[serde(default)]
-    pub confirmation_token: Option<String>,
+    pub approval_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -218,7 +218,7 @@ pub struct BackgroundAgentUpdateRequest {
     #[serde(default)]
     pub preview: bool,
     #[serde(default)]
-    pub confirmation_token: Option<String>,
+    pub approval_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -228,7 +228,7 @@ pub struct BackgroundAgentControlRequest {
     #[serde(default)]
     pub preview: bool,
     #[serde(default)]
-    pub confirmation_token: Option<String>,
+    pub approval_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -237,7 +237,7 @@ pub struct BackgroundAgentDeleteRequest {
     #[serde(default)]
     pub preview: bool,
     #[serde(default)]
-    pub confirmation_token: Option<String>,
+    pub approval_id: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -260,6 +260,59 @@ pub struct BackgroundAgentMessageListRequest {
     pub id: String,
     #[serde(default)]
     pub limit: Option<usize>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn background_agent_requests_round_trip_with_approval_id() {
+        let create: BackgroundAgentCreateRequest = serde_json::from_value(json!({
+            "name": "Task",
+            "agent_id": "agent-1",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 1000
+            },
+            "preview": true,
+            "approval_id": "approval-1"
+        }))
+        .expect("create request should deserialize");
+        assert_eq!(create.approval_id.as_deref(), Some("approval-1"));
+
+        let convert: BackgroundAgentConvertSessionRequest = serde_json::from_value(json!({
+            "session_id": "session-1",
+            "preview": true,
+            "approval_id": "approval-2"
+        }))
+        .expect("convert request should deserialize");
+        assert_eq!(convert.approval_id.as_deref(), Some("approval-2"));
+
+        let update: BackgroundAgentUpdateRequest = serde_json::from_value(json!({
+            "id": "task-1",
+            "preview": true,
+            "approval_id": "approval-3"
+        }))
+        .expect("update request should deserialize");
+        assert_eq!(update.approval_id.as_deref(), Some("approval-3"));
+
+        let control: BackgroundAgentControlRequest = serde_json::from_value(json!({
+            "id": "task-1",
+            "action": "run_now",
+            "approval_id": "approval-4"
+        }))
+        .expect("control request should deserialize");
+        assert_eq!(control.approval_id.as_deref(), Some("approval-4"));
+
+        let delete: BackgroundAgentDeleteRequest = serde_json::from_value(json!({
+            "id": "task-1",
+            "approval_id": "approval-5"
+        }))
+        .expect("delete request should deserialize");
+        assert_eq!(delete.approval_id.as_deref(), Some("approval-5"));
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

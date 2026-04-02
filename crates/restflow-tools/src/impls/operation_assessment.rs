@@ -52,7 +52,7 @@ pub(crate) fn confirmation_required_output(assessment: OperationAssessment) -> T
         success: false,
         result: json!({
             "pending_approval": true,
-            "approval_id": assessment.confirmation_token,
+            "approval_id": assessment.approval_id,
             "assessment": assessment,
         }),
         error: Some(assessment_message(&assessment)),
@@ -76,7 +76,7 @@ pub(crate) fn enforce_confirmation_or_defer(
                 return Ok(None);
             }
 
-            let expected = assessment.confirmation_token.as_deref();
+            let expected = assessment.approval_id.as_deref();
             let provided = approval_id.map(str::trim).filter(|value| !value.is_empty());
 
             if expected.is_some() && provided == expected {
@@ -97,7 +97,7 @@ pub(crate) fn guarded_confirmation_required_output(
 
     let assessment = result.get("assessment")?.clone();
     let approval_id = assessment
-        .get("confirmation_token")
+        .get("approval_id")
         .and_then(|value| value.as_str())
         .map(str::to_string);
     let message = assessment

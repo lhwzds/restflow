@@ -248,7 +248,7 @@ pub struct ManageBackgroundAgentsParams {
     #[serde(default)]
     pub preview: Option<bool>,
     /// Approval ID returned by a prior preview/confirmation_required response
-    #[serde(default, alias = "confirmation_token")]
+    #[serde(default)]
     pub approval_id: Option<String>,
 }
 

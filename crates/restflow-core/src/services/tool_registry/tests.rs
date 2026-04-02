@@ -1178,7 +1178,7 @@ fn test_task_store_adapter_background_agent_flow() {
             memory_scope: Some("per_background_agent".to_string()),
             resource_limits: None,
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         },
     )
     .unwrap();
@@ -1223,7 +1223,7 @@ fn test_task_store_adapter_background_agent_flow() {
             memory_scope: Some("shared_agent".to_string()),
             resource_limits: None,
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         },
     )
     .unwrap();
@@ -1256,7 +1256,7 @@ fn test_task_store_adapter_background_agent_flow() {
             id: task_id.clone(),
             action: "run_now".to_string(),
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         },
     )
     .unwrap();
@@ -1334,11 +1334,11 @@ fn test_task_store_adapter_background_agent_flow() {
         restflow_traits::store::BackgroundAgentDeleteRequest {
             id: task_id.clone(),
             preview: true,
-            confirmation_token: None,
+            approval_id: None,
         },
     )
     .unwrap();
-    let token = delete_preview["assessment"]["confirmation_token"]
+    let token = delete_preview["assessment"]["approval_id"]
         .as_str()
         .expect("delete preview token")
         .to_string();
@@ -1347,7 +1347,7 @@ fn test_task_store_adapter_background_agent_flow() {
         restflow_traits::store::BackgroundAgentDeleteRequest {
             id: task_id,
             preview: false,
-            confirmation_token: Some(token),
+            approval_id: Some(token),
         },
     )
     .unwrap();

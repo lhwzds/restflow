@@ -211,17 +211,17 @@ pub fn assessment_requires_confirmation(assessment: &OperationAssessment) -> boo
 
 pub fn ensure_assessment_confirmed(
     assessment: &OperationAssessment,
-    confirmation_token: Option<&str>,
+    approval_id: Option<&str>,
 ) -> Result<()> {
     if !assessment_requires_confirmation(assessment) {
         return Ok(());
     }
 
     let expected = assessment
-        .confirmation_token
+        .approval_id
         .as_deref()
         .ok_or_else(|| anyhow!("confirmation required"))?;
-    let provided = confirmation_token
+    let provided = approval_id
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| anyhow!("confirmation required"))?;
@@ -337,14 +337,14 @@ fn finalize_assessment_with_seed(
     if !assessment.blockers.is_empty() {
         assessment.status = OperationAssessmentStatus::Block;
         assessment.requires_confirmation = false;
-        assessment.confirmation_token = None;
+        assessment.approval_id = None;
         return assessment;
     }
 
     if !assessment.warnings.is_empty() {
         assessment.status = OperationAssessmentStatus::Warning;
         assessment.requires_confirmation = true;
-        assessment.confirmation_token = Some(build_confirmation_token(
+        assessment.approval_id = Some(build_approval_id(
             &assessment,
             confirmation_seed.as_ref(),
         ));
@@ -353,11 +353,11 @@ fn finalize_assessment_with_seed(
 
     assessment.status = OperationAssessmentStatus::Ok;
     assessment.requires_confirmation = false;
-    assessment.confirmation_token = None;
+    assessment.approval_id = None;
     assessment
 }
 
-fn build_confirmation_token(
+fn build_approval_id(
     assessment: &OperationAssessment,
     confirmation_seed: Option<&serde_json::Value>,
 ) -> String {
@@ -1313,7 +1313,7 @@ mod tests {
                 resource_limits: None,
                 run_now: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             },
         )
         .await
@@ -1356,7 +1356,7 @@ mod tests {
                 resource_limits: None,
                 run_now: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             },
         )
         .await
@@ -1369,7 +1369,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_confirmation_token_is_bound_to_session() {
+    async fn assess_background_agent_convert_session_approval_id_is_bound_to_session() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1416,7 +1416,7 @@ mod tests {
                 resource_limits: None,
                 run_now: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             },
         )
         .await
@@ -1435,7 +1435,7 @@ mod tests {
                 resource_limits: None,
                 run_now: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             },
         )
         .await
@@ -1444,13 +1444,13 @@ mod tests {
         assert_eq!(first_assessment.status, OperationAssessmentStatus::Warning);
         assert_eq!(second_assessment.status, OperationAssessmentStatus::Warning);
         assert_ne!(
-            first_assessment.confirmation_token,
-            second_assessment.confirmation_token
+            first_assessment.approval_id,
+            second_assessment.approval_id
         );
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_confirmation_token_is_stable_for_same_session()
+    async fn assess_background_agent_convert_session_approval_id_is_stable_for_same_session()
     {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
@@ -1486,7 +1486,7 @@ mod tests {
             resource_limits: None,
             run_now: None,
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         };
 
         let first_assessment = assess_background_agent_convert_session(&core, request.clone())
@@ -1498,8 +1498,8 @@ mod tests {
 
         assert_eq!(first_assessment.status, OperationAssessmentStatus::Warning);
         assert_eq!(
-            first_assessment.confirmation_token,
-            second_assessment.confirmation_token
+            first_assessment.approval_id,
+            second_assessment.approval_id
         );
     }
 
@@ -1541,7 +1541,7 @@ mod tests {
             BackgroundAgentDeleteRequest {
                 id: task.id.clone(),
                 preview: true,
-                confirmation_token: None,
+                approval_id: None,
             },
         )
         .await
@@ -1550,6 +1550,6 @@ mod tests {
         assert_eq!(assessment.status, OperationAssessmentStatus::Warning);
         assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
         assert_eq!(assessment.warnings[0].code, "destructive_delete");
-        assert!(assessment.confirmation_token.is_some());
+        assert!(assessment.approval_id.is_some());
     }
 }

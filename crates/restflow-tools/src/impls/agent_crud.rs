@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::Result;
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Tool, ToolError, ToolOutput};
-use restflow_traits::AgentOperationAssessor;
+use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
 
 #[derive(Clone)]
@@ -66,7 +66,7 @@ enum AgentAction {
         agent: Value,
         #[serde(default)]
         preview: bool,
-        #[serde(default, alias = "confirmation_token")]
+        #[serde(default)]
         approval_id: Option<String>,
     },
     Update {
@@ -77,7 +77,7 @@ enum AgentAction {
         agent: Option<Value>,
         #[serde(default)]
         preview: bool,
-        #[serde(default, alias = "confirmation_token")]
+        #[serde(default)]
         approval_id: Option<String>,
     },
     Delete {
@@ -129,7 +129,8 @@ impl Tool for AgentCrudTool {
         })
     }
 
-    async fn execute(&self, input: Value) -> Result<ToolOutput> {
+    async fn execute(&self, mut input: Value) -> Result<ToolOutput> {
+        normalize_legacy_approval_replay(&mut input);
         let action: AgentAction = serde_json::from_value(input)?;
 
         let output = match action {

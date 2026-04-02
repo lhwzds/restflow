@@ -277,8 +277,8 @@ fn tool_call_text_prefers_structured_content_payload() {
 fn guarded_approval_id(value: &Value) -> Result<&str> {
     value["approval_id"]
         .as_str()
-        .or_else(|| value["assessment"]["confirmation_token"].as_str())
-        .context("guarded response should include approval_id or assessment.confirmation_token")
+        .or_else(|| value["assessment"]["approval_id"].as_str())
+        .context("guarded response should include approval_id")
 }
 
 #[test]

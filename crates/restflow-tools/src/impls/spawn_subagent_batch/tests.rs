@@ -9,7 +9,10 @@ use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
 use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
 use restflow_traits::store::KvStore;
-use restflow_traits::{SpawnHandle, SubagentCompletion, SubagentManager, SubagentState};
+use restflow_traits::{
+    SpawnHandle, SubagentCompletion, SubagentManager, SubagentState,
+    normalize_legacy_approval_replay,
+};
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -644,8 +647,9 @@ async fn test_get_team_rejects_legacy_specs_payload() {
 
 #[test]
 fn test_batch_params_accept_legacy_confirmation_token_alias() {
+    let mut value = json!({"team":"reviewers","confirmation_token":"approval-1"});
+    normalize_legacy_approval_replay(&mut value);
     let params: SpawnSubagentBatchParams =
-        serde_json::from_str(r#"{"team":"reviewers","confirmation_token":"approval-1"}"#)
-            .expect("params should deserialize");
+        serde_json::from_value(value).expect("params should deserialize");
     assert_eq!(params.approval_id.as_deref(), Some("approval-1"));
 }

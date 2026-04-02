@@ -17,7 +17,7 @@ use std::sync::Arc;
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
-use restflow_traits::AgentOperationAssessor;
+use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::store::KvStore;
 use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
 
@@ -77,7 +77,8 @@ impl Tool for SpawnSubagentBatchTool {
         schema::parameters_schema()
     }
 
-    async fn execute(&self, input: Value) -> Result<ToolOutput> {
+    async fn execute(&self, mut input: Value) -> Result<ToolOutput> {
+        normalize_legacy_approval_replay(&mut input);
         let params: ParsedSpawnSubagentBatchParams = serde_json::from_value(input)
             .map_err(|err| ToolError::Tool(format!("Invalid parameters: {}", err)))?;
 

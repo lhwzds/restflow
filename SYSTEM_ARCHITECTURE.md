@@ -23,6 +23,7 @@ This avoids split-brain behavior, inconsistent routing logic, and duplicated wri
 2. Single execution center: agent execution and routing decisions are daemon-owned.
 3. Single event identity: realtime and persisted events must share stable IDs.
 4. Client isolation: browser/CLI must not add direct storage business paths.
+5. Single approval replay field: `approval_id` is the only canonical replay contract field. Any legacy `confirmation_token` compatibility is ingress-only and must not appear in typed contracts or outputs.
 
 ## 3. Runtime Topology
 

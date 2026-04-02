@@ -170,7 +170,7 @@ pub struct SpawnSubagentBatchParams {
     pub preview: bool,
 
     /// Approval ID returned by preview when warnings require explicit confirmation.
-    #[serde(default, alias = "confirmation_token")]
+    #[serde(default)]
     #[cfg_attr(feature = "ts", ts(optional))]
     pub approval_id: Option<String>,
 }
