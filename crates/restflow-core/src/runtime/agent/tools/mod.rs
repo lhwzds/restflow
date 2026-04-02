@@ -8,19 +8,19 @@ pub(crate) mod assembly;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tracing::{debug, warn};
 
 use self::assembly::{
-    build_agent_crud_store, build_background_agent_runtime_components,
-    populate_known_tools_from_registry, register_bash_execution_tool, register_file_execution_tool,
-    register_http_execution_tool, register_python_execution_tools,
-    register_send_email_execution_tool,
+    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_background_agent_runtime_components,
+    build_kv_store, build_runtime_assessor, populate_known_tools_from_registry,
+    register_bash_execution_tool, register_file_execution_tool, register_http_execution_tool,
+    register_management_tools, register_python_execution_tools,
+    register_send_email_execution_tool, register_subagent_management_tools,
 };
 use crate::lsp::LspManager;
 use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
-use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::storage::Storage;
 use restflow_storage::{AgentSettings, ApiSettings};
 use restflow_traits::security::SecurityGate;
@@ -165,10 +165,49 @@ pub fn registry_from_allowlist_with_security_gate(
         return Ok(ToolRegistry::new());
     }
 
+    let wants_manage_agents = tool_names.iter().any(|name| name == "manage_agents");
+    let wants_manage_background_agents = tool_names
+        .iter()
+        .any(|name| name == "manage_background_agents");
+    let wants_spawn_subagent = tool_names.iter().any(|name| name == "spawn_subagent");
+    let wants_wait_subagents = tool_names.iter().any(|name| name == "wait_subagents");
+    let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
+    let wants_guarded_assessor =
+        wants_manage_agents || wants_manage_background_agents || wants_spawn_subagent;
+    let wants_shared_kv_store =
+        wants_manage_background_agents || wants_spawn_subagent || tool_names.iter().any(|name| name == "kv_store");
+
+    let shared_assessor = storage.and_then(|value| {
+        wants_guarded_assessor.then(|| build_runtime_assessor(value))
+    });
+    let shared_kv_store = storage.and_then(|value| {
+        wants_shared_kv_store.then(|| build_kv_store(value.kv_store.clone(), None))
+    });
+    let agent_crud_components = storage.and_then(|value| {
+        wants_manage_agents.then(|| {
+            build_agent_crud_components(
+                value.agents.clone(),
+                value.skills.clone(),
+                value.secrets.clone(),
+                value.background_agents.clone(),
+            )
+        })
+    });
+    let background_agent_components = storage.and_then(|value| {
+        wants_manage_background_agents.then(|| {
+            build_background_agent_runtime_components(
+                value,
+                shared_kv_store
+                    .clone()
+                    .expect("shared kv store should exist for background agent tools"),
+                shared_assessor.clone(),
+            )
+        })
+    });
+
     let mut builder = ToolRegistryBuilder::new();
     let mut allow_file = false;
     let mut allow_file_write = false;
-    let known_tools = Arc::new(RwLock::new(HashSet::new()));
     let mut allowlisted_skill_ids: Vec<String> = Vec::new();
     let mut recorded_skill_ids: HashSet<String> = HashSet::new();
     let effective_config = storage.and_then(|value| {
@@ -337,43 +376,7 @@ pub fn registry_from_allowlist_with_security_gate(
             }
 
             // --- Subagent tools ---
-            "spawn_subagent" => {
-                if let Some(manager) = &subagent_manager {
-                    if let Some(store) = storage {
-                        builder = builder.with_spawn_subagent_with_store(
-                            manager.clone(),
-                            Arc::new(KvStoreAdapter::new(store.kv_store.clone(), None)),
-                        );
-                    } else {
-                        builder = builder.with_spawn_subagent(manager.clone());
-                    }
-                } else {
-                    debug!(
-                        tool_name = "spawn_subagent",
-                        "Subagent manager missing, skipping"
-                    );
-                }
-            }
-            "wait_subagents" => {
-                if let Some(manager) = &subagent_manager {
-                    builder = builder.with_wait_subagents(manager.clone());
-                } else {
-                    debug!(
-                        tool_name = "wait_subagents",
-                        "Subagent manager missing, skipping"
-                    );
-                }
-            }
-            "list_subagents" => {
-                if let Some(manager) = &subagent_manager {
-                    builder = builder.with_list_subagents(manager.clone());
-                } else {
-                    debug!(
-                        tool_name = "list_subagents",
-                        "Subagent manager missing, skipping"
-                    );
-                }
-            }
+            "spawn_subagent" | "wait_subagents" | "list_subagents" => {}
             "use_skill" => {
                 if let Some(storage) = storage {
                     let provider: Arc<dyn SkillProvider> =
@@ -394,22 +397,7 @@ pub fn registry_from_allowlist_with_security_gate(
             }
 
             // --- Storage-backed tools ---
-            "manage_background_agents" => {
-                with_storage!(storage, "manage_background_agents", builder, |s| {
-                    let (store, kv_store, assessor) =
-                        build_background_agent_runtime_components(s, None);
-                    builder.with_background_agent_and_kv_and_assessor(store, kv_store, assessor)
-                });
-            }
-            "manage_agents" => {
-                with_storage!(storage, "manage_agents", builder, |s| {
-                    let store = build_agent_crud_store(s, known_tools.clone());
-                    builder.with_agent_crud_and_assessor(
-                        store,
-                        Arc::new(OperationAssessorAdapter::from_storage(s)),
-                    )
-                });
-            }
+            "manage_background_agents" | "manage_agents" => {}
             "manage_marketplace" => {
                 with_storage!(storage, "manage_marketplace", builder, |s| {
                     let registry_defaults = effective_config
@@ -465,9 +453,11 @@ pub fn registry_from_allowlist_with_security_gate(
                 });
             }
             "kv_store" => {
-                with_storage!(storage, "kv_store", builder, |s| {
-                    builder.with_kv_store(Arc::new(KvStoreAdapter::new(s.kv_store.clone(), None)))
-                });
+                if let Some(kv_store) = &shared_kv_store {
+                    builder = builder.with_kv_store(kv_store.clone());
+                } else {
+                    debug!(tool_name = "kv_store", "Storage missing, skipping");
+                }
             }
             "work_items" => {
                 with_storage!(storage, "work_items", builder, |s| {
@@ -616,10 +606,76 @@ pub fn registry_from_allowlist_with_security_gate(
         );
     }
 
+    if wants_manage_agents || wants_manage_background_agents {
+        if storage.is_some() {
+            builder = register_management_tools(
+                builder,
+                agent_crud_components
+                    .as_ref()
+                    .map(|components| components.store.clone()),
+                background_agent_components
+                    .as_ref()
+                    .map(|components| components.store.clone()),
+                background_agent_components
+                    .as_ref()
+                    .map(|components| components.kv_store.clone()),
+                shared_assessor.clone(),
+            );
+        } else {
+            if wants_manage_agents {
+                debug!(tool_name = "manage_agents", "Storage missing, skipping");
+            }
+            if wants_manage_background_agents {
+                debug!(
+                    tool_name = "manage_background_agents",
+                    "Storage missing, skipping"
+                );
+            }
+        }
+    }
+
     // Check if batch tool was requested
     let wants_batch = tool_names.iter().any(|n| n == "batch");
 
     let mut registry = builder.build();
+
+    if wants_spawn_subagent || wants_wait_subagents || wants_list_subagents {
+        if let Some(manager) = &subagent_manager {
+            register_subagent_management_tools(
+                &mut registry,
+                manager.clone(),
+                if wants_spawn_subagent {
+                    shared_kv_store.clone()
+                } else {
+                    None
+                },
+                if wants_spawn_subagent {
+                    shared_assessor.clone()
+                } else {
+                    None
+                },
+            );
+        } else {
+            if wants_spawn_subagent {
+                debug!(
+                    tool_name = "spawn_subagent",
+                    "Subagent manager missing, skipping"
+                );
+            }
+            if wants_wait_subagents {
+                debug!(
+                    tool_name = "wait_subagents",
+                    "Subagent manager missing, skipping"
+                );
+            }
+            if wants_list_subagents {
+                debug!(
+                    tool_name = "list_subagents",
+                    "Subagent manager missing, skipping"
+                );
+            }
+        }
+    }
 
     // Batch tool needs Arc<ToolRegistry> — register it post-build as a two-phase step.
     if wants_batch {
@@ -635,7 +691,13 @@ pub fn registry_from_allowlist_with_security_gate(
     }
 
     // Populate known_tools for AgentStoreAdapter validation
-    populate_known_tools_from_registry(&known_tools, &registry, None);
+    if let Some(agent_components) = &agent_crud_components {
+        populate_known_tools_from_registry(
+            &agent_components.known_tools,
+            &registry,
+            Some(&KNOWN_TOOL_ALIASES),
+        );
+    }
 
     Ok(registry)
 }
@@ -986,6 +1048,53 @@ mod tests {
             }))
             .await
             .expect("runtime tool should not fail when store assessor is injected");
+
+        assert!(output.success);
+        assert_eq!(output.result["status"], "preview");
+    }
+
+    #[tokio::test]
+    async fn test_manage_agents_runtime_registry_injects_shared_assessor_and_aliases() {
+        let dir = tempdir().expect("temp dir should be created");
+        let db_path = dir.path().join("registry-agent-runtime.db");
+        let storage = Storage::new(db_path.to_str().expect("db path should be valid"))
+            .expect("storage should be created");
+        let prompts_dir = dir.path().join("agents");
+        std::fs::create_dir_all(&prompts_dir).expect("prompts dir should be created");
+
+        let previous_agents_dir = std::env::var_os(prompt_files::AGENTS_DIR_ENV);
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, &prompts_dir) };
+
+        let names = vec![
+            "manage_agents".to_string(),
+            "http_request".to_string(),
+            "send_email".to_string(),
+            "run_python".to_string(),
+        ];
+        let registry =
+            registry_from_allowlist(Some(&names), None, None, Some(&storage), None, None, None)
+                .expect("registry should be built");
+
+        unsafe {
+            match previous_agents_dir {
+                Some(value) => std::env::set_var(prompt_files::AGENTS_DIR_ENV, value),
+                None => std::env::remove_var(prompt_files::AGENTS_DIR_ENV),
+            }
+        }
+
+        let output = registry
+            .get("manage_agents")
+            .expect("manage_agents should be registered")
+            .execute(json!({
+                "operation": "create",
+                "name": "Runtime Preview Agent",
+                "agent": {
+                    "tools": ["http", "email", "python"]
+                },
+                "preview": true
+            }))
+            .await
+            .expect("runtime tool should not fail when assessor is injected");
 
         assert!(output.success);
         assert_eq!(output.result["status"], "preview");
