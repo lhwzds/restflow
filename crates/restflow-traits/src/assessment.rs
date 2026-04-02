@@ -47,7 +47,7 @@ pub struct OperationAssessment {
     pub status: OperationAssessmentStatus,
     pub requires_confirmation: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub confirmation_token: Option<String>,
+    pub approval_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effective_model_ref: Option<AssessmentModelRef>,
     #[serde(default)]
@@ -63,7 +63,7 @@ impl OperationAssessment {
             intent,
             status: OperationAssessmentStatus::Ok,
             requires_confirmation: false,
-            confirmation_token: None,
+            approval_id: None,
             effective_model_ref: None,
             warnings: Vec::new(),
             blockers: Vec::new(),
@@ -80,17 +80,17 @@ impl OperationAssessment {
             intent,
             status: OperationAssessmentStatus::Warning,
             requires_confirmation: true,
-            confirmation_token: None,
+            approval_id: None,
             effective_model_ref: None,
             warnings,
             blockers: Vec::new(),
         };
-        assessment.confirmation_token = Some(build_confirmation_token(&assessment));
+        assessment.approval_id = Some(build_approval_id(&assessment));
         assessment
     }
 }
 
-fn build_confirmation_token(assessment: &OperationAssessment) -> String {
+fn build_approval_id(assessment: &OperationAssessment) -> String {
     let payload = serde_json::json!({
         "operation": assessment.operation,
         "intent": assessment.intent,
@@ -105,6 +105,24 @@ fn build_confirmation_token(assessment: &OperationAssessment) -> String {
         hash = hash.wrapping_mul(0x100000001b3);
     }
     format!("{hash:016x}")
+}
+
+pub fn normalize_legacy_approval_replay(value: &mut serde_json::Value) {
+    let serde_json::Value::Object(map) = value else {
+        return;
+    };
+
+    let needs_approval_id = map
+        .get("approval_id")
+        .map(serde_json::Value::is_null)
+        .unwrap_or(true);
+    if needs_approval_id
+        && let Some(legacy) = map.get("confirmation_token").cloned()
+        && !legacy.is_null()
+    {
+        map.insert("approval_id".to_string(), legacy);
+    }
+    map.remove("confirmation_token");
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -174,4 +192,55 @@ pub trait AgentOperationAssessor: Send + Sync {
         requests: Vec<ContractSubagentSpawnRequest>,
         template_mode: bool,
     ) -> Result<OperationAssessment, ToolError>;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn operation_assessment_serializes_with_approval_id() {
+        let assessment = OperationAssessment::warning_with_confirmation(
+            "delete_background_agent",
+            OperationAssessmentIntent::Save,
+            vec![OperationAssessmentIssue {
+                code: "warning".to_string(),
+                message: "Needs approval".to_string(),
+                field: None,
+                suggestion: None,
+            }],
+        );
+
+        let payload = serde_json::to_value(&assessment).expect("serialize assessment");
+        assert!(payload.get("approval_id").and_then(|value| value.as_str()).is_some());
+        assert!(payload.get("confirmation_token").is_none());
+    }
+
+    #[test]
+    fn normalize_legacy_approval_replay_promotes_confirmation_token() {
+        let mut payload = json!({
+            "operation": "delete",
+            "confirmation_token": "approval-1"
+        });
+
+        normalize_legacy_approval_replay(&mut payload);
+
+        assert_eq!(payload["approval_id"], "approval-1");
+        assert!(payload.get("confirmation_token").is_none());
+    }
+
+    #[test]
+    fn normalize_legacy_approval_replay_does_not_override_approval_id() {
+        let mut payload = json!({
+            "operation": "delete",
+            "approval_id": "preferred",
+            "confirmation_token": "legacy"
+        });
+
+        normalize_legacy_approval_replay(&mut payload);
+
+        assert_eq!(payload["approval_id"], "preferred");
+        assert!(payload.get("confirmation_token").is_none());
+    }
 }

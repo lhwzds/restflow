@@ -280,16 +280,16 @@ impl BackgroundAgentStore for MockStore {
                 "status": "preview",
                 "assessment": {
                     "operation": "delete_background_agent",
-                    "confirmation_token": "confirm-delete"
+                    "approval_id": "confirm-delete"
                 }
             }));
         }
-        if request.confirmation_token.as_deref() != Some("confirm-delete") {
+        if request.approval_id.as_deref() != Some("confirm-delete") {
             return Ok(json!({
                 "status": "confirmation_required",
                 "assessment": {
                     "operation": "delete_background_agent",
-                    "confirmation_token": "confirm-delete"
+                    "approval_id": "confirm-delete"
                 }
             }));
         }
@@ -635,10 +635,7 @@ async fn test_delete_requires_approval_id() {
     assert!(!output.success);
     assert_eq!(output.result["pending_approval"], true);
     assert_eq!(output.result["approval_id"], "confirm-delete");
-    assert_eq!(
-        output.result["assessment"]["confirmation_token"],
-        "confirm-delete"
-    );
+    assert_eq!(output.result["assessment"]["approval_id"], "confirm-delete");
 }
 
 #[tokio::test]
@@ -1002,9 +999,9 @@ async fn test_team_management_round_trip() {
         .unwrap();
     assert!(delete_preview.success);
     assert_eq!(delete_preview.result["status"], "preview");
-    let token = delete_preview.result["assessment"]["confirmation_token"]
+    let token = delete_preview.result["assessment"]["approval_id"]
         .as_str()
-        .expect("delete team preview token")
+        .expect("delete team preview approval id")
         .to_string();
 
     let delete = tool

@@ -1929,9 +1929,9 @@ async fn test_mcp_manage_background_agents_delete_returns_canonical_id_for_prefi
         .expect("delete preview response");
     let preview: serde_json::Value =
         serde_json::from_str(&delete_preview).expect("delete preview response");
-    let token = preview["assessment"]["confirmation_token"]
+    let token = preview["assessment"]["approval_id"]
         .as_str()
-        .expect("delete preview should return confirmation token");
+        .expect("delete preview should return approval id");
 
     let delete = server
         .handle_manage_background_agents(ManageBackgroundAgentsParams {

@@ -30,14 +30,14 @@ type CommandResult<T> = std::result::Result<T, BackgroundAgentCommandError>;
 #[derive(Debug, Clone)]
 struct RequestGuard {
     preview: bool,
-    confirmation_token: Option<String>,
+    approval_id: Option<String>,
 }
 
 impl RequestGuard {
-    fn capture(preview: bool, confirmation_token: Option<String>) -> Self {
+    fn capture(preview: bool, approval_id: Option<String>) -> Self {
         Self {
             preview,
-            confirmation_token,
+            approval_id,
         }
     }
 }
@@ -454,7 +454,7 @@ impl BackgroundAgentCommandService {
         &self,
         assessment: OperationAssessment,
         preview: bool,
-        confirmation_token: Option<&str>,
+        approval_id: Option<&str>,
         execute: impl FnOnce() -> CommandResult<T>,
     ) -> CommandResult<BackgroundAgentCommandOutcome<T>> {
         if preview {
@@ -464,7 +464,7 @@ impl BackgroundAgentCommandService {
             return Ok(BackgroundAgentCommandOutcome::Blocked { assessment });
         }
         if assessment_requires_confirmation(&assessment)
-            && ensure_assessment_confirmed(&assessment, confirmation_token).is_err()
+            && ensure_assessment_confirmed(&assessment, approval_id).is_err()
         {
             return Ok(BackgroundAgentCommandOutcome::ConfirmationRequired { assessment });
         }
@@ -495,7 +495,7 @@ impl BackgroundAgentCommandService {
             BackgroundAgentExecutionMode::Guarded => self.finish_mutation(
                 assessment,
                 guard.preview,
-                guard.confirmation_token.as_deref(),
+                guard.approval_id.as_deref(),
                 execute,
             ),
             BackgroundAgentExecutionMode::Direct => {
@@ -526,7 +526,7 @@ impl BackgroundAgentCommandService {
     ) -> CommandResult<(RequestGuard, OperationAssessment, BackgroundAgentSpec)> {
         let request = self.normalize_create_request(request)?;
         self.validate_create_request(&request)?;
-        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let guard = RequestGuard::capture(request.preview, request.approval_id.clone());
         let assessment = self
             .assessor()?
             .assess_background_agent_create(request.clone())
@@ -549,7 +549,7 @@ impl BackgroundAgentCommandService {
         let request = self.normalize_update_request(request)?;
         self.validate_update_request(&request)?;
         let resolved_id = request.id.clone();
-        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let guard = RequestGuard::capture(request.preview, request.approval_id.clone());
         let assessment = self
             .assessor()?
             .assess_background_agent_update(request.clone())
@@ -567,7 +567,7 @@ impl BackgroundAgentCommandService {
         let request = self.normalize_delete_request(request)?;
         self.validate_delete_request(&request)?;
         let resolved_id = request.id.clone();
-        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let guard = RequestGuard::capture(request.preview, request.approval_id.clone());
         let assessment = self
             .assessor()?
             .assess_background_agent_delete(request)
@@ -588,7 +588,7 @@ impl BackgroundAgentCommandService {
         let (request, action) = self.normalize_control_request(request)?;
         self.validate_control_request(&request)?;
         let resolved_id = request.id.clone();
-        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let guard = RequestGuard::capture(request.preview, request.approval_id.clone());
         let assessment = self
             .assessor()?
             .assess_background_agent_control(request.clone())
@@ -604,7 +604,7 @@ impl BackgroundAgentCommandService {
         let request = self.normalize_convert_session_request(request);
         self.validate_convert_session_request(&request)?;
         let session_id = request.session_id.clone();
-        let guard = RequestGuard::capture(request.preview, request.confirmation_token.clone());
+        let guard = RequestGuard::capture(request.preview, request.approval_id.clone());
         let assessment = self
             .assessor()?
             .assess_background_agent_convert_session(request.clone())
@@ -1076,7 +1076,7 @@ mod tests {
                     resource_limits: None,
                     run_now: Some(false),
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1112,7 +1112,7 @@ mod tests {
                     resource_limits: None,
                     run_now: None,
                     preview: true,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1146,7 +1146,7 @@ mod tests {
                     memory_scope: None,
                     resource_limits: None,
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1174,7 +1174,7 @@ mod tests {
                     memory_scope: None,
                     resource_limits: None,
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1235,7 +1235,7 @@ mod tests {
                     memory_scope: None,
                     resource_limits: None,
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1288,7 +1288,7 @@ mod tests {
                     id: task.id.clone(),
                     action: "pause".to_string(),
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1329,7 +1329,7 @@ mod tests {
                     resource_limits: None,
                     run_now: Some(false),
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1376,7 +1376,7 @@ mod tests {
                 BackgroundAgentDeleteRequest {
                     id: task.id.clone(),
                     preview: true,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1387,7 +1387,7 @@ mod tests {
             BackgroundAgentCommandOutcome::Preview { assessment } => {
                 assert_eq!(assessment.operation, "delete_background_agent");
                 assert!(assessment.requires_confirmation);
-                assert!(assessment.confirmation_token.is_some());
+                assert!(assessment.approval_id.is_some());
                 assert_eq!(
                     assessment.warnings[0].message,
                     format!("delete guard for {}", task.id)
@@ -1434,7 +1434,7 @@ mod tests {
                 BackgroundAgentDeleteRequest {
                     id: task.id.clone(),
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1463,7 +1463,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_executes_when_confirmation_token_matches() {
+    async fn delete_executes_when_approval_id_matches() {
         let (service, session, _dir) = setup();
         let task = service
             .storage
@@ -1491,7 +1491,7 @@ mod tests {
                 BackgroundAgentDeleteRequest {
                     id: task.id.clone(),
                     preview: true,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1500,7 +1500,7 @@ mod tests {
 
         let token = match preview {
             BackgroundAgentCommandOutcome::Preview { assessment } => assessment
-                .confirmation_token
+                .approval_id
                 .expect("delete preview should carry confirmation token"),
             other => panic!("expected preview outcome, got {other:?}"),
         };
@@ -1510,7 +1510,7 @@ mod tests {
                 BackgroundAgentDeleteRequest {
                     id: task.id.clone(),
                     preview: false,
-                    confirmation_token: Some(token),
+                    approval_id: Some(token),
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )
@@ -1535,7 +1535,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn delete_direct_executes_without_confirmation_token() {
+    async fn delete_direct_executes_without_approval_id() {
         let (service, session, _dir) = setup();
         let task = service
             .storage
@@ -1563,7 +1563,7 @@ mod tests {
                 BackgroundAgentDeleteRequest {
                     id: task.id.clone(),
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Direct,
             )
@@ -1601,7 +1601,7 @@ mod tests {
                     memory_scope: None,
                     resource_limits: None,
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Direct,
             )
@@ -1655,7 +1655,7 @@ mod tests {
                     memory_scope: None,
                     resource_limits: None,
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Direct,
             )
@@ -1697,7 +1697,7 @@ mod tests {
                     id: task.id.clone(),
                     action: "pause".to_string(),
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Direct,
             )
@@ -1727,7 +1727,7 @@ mod tests {
                     resource_limits: None,
                     run_now: Some(false),
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Direct,
             )
@@ -1775,7 +1775,7 @@ mod tests {
                 BackgroundAgentDeleteRequest {
                     id: task.id,
                     preview: true,
-                    confirmation_token: None,
+                    approval_id: None,
                 },
                 BackgroundAgentExecutionMode::Guarded,
             )

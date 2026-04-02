@@ -121,7 +121,7 @@ pub(super) async fn execute_create(
         memory_scope,
         resource_limits,
         preview,
-        confirmation_token: approval_id,
+        approval_id,
     };
     let result = tool
         .store
@@ -162,7 +162,7 @@ pub(super) async fn execute_convert_session(
         resource_limits,
         run_now,
         preview,
-        confirmation_token: approval_id,
+        approval_id,
     };
     let result = tool
         .store
@@ -213,7 +213,7 @@ pub(super) async fn execute_promote_to_background(
         resource_limits,
         run_now,
         preview,
-        confirmation_token: approval_id,
+        approval_id,
     };
     let result = tool
         .store
@@ -268,7 +268,7 @@ pub(super) async fn execute_update(
         memory_scope,
         resource_limits,
         preview,
-        confirmation_token: approval_id,
+        approval_id,
     };
     let result = tool
         .store
@@ -290,7 +290,7 @@ pub(super) async fn execute_delete(
     let request = BackgroundAgentDeleteRequest {
         id,
         preview,
-        confirmation_token: approval_id,
+        approval_id,
     };
     let result = tool
         .store

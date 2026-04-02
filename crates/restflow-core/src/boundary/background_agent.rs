@@ -115,7 +115,7 @@ pub(crate) fn core_spec_to_create_request(
         memory_scope: None,
         resource_limits: spec.resource_limits.clone().map(to_contract).transpose()?,
         preview: false,
-        confirmation_token: None,
+        approval_id: None,
     })
 }
 
@@ -140,7 +140,7 @@ pub(crate) fn core_patch_to_update_request(
         memory_scope: None,
         resource_limits: patch.resource_limits.clone().map(to_contract).transpose()?,
         preview: false,
-        confirmation_token: None,
+        approval_id: None,
     })
 }
 
@@ -288,7 +288,7 @@ pub(crate) fn contract_convert_request_to_store(
         resource_limits: request.resource_limits,
         run_now: request.run_now,
         preview: false,
-        confirmation_token: None,
+        approval_id: None,
     })
 }
 
@@ -404,7 +404,7 @@ mod tests {
             memory_scope: Some("per_background_agent".to_string()),
             resource_limits: None,
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         })
         .expect("spec should decode");
 

@@ -317,7 +317,7 @@ pub(super) async fn execute_run_batch(
                     .clone()
                     .or_else(|| resource_limits.clone()),
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .map_err(|e| {
                 ToolError::Tool(format!(
@@ -343,7 +343,7 @@ pub(super) async fn execute_run_batch(
                     id: task_id.clone(),
                     action: "run_now".to_string(),
                     preview: false,
-                    confirmation_token: None,
+                    approval_id: None,
                 })
                 .map_err(|e| {
                     ToolError::Tool(format!("Failed to run background agent {}: {e}.", task_id))

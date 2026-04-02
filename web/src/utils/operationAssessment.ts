@@ -20,7 +20,7 @@ export interface OperationAssessment {
   warnings: OperationAssessmentIssue[]
   blockers: OperationAssessmentIssue[]
   requires_confirmation: boolean
-  confirmation_token?: string | null
+  approval_id?: string | null
 }
 
 type AssessmentContainer = {

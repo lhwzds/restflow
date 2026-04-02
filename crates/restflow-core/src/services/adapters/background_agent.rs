@@ -837,7 +837,7 @@ mod tests {
             durability_mode: None,
             resource_limits: None,
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         };
         let created = adapter.create_background_agent(request).unwrap();
         assert_eq!(created["status"], "executed");
@@ -865,7 +865,7 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .expect("default alias should resolve to the only/default agent");
         assert_eq!(created["status"], "executed");
@@ -900,7 +900,7 @@ mod tests {
                 resource_limits: None,
                 run_now: Some(false),
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
 
@@ -936,7 +936,7 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
 
@@ -977,7 +977,7 @@ mod tests {
                 resource_limits: None,
                 run_now: Some(false),
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .expect_err("conversion should fail when no input can be derived");
         assert!(
@@ -1013,7 +1013,7 @@ mod tests {
                 resource_limits: None,
                 run_now: Some(false),
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
 
@@ -1046,7 +1046,7 @@ mod tests {
             durability_mode: None,
             resource_limits: None,
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         };
         let created = adapter.create_background_agent(request).unwrap();
         let id = created["result"]["id"].as_str().unwrap();
@@ -1055,12 +1055,12 @@ mod tests {
             .delete_background_agent(BackgroundAgentDeleteRequest {
                 id: id.to_string(),
                 preview: true,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
         assert_eq!(preview["status"], "preview");
 
-        let token = preview["assessment"]["confirmation_token"]
+        let token = preview["assessment"]["approval_id"]
             .as_str()
             .expect("preview should return confirmation token")
             .to_string();
@@ -1068,7 +1068,7 @@ mod tests {
             .delete_background_agent(BackgroundAgentDeleteRequest {
                 id: id.to_string(),
                 preview: false,
-                confirmation_token: Some(token),
+                approval_id: Some(token),
             })
             .unwrap();
         assert_eq!(result["status"], "executed");
@@ -1093,7 +1093,7 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
         let id = created["result"]["id"].as_str().unwrap().to_string();
@@ -1103,10 +1103,10 @@ mod tests {
             .delete_background_agent(BackgroundAgentDeleteRequest {
                 id: prefix.to_string(),
                 preview: true,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
-        let token = preview["assessment"]["confirmation_token"]
+        let token = preview["assessment"]["approval_id"]
             .as_str()
             .expect("preview should return confirmation token")
             .to_string();
@@ -1114,7 +1114,7 @@ mod tests {
             .delete_background_agent(BackgroundAgentDeleteRequest {
                 id: prefix.to_string(),
                 preview: false,
-                confirmation_token: Some(token),
+                approval_id: Some(token),
             })
             .unwrap();
         assert_eq!(result["result"]["id"], id);
@@ -1139,10 +1139,10 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: true,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
-        let preview_token = created["assessment"]["confirmation_token"]
+        let preview_token = created["assessment"]["approval_id"]
             .as_str()
             .expect("preview token")
             .to_string();
@@ -1160,7 +1160,7 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: Some(preview_token),
+                approval_id: Some(preview_token),
             })
             .unwrap();
         let id = created["result"]["id"].as_str().unwrap().to_string();
@@ -1183,7 +1183,7 @@ mod tests {
                 memory_scope: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
 
@@ -1210,10 +1210,10 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: true,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
-        let preview_token = created["assessment"]["confirmation_token"]
+        let preview_token = created["assessment"]["approval_id"]
             .as_str()
             .expect("preview token")
             .to_string();
@@ -1231,7 +1231,7 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: Some(preview_token),
+                approval_id: Some(preview_token),
             })
             .unwrap();
         let id = created["result"]["id"].as_str().unwrap().to_string();
@@ -1241,7 +1241,7 @@ mod tests {
                 id: id.clone(),
                 action: "pause".to_string(),
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
 
@@ -1268,7 +1268,7 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
         let task_id = created["result"]["id"].as_str().unwrap().to_string();
@@ -1309,7 +1309,7 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
         let id = created["result"]["id"].as_str().unwrap().to_string();
@@ -1367,7 +1367,7 @@ mod tests {
                 durability_mode: None,
                 resource_limits: None,
                 preview: false,
-                confirmation_token: None,
+                approval_id: None,
             })
             .unwrap();
         let task_id = created["result"]["id"].as_str().unwrap().to_string();

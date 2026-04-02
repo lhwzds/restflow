@@ -163,7 +163,7 @@ impl IpcServer {
         let request = BackgroundAgentDeleteRequest {
             id,
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         };
         match command_service(core)
             .delete_from_request(request, BackgroundAgentExecutionMode::Direct)
@@ -188,7 +188,7 @@ impl IpcServer {
             id,
             action,
             preview: false,
-            confirmation_token: None,
+            approval_id: None,
         };
         match command_service(core)
             .control_from_request(request, BackgroundAgentExecutionMode::Direct)

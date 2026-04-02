@@ -17,7 +17,7 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
-use restflow_traits::AgentOperationAssessor;
+use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::store::{
     BackgroundAgentStore, KvStore, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
 };
@@ -102,7 +102,8 @@ impl Tool for BackgroundAgentTool {
         schema::parameters_schema()
     }
 
-    async fn execute(&self, input: Value) -> Result<ToolOutput> {
+    async fn execute(&self, mut input: Value) -> Result<ToolOutput> {
+        normalize_legacy_approval_replay(&mut input);
         let action: BackgroundAgentAction = match serde_json::from_value(input) {
             Ok(action) => action,
             Err(e) => {

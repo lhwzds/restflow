@@ -9,7 +9,7 @@ use restflow_ai::tools::ToolRegistry;
 use restflow_traits::store::KvStore;
 use restflow_traits::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
-    OperationAssessmentIssue,
+    OperationAssessmentIssue, normalize_legacy_approval_replay,
 };
 use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
 use serde_json::{Value, json};
@@ -291,8 +291,9 @@ fn test_params_with_team_operation() {
 
 #[test]
 fn test_params_accept_legacy_confirmation_token_alias() {
-    let json = r#"{"task":"Review work","confirmation_token":"approval-1"}"#;
-    let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
+    let mut value = json!({"task":"Review work","confirmation_token":"approval-1"});
+    normalize_legacy_approval_replay(&mut value);
+    let params: SpawnSubagentParams = serde_json::from_value(value).unwrap();
     assert_eq!(params.approval_id.as_deref(), Some("approval-1"));
 }
 
