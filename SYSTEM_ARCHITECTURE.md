@@ -575,6 +575,40 @@ After architecture-sensitive changes, verify at least these flows:
 
 ## 10. Guardrails for Contributors
 
+### Execution Response Contract Migration Notes
+
+Execution query ownership now lives in `restflow-contracts`. Response-side
+execution DTOs should follow the same daemon-owned rule, but only after
+runtime builders are separated from transport payloads.
+
+Current inventory:
+
+| Type | Current owner | Target owner | Notes |
+| --- | --- | --- | --- |
+| `ExecutionTraceEvent` | `restflow-core` | split | Still carries runtime constructors and builder helpers |
+| `ExecutionTimeline` | `restflow-core` | `restflow-contracts` | Move after `ExecutionTraceEvent` contract DTO exists |
+| `ExecutionMetricsResponse` | `restflow-core` | `restflow-contracts` | Pure transport wrapper once event DTO is contract-owned |
+| `ProviderHealthResponse` | `restflow-core` | `restflow-contracts` | Pure transport wrapper once event DTO is contract-owned |
+| `ExecutionLogResponse` | `restflow-core` | `restflow-contracts` | Pure transport wrapper once event DTO is contract-owned |
+
+Response migration order:
+
+1. Add contract-side DTOs for `ExecutionTraceEvent` and nested payload types.
+2. Keep builder/helper APIs in `restflow-core`, but make them construct
+   contract-owned DTOs.
+3. Move simple response wrappers plus `ExecutionTraceStats` and
+   `ExecutionTraceTimeRange` into `restflow-contracts`.
+4. Delete redundant core-owned DTO structs only after parity tests pass.
+
+Required parity guards before the response move:
+
+- Rust round-trip tests between `restflow-core` re-exports and
+  `restflow-contracts` DTOs.
+- Serialization compatibility tests for representative event payloads.
+- Frontend generated type existence and field-shape tests for event/timeline
+  response types.
+- No wrapper-only response shapes added in browser, CLI, IPC, or MCP facades.
+
 Do:
 
 - Add new business capabilities in daemon IPC/RPC handlers first.
