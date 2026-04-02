@@ -104,18 +104,16 @@ pub fn create_tool_registry_with_assessor(
         background_agent_storage.clone(),
         chat_storage.clone(),
     ));
-    let kv_store = Arc::new(KvStoreAdapter::new(kv_store_storage, accessor_id));
     let work_item_provider = Arc::new(DbWorkItemAdapter::new(work_item_storage.clone()));
     let auth_store = Arc::new(AuthProfileStorageAdapter::new(secret_storage.clone()));
-    let known_tools = Arc::new(RwLock::new(HashSet::new()));
-    let agent_store = Arc::new(AgentStoreAdapter::new(
+    let agent_crud_components = build_agent_crud_components(
         agent_storage.clone(),
         skill_storage.clone(),
         secret_storage.clone(),
         background_agent_storage.clone(),
-        known_tools.clone(),
-    ));
-    let mut background_agent_store = BackgroundAgentStoreAdapter::new(
+    );
+    let kv_store = build_kv_store(kv_store_storage, accessor_id);
+    let background_agent_components = build_background_agent_components(
         background_agent_storage.clone(),
         agent_storage.clone(),
         deliverable_storage,
@@ -129,11 +127,9 @@ pub fn create_tool_registry_with_assessor(
             background_agent_storage,
             Some(memory_storage.clone()),
         ),
+        kv_store.clone(),
+        assessor.clone(),
     );
-    if let Some(assessor) = assessor.clone() {
-        background_agent_store = background_agent_store.with_assessor(assessor);
-    }
-    let background_agent_store = Arc::new(background_agent_store);
     let marketplace_store = Arc::new(MarketplaceStoreAdapter::new_with_defaults(
         skill_storage,
         registry_defaults,
@@ -203,20 +199,13 @@ pub fn create_tool_registry_with_assessor(
         builder.with_skill_tool(skill_provider)
     };
 
-    let mut builder = if let Some(assessor) = assessor.clone() {
-        builder.with_agent_crud_and_assessor(agent_store, assessor.clone())
-    } else {
-        builder.with_agent_crud(agent_store)
-    };
-    builder = if let Some(assessor) = assessor.clone() {
-        builder.with_background_agent_and_kv_and_assessor(
-            background_agent_store,
-            kv_store.clone(),
-            assessor,
-        )
-    } else {
-        builder.with_background_agent_and_kv(background_agent_store, kv_store.clone())
-    };
+    let builder = register_management_tools(
+        builder,
+        Some(agent_crud_components.store.clone()),
+        Some(background_agent_components.store.clone()),
+        Some(background_agent_components.kv_store.clone()),
+        assessor.clone(),
+    );
 
     let mut registry = builder
         .with_telegram()?
@@ -276,17 +265,19 @@ pub fn create_tool_registry_with_assessor(
         config_storage,
         execution_trace_storage,
     );
-    let mut spawn_tool =
-        SpawnSubagentTool::new(subagent_manager.clone()).with_kv_store(kv_store.clone());
-    if let Some(assessor) = assessor.clone() {
-        spawn_tool = spawn_tool.with_assessor(assessor);
-    }
-    registry.register(spawn_tool);
-    registry.register(WaitSubagentsTool::new(subagent_manager.clone()));
-    registry.register(ListSubagentsTool::new(subagent_manager));
+    register_subagent_management_tools(
+        &mut registry,
+        subagent_manager,
+        Some(kv_store),
+        assessor.clone(),
+    );
 
     // Populate known_tools for AgentStoreAdapter validation
-    populate_known_tools_from_registry(&known_tools, &registry, Some(&KNOWN_TOOL_ALIASES));
+    populate_known_tools_from_registry(
+        &agent_crud_components.known_tools,
+        &registry,
+        Some(&KNOWN_TOOL_ALIASES),
+    );
 
     Ok(registry)
 }

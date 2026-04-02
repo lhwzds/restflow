@@ -32,6 +32,8 @@ use restflow_traits::store::{
     MemoryStore as _,
 };
 use serde_json::json;
+use std::collections::HashSet;
+use std::sync::RwLock;
 use tempfile::tempdir;
 
 struct DummyTool(&'static str);
@@ -1804,39 +1806,26 @@ async fn test_create_tool_registry_always_has_memory_tools() {
 
 #[test]
 fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
-    let (
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage,
-        kv_store_storage,
-        work_item_storage,
-        secret_storage,
-        config_storage,
-        agent_storage,
-        background_agent_storage,
-        trigger_storage,
-        terminal_storage,
-        deliverable_storage,
-        _temp_dir,
-    ) = setup_storage();
+    let dir = tempdir().expect("temp dir should be created");
+    let db_path = dir.path().join("registry-parity.db");
+    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
+        .expect("storage should be created");
 
     let service_registry = create_tool_registry(
-        skill_storage,
-        memory_storage,
-        chat_storage,
-        channel_session_binding_storage,
-        execution_trace_storage.clone(),
-        kv_store_storage,
-        work_item_storage,
-        secret_storage.clone(),
-        config_storage.clone(),
-        agent_storage.clone(),
-        background_agent_storage,
-        trigger_storage,
-        terminal_storage,
-        deliverable_storage,
+        storage.skills.clone(),
+        storage.memory.clone(),
+        storage.chat_sessions.clone(),
+        storage.channel_session_bindings.clone(),
+        storage.execution_traces.clone(),
+        storage.kv_store.clone(),
+        storage.work_items.clone(),
+        storage.secrets.clone(),
+        storage.config.clone(),
+        storage.agents.clone(),
+        storage.background_agents.clone(),
+        storage.triggers.clone(),
+        storage.terminal_sessions.clone(),
+        storage.deliverables.clone(),
         None,
         None,
         None,
@@ -1844,11 +1833,11 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
     .unwrap();
 
     let subagent_manager = create_subagent_manager(
-        agent_storage,
+        storage.agents.clone(),
         &service_registry,
-        build_llm_factory(Some(&secret_storage)),
-        Arc::new(config_storage),
-        execution_trace_storage,
+        build_llm_factory(Some(&storage.secrets)),
+        Arc::new(storage.config.clone()),
+        storage.execution_traces.clone(),
     );
 
     let allowlist = vec![
@@ -1857,6 +1846,8 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "bash".to_string(),
         "file".to_string(),
         "run_python".to_string(),
+        "manage_agents".to_string(),
+        "manage_background_agents".to_string(),
         "spawn_subagent".to_string(),
         "wait_subagents".to_string(),
         "list_subagents".to_string(),
@@ -1865,7 +1856,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         Some(&allowlist),
         Some(subagent_manager),
         None,
-        None,
+        Some(&storage),
         None,
         None,
         None,
@@ -1879,6 +1870,8 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "file",
         "run_python",
         "python",
+        "manage_agents",
+        "manage_background_agents",
         "spawn_subagent",
         "wait_subagents",
         "list_subagents",
@@ -1889,6 +1882,61 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
             "tool presence mismatch for {tool_name}"
         );
     }
+}
+
+#[allow(clippy::await_holding_lock)]
+#[tokio::test]
+async fn test_runtime_allowlist_manage_agents_accepts_shared_tool_aliases() {
+    struct AgentsDirEnvCleanup;
+    impl Drop for AgentsDirEnvCleanup {
+        fn drop(&mut self) {
+            unsafe { std::env::remove_var(crate::prompt_files::AGENTS_DIR_ENV) };
+        }
+    }
+    let _cleanup = AgentsDirEnvCleanup;
+    let _env_lock = crate::prompt_files::agents_dir_env_lock();
+    let agents_temp = tempdir().unwrap();
+    unsafe { std::env::set_var(crate::prompt_files::AGENTS_DIR_ENV, agents_temp.path()) };
+
+    let dir = tempdir().expect("temp dir should be created");
+    let db_path = dir.path().join("registry-runtime-aliases.db");
+    let storage = crate::storage::Storage::new(db_path.to_str().expect("db path should be valid"))
+        .expect("storage should be created");
+
+    let allowlist = vec![
+        "manage_agents".to_string(),
+        "http_request".to_string(),
+        "send_email".to_string(),
+        "run_python".to_string(),
+    ];
+    let runtime_registry = crate::runtime::agent::tools::registry_from_allowlist(
+        Some(&allowlist),
+        None,
+        None,
+        Some(&storage),
+        None,
+        None,
+        None,
+    )
+    .expect("runtime registry should be built");
+
+    let output = runtime_registry
+        .execute_safe(
+            "manage_agents",
+            json!({
+                "operation": "create",
+                "name": "Runtime Alias Agent",
+                "agent": {
+                    "tools": ["http", "email", "python"]
+                },
+                "preview": true
+            }),
+        )
+        .await
+        .expect("runtime manage_agents preview should execute");
+
+    assert!(output.success);
+    assert_eq!(output.result["status"], "preview");
 }
 
 #[tokio::test(flavor = "current_thread")]

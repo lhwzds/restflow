@@ -8,9 +8,11 @@ use crate::models::ModelId;
 use crate::process::ProcessRegistry;
 use crate::runtime::agent::main_agent_default_tool_names;
 use crate::runtime::agent::tools::assembly::{
-    KNOWN_TOOL_ALIASES, populate_known_tools_from_registry, register_bash_execution_tool,
-    register_file_execution_tool, register_http_execution_tool, register_python_execution_tools,
-    register_send_email_execution_tool,
+    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_background_agent_components,
+    build_kv_store, populate_known_tools_from_registry, register_bash_execution_tool,
+    register_file_execution_tool, register_http_execution_tool, register_management_tools,
+    register_python_execution_tools, register_send_email_execution_tool,
+    register_subagent_management_tools,
 };
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, ExecutionBackend};
 use crate::runtime::subagent::StorageBackedSubagentLookup;
@@ -33,18 +35,17 @@ use restflow_ai::llm::{
 use restflow_models::LlmProvider;
 use restflow_storage::{AgentDefaults, ApiDefaults, SystemConfig};
 use restflow_tools::{
-    ListSubagentsTool, ProcessTool, ReplyTool, SpawnSubagentTool, SwitchModelTool,
-    ToolRegistryBuilder, WaitSubagentsTool,
+    ProcessTool, ReplyTool, SwitchModelTool, ToolRegistryBuilder,
 };
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::store::{ProcessManager, ReplySender};
 use restflow_traits::tool::SecretResolver;
 use restflow_traits::{ExecutionOutcome, ExecutionPlan};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 use tracing::warn;
 
