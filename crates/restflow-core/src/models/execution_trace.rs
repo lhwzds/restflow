@@ -7,52 +7,14 @@
 //! - Metrics, provider health, and structured execution logs
 
 use chrono::Utc;
+pub use restflow_contracts::request::{
+    ExecutionLogQuery, ExecutionMetricQuery, ExecutionTraceCategory, ExecutionTraceQuery,
+    ExecutionTraceSource, ProviderHealthQuery,
+};
 use restflow_telemetry::RestflowTrace;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use ts_rs::TS;
-
-/// Execution trace event category.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecutionTraceCategory {
-    /// LLM API call event.
-    LlmCall,
-    /// Tool invocation event.
-    ToolCall,
-    /// Model switch event.
-    ModelSwitch,
-    /// Lifecycle event (start/end/error).
-    Lifecycle,
-    /// Agent message event.
-    Message,
-    /// Metric sample event.
-    MetricSample,
-    /// Provider health projection event.
-    ProviderHealth,
-    /// Structured execution log event.
-    LogRecord,
-}
-
-/// Source of the execution trace event.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-#[serde(rename_all = "snake_case")]
-pub enum ExecutionTraceSource {
-    /// Event from the agent executor.
-    AgentExecutor,
-    /// Event from the runtime.
-    Runtime,
-    /// Event from MCP server.
-    McpServer,
-    /// Event from CLI.
-    Cli,
-    /// Event from telemetry projector.
-    Telemetry,
-}
 
 /// Tool call phase represented in the telemetry stream.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
@@ -547,37 +509,6 @@ impl ExecutionTraceEvent {
     }
 }
 
-/// Query filters for retrieving execution trace events.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-pub struct ExecutionTraceQuery {
-    /// Filter by task ID.
-    pub task_id: Option<String>,
-    /// Filter by run ID.
-    pub run_id: Option<String>,
-    /// Filter by parent run ID.
-    pub parent_run_id: Option<String>,
-    /// Filter by session ID.
-    pub session_id: Option<String>,
-    /// Filter by turn ID.
-    pub turn_id: Option<String>,
-    /// Filter by agent ID.
-    pub agent_id: Option<String>,
-    /// Filter by event category.
-    pub category: Option<ExecutionTraceCategory>,
-    /// Filter by event source.
-    pub source: Option<ExecutionTraceSource>,
-    /// Start timestamp (inclusive).
-    pub from_timestamp: Option<i64>,
-    /// End timestamp (inclusive).
-    pub to_timestamp: Option<i64>,
-    /// Limit number of results.
-    pub limit: Option<usize>,
-    /// Offset for pagination.
-    pub offset: Option<usize>,
-}
-
 /// Statistics about execution trace events.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
 #[specta(skip_attr = "ts")]
@@ -631,19 +562,6 @@ pub struct ExecutionTimeline {
     pub stats: ExecutionTraceStats,
 }
 
-/// Query for metric samples.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-pub struct ExecutionMetricQuery {
-    pub task_id: Option<String>,
-    pub run_id: Option<String>,
-    pub session_id: Option<String>,
-    pub agent_id: Option<String>,
-    pub metric_name: Option<String>,
-    pub limit: Option<usize>,
-}
-
 /// Aggregated execution metrics response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
 #[specta(skip_attr = "ts")]
@@ -652,35 +570,12 @@ pub struct ExecutionMetricsResponse {
     pub samples: Vec<ExecutionTraceEvent>,
 }
 
-/// Query for provider health snapshots.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-pub struct ProviderHealthQuery {
-    pub provider: Option<String>,
-    pub model: Option<String>,
-    pub limit: Option<usize>,
-}
-
 /// Provider health query response.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ProviderHealthResponse {
     pub events: Vec<ExecutionTraceEvent>,
-}
-
-/// Query for structured execution logs.
-#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
-#[specta(skip_attr = "ts")]
-#[ts(export)]
-pub struct ExecutionLogQuery {
-    pub task_id: Option<String>,
-    pub run_id: Option<String>,
-    pub session_id: Option<String>,
-    pub agent_id: Option<String>,
-    pub level: Option<String>,
-    pub limit: Option<usize>,
 }
 
 /// Structured execution logs response.
@@ -694,6 +589,7 @@ pub struct ExecutionLogResponse {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use restflow_contracts::request as contract;
 
     #[test]
     fn test_execution_trace_event_creation() {
@@ -754,5 +650,55 @@ mod tests {
     #[test]
     fn export_bindings_tool_call_completion() {
         ToolCallCompletion::export_to_string(&ts_rs::Config::default()).expect("ts export");
+    }
+
+    #[test]
+    fn reexported_query_types_round_trip_with_contracts() {
+        let trace_query = ExecutionTraceQuery {
+            run_id: Some("run-1".to_string()),
+            session_id: Some("session-1".to_string()),
+            category: Some(ExecutionTraceCategory::ToolCall),
+            source: Some(ExecutionTraceSource::Runtime),
+            limit: Some(25),
+            offset: Some(5),
+            ..ExecutionTraceQuery::default()
+        };
+        let trace_value = serde_json::to_value(&trace_query).expect("serialize trace query");
+        let trace_round_trip: contract::ExecutionTraceQuery =
+            serde_json::from_value(trace_value).expect("deserialize trace query");
+        assert_eq!(trace_round_trip, trace_query);
+
+        let metric_query = ExecutionMetricQuery {
+            run_id: Some("run-1".to_string()),
+            metric_name: Some("llm_latency_ms".to_string()),
+            limit: Some(10),
+            ..ExecutionMetricQuery::default()
+        };
+        let metric_value = serde_json::to_value(&metric_query).expect("serialize metric query");
+        let metric_round_trip: contract::ExecutionMetricQuery =
+            serde_json::from_value(metric_value).expect("deserialize metric query");
+        assert_eq!(metric_round_trip, metric_query);
+
+        let provider_query = ProviderHealthQuery {
+            provider: Some("openai".to_string()),
+            model: Some("gpt-5".to_string()),
+            limit: Some(3),
+        };
+        let provider_value =
+            serde_json::to_value(&provider_query).expect("serialize provider health query");
+        let provider_round_trip: contract::ProviderHealthQuery =
+            serde_json::from_value(provider_value).expect("deserialize provider health query");
+        assert_eq!(provider_round_trip, provider_query);
+
+        let log_query = ExecutionLogQuery {
+            run_id: Some("run-1".to_string()),
+            level: Some("warn".to_string()),
+            limit: Some(50),
+            ..ExecutionLogQuery::default()
+        };
+        let log_value = serde_json::to_value(&log_query).expect("serialize log query");
+        let log_round_trip: contract::ExecutionLogQuery =
+            serde_json::from_value(log_value).expect("deserialize log query");
+        assert_eq!(log_round_trip, log_query);
     }
 }

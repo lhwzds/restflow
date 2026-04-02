@@ -29,4 +29,17 @@ describe('generated contract types', () => {
     expect(batchParamsSource).toContain('approval_id?: string')
     expect(batchParamsSource).not.toContain('confirmation_token?: string')
   })
+
+  it('keeps trace query contracts in the generated surface', () => {
+    const traceQuerySource = readGeneratedFile('ExecutionTraceQuery.ts')
+    const metricQuerySource = readGeneratedFile('ExecutionMetricQuery.ts')
+    const providerHealthQuerySource = readGeneratedFile('ProviderHealthQuery.ts')
+    const logQuerySource = readGeneratedFile('ExecutionLogQuery.ts')
+
+    expect(traceQuerySource).toContain('category: ExecutionTraceCategory | null')
+    expect(traceQuerySource).toContain('source: ExecutionTraceSource | null')
+    expect(metricQuerySource).toContain('metric_name: string | null')
+    expect(providerHealthQuerySource).toContain('provider: string | null')
+    expect(logQuerySource).toContain('level: string | null')
+  })
 })

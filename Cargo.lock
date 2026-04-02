@@ -3515,6 +3515,8 @@ version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",
+ "specta",
+ "ts-rs",
 ]
 
 [[package]]
