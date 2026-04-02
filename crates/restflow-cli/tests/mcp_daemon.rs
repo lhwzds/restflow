@@ -250,6 +250,13 @@ fn parse_tool_text_json(text: &str) -> Result<Value> {
     serde_json::from_str(&text[start..]).with_context(|| format!("parse tool text json: {text}"))
 }
 
+fn guarded_confirmation_token(value: &Value) -> Result<&str> {
+    value["approval_id"]
+        .as_str()
+        .or_else(|| value["assessment"]["confirmation_token"].as_str())
+        .context("guarded response should include approval_id or assessment.confirmation_token")
+}
+
 #[test]
 fn tail_text_keeps_suffix() {
     let body = "abcdefghij";
@@ -332,9 +339,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     let save_value = if save_initial_value["operation"] == "save_team" {
         save_initial_value
     } else {
-        let confirmation_token = save_initial_value["assessment"]["confirmation_token"]
-            .as_str()
-            .context("save_team should return confirmation token on guarded response")?;
+        let confirmation_token = guarded_confirmation_token(&save_initial_value)?;
         let save_team = post_json_rpc(
             &client,
             &url,
@@ -419,9 +424,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     let run_value = if run_initial_value["operation"] == "run_batch" {
         run_initial_value
     } else {
-        let confirmation_token = run_initial_value["assessment"]["confirmation_token"]
-            .as_str()
-            .context("run_batch should return confirmation token on guarded response")?;
+        let confirmation_token = guarded_confirmation_token(&run_initial_value)?;
         let run_batch = post_json_rpc(
             &client,
             &url,
