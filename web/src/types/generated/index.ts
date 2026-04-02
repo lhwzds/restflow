@@ -143,8 +143,6 @@ export * from './Workflow'
 
 export * from './ErrorKind'
 export * from './ErrorPayload'
-export * from './IpcRequest'
-export * from './IpcResponse'
 export * from './IpcDaemonStatus'
 export * from './ChatSessionEvent'
 export * from './IpcStreamEvent'

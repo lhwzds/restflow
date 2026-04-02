@@ -1,8 +1,7 @@
 import type { ErrorPayload } from '@/types/generated/ErrorPayload'
-import type { IpcRequest } from '@/types/generated/IpcRequest'
-import type { IpcResponse } from '@/types/generated/IpcResponse'
 import type { IpcStreamEvent } from '@/types/generated/IpcStreamEvent'
 import type { StreamFrame } from '@/types/generated/StreamFrame'
+import type { IpcRequest, IpcResponse } from './ipc-envelope'
 
 export class BackendError extends Error {
   code: number
