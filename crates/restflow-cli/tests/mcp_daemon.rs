@@ -219,6 +219,10 @@ async fn spawn_ready_daemon(db_path: &str, state_dir: &str) -> Result<(DaemonChi
 }
 
 fn tool_call_text(response: &Value) -> String {
+    if !response["result"]["structuredContent"].is_null() {
+        return response["result"]["structuredContent"].to_string();
+    }
+
     let items = response["result"]["content"]
         .as_array()
         .expect("tool response should contain content array");
@@ -248,6 +252,26 @@ fn parse_tool_text_json(text: &str) -> Result<Value> {
         .find(['{', '['])
         .context("tool text should contain JSON payload")?;
     serde_json::from_str(&text[start..]).with_context(|| format!("parse tool text json: {text}"))
+}
+
+#[test]
+fn tool_call_text_prefers_structured_content_payload() {
+    let response = json!({
+        "result": {
+            "content": [
+                { "type": "text", "text": "Background team saved successfully." }
+            ],
+            "structuredContent": {
+                "operation": "save_team",
+                "team": "demo"
+            }
+        }
+    });
+
+    let text = tool_call_text(&response);
+    let parsed = parse_tool_text_json(&text).expect("structured content should parse as JSON");
+    assert_eq!(parsed["operation"], "save_team");
+    assert_eq!(parsed["team"], "demo");
 }
 
 fn guarded_confirmation_token(value: &Value) -> Result<&str> {
