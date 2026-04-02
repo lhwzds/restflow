@@ -2,7 +2,9 @@ mod defaults;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use specta::Type;
 use std::collections::{BTreeMap, HashMap};
+use ts_rs::TS;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", content = "data")]
@@ -1170,7 +1172,9 @@ pub struct Skill {
     pub updated_at: i64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionTraceCategory {
     LlmCall,
@@ -1183,7 +1187,9 @@ pub enum ExecutionTraceCategory {
     LogRecord,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionTraceSource {
     AgentExecutor,
@@ -1193,7 +1199,9 @@ pub enum ExecutionTraceSource {
     Telemetry,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
 pub struct ExecutionTraceQuery {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
@@ -1233,7 +1241,9 @@ pub struct ChildExecutionSessionQuery {
     pub parent_run_id: String,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
 pub struct ExecutionMetricQuery {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
@@ -1243,14 +1253,18 @@ pub struct ExecutionMetricQuery {
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
 pub struct ProviderHealthQuery {
     pub provider: Option<String>,
     pub model: Option<String>,
     pub limit: Option<usize>,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
 pub struct ExecutionLogQuery {
     pub task_id: Option<String>,
     pub run_id: Option<String>,
