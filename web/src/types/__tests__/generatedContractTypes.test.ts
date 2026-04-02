@@ -42,4 +42,21 @@ describe('generated contract types', () => {
     expect(providerHealthQuerySource).toContain('provider: string | null')
     expect(logQuerySource).toContain('level: string | null')
   })
+
+  it('keeps trace event and response contracts stable in generated types', () => {
+    const eventSource = readGeneratedFile('ExecutionTraceEvent.ts')
+    const timelineSource = readGeneratedFile('ExecutionTimeline.ts')
+    const metricsSource = readGeneratedFile('ExecutionMetricsResponse.ts')
+    const providerHealthSource = readGeneratedFile('ProviderHealthResponse.ts')
+    const logsSource = readGeneratedFile('ExecutionLogResponse.ts')
+
+    expect(eventSource).toContain('category: ExecutionTraceCategory')
+    expect(eventSource).toContain('source: ExecutionTraceSource')
+    expect(eventSource).toContain('provider_health: ProviderHealthTrace | null')
+    expect(eventSource).toContain('log_record: LogRecordTrace | null')
+    expect(timelineSource).toContain('stats: ExecutionTraceStats')
+    expect(metricsSource).toContain('samples: Array<ExecutionTraceEvent>')
+    expect(providerHealthSource).toContain('events: Array<ExecutionTraceEvent>')
+    expect(logsSource).toContain('events: Array<ExecutionTraceEvent>')
+  })
 })

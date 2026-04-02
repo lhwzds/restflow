@@ -1381,23 +1381,25 @@ mod tests {
 
         let trace =
             restflow_telemetry::RestflowTrace::new("run-1", &session_id, &task_id, "agent-1");
-        let event = crate::models::ExecutionTraceEvent::tool_call(
-            task_id,
-            "agent-1",
-            crate::models::ToolCallTrace {
-                phase: crate::models::ToolCallPhase::Completed,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "bash".to_string(),
-                input: None,
-                input_summary: None,
-                output: None,
-                output_ref: Some(output_path.to_string_lossy().to_string()),
-                success: Some(true),
-                error: None,
-                duration_ms: Some(8),
-            },
-        )
-        .with_trace_context(&trace);
+        let event = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
+                task_id,
+                "agent-1",
+                crate::models::ToolCallTrace {
+                    phase: crate::models::ToolCallPhase::Completed,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "bash".to_string(),
+                    input: None,
+                    input_summary: None,
+                    output: None,
+                    output_ref: Some(output_path.to_string_lossy().to_string()),
+                    success: Some(true),
+                    error: None,
+                    duration_ms: Some(8),
+                },
+            ),
+            &trace,
+        );
         adapter.storage.execution_traces().store(&event).unwrap();
 
         let value = adapter

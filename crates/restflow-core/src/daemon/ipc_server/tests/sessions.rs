@@ -2,8 +2,8 @@ use super::*;
 use crate::models::ChatSessionSource;
 use crate::storage::Storage;
 use crate::{
-    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceSource, LifecycleTrace,
-    LogRecordTrace, MetricSampleTrace,
+    ExecutionTraceCategory, ExecutionTraceSource, LifecycleTrace, LogRecordTrace,
+    MetricSampleTrace,
 };
 use restflow_contracts::request::ChildExecutionSessionQuery;
 use restflow_storage::SimpleStorage;
@@ -36,61 +36,79 @@ fn store_run_events(
         "agent-1".to_string(),
     )
     .with_parent_run_id(parent_run_id.map(|value| value.to_string()));
-    let start = ExecutionTraceEvent::lifecycle(
-        task_id,
-        "agent-1",
-        LifecycleTrace {
-            status: "running".to_string(),
-            message: Some("started".to_string()),
-            error: None,
-            ai_duration_ms: None,
-        },
-    )
-    .with_trace_context(&trace)
-    .with_effective_model("openai/gpt-5")
-    .with_provider("openai");
-    let end = ExecutionTraceEvent::new(
-        task_id,
-        "agent-1",
-        ExecutionTraceCategory::Lifecycle,
-        ExecutionTraceSource::Runtime,
-    )
-    .with_trace_context(&trace)
-    .with_lifecycle(LifecycleTrace {
-        status: "completed".to_string(),
-        message: Some("done".to_string()),
-        error: None,
-        ai_duration_ms: Some(1200),
-    })
-    .with_effective_model("openai/gpt-5")
-    .with_provider("openai");
+    let start = crate::models::execution_trace_builders::with_provider(
+        crate::models::execution_trace_builders::with_effective_model(
+            crate::models::execution_trace_builders::with_trace_context(
+                crate::models::execution_trace_builders::lifecycle(
+                    task_id,
+                    "agent-1",
+                    LifecycleTrace {
+                        status: "running".to_string(),
+                        message: Some("started".to_string()),
+                        error: None,
+                        ai_duration_ms: None,
+                    },
+                ),
+                &trace,
+            ),
+            "openai/gpt-5",
+        ),
+        "openai",
+    );
+    let end = crate::models::execution_trace_builders::with_provider(
+        crate::models::execution_trace_builders::with_effective_model(
+            crate::models::execution_trace_builders::with_lifecycle(
+                crate::models::execution_trace_builders::with_trace_context(
+                    crate::models::execution_trace_builders::new_event(
+                        task_id,
+                        "agent-1",
+                        ExecutionTraceCategory::Lifecycle,
+                        ExecutionTraceSource::Runtime,
+                    ),
+                    &trace,
+                ),
+                LifecycleTrace {
+                    status: "completed".to_string(),
+                    message: Some("done".to_string()),
+                    error: None,
+                    ai_duration_ms: Some(1200),
+                },
+            ),
+            "openai/gpt-5",
+        ),
+        "openai",
+    );
     storage.execution_traces.store(&start).expect("store start");
     storage.execution_traces.store(&end).expect("store end");
 }
 
 fn store_run_telemetry(storage: &Arc<Storage>, task_id: &str, session_id: &str, run_id: &str) {
     let trace = restflow_telemetry::RestflowTrace::new(run_id, session_id, task_id, "agent-1");
-    let metric = ExecutionTraceEvent::metric_sample(
-        task_id,
-        "agent-1",
-        MetricSampleTrace {
-            name: "llm_total_tokens".to_string(),
-            value: 42.0,
-            unit: Some("tokens".to_string()),
-            dimensions: Vec::new(),
-        },
-    )
-    .with_trace_context(&trace);
-    let log = ExecutionTraceEvent::log_record(
-        task_id,
-        "agent-1",
-        LogRecordTrace {
-            level: "warn".to_string(),
-            message: format!("log-{run_id}"),
-            fields: Vec::new(),
-        },
-    )
-    .with_trace_context(&trace);
+    let metric = crate::models::execution_trace_builders::with_trace_context(
+        crate::models::execution_trace_builders::metric_sample(
+            task_id,
+            "agent-1",
+            MetricSampleTrace {
+                name: "llm_total_tokens".to_string(),
+                value: 42.0,
+                unit: Some("tokens".to_string()),
+                dimensions: Vec::new(),
+            },
+        ),
+        &trace,
+    );
+    let log = crate::models::execution_trace_builders::with_trace_context(
+        crate::models::execution_trace_builders::log_record(
+            task_id,
+            "agent-1",
+            LogRecordTrace {
+                level: "warn".to_string(),
+                message: format!("log-{run_id}"),
+                fields: Vec::new(),
+            },
+        ),
+        &trace,
+    );
     storage
         .telemetry_metric_samples
         .store(&metric)

@@ -173,7 +173,7 @@ fn channel_key_from_source(source: ChatSessionSource) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ChannelSessionBinding, ExecutionTraceEvent, LifecycleTrace};
+    use crate::models::{ChannelSessionBinding, LifecycleTrace};
     use redb::Database;
     use std::sync::Arc;
     use tempfile::tempdir;
@@ -207,22 +207,24 @@ mod tests {
         storage
             .execution_traces
             .store(
-                &ExecutionTraceEvent::lifecycle(
-                    &session.id,
-                    "agent-1",
-                    LifecycleTrace {
-                        status: "running".to_string(),
-                        message: None,
-                        error: None,
-                        ai_duration_ms: None,
-                    },
-                )
-                .with_trace_context(&restflow_telemetry::RestflowTrace::new(
-                    "turn-1",
-                    &session.id,
-                    &session.id,
-                    "agent-1",
-                )),
+                &crate::models::execution_trace_builders::with_trace_context(
+                    crate::models::execution_trace_builders::lifecycle(
+                        &session.id,
+                        "agent-1",
+                        LifecycleTrace {
+                            status: "running".to_string(),
+                            message: None,
+                            error: None,
+                            ai_duration_ms: None,
+                        },
+                    ),
+                    &restflow_telemetry::RestflowTrace::new(
+                        "turn-1",
+                        &session.id,
+                        &session.id,
+                        "agent-1",
+                    ),
+                ),
             )
             .unwrap();
 

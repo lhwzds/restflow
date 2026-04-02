@@ -1,6 +1,6 @@
 use crate::models::{
-    ExecutionTraceCategory, ExecutionTraceEvent, MetricDimension, MetricSampleTrace, ModelId,
-    ProviderHealthTrace, ToolCallPhase,
+    execution_trace_builders, ExecutionTraceCategory, ExecutionTraceEvent, MetricDimension,
+    MetricSampleTrace, ModelId, ProviderHealthTrace, ToolCallPhase,
 };
 
 fn inherited_metric_dimensions(
@@ -57,7 +57,7 @@ pub fn derive_metric_events(event: &ExecutionTraceEvent) -> Vec<ExecutionTraceEv
             );
             if let Some(duration_ms) = llm_call.duration_ms {
                 derived.push(inherit_trace_context(
-                    ExecutionTraceEvent::metric_sample(
+                    execution_trace_builders::metric_sample(
                         event.task_id.clone(),
                         event.agent_id.clone(),
                         MetricSampleTrace {
@@ -72,7 +72,7 @@ pub fn derive_metric_events(event: &ExecutionTraceEvent) -> Vec<ExecutionTraceEv
             }
             if let Some(total_tokens) = llm_call.total_tokens {
                 derived.push(inherit_trace_context(
-                    ExecutionTraceEvent::metric_sample(
+                    execution_trace_builders::metric_sample(
                         event.task_id.clone(),
                         event.agent_id.clone(),
                         MetricSampleTrace {
@@ -87,7 +87,7 @@ pub fn derive_metric_events(event: &ExecutionTraceEvent) -> Vec<ExecutionTraceEv
             }
             if let Some(cost_usd) = llm_call.cost_usd {
                 derived.push(inherit_trace_context(
-                    ExecutionTraceEvent::metric_sample(
+                    execution_trace_builders::metric_sample(
                         event.task_id.clone(),
                         event.agent_id.clone(),
                         MetricSampleTrace {
@@ -110,7 +110,7 @@ pub fn derive_metric_events(event: &ExecutionTraceEvent) -> Vec<ExecutionTraceEv
             }
             if let Some(duration_ms) = tool_call.duration_ms {
                 derived.push(inherit_trace_context(
-                    ExecutionTraceEvent::metric_sample(
+                    execution_trace_builders::metric_sample(
                         event.task_id.clone(),
                         event.agent_id.clone(),
                         MetricSampleTrace {
@@ -144,7 +144,7 @@ pub fn derive_metric_events(event: &ExecutionTraceEvent) -> Vec<ExecutionTraceEv
                 return derived;
             }
             derived.push(inherit_trace_context(
-                ExecutionTraceEvent::metric_sample(
+                execution_trace_builders::metric_sample(
                     event.task_id.clone(),
                     event.agent_id.clone(),
                     MetricSampleTrace {
@@ -188,7 +188,7 @@ pub fn derive_provider_health_events(event: &ExecutionTraceEvent) -> Vec<Executi
                         .unwrap_or_else(|| "unknown".to_string())
                 });
                 derived.push(inherit_trace_context(
-                    ExecutionTraceEvent::provider_health(
+                    execution_trace_builders::provider_health(
                         event.task_id.clone(),
                         event.agent_id.clone(),
                         ProviderHealthTrace {
@@ -217,7 +217,7 @@ pub fn derive_provider_health_events(event: &ExecutionTraceEvent) -> Vec<Executi
                         .unwrap_or_else(|| "unknown".to_string())
                 });
                 derived.push(inherit_trace_context(
-                    ExecutionTraceEvent::provider_health(
+                    execution_trace_builders::provider_health(
                         event.task_id.clone(),
                         event.agent_id.clone(),
                         ProviderHealthTrace {
@@ -249,7 +249,7 @@ pub fn derive_log_events(event: &ExecutionTraceEvent) -> Vec<ExecutionTraceEvent
             };
             if model_switch.reason.as_deref() == Some("failover") {
                 derived.push(inherit_trace_context(
-                    ExecutionTraceEvent::log_record(
+                    execution_trace_builders::log_record(
                         event.task_id.clone(),
                         event.agent_id.clone(),
                         crate::models::LogRecordTrace {
@@ -285,7 +285,7 @@ pub fn derive_log_events(event: &ExecutionTraceEvent) -> Vec<ExecutionTraceEvent
                     "error"
                 };
                 derived.push(inherit_trace_context(
-                    ExecutionTraceEvent::log_record(
+                    execution_trace_builders::log_record(
                         event.task_id.clone(),
                         event.agent_id.clone(),
                         crate::models::LogRecordTrace {

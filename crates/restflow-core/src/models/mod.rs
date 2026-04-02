@@ -9,6 +9,7 @@ pub mod checkpoint;
 pub mod deliverable;
 pub mod execution_console;
 pub mod execution_trace;
+pub(crate) mod execution_trace_builders;
 pub mod hook;
 pub mod memory;
 pub mod model_ref;

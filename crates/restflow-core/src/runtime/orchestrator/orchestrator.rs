@@ -384,8 +384,8 @@ mod tests {
     use tokio::sync::mpsc;
 
     use crate::models::{
-        ChatSession, ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery,
-        LlmCallTrace, MemoryConfig, ModelId, ModelSwitchTrace, SteerMessage,
+        ChatSession, ExecutionTraceCategory, ExecutionTraceQuery, LlmCallTrace, MemoryConfig,
+        ModelId, ModelSwitchTrace, SteerMessage,
     };
     use crate::runtime::background_agent::{
         ExecutionResult, SessionExecutionResult, SessionInputMode,
@@ -667,40 +667,57 @@ mod tests {
                     .telemetry_context
                     .expect("traced interactive execution should provide telemetry context");
                 let trace = telemetry_context.trace;
-                let model_switch = ExecutionTraceEvent::model_switch(
-                    session.id.clone(),
-                    session.agent_id.clone(),
-                    ModelSwitchTrace {
-                        from_model: "minimax-coding-plan-m2-5-highspeed".to_string(),
-                        to_model: "minimax-coding-plan-m2-5".to_string(),
-                        reason: Some("failover".to_string()),
-                        success: true,
-                    },
-                )
-                .with_trace_context(&trace)
-                .with_requested_model("minimax-coding-plan-m2-5-highspeed")
-                .with_effective_model("minimax-coding-plan-m2-5")
-                .with_provider("minimax-coding-plan");
+                let model_switch = crate::models::execution_trace_builders::with_provider(
+                    crate::models::execution_trace_builders::with_effective_model(
+                        crate::models::execution_trace_builders::with_requested_model(
+                            crate::models::execution_trace_builders::with_trace_context(
+                                crate::models::execution_trace_builders::model_switch(
+                                    session.id.clone(),
+                                    session.agent_id.clone(),
+                                    ModelSwitchTrace {
+                                        from_model: "minimax-coding-plan-m2-5-highspeed"
+                                            .to_string(),
+                                        to_model: "minimax-coding-plan-m2-5".to_string(),
+                                        reason: Some("failover".to_string()),
+                                        success: true,
+                                    },
+                                ),
+                                &trace,
+                            ),
+                            "minimax-coding-plan-m2-5-highspeed",
+                        ),
+                        "minimax-coding-plan-m2-5",
+                    ),
+                    "minimax-coding-plan",
+                );
                 self.execution_trace_storage.store(&model_switch)?;
 
-                let llm_call = ExecutionTraceEvent::llm_call(
-                    session.id.clone(),
-                    session.agent_id.clone(),
-                    LlmCallTrace {
-                        model: "minimax-coding-plan-m2-5".to_string(),
-                        input_tokens: Some(10),
-                        output_tokens: Some(5),
-                        total_tokens: Some(15),
-                        cost_usd: Some(0.01),
-                        duration_ms: Some(120),
-                        is_reasoning: None,
-                        message_count: Some(2),
-                    },
-                )
-                .with_trace_context(&trace)
-                .with_requested_model("minimax-coding-plan-m2-5-highspeed")
-                .with_effective_model("minimax-coding-plan-m2-5")
-                .with_provider("minimax-coding-plan");
+                let llm_call = crate::models::execution_trace_builders::with_provider(
+                    crate::models::execution_trace_builders::with_effective_model(
+                        crate::models::execution_trace_builders::with_requested_model(
+                            crate::models::execution_trace_builders::with_trace_context(
+                                crate::models::execution_trace_builders::llm_call(
+                                    session.id.clone(),
+                                    session.agent_id.clone(),
+                                    LlmCallTrace {
+                                        model: "minimax-coding-plan-m2-5".to_string(),
+                                        input_tokens: Some(10),
+                                        output_tokens: Some(5),
+                                        total_tokens: Some(15),
+                                        cost_usd: Some(0.01),
+                                        duration_ms: Some(120),
+                                        is_reasoning: None,
+                                        message_count: Some(2),
+                                    },
+                                ),
+                                &trace,
+                            ),
+                            "minimax-coding-plan-m2-5-highspeed",
+                        ),
+                        "minimax-coding-plan-m2-5",
+                    ),
+                    "minimax-coding-plan",
+                );
                 self.execution_trace_storage.store(&llm_call)?;
 
                 Ok(SessionExecutionResult::new(

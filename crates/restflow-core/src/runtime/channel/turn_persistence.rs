@@ -44,7 +44,7 @@ pub(crate) fn build_turn_persistence_payload(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::{ExecutionTraceEvent, ToolCallPhase, ToolCallTrace};
+    use crate::models::{ToolCallPhase, ToolCallTrace};
     use crate::storage::Storage;
     use serde_json::json;
     use tempfile::tempdir;
@@ -67,40 +67,44 @@ mod tests {
 
         let trace =
             restflow_telemetry::RestflowTrace::new("turn-1", session_id, session_id, "agent-1");
-        let start = ExecutionTraceEvent::tool_call(
-            session_id,
-            "agent-1",
-            ToolCallTrace {
-                phase: ToolCallPhase::Started,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "transcribe".to_string(),
-                input: Some(json!({"file_path": file_path}).to_string()),
-                input_summary: None,
-                output: None,
-                output_ref: None,
-                success: None,
-                error: None,
-                duration_ms: None,
-            },
-        )
-        .with_trace_context(&trace);
-        let done = ExecutionTraceEvent::tool_call(
-            session_id,
-            "agent-1",
-            ToolCallTrace {
-                phase: ToolCallPhase::Completed,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "transcribe".to_string(),
-                input: None,
-                input_summary: None,
-                output: Some(json!({"text": "hello from transcript"}).to_string()),
-                output_ref: None,
-                success: Some(true),
-                error: None,
-                duration_ms: Some(35),
-            },
-        )
-        .with_trace_context(&trace);
+        let start = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
+                session_id,
+                "agent-1",
+                ToolCallTrace {
+                    phase: ToolCallPhase::Started,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "transcribe".to_string(),
+                    input: Some(json!({"file_path": file_path}).to_string()),
+                    input_summary: None,
+                    output: None,
+                    output_ref: None,
+                    success: None,
+                    error: None,
+                    duration_ms: None,
+                },
+            ),
+            &trace,
+        );
+        let done = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
+                session_id,
+                "agent-1",
+                ToolCallTrace {
+                    phase: ToolCallPhase::Completed,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "transcribe".to_string(),
+                    input: None,
+                    input_summary: None,
+                    output: Some(json!({"text": "hello from transcript"}).to_string()),
+                    output_ref: None,
+                    success: Some(true),
+                    error: None,
+                    duration_ms: Some(35),
+                },
+            ),
+            &trace,
+        );
         storage
             .execution_traces
             .store(&start)
@@ -172,7 +176,8 @@ mod tests {
             session_id,
             "agent-1",
         );
-        let start = ExecutionTraceEvent::tool_call(
+        let start = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
             session_id,
             "agent-1",
             ToolCallTrace {
@@ -187,9 +192,11 @@ mod tests {
                 error: None,
                 duration_ms: None,
             },
-        )
-        .with_trace_context(&trace);
-        let done = ExecutionTraceEvent::tool_call(
+            ),
+            &trace,
+        );
+        let done = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
             session_id,
             "agent-1",
             ToolCallTrace {
@@ -204,8 +211,9 @@ mod tests {
                 error: Some("decode failed".to_string()),
                 duration_ms: Some(15),
             },
-        )
-        .with_trace_context(&trace);
+            ),
+            &trace,
+        );
         storage
             .execution_traces
             .store(&start)

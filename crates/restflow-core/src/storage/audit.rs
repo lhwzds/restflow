@@ -17,13 +17,14 @@ pub type AuditStorage = ExecutionTraceStorage;
 mod tests {
     use super::*;
     use crate::models::audit::LlmCallAudit;
+    use crate::models::execution_trace_builders;
 
     #[test]
     fn test_audit_storage_compatibility() {
         // Verify that AuditStorage alias works correctly
         let storage = AuditStorage::in_memory().unwrap();
 
-        let event = crate::models::audit::AuditEvent::llm_call(
+        let event = execution_trace_builders::llm_call(
             "task-123",
             "agent-456",
             LlmCallAudit {

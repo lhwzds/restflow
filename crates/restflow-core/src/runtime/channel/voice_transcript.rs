@@ -269,7 +269,7 @@ fn upsert_transcript_block(message_content: &str, transcript: &str) -> String {
 mod tests {
     use super::*;
     use crate::models::chat_session::ChatMediaType;
-    use crate::models::{ExecutionTraceEvent, ToolCallTrace};
+    use crate::models::ToolCallTrace;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -315,40 +315,44 @@ mod tests {
         let input = voice_message("/tmp/voice-a.webm");
         let trace =
             restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
-        let start = ExecutionTraceEvent::tool_call(
-            "task-1",
-            "agent-1",
-            ToolCallTrace {
-                phase: ToolCallPhase::Started,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "transcribe".to_string(),
-                input: Some(json!({"file_path": "/tmp/voice-a.webm"}).to_string()),
-                input_summary: None,
-                output: None,
-                output_ref: None,
-                success: None,
-                error: None,
-                duration_ms: None,
-            },
-        )
-        .with_trace_context(&trace);
-        let done = ExecutionTraceEvent::tool_call(
-            "task-1",
-            "agent-1",
-            ToolCallTrace {
-                phase: ToolCallPhase::Completed,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "transcribe".to_string(),
-                input: None,
-                input_summary: None,
-                output: Some(json!({"text": "hello from audio"}).to_string()),
-                output_ref: None,
-                success: Some(true),
-                error: None,
-                duration_ms: Some(20),
-            },
-        )
-        .with_trace_context(&trace);
+        let start = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
+                "task-1",
+                "agent-1",
+                ToolCallTrace {
+                    phase: ToolCallPhase::Started,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "transcribe".to_string(),
+                    input: Some(json!({"file_path": "/tmp/voice-a.webm"}).to_string()),
+                    input_summary: None,
+                    output: None,
+                    output_ref: None,
+                    success: None,
+                    error: None,
+                    duration_ms: None,
+                },
+            ),
+            &trace,
+        );
+        let done = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
+                "task-1",
+                "agent-1",
+                ToolCallTrace {
+                    phase: ToolCallPhase::Completed,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "transcribe".to_string(),
+                    input: None,
+                    input_summary: None,
+                    output: Some(json!({"text": "hello from audio"}).to_string()),
+                    output_ref: None,
+                    success: Some(true),
+                    error: None,
+                    duration_ms: Some(20),
+                },
+            ),
+            &trace,
+        );
 
         let updated =
             enrich_voice_message_with_transcript(&input, &[start, done]).expect("should enrich");
@@ -361,7 +365,8 @@ mod tests {
         let input = voice_message("/tmp/voice-a.webm");
         let trace =
             restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
-        let start = ExecutionTraceEvent::tool_call(
+        let start = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
             "task-1",
             "agent-1",
             ToolCallTrace {
@@ -376,9 +381,11 @@ mod tests {
                 error: None,
                 duration_ms: None,
             },
-        )
-        .with_trace_context(&trace);
-        let done = ExecutionTraceEvent::tool_call(
+            ),
+            &trace,
+        );
+        let done = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
             "task-1",
             "agent-1",
             ToolCallTrace {
@@ -393,8 +400,9 @@ mod tests {
                 error: None,
                 duration_ms: Some(20),
             },
-        )
-        .with_trace_context(&trace);
+            ),
+            &trace,
+        );
 
         let updated = enrich_voice_message_with_transcript(&input, &[start, done]);
         assert!(updated.is_none());
@@ -410,7 +418,8 @@ mod tests {
         let input = voice_message("/tmp/voice-a.webm");
         let trace =
             restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
-        let start = ExecutionTraceEvent::tool_call(
+        let start = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
             "task-1",
             "agent-1",
             ToolCallTrace {
@@ -425,9 +434,11 @@ mod tests {
                 error: None,
                 duration_ms: None,
             },
-        )
-        .with_trace_context(&trace);
-        let done = ExecutionTraceEvent::tool_call(
+            ),
+            &trace,
+        );
+        let done = crate::models::execution_trace_builders::with_trace_context(
+            crate::models::execution_trace_builders::tool_call(
             "task-1",
             "agent-1",
             ToolCallTrace {
@@ -442,8 +453,9 @@ mod tests {
                 error: None,
                 duration_ms: Some(20),
             },
-        )
-        .with_trace_context(&trace);
+            ),
+            &trace,
+        );
 
         let updated =
             enrich_voice_message_with_transcript(&input, &[start, done]).expect("should enrich");

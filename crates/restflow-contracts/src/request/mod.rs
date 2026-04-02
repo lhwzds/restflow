@@ -1199,6 +1199,217 @@ pub enum ExecutionTraceSource {
     Telemetry,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+#[serde(rename_all = "snake_case")]
+pub enum ToolCallPhase {
+    Started,
+    Completed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct MetricDimension {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct LlmCallTrace {
+    pub model: String,
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
+    pub total_tokens: Option<u32>,
+    pub cost_usd: Option<f64>,
+    pub duration_ms: Option<i64>,
+    pub is_reasoning: Option<bool>,
+    pub message_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ToolCallTrace {
+    pub phase: ToolCallPhase,
+    pub tool_call_id: String,
+    pub tool_name: String,
+    pub input: Option<String>,
+    pub input_summary: Option<String>,
+    pub output: Option<String>,
+    pub output_ref: Option<String>,
+    pub success: Option<bool>,
+    pub error: Option<String>,
+    pub duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ModelSwitchTrace {
+    pub from_model: String,
+    pub to_model: String,
+    pub reason: Option<String>,
+    pub success: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct LifecycleTrace {
+    pub status: String,
+    pub message: Option<String>,
+    pub error: Option<String>,
+    pub ai_duration_ms: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct MessageTrace {
+    pub role: String,
+    pub content_preview: Option<String>,
+    pub tool_call_count: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct MetricSampleTrace {
+    pub name: String,
+    pub value: f64,
+    pub unit: Option<String>,
+    pub dimensions: Vec<MetricDimension>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ProviderHealthTrace {
+    pub provider: String,
+    pub model: Option<String>,
+    pub status: String,
+    pub reason: Option<String>,
+    pub error_kind: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ExecutionLogField {
+    pub key: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct LogRecordTrace {
+    pub level: String,
+    pub message: String,
+    pub fields: Vec<ExecutionLogField>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ExecutionTraceEvent {
+    pub id: String,
+    pub task_id: String,
+    pub agent_id: String,
+    pub category: ExecutionTraceCategory,
+    pub source: ExecutionTraceSource,
+    #[ts(type = "number")]
+    pub timestamp: i64,
+    #[serde(default)]
+    #[ts(type = "string[]")]
+    pub subflow_path: Vec<String>,
+    pub run_id: Option<String>,
+    pub parent_run_id: Option<String>,
+    pub session_id: Option<String>,
+    pub turn_id: Option<String>,
+    pub requested_model: Option<String>,
+    pub effective_model: Option<String>,
+    pub provider: Option<String>,
+    pub attempt: Option<u32>,
+    #[serde(default)]
+    pub llm_call: Option<LlmCallTrace>,
+    #[serde(default)]
+    pub tool_call: Option<ToolCallTrace>,
+    #[serde(default)]
+    pub model_switch: Option<ModelSwitchTrace>,
+    #[serde(default)]
+    pub lifecycle: Option<LifecycleTrace>,
+    #[serde(default)]
+    pub message: Option<MessageTrace>,
+    #[serde(default)]
+    pub metric_sample: Option<MetricSampleTrace>,
+    #[serde(default)]
+    pub provider_health: Option<ProviderHealthTrace>,
+    #[serde(default)]
+    pub log_record: Option<LogRecordTrace>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ExecutionTraceStats {
+    pub total_events: u64,
+    pub llm_call_count: u64,
+    pub tool_call_count: u64,
+    pub model_switch_count: u64,
+    pub lifecycle_count: u64,
+    pub message_count: u64,
+    pub metric_sample_count: u64,
+    pub provider_health_count: u64,
+    pub log_record_count: u64,
+    pub total_tokens: u64,
+    pub total_cost_usd: f64,
+    pub time_range: Option<ExecutionTraceTimeRange>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ExecutionTraceTimeRange {
+    #[ts(type = "number")]
+    pub earliest: i64,
+    #[ts(type = "number")]
+    pub latest: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ExecutionTimeline {
+    pub events: Vec<ExecutionTraceEvent>,
+    pub stats: ExecutionTraceStats,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ExecutionMetricsResponse {
+    pub samples: Vec<ExecutionTraceEvent>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ProviderHealthResponse {
+    pub events: Vec<ExecutionTraceEvent>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
+#[specta(skip_attr = "ts")]
+#[ts(export)]
+pub struct ExecutionLogResponse {
+    pub events: Vec<ExecutionTraceEvent>,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
@@ -1770,5 +1981,111 @@ mod tests {
             agent_node: sample_agent_node(),
         };
         assert_roundtrip(&request);
+    }
+
+    #[test]
+    fn execution_trace_event_and_response_contracts_round_trip() {
+        let event = ExecutionTraceEvent {
+            id: "evt-1".to_string(),
+            task_id: "task-1".to_string(),
+            agent_id: "agent-1".to_string(),
+            category: ExecutionTraceCategory::ToolCall,
+            source: ExecutionTraceSource::AgentExecutor,
+            timestamp: 123,
+            subflow_path: vec!["run-1".to_string()],
+            run_id: Some("run-1".to_string()),
+            parent_run_id: None,
+            session_id: Some("session-1".to_string()),
+            turn_id: Some("turn-1".to_string()),
+            requested_model: Some("gpt-5".to_string()),
+            effective_model: Some("gpt-5".to_string()),
+            provider: Some("openai".to_string()),
+            attempt: Some(1),
+            llm_call: None,
+            tool_call: Some(ToolCallTrace {
+                phase: ToolCallPhase::Completed,
+                tool_call_id: "call-1".to_string(),
+                tool_name: "bash".to_string(),
+                input: None,
+                input_summary: Some("echo hi".to_string()),
+                output: Some("hi".to_string()),
+                output_ref: None,
+                success: Some(true),
+                error: None,
+                duration_ms: Some(12),
+            }),
+            model_switch: None,
+            lifecycle: None,
+            message: None,
+            metric_sample: None,
+            provider_health: None,
+            log_record: None,
+        };
+        assert_roundtrip(&event);
+
+        let timeline = ExecutionTimeline {
+            events: vec![event.clone()],
+            stats: ExecutionTraceStats {
+                total_events: 1,
+                tool_call_count: 1,
+                time_range: Some(ExecutionTraceTimeRange {
+                    earliest: 123,
+                    latest: 123,
+                }),
+                ..ExecutionTraceStats::default()
+            },
+        };
+        assert_roundtrip(&timeline);
+
+        let metrics = ExecutionMetricsResponse {
+            samples: vec![ExecutionTraceEvent {
+                category: ExecutionTraceCategory::MetricSample,
+                source: ExecutionTraceSource::Telemetry,
+                metric_sample: Some(MetricSampleTrace {
+                    name: "llm_total_tokens".to_string(),
+                    value: 42.0,
+                    unit: Some("tokens".to_string()),
+                    dimensions: vec![MetricDimension {
+                        key: "provider".to_string(),
+                        value: "openai".to_string(),
+                    }],
+                }),
+                ..event.clone()
+            }],
+        };
+        assert_roundtrip(&metrics);
+
+        let provider_health = ProviderHealthResponse {
+            events: vec![ExecutionTraceEvent {
+                category: ExecutionTraceCategory::ProviderHealth,
+                source: ExecutionTraceSource::Telemetry,
+                provider_health: Some(ProviderHealthTrace {
+                    provider: "openai".to_string(),
+                    model: Some("gpt-5".to_string()),
+                    status: "degraded".to_string(),
+                    reason: Some("failover".to_string()),
+                    error_kind: None,
+                }),
+                ..event.clone()
+            }],
+        };
+        assert_roundtrip(&provider_health);
+
+        let logs = ExecutionLogResponse {
+            events: vec![ExecutionTraceEvent {
+                category: ExecutionTraceCategory::LogRecord,
+                source: ExecutionTraceSource::Telemetry,
+                log_record: Some(LogRecordTrace {
+                    level: "warn".to_string(),
+                    message: "failover".to_string(),
+                    fields: vec![ExecutionLogField {
+                        key: "from_model".to_string(),
+                        value: "gpt-4".to_string(),
+                    }],
+                }),
+                ..event
+            }],
+        };
+        assert_roundtrip(&logs);
     }
 }
