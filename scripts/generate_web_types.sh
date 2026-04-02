@@ -26,6 +26,8 @@ STALE_GENERATED_FILES=(
   "AuditQuery.ts"
   "AuditStats.ts"
   "AuditTimeRange.ts"
+  "IpcRequest.ts"
+  "IpcResponse.ts"
   "LifecycleAudit.ts"
   "LlmCallAudit.ts"
   "MessageAudit.ts"

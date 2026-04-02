@@ -16,6 +16,8 @@ describe('generated contract types', () => {
     expect(indexSource).not.toContain("export * from './AuditQuery'")
     expect(indexSource).not.toContain("export * from './AuditStats'")
     expect(indexSource).not.toContain("export * from './AuditTimeRange'")
+    expect(indexSource).not.toContain("export * from './IpcRequest'")
+    expect(indexSource).not.toContain("export * from './IpcResponse'")
   })
 
   it('uses approval_id as the canonical replay field for subagent tools', () => {
