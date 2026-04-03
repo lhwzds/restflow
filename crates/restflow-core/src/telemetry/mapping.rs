@@ -4,9 +4,9 @@ use restflow_telemetry::{
 };
 
 use crate::models::{
-    execution_trace_builders, ExecutionStepInfo, ExecutionTraceCategory, ExecutionTraceEvent,
-    LifecycleTrace, LogRecordTrace, MetricDimension, MetricSampleTrace, ModelSwitchTrace,
-    ProviderHealthTrace, ToolCallPhase, ToolCallTrace,
+    ExecutionStepInfo, ExecutionTraceCategory, ExecutionTraceEvent, LifecycleTrace, LogRecordTrace,
+    MetricDimension, MetricSampleTrace, ModelSwitchTrace, ProviderHealthTrace, ToolCallPhase,
+    ToolCallTrace, execution_trace_builders,
 };
 
 /// Build persisted execution steps from unified execution-trace events.
@@ -414,8 +414,8 @@ pub fn build_log_record_event(
 mod tests {
     use super::build_execution_steps;
     use crate::models::{
-        execution_trace_builders, LifecycleTrace, LlmCallTrace, ModelSwitchTrace, ToolCallPhase,
-        ToolCallTrace,
+        LifecycleTrace, LlmCallTrace, ModelSwitchTrace, ToolCallPhase, ToolCallTrace,
+        execution_trace_builders,
     };
 
     #[test]

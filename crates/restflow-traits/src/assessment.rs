@@ -213,7 +213,12 @@ mod tests {
         );
 
         let payload = serde_json::to_value(&assessment).expect("serialize assessment");
-        assert!(payload.get("approval_id").and_then(|value| value.as_str()).is_some());
+        assert!(
+            payload
+                .get("approval_id")
+                .and_then(|value| value.as_str())
+                .is_some()
+        );
         assert!(payload.get("confirmation_token").is_none());
     }
 

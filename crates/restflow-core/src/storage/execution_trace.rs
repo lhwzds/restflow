@@ -331,69 +331,69 @@ mod tests {
 
         let llm = execution_trace_builders::with_trace_context(
             execution_trace_builders::llm_call(
-            "task-1",
-            "agent-1",
-            LlmCallTrace {
-                model: "minimax-coding-plan-m2-5".to_string(),
-                input_tokens: Some(10),
-                output_tokens: Some(5),
-                total_tokens: Some(15),
-                cost_usd: Some(0.1),
-                duration_ms: Some(100),
-                is_reasoning: Some(false),
-                message_count: Some(2),
-            },
+                "task-1",
+                "agent-1",
+                LlmCallTrace {
+                    model: "minimax-coding-plan-m2-5".to_string(),
+                    input_tokens: Some(10),
+                    output_tokens: Some(5),
+                    total_tokens: Some(15),
+                    cost_usd: Some(0.1),
+                    duration_ms: Some(100),
+                    is_reasoning: Some(false),
+                    message_count: Some(2),
+                },
             ),
             &base_trace,
         );
         let metric = execution_trace_builders::with_trace_context(
             execution_trace_builders::metric_sample(
-            "task-1",
-            "agent-1",
-            crate::models::MetricSampleTrace {
-                name: "llm_total_tokens".to_string(),
-                value: 15.0,
-                unit: Some("tokens".to_string()),
-                dimensions: Vec::new(),
-            },
+                "task-1",
+                "agent-1",
+                crate::models::MetricSampleTrace {
+                    name: "llm_total_tokens".to_string(),
+                    value: 15.0,
+                    unit: Some("tokens".to_string()),
+                    dimensions: Vec::new(),
+                },
             ),
             &base_trace,
         );
         let health = execution_trace_builders::with_trace_context(
             execution_trace_builders::provider_health(
-            "task-1",
-            "agent-1",
-            crate::models::ProviderHealthTrace {
-                provider: "minimax-coding-plan".to_string(),
-                model: Some("minimax-coding-plan-m2-5-highspeed".to_string()),
-                status: "degraded".to_string(),
-                reason: Some("failover".to_string()),
-                error_kind: None,
-            },
+                "task-1",
+                "agent-1",
+                crate::models::ProviderHealthTrace {
+                    provider: "minimax-coding-plan".to_string(),
+                    model: Some("minimax-coding-plan-m2-5-highspeed".to_string()),
+                    status: "degraded".to_string(),
+                    reason: Some("failover".to_string()),
+                    error_kind: None,
+                },
             ),
             &base_trace,
         );
         let log = execution_trace_builders::with_trace_context(
             execution_trace_builders::log_record(
-            "task-1",
-            "agent-1",
-            crate::models::LogRecordTrace {
-                level: "warn".to_string(),
-                message: "failover".to_string(),
-                fields: Vec::new(),
-            },
+                "task-1",
+                "agent-1",
+                crate::models::LogRecordTrace {
+                    level: "warn".to_string(),
+                    message: "failover".to_string(),
+                    fields: Vec::new(),
+                },
             ),
             &base_trace,
         );
         let other_run_log = execution_trace_builders::with_trace_context(
             execution_trace_builders::log_record(
-            "task-1",
-            "agent-1",
-            crate::models::LogRecordTrace {
-                level: "info".to_string(),
-                message: "other run".to_string(),
-                fields: Vec::new(),
-            },
+                "task-1",
+                "agent-1",
+                crate::models::LogRecordTrace {
+                    level: "info".to_string(),
+                    message: "other run".to_string(),
+                    fields: Vec::new(),
+                },
             ),
             &other_trace,
         );

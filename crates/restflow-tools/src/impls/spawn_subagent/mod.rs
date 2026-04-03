@@ -12,8 +12,8 @@ use serde_json::Value;
 use std::sync::Arc;
 
 use crate::{Result, Tool, ToolError, ToolOutput};
-use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::store::KvStore;
+use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
 
 pub use types::SpawnSubagentParams;

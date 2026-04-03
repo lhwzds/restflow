@@ -268,8 +268,8 @@ fn upsert_transcript_block(message_content: &str, transcript: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::models::chat_session::ChatMediaType;
     use crate::models::ToolCallTrace;
+    use crate::models::chat_session::ChatMediaType;
     use serde_json::json;
     use tempfile::tempdir;
 
@@ -367,39 +367,39 @@ mod tests {
             restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let start = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
-            "task-1",
-            "agent-1",
-            ToolCallTrace {
-                phase: ToolCallPhase::Started,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "transcribe".to_string(),
-                input: Some(json!({"file_path": "/tmp/voice-b.webm"}).to_string()),
-                input_summary: None,
-                output: None,
-                output_ref: None,
-                success: None,
-                error: None,
-                duration_ms: None,
-            },
+                "task-1",
+                "agent-1",
+                ToolCallTrace {
+                    phase: ToolCallPhase::Started,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "transcribe".to_string(),
+                    input: Some(json!({"file_path": "/tmp/voice-b.webm"}).to_string()),
+                    input_summary: None,
+                    output: None,
+                    output_ref: None,
+                    success: None,
+                    error: None,
+                    duration_ms: None,
+                },
             ),
             &trace,
         );
         let done = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
-            "task-1",
-            "agent-1",
-            ToolCallTrace {
-                phase: ToolCallPhase::Completed,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "transcribe".to_string(),
-                input: None,
-                input_summary: None,
-                output: Some(json!({"text": "other audio"}).to_string()),
-                output_ref: None,
-                success: Some(true),
-                error: None,
-                duration_ms: Some(20),
-            },
+                "task-1",
+                "agent-1",
+                ToolCallTrace {
+                    phase: ToolCallPhase::Completed,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "transcribe".to_string(),
+                    input: None,
+                    input_summary: None,
+                    output: Some(json!({"text": "other audio"}).to_string()),
+                    output_ref: None,
+                    success: Some(true),
+                    error: None,
+                    duration_ms: Some(20),
+                },
             ),
             &trace,
         );
@@ -420,39 +420,39 @@ mod tests {
             restflow_telemetry::RestflowTrace::new("run-1", "session-1", "scope-1", "agent-1");
         let start = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
-            "task-1",
-            "agent-1",
-            ToolCallTrace {
-                phase: ToolCallPhase::Started,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "transcribe".to_string(),
-                input: Some(json!({"file_path": "/tmp/voice-a.webm"}).to_string()),
-                input_summary: None,
-                output: None,
-                output_ref: None,
-                success: None,
-                error: None,
-                duration_ms: None,
-            },
+                "task-1",
+                "agent-1",
+                ToolCallTrace {
+                    phase: ToolCallPhase::Started,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "transcribe".to_string(),
+                    input: Some(json!({"file_path": "/tmp/voice-a.webm"}).to_string()),
+                    input_summary: None,
+                    output: None,
+                    output_ref: None,
+                    success: None,
+                    error: None,
+                    duration_ms: None,
+                },
             ),
             &trace,
         );
         let done = crate::models::execution_trace_builders::with_trace_context(
             crate::models::execution_trace_builders::tool_call(
-            "task-1",
-            "agent-1",
-            ToolCallTrace {
-                phase: ToolCallPhase::Completed,
-                tool_call_id: "call-1".to_string(),
-                tool_name: "transcribe".to_string(),
-                input: None,
-                input_summary: None,
-                output: None,
-                output_ref: Some(output_path.to_string_lossy().to_string()),
-                success: Some(true),
-                error: None,
-                duration_ms: Some(20),
-            },
+                "task-1",
+                "agent-1",
+                ToolCallTrace {
+                    phase: ToolCallPhase::Completed,
+                    tool_call_id: "call-1".to_string(),
+                    tool_name: "transcribe".to_string(),
+                    input: None,
+                    input_summary: None,
+                    output: None,
+                    output_ref: Some(output_path.to_string_lossy().to_string()),
+                    success: Some(true),
+                    error: None,
+                    duration_ms: Some(20),
+                },
             ),
             &trace,
         );

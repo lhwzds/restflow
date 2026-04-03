@@ -1,6 +1,6 @@
 use crate::models::{
-    execution_trace_builders, ExecutionTraceCategory, ExecutionTraceEvent, MetricDimension,
-    MetricSampleTrace, ModelId, ProviderHealthTrace, ToolCallPhase,
+    ExecutionTraceCategory, ExecutionTraceEvent, MetricDimension, MetricSampleTrace, ModelId,
+    ProviderHealthTrace, ToolCallPhase, execution_trace_builders,
 };
 
 fn inherited_metric_dimensions(

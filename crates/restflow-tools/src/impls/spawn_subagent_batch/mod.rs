@@ -17,8 +17,8 @@ use std::sync::Arc;
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
-use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::store::KvStore;
+use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
 
 use self::resolve::preview_request_from_spec;

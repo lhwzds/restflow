@@ -9,8 +9,8 @@ use std::sync::Arc;
 use crate::Result;
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Tool, ToolError, ToolOutput};
-use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::store::{AgentCreateRequest, AgentStore, AgentUpdateRequest};
+use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 
 #[derive(Clone)]
 pub struct AgentCrudTool {
