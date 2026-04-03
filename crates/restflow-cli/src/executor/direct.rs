@@ -37,6 +37,11 @@ use restflow_storage::PairingStorage;
 const TELEGRAM_CHAT_ID_SECRET: &str = "TELEGRAM_CHAT_ID";
 const TELEGRAM_DEFAULT_CHAT_ID_SECRET: &str = "TELEGRAM_DEFAULT_CHAT_ID";
 
+/// Test-only executor used by command unit tests.
+///
+/// This module is compiled behind `#[cfg(test)]`; production CLI commands use
+/// `executor::create()` and mutate hook/runtime state through the daemon-backed
+/// `IpcExecutor` instead of calling storage services directly.
 pub struct DirectExecutor {
     core: Arc<AppCore>,
 }
@@ -277,6 +282,8 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>> {
+        // Hooks are daemon-owned in production. These direct calls only support
+        // isolated command tests in this test-only executor module.
         HookCapabilityService::from_storage(&self.core.storage).list()
     }
 

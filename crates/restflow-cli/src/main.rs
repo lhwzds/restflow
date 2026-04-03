@@ -60,6 +60,10 @@ fn command_needs_direct_core(command: &Option<Commands>) -> bool {
     matches!(command, Some(Commands::Daemon { .. }))
 }
 
+fn command_uses_daemon_executor(command: &Option<Commands>) -> bool {
+    !command_needs_direct_core(command)
+}
+
 fn executor_db_path_flag(raw_db_path: Option<String>, needs_direct_core: bool) -> Option<String> {
     if needs_direct_core { None } else { raw_db_path }
 }
@@ -132,7 +136,7 @@ async fn run() -> Result<()> {
     // Commands that need direct core access.
     let needs_direct_core = command_needs_direct_core(&cli.command);
 
-    if needs_direct_core {
+    if !command_uses_daemon_executor(&cli.command) {
         // Use direct core for commands that require it
         let db_path = setup::resolve_db_path(cli.db_path.clone())?;
         let core = setup::prepare_core(Some(db_path)).await?;
@@ -142,7 +146,8 @@ async fn run() -> Result<()> {
             _ => unreachable!(),
         }
     } else {
-        // Use executor for commands that support IPC
+        // Production CLI commands route through the daemon-backed executor unless they
+        // explicitly require direct core access for daemon lifecycle operations.
         let exec = executor::create(executor_db_path_flag(
             cli.db_path.clone(),
             needs_direct_core,
@@ -215,7 +220,7 @@ async fn run() -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{command_needs_direct_core, executor_db_path_flag};
+    use super::{command_needs_direct_core, command_uses_daemon_executor, executor_db_path_flag};
     use crate::cli::{
         Commands, HookCommands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs,
     };
@@ -232,6 +237,42 @@ mod tests {
             command: HookCommands::List,
         });
         assert!(!command_needs_direct_core(&command));
+    }
+
+    #[test]
+    fn hook_list_uses_daemon_executor() {
+        let command = Some(Commands::Hook {
+            command: HookCommands::List,
+        });
+        assert!(command_uses_daemon_executor(&command));
+    }
+
+    #[test]
+    fn hook_create_uses_daemon_executor() {
+        let command = Some(Commands::Hook {
+            command: HookCommands::Create {
+                name: "notify".to_string(),
+                event: "task_started".to_string(),
+                action: "webhook".to_string(),
+                url: Some("https://example.com/hook".to_string()),
+                script: None,
+                channel: None,
+                message: None,
+                agent: None,
+                input: None,
+            },
+        });
+        assert!(command_uses_daemon_executor(&command));
+    }
+
+    #[test]
+    fn hook_test_uses_daemon_executor() {
+        let command = Some(Commands::Hook {
+            command: HookCommands::Test {
+                id: "hook-123".to_string(),
+            },
+        });
+        assert!(command_uses_daemon_executor(&command));
     }
 
     #[test]
