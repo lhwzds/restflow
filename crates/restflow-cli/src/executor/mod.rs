@@ -19,6 +19,8 @@ use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
 use std::sync::Arc;
 
+// DirectExecutor exists only for isolated command tests. Production CLI commands always
+// reach hook/runtime mutations through the daemon-backed IpcExecutor returned by create().
 #[cfg(test)]
 pub mod direct;
 pub mod ipc;
@@ -179,6 +181,7 @@ pub async fn create(db_path: Option<String>) -> Result<Arc<dyn CommandExecutor>>
         );
     }
 
+    // This is the only production executor entrypoint for daemon-routed commands.
     let socket_path = paths::socket_path()?;
     if is_daemon_available(&socket_path).await {
         let executor = ipc::IpcExecutor::connect(&socket_path).await?;
