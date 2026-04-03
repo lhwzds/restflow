@@ -2,8 +2,7 @@ use super::*;
 use crate::models::ChatSessionSource;
 use crate::storage::Storage;
 use crate::{
-    ExecutionTraceCategory, ExecutionTraceSource, LifecycleTrace, LogRecordTrace,
-    MetricSampleTrace,
+    ExecutionTraceCategory, ExecutionTraceSource, LifecycleTrace, LogRecordTrace, MetricSampleTrace,
 };
 use restflow_contracts::request::ChildExecutionSessionQuery;
 use restflow_storage::SimpleStorage;

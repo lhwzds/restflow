@@ -17,10 +17,10 @@ use std::sync::Arc;
 
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
-use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::store::{
     BackgroundAgentStore, KvStore, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
 };
+use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use types::BackgroundAgentAction;
 
 #[derive(Clone)]

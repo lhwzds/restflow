@@ -344,10 +344,7 @@ fn finalize_assessment_with_seed(
     if !assessment.warnings.is_empty() {
         assessment.status = OperationAssessmentStatus::Warning;
         assessment.requires_confirmation = true;
-        assessment.approval_id = Some(build_approval_id(
-            &assessment,
-            confirmation_seed.as_ref(),
-        ));
+        assessment.approval_id = Some(build_approval_id(&assessment, confirmation_seed.as_ref()));
         return assessment;
     }
 
@@ -1443,15 +1440,11 @@ mod tests {
 
         assert_eq!(first_assessment.status, OperationAssessmentStatus::Warning);
         assert_eq!(second_assessment.status, OperationAssessmentStatus::Warning);
-        assert_ne!(
-            first_assessment.approval_id,
-            second_assessment.approval_id
-        );
+        assert_ne!(first_assessment.approval_id, second_assessment.approval_id);
     }
 
     #[tokio::test]
-    async fn assess_background_agent_convert_session_approval_id_is_stable_for_same_session()
-    {
+    async fn assess_background_agent_convert_session_approval_id_is_stable_for_same_session() {
         let (core, _db, _agents, _guard) = create_test_core_isolated().await;
         let created = create_agent(
             &core,
@@ -1497,10 +1490,7 @@ mod tests {
             .expect("second assessment");
 
         assert_eq!(first_assessment.status, OperationAssessmentStatus::Warning);
-        assert_eq!(
-            first_assessment.approval_id,
-            second_assessment.approval_id
-        );
+        assert_eq!(first_assessment.approval_id, second_assessment.approval_id);
     }
 
     #[tokio::test]

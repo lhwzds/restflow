@@ -168,7 +168,10 @@ pub(crate) fn log_record(
     )
 }
 
-pub(crate) fn with_llm_call(mut event: ExecutionTraceEvent, trace: LlmCallTrace) -> ExecutionTraceEvent {
+pub(crate) fn with_llm_call(
+    mut event: ExecutionTraceEvent,
+    trace: LlmCallTrace,
+) -> ExecutionTraceEvent {
     event.llm_call = Some(trace);
     event
 }
@@ -197,7 +200,10 @@ pub(crate) fn with_lifecycle(
     event
 }
 
-pub(crate) fn with_message(mut event: ExecutionTraceEvent, trace: MessageTrace) -> ExecutionTraceEvent {
+pub(crate) fn with_message(
+    mut event: ExecutionTraceEvent,
+    trace: MessageTrace,
+) -> ExecutionTraceEvent {
     event.message = Some(trace);
     event
 }

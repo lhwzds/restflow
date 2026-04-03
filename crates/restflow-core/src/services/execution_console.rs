@@ -923,8 +923,9 @@ fn latest_run_by_task_id(
 mod tests {
     use super::*;
     use crate::models::{
-        execution_trace_builders, BackgroundAgentSchedule, BackgroundAgentSpec, ChatMessage,
-        ChatSession, ExecutionContainerRef, ExecutionMode, LifecycleTrace, NotificationConfig,
+        BackgroundAgentSchedule, BackgroundAgentSpec, ChatMessage, ChatSession,
+        ExecutionContainerRef, ExecutionMode, LifecycleTrace, NotificationConfig,
+        execution_trace_builders,
     };
     use crate::storage::Storage;
     use crate::{ExecutionTraceCategory, ExecutionTraceSource};
