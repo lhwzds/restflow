@@ -164,10 +164,11 @@ pub enum Commands {
         command: RouteCommands,
     },
 
-    /// Background agent management
-    BackgroundAgent {
+    /// Task management
+    #[command(visible_alias = "background-agent")]
+    Task {
         #[command(subcommand)]
-        command: BackgroundAgentCommands,
+        command: TaskCommands,
     },
 
     /// Shared space key-value store
@@ -320,19 +321,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_legacy_task_command() {
-        let cli = Cli::try_parse_from(["restflow", "task", "list"]);
-        assert!(cli.is_err());
+    fn parses_task_list_command() {
+        let cli = Cli::try_parse_from(["restflow", "task", "list"]).expect("parse task list");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Task {
+                command: super::TaskCommands::List { .. }
+            })
+        ));
     }
 
     #[test]
-    fn parses_background_agent_list_command() {
+    fn parses_task_legacy_background_agent_list_alias() {
         let cli = Cli::try_parse_from(["restflow", "background-agent", "list"]);
         assert!(matches!(
             cli,
             Ok(Cli {
-                command: Some(super::Commands::BackgroundAgent {
-                    command: super::BackgroundAgentCommands::List { .. }
+                command: Some(super::Commands::Task {
+                    command: super::TaskCommands::List { .. }
                 }),
                 ..
             })
@@ -340,7 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_background_agent_convert_session_command() {
+    fn parses_task_legacy_background_agent_convert_session_alias() {
         let cli = Cli::try_parse_from([
             "restflow",
             "background-agent",
@@ -350,8 +356,8 @@ mod tests {
         assert!(matches!(
             cli,
             Ok(Cli {
-                command: Some(super::Commands::BackgroundAgent {
-                    command: super::BackgroundAgentCommands::ConvertSession { .. }
+                command: Some(super::Commands::Task {
+                    command: super::TaskCommands::ConvertSession { .. }
                 }),
                 ..
             })
@@ -359,7 +365,7 @@ mod tests {
     }
 
     #[test]
-    fn parses_background_agent_create_command() {
+    fn parses_task_legacy_background_agent_create_alias() {
         let cli = Cli::try_parse_from([
             "restflow",
             "background-agent",
@@ -377,14 +383,14 @@ mod tests {
 
         assert!(matches!(
             cli.command,
-            Some(super::Commands::BackgroundAgent {
-                command: super::BackgroundAgentCommands::Create { .. }
+            Some(super::Commands::Task {
+                command: super::TaskCommands::Create { .. }
             })
         ));
     }
 
     #[test]
-    fn rejects_background_agent_create_guard_flags() {
+    fn rejects_legacy_background_agent_create_guard_flags() {
         let cli = Cli::try_parse_from([
             "restflow",
             "background-agent",
@@ -403,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_background_agent_create_confirm_flag() {
+    fn rejects_legacy_background_agent_create_confirm_flag() {
         let cli = Cli::try_parse_from([
             "restflow",
             "background-agent",
@@ -423,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn rejects_background_agent_convert_session_preview_flag() {
+    fn rejects_legacy_background_agent_convert_session_preview_flag() {
         let cli = Cli::try_parse_from([
             "restflow",
             "background-agent",
@@ -1170,21 +1176,21 @@ pub enum RouteCommands {
 }
 
 #[derive(Subcommand)]
-pub enum BackgroundAgentCommands {
-    /// List background agents
+pub enum TaskCommands {
+    /// List tasks
     List {
         /// Filter by status: active, paused, running, completed, failed, interrupted
         #[arg(long)]
         status: Option<String>,
     },
 
-    /// Show background agent details
+    /// Show task details
     Show {
-        /// Background agent ID
+        /// Task ID
         id: String,
     },
 
-    /// Create a background agent
+    /// Create a task
     Create {
         /// Display name
         #[arg(short, long)]
@@ -1219,12 +1225,12 @@ pub enum BackgroundAgentCommands {
         notify: bool,
     },
 
-    /// Convert an existing chat session into a background agent
+    /// Convert an existing chat session into a task
     ConvertSession {
         /// Source chat session ID
         session_id: String,
 
-        /// Optional background agent name
+        /// Optional task name
         #[arg(short, long)]
         name: Option<String>,
 
@@ -1249,9 +1255,9 @@ pub enum BackgroundAgentCommands {
         run_now: bool,
     },
 
-    /// Update a background agent
+    /// Update a task
     Update {
-        /// Background agent ID
+        /// Task ID
         id: String,
 
         #[arg(short, long)]
@@ -1270,15 +1276,15 @@ pub enum BackgroundAgentCommands {
         timeout: Option<u64>,
     },
 
-    /// Delete a background agent
+    /// Delete a task
     Delete {
-        /// Background agent ID
+        /// Task ID
         id: String,
     },
 
-    /// Control a background agent (start, pause, resume, stop, run_now)
+    /// Control a task (start, pause, resume, stop, run_now)
     Control {
-        /// Background agent ID
+        /// Task ID
         id: String,
 
         /// Action: start, pause, resume, stop, run_now
@@ -1286,9 +1292,9 @@ pub enum BackgroundAgentCommands {
         action: String,
     },
 
-    /// Show execution progress
+    /// Show task progress
     Progress {
-        /// Background agent ID
+        /// Task ID
         id: String,
 
         /// Number of events to show
@@ -1296,9 +1302,9 @@ pub enum BackgroundAgentCommands {
         limit: usize,
     },
 
-    /// Inspect persisted per-run event logs for a background agent
+    /// Inspect persisted per-run event logs for a task
     RunLog {
-        /// Background agent ID
+        /// Task ID
         id: String,
 
         /// Specific run ID to read (use "legacy" for the old task-level log)
@@ -1310,9 +1316,9 @@ pub enum BackgroundAgentCommands {
         limit: usize,
     },
 
-    /// Send a message to a running background agent
+    /// Send a message to a running task
     Send {
-        /// Background agent ID
+        /// Task ID
         id: String,
 
         /// Message content
@@ -1357,11 +1363,11 @@ pub enum SharedCommands {
 
 #[derive(Subcommand)]
 pub enum DeliverableCommands {
-    /// List deliverables for a background agent
+    /// List deliverables for a task
     List {
-        /// Background agent ID
-        #[arg(short, long)]
-        task: String,
+        /// Task ID
+        #[arg(short = 't', long = "task")]
+        task_id: String,
     },
 }
 

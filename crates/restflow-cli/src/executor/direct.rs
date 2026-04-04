@@ -7,21 +7,18 @@ use crate::setup;
 use restflow_contracts::{
     AllowedPeerResponse, CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse,
     PairingRequestResponse, PairingStateResponse, RouteBindingResponse,
-    SessionSourceMigrationResponse, request::BackgroundAgentConvertSessionRequest,
+    SessionSourceMigrationResponse, request::TaskFromSessionRequest,
 };
 use restflow_core::channel::pairing::PairingManager;
 use restflow_core::channel::route_binding::{RouteBindingType, RouteResolver};
 use restflow_core::memory::{ExportResult, MemoryExporter};
 use restflow_core::models::{
-    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
-    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundProgress, Deliverable,
-    ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, ExecutionTraceQuery,
-    Hook, SharedEntry,
+    AgentNode, Deliverable, ExecutionTimeline, ExecutionTraceQuery, Hook, RunListQuery, RunSummary,
+    SharedEntry, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
 };
 use restflow_core::services::{
     agent as agent_service, config as config_service, execution_console::ExecutionConsoleService,
-    hook_capability::HookCapabilityService, secrets as secrets_service, session::SessionService,
-    skills as skills_service,
+    secrets as secrets_service, session::SessionService, skills as skills_service,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -282,27 +279,23 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>> {
-        // Hooks are daemon-owned in production. These direct calls only support
-        // isolated command tests in this test-only executor module.
-        HookCapabilityService::from_storage(&self.core.storage).list()
+        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn create_hook(&self, hook: Hook) -> Result<Hook> {
-        HookCapabilityService::from_storage(&self.core.storage).create(hook)
+    async fn create_hook(&self, _hook: Hook) -> Result<Hook> {
+        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook> {
-        HookCapabilityService::from_storage(&self.core.storage).update(id, hook)
+    async fn update_hook(&self, _id: &str, _hook: Hook) -> Result<Hook> {
+        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn delete_hook(&self, id: &str) -> Result<bool> {
-        HookCapabilityService::from_storage(&self.core.storage).delete(id)
+    async fn delete_hook(&self, _id: &str) -> Result<bool> {
+        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn test_hook(&self, id: &str) -> Result<()> {
-        HookCapabilityService::from_storage(&self.core.storage)
-            .test(id)
-            .await
+    async fn test_hook(&self, _id: &str) -> Result<()> {
+        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
     async fn list_pairing_state(&self) -> Result<PairingStateResponse> {
@@ -433,68 +426,51 @@ impl CommandExecutor for DirectExecutor {
         })
     }
 
-    // Background Agent operations - require daemon
-    async fn list_background_agents(
+    // Task operations - require daemon
+    async fn list_tasks(&self, _status: Option<String>) -> Result<Vec<Task>> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn get_task(&self, _id: &str) -> Result<Task> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn create_task(&self, _spec: TaskSpec) -> Result<Task> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
+    }
+
+    async fn convert_session_to_task(
         &self,
-        _status: Option<String>,
-    ) -> Result<Vec<BackgroundAgent>> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+        _request: TaskFromSessionRequest,
+    ) -> Result<TaskConversionResult> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn get_background_agent(&self, _id: &str) -> Result<BackgroundAgent> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    async fn update_task(&self, _id: &str, _patch: TaskPatch) -> Result<Task> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn create_background_agent(&self, _spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    async fn delete_task(&self, _id: &str) -> Result<restflow_contracts::DeleteWithIdResponse> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn convert_session_to_background_agent(
-        &self,
-        _request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentConversionResult> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    async fn control_task(&self, _id: &str, _action: TaskControlAction) -> Result<Task> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn update_background_agent(
-        &self,
-        _id: &str,
-        _patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn delete_background_agent(
-        &self,
-        _id: &str,
-    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn control_background_agent(
-        &self,
-        _id: &str,
-        _action: BackgroundAgentControlAction,
-    ) -> Result<BackgroundAgent> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
-    }
-
-    async fn get_background_agent_progress(
+    async fn get_task_progress(
         &self,
         _id: &str,
         _event_limit: Option<usize>,
-    ) -> Result<BackgroundProgress> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    ) -> Result<TaskProgress> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn send_background_agent_message(&self, _id: &str, _message: &str) -> Result<()> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+    async fn send_task_message(&self, _id: &str, _message: &str) -> Result<()> {
+        bail!("Task operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
-    async fn list_execution_sessions(
-        &self,
-        query: ExecutionSessionListQuery,
-    ) -> Result<Vec<ExecutionSessionSummary>> {
+    async fn list_execution_sessions(&self, query: RunListQuery) -> Result<Vec<RunSummary>> {
         ExecutionConsoleService::from_storage(&self.core.storage).list_execution_sessions(&query)
     }
 
@@ -519,7 +495,7 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
-        bail!("Background agent operations require daemon mode. Use 'restflow daemon start' first.")
+        bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }
 
     async fn get_kv_store(&self, _key: &str) -> Result<Option<SharedEntry>> {
@@ -619,4 +595,90 @@ fn route_binding_response(
         created_at: binding.created_at,
         priority: binding.priority,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DirectExecutor;
+    use crate::executor::CommandExecutor;
+    use restflow_core::models::{Hook, HookAction, HookEvent};
+    use tempfile::tempdir;
+
+    fn env_lock() -> std::sync::MutexGuard<'static, ()> {
+        crate::test_support::env_lock()
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn hook_operations_require_daemon_mode_even_in_direct_executor() {
+        let _guard = env_lock();
+        let temp = tempdir().expect("tempdir");
+        let prev = std::env::var_os("RESTFLOW_DIR");
+        unsafe { std::env::set_var("RESTFLOW_DIR", temp.path()) };
+
+        let executor = DirectExecutor::connect(None)
+            .await
+            .expect("direct executor");
+        let hook = Hook::new(
+            "notify".to_string(),
+            HookEvent::TaskStarted,
+            HookAction::Webhook {
+                url: "https://example.com/hook".to_string(),
+                method: None,
+                headers: None,
+            },
+        );
+
+        let list_err = executor.list_hooks().await.expect_err("list should fail");
+        assert!(
+            list_err
+                .to_string()
+                .contains("Hook operations require daemon mode")
+        );
+
+        let create_err = executor
+            .create_hook(hook.clone())
+            .await
+            .expect_err("create should fail");
+        assert!(
+            create_err
+                .to_string()
+                .contains("Hook operations require daemon mode")
+        );
+
+        let update_err = executor
+            .update_hook("hook-1", hook)
+            .await
+            .expect_err("update should fail");
+        assert!(
+            update_err
+                .to_string()
+                .contains("Hook operations require daemon mode")
+        );
+
+        let delete_err = executor
+            .delete_hook("hook-1")
+            .await
+            .expect_err("delete should fail");
+        assert!(
+            delete_err
+                .to_string()
+                .contains("Hook operations require daemon mode")
+        );
+
+        let test_err = executor
+            .test_hook("hook-1")
+            .await
+            .expect_err("test should fail");
+        assert!(
+            test_err
+                .to_string()
+                .contains("Hook operations require daemon mode")
+        );
+
+        match prev {
+            Some(value) => unsafe { std::env::set_var("RESTFLOW_DIR", value) },
+            None => unsafe { std::env::remove_var("RESTFLOW_DIR") },
+        }
+    }
 }

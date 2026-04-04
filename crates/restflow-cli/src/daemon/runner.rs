@@ -5,19 +5,16 @@ use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::{ChannelRouter, PairingManager};
 use restflow_core::daemon::publish_background_event;
 use restflow_core::hooks::HookExecutor;
-use restflow_core::models::{
-    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentStatus, BackgroundMessageSource,
-};
+use restflow_core::models::{Task, TaskControlAction, TaskMessageSource, TaskStatus};
 use restflow_core::paths;
 use restflow_core::process::ProcessRegistry;
 use restflow_core::runtime::background_agent::BackgroundReplySenderFactory;
 use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::{
-    AgentRuntimeExecutor, BackgroundAgentRunner, BackgroundAgentTrigger, ChatDispatcher,
-    ChatDispatcherConfig, ChatSessionManager, MessageDebouncer, MessageHandlerConfig,
-    MessageHandlerHandle, NoopHeartbeatEmitter, OrchestratingAgentExecutor, RunnerConfig,
-    RunnerHandle, StorageBackedSubagentLookup, SubagentConfig, SubagentTracker, SystemStatus,
-    TelegramNotifier,
+    AgentRuntimeExecutor, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager,
+    MessageDebouncer, MessageHandlerConfig, MessageHandlerHandle, NoopHeartbeatEmitter,
+    OrchestratingAgentExecutor, StorageBackedSubagentLookup, SubagentConfig, SubagentTracker,
+    SystemStatus, TaskRunner, TaskRunnerConfig, TaskRunnerHandle, TaskTrigger, TelegramNotifier,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
@@ -29,19 +26,19 @@ use tracing::{error, info, warn};
 
 use super::{discord, slack, telegram};
 
-struct DaemonIpcEventEmitter;
+struct TaskIpcEventEmitter;
 
 #[async_trait]
-impl TaskEventEmitter for DaemonIpcEventEmitter {
+impl TaskEventEmitter for TaskIpcEventEmitter {
     async fn emit(&self, event: TaskStreamEvent) {
         publish_background_event(event);
     }
 }
 
-pub struct CliBackgroundAgentRunner {
+pub struct CliTaskRunner {
     core: Arc<AppCore>,
-    handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
-    runner: Arc<RwLock<Option<Arc<BackgroundAgentRunner>>>>,
+    handle: Arc<RwLock<Option<Arc<TaskRunnerHandle>>>>,
+    runner: Arc<RwLock<Option<Arc<TaskRunner>>>>,
     router: Arc<RwLock<Option<Arc<ChannelRouter>>>>,
     message_handler: Option<MessageHandlerHandle>,
 }
@@ -59,7 +56,7 @@ fn create_auth_manager(
     ))
 }
 
-impl CliBackgroundAgentRunner {
+impl CliTaskRunner {
     pub fn new(core: Arc<AppCore>) -> Self {
         Self {
             core,
@@ -92,7 +89,7 @@ impl CliBackgroundAgentRunner {
         auth_manager.initialize().await?;
         auth_manager.discover().await?;
 
-        // Create subagent system components
+        // Create task runtime components
         let (completion_tx, completion_rx) = tokio::sync::mpsc::channel(100);
         let subagent_tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
         subagent_tracker.set_telemetry_sink(restflow_core::telemetry::build_core_telemetry_sink(
@@ -100,8 +97,8 @@ impl CliBackgroundAgentRunner {
         ));
         let subagent_definitions =
             Arc::new(StorageBackedSubagentLookup::new(storage.agents.clone()));
-        let subagent_config = build_subagent_config(&system_config.agent);
-        let event_emitter: Arc<dyn TaskEventEmitter> = Arc::new(DaemonIpcEventEmitter);
+        let task_config = build_task_config(&system_config.agent);
+        let event_emitter: Arc<dyn TaskEventEmitter> = Arc::new(TaskIpcEventEmitter);
         let channel_router = Arc::new(RwLock::new(None));
 
         let reply_sender_factory = Arc::new(BackgroundReplySenderFactory::new(
@@ -116,7 +113,7 @@ impl CliBackgroundAgentRunner {
             auth_manager.clone(),
             subagent_tracker.clone(),
             subagent_definitions.clone(),
-            subagent_config.clone(),
+            task_config.clone(),
         )
         .with_reply_sender_factory(reply_sender_factory);
         let notifier = TelegramNotifier::new(secrets);
@@ -124,7 +121,7 @@ impl CliBackgroundAgentRunner {
         let hook_executor = Arc::new(HookExecutor::with_storage(storage.hooks.clone()));
 
         let runner = Arc::new(
-            BackgroundAgentRunner::with_memory_persistence(
+            TaskRunner::with_memory_persistence(
                 Arc::new(storage.background_agents.clone()),
                 Arc::new(OrchestratingAgentExecutor::from_runtime_executor(executor)),
                 Arc::new(notifier),
@@ -201,7 +198,7 @@ impl CliBackgroundAgentRunner {
         if any_channel_configured {
             let router = Arc::new(channel_router);
 
-            let trigger = Arc::new(CliBackgroundAgentTrigger::new(
+            let trigger = Arc::new(CliTaskTrigger::new(
                 self.core.clone(),
                 self.handle.clone(),
                 self.runner.clone(),
@@ -231,7 +228,7 @@ impl CliBackgroundAgentRunner {
                 chat_dispatcher_config,
                 subagent_tracker.clone(),
                 subagent_definitions.clone(),
-                subagent_config.clone(),
+                task_config.clone(),
             ));
 
             let pairing_manager = Arc::new(PairingManager::new(Arc::new(storage.pairing.clone())));
@@ -283,7 +280,7 @@ impl CliBackgroundAgentRunner {
     }
 }
 
-fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
+fn build_task_config(defaults: &AgentDefaults) -> SubagentConfig {
     SubagentConfig {
         max_parallel_agents: defaults.max_parallel_subagents,
         subagent_timeout_secs: defaults.subagent_timeout_secs,
@@ -292,8 +289,8 @@ fn build_subagent_config(defaults: &AgentDefaults) -> SubagentConfig {
     }
 }
 
-fn build_runner_config(system_config: &SystemConfig) -> RunnerConfig {
-    RunnerConfig {
+fn build_runner_config(system_config: &SystemConfig) -> TaskRunnerConfig {
+    TaskRunnerConfig {
         poll_interval_ms: system_config
             .runtime_defaults
             .background_runner_poll_interval_ms,
@@ -332,17 +329,17 @@ fn bootstrap_default_chat_pairing(
     Ok(())
 }
 
-struct CliBackgroundAgentTrigger {
+struct CliTaskTrigger {
     core: Arc<AppCore>,
-    handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
-    runner: Arc<RwLock<Option<Arc<BackgroundAgentRunner>>>>,
+    handle: Arc<RwLock<Option<Arc<TaskRunnerHandle>>>>,
+    runner: Arc<RwLock<Option<Arc<TaskRunner>>>>,
 }
 
-impl CliBackgroundAgentTrigger {
+impl CliTaskTrigger {
     fn new(
         core: Arc<AppCore>,
-        handle: Arc<RwLock<Option<Arc<RunnerHandle>>>>,
-        runner: Arc<RwLock<Option<Arc<BackgroundAgentRunner>>>>,
+        handle: Arc<RwLock<Option<Arc<TaskRunnerHandle>>>>,
+        runner: Arc<RwLock<Option<Arc<TaskRunner>>>>,
     ) -> Self {
         Self {
             core,
@@ -351,7 +348,7 @@ impl CliBackgroundAgentTrigger {
         }
     }
 
-    async fn runner_handle(&self) -> Result<Arc<RunnerHandle>> {
+    async fn runner_handle(&self) -> Result<Arc<TaskRunnerHandle>> {
         let handle_guard = self.handle.read().await;
         handle_guard
             .as_ref()
@@ -369,12 +366,12 @@ impl CliBackgroundAgentTrigger {
 }
 
 #[async_trait]
-impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
-    async fn list_background_agents(&self) -> Result<Vec<BackgroundAgent>> {
+impl TaskTrigger for CliTaskTrigger {
+    async fn list_tasks(&self) -> Result<Vec<Task>> {
         self.core.storage.background_agents.list_tasks()
     }
 
-    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<BackgroundAgent> {
+    async fn find_and_run_task(&self, name_or_id: &str) -> Result<Task> {
         if let Ok(Some(task)) = self.core.storage.background_agents.get_task(name_or_id) {
             self.runner_handle()
                 .await?
@@ -387,7 +384,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         let task = tasks
             .into_iter()
             .find(|t| t.name.eq_ignore_ascii_case(name_or_id))
-            .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", name_or_id))?;
+            .ok_or_else(|| anyhow::anyhow!("Task not found: {}", name_or_id))?;
 
         self.runner_handle()
             .await?
@@ -396,7 +393,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         Ok(task)
     }
 
-    async fn stop_background_agent(&self, task_id: &str) -> Result<()> {
+    async fn stop_task(&self, task_id: &str) -> Result<()> {
         let stop_requested = match self.handle.read().await.as_ref() {
             Some(handle) => match handle.stop_task(task_id.to_string()).await {
                 Ok(()) => true,
@@ -409,12 +406,12 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         };
 
         if let Ok(Some(task)) = self.core.storage.background_agents.get_task(task_id)
-            && (task.status != BackgroundAgentStatus::Running || !stop_requested)
+            && (task.status != TaskStatus::Running || !stop_requested)
         {
             self.core
                 .storage
                 .background_agents
-                .control_background_agent(task_id, BackgroundAgentControlAction::Stop)?;
+                .control_background_agent(task_id, TaskControlAction::Stop)?;
         }
 
         Ok(())
@@ -427,7 +424,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         let tasks = self.core.storage.background_agents.list_tasks()?;
         let pending_count = tasks
             .iter()
-            .filter(|t| t.status == BackgroundAgentStatus::Active)
+            .filter(|t| t.status == TaskStatus::Active)
             .count();
 
         let today_start = chrono::Utc::now()
@@ -438,7 +435,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
 
         let completed_today = tasks
             .iter()
-            .filter(|t| t.status == BackgroundAgentStatus::Completed && t.updated_at >= today_start)
+            .filter(|t| t.status == TaskStatus::Completed && t.updated_at >= today_start)
             .count();
 
         Ok(SystemStatus {
@@ -449,23 +446,19 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
         })
     }
 
-    async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()> {
+    async fn send_message_to_task(&self, task_id: &str, input: &str) -> Result<()> {
         self.core
             .storage
             .background_agents
             .send_background_agent_message(
                 task_id,
                 input.to_string(),
-                BackgroundMessageSource::User,
+                TaskMessageSource::User,
             )?;
         Ok(())
     }
 
-    async fn handle_background_agent_approval(
-        &self,
-        task_id: &str,
-        approved: bool,
-    ) -> Result<bool> {
+    async fn handle_task_approval(&self, task_id: &str, approved: bool) -> Result<bool> {
         let message = if approved {
             "User approved the pending action."
         } else {
@@ -477,7 +470,7 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
             .send_background_agent_message(
                 task_id,
                 message.to_string(),
-                BackgroundMessageSource::System,
+                TaskMessageSource::System,
             )?;
         Ok(true)
     }
@@ -487,15 +480,13 @@ impl BackgroundAgentTrigger for CliBackgroundAgentTrigger {
 #[allow(clippy::await_holding_lock)]
 mod tests {
     use super::*;
-    use restflow_core::models::{
-        BackgroundAgentSpec, MemoryConfig, NotificationConfig, TaskSchedule,
-    };
+    use restflow_core::models::{MemoryConfig, NotificationConfig, TaskSchedule, TaskSpec};
     use restflow_storage::RuntimeDefaults;
     use std::ffi::OsString;
     use tempfile::tempdir;
 
     #[test]
-    fn build_subagent_config_maps_max_iterations_from_agent_defaults() {
+    fn build_task_config_maps_max_iterations_from_agent_defaults() {
         let defaults = AgentDefaults {
             max_parallel_subagents: 20,
             subagent_timeout_secs: 1800,
@@ -504,7 +495,7 @@ mod tests {
             ..AgentDefaults::default()
         };
 
-        let config = build_subagent_config(&defaults);
+        let config = build_task_config(&defaults);
 
         assert_eq!(config.max_parallel_agents, 20);
         assert_eq!(config.subagent_timeout_secs, 1800);
@@ -561,10 +552,10 @@ mod tests {
         }
     }
 
-    async fn setup_trigger_with_background_agent() -> (
+    async fn setup_task_trigger() -> (
         Arc<AppCore>,
-        CliBackgroundAgentTrigger,
-        BackgroundAgent,
+        CliTaskTrigger,
+        Task,
         tempfile::TempDir,
         EnvGuard,
         EnvGuard,
@@ -592,7 +583,7 @@ mod tests {
         let task = core
             .storage
             .background_agents
-            .create_background_agent(BackgroundAgentSpec {
+            .create_background_agent(TaskSpec {
                 name: "Background Agent Test".to_string(),
                 agent_id: default_agent.id,
                 chat_session_id: None,
@@ -611,7 +602,7 @@ mod tests {
             })
             .expect("failed to create background agent");
 
-        let trigger = CliBackgroundAgentTrigger::new(
+        let trigger = CliTaskTrigger::new(
             core.clone(),
             Arc::new(RwLock::new(None)),
             Arc::new(RwLock::new(None)),
@@ -631,7 +622,7 @@ mod tests {
     #[tokio::test]
     async fn send_input_to_task_enqueues_user_message() {
         let (core, trigger, task, _temp_dir, _restflow_dir_guard, _agents_dir_guard, _env_lock) =
-            setup_trigger_with_background_agent().await;
+            setup_task_trigger().await;
 
         trigger
             .send_message_to_background_agent(&task.id, "hello from main agent")
@@ -645,14 +636,14 @@ mod tests {
             .expect("failed to list background messages");
 
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].source, BackgroundMessageSource::User);
+        assert_eq!(messages[0].source, TaskMessageSource::User);
         assert_eq!(messages[0].message, "hello from main agent");
     }
 
     #[tokio::test]
     async fn handle_approval_falls_back_to_system_message_injection() {
         let (core, trigger, task, _temp_dir, _restflow_dir_guard, _agents_dir_guard, _env_lock) =
-            setup_trigger_with_background_agent().await;
+            setup_task_trigger().await;
 
         let handled = trigger
             .handle_background_agent_approval(&task.id, true)
@@ -667,7 +658,7 @@ mod tests {
             .expect("failed to list background messages");
 
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].source, BackgroundMessageSource::System);
+        assert_eq!(messages[0].source, TaskMessageSource::System);
         assert!(messages[0].message.contains("approved"));
     }
 }

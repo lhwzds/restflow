@@ -2,17 +2,15 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
-    RouteBindingResponse, SessionSourceMigrationResponse,
-    request::BackgroundAgentConvertSessionRequest,
+    RouteBindingResponse, SessionSourceMigrationResponse, request::TaskFromSessionRequest,
 };
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
-    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundProgress, ChatSession, ChatSessionSummary,
-    Deliverable, ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTimeline, Hook,
-    ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret, SharedEntry, Skill, WorkItem,
-    WorkItemPatch, WorkItemSpec,
+    AgentNode, ChatSession, ChatSessionSummary, Deliverable, ExecutionTimeline, Hook, ItemQuery,
+    MemoryChunk, MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, SharedEntry,
+    Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress, TaskSpec,
+    WorkItem, WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::paths;
 use restflow_core::storage::SystemConfig;
@@ -21,6 +19,8 @@ use std::sync::Arc;
 
 // DirectExecutor exists only for isolated command tests. Production CLI commands always
 // reach hook/runtime mutations through the daemon-backed IpcExecutor returned by create().
+// Hook operations are intentionally unsupported in DirectExecutor so CLI hook management
+// cannot mutate runtime state outside the daemon command surface.
 #[cfg(test)]
 pub mod direct;
 pub mod ipc;
@@ -101,6 +101,9 @@ pub trait CommandExecutor: Send + Sync {
     async fn get_global_config(&self) -> Result<SystemConfig>;
     async fn set_config(&self, config: SystemConfig) -> Result<()>;
 
+    // Hooks are daemon-owned runtime state in production. Production CLI commands reach these
+    // operations only through the daemon-backed IpcExecutor returned by create(). DirectExecutor
+    // intentionally rejects these operations so hook management cannot bypass the daemon.
     async fn list_hooks(&self) -> Result<Vec<Hook>>;
     async fn create_hook(&self, hook: Hook) -> Result<Hook>;
     async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook>;
@@ -129,38 +132,21 @@ pub trait CommandExecutor: Send + Sync {
         dry_run: bool,
     ) -> Result<SessionSourceMigrationResponse>;
 
-    // Background Agent operations
-    async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<BackgroundAgent>>;
-    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent>;
-    async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent>;
-    async fn convert_session_to_background_agent(
+    // Task operations
+    async fn list_tasks(&self, status: Option<String>) -> Result<Vec<Task>>;
+    async fn get_task(&self, id: &str) -> Result<Task>;
+    async fn create_task(&self, spec: TaskSpec) -> Result<Task>;
+    async fn convert_session_to_task(
         &self,
-        request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentConversionResult>;
-    async fn update_background_agent(
-        &self,
-        id: &str,
-        patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent>;
-    async fn delete_background_agent(
-        &self,
-        id: &str,
-    ) -> Result<restflow_contracts::DeleteWithIdResponse>;
-    async fn control_background_agent(
-        &self,
-        id: &str,
-        action: BackgroundAgentControlAction,
-    ) -> Result<BackgroundAgent>;
-    async fn get_background_agent_progress(
-        &self,
-        id: &str,
-        event_limit: Option<usize>,
-    ) -> Result<BackgroundProgress>;
-    async fn send_background_agent_message(&self, id: &str, message: &str) -> Result<()>;
-    async fn list_execution_sessions(
-        &self,
-        query: ExecutionSessionListQuery,
-    ) -> Result<Vec<ExecutionSessionSummary>>;
+        request: TaskFromSessionRequest,
+    ) -> Result<TaskConversionResult>;
+    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task>;
+    async fn delete_task(&self, id: &str) -> Result<restflow_contracts::DeleteWithIdResponse>;
+    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task>;
+    async fn get_task_progress(&self, id: &str, event_limit: Option<usize>)
+    -> Result<TaskProgress>;
+    async fn send_task_message(&self, id: &str, message: &str) -> Result<()>;
+    async fn list_execution_sessions(&self, query: RunListQuery) -> Result<Vec<RunSummary>>;
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline>;
 
     // Shared Space operations

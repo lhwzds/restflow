@@ -13,6 +13,7 @@ use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
 use cli::{Cli, Commands};
+use commands::task as task_commands;
 use restflow_core::paths;
 use std::io;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -191,9 +192,7 @@ async fn run() -> Result<()> {
             Some(Commands::Security { command }) => {
                 commands::security::run(command, cli.format).await
             }
-            Some(Commands::BackgroundAgent { command }) => {
-                commands::background_agent::run(exec, command, cli.format).await
-            }
+            Some(Commands::Task { command }) => task_commands::run(exec, command, cli.format).await,
             Some(Commands::Shared { command }) => {
                 commands::shared::run(exec, command, cli.format).await
             }
@@ -225,6 +224,10 @@ mod tests {
         Commands, HookCommands, MaintenanceCommands, PairingCommands, RouteCommands, StartArgs,
     };
 
+    fn hook_command(command: HookCommands) -> Option<Commands> {
+        Some(Commands::Hook { command })
+    }
+
     #[test]
     fn start_does_not_need_direct_core() {
         let command = Some(Commands::Start(StartArgs::default()));
@@ -233,44 +236,66 @@ mod tests {
 
     #[test]
     fn hook_does_not_need_direct_core() {
-        let command = Some(Commands::Hook {
-            command: HookCommands::List,
-        });
+        let command = hook_command(HookCommands::List);
         assert!(!command_needs_direct_core(&command));
     }
 
     #[test]
     fn hook_list_uses_daemon_executor() {
-        let command = Some(Commands::Hook {
-            command: HookCommands::List,
-        });
+        let command = hook_command(HookCommands::List);
         assert!(command_uses_daemon_executor(&command));
     }
 
     #[test]
     fn hook_create_uses_daemon_executor() {
-        let command = Some(Commands::Hook {
-            command: HookCommands::Create {
-                name: "notify".to_string(),
-                event: "task_started".to_string(),
-                action: "webhook".to_string(),
-                url: Some("https://example.com/hook".to_string()),
-                script: None,
-                channel: None,
-                message: None,
-                agent: None,
-                input: None,
-            },
+        let command = hook_command(HookCommands::Create {
+            name: "notify".to_string(),
+            event: "task_started".to_string(),
+            action: "webhook".to_string(),
+            url: Some("https://example.com/hook".to_string()),
+            script: None,
+            channel: None,
+            message: None,
+            agent: None,
+            input: None,
         });
         assert!(command_uses_daemon_executor(&command));
     }
 
     #[test]
+    fn hook_update_uses_daemon_executor() {
+        let command = hook_command(HookCommands::Update {
+            id: "hook-123".to_string(),
+            name: "notify".to_string(),
+            event: "task_started".to_string(),
+            action: "webhook".to_string(),
+            url: Some("https://example.com/hook".to_string()),
+            script: None,
+            channel: None,
+            message: None,
+            agent: None,
+            input: None,
+        });
+        assert!(command_uses_daemon_executor(&command));
+    }
+
+    #[test]
+    fn hook_delete_uses_daemon_executor() {
+        let command = hook_command(HookCommands::Delete {
+            id: "hook-123".to_string(),
+        });
+        assert!(command_uses_daemon_executor(&command));
+    }
+
+    #[test]
+    fn task_command_module_is_available() {
+        let _ = crate::commands::task::run;
+    }
+
+    #[test]
     fn hook_test_uses_daemon_executor() {
-        let command = Some(Commands::Hook {
-            command: HookCommands::Test {
-                id: "hook-123".to_string(),
-            },
+        let command = hook_command(HookCommands::Test {
+            id: "hook-123".to_string(),
         });
         assert!(command_uses_daemon_executor(&command));
     }
