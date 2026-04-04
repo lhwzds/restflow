@@ -3,7 +3,7 @@ use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, ClearResponse, IdResponse, OkResponse, PairingApprovalResponse,
     PairingOwnerResponse, PairingStateResponse, RouteBindingResponse,
-    SessionSourceMigrationResponse, request::BackgroundAgentConvertSessionRequest,
+    SessionSourceMigrationResponse, request::TaskFromSessionRequest,
 };
 use std::path::Path;
 use tokio::sync::Mutex;
@@ -13,11 +13,10 @@ use restflow_core::daemon::request_mapper::to_contract;
 use restflow_core::daemon::{IpcClient, IpcRequest};
 use restflow_core::memory::ExportResult;
 use restflow_core::models::{
-    AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
-    BackgroundAgentPatch, BackgroundAgentSpec, BackgroundMessage, BackgroundProgress, ChatSession,
-    ChatSessionSummary, Deliverable, ExecutionSessionListQuery, ExecutionSessionSummary,
-    ExecutionTimeline, ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret,
-    SharedEntry, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
+    AgentNode, ChatSession, ChatSessionSummary, Deliverable, ExecutionTimeline, ItemQuery,
+    MemoryChunk, MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret, SharedEntry,
+    Skill, Task, TaskControlAction, TaskConversionResult, TaskMessage, TaskPatch, TaskProgress,
+    TaskSpec, WorkItem, WorkItemPatch, WorkItemSpec,
 };
 use restflow_core::storage::SystemConfig;
 use restflow_core::storage::agent::StoredAgent;
@@ -437,76 +436,63 @@ impl CommandExecutor for IpcExecutor {
             .await
     }
 
-    // Background Agent operations - use IPC client methods
-    async fn list_background_agents(&self, status: Option<String>) -> Result<Vec<BackgroundAgent>> {
+    // Task operations - use IPC client methods
+    async fn list_tasks(&self, status: Option<String>) -> Result<Vec<Task>> {
         let mut client = self.client.lock().await;
-        client.list_background_agents(status).await
+        client.list_tasks(status).await
     }
 
-    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent> {
+    async fn get_task(&self, id: &str) -> Result<Task> {
         let mut client = self.client.lock().await;
         client
-            .get_background_agent(id.to_string())
+            .get_task(id.to_string())
             .await?
-            .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", id))
+            .ok_or_else(|| anyhow::anyhow!("Task not found: {}", id))
     }
 
-    async fn create_background_agent(&self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+    async fn create_task(&self, spec: TaskSpec) -> Result<Task> {
         let mut client = self.client.lock().await;
-        client.create_background_agent(spec).await
+        client.create_task(spec).await
     }
 
-    async fn convert_session_to_background_agent(
+    async fn convert_session_to_task(
         &self,
-        request: BackgroundAgentConvertSessionRequest,
-    ) -> Result<BackgroundAgentConversionResult> {
+        request: TaskFromSessionRequest,
+    ) -> Result<TaskConversionResult> {
         let mut client = self.client.lock().await;
-        client.convert_session_to_background_agent(request).await
+        client.create_task_from_session(request).await
     }
 
-    async fn update_background_agent(
-        &self,
-        id: &str,
-        patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent> {
+    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task> {
         let mut client = self.client.lock().await;
-        client.update_background_agent(id.to_string(), patch).await
+        client.update_task(id.to_string(), patch).await
     }
 
-    async fn delete_background_agent(
-        &self,
-        id: &str,
-    ) -> Result<restflow_contracts::DeleteWithIdResponse> {
+    async fn delete_task(&self, id: &str) -> Result<restflow_contracts::DeleteWithIdResponse> {
         let mut client = self.client.lock().await;
-        client.delete_background_agent(id.to_string()).await
+        client.delete_task(id.to_string()).await
     }
 
-    async fn control_background_agent(
-        &self,
-        id: &str,
-        action: BackgroundAgentControlAction,
-    ) -> Result<BackgroundAgent> {
+    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task> {
         let mut client = self.client.lock().await;
-        client
-            .control_background_agent(id.to_string(), action)
-            .await
+        client.control_task(id.to_string(), action).await
     }
 
-    async fn get_background_agent_progress(
+    async fn get_task_progress(
         &self,
         id: &str,
         event_limit: Option<usize>,
-    ) -> Result<BackgroundProgress> {
-        self.request_typed(IpcRequest::GetBackgroundAgentProgress {
+    ) -> Result<TaskProgress> {
+        self.request_typed(IpcRequest::GetTaskProgress {
             id: id.to_string(),
             event_limit,
         })
         .await
     }
 
-    async fn send_background_agent_message(&self, id: &str, message: &str) -> Result<()> {
-        let _: BackgroundMessage = self
-            .request_typed(IpcRequest::SendBackgroundAgentMessage {
+    async fn send_task_message(&self, id: &str, message: &str) -> Result<()> {
+        let _: TaskMessage = self
+            .request_typed(IpcRequest::SendTaskMessage {
                 id: id.to_string(),
                 message: message.to_string(),
                 source: None::<String>,
@@ -515,10 +501,7 @@ impl CommandExecutor for IpcExecutor {
         Ok(())
     }
 
-    async fn list_execution_sessions(
-        &self,
-        query: ExecutionSessionListQuery,
-    ) -> Result<Vec<ExecutionSessionSummary>> {
+    async fn list_execution_sessions(&self, query: RunListQuery) -> Result<Vec<RunSummary>> {
         let mut client = self.client.lock().await;
         client.list_execution_sessions(query).await
     }

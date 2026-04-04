@@ -1,6 +1,6 @@
 use crate::cli::DaemonCommands;
 use crate::commands::daemon_state::{self, EffectiveDaemonStatus, RunningSource};
-use crate::daemon::CliBackgroundAgentRunner;
+use crate::daemon::CliTaskRunner;
 use anyhow::{Context, Result};
 use restflow_core::AppCore;
 use restflow_core::daemon::{DaemonConfig, IpcServer, start_daemon_with_config, stop_daemon};
@@ -253,8 +253,8 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
         }
     });
 
-    let mut runner = CliBackgroundAgentRunner::new(core.clone());
-    if let Err(err) = runner.start().await {
+    let mut task_runner = CliTaskRunner::new(core.clone());
+    if let Err(err) = task_runner.start().await {
         error!(error = %err, "Task runner failed to start; continuing without runner");
     }
 
@@ -271,7 +271,7 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     // Ensure core services did not fail immediately before declaring daemon as running.
     sleep(Duration::from_millis(120)).await;
     ensure_startup_services_and_cleanup(ipc_handle.is_finished(), mcp_handle.is_finished(), || {
-        runner.stop()
+        task_runner.stop()
     })
     .await?;
 
@@ -284,7 +284,7 @@ async fn run_daemon(core: Arc<AppCore>, config: DaemonConfig) -> Result<()> {
     let mut shutdown_rx = shutdown_tx.subscribe();
     let _ = shutdown_rx.recv().await;
 
-    runner.stop().await?;
+    task_runner.stop().await?;
     let _ = ipc_handle.await;
     let _ = mcp_handle.await;
     let _ = cleanup_handle.await;

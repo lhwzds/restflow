@@ -297,7 +297,7 @@ fn parse_json_rpc_response_accepts_sse_with_comment_and_event_lines() {
 
 #[allow(clippy::await_holding_lock)]
 #[tokio::test]
-async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> {
+async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
     let _lock = env_lock();
     let temp = tempdir().context("tempdir")?;
     let state_dir = temp.path().join("state");
@@ -331,8 +331,14 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
     assert!(
         tools_list
             .iter()
-            .any(|tool| tool["name"].as_str() == Some("manage_background_agents")),
-        "manage_background_agents must be exposed over MCP"
+            .any(|tool| tool["name"].as_str() == Some("manage_tasks")),
+        "manage_tasks must be exposed over MCP"
+    );
+    assert!(
+        tools_list
+            .iter()
+            .all(|tool| tool["name"].as_str() != Some("manage_background_agents")),
+        "manage_background_agents alias must stay callable but hidden from tools/list"
     );
 
     let save_team_initial = post_json_rpc(
@@ -343,7 +349,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
             "id": 3,
             "method": "tools/call",
             "params": {
-                "name": "manage_background_agents",
+                "name": "manage_tasks",
                 "arguments": {
                     "operation": "save_team",
                     "team": "daemon-bg-team",
@@ -372,7 +378,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
                 "id": 4,
                 "method": "tools/call",
                 "params": {
-                    "name": "manage_background_agents",
+                    "name": "manage_tasks",
                     "arguments": {
                         "operation": "save_team",
                         "team": "daemon-bg-team",
@@ -401,7 +407,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
             "id": 5,
             "method": "tools/call",
             "params": {
-                "name": "manage_background_agents",
+                "name": "manage_tasks",
                 "arguments": {
                     "operation": "get_team",
                     "team": "daemon-bg-team"
@@ -424,6 +430,32 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
             || get_value["members"][0]["inputs"].is_null()
     );
 
+    let get_team_alias = post_json_rpc(
+        &client,
+        &url,
+        json!({
+            "jsonrpc": "2.0",
+            "id": 51,
+            "method": "tools/call",
+            "params": {
+                "name": "manage_background_agents",
+                "arguments": {
+                    "operation": "get_team",
+                    "team": "daemon-bg-team"
+                }
+            }
+        }),
+    )
+    .await?;
+    let get_alias_text = tool_call_text(&get_team_alias);
+    let get_alias_value = parse_tool_text_json(&get_alias_text)?;
+    assert_eq!(get_alias_value["operation"], "get_team");
+    assert_eq!(get_alias_value["member_groups"], get_value["member_groups"]);
+    assert_eq!(
+        get_alias_value["total_instances"],
+        get_value["total_instances"]
+    );
+
     let run_batch_initial = post_json_rpc(
         &client,
         &url,
@@ -432,7 +464,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
             "id": 6,
             "method": "tools/call",
             "params": {
-                "name": "manage_background_agents",
+                "name": "manage_tasks",
                 "arguments": {
                     "operation": "run_batch",
                     "team": "daemon-bg-team",
@@ -457,7 +489,7 @@ async fn test_daemon_mcp_manage_background_agents_team_contract() -> Result<()> 
                 "id": 7,
                 "method": "tools/call",
                 "params": {
-                    "name": "manage_background_agents",
+                    "name": "manage_tasks",
                     "arguments": {
                         "operation": "run_batch",
                         "team": "daemon-bg-team",

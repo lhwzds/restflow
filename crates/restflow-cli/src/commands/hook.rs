@@ -255,18 +255,17 @@ mod tests {
     use super::*;
     use crate::output::OutputFormat;
     use async_trait::async_trait;
-    use restflow_contracts::request::BackgroundAgentConvertSessionRequest;
+    use restflow_contracts::request::TaskFromSessionRequest;
     use restflow_contracts::{
         CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
         RouteBindingResponse, SessionSourceMigrationResponse,
     };
     use restflow_core::memory::ExportResult;
     use restflow_core::models::{
-        AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
-        BackgroundAgentPatch, BackgroundAgentSpec, BackgroundProgress, ChatSession,
-        ChatSessionSummary, Deliverable, ExecutionSessionListQuery, ExecutionSessionSummary,
-        ExecutionTimeline, ItemQuery, MemoryChunk, MemorySearchResult, MemoryStats, Secret,
-        SharedEntry, Skill, WorkItem, WorkItemPatch, WorkItemSpec,
+        AgentNode, ChatSession, ChatSessionSummary, Deliverable, ExecutionTimeline, ItemQuery,
+        MemoryChunk, MemorySearchResult, MemoryStats, RunListQuery, RunSummary, Secret,
+        SharedEntry, Skill, Task, TaskControlAction, TaskConversionResult, TaskPatch, TaskProgress,
+        TaskSpec, WorkItem, WorkItemPatch, WorkItemSpec,
     };
     use restflow_core::storage::SystemConfig;
     use restflow_core::storage::agent::StoredAgent;
@@ -574,74 +573,60 @@ mod tests {
             panic!("unexpected executor call")
         }
 
-        async fn list_background_agents(
+        async fn list_tasks(&self, _status: Option<String>) -> anyhow::Result<Vec<Task>> {
+            panic!("unexpected executor call")
+        }
+
+        async fn get_task(&self, _id: &str) -> anyhow::Result<Task> {
+            panic!("unexpected executor call")
+        }
+
+        async fn create_task(&self, _spec: TaskSpec) -> anyhow::Result<Task> {
+            panic!("unexpected executor call")
+        }
+
+        async fn convert_session_to_task(
             &self,
-            _status: Option<String>,
-        ) -> anyhow::Result<Vec<BackgroundAgent>> {
+            _request: TaskFromSessionRequest,
+        ) -> anyhow::Result<TaskConversionResult> {
             panic!("unexpected executor call")
         }
 
-        async fn get_background_agent(&self, _id: &str) -> anyhow::Result<BackgroundAgent> {
+        async fn update_task(&self, _id: &str, _patch: TaskPatch) -> anyhow::Result<Task> {
             panic!("unexpected executor call")
         }
 
-        async fn create_background_agent(
-            &self,
-            _spec: BackgroundAgentSpec,
-        ) -> anyhow::Result<BackgroundAgent> {
-            panic!("unexpected executor call")
-        }
-
-        async fn convert_session_to_background_agent(
-            &self,
-            _request: BackgroundAgentConvertSessionRequest,
-        ) -> anyhow::Result<BackgroundAgentConversionResult> {
-            panic!("unexpected executor call")
-        }
-
-        async fn update_background_agent(
-            &self,
-            _id: &str,
-            _patch: BackgroundAgentPatch,
-        ) -> anyhow::Result<BackgroundAgent> {
-            panic!("unexpected executor call")
-        }
-
-        async fn delete_background_agent(
+        async fn delete_task(
             &self,
             _id: &str,
         ) -> anyhow::Result<restflow_contracts::DeleteWithIdResponse> {
             panic!("unexpected executor call")
         }
 
-        async fn control_background_agent(
+        async fn control_task(
             &self,
             _id: &str,
-            _action: BackgroundAgentControlAction,
-        ) -> anyhow::Result<BackgroundAgent> {
+            _action: TaskControlAction,
+        ) -> anyhow::Result<Task> {
             panic!("unexpected executor call")
         }
 
-        async fn get_background_agent_progress(
+        async fn get_task_progress(
             &self,
             _id: &str,
             _event_limit: Option<usize>,
-        ) -> anyhow::Result<BackgroundProgress> {
+        ) -> anyhow::Result<TaskProgress> {
             panic!("unexpected executor call")
         }
 
-        async fn send_background_agent_message(
-            &self,
-            _id: &str,
-            _message: &str,
-        ) -> anyhow::Result<()> {
+        async fn send_task_message(&self, _id: &str, _message: &str) -> anyhow::Result<()> {
             panic!("unexpected executor call")
         }
 
         async fn list_execution_sessions(
             &self,
-            _query: ExecutionSessionListQuery,
-        ) -> anyhow::Result<Vec<ExecutionSessionSummary>> {
+            _query: RunListQuery,
+        ) -> anyhow::Result<Vec<RunSummary>> {
             panic!("unexpected executor call")
         }
 

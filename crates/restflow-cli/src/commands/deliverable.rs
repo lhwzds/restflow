@@ -14,7 +14,9 @@ pub async fn run(
     format: OutputFormat,
 ) -> Result<()> {
     match command {
-        DeliverableCommands::List { task } => list_deliverables(executor, &task, format).await,
+        DeliverableCommands::List { task_id } => {
+            list_deliverables(executor, &task_id, format).await
+        }
     }
 }
 
