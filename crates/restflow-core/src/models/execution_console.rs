@@ -18,7 +18,7 @@ pub enum ExecutionContainerKind {
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
-pub enum ExecutionSessionKind {
+pub enum RunKind {
     WorkspaceRun,
     BackgroundRun,
     ExternalRun,
@@ -63,9 +63,9 @@ pub struct ExecutionContainerRef {
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct ExecutionSessionSummary {
+pub struct RunSummary {
     pub id: String,
-    pub kind: ExecutionSessionKind,
+    pub kind: RunKind,
     pub container_id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub root_run_id: Option<String>,
@@ -107,14 +107,14 @@ pub struct ExecutionSessionSummary {
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct ExecutionSessionListQuery {
+pub struct RunListQuery {
     pub container: ExecutionContainerRef,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct ChildExecutionSessionQuery {
+pub struct ChildRunListQuery {
     pub parent_run_id: String,
 }
 
@@ -122,6 +122,50 @@ pub struct ChildExecutionSessionQuery {
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 pub struct ExecutionThread {
-    pub focus: ExecutionSessionSummary,
+    pub focus: RunSummary,
     pub timeline: ExecutionTimeline,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_types_expose_canonical_surface() {
+        let summary = RunSummary {
+            id: "run-1".to_string(),
+            kind: RunKind::BackgroundRun,
+            container_id: "task-1".to_string(),
+            root_run_id: Some("run-1".to_string()),
+            title: "Example Run".to_string(),
+            subtitle: None,
+            status: "completed".to_string(),
+            updated_at: 1,
+            started_at: Some(1),
+            ended_at: Some(2),
+            session_id: Some("session-1".to_string()),
+            run_id: Some("run-1".to_string()),
+            task_id: Some("task-1".to_string()),
+            parent_run_id: None,
+            agent_id: Some("agent-1".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: Some("gpt-5.4".to_string()),
+            provider: Some("openai".to_string()),
+            event_count: 3,
+        };
+        let query = RunListQuery {
+            container: ExecutionContainerRef {
+                kind: ExecutionContainerKind::BackgroundTask,
+                id: "task-1".to_string(),
+            },
+        };
+        let child_query = ChildRunListQuery {
+            parent_run_id: "run-1".to_string(),
+        };
+
+        assert_eq!(summary.run_id.as_deref(), Some("run-1"));
+        assert_eq!(query.container.id, "task-1");
+        assert_eq!(child_query.parent_run_id, "run-1");
+    }
 }

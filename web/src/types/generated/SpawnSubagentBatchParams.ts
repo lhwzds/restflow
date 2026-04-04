@@ -45,9 +45,9 @@ timeout_secs?: bigint,
  */
 save_as_team?: string, 
 /**
- * Optional parent execution ID for context propagation (runtime-injected).
+ * Optional parent run ID for context propagation (runtime-injected).
  */
-parent_execution_id?: string, 
+parent_run_id?: string, 
 /**
  * Optional trace session ID for context propagation (runtime-injected).
  */

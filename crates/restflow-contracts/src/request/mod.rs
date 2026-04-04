@@ -66,13 +66,13 @@ pub enum IpcRequest {
         id: String,
     },
 
-    ListBackgroundAgents {
+    ListTasks {
         status: Option<String>,
     },
-    ListRunnableBackgroundAgents {
+    ListRunnableTasks {
         current_time: Option<i64>,
     },
-    GetBackgroundAgent {
+    GetTask {
         id: String,
     },
     ListHooks,
@@ -283,14 +283,14 @@ pub enum IpcRequest {
         limit: Option<usize>,
     },
     ListExecutionContainers,
-    ListExecutionSessions {
-        query: ExecutionSessionListQuery,
+    ListRuns {
+        query: RunListQuery,
     },
     GetExecutionRunThread {
         run_id: String,
     },
-    ListChildExecutionSessions {
-        query: ChildExecutionSessionQuery,
+    ListChildRuns {
+        query: ChildRunListQuery,
     },
     QueryExecutionTraces {
         #[serde(default)]
@@ -385,45 +385,50 @@ pub enum IpcRequest {
     },
     ClearAuthProfiles,
 
-    GetBackgroundAgentHistory {
+    GetTaskHistory {
         id: String,
     },
-    CreateBackgroundAgent {
-        spec: BackgroundAgentSpec,
+    CreateTask {
+        spec: TaskSpec,
     },
-    ConvertSessionToBackgroundAgent {
-        request: BackgroundAgentConvertSessionRequest,
+    CreateTaskFromSession {
+        request: TaskFromSessionRequest,
     },
-    UpdateBackgroundAgent {
+    UpdateTask {
         id: String,
-        patch: BackgroundAgentPatch,
+        patch: TaskPatch,
     },
-    DeleteBackgroundAgent {
+    DeleteTask {
         id: String,
     },
-    ControlBackgroundAgent {
+    ControlTask {
         id: String,
         action: String,
     },
-    GetBackgroundAgentProgress {
+    GetTaskProgress {
         id: String,
         event_limit: Option<usize>,
     },
-    SendBackgroundAgentMessage {
+    SendTaskMessage {
         id: String,
         message: String,
         source: Option<String>,
     },
-    HandleBackgroundAgentApproval {
+    HandleTaskApproval {
         id: String,
         approved: bool,
     },
-    ListBackgroundAgentMessages {
+    ListTaskMessages {
         id: String,
         limit: Option<usize>,
     },
-    SubscribeBackgroundAgentEvents {
-        background_agent_id: String,
+    #[serde(
+        alias = "SubscribeBackgroundAgentEvents",
+        alias = "subscribe_background_agent_events"
+    )]
+    SubscribeTaskEvents {
+        #[serde(alias = "background_agent_id")]
+        task_id: String,
     },
     SubscribeSessionEvents,
 
@@ -516,7 +521,7 @@ pub struct AgentNode {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct InlineSubagentConfig {
+pub struct InlineAgentRunConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -537,11 +542,11 @@ pub enum SpawnPriority {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-pub struct SubagentSpawnRequest {
+pub struct RunSpawnRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inline: Option<InlineSubagentConfig>,
+    pub inline: Option<InlineAgentRunConfig>,
     pub task: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timeout_secs: Option<u64>,
@@ -554,7 +559,7 @@ pub struct SubagentSpawnRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_provider: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub parent_execution_id: Option<String>,
+    pub parent_run_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -675,8 +680,8 @@ impl Default for NotificationConfig {
 pub enum MemoryScope {
     #[default]
     SharedAgent,
-    #[serde(rename = "per_background_agent")]
-    PerBackgroundAgent,
+    #[serde(rename = "per_task", alias = "per_background_agent")]
+    PerTask,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -761,7 +766,7 @@ impl Default for ContinuationConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct BackgroundAgentSpec {
+pub struct TaskSpec {
     pub name: String,
     pub agent_id: String,
     #[serde(default)]
@@ -792,7 +797,7 @@ pub struct BackgroundAgentSpec {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct BackgroundAgentPatch {
+pub struct TaskPatch {
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -826,7 +831,7 @@ pub struct BackgroundAgentPatch {
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
-pub struct BackgroundAgentConvertSessionRequest {
+pub struct TaskFromSessionRequest {
     pub session_id: String,
     #[serde(default)]
     pub name: Option<String>,
@@ -1443,12 +1448,12 @@ pub struct ExecutionContainerRef {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ExecutionSessionListQuery {
+pub struct RunListQuery {
     pub container: ExecutionContainerRef,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
-pub struct ChildExecutionSessionQuery {
+pub struct ChildRunListQuery {
     pub parent_run_id: String,
 }
 
@@ -1576,8 +1581,8 @@ pub struct AgentSettings {
     pub approval_timeout_secs: u64,
     pub max_iterations: usize,
     pub max_depth: usize,
-    pub subagent_timeout_secs: u64,
-    pub max_parallel_subagents: usize,
+    pub child_run_timeout_secs: u64,
+    pub max_parallel_child_runs: usize,
     pub max_tool_calls: usize,
     pub max_tool_concurrency: usize,
     pub max_tool_result_length: usize,
@@ -1704,10 +1709,10 @@ mod tests {
     }
 
     #[test]
-    fn subagent_spawn_request_round_trips() {
-        let request = SubagentSpawnRequest {
+    fn run_spawn_request_round_trips() {
+        let request = RunSpawnRequest {
             agent_id: Some("coder".to_string()),
-            inline: Some(InlineSubagentConfig {
+            inline: Some(InlineAgentRunConfig {
                 name: Some("Temp".to_string()),
                 system_prompt: Some("You are focused.".to_string()),
                 allowed_tools: Some(vec!["bash".to_string()]),
@@ -1719,7 +1724,7 @@ mod tests {
             priority: Some(SpawnPriority::High),
             model: Some("gpt-5.4-codex".to_string()),
             model_provider: Some("openai-codex".to_string()),
-            parent_execution_id: Some("exec-1".to_string()),
+            parent_run_id: Some("run-1".to_string()),
             trace_session_id: Some("session-1".to_string()),
             trace_scope_id: Some("scope-1".to_string()),
         };
@@ -1728,9 +1733,9 @@ mod tests {
     }
 
     #[test]
-    fn ipc_request_background_agent_round_trips() {
-        let request = IpcRequest::CreateBackgroundAgent {
-            spec: BackgroundAgentSpec {
+    fn ipc_request_task_round_trips() {
+        let request = IpcRequest::CreateTask {
+            spec: TaskSpec {
                 name: "nightly".to_string(),
                 agent_id: "agent-1".to_string(),
                 chat_session_id: Some("session-1".to_string()),
@@ -1766,9 +1771,9 @@ mod tests {
     }
 
     #[test]
-    fn ipc_request_convert_background_agent_round_trips() {
-        let request = IpcRequest::ConvertSessionToBackgroundAgent {
-            request: BackgroundAgentConvertSessionRequest {
+    fn ipc_request_create_task_from_session_round_trips() {
+        let request = IpcRequest::CreateTaskFromSession {
+            request: TaskFromSessionRequest {
                 session_id: "session-1".to_string(),
                 name: Some("Converted Session".to_string()),
                 schedule: Some(TaskSchedule::Cron {
@@ -1793,19 +1798,36 @@ mod tests {
     }
 
     #[test]
-    fn background_agent_convert_contract_defaults_match_expected_semantics() {
-        let contract: BackgroundAgentConvertSessionRequest =
-            serde_json::from_value(serde_json::json!({
-                "session_id": "session-1"
-            }))
-            .expect("convert defaults");
+    fn ipc_request_legacy_background_agent_subscription_alias_maps_to_task_variant() {
+        let request: IpcRequest = serde_json::from_value(serde_json::json!({
+            "type": "SubscribeBackgroundAgentEvents",
+            "data": {
+                "background_agent_id": "task-123"
+            }
+        }))
+        .unwrap();
+
+        assert_eq!(
+            request,
+            IpcRequest::SubscribeTaskEvents {
+                task_id: "task-123".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn task_from_session_contract_defaults_match_expected_semantics() {
+        let contract: TaskFromSessionRequest = serde_json::from_value(serde_json::json!({
+            "session_id": "session-1"
+        }))
+        .expect("convert defaults");
 
         assert_eq!(contract.run_now, None);
     }
 
     #[test]
-    fn background_agent_contract_defaults_match_expected_semantics() {
-        let contract: BackgroundAgentSpec = serde_json::from_value(serde_json::json!({
+    fn task_contract_defaults_match_expected_semantics() {
+        let contract: TaskSpec = serde_json::from_value(serde_json::json!({
             "name": "nightly",
             "agent_id": "agent-1",
             "schedule": {
@@ -1821,7 +1843,7 @@ mod tests {
             "resource_limits": {},
             "continuation": {}
         }))
-        .expect("background agent defaults");
+        .expect("task defaults");
 
         let cli = match contract.execution_mode.expect("execution mode") {
             ExecutionMode::Cli(config) => config,
@@ -1866,6 +1888,83 @@ mod tests {
         assert_eq!(
             continuation.inter_segment_pause_ms,
             defaults::default_inter_segment_pause_ms()
+        );
+    }
+
+    #[test]
+    fn list_runs_and_task_memory_scope_use_canonical_names() {
+        let request = IpcRequest::ListRuns {
+            query: RunListQuery {
+                container: ExecutionContainerRef {
+                    kind: ExecutionContainerKind::BackgroundTask,
+                    id: "task-1".to_string(),
+                },
+            },
+        };
+        assert_roundtrip(&request);
+
+        let child_request = IpcRequest::ListChildRuns {
+            query: ChildRunListQuery {
+                parent_run_id: "run-root".to_string(),
+            },
+        };
+        assert_roundtrip(&child_request);
+
+        let scope: MemoryScope =
+            serde_json::from_value(serde_json::json!("per_task")).expect("task memory scope");
+        assert_eq!(scope, MemoryScope::PerTask);
+        let legacy_scope: MemoryScope =
+            serde_json::from_value(serde_json::json!("per_background_agent"))
+                .expect("legacy task memory scope");
+        assert_eq!(legacy_scope, MemoryScope::PerTask);
+        assert_eq!(
+            serde_json::to_value(scope).expect("serialize task scope"),
+            serde_json::json!("per_task")
+        );
+    }
+
+    #[test]
+    fn get_execution_trace_by_id_accepts_legacy_event_id_alias() {
+        let request: IpcRequest = serde_json::from_value(serde_json::json!({
+            "type": "GetExecutionTraceById",
+            "data": {
+                "event_id": "event-1"
+            }
+        }))
+        .expect("legacy event_id alias should deserialize");
+
+        match request {
+            IpcRequest::GetExecutionTraceById { id } => assert_eq!(id, "event-1"),
+            other => panic!("unexpected request: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn subscribe_task_events_accepts_legacy_background_agent_wire_shape() {
+        let request: IpcRequest = serde_json::from_value(serde_json::json!({
+            "type": "SubscribeBackgroundAgentEvents",
+            "data": {
+                "background_agent_id": "task-legacy"
+            }
+        }))
+        .expect("legacy background-agent stream request should deserialize");
+
+        assert_eq!(
+            request,
+            IpcRequest::SubscribeTaskEvents {
+                task_id: "task-legacy".to_string(),
+            }
+        );
+
+        let serialized = serde_json::to_value(&request).expect("serialize canonical request");
+        assert_eq!(
+            serialized,
+            serde_json::json!({
+                "type": "SubscribeTaskEvents",
+                "data": {
+                    "task_id": "task-legacy"
+                }
+            })
         );
     }
 

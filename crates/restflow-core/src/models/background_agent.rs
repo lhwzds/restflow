@@ -81,7 +81,7 @@ impl Default for CliExecutionConfig {
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "lowercase")]
-pub enum BackgroundAgentStatus {
+pub enum TaskStatus {
     /// Task is active and will run on schedule
     #[default]
     Active,
@@ -97,15 +97,15 @@ pub enum BackgroundAgentStatus {
     Interrupted,
 }
 
-impl BackgroundAgentStatus {
+impl TaskStatus {
     pub const fn as_str(&self) -> &'static str {
         match self {
-            BackgroundAgentStatus::Active => "active",
-            BackgroundAgentStatus::Paused => "paused",
-            BackgroundAgentStatus::Running => "running",
-            BackgroundAgentStatus::Completed => "completed",
-            BackgroundAgentStatus::Failed => "failed",
-            BackgroundAgentStatus::Interrupted => "interrupted",
+            TaskStatus::Active => "active",
+            TaskStatus::Paused => "paused",
+            TaskStatus::Running => "running",
+            TaskStatus::Completed => "completed",
+            TaskStatus::Failed => "failed",
+            TaskStatus::Interrupted => "interrupted",
         }
     }
 }
@@ -214,21 +214,21 @@ fn default_inter_segment_pause_ms() -> u64 {
     1_000
 }
 
-/// Scope for background-agent memory persistence.
+/// Scope for task memory persistence.
 ///
-/// Controls whether long-term memory is shared across all background agents of
-/// an agent or isolated per background agent.
+/// Controls whether long-term memory is shared across all tasks of an
+/// agent or isolated per task.
 #[derive(Debug, Clone, Default, Serialize, TS, Type, PartialEq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
 pub enum MemoryScope {
-    /// Share long-term memory across background agents using the same agent_id.
+    /// Share long-term memory across tasks using the same agent_id.
     #[default]
     SharedAgent,
-    /// Isolate long-term memory by background agent.
-    #[serde(rename = "per_background_agent")]
-    PerBackgroundAgent,
+    /// Isolate long-term memory by task.
+    #[serde(rename = "per_task")]
+    PerTask,
 }
 
 impl<'de> Deserialize<'de> for MemoryScope {
@@ -239,10 +239,11 @@ impl<'de> Deserialize<'de> for MemoryScope {
         let value = String::deserialize(deserializer)?;
         match value.as_str() {
             "shared_agent" => Ok(Self::SharedAgent),
-            "per_background_agent" => Ok(Self::PerBackgroundAgent),
+            "per_task" => Ok(Self::PerTask),
+            "per_background_agent" => Ok(Self::PerTask),
             other => Err(serde::de::Error::unknown_variant(
                 other,
-                &["shared_agent", "per_background_agent"],
+                &["shared_agent", "per_task", "per_background_agent"],
             )),
         }
     }
@@ -383,11 +384,11 @@ impl Default for ContinuationConfig {
     }
 }
 
-/// Creation payload for background agents.
+/// Creation payload for scheduled tasks.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct BackgroundAgentSpec {
+pub struct TaskSpec {
     /// Display name of the background agent
     pub name: String,
     /// ID of the agent to execute
@@ -434,11 +435,11 @@ pub struct BackgroundAgentSpec {
     pub continuation: Option<ContinuationConfig>,
 }
 
-/// Partial update payload for background agents.
+/// Partial update payload for scheduled tasks.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, TS, Type, PartialEq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct BackgroundAgentPatch {
+pub struct TaskPatch {
     /// New display name
     #[serde(default)]
     pub name: Option<String>,
@@ -486,12 +487,12 @@ pub struct BackgroundAgentPatch {
     pub continuation: Option<ContinuationConfig>,
 }
 
-/// Control actions for a background agent.
+/// Control actions for a scheduled task.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
-pub enum BackgroundAgentControlAction {
+pub enum TaskControlAction {
     /// Start an agent that is not active
     Start,
     /// Pause future executions
@@ -504,12 +505,12 @@ pub enum BackgroundAgentControlAction {
     RunNow,
 }
 
-/// Source for background communication messages.
+/// Source for task communication messages.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
-pub enum BackgroundMessageSource {
+pub enum TaskMessageSource {
     /// Message provided by a human user
     #[default]
     User,
@@ -519,12 +520,12 @@ pub enum BackgroundMessageSource {
     System,
 }
 
-/// Delivery state of background communication messages.
+/// Delivery state of task communication messages.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type, PartialEq, Eq, Default)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
 #[serde(rename_all = "snake_case")]
-pub enum BackgroundMessageStatus {
+pub enum TaskMessageStatus {
     /// Waiting to be injected into a running agent
     #[default]
     Queued,
@@ -536,60 +537,136 @@ pub enum BackgroundMessageStatus {
     Failed,
 }
 
-impl BackgroundMessageStatus {
+impl TaskMessageStatus {
     pub const fn as_str(&self) -> &'static str {
         match self {
-            BackgroundMessageStatus::Queued => "queued",
-            BackgroundMessageStatus::Delivered => "delivered",
-            BackgroundMessageStatus::Consumed => "consumed",
-            BackgroundMessageStatus::Failed => "failed",
+            TaskMessageStatus::Queued => "queued",
+            TaskMessageStatus::Delivered => "delivered",
+            TaskMessageStatus::Consumed => "consumed",
+            TaskMessageStatus::Failed => "failed",
         }
     }
 }
 
-/// A communication message sent to a background agent.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+/// A communication message sent to a task-backed background execution.
+#[derive(Debug, Clone, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct BackgroundMessage {
+pub struct TaskMessage {
     /// Message ID
     pub id: String,
     /// Target background agent ID
     pub background_agent_id: String,
     /// Source of the message
-    pub source: BackgroundMessageSource,
+    pub source: TaskMessageSource,
     /// Delivery status
-    pub status: BackgroundMessageStatus,
+    pub status: TaskMessageStatus,
     /// Message content
     pub message: String,
     /// Message creation timestamp
     #[ts(type = "number")]
     pub created_at: i64,
     /// Delivery timestamp
-    #[serde(default)]
     #[ts(type = "number | null")]
     pub delivered_at: Option<i64>,
     /// Consumption timestamp
-    #[serde(default)]
     #[ts(type = "number | null")]
     pub consumed_at: Option<i64>,
     /// Error details for failed delivery
-    #[serde(default)]
     pub error: Option<String>,
 }
 
-impl BackgroundMessage {
+#[derive(Serialize)]
+struct TaskMessageSerialize<'a> {
+    id: &'a str,
+    task_id: &'a str,
+    background_agent_id: &'a str,
+    source: &'a TaskMessageSource,
+    status: &'a TaskMessageStatus,
+    message: &'a str,
+    created_at: i64,
+    delivered_at: Option<i64>,
+    consumed_at: Option<i64>,
+    error: Option<&'a str>,
+}
+
+#[derive(Deserialize)]
+struct TaskMessageDeserialize {
+    id: String,
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    background_agent_id: Option<String>,
+    source: TaskMessageSource,
+    status: TaskMessageStatus,
+    message: String,
+    created_at: i64,
+    #[serde(default)]
+    delivered_at: Option<i64>,
+    #[serde(default)]
+    consumed_at: Option<i64>,
+    #[serde(default)]
+    error: Option<String>,
+}
+
+impl Serialize for TaskMessage {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        TaskMessageSerialize {
+            id: &self.id,
+            task_id: &self.background_agent_id,
+            background_agent_id: &self.background_agent_id,
+            source: &self.source,
+            status: &self.status,
+            message: &self.message,
+            created_at: self.created_at,
+            delivered_at: self.delivered_at,
+            consumed_at: self.consumed_at,
+            error: self.error.as_deref(),
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TaskMessage {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let payload = TaskMessageDeserialize::deserialize(deserializer)?;
+        let background_agent_id = payload
+            .task_id
+            .or(payload.background_agent_id)
+            .ok_or_else(|| serde::de::Error::missing_field("task_id"))?;
+
+        Ok(Self {
+            id: payload.id,
+            background_agent_id,
+            source: payload.source,
+            status: payload.status,
+            message: payload.message,
+            created_at: payload.created_at,
+            delivered_at: payload.delivered_at,
+            consumed_at: payload.consumed_at,
+            error: payload.error,
+        })
+    }
+}
+
+impl TaskMessage {
     /// Create a new queued background message.
     pub fn new(
         background_agent_id: String,
-        source: BackgroundMessageSource,
+        source: TaskMessageSource,
         message: String,
     ) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             background_agent_id,
             source,
-            status: BackgroundMessageStatus::Queued,
+            status: TaskMessageStatus::Queued,
             message,
             created_at: chrono::Utc::now().timestamp_millis(),
             delivered_at: None,
@@ -600,75 +677,175 @@ impl BackgroundMessage {
 
     /// Mark message as delivered to a running agent.
     pub fn mark_delivered(&mut self) {
-        self.status = BackgroundMessageStatus::Delivered;
+        self.status = TaskMessageStatus::Delivered;
         self.delivered_at = Some(chrono::Utc::now().timestamp_millis());
         self.error = None;
     }
 
     /// Mark message as consumed by an execution.
     pub fn mark_consumed(&mut self) {
-        self.status = BackgroundMessageStatus::Consumed;
+        self.status = TaskMessageStatus::Consumed;
         self.consumed_at = Some(chrono::Utc::now().timestamp_millis());
         self.error = None;
     }
 
     /// Mark message delivery as failed.
     pub fn mark_failed(&mut self, error: String) {
-        self.status = BackgroundMessageStatus::Failed;
+        self.status = TaskMessageStatus::Failed;
         self.error = Some(error);
+    }
+
+    /// Canonical task identifier for this queued message.
+    pub fn task_id(&self) -> &str {
+        &self.background_agent_id
     }
 }
 
-/// Aggregated progress snapshot for a background agent.
-#[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
+/// Aggregated progress snapshot for a task-backed background execution.
+#[derive(Debug, Clone, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct BackgroundProgress {
+pub struct TaskProgress {
     /// Background agent ID
     pub background_agent_id: String,
     /// Current status
-    pub status: BackgroundAgentStatus,
+    pub status: TaskStatus,
     /// Current stage label from the latest event
-    #[serde(default)]
     pub stage: Option<String>,
     /// Most recent event
-    #[serde(default)]
     pub recent_event: Option<TaskEvent>,
     /// Recent events in descending order
-    #[serde(default)]
     pub recent_events: Vec<TaskEvent>,
     /// Last run timestamp
-    #[serde(default)]
     #[ts(type = "number | null")]
     pub last_run_at: Option<i64>,
     /// Next run timestamp
-    #[serde(default)]
     #[ts(type = "number | null")]
     pub next_run_at: Option<i64>,
     /// Total token usage
-    #[serde(default)]
     pub total_tokens_used: u32,
     /// Total execution cost
-    #[serde(default)]
     pub total_cost_usd: f64,
     /// Successful run count
-    #[serde(default)]
     pub success_count: u32,
     /// Failed run count
-    #[serde(default)]
     pub failure_count: u32,
     /// Pending queued message count
-    #[serde(default)]
     pub pending_message_count: u32,
 }
 
-/// Result payload for converting an existing chat session into a background agent.
+#[derive(Serialize)]
+struct TaskProgressSerialize<'a> {
+    task_id: &'a str,
+    background_agent_id: &'a str,
+    status: &'a TaskStatus,
+    stage: Option<&'a str>,
+    recent_event: Option<&'a TaskEvent>,
+    recent_events: &'a [TaskEvent],
+    last_run_at: Option<i64>,
+    next_run_at: Option<i64>,
+    total_tokens_used: u32,
+    total_cost_usd: f64,
+    success_count: u32,
+    failure_count: u32,
+    pending_message_count: u32,
+}
+
+#[derive(Deserialize)]
+struct TaskProgressDeserialize {
+    #[serde(default)]
+    task_id: Option<String>,
+    #[serde(default)]
+    background_agent_id: Option<String>,
+    status: TaskStatus,
+    #[serde(default)]
+    stage: Option<String>,
+    #[serde(default)]
+    recent_event: Option<TaskEvent>,
+    #[serde(default)]
+    recent_events: Vec<TaskEvent>,
+    #[serde(default)]
+    last_run_at: Option<i64>,
+    #[serde(default)]
+    next_run_at: Option<i64>,
+    #[serde(default)]
+    total_tokens_used: u32,
+    #[serde(default)]
+    total_cost_usd: f64,
+    #[serde(default)]
+    success_count: u32,
+    #[serde(default)]
+    failure_count: u32,
+    #[serde(default)]
+    pending_message_count: u32,
+}
+
+impl Serialize for TaskProgress {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        TaskProgressSerialize {
+            task_id: &self.background_agent_id,
+            background_agent_id: &self.background_agent_id,
+            status: &self.status,
+            stage: self.stage.as_deref(),
+            recent_event: self.recent_event.as_ref(),
+            recent_events: &self.recent_events,
+            last_run_at: self.last_run_at,
+            next_run_at: self.next_run_at,
+            total_tokens_used: self.total_tokens_used,
+            total_cost_usd: self.total_cost_usd,
+            success_count: self.success_count,
+            failure_count: self.failure_count,
+            pending_message_count: self.pending_message_count,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for TaskProgress {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let payload = TaskProgressDeserialize::deserialize(deserializer)?;
+        let background_agent_id = payload
+            .task_id
+            .or(payload.background_agent_id)
+            .ok_or_else(|| serde::de::Error::missing_field("task_id"))?;
+
+        Ok(Self {
+            background_agent_id,
+            status: payload.status,
+            stage: payload.stage,
+            recent_event: payload.recent_event,
+            recent_events: payload.recent_events,
+            last_run_at: payload.last_run_at,
+            next_run_at: payload.next_run_at,
+            total_tokens_used: payload.total_tokens_used,
+            total_cost_usd: payload.total_cost_usd,
+            success_count: payload.success_count,
+            failure_count: payload.failure_count,
+            pending_message_count: payload.pending_message_count,
+        })
+    }
+}
+
+impl TaskProgress {
+    /// Canonical task identifier for this progress snapshot.
+    pub fn task_id(&self) -> &str {
+        &self.background_agent_id
+    }
+}
+
+/// Result payload for converting an existing chat session into a background task.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct BackgroundAgentConversionResult {
+pub struct TaskConversionResult {
     /// Created or updated background agent task.
-    pub task: BackgroundAgent,
+    pub task: Task,
     /// Source session ID used for conversion.
     pub source_session_id: String,
     /// Source session agent ID at conversion time.
@@ -676,6 +853,30 @@ pub struct BackgroundAgentConversionResult {
     /// Whether the task was scheduled for immediate execution.
     pub run_now: bool,
 }
+
+/// Crate-private legacy background-agent alias for the canonical task record.
+pub(crate) type BackgroundAgent = Task;
+
+/// Crate-private legacy background-agent creation payload alias.
+pub(crate) type BackgroundAgentSpec = TaskSpec;
+
+/// Crate-private legacy background-agent update payload alias.
+pub(crate) type BackgroundAgentPatch = TaskPatch;
+
+/// Crate-private legacy background-agent status alias.
+pub(crate) type BackgroundAgentStatus = TaskStatus;
+
+/// Crate-private legacy background-agent control action alias.
+pub(crate) type BackgroundAgentControlAction = TaskControlAction;
+
+/// Crate-private legacy background-agent message alias.
+pub(crate) type BackgroundMessage = TaskMessage;
+
+/// Crate-private legacy background-agent progress alias.
+pub(crate) type BackgroundProgress = TaskProgress;
+
+/// Crate-private legacy background-agent conversion result alias.
+pub(crate) type BackgroundAgentConversionResult = TaskConversionResult;
 
 /// Status for one persisted background-agent execution attempt.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -871,11 +1072,11 @@ pub enum TaskEventType {
     Interrupted,
 }
 
-/// An agent task represents a scheduled execution of an agent
+/// Canonical task record for scheduled agent execution.
 #[derive(Debug, Clone, Serialize, Deserialize, TS, Type)]
 #[specta(skip_attr = "ts")]
 #[ts(export)]
-pub struct BackgroundAgent {
+pub struct Task {
     /// Unique identifier for the task
     pub id: String,
     /// Display name of the task
@@ -885,10 +1086,10 @@ pub struct BackgroundAgent {
     pub description: Option<String>,
     /// ID of the agent to execute
     pub agent_id: String,
-    /// Chat session ID bound to this background agent
+    /// Chat session ID bound to this task
     #[serde(default)]
     pub chat_session_id: String,
-    /// Whether the bound chat session was auto-created by background-agent storage.
+    /// Whether the bound chat session was auto-created by task storage.
     ///
     /// This is used to decide safe cleanup behavior when the background agent is deleted.
     #[serde(default)]
@@ -933,7 +1134,7 @@ pub struct BackgroundAgent {
     pub continuation_segments_completed: u32,
     /// Current status of the task
     #[serde(default)]
-    pub status: BackgroundAgentStatus,
+    pub status: TaskStatus,
     /// Timestamp when the task was created (milliseconds since epoch)
     #[ts(type = "number")]
     pub created_at: i64,
@@ -971,7 +1172,7 @@ pub struct BackgroundAgent {
     pub summary_message_id: Option<String>,
 }
 
-impl BackgroundAgent {
+impl Task {
     /// Create a new agent task with the given parameters
     pub fn new(id: String, name: String, agent_id: String, schedule: TaskSchedule) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
@@ -997,7 +1198,7 @@ impl BackgroundAgent {
             continuation: ContinuationConfig::default(),
             continuation_total_iterations: 0,
             continuation_segments_completed: 0,
-            status: BackgroundAgentStatus::Active,
+            status: TaskStatus::Active,
             created_at: now,
             updated_at: now,
             last_run_at: None,
@@ -1116,7 +1317,7 @@ impl BackgroundAgent {
 
     /// Mark the task as running
     pub fn set_running(&mut self) {
-        self.status = BackgroundAgentStatus::Running;
+        self.status = TaskStatus::Running;
         self.last_run_at = Some(chrono::Utc::now().timestamp_millis());
         self.updated_at = chrono::Utc::now().timestamp_millis();
     }
@@ -1130,11 +1331,11 @@ impl BackgroundAgent {
         // Determine next status based on schedule type
         match &self.schedule {
             TaskSchedule::Once { .. } => {
-                self.status = BackgroundAgentStatus::Completed;
+                self.status = TaskStatus::Completed;
                 self.next_run_at = None;
             }
             _ => {
-                self.status = BackgroundAgentStatus::Active;
+                self.status = TaskStatus::Active;
                 self.update_next_run();
             }
         }
@@ -1144,39 +1345,39 @@ impl BackgroundAgent {
     pub fn set_failed(&mut self, error: String) {
         self.failure_count += 1;
         self.last_error = Some(error);
-        self.status = BackgroundAgentStatus::Failed;
+        self.status = TaskStatus::Failed;
         self.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_next_run(); // Still schedule next run
     }
 
     /// Mark the task as interrupted.
     pub fn set_interrupted(&mut self) {
-        self.status = BackgroundAgentStatus::Interrupted;
+        self.status = TaskStatus::Interrupted;
         self.updated_at = chrono::Utc::now().timestamp_millis();
     }
 
     /// Check if the task is interrupted.
     pub fn is_interrupted(&self) -> bool {
-        self.status == BackgroundAgentStatus::Interrupted
+        self.status == TaskStatus::Interrupted
     }
 
     /// Pause the task
     pub fn pause(&mut self) {
-        self.status = BackgroundAgentStatus::Paused;
+        self.status = TaskStatus::Paused;
         self.updated_at = chrono::Utc::now().timestamp_millis();
     }
 
     /// Resume the task
     pub fn resume(&mut self) {
-        self.status = BackgroundAgentStatus::Active;
+        self.status = TaskStatus::Active;
         self.updated_at = chrono::Utc::now().timestamp_millis();
         self.update_next_run();
     }
 
     /// Check if the task should run now
     pub fn should_run(&self, current_time: i64) -> bool {
-        let is_schedulable = matches!(self.status, BackgroundAgentStatus::Active)
-            || (self.status == BackgroundAgentStatus::Failed
+        let is_schedulable = matches!(self.status, TaskStatus::Active)
+            || (self.status == TaskStatus::Failed
                 && failed_status_is_schedulable(self.next_run_at));
         if !is_schedulable {
             return false;
@@ -1191,14 +1392,13 @@ impl BackgroundAgent {
 
     /// Check if the task is active (can be scheduled)
     pub fn is_active(&self) -> bool {
-        self.status == BackgroundAgentStatus::Active
-            || (self.status == BackgroundAgentStatus::Failed
-                && failed_status_is_schedulable(self.next_run_at))
+        self.status == TaskStatus::Active
+            || (self.status == TaskStatus::Failed && failed_status_is_schedulable(self.next_run_at))
     }
 
     /// Check if the task is running
     pub fn is_running(&self) -> bool {
-        self.status == BackgroundAgentStatus::Running
+        self.status == TaskStatus::Running
     }
 }
 
@@ -1244,22 +1444,31 @@ impl TaskEvent {
     }
 }
 
-/// Compatibility alias for background-agent-centric schedule naming.
-pub type BackgroundAgentSchedule = TaskSchedule;
+/// Crate-private compatibility alias for background-agent-centric schedule naming.
+pub(crate) type BackgroundAgentSchedule = TaskSchedule;
 
-/// Compatibility alias for background-agent-centric event naming.
-pub type BackgroundAgentEvent = TaskEvent;
+/// Crate-private compatibility alias for background-agent-centric event naming.
+pub(crate) type BackgroundAgentEvent = TaskEvent;
 
-/// Compatibility alias for background-agent-centric event type naming.
-pub type BackgroundAgentEventType = TaskEventType;
+/// Crate-private compatibility alias for background-agent-centric event type naming.
+pub(crate) type BackgroundAgentEventType = TaskEventType;
+
+/// Canonical task-run status alias.
+pub type TaskRunStatus = BackgroundAgentRunStatus;
+
+/// Canonical task-run metrics alias.
+pub type TaskRunMetrics = BackgroundAgentRunMetrics;
+
+/// Canonical task-run record alias.
+pub type TaskRun = BackgroundAgentRun;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn test_background_agent_new() {
-        let task = BackgroundAgent::new(
+    fn test_task_new() {
+        let task = Task::new(
             "task-123".to_string(),
             "Test Task".to_string(),
             "agent-456".to_string(),
@@ -1272,12 +1481,28 @@ mod tests {
         assert_eq!(task.id, "task-123");
         assert_eq!(task.name, "Test Task");
         assert_eq!(task.agent_id, "agent-456");
-        assert_eq!(task.status, BackgroundAgentStatus::Active);
+        assert_eq!(task.status, TaskStatus::Active);
         assert!(task.input_template.is_none());
         assert!(task.created_at > 0);
         assert!(task.next_run_at.is_some());
         assert_eq!(task.success_count, 0);
         assert_eq!(task.failure_count, 0);
+    }
+
+    #[test]
+    fn test_background_agent_alias_still_uses_task_owner() {
+        let task = BackgroundAgent::new(
+            "task-compat".to_string(),
+            "Compat Task".to_string(),
+            "agent-compat".to_string(),
+            TaskSchedule::Interval {
+                interval_ms: 1000,
+                start_at: None,
+            },
+        );
+
+        assert_eq!(task.status, BackgroundAgentStatus::Active);
+        assert_eq!(task.id, "task-compat");
     }
 
     #[test]
@@ -1686,7 +1911,7 @@ mod tests {
             max_messages: 50,
             enable_file_memory: false,
             persist_on_complete: true,
-            memory_scope: MemoryScope::PerBackgroundAgent,
+            memory_scope: MemoryScope::PerTask,
             enable_compaction: true,
             compaction_threshold_ratio: 0.75,
             max_summary_tokens: 1_024,
@@ -1695,7 +1920,7 @@ mod tests {
         assert_eq!(config.max_messages, 50);
         assert!(!config.enable_file_memory);
         assert!(config.persist_on_complete);
-        assert_eq!(config.memory_scope, MemoryScope::PerBackgroundAgent);
+        assert_eq!(config.memory_scope, MemoryScope::PerTask);
         assert!(config.enable_compaction);
         assert_eq!(config.compaction_threshold_ratio, 0.75);
         assert_eq!(config.max_summary_tokens, 1_024);
@@ -1765,7 +1990,7 @@ mod tests {
             max_messages: 75,
             enable_file_memory: true,
             persist_on_complete: false,
-            memory_scope: MemoryScope::PerBackgroundAgent,
+            memory_scope: MemoryScope::PerTask,
             enable_compaction: false,
             compaction_threshold_ratio: 0.65,
             max_summary_tokens: 1_500,
@@ -1777,7 +2002,7 @@ mod tests {
         assert_eq!(deserialized.max_messages, 75);
         assert!(deserialized.enable_file_memory);
         assert!(!deserialized.persist_on_complete);
-        assert_eq!(deserialized.memory_scope, MemoryScope::PerBackgroundAgent);
+        assert_eq!(deserialized.memory_scope, MemoryScope::PerTask);
         assert!(!deserialized.enable_compaction);
         assert_eq!(deserialized.compaction_threshold_ratio, 0.65);
         assert_eq!(deserialized.max_summary_tokens, 1_500);
@@ -1800,9 +2025,15 @@ mod tests {
 
     #[test]
     fn test_memory_scope_serialization() {
-        let scope = MemoryScope::PerBackgroundAgent;
+        let scope = MemoryScope::PerTask;
         let serialized = serde_json::to_string(&scope).unwrap();
-        assert_eq!(serialized, r#""per_background_agent""#);
+        assert_eq!(serialized, r#""per_task""#);
+    }
+
+    #[test]
+    fn test_memory_scope_legacy_alias_deserialization() {
+        let scope: MemoryScope = serde_json::from_str(r#""per_background_agent""#).unwrap();
+        assert_eq!(scope, MemoryScope::PerTask);
     }
 
     #[test]
@@ -1844,5 +2075,115 @@ mod tests {
         .with_message("started");
         assert_eq!(event.event_type, BackgroundAgentEventType::Started);
         assert_eq!(event.message.as_deref(), Some("started"));
+    }
+
+    #[test]
+    fn test_task_aliases_are_compatible() {
+        let task: Task = BackgroundAgent::new(
+            "task-1".to_string(),
+            "Canonical Task".to_string(),
+            "agent-1".to_string(),
+            TaskSchedule::default(),
+        );
+        assert_eq!(task.id, "task-1");
+
+        let message: TaskMessage = BackgroundMessage::new(
+            task.id.clone(),
+            TaskMessageSource::User,
+            "ping".to_string(),
+        );
+        assert_eq!(message.task_id(), "task-1");
+
+        let progress = TaskProgress {
+            background_agent_id: task.id.clone(),
+            status: TaskStatus::Active,
+            stage: Some("waiting".to_string()),
+            recent_event: None,
+            recent_events: Vec::new(),
+            last_run_at: None,
+            next_run_at: None,
+            total_tokens_used: 0,
+            total_cost_usd: 0.0,
+            success_count: 0,
+            failure_count: 0,
+            pending_message_count: 0,
+        };
+        assert_eq!(progress.task_id(), "task-1");
+    }
+
+    #[test]
+    fn test_background_message_serializes_task_id_and_legacy_alias() {
+        let message = BackgroundMessage::new(
+            "task-123".to_string(),
+            TaskMessageSource::User,
+            "hello".to_string(),
+        );
+
+        let json = serde_json::to_value(&message).unwrap();
+        assert_eq!(json["task_id"].as_str(), Some("task-123"));
+        assert_eq!(json["background_agent_id"].as_str(), Some("task-123"));
+    }
+
+    #[test]
+    fn test_background_message_deserializes_from_canonical_task_id() {
+        let json = serde_json::json!({
+            "id": "msg-1",
+            "task_id": "task-123",
+            "source": "user",
+            "status": "queued",
+            "message": "hello",
+            "created_at": 1234,
+            "delivered_at": null,
+            "consumed_at": null,
+            "error": null
+        });
+
+        let message: BackgroundMessage = serde_json::from_value(json).unwrap();
+        assert_eq!(message.background_agent_id, "task-123");
+        assert_eq!(message.task_id(), "task-123");
+    }
+
+    #[test]
+    fn test_background_progress_serializes_task_id_and_legacy_alias() {
+        let progress = BackgroundProgress {
+            background_agent_id: "task-123".to_string(),
+            status: BackgroundAgentStatus::Running,
+            stage: Some("executing".to_string()),
+            recent_event: None,
+            recent_events: Vec::new(),
+            last_run_at: Some(100),
+            next_run_at: Some(200),
+            total_tokens_used: 42,
+            total_cost_usd: 0.5,
+            success_count: 1,
+            failure_count: 2,
+            pending_message_count: 3,
+        };
+
+        let json = serde_json::to_value(&progress).unwrap();
+        assert_eq!(json["task_id"].as_str(), Some("task-123"));
+        assert_eq!(json["background_agent_id"].as_str(), Some("task-123"));
+    }
+
+    #[test]
+    fn test_background_progress_deserializes_from_legacy_alias() {
+        let json = serde_json::json!({
+            "background_agent_id": "task-123",
+            "status": "active",
+            "stage": null,
+            "recent_event": null,
+            "recent_events": [],
+            "last_run_at": null,
+            "next_run_at": null,
+            "total_tokens_used": 0,
+            "total_cost_usd": 0.0,
+            "success_count": 0,
+            "failure_count": 0,
+            "pending_message_count": 0
+        });
+
+        let progress: BackgroundProgress = serde_json::from_value(json).unwrap();
+        assert_eq!(progress.background_agent_id, "task-123");
+        assert_eq!(progress.task_id(), "task-123");
     }
 }

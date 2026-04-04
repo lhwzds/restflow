@@ -3,4 +3,4 @@
 /**
  * Status of an agent task
  */
-export type BackgroundAgentStatus = "active" | "paused" | "running" | "completed" | "failed" | "interrupted";
+export type TaskStatus = "active" | "paused" | "running" | "completed" | "failed" | "interrupted";

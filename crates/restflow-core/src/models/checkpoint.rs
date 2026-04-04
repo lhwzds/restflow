@@ -21,7 +21,7 @@ pub struct AgentCheckpoint {
     pub id: String,
     /// Links to `AgentState.execution_id`.
     pub execution_id: String,
-    /// Links to `BackgroundAgent.id` (if running as a background task).
+    /// Links to `Task.id` (if running as a scheduled task).
     #[serde(default)]
     pub task_id: Option<String>,
     /// `AgentState.version` at checkpoint time.

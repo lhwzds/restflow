@@ -26,6 +26,19 @@ STALE_GENERATED_FILES=(
   "AuditQuery.ts"
   "AuditStats.ts"
   "AuditTimeRange.ts"
+  "BackgroundAgent.ts"
+  "BackgroundAgentControlAction.ts"
+  "BackgroundAgentConversionResult.ts"
+  "BackgroundAgentPatch.ts"
+  "BackgroundAgentSpec.ts"
+  "BackgroundAgentStatus.ts"
+  "BackgroundMessage.ts"
+  "BackgroundMessageSource.ts"
+  "BackgroundMessageStatus.ts"
+  "BackgroundProgress.ts"
+  "ChildExecutionSessionQuery.ts"
+  "ExecutionSessionListQuery.ts"
+  "ExecutionSessionSummary.ts"
   "IpcRequest.ts"
   "IpcResponse.ts"
   "LifecycleAudit.ts"
@@ -38,3 +51,37 @@ STALE_GENERATED_FILES=(
 for file in "${STALE_GENERATED_FILES[@]}"; do
   rm -f "${GENERATED_DIR}/${file}"
 done
+
+python3 - <<'PY'
+from pathlib import Path
+
+generated_dir = Path("web/src/types/generated")
+index_path = generated_dir / "index.ts"
+stale_exports = {
+    "BackgroundAgent",
+    "BackgroundAgentControlAction",
+    "BackgroundAgentConversionResult",
+    "BackgroundAgentPatch",
+    "BackgroundAgentSpec",
+    "BackgroundAgentStatus",
+    "BackgroundMessage",
+    "BackgroundMessageSource",
+    "BackgroundMessageStatus",
+    "BackgroundProgress",
+    "ChildExecutionSessionQuery",
+    "ExecutionSessionListQuery",
+    "ExecutionSessionSummary",
+}
+
+lines = index_path.read_text(encoding="utf-8").splitlines()
+filtered = [
+    line
+    for line in lines
+    if not (
+        line.startswith("export * from './")
+        and line.removeprefix("export * from './").removesuffix("'")
+        in stale_exports
+    )
+]
+index_path.write_text("\n".join(filtered) + "\n", encoding="utf-8")
+PY

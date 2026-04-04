@@ -2,7 +2,7 @@
 //!
 //! Hooks let users execute custom actions when task lifecycle events happen.
 
-use super::BackgroundAgent;
+use super::Task;
 use serde::{Deserialize, Serialize};
 use specta::Type;
 use std::collections::BTreeMap;
@@ -149,7 +149,7 @@ pub struct HookContext {
 }
 
 impl HookContext {
-    pub fn from_started(task: &BackgroundAgent) -> Self {
+    pub fn from_started(task: &Task) -> Self {
         Self {
             event: HookEvent::TaskStarted,
             task_id: task.id.clone(),
@@ -163,7 +163,7 @@ impl HookContext {
         }
     }
 
-    pub fn from_completed(task: &BackgroundAgent, output: &str, duration_ms: i64) -> Self {
+    pub fn from_completed(task: &Task, output: &str, duration_ms: i64) -> Self {
         Self {
             event: HookEvent::TaskCompleted,
             task_id: task.id.clone(),
@@ -177,7 +177,7 @@ impl HookContext {
         }
     }
 
-    pub fn from_failed(task: &BackgroundAgent, error: &str, duration_ms: i64) -> Self {
+    pub fn from_failed(task: &Task, error: &str, duration_ms: i64) -> Self {
         Self {
             event: HookEvent::TaskFailed,
             task_id: task.id.clone(),
@@ -191,7 +191,7 @@ impl HookContext {
         }
     }
 
-    pub fn from_interrupted(task: &BackgroundAgent, error: &str, duration_ms: i64) -> Self {
+    pub fn from_interrupted(task: &Task, error: &str, duration_ms: i64) -> Self {
         Self {
             event: HookEvent::TaskInterrupted,
             task_id: task.id.clone(),
@@ -229,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_context_from_completed() {
-        let task = BackgroundAgent::new(
+        let task = Task::new(
             "task-1".to_string(),
             "Daily Summary".to_string(),
             "agent-1".to_string(),

@@ -21,10 +21,17 @@ use super::{AgentExecutor, MAX_TOOL_RETRIES};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct ToolInvocationContext<'a> {
+    /// Legacy field name kept for compatibility with existing runtime call sites.
     pub parent_execution_id: Option<&'a str>,
     pub chat_session_id: Option<&'a str>,
     pub trace_session_id: Option<&'a str>,
     pub trace_scope_id: Option<&'a str>,
+}
+
+impl<'a> ToolInvocationContext<'a> {
+    fn parent_run_id(self) -> Option<&'a str> {
+        self.parent_execution_id
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -42,21 +49,18 @@ impl AgentExecutor {
         tool_name == "spawn_subagent" || tool_name == "spawn_subagent_batch"
     }
 
-    fn inject_spawn_parent_execution_id(
-        tool_name: &str,
-        args: &mut Value,
-        parent_execution_id: Option<&str>,
-    ) {
+    fn inject_spawn_parent_run_id(tool_name: &str, args: &mut Value, parent_run_id: Option<&str>) {
         if !Self::is_subagent_spawn_tool(tool_name) {
             return;
         }
-        let Some(parent_execution_id) = parent_execution_id else {
+        let Some(parent_run_id) = parent_run_id else {
             return;
         };
         if let Some(map) = args.as_object_mut() {
+            map.remove("parent_execution_id");
             map.insert(
-                "parent_execution_id".to_string(),
-                Value::String(parent_execution_id.to_string()),
+                "parent_run_id".to_string(),
+                Value::String(parent_run_id.to_string()),
             );
         }
     }
@@ -88,7 +92,7 @@ impl AgentExecutor {
     }
 
     fn inject_promote_session_id(tool_name: &str, args: &mut Value, chat_session_id: Option<&str>) {
-        if tool_name != "manage_background_agents" {
+        if tool_name != "manage_background_agents" && tool_name != "manage_tasks" {
             return;
         }
         let Some(chat_session_id) = chat_session_id else {
@@ -113,12 +117,12 @@ impl AgentExecutor {
     fn inject_subagent_parent_scope(
         tool_name: &str,
         args: &mut Value,
-        parent_execution_id: Option<&str>,
+        parent_run_id: Option<&str>,
     ) {
         if tool_name != "list_subagents" && tool_name != "wait_subagents" {
             return;
         }
-        let Some(parent_execution_id) = parent_execution_id else {
+        let Some(parent_run_id) = parent_run_id else {
             return;
         };
         let Some(map) = args.as_object_mut() else {
@@ -126,7 +130,7 @@ impl AgentExecutor {
         };
         map.insert(
             "parent_run_id".to_string(),
-            Value::String(parent_execution_id.to_string()),
+            Value::String(parent_run_id.to_string()),
         );
     }
 
@@ -280,6 +284,11 @@ impl AgentExecutor {
         emitter: &mut dyn StreamEmitter,
         options: ToolExecutionOptions<'_>,
     ) -> Vec<(String, Result<crate::tools::ToolOutput>)> {
+        // TODO(ToolSearch): Currently all tool calls run in parallel with a semaphore.
+        // Should partition into batches using Tool::is_concurrency_safe() / is_read_only():
+        //   1. Batch consecutive read-only tools → run concurrently (current behavior)
+        //   2. Batch non-read-only tools → run serially (preserves ordering, avoids conflicts)
+        // See Claude Code's partitionToolCalls() in src/services/tools/toolOrchestration.ts:91
         let ToolExecutionOptions {
             tool_timeout,
             yolo_mode,
@@ -292,11 +301,7 @@ impl AgentExecutor {
         // 1. Emit start events for all tool calls upfront
         for call in tool_calls {
             let mut args = call.arguments.clone();
-            Self::inject_spawn_parent_execution_id(
-                &call.name,
-                &mut args,
-                context.parent_execution_id,
-            );
+            Self::inject_spawn_parent_run_id(&call.name, &mut args, context.parent_run_id());
             Self::inject_spawn_trace_context(
                 &call.name,
                 &mut args,
@@ -304,7 +309,7 @@ impl AgentExecutor {
                 context.trace_scope_id,
             );
             Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
-            Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_execution_id);
+            Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_run_id());
             let arguments = serde_json::to_string(&args).unwrap_or_default();
             emitter
                 .emit_tool_call_start(&call.id, &call.name, &arguments)
@@ -334,11 +339,7 @@ impl AgentExecutor {
             let sem = Arc::clone(&semaphore);
             let name = call.name.clone();
             let mut args = call.arguments.clone();
-            Self::inject_spawn_parent_execution_id(
-                &call.name,
-                &mut args,
-                context.parent_execution_id,
-            );
+            Self::inject_spawn_parent_run_id(&call.name, &mut args, context.parent_run_id());
             Self::inject_spawn_trace_context(
                 &call.name,
                 &mut args,
@@ -346,7 +347,7 @@ impl AgentExecutor {
                 context.trace_scope_id,
             );
             Self::inject_promote_session_id(&call.name, &mut args, context.chat_session_id);
-            Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_execution_id);
+            Self::inject_subagent_parent_scope(&call.name, &mut args, context.parent_run_id());
             let tool_call_id = call.id.clone();
             let tool_name = call.name.clone();
 
