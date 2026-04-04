@@ -80,26 +80,20 @@ impl IpcClient {
             .await?;
         Ok(resp.steered)
     }
-    pub async fn subscribe_background_agent_events<F>(
-        &mut self,
-        background_agent_id: String,
-        mut on_event: F,
-    ) -> Result<()>
+    pub async fn subscribe_task_events<F>(&mut self, task_id: String, mut on_event: F) -> Result<()>
     where
         F: FnMut(TaskStreamEvent) -> Result<()>,
     {
-        self.send_request_frame(&IpcRequest::SubscribeBackgroundAgentEvents {
-            background_agent_id,
-        })
-        .await?;
+        self.send_request_frame(&IpcRequest::SubscribeTaskEvents { task_id })
+            .await?;
 
         loop {
             let buf = self.read_raw_frame().await?;
             match read_stream_frame_or_ipc_error(
                 &buf,
-                "Failed to deserialize background stream frame",
-                "Unexpected success response while reading background stream",
-                "Unexpected Pong response while reading background stream",
+                "Failed to deserialize task stream frame",
+                "Unexpected success response while reading task stream",
+                "Unexpected Pong response while reading task stream",
             )? {
                 StreamFrame::Start { .. } => {}
                 StreamFrame::Event {
@@ -109,7 +103,7 @@ impl IpcClient {
                 }
                 StreamFrame::Error(error) => {
                     bail!(
-                        "Background event stream error: {}",
+                        "Task event stream error: {}",
                         Self::format_ipc_error(&error)
                     );
                 }
@@ -117,6 +111,18 @@ impl IpcClient {
                 _ => {}
             }
         }
+    }
+
+    pub async fn subscribe_background_agent_events<F>(
+        &mut self,
+        background_agent_id: String,
+        on_event: F,
+    ) -> Result<()>
+    where
+        F: FnMut(TaskStreamEvent) -> Result<()>,
+    {
+        self.subscribe_task_events(background_agent_id, on_event)
+            .await
     }
 
     pub async fn subscribe_session_events<F>(&mut self, mut on_event: F) -> Result<()>

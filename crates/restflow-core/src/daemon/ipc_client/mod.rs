@@ -8,9 +8,9 @@ use crate::memory::ExportResult;
 use crate::models::{
     AgentNode, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
     BackgroundAgentPatch, BackgroundAgentSpec, ChatMessage, ChatRole, ChatSession,
-    ChatSessionSummary, ChatSessionUpdate, ExecutionSessionListQuery, ExecutionSessionSummary,
-    ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceStats, MemoryChunk, MemorySearchResult,
-    MemorySession, MemoryStats, Skill, TerminalSession,
+    ChatSessionSummary, ChatSessionUpdate, ExecutionTraceEvent, ExecutionTraceQuery,
+    ExecutionTraceStats, MemoryChunk, MemorySearchResult, MemorySession, MemoryStats,
+    RunListQuery, RunSummary, Skill, TerminalSession,
 };
 use crate::runtime::TaskStreamEvent;
 use crate::storage::agent::StoredAgent;

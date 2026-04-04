@@ -1,13 +1,14 @@
 use super::*;
+use restflow_traits::store::MANAGE_TASK_OPERATIONS_CSV;
 
 impl RestFlowMcpServer {
-    pub(crate) async fn handle_manage_background_agents(
+    pub(crate) async fn handle_manage_tasks(
         &self,
-        params: ManageBackgroundAgentsParams,
+        params: ManageTasksParams,
     ) -> Result<String, String> {
         let operation = params.operation.trim().to_lowercase();
         let params = self
-            .apply_background_agent_api_defaults(operation.as_str(), params)
+            .apply_task_api_defaults(operation.as_str(), params)
             .await?;
 
         let value = match operation.as_str() {
@@ -31,7 +32,7 @@ impl RestFlowMcpServer {
             | "save_team"
             | "list_teams"
             | "get_team"
-            | "delete_team" => self.execute_background_agent_runtime_tool(&params).await?,
+            | "delete_team" => self.execute_task_runtime_tool(&params).await?,
             "list_traces" => {
                 let defaults = self.load_api_defaults().await?;
                 let limit = params
@@ -53,10 +54,10 @@ impl RestFlowMcpServer {
                 let query_id = params.id.clone();
 
                 let task_selector = query_task_id.clone().or(query_id.clone());
-                let scoped_tasks: Vec<BackgroundAgent> = if let Some(task_id) = task_selector {
+                let scoped_tasks: Vec<Task> = if let Some(task_id) = task_selector {
                     let task = self
                         .backend
-                        .get_background_agent(&task_id)
+                        .get_task(&task_id)
                         .await
                         .map_err(|e| format!("Failed to get task: {}", e))?;
                     let session_id = if task.chat_session_id.trim().is_empty() {
@@ -93,7 +94,7 @@ impl RestFlowMcpServer {
                 for task in &scoped_tasks {
                     let runs = self
                         .backend
-                        .list_execution_sessions(ExecutionSessionListQuery {
+                        .list_execution_sessions(RunListQuery {
                             container: ExecutionContainerRef {
                                 kind: ExecutionContainerKind::BackgroundTask,
                                 id: task.id.clone(),
@@ -195,7 +196,7 @@ impl RestFlowMcpServer {
             _ => {
                 return Err(format!(
                     "Unknown operation: {}. Supported: {}",
-                    operation, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV
+                    operation, MANAGE_TASK_OPERATIONS_CSV
                 ));
             }
         };
@@ -203,11 +204,11 @@ impl RestFlowMcpServer {
         serde_json::to_string_pretty(&value).map_err(|e| e.to_string())
     }
 
-    pub(crate) async fn apply_background_agent_api_defaults(
+    pub(crate) async fn apply_task_api_defaults(
         &self,
         operation: &str,
-        mut params: ManageBackgroundAgentsParams,
-    ) -> Result<ManageBackgroundAgentsParams, String> {
+        mut params: ManageTasksParams,
+    ) -> Result<ManageTasksParams, String> {
         if matches!(operation, "progress" | "list_messages") {
             let defaults = self.load_api_defaults().await?;
             if operation == "progress" && params.event_limit.is_none() {
@@ -220,24 +221,32 @@ impl RestFlowMcpServer {
         Ok(params)
     }
 
-    pub(crate) async fn execute_background_agent_runtime_tool(
+    pub(crate) async fn execute_task_runtime_tool(
         &self,
-        params: &ManageBackgroundAgentsParams,
+        params: &ManageTasksParams,
     ) -> Result<Value, String> {
         let mut tool_input = serde_json::to_value(params)
             .map_err(|e| format!("Failed to serialize params: {}", e))?;
         strip_null_fields(&mut tool_input);
         let tool_result = self
             .backend
-            .execute_runtime_tool("manage_background_agents", tool_input)
+            .execute_runtime_tool("manage_tasks", tool_input)
             .await
             .map_err(|e| Self::wrap_backend_error("Failed to execute runtime tool", e))?;
         if !tool_result.success {
             return Err(tool_result
                 .error
-                .unwrap_or_else(|| "manage_background_agents tool failed".to_string()));
+                .unwrap_or_else(|| "manage_tasks tool failed".to_string()));
         }
         Ok(tool_result.result)
+    }
+
+    #[cfg(test)]
+    pub(crate) async fn handle_manage_background_agents(
+        &self,
+        params: ManageBackgroundAgentsParams,
+    ) -> Result<String, String> {
+        self.handle_manage_tasks(params).await
     }
 }
 

@@ -91,15 +91,11 @@ impl IpcServer {
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::DeleteWorkItem { id } => Self::handle_delete_work_item(core, id).await,
-            IpcRequest::ListBackgroundAgents { status } => {
-                Self::handle_list_background_agents(core, status).await
+            IpcRequest::ListTasks { status } => Self::handle_list_tasks(core, status).await,
+            IpcRequest::ListRunnableTasks { current_time } => {
+                Self::handle_list_runnable_tasks(core, current_time).await
             }
-            IpcRequest::ListRunnableBackgroundAgents { current_time } => {
-                Self::handle_list_runnable_background_agents(core, current_time).await
-            }
-            IpcRequest::GetBackgroundAgent { id } => {
-                Self::handle_get_background_agent(core, id).await
-            }
+            IpcRequest::GetTask { id } => Self::handle_get_task(core, id).await,
             IpcRequest::ListHooks => Self::handle_list_hooks(core).await,
             IpcRequest::CreateHook { hook } => match from_contract(hook) {
                 Ok(hook) => Self::handle_create_hook(core, hook).await,
@@ -300,15 +296,15 @@ impl IpcServer {
             IpcRequest::ListExecutionContainers => {
                 Self::handle_list_execution_containers(core).await
             }
-            IpcRequest::ListExecutionSessions { query } => match from_contract(query) {
-                Ok(query) => Self::handle_list_execution_sessions(core, query).await,
+            IpcRequest::ListRuns { query } => match from_contract(query) {
+                Ok(query) => Self::handle_list_runs(core, query).await,
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::GetExecutionRunThread { run_id } => {
                 Self::handle_get_execution_run_thread(core, run_id).await
             }
-            IpcRequest::ListChildExecutionSessions { query } => match from_contract(query) {
-                Ok(query) => Self::handle_list_child_execution_sessions(core, query).await,
+            IpcRequest::ListChildRuns { query } => match from_contract(query) {
+                Ok(query) => Self::handle_list_child_runs(core, query).await,
                 Err(err) => invalid_request_response(err),
             },
             IpcRequest::QueryExecutionTraces { query } => match from_contract(query) {
@@ -414,38 +410,30 @@ impl IpcServer {
             IpcRequest::MarkAuthSuccess { id } => Self::handle_mark_auth_success(core, id).await,
             IpcRequest::MarkAuthFailure { id } => Self::handle_mark_auth_failure(core, id).await,
             IpcRequest::ClearAuthProfiles => Self::handle_clear_auth_profiles(core).await,
-            IpcRequest::GetBackgroundAgentHistory { id } => {
-                Self::handle_get_background_agent_history(core, id).await
-            }
-            IpcRequest::CreateBackgroundAgent { spec } => match contract_spec_to_core(spec) {
-                Ok(spec) => Self::handle_create_background_agent(core, spec).await,
+            IpcRequest::GetTaskHistory { id } => Self::handle_get_task_history(core, id).await,
+            IpcRequest::CreateTask { spec } => match contract_spec_to_core(spec) {
+                Ok(spec) => Self::handle_create_task(core, spec).await,
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::ConvertSessionToBackgroundAgent { request } => {
+            IpcRequest::CreateTaskFromSession { request } => {
                 match contract_convert_request_to_store(request) {
-                    Ok(request) => {
-                        Self::handle_convert_session_to_background_agent(core, request).await
-                    }
+                    Ok(request) => Self::handle_create_task_from_session(core, request).await,
                     Err(err) => invalid_request_response(err),
                 }
             }
-            IpcRequest::UpdateBackgroundAgent { id, patch } => {
-                match contract_patch_to_core(patch) {
-                    Ok(patch) => Self::handle_update_background_agent(core, id, patch).await,
-                    Err(err) => invalid_request_response(err),
-                }
-            }
-            IpcRequest::DeleteBackgroundAgent { id } => {
-                Self::handle_delete_background_agent(core, id).await
-            }
-            IpcRequest::ControlBackgroundAgent { id, action } => match from_contract(action) {
-                Ok(action) => Self::handle_control_background_agent(core, id, action).await,
+            IpcRequest::UpdateTask { id, patch } => match contract_patch_to_core(patch) {
+                Ok(patch) => Self::handle_update_task(core, id, patch).await,
                 Err(err) => invalid_request_response(err),
             },
-            IpcRequest::GetBackgroundAgentProgress { id, event_limit } => {
-                Self::handle_get_background_agent_progress(core, id, event_limit).await
+            IpcRequest::DeleteTask { id } => Self::handle_delete_task(core, id).await,
+            IpcRequest::ControlTask { id, action } => match from_contract(action) {
+                Ok(action) => Self::handle_control_task(core, id, action).await,
+                Err(err) => invalid_request_response(err),
+            },
+            IpcRequest::GetTaskProgress { id, event_limit } => {
+                Self::handle_get_task_progress(core, id, event_limit).await
             }
-            IpcRequest::SendBackgroundAgentMessage {
+            IpcRequest::SendTaskMessage {
                 id,
                 message,
                 source,
@@ -454,17 +442,17 @@ impl IpcServer {
                     Ok(source) => source,
                     Err(err) => return invalid_request_response(err),
                 };
-                Self::handle_send_background_agent_message(core, id, message, source).await
+                Self::handle_send_task_message(core, id, message, source).await
             }
-            IpcRequest::HandleBackgroundAgentApproval { id, approved } => {
-                Self::handle_background_agent_approval(core, id, approved).await
+            IpcRequest::HandleTaskApproval { id, approved } => {
+                Self::handle_task_approval(core, id, approved).await
             }
-            IpcRequest::ListBackgroundAgentMessages { id, limit } => {
-                Self::handle_list_background_agent_messages(core, id, limit).await
+            IpcRequest::ListTaskMessages { id, limit } => {
+                Self::handle_list_task_messages(core, id, limit).await
             }
-            IpcRequest::SubscribeBackgroundAgentEvents {
-                background_agent_id: _,
-            } => Self::handle_subscribe_background_agent_events_unsupported().await,
+            IpcRequest::SubscribeTaskEvents { task_id: _ } => {
+                Self::handle_subscribe_task_events_unsupported().await
+            }
             IpcRequest::SubscribeSessionEvents => {
                 Self::handle_subscribe_session_events_unsupported().await
             }
@@ -490,5 +478,87 @@ impl IpcServer {
             }
             IpcRequest::Shutdown => Self::handle_shutdown().await,
         }
+    }
+
+    async fn handle_list_tasks(core: &Arc<AppCore>, status: Option<String>) -> IpcResponse {
+        Self::handle_list_background_agents(core, status).await
+    }
+
+    async fn handle_list_runnable_tasks(
+        core: &Arc<AppCore>,
+        current_time: Option<i64>,
+    ) -> IpcResponse {
+        Self::handle_list_runnable_background_agents(core, current_time).await
+    }
+
+    async fn handle_get_task(core: &Arc<AppCore>, id: String) -> IpcResponse {
+        Self::handle_get_background_agent(core, id).await
+    }
+
+    async fn handle_get_task_history(core: &Arc<AppCore>, id: String) -> IpcResponse {
+        Self::handle_get_background_agent_history(core, id).await
+    }
+
+    async fn handle_create_task(
+        core: &Arc<AppCore>,
+        spec: crate::models::BackgroundAgentSpec,
+    ) -> IpcResponse {
+        Self::handle_create_background_agent(core, spec).await
+    }
+
+    async fn handle_create_task_from_session(
+        core: &Arc<AppCore>,
+        request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+    ) -> IpcResponse {
+        Self::handle_convert_session_to_background_agent(core, request).await
+    }
+
+    async fn handle_update_task(
+        core: &Arc<AppCore>,
+        id: String,
+        patch: crate::models::BackgroundAgentPatch,
+    ) -> IpcResponse {
+        Self::handle_update_background_agent(core, id, patch).await
+    }
+
+    async fn handle_delete_task(core: &Arc<AppCore>, id: String) -> IpcResponse {
+        Self::handle_delete_background_agent(core, id).await
+    }
+
+    async fn handle_control_task(
+        core: &Arc<AppCore>,
+        id: String,
+        action: crate::models::BackgroundAgentControlAction,
+    ) -> IpcResponse {
+        Self::handle_control_background_agent(core, id, action).await
+    }
+
+    async fn handle_get_task_progress(
+        core: &Arc<AppCore>,
+        id: String,
+        event_limit: Option<usize>,
+    ) -> IpcResponse {
+        Self::handle_get_background_agent_progress(core, id, event_limit).await
+    }
+
+    async fn handle_send_task_message(
+        core: &Arc<AppCore>,
+        id: String,
+        message: String,
+        source: Option<crate::models::TaskMessageSource>,
+    ) -> IpcResponse {
+        Self::handle_send_background_agent_message(core, id, message, source).await
+    }
+
+    async fn handle_task_approval(core: &Arc<AppCore>, id: String, approved: bool) -> IpcResponse {
+        Self::handle_background_agent_approval(core, id, approved).await
+    }
+
+    async fn handle_list_task_messages(
+        core: &Arc<AppCore>,
+        id: String,
+        limit: Option<usize>,
+    ) -> IpcResponse {
+        Self::handle_list_background_agent_messages(core, id, limit).await
     }
 }

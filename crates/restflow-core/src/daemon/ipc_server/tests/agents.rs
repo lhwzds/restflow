@@ -110,7 +110,7 @@ async fn process_get_background_agent_returns_created_task() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::GetBackgroundAgent {
+        IpcRequest::GetTask {
             id: task.id.clone(),
         },
     )
@@ -142,7 +142,7 @@ async fn process_delete_background_agent_returns_delete_with_id_response() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::DeleteBackgroundAgent {
+        IpcRequest::DeleteTask {
             id: task.id.clone(),
         },
     )
@@ -175,8 +175,8 @@ async fn process_convert_session_background_agent_returns_direct_result() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::ConvertSessionToBackgroundAgent {
-            request: restflow_contracts::request::BackgroundAgentConvertSessionRequest {
+        IpcRequest::CreateTaskFromSession {
+            request: restflow_contracts::request::TaskFromSessionRequest {
                 session_id: session.id.clone(),
                 name: Some("Converted Preview".to_string()),
                 schedule: None,
@@ -219,7 +219,7 @@ async fn process_handle_background_agent_approval_returns_typed_response() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::HandleBackgroundAgentApproval {
+        IpcRequest::HandleTaskApproval {
             id: task.id.clone(),
             approved: true,
         },
@@ -244,7 +244,7 @@ async fn process_get_background_agent_returns_not_found_for_missing_task() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::GetBackgroundAgent {
+        IpcRequest::GetTask {
             id: "missing-task".to_string(),
         },
     )
@@ -272,7 +272,7 @@ async fn process_get_background_agent_returns_bad_request_for_ambiguous_prefix()
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::GetBackgroundAgent {
+        IpcRequest::GetTask {
             id: "shared".to_string(),
         },
     )
@@ -303,7 +303,7 @@ async fn process_get_background_agent_returns_internal_error_when_resolution_sca
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::GetBackgroundAgent {
+        IpcRequest::GetTask {
             id: "missing-task".to_string(),
         },
     )
@@ -328,7 +328,7 @@ async fn process_update_background_agent_resolves_unique_prefix() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::UpdateBackgroundAgent {
+        IpcRequest::UpdateTask {
             id: "prefix-update".to_string(),
             patch: to_contract(crate::models::BackgroundAgentPatch {
                 description: Some("updated description".to_string()),
@@ -359,7 +359,7 @@ async fn process_create_background_agent_accepts_default_agent_alias() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::CreateBackgroundAgent {
+        IpcRequest::CreateTask {
             spec: to_contract(crate::models::BackgroundAgentSpec {
                 agent_id: "default".to_string(),
                 ..background_agent_spec("ipc-default-alias")
@@ -390,7 +390,7 @@ async fn process_update_background_agent_accepts_default_agent_alias() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::UpdateBackgroundAgent {
+        IpcRequest::UpdateTask {
             id: task.id.clone(),
             patch: to_contract(crate::models::BackgroundAgentPatch {
                 agent_id: Some("default".to_string()),
@@ -423,7 +423,7 @@ async fn process_delete_background_agent_rejects_ambiguous_prefix() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::DeleteBackgroundAgent {
+        IpcRequest::DeleteTask {
             id: "dup-delete".to_string(),
         },
     )
@@ -447,7 +447,7 @@ async fn process_get_background_agent_history_returns_not_found_for_missing_task
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::GetBackgroundAgentHistory {
+        IpcRequest::GetTaskHistory {
             id: "missing-history".to_string(),
         },
     )
@@ -474,7 +474,7 @@ async fn process_list_background_agent_messages_returns_internal_error_when_reso
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::ListBackgroundAgentMessages {
+        IpcRequest::ListTaskMessages {
             id: "missing-messages".to_string(),
             limit: Some(5),
         },
@@ -499,7 +499,7 @@ async fn process_control_background_agent_resolves_unique_prefix() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::ControlBackgroundAgent {
+        IpcRequest::ControlTask {
             id: "prefix-control".to_string(),
             action: to_contract(crate::models::BackgroundAgentControlAction::Pause)
                 .expect("contract action"),
@@ -957,7 +957,7 @@ async fn process_create_background_agent_persists_when_agent_provider_missing() 
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::CreateBackgroundAgent {
+        IpcRequest::CreateTask {
             spec: to_contract(crate::models::BackgroundAgentSpec {
                 name: "bg-warning".to_string(),
                 agent_id: stored_agent.id.clone(),

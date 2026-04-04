@@ -162,7 +162,7 @@ impl CoreAccess {
         }
     }
 
-    pub async fn list_background_agents(
+    pub async fn list_tasks(
         &mut self,
         status: Option<BackgroundAgentStatus>,
     ) -> Result<Vec<BackgroundAgent>> {
@@ -173,7 +173,7 @@ impl CoreAccess {
             },
             CoreAccess::Remote(client) => {
                 client
-                    .request_typed(IpcRequest::ListBackgroundAgents {
+                    .request_typed(IpcRequest::ListTasks {
                         status: status.map(|value| value.as_str().to_string()),
                     })
                     .await
@@ -181,13 +181,34 @@ impl CoreAccess {
         }
     }
 
-    pub async fn get_background_agent(&mut self, id: &str) -> Result<Option<BackgroundAgent>> {
+    pub async fn list_background_agents(
+        &mut self,
+        status: Option<BackgroundAgentStatus>,
+    ) -> Result<Vec<BackgroundAgent>> {
+        self.list_tasks(status).await
+    }
+
+    pub async fn get_task(&mut self, id: &str) -> Result<Option<BackgroundAgent>> {
         match self {
             CoreAccess::Local(core) => core.storage.background_agents.get_task(id),
             CoreAccess::Remote(client) => {
                 client
-                    .request_optional(IpcRequest::GetBackgroundAgent { id: id.to_string() })
+                    .request_optional(IpcRequest::GetTask { id: id.to_string() })
                     .await
+            }
+        }
+    }
+
+    pub async fn get_background_agent(&mut self, id: &str) -> Result<Option<BackgroundAgent>> {
+        self.get_task(id).await
+    }
+
+    pub async fn create_task(&mut self, spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+        match self {
+            CoreAccess::Local(core) => core.storage.background_agents.create_background_agent(spec),
+            CoreAccess::Remote(client) => {
+                let spec = core_spec_to_contract(spec)?;
+                client.request_typed(IpcRequest::CreateTask { spec }).await
             }
         }
     }
@@ -196,15 +217,7 @@ impl CoreAccess {
         &mut self,
         spec: BackgroundAgentSpec,
     ) -> Result<BackgroundAgent> {
-        match self {
-            CoreAccess::Local(core) => core.storage.background_agents.create_background_agent(spec),
-            CoreAccess::Remote(client) => {
-                let spec = core_spec_to_contract(spec)?;
-                client
-                    .request_typed(IpcRequest::CreateBackgroundAgent { spec })
-                    .await
-            }
-        }
+        self.create_task(spec).await
     }
 
     pub async fn list_secrets(&mut self) -> Result<Vec<crate::models::Secret>> {

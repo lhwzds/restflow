@@ -7,13 +7,12 @@ use crate::AppCore;
 use crate::auth::build_runtime_api_keys;
 use crate::daemon::{IpcClient, IpcRequest};
 use crate::models::{
-    BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSpec,
-    BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundProgress,
     ChatSession, ChatSessionSummary, Deliverable, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionSessionListQuery, ExecutionSessionSummary, ExecutionTraceCategory,
-    ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource, Hook, HookAction, HookEvent,
-    HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult, MemorySource, MemoryStats,
-    ModelId, SearchMode, Skill, SkillStatus, ValidationError,
+    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource, Hook,
+    HookAction, HookEvent, HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult,
+    MemorySource, MemoryStats, ModelId, RunListQuery, RunSummary, SearchMode, Skill,
+    SkillStatus, Task, TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress,
+    TaskSpec, TaskStatus, ValidationError,
 };
 use crate::services::{
     operation_assessment::OperationAssessorAdapter,
@@ -30,11 +29,8 @@ pub(crate) use restflow_contracts::ToolDefinition as RuntimeToolDefinition;
 pub(crate) use restflow_contracts::ToolExecutionResult as RuntimeToolResult;
 use restflow_storage::ApiDefaults;
 use restflow_tools::SwitchModelTool;
-use restflow_traits::store::{
-    BackgroundAgentDeleteRequest, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
-    MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
-};
-use restflow_traits::{BackgroundAgentCommandOutcome, normalize_legacy_approval_replay};
+use restflow_traits::store::TaskDeleteRequest;
+use restflow_traits::{TaskCommandOutcome, normalize_legacy_approval_replay};
 use rmcp::{
     ErrorData as McpError, ServerHandler, ServiceExt,
     handler::server::tool::schema_for_type,
@@ -118,49 +114,66 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<Vec<ChatSessionSummary>, String>;
     async fn get_session(&self, id: &str) -> Result<ChatSession, String>;
 
+    // Implement either the canonical task methods or the legacy
+    // background-agent aliases. The defaults bridge both directions so
+    // task-only and background-agent-only backends remain source-compatible.
     async fn list_tasks(
         &self,
-        status: Option<BackgroundAgentStatus>,
-    ) -> Result<Vec<BackgroundAgent>, String>;
-    async fn create_background_agent(
-        &self,
-        spec: BackgroundAgentSpec,
-    ) -> Result<BackgroundAgent, String>;
-    async fn update_background_agent(
-        &self,
-        id: &str,
-        patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent, String>;
-    async fn delete_background_agent(
-        &self,
-        request: BackgroundAgentDeleteRequest,
-    ) -> Result<BackgroundAgentCommandOutcome<DeleteWithIdResponse>, String>;
-    async fn control_background_agent(
+        status: Option<TaskStatus>,
+    ) -> Result<Vec<Task>, String> {
+        self.list_background_agents(status).await
+    }
+    async fn create_task(&self, spec: TaskSpec) -> Result<Task, String> {
+        self.create_background_agent(spec).await
+    }
+    async fn update_task(
         &self,
         id: &str,
-        action: BackgroundAgentControlAction,
-    ) -> Result<BackgroundAgent, String>;
-    async fn get_background_agent_progress(
+        patch: TaskPatch,
+    ) -> Result<Task, String> {
+        self.update_background_agent(id, patch).await
+    }
+    async fn delete_task(
+        &self,
+        request: TaskDeleteRequest,
+    ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
+        self.delete_background_agent(request).await
+    }
+    async fn control_task(
+        &self,
+        id: &str,
+        action: TaskControlAction,
+    ) -> Result<Task, String> {
+        self.control_background_agent(id, action).await
+    }
+    async fn get_task_progress(
         &self,
         id: &str,
         event_limit: usize,
-    ) -> Result<BackgroundProgress, String>;
-    async fn send_background_agent_message(
+    ) -> Result<TaskProgress, String> {
+        self.get_background_agent_progress(id, event_limit).await
+    }
+    async fn send_task_message(
         &self,
         id: &str,
         message: String,
-        source: BackgroundMessageSource,
-    ) -> Result<BackgroundMessage, String>;
-    async fn list_background_agent_messages(
+        source: TaskMessageSource,
+    ) -> Result<TaskMessage, String> {
+        self.send_background_agent_message(id, message, source)
+            .await
+    }
+    async fn list_task_messages(
         &self,
         id: &str,
         limit: usize,
-    ) -> Result<Vec<BackgroundMessage>, String>;
+    ) -> Result<Vec<TaskMessage>, String> {
+        self.list_background_agent_messages(id, limit).await
+    }
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String>;
     async fn list_execution_sessions(
         &self,
-        query: ExecutionSessionListQuery,
-    ) -> Result<Vec<ExecutionSessionSummary>, String>;
+        query: RunListQuery,
+    ) -> Result<Vec<RunSummary>, String>;
 
     async fn query_execution_traces(
         &self,
@@ -171,7 +184,67 @@ pub trait McpBackend: Send + Sync {
         run_id: &str,
         limit: usize,
     ) -> Result<Vec<ExecutionTraceEvent>, String>;
-    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String>;
+    async fn get_task(&self, id: &str) -> Result<Task, String> {
+        self.get_background_agent(id).await
+    }
+
+    async fn list_background_agents(
+        &self,
+        status: Option<TaskStatus>,
+    ) -> Result<Vec<Task>, String> {
+        self.list_tasks(status).await
+    }
+    async fn create_background_agent(
+        &self,
+        spec: TaskSpec,
+    ) -> Result<Task, String> {
+        self.create_task(spec).await
+    }
+    async fn update_background_agent(
+        &self,
+        id: &str,
+        patch: TaskPatch,
+    ) -> Result<Task, String> {
+        self.update_task(id, patch).await
+    }
+    async fn delete_background_agent(
+        &self,
+        request: TaskDeleteRequest,
+    ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
+        self.delete_task(request).await
+    }
+    async fn control_background_agent(
+        &self,
+        id: &str,
+        action: TaskControlAction,
+    ) -> Result<Task, String> {
+        self.control_task(id, action).await
+    }
+    async fn get_background_agent_progress(
+        &self,
+        id: &str,
+        event_limit: usize,
+    ) -> Result<TaskProgress, String> {
+        self.get_task_progress(id, event_limit).await
+    }
+    async fn send_background_agent_message(
+        &self,
+        id: &str,
+        message: String,
+        source: TaskMessageSource,
+    ) -> Result<TaskMessage, String> {
+        self.send_task_message(id, message, source).await
+    }
+    async fn list_background_agent_messages(
+        &self,
+        id: &str,
+        limit: usize,
+    ) -> Result<Vec<TaskMessage>, String> {
+        self.list_task_messages(id, limit).await
+    }
+    async fn get_background_agent(&self, id: &str) -> Result<Task, String> {
+        self.get_task(id).await
+    }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>, String>;
     async fn create_hook(&self, hook: Hook) -> Result<Hook, String>;
@@ -537,16 +610,16 @@ impl RestFlowMcpServer {
             .ok_or_else(|| format!("Missing required field: {}", field))
     }
 
-    fn parse_task_status(value: Option<String>) -> Result<Option<BackgroundAgentStatus>, String> {
+    fn parse_task_status(value: Option<String>) -> Result<Option<TaskStatus>, String> {
         match value.map(|s| s.trim().to_lowercase()) {
             None => Ok(None),
             Some(s) if s.is_empty() => Ok(None),
-            Some(s) if s == "active" => Ok(Some(BackgroundAgentStatus::Active)),
-            Some(s) if s == "paused" => Ok(Some(BackgroundAgentStatus::Paused)),
-            Some(s) if s == "running" => Ok(Some(BackgroundAgentStatus::Running)),
-            Some(s) if s == "completed" => Ok(Some(BackgroundAgentStatus::Completed)),
-            Some(s) if s == "failed" => Ok(Some(BackgroundAgentStatus::Failed)),
-            Some(s) if s == "interrupted" => Ok(Some(BackgroundAgentStatus::Interrupted)),
+            Some(s) if s == "active" => Ok(Some(TaskStatus::Active)),
+            Some(s) if s == "paused" => Ok(Some(TaskStatus::Paused)),
+            Some(s) if s == "running" => Ok(Some(TaskStatus::Running)),
+            Some(s) if s == "completed" => Ok(Some(TaskStatus::Completed)),
+            Some(s) if s == "failed" => Ok(Some(TaskStatus::Failed)),
+            Some(s) if s == "interrupted" => Ok(Some(TaskStatus::Interrupted)),
             Some(s) => Err(format!("Unknown status: {}", s)),
         }
     }
@@ -780,11 +853,11 @@ impl ServerHandler for RestFlowMcpServer {
         info.server_info = Implementation::new("restflow", env!("CARGO_PKG_VERSION"))
             .with_title("RestFlow MCP Server");
         info.instructions = Some(
-            "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, and hooks. \
+            "RestFlow MCP Server - Manage skills, agents, memory, chat sessions, tasks, and hooks. \
             Use list_skills/get_skill to access skills, list_agents/get_agent for agents, \
             memory_search/memory_store for memory, chat_session_list/chat_session_get for sessions, \
             manage_hooks for lifecycle hook automation, \
-            and manage_background_agents for background agent lifecycle, session conversion, progress, and messaging operations."
+            and manage_tasks for task lifecycle, session conversion, progress, and messaging operations."
                 .to_string(),
         );
         info
@@ -869,11 +942,9 @@ impl ServerHandler for RestFlowMcpServer {
                 schema_for_type::<ChatSessionGetParams>(),
             ),
             Tool::new(
-                "manage_background_agents",
-                MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
-                schema_map_from_value(
-                    restflow_tools::impls::background_agent::tool_parameters_schema(),
-                ),
+                "manage_tasks",
+                restflow_tools::impls::task::tool_description(),
+                schema_map_from_value(restflow_tools::impls::task::tool_parameters_schema()),
             ),
             Tool::new(
                 "manage_hooks",
@@ -1066,14 +1137,14 @@ impl ServerHandler for RestFlowMcpServer {
                         })?;
                 self.handle_chat_session_get(params).await
             }
-            "manage_background_agents" => {
+            "manage_tasks" | "manage_background_agents" => {
                 let mut raw_params = Value::Object(request.arguments.unwrap_or_default());
                 normalize_legacy_approval_replay(&mut raw_params);
-                let params: ManageBackgroundAgentsParams = serde_json::from_value(raw_params)
-                    .map_err(|e| {
+                let params: ManageTasksParams =
+                    serde_json::from_value(raw_params).map_err(|e| {
                         McpError::invalid_params(format!("Invalid parameters: {}", e), None)
                     })?;
-                self.handle_manage_background_agents(params).await
+                self.handle_manage_tasks(params).await
             }
             "manage_hooks" => {
                 let params: ManageHooksParams =

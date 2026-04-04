@@ -11,7 +11,7 @@ use crate::registry::{
 };
 use crate::runtime::channel::transcribe_media_file;
 use crate::services::background_agent_command::{
-    BackgroundAgentCommandService, BackgroundAgentExecutionMode,
+    TaskCommandService, TaskExecutionMode,
 };
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use anyhow::Result;
@@ -385,7 +385,7 @@ fn manifest_to_skill(manifest: SkillManifest, content: String) -> Skill {
 
 async fn api_convert_session_to_background_agent(
     State(state): State<DaemonHttpState>,
-    Json(request): Json<restflow_contracts::request::BackgroundAgentConvertSessionRequest>,
+    Json(request): Json<restflow_contracts::request::TaskFromSessionRequest>,
 ) -> std::result::Result<Json<BackgroundAgentConversionResult>, (StatusCode, Json<ErrorPayload>)> {
     let store_request = crate::boundary::background_agent::contract_convert_request_to_store(
         request,
@@ -397,13 +397,13 @@ async fn api_convert_session_to_background_agent(
         )
     })?;
 
-    let outcome = BackgroundAgentCommandService::from_storage(
+    let outcome = TaskCommandService::from_storage(
         state.core.storage.as_ref(),
         Some(Arc::new(OperationAssessorAdapter::new(state.core.clone()))),
     )
-    .convert_session(store_request, BackgroundAgentExecutionMode::Direct)
+    .convert_session(store_request, TaskExecutionMode::Direct)
     .await
-    .and_then(BackgroundAgentCommandService::into_direct_result)
+    .and_then(TaskCommandService::into_direct_result)
     .map_err(|error| {
         let status =
             StatusCode::from_u16(error.code() as u16).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);

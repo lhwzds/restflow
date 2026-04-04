@@ -131,9 +131,9 @@ pub struct ChatSessionGetParams {
     pub session_id: String,
 }
 
-/// Parameters for manage_background_agents tool
+/// Parameters for the canonical `manage_tasks` tool.
 #[derive(Debug, Default, Serialize, Deserialize, JsonSchema)]
-pub struct ManageBackgroundAgentsParams {
+pub struct ManageTasksParams {
     /// Operation to perform
     pub operation: String,
     /// Source chat session ID (for convert_session/promote_to_background)
@@ -252,6 +252,10 @@ pub struct ManageBackgroundAgentsParams {
     pub approval_id: Option<String>,
 }
 
+/// Legacy compatibility alias for historical `manage_background_agents` call sites.
+#[allow(dead_code)]
+pub type ManageBackgroundAgentsParams = ManageTasksParams;
+
 /// Parameters for manage_hooks tool
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct ManageHooksParams {
@@ -302,3 +306,14 @@ pub struct AgentSummary {
 /// Empty parameters (for tools with no parameters)
 #[derive(Debug, Serialize, Deserialize, JsonSchema)]
 pub struct EmptyParams {}
+
+#[cfg(test)]
+mod tests {
+    use super::{ManageBackgroundAgentsParams, ManageTasksParams};
+
+    #[test]
+    fn manage_tasks_params_preserve_legacy_alias() {
+        let _: ManageTasksParams = ManageBackgroundAgentsParams::default();
+        let _: ManageBackgroundAgentsParams = ManageTasksParams::default();
+    }
+}

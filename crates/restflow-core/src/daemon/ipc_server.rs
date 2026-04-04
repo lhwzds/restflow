@@ -340,7 +340,7 @@ impl IpcServer {
             match serde_json::from_slice::<IpcRequest>(&buf) {
                 Ok(
                     request @ (IpcRequest::ExecuteChatSessionStream { .. }
-                    | IpcRequest::SubscribeBackgroundAgentEvents { .. }
+                    | IpcRequest::SubscribeTaskEvents { .. }
                     | IpcRequest::SubscribeSessionEvents),
                 ) => match Self::open_stream(core.clone(), request).await {
                     Ok(mut rx) => {
@@ -398,9 +398,9 @@ impl IpcServer {
                 Self::open_execute_chat_session_stream(core, session_id, user_input, stream_id)
                     .await
             }
-            IpcRequest::SubscribeBackgroundAgentEvents {
-                background_agent_id,
-            } => Self::open_background_agent_event_stream(background_agent_id).await,
+            IpcRequest::SubscribeTaskEvents { task_id } => {
+                Self::open_task_event_stream(task_id).await
+            }
             IpcRequest::SubscribeSessionEvents => Self::open_session_event_stream().await,
             other => anyhow::bail!("Unsupported streaming request: {:?}", other),
         }
@@ -530,16 +530,16 @@ impl IpcServer {
         Ok(rx)
     }
 
-    async fn open_background_agent_event_stream(
-        background_agent_id: String,
+    async fn open_task_event_stream(
+        task_id: String,
     ) -> Result<mpsc::UnboundedReceiver<StreamFrame>> {
-        let stream_id = format!("background-agent-{}", Uuid::new_v4());
+        let stream_id = format!("task-{}", Uuid::new_v4());
         let (tx, rx) = mpsc::unbounded_channel::<StreamFrame>();
         let mut receiver = subscribe_background_events();
         tx.send(StreamFrame::Start {
             stream_id: stream_id.clone(),
         })?;
-        let include_all = background_agent_id.trim().is_empty() || background_agent_id == "*";
+        let include_all = task_id.trim().is_empty() || task_id == "*";
         tokio::spawn(async move {
             loop {
                 let event = match receiver.recv().await {
@@ -547,18 +547,18 @@ impl IpcServer {
                     Err(tokio::sync::broadcast::error::RecvError::Lagged(skipped)) => {
                         warn!(
                             skipped,
-                            background_agent_id = %background_agent_id,
-                            "Background event stream lagged; dropping oldest events"
+                            task_id = %task_id,
+                            "Task event stream lagged; dropping oldest events"
                         );
                         continue;
                     }
                     Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                        let _ = tx.send(StreamFrame::error(500, "Background event stream closed"));
+                        let _ = tx.send(StreamFrame::error(500, "Task event stream closed"));
                         break;
                     }
                 };
 
-                if !include_all && event.task_id != background_agent_id {
+                if !include_all && event.task_id != task_id {
                     continue;
                 }
 
@@ -617,6 +617,89 @@ impl IpcServer {
         });
 
         Ok(rx)
+    }
+}
+
+#[cfg(test)]
+mod compatibility_tests {
+    use super::*;
+    use crate::daemon::publish_background_event;
+    use crate::prompt_files;
+    use tempfile::tempdir;
+    use tokio::time::{Duration, timeout};
+
+    struct AgentsDirEnvGuard {
+        _lock: std::sync::MutexGuard<'static, ()>,
+    }
+
+    impl AgentsDirEnvGuard {
+        fn new() -> Self {
+            Self {
+                _lock: prompt_files::agents_dir_env_lock(),
+            }
+        }
+    }
+
+    impl Drop for AgentsDirEnvGuard {
+        fn drop(&mut self) {
+            unsafe { std::env::remove_var(prompt_files::AGENTS_DIR_ENV) };
+        }
+    }
+
+    #[allow(clippy::await_holding_lock)]
+    #[tokio::test]
+    async fn legacy_background_agent_subscription_alias_opens_task_stream_end_to_end() {
+        let _guard = AgentsDirEnvGuard::new();
+        let temp_db = tempdir().expect("temp db dir");
+        let temp_agents = tempdir().expect("temp agents dir");
+        unsafe { std::env::set_var(prompt_files::AGENTS_DIR_ENV, temp_agents.path()) };
+        let db_path = temp_db.path().join("compat-ipc.db");
+        let core = Arc::new(
+            crate::AppCore::new(db_path.to_str().expect("db path should be valid"))
+                .await
+                .expect("core should initialize"),
+        );
+
+        let task_id = format!("task-{}", Uuid::new_v4());
+        let request: IpcRequest = serde_json::from_value(serde_json::json!({
+            "type": "SubscribeBackgroundAgentEvents",
+            "data": {
+                "background_agent_id": task_id,
+            }
+        }))
+        .unwrap();
+
+        let subscribed_task_id = match &request {
+            IpcRequest::SubscribeTaskEvents { task_id } => task_id.clone(),
+            other => panic!("unexpected request variant: {other:?}"),
+        };
+
+        let mut rx = IpcServer::open_stream(core, request).await.unwrap();
+
+        let start = timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(matches!(start, StreamFrame::Start { .. }));
+
+        let event = crate::runtime::TaskStreamEvent::progress(
+            subscribed_task_id.clone(),
+            "notification",
+            Some(42),
+            Some("compatibility".to_string()),
+        );
+        publish_background_event(event.clone());
+
+        let frame = timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        match frame {
+            StreamFrame::Event {
+                event: IpcStreamEvent::BackgroundAgent(received),
+            } => assert_eq!(received.task_id, event.task_id),
+            other => panic!("unexpected stream frame: {other:?}"),
+        }
     }
 }
 

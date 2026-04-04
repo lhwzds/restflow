@@ -1,8 +1,10 @@
 use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
-    AgentNode, ApiKeyConfig, BackgroundAgentSchedule, ChannelSessionBinding, ChatSession,
-    ChatSessionSource, ExecutionSessionKind, ModelId, Skill, SkillReference,
+    AgentNode, ApiKeyConfig, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
+    ChannelSessionBinding, ChatSession, ChatSessionSource, ModelId, RunKind,
+    RunListQuery, RunSummary, Skill, SkillReference, Task, TaskControlAction, TaskMessage,
+    TaskMessageSource, TaskPatch, TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
@@ -713,7 +715,7 @@ fn test_tool_definitions() {
         "get_skill_context",
         "chat_session_list",
         "chat_session_get",
-        "manage_background_agents",
+        "manage_tasks",
         "manage_hooks",
     ];
 
@@ -1147,18 +1149,18 @@ impl McpBackend for MockBackend {
         }
     }
 
-    async fn list_tasks(
+    async fn list_background_agents(
         &self,
-        _status: Option<BackgroundAgentStatus>,
-    ) -> Result<Vec<BackgroundAgent>, String> {
+        _status: Option<TaskStatus>,
+    ) -> Result<Vec<Task>, String> {
         Ok(Vec::new())
     }
 
     async fn create_background_agent(
         &self,
-        spec: BackgroundAgentSpec,
-    ) -> Result<BackgroundAgent, String> {
-        let mut task = BackgroundAgent::new(
+        spec: TaskSpec,
+    ) -> Result<Task, String> {
+        let mut task = Task::new(
             "mock-task".to_string(),
             spec.name,
             spec.agent_id,
@@ -1194,19 +1196,17 @@ impl McpBackend for MockBackend {
     async fn update_background_agent(
         &self,
         _id: &str,
-        _patch: BackgroundAgentPatch,
-    ) -> Result<BackgroundAgent, String> {
+        _patch: TaskPatch,
+    ) -> Result<Task, String> {
         Err("not implemented in mock backend".to_string())
     }
 
     async fn delete_background_agent(
         &self,
-        request: restflow_traits::store::BackgroundAgentDeleteRequest,
-    ) -> Result<
-        restflow_traits::BackgroundAgentCommandOutcome<restflow_contracts::DeleteWithIdResponse>,
-        String,
-    > {
-        Ok(restflow_traits::BackgroundAgentCommandOutcome::Executed {
+        request: restflow_traits::store::TaskDeleteRequest,
+    ) -> Result<restflow_traits::TaskCommandOutcome<restflow_contracts::DeleteWithIdResponse>, String>
+    {
+        Ok(restflow_traits::TaskCommandOutcome::Executed {
             result: restflow_contracts::DeleteWithIdResponse {
                 id: request.id,
                 deleted: true,
@@ -1217,20 +1217,20 @@ impl McpBackend for MockBackend {
     async fn control_background_agent(
         &self,
         id: &str,
-        action: BackgroundAgentControlAction,
-    ) -> Result<BackgroundAgent, String> {
-        let mut task = BackgroundAgent::new(
+        action: TaskControlAction,
+    ) -> Result<Task, String> {
+        let mut task = Task::new(
             id.to_string(),
             "Mock Controlled Task".to_string(),
             "mock-agent".to_string(),
-            BackgroundAgentSchedule::default(),
+            TaskSchedule::default(),
         );
         task.status = match action {
-            BackgroundAgentControlAction::Start
-            | BackgroundAgentControlAction::Resume
-            | BackgroundAgentControlAction::RunNow => BackgroundAgentStatus::Active,
-            BackgroundAgentControlAction::Pause => BackgroundAgentStatus::Paused,
-            BackgroundAgentControlAction::Stop => BackgroundAgentStatus::Interrupted,
+            TaskControlAction::Start | TaskControlAction::Resume | TaskControlAction::RunNow => {
+                TaskStatus::Active
+            }
+            TaskControlAction::Pause => TaskStatus::Paused,
+            TaskControlAction::Stop => TaskStatus::Interrupted,
         };
         task.chat_session_id = self.session.id.clone();
         Ok(task)
@@ -1240,7 +1240,7 @@ impl McpBackend for MockBackend {
         &self,
         _id: &str,
         _event_limit: usize,
-    ) -> Result<BackgroundProgress, String> {
+    ) -> Result<TaskProgress, String> {
         Err("not implemented in mock backend".to_string())
     }
 
@@ -1248,8 +1248,8 @@ impl McpBackend for MockBackend {
         &self,
         _id: &str,
         _message: String,
-        _source: BackgroundMessageSource,
-    ) -> Result<BackgroundMessage, String> {
+        _source: TaskMessageSource,
+    ) -> Result<TaskMessage, String> {
         Err("not implemented in mock backend".to_string())
     }
 
@@ -1257,7 +1257,7 @@ impl McpBackend for MockBackend {
         &self,
         _id: &str,
         _limit: usize,
-    ) -> Result<Vec<BackgroundMessage>, String> {
+    ) -> Result<Vec<TaskMessage>, String> {
         Ok(Vec::new())
     }
 
@@ -1267,11 +1267,11 @@ impl McpBackend for MockBackend {
 
     async fn list_execution_sessions(
         &self,
-        query: ExecutionSessionListQuery,
-    ) -> Result<Vec<ExecutionSessionSummary>, String> {
-        Ok(vec![ExecutionSessionSummary {
+        query: RunListQuery,
+    ) -> Result<Vec<RunSummary>, String> {
+        Ok(vec![RunSummary {
             id: format!("{}-run-summary", query.container.id),
-            kind: ExecutionSessionKind::BackgroundRun,
+            kind: RunKind::BackgroundRun,
             container_id: query.container.id.clone(),
             root_run_id: Some("run-123".to_string()),
             title: "Mock Run".to_string(),
@@ -1320,12 +1320,12 @@ impl McpBackend for MockBackend {
         Ok(vec![event])
     }
 
-    async fn get_background_agent(&self, id: &str) -> Result<BackgroundAgent, String> {
-        let mut task = BackgroundAgent::new(
+    async fn get_background_agent(&self, id: &str) -> Result<Task, String> {
+        let mut task = Task::new(
             id.to_string(),
             "Mock Task".to_string(),
             "mock-agent".to_string(),
-            BackgroundAgentSchedule::default(),
+            TaskSchedule::default(),
         );
         task.chat_session_id = id.to_string();
         Ok(task)
@@ -1383,7 +1383,7 @@ impl McpBackend for MockBackend {
         name: &str,
         input: Value,
     ) -> Result<RuntimeToolResult, String> {
-        if name == "manage_background_agents" {
+        if name == "manage_tasks" || name == "manage_background_agents" {
             let operation = input
                 .get("operation")
                 .and_then(Value::as_str)
@@ -1469,6 +1469,332 @@ impl McpBackend for MockBackend {
     async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {
         Ok(self.api_defaults.clone())
     }
+}
+
+struct LegacyBackgroundAgentBackend {
+    inner: MockBackend,
+}
+
+impl LegacyBackgroundAgentBackend {
+    fn new() -> Self {
+        Self {
+            inner: MockBackend::new(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl McpBackend for LegacyBackgroundAgentBackend {
+    async fn list_skills(&self) -> Result<Vec<Skill>, String> {
+        self.inner.list_skills().await
+    }
+
+    async fn get_skill(&self, id: &str) -> Result<Option<Skill>, String> {
+        self.inner.get_skill(id).await
+    }
+
+    async fn get_skill_reference(
+        &self,
+        skill_id: &str,
+        ref_id: &str,
+    ) -> Result<Option<String>, String> {
+        self.inner.get_skill_reference(skill_id, ref_id).await
+    }
+
+    async fn create_skill(&self, skill: Skill) -> Result<(), String> {
+        self.inner.create_skill(skill).await
+    }
+
+    async fn update_skill(&self, skill: Skill) -> Result<(), String> {
+        self.inner.update_skill(skill).await
+    }
+
+    async fn delete_skill(&self, id: &str) -> Result<(), String> {
+        self.inner.delete_skill(id).await
+    }
+
+    async fn list_agents(&self) -> Result<Vec<StoredAgent>, String> {
+        self.inner.list_agents().await
+    }
+
+    async fn get_agent(&self, id: &str) -> Result<StoredAgent, String> {
+        self.inner.get_agent(id).await
+    }
+
+    async fn search_memory(&self, query: MemorySearchQuery) -> Result<MemorySearchResult, String> {
+        self.inner.search_memory(query).await
+    }
+
+    async fn store_memory(&self, chunk: MemoryChunk) -> Result<String, String> {
+        self.inner.store_memory(chunk).await
+    }
+
+    async fn get_memory_stats(&self, agent_id: &str) -> Result<MemoryStats, String> {
+        self.inner.get_memory_stats(agent_id).await
+    }
+
+    async fn list_sessions(&self) -> Result<Vec<ChatSessionSummary>, String> {
+        self.inner.list_sessions().await
+    }
+
+    async fn list_sessions_by_agent(
+        &self,
+        agent_id: &str,
+    ) -> Result<Vec<ChatSessionSummary>, String> {
+        self.inner.list_sessions_by_agent(agent_id).await
+    }
+
+    async fn get_session(&self, id: &str) -> Result<ChatSession, String> {
+        self.inner.get_session(id).await
+    }
+
+    async fn list_background_agents(
+        &self,
+        status: Option<TaskStatus>,
+    ) -> Result<Vec<Task>, String> {
+        self.inner.list_background_agents(status).await
+    }
+
+    async fn create_background_agent(
+        &self,
+        spec: TaskSpec,
+    ) -> Result<Task, String> {
+        self.inner.create_background_agent(spec).await
+    }
+
+    async fn update_background_agent(
+        &self,
+        id: &str,
+        patch: TaskPatch,
+    ) -> Result<Task, String> {
+        self.inner.update_background_agent(id, patch).await
+    }
+
+    async fn delete_background_agent(
+        &self,
+        request: restflow_traits::store::TaskDeleteRequest,
+    ) -> Result<restflow_traits::TaskCommandOutcome<restflow_contracts::DeleteWithIdResponse>, String>
+    {
+        self.inner.delete_background_agent(request).await
+    }
+
+    async fn control_background_agent(
+        &self,
+        id: &str,
+        action: TaskControlAction,
+    ) -> Result<Task, String> {
+        self.inner.control_background_agent(id, action).await
+    }
+
+    async fn get_background_agent_progress(
+        &self,
+        id: &str,
+        event_limit: usize,
+    ) -> Result<TaskProgress, String> {
+        self.inner
+            .get_background_agent_progress(id, event_limit)
+            .await
+    }
+
+    async fn send_background_agent_message(
+        &self,
+        id: &str,
+        message: String,
+        source: TaskMessageSource,
+    ) -> Result<TaskMessage, String> {
+        self.inner
+            .send_background_agent_message(id, message, source)
+            .await
+    }
+
+    async fn list_background_agent_messages(
+        &self,
+        id: &str,
+        limit: usize,
+    ) -> Result<Vec<TaskMessage>, String> {
+        self.inner.list_background_agent_messages(id, limit).await
+    }
+
+    async fn get_background_agent(&self, id: &str) -> Result<Task, String> {
+        self.inner.get_background_agent(id).await
+    }
+
+    async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String> {
+        self.inner.list_deliverables(task_id).await
+    }
+
+    async fn list_execution_sessions(
+        &self,
+        query: RunListQuery,
+    ) -> Result<Vec<RunSummary>, String> {
+        self.inner.list_execution_sessions(query).await
+    }
+
+    async fn query_execution_traces(
+        &self,
+        query: crate::models::ExecutionTraceQuery,
+    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
+        self.inner.query_execution_traces(query).await
+    }
+
+    async fn query_execution_run_traces(
+        &self,
+        run_id: &str,
+        limit: usize,
+    ) -> Result<Vec<crate::models::ExecutionTraceEvent>, String> {
+        self.inner.query_execution_run_traces(run_id, limit).await
+    }
+
+    async fn list_hooks(&self) -> Result<Vec<Hook>, String> {
+        self.inner.list_hooks().await
+    }
+
+    async fn create_hook(&self, hook: Hook) -> Result<Hook, String> {
+        self.inner.create_hook(hook).await
+    }
+
+    async fn update_hook(&self, id: &str, hook: Hook) -> Result<Hook, String> {
+        self.inner.update_hook(id, hook).await
+    }
+
+    async fn delete_hook(&self, id: &str) -> Result<bool, String> {
+        self.inner.delete_hook(id).await
+    }
+
+    async fn test_hook(&self, id: &str) -> Result<(), String> {
+        self.inner.test_hook(id).await
+    }
+
+    async fn list_runtime_tools(&self) -> Result<Vec<RuntimeToolDefinition>, String> {
+        self.inner.list_runtime_tools().await
+    }
+
+    async fn execute_runtime_tool(
+        &self,
+        name: &str,
+        input: Value,
+    ) -> Result<RuntimeToolResult, String> {
+        self.inner.execute_runtime_tool(name, input).await
+    }
+
+    async fn get_api_defaults(&self) -> Result<ApiDefaults, String> {
+        self.inner.get_api_defaults().await
+    }
+}
+
+#[tokio::test]
+async fn test_task_methods_remain_compatible_with_legacy_backend_implementations() {
+    let backend = LegacyBackgroundAgentBackend::new();
+
+    let created = backend
+        .create_task(BackgroundAgentSpec {
+            name: "Compat Task".to_string(),
+            agent_id: "mock-agent".to_string(),
+            chat_session_id: Some("session-123".to_string()),
+            description: Some("Legacy backend path".to_string()),
+            input: Some("ping".to_string()),
+            input_template: None,
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: Some(30),
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(created.id, "mock-task");
+    assert_eq!(created.chat_session_id, "session-123");
+
+    let fetched = backend.get_task("task-compat").await.unwrap();
+    assert_eq!(fetched.id, "task-compat");
+
+    let deleted = backend
+        .delete_task(restflow_traits::store::TaskDeleteRequest {
+            id: "task-delete".to_string(),
+            preview: false,
+            approval_id: None,
+        })
+        .await
+        .unwrap();
+    match deleted {
+        restflow_traits::TaskCommandOutcome::Executed { result } => {
+            assert_eq!(result.id, "task-delete");
+            assert!(result.deleted);
+        }
+        other => panic!("unexpected delete outcome: {other:?}"),
+    }
+}
+
+#[tokio::test]
+async fn test_legacy_background_agent_aliases_remain_compatible_with_task_only_backends() {
+    let backend = MockBackend::new();
+
+    let listed = backend.list_background_agents(None).await.unwrap();
+    assert!(listed.is_empty());
+
+    let created = backend
+        .create_background_agent(BackgroundAgentSpec {
+            name: "Legacy Alias Task".to_string(),
+            agent_id: "mock-agent".to_string(),
+            chat_session_id: Some("session-legacy".to_string()),
+            description: Some("Task-only backend path".to_string()),
+            input: Some("pong".to_string()),
+            input_template: None,
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: Some(30),
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(created.id, "mock-task");
+    assert_eq!(created.chat_session_id, "session-legacy");
+
+    let fetched = backend.get_background_agent("legacy-task").await.unwrap();
+    assert_eq!(fetched.id, "legacy-task");
+}
+
+#[tokio::test]
+async fn test_canonical_task_methods_work_for_legacy_background_agent_backend() {
+    let backend = LegacyBackgroundAgentBackend::new();
+
+    let listed = backend.list_tasks(None).await.unwrap();
+    assert!(listed.is_empty());
+
+    let created = backend
+        .create_task(BackgroundAgentSpec {
+            name: "Canonical Task".to_string(),
+            agent_id: "mock-agent".to_string(),
+            chat_session_id: Some("session-canonical".to_string()),
+            description: Some("Legacy implementation path".to_string()),
+            input: Some("ping".to_string()),
+            input_template: None,
+            schedule: BackgroundAgentSchedule::default(),
+            notification: None,
+            execution_mode: None,
+            timeout_secs: Some(30),
+            memory: None,
+            durability_mode: None,
+            resource_limits: None,
+            prerequisites: Vec::new(),
+            continuation: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(created.id, "mock-task");
+    assert_eq!(created.chat_session_id, "session-canonical");
+
+    let fetched = backend.get_task("canonical-task").await.unwrap();
+    assert_eq!(fetched.id, "canonical-task");
 }
 
 #[tokio::test]
@@ -2582,10 +2908,14 @@ async fn test_mcp_manage_background_agents_stress_path_emits_latency_summary() {
         .await
         .expect("runtime tools should be available");
     assert!(
+        tools.iter().any(|tool| tool.name == "manage_tasks"),
+        "manage_tasks tool must be registered"
+    );
+    assert!(
         tools
             .iter()
-            .any(|tool| tool.name == "manage_background_agents"),
-        "manage_background_agents tool must be registered"
+            .all(|tool| tool.name != "manage_background_agents"),
+        "manage_background_agents compatibility alias must not be listed by default"
     );
 
     let mut create_params = base_manage_background_params("create");

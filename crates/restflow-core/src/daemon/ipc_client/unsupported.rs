@@ -87,7 +87,7 @@ impl IpcClient {
         fn cancel_chat_session_stream(&mut self, _stream_id: String) -> bool;
         fn steer_chat_session_stream(&mut self, _session_id: String, _instruction: String) -> bool;
         fn get_session_messages(&mut self, _session_id: String, _limit: Option<usize>) -> Vec<ChatMessage>;
-        fn list_execution_sessions(&mut self, _query: ExecutionSessionListQuery) -> Vec<ExecutionSessionSummary>;
+        fn list_execution_sessions(&mut self, _query: RunListQuery) -> Vec<RunSummary>;
         fn query_execution_traces(&mut self, _query: ExecutionTraceQuery) -> Vec<ExecutionTraceEvent>;
         fn get_execution_trace_stats(&mut self, _run_id: Option<String>) -> ExecutionTraceStats;
         fn get_execution_run_timeline(&mut self, _run_id: String) -> ExecutionTimeline;
@@ -139,6 +139,13 @@ impl IpcClient {
     ) -> Result<()>
     where
         F: FnMut(StreamFrame) -> Result<()>,
+    {
+        Self::unsupported()
+    }
+
+    pub async fn subscribe_task_events<F>(&mut self, _task_id: String, _on_event: F) -> Result<()>
+    where
+        F: FnMut(TaskStreamEvent) -> Result<()>,
     {
         Self::unsupported()
     }

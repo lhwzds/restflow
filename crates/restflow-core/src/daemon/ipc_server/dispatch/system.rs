@@ -59,8 +59,8 @@ impl IpcServer {
         IpcResponse::error(-3, "Chat session streaming requires direct stream handler")
     }
 
-    pub(super) async fn handle_subscribe_background_agent_events_unsupported() -> IpcResponse {
-        IpcResponse::error(-3, "Background agent event streaming requires stream mode")
+    pub(super) async fn handle_subscribe_task_events_unsupported() -> IpcResponse {
+        IpcResponse::error(-3, "Task event streaming requires stream mode")
     }
 
     pub(super) async fn handle_subscribe_session_events_unsupported() -> IpcResponse {
