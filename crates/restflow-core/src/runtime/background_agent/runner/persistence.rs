@@ -1,7 +1,7 @@
 use super::*;
 use restflow_ai::llm::Message;
 
-impl BackgroundAgentRunner {
+impl TaskRunner {
     pub(super) async fn clear_resume_intent(&self, task_id: &str) {
         let (mut states, mut checkpoint_ids) = tokio::join!(
             self.resume_states.write(),
@@ -84,11 +84,11 @@ impl BackgroundAgentRunner {
 
     /// Persist input and output as messages in the task's bound chat session.
     ///
-    /// This bridges background agent execution into the chat session history so
+    /// This bridges scheduled task execution into the chat session history so
     /// the sidebar shows execution results as regular chat messages.
     pub(super) fn persist_to_chat_session(
         &self,
-        task: &BackgroundAgent,
+        task: &Task,
         input: Option<&str>,
         output: &str,
         is_error: bool,
@@ -154,7 +154,7 @@ impl BackgroundAgentRunner {
     /// Persist conversation messages to long-term memory.
     ///
     /// Called after successful task execution when `persist_on_complete` is enabled.
-    pub(super) fn persist_memory(&self, task: &BackgroundAgent, messages: &[Message]) {
+    pub(super) fn persist_memory(&self, task: &Task, messages: &[Message]) {
         let Some(persister) = &self.memory_persister else {
             debug!("Memory persistence not configured, skipping");
             return;
@@ -166,7 +166,7 @@ impl BackgroundAgentRunner {
         }
 
         // Generate tags from task metadata
-        // Note: BackgroundAgent doesn't have a tags field, so we use task name and agent_id
+        // Note: Task doesn't have a tags field, so we use task name and agent_id
         let tags: Vec<String> = vec![
             format!("task:{}", task.id),
             format!("agent:{}", task.agent_id),
@@ -192,7 +192,7 @@ impl BackgroundAgentRunner {
         }
     }
 
-    pub(super) fn resolve_task_input(&self, task: &BackgroundAgent) -> Option<String> {
+    pub(super) fn resolve_task_input(&self, task: &Task) -> Option<String> {
         let fallback_input = task.input.clone().filter(|value| !value.trim().is_empty());
 
         if let Some(template) = task.input_template.as_deref() {
@@ -209,7 +209,7 @@ impl BackgroundAgentRunner {
     /// Single-pass template renderer that prevents double-substitution.
     /// Scans for `{{...}}` placeholders left-to-right; replacement values are
     /// emitted verbatim so any `{{` inside a value will NOT be re-expanded.
-    pub(super) fn render_input_template(task: &BackgroundAgent, template: &str) -> String {
+    pub(super) fn render_input_template(task: &Task, template: &str) -> String {
         let now = chrono::Utc::now();
         // NOTE: `{{task.input}}` is preferred. `{{input}}` is kept for compatibility.
         let replacement_strings = std::collections::HashMap::from([
@@ -244,17 +244,17 @@ impl BackgroundAgentRunner {
         timestamp.map(|value| value.to_string()).unwrap_or_default()
     }
 
-    pub(super) fn resolve_memory_agent_id(task: &BackgroundAgent) -> String {
+    pub(super) fn resolve_memory_agent_id(task: &Task) -> String {
         match task.memory.memory_scope {
             MemoryScope::SharedAgent => task.agent_id.clone(),
-            MemoryScope::PerBackgroundAgent => format!("{}::task::{}", task.agent_id, task.id),
+            MemoryScope::PerTask => format!("{}::task::{}", task.agent_id, task.id),
         }
     }
 
     fn memory_scope_label(scope: &MemoryScope) -> &'static str {
         match scope {
             MemoryScope::SharedAgent => "shared_agent",
-            MemoryScope::PerBackgroundAgent => "per_background_agent",
+            MemoryScope::PerTask => "per_task",
         }
     }
 }

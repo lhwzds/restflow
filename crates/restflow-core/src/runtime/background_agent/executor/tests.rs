@@ -180,6 +180,19 @@ fn test_apply_execution_context_populates_context_keys() {
 }
 
 #[test]
+fn test_apply_execution_context_uses_parent_run_id_for_subagent_context() {
+    let context = ExecutionContext::subagent("agent-2", "run-parent-1");
+    let config = ReActAgentConfig::new("goal".to_string());
+    let config = AgentRuntimeExecutor::apply_execution_context(config, &context);
+
+    assert_eq!(config.context["parent_run_id"], "run-parent-1");
+    assert_eq!(
+        config.context["execution_context"]["parent_run_id"],
+        "run-parent-1"
+    );
+}
+
+#[test]
 fn test_effective_max_tool_result_length_respects_small_requested_limit() {
     let value = AgentRuntimeExecutor::effective_max_tool_result_length(300, 128_000);
     assert_eq!(value, 300);

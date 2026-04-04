@@ -8,7 +8,7 @@ use restflow_core::models::{BackgroundAgentStatus, TaskSchedule};
 use restflow_core::runtime::background_agent::testkit::{
     DeterministicMockExecutor, MockNotificationSender, create_test_storage,
 };
-use restflow_core::runtime::{BackgroundAgentRunner, RunnerConfig};
+use restflow_core::runtime::{RunnerConfig, TaskRunner};
 use restflow_core::steer::SteerRegistry;
 
 #[tokio::test]
@@ -34,7 +34,7 @@ async fn stress_runner_handles_mock_throughput_without_leaks() {
 
     let executor = Arc::new(DeterministicMockExecutor::new(20, Some(10)));
     let notifier = Arc::new(MockNotificationSender::new());
-    let runner = Arc::new(BackgroundAgentRunner::new(
+    let runner = Arc::new(TaskRunner::new(
         storage.clone(),
         executor.clone(),
         notifier.clone(),
@@ -113,7 +113,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
 
     let executor_phase1 = Arc::new(DeterministicMockExecutor::new(200, None));
     let notifier_phase1 = Arc::new(MockNotificationSender::new());
-    let runner_phase1 = Arc::new(BackgroundAgentRunner::new(
+    let runner_phase1 = Arc::new(TaskRunner::new(
         storage.clone(),
         executor_phase1,
         notifier_phase1.clone(),
@@ -155,7 +155,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
 
     let executor_phase2 = Arc::new(DeterministicMockExecutor::new(8, None));
     let notifier_phase2 = Arc::new(MockNotificationSender::new());
-    let runner_phase2 = Arc::new(BackgroundAgentRunner::new(
+    let runner_phase2 = Arc::new(TaskRunner::new(
         storage.clone(),
         executor_phase2.clone(),
         notifier_phase2.clone(),
@@ -179,7 +179,7 @@ async fn stress_runner_recovers_after_restart_without_orphan_running_tasks() {
         .await
         .expect("failed to stop phase2 runner");
 
-    let runner_phase3 = Arc::new(BackgroundAgentRunner::new(
+    let runner_phase3 = Arc::new(TaskRunner::new(
         storage.clone(),
         Arc::new(DeterministicMockExecutor::new(2, None)),
         Arc::new(MockNotificationSender::new()),

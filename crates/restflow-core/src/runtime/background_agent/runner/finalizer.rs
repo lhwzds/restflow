@@ -3,16 +3,16 @@ use crate::models::{BackgroundAgentRunMetrics, BackgroundAgentRunStatus};
 use restflow_telemetry::RunHandle;
 
 pub(super) struct BackgroundRunFinalizer<'a> {
-    runner: &'a BackgroundAgentRunner,
-    task: BackgroundAgent,
+    runner: &'a TaskRunner,
+    task: Task,
     resolved_input: Option<String>,
     run_handle: RunHandle,
 }
 
 impl<'a> BackgroundRunFinalizer<'a> {
     pub(super) fn new(
-        runner: &'a BackgroundAgentRunner,
-        task: BackgroundAgent,
+        runner: &'a TaskRunner,
+        task: Task,
         resolved_input: Option<String>,
         run_handle: RunHandle,
     ) -> Self {

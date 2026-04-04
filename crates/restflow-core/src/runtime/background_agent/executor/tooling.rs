@@ -59,10 +59,10 @@ impl AgentRuntimeExecutor {
                 serde_json::Value::String(task_id.clone()),
             );
         }
-        if let Some(parent_execution_id) = &context.parent_execution_id {
+        if let Some(parent_run_id) = &context.parent_run_id {
             config = config.with_context(
-                "parent_execution_id",
-                serde_json::Value::String(parent_execution_id.clone()),
+                "parent_run_id",
+                serde_json::Value::String(parent_run_id.clone()),
             );
         }
         config

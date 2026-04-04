@@ -1,7 +1,7 @@
 //! Heartbeat types and emitters for agent task runner status.
 //!
 //! This module provides types for status events that are emitted inline
-//! by the BackgroundAgentRunner during its poll cycle.
+//! by the TaskRunner during its poll cycle.
 //!
 //! # Usage
 //!

@@ -1,7 +1,7 @@
 //! OpsProvider adapter for daemon status, health, and operational queries.
 
 use crate::daemon::{DaemonStatus, check_daemon_status, check_health};
-use crate::models::BackgroundAgentStatus;
+use crate::models::TaskStatus;
 use crate::storage::{BackgroundAgentStorage, ChatSessionStorage};
 use chrono::Utc;
 use restflow_tools::ToolError;
@@ -37,17 +37,17 @@ impl OpsProviderAdapter {
 
     fn parse_status_filter(
         status: Option<&str>,
-    ) -> restflow_tools::Result<Option<BackgroundAgentStatus>> {
+    ) -> restflow_tools::Result<Option<TaskStatus>> {
         let Some(status) = status else {
             return Ok(None);
         };
         let parsed = match status.trim().to_ascii_lowercase().as_str() {
-            "active" => BackgroundAgentStatus::Active,
-            "paused" => BackgroundAgentStatus::Paused,
-            "running" => BackgroundAgentStatus::Running,
-            "completed" => BackgroundAgentStatus::Completed,
-            "failed" => BackgroundAgentStatus::Failed,
-            "interrupted" => BackgroundAgentStatus::Interrupted,
+            "active" => TaskStatus::Active,
+            "paused" => TaskStatus::Paused,
+            "running" => TaskStatus::Running,
+            "completed" => TaskStatus::Completed,
+            "failed" => TaskStatus::Failed,
+            "interrupted" => TaskStatus::Interrupted,
             value => {
                 return Err(ToolError::Tool(format!(
                     "Unknown status: {}. Supported: active, paused, running, completed, failed, interrupted",

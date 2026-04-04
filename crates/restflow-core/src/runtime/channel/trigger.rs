@@ -1,9 +1,8 @@
 //! Task trigger interface for channel handlers
 //!
-//! This module defines the BackgroundAgentTrigger trait that bridges the channel message
-//! handlers with the task execution system.
+//! This module defines the task bridge used by channel message handlers.
 
-use crate::models::BackgroundAgent;
+use crate::models::Task;
 use anyhow::Result;
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -30,27 +29,50 @@ pub struct SystemStatus {
 /// This trait is implemented by the application state to allow the channel
 /// handlers to interact with the task execution system without tight coupling.
 #[async_trait]
-pub trait BackgroundAgentTrigger: Send + Sync {
+pub trait TaskTrigger: Send + Sync {
     /// List all tasks
-    async fn list_background_agents(&self) -> Result<Vec<BackgroundAgent>>;
+    async fn list_tasks(&self) -> Result<Vec<Task>>;
 
     /// Find task by name or ID and run it
-    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<BackgroundAgent>;
+    async fn find_and_run_task(&self, name_or_id: &str) -> Result<Task>;
 
     /// Stop a running task
-    async fn stop_background_agent(&self, task_id: &str) -> Result<()>;
+    async fn stop_task(&self, task_id: &str) -> Result<()>;
 
     /// Get system status
     async fn get_status(&self) -> Result<SystemStatus>;
 
     /// Send input to a running task
-    async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()>;
+    async fn send_message_to_task(&self, task_id: &str, input: &str) -> Result<()>;
 
     /// Handle approval response for a task
     ///
     /// Returns true if there was a pending approval to handle
-    async fn handle_background_agent_approval(&self, task_id: &str, approved: bool)
-    -> Result<bool>;
+    async fn handle_task_approval(&self, task_id: &str, approved: bool) -> Result<bool>;
+
+    async fn list_background_agents(&self) -> Result<Vec<Task>> {
+        self.list_tasks().await
+    }
+
+    async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<Task> {
+        self.find_and_run_task(name_or_id).await
+    }
+
+    async fn stop_background_agent(&self, task_id: &str) -> Result<()> {
+        self.stop_task(task_id).await
+    }
+
+    async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()> {
+        self.send_message_to_task(task_id, input).await
+    }
+
+    async fn handle_background_agent_approval(
+        &self,
+        task_id: &str,
+        approved: bool,
+    ) -> Result<bool> {
+        self.handle_task_approval(task_id, approved).await
+    }
 }
 
 #[cfg(test)]
@@ -61,8 +83,8 @@ pub mod mock {
     use tokio::sync::Mutex;
 
     /// Mock task trigger for testing
-    pub struct MockBackgroundAgentTrigger {
-        tasks: Arc<Mutex<Vec<BackgroundAgent>>>,
+    pub struct MockTaskTrigger {
+        tasks: Arc<Mutex<Vec<Task>>>,
         runner_active: AtomicBool,
         active_count: AtomicUsize,
         pending_count: AtomicUsize,
@@ -71,7 +93,7 @@ pub mod mock {
         pub last_approval: Arc<Mutex<Option<(String, bool)>>>,
     }
 
-    impl MockBackgroundAgentTrigger {
+    impl MockTaskTrigger {
         pub fn new() -> Self {
             Self {
                 tasks: Arc::new(Mutex::new(Vec::new())),
@@ -84,7 +106,7 @@ pub mod mock {
             }
         }
 
-        pub async fn add_task(&self, task: BackgroundAgent) {
+        pub async fn add_task(&self, task: Task) {
             self.tasks.lock().await.push(task);
         }
 
@@ -97,28 +119,28 @@ pub mod mock {
         }
     }
 
-    impl Default for MockBackgroundAgentTrigger {
+    impl Default for MockTaskTrigger {
         fn default() -> Self {
             Self::new()
         }
     }
 
     #[async_trait]
-    impl BackgroundAgentTrigger for MockBackgroundAgentTrigger {
-        async fn list_background_agents(&self) -> Result<Vec<BackgroundAgent>> {
+    impl TaskTrigger for MockTaskTrigger {
+        async fn list_tasks(&self) -> Result<Vec<Task>> {
             Ok(self.tasks.lock().await.clone())
         }
 
-        async fn find_and_run_background_agent(&self, name_or_id: &str) -> Result<BackgroundAgent> {
+        async fn find_and_run_task(&self, name_or_id: &str) -> Result<Task> {
             let tasks = self.tasks.lock().await;
             tasks
                 .iter()
                 .find(|t| t.id == name_or_id || t.name == name_or_id)
                 .cloned()
-                .ok_or_else(|| anyhow::anyhow!("Background agent not found: {}", name_or_id))
+                .ok_or_else(|| anyhow::anyhow!("Task not found: {}", name_or_id))
         }
 
-        async fn stop_background_agent(&self, _task_id: &str) -> Result<()> {
+        async fn stop_task(&self, _task_id: &str) -> Result<()> {
             Ok(())
         }
 
@@ -131,16 +153,12 @@ pub mod mock {
             })
         }
 
-        async fn send_message_to_background_agent(&self, task_id: &str, input: &str) -> Result<()> {
+        async fn send_message_to_task(&self, task_id: &str, input: &str) -> Result<()> {
             *self.last_input.lock().await = Some((task_id.to_string(), input.to_string()));
             Ok(())
         }
 
-        async fn handle_background_agent_approval(
-            &self,
-            task_id: &str,
-            approved: bool,
-        ) -> Result<bool> {
+        async fn handle_task_approval(&self, task_id: &str, approved: bool) -> Result<bool> {
             *self.last_approval.lock().await = Some((task_id.to_string(), approved));
             Ok(true)
         }

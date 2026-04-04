@@ -1,20 +1,20 @@
 //! Telegram/Channel Command Handler
 //!
-//! Handles command messages (/help, /agents, /run, /status, /stop) from channels.
+//! Handles command messages (/help, /tasks, /run, /status, /stop) from channels.
 
 use crate::channel::{ChannelRouter, InboundMessage, MessageLevel, OutboundMessage};
-use crate::models::BackgroundAgentStatus;
+use crate::models::TaskStatus;
 use anyhow::Result;
 use tracing::debug;
 
-use super::trigger::BackgroundAgentTrigger;
+use super::trigger::TaskTrigger;
 
 /// Handle command messages
 ///
 /// Parses the command and executes the appropriate action.
 pub async fn handle_command(
     router: &ChannelRouter,
-    trigger: &dyn BackgroundAgentTrigger,
+    trigger: &dyn TaskTrigger,
     message: &InboundMessage,
 ) -> Result<()> {
     let parts: Vec<&str> = message.content.split_whitespace().collect();
@@ -44,14 +44,14 @@ async fn cmd_help(router: &ChannelRouter, message: &InboundMessage) -> Result<()
     let text = r#"🤖 *RestFlow Agent Bot*
 
 *Commands:*
-`/agents` - List all configured background agents
-`/run <name>` - Run a background agent by name or ID
+`/tasks` - List all configured tasks
+`/run <name>` - Run a task by name or ID
 `/status` - Show current status
-`/stop` - Stop active background agent
+`/stop` - Stop active task
 `/help` - Show this help
 
-*During Background Agent Execution:*
-Send messages directly to interact with the agent."#;
+*During Task Execution:*
+Send messages directly to interact with the task."#;
 
     let response = OutboundMessage::new(&message.conversation_id, text);
     router.send_to(message.channel_type, response).await
@@ -60,24 +60,24 @@ Send messages directly to interact with the agent."#;
 /// List all tasks
 async fn cmd_list_tasks(
     router: &ChannelRouter,
-    trigger: &dyn BackgroundAgentTrigger,
+    trigger: &dyn TaskTrigger,
     message: &InboundMessage,
 ) -> Result<()> {
-    let tasks = trigger.list_background_agents().await?;
+    let tasks = trigger.list_tasks().await?;
 
-    let mut text = String::from("📋 *Background Agents:*\n\n");
+    let mut text = String::from("📋 *Tasks:*\n\n");
 
     if tasks.is_empty() {
-        text.push_str("_No background agents configured._\n\nCreate one in the RestFlow app.");
+        text.push_str("_No tasks configured._\n\nCreate one in the RestFlow app.");
     } else {
         for task in tasks.iter().take(10) {
             let status_emoji = match task.status {
-                BackgroundAgentStatus::Running => "🟢",
-                BackgroundAgentStatus::Active => "🟡",
-                BackgroundAgentStatus::Completed => "✅",
-                BackgroundAgentStatus::Failed => "❌",
-                BackgroundAgentStatus::Paused => "⏸️",
-                BackgroundAgentStatus::Interrupted => "⏸️",
+                TaskStatus::Running => "🟢",
+                TaskStatus::Active => "🟡",
+                TaskStatus::Completed => "✅",
+                TaskStatus::Failed => "❌",
+                TaskStatus::Paused => "⏸️",
+                TaskStatus::Interrupted => "⏸️",
             };
             text.push_str(&format!("{} `{}` - {}\n", status_emoji, task.id, task.name));
         }
@@ -93,7 +93,7 @@ async fn cmd_list_tasks(
 /// Run a task
 async fn cmd_run_task(
     router: &ChannelRouter,
-    trigger: &dyn BackgroundAgentTrigger,
+    trigger: &dyn TaskTrigger,
     message: &InboundMessage,
     task_name: Option<String>,
 ) -> Result<()> {
@@ -102,7 +102,7 @@ async fn cmd_run_task(
         _ => {
             let response = OutboundMessage::new(
                 &message.conversation_id,
-                "⚠️ Usage: `/run <name>`\n\nUse `/agents` to see available background agents.",
+                "⚠️ Usage: `/run <name>`\n\nUse `/tasks` to see available tasks.",
             )
             .with_level(MessageLevel::Warning);
             return router.send_to(message.channel_type, response).await;
@@ -112,17 +112,14 @@ async fn cmd_run_task(
     // Notify user before dispatching task execution.
     let pending_response = OutboundMessage::new(
         &message.conversation_id,
-        format!(
-            "⏳ Received request. Starting background agent `{}`...",
-            task_name
-        ),
+        format!("⏳ Received request. Starting task `{}`...", task_name),
     );
     router
         .send_to(message.channel_type, pending_response)
         .await?;
 
     // Find and run task
-    match trigger.find_and_run_background_agent(&task_name).await {
+    match trigger.find_and_run_task(&task_name).await {
         Ok(task) => {
             // Link conversation to task
             router
@@ -141,7 +138,7 @@ async fn cmd_run_task(
         Err(e) => {
             let response = OutboundMessage::error(
                 &message.conversation_id,
-                format!("Failed to start background agent: {}", e),
+                format!("Failed to start task: {}", e),
             );
             router.send_to(message.channel_type, response).await
         }
@@ -151,7 +148,7 @@ async fn cmd_run_task(
 /// Show system status
 async fn cmd_status(
     router: &ChannelRouter,
-    trigger: &dyn BackgroundAgentTrigger,
+    trigger: &dyn TaskTrigger,
     message: &InboundMessage,
 ) -> Result<()> {
     let status = trigger.get_status().await?;
@@ -160,8 +157,8 @@ async fn cmd_status(
         r#"📊 *System Status*
 
 Runner: {}
-Active Background Agents: {}
-Pending Background Agents: {}
+Active Tasks: {}
+Pending Tasks: {}
 Completed Today: {}"#,
         if status.runner_active {
             "✅ Active"
@@ -180,24 +177,23 @@ Completed Today: {}"#,
 /// Stop a task
 async fn cmd_stop(
     router: &ChannelRouter,
-    trigger: &dyn BackgroundAgentTrigger,
+    trigger: &dyn TaskTrigger,
     message: &InboundMessage,
 ) -> Result<()> {
     // Check if this conversation has an active task
     if let Some(context) = router.get_conversation(&message.conversation_id).await
         && let Some(task_id) = context.task_id
     {
-        trigger.stop_background_agent(&task_id).await?;
+        trigger.stop_task(&task_id).await?;
         router.clear_task(&message.conversation_id).await?;
 
-        let response =
-            OutboundMessage::new(&message.conversation_id, "⏹️ Background agent stopped.");
+        let response = OutboundMessage::new(&message.conversation_id, "⏹️ Task stopped.");
         return router.send_to(message.channel_type, response).await;
     }
 
     let response = OutboundMessage::new(
         &message.conversation_id,
-        "No active background agent in this conversation.",
+        "No active task in this conversation.",
     )
     .with_level(MessageLevel::Warning);
     router.send_to(message.channel_type, response).await
@@ -231,8 +227,8 @@ pub async fn send_help(router: &ChannelRouter, message: &InboundMessage) -> Resu
 mod tests {
     use super::*;
     use crate::channel::{Channel, ChannelType, OutboundMessage};
-    use crate::models::{BackgroundAgent, TaskSchedule};
-    use crate::runtime::channel::trigger::mock::MockBackgroundAgentTrigger;
+    use crate::models::{Task, TaskSchedule};
+    use crate::runtime::channel::trigger::mock::MockTaskTrigger;
     use async_trait::async_trait;
     use futures::Stream;
     use std::pin::Pin;
@@ -274,7 +270,7 @@ mod tests {
     #[tokio::test]
     async fn test_help_command() {
         // Test that help command parsing works (router not needed for parse test)
-        let _trigger = MockBackgroundAgentTrigger::new();
+        let _trigger = MockTaskTrigger::new();
         let message = create_message("/help");
 
         let parts: Vec<&str> = message.content.split_whitespace().collect();
@@ -300,7 +296,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_status_uses_trigger() {
-        let trigger = MockBackgroundAgentTrigger::new();
+        let trigger = MockTaskTrigger::new();
         trigger.set_active_count(2);
         trigger.set_runner_active(true);
 
@@ -326,8 +322,8 @@ mod tests {
         let mut router = ChannelRouter::new();
         router.register(CaptureChannel { sent: sent.clone() });
 
-        let trigger = MockBackgroundAgentTrigger::new();
-        let task = BackgroundAgent::new(
+        let trigger = MockTaskTrigger::new();
+        let task = Task::new(
             "task-1".to_string(),
             "Build docs".to_string(),
             "agent-1".to_string(),

@@ -8,11 +8,10 @@ use crate::models::ModelId;
 use crate::process::ProcessRegistry;
 use crate::runtime::agent::main_agent_default_tool_names;
 use crate::runtime::agent::tools::assembly::{
-    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_background_agent_components,
-    build_kv_store, populate_known_tools_from_registry, register_bash_execution_tool,
-    register_file_execution_tool, register_http_execution_tool, register_management_tools,
-    register_python_execution_tools, register_send_email_execution_tool,
-    register_subagent_management_tools,
+    KNOWN_TOOL_ALIASES, build_agent_crud_components, build_kv_store, build_task_store_components,
+    populate_known_tools_from_registry, register_bash_execution_tool, register_file_execution_tool,
+    register_http_execution_tool, register_management_tools, register_python_execution_tools,
+    register_send_email_execution_tool, register_subagent_management_tools,
 };
 use crate::runtime::orchestrator::{AgentOrchestratorImpl, ExecutionBackend};
 use crate::runtime::subagent::StorageBackedSubagentLookup;

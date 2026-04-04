@@ -1,6 +1,6 @@
 use super::*;
 
-impl BackgroundAgentRunner {
+impl TaskRunner {
     pub(super) async fn fire_hooks(&self, context: &HookContext) {
         if let Some(executor) = &self.hook_executor {
             executor.fire(context).await;
@@ -14,7 +14,7 @@ impl BackgroundAgentRunner {
     /// does not succeed, avoiding duplicate notifications.
     pub(super) async fn send_notification(
         &self,
-        task: &BackgroundAgent,
+        task: &Task,
         success: bool,
         message: &str,
     ) {

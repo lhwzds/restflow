@@ -6,9 +6,9 @@ use chrono::{Local, TimeZone};
 use thiserror::Error;
 
 use crate::models::{
-    BackgroundAgent, ChatSession, ChatSessionSource, ExecutionContainerKind,
-    ExecutionContainerSummary, ExecutionSessionKind, ExecutionSessionListQuery,
-    ExecutionSessionSummary, ExecutionThread, ExecutionTraceEvent, ExecutionTraceQuery,
+    ChatSession, ChatSessionSource, ExecutionContainerKind, ExecutionContainerSummary,
+    ExecutionThread, ExecutionTraceEvent, ExecutionTraceQuery, RunKind, RunListQuery, RunSummary,
+    Task,
 };
 use crate::services::session_policy::{EffectiveSessionSource, SessionPolicy};
 use crate::storage::Storage;
@@ -33,7 +33,7 @@ pub struct ExecutionConsoleService {
 struct SessionContext {
     session: ChatSession,
     source: EffectiveSessionSource,
-    bound_task: Option<BackgroundAgent>,
+    bound_task: Option<Task>,
 }
 
 #[derive(Clone)]
@@ -160,10 +160,7 @@ impl ExecutionConsoleService {
         Ok(containers)
     }
 
-    pub fn list_execution_sessions(
-        &self,
-        query: &ExecutionSessionListQuery,
-    ) -> Result<Vec<ExecutionSessionSummary>> {
+    pub fn list_runs(&self, query: &RunListQuery) -> Result<Vec<RunSummary>> {
         match query.container.kind {
             ExecutionContainerKind::Workspace => self.list_workspace_runs(&query.container.id),
             ExecutionContainerKind::BackgroundTask => {
@@ -173,6 +170,10 @@ impl ExecutionConsoleService {
                 self.list_external_channel_runs(&query.container.id)
             }
         }
+    }
+
+    pub fn list_execution_sessions(&self, query: &RunListQuery) -> Result<Vec<RunSummary>> {
+        self.list_runs(query)
     }
 
     pub fn get_execution_run_thread(
@@ -187,10 +188,7 @@ impl ExecutionConsoleService {
         self.get_run_thread(run_id)
     }
 
-    pub fn list_child_execution_sessions(
-        &self,
-        parent_run_id: &str,
-    ) -> Result<Vec<ExecutionSessionSummary>> {
+    pub fn list_child_runs(&self, parent_run_id: &str) -> Result<Vec<RunSummary>> {
         let parent_run_id = parent_run_id.trim();
         if parent_run_id.is_empty() {
             return Ok(Vec::new());
@@ -212,7 +210,7 @@ impl ExecutionConsoleService {
 
         let mut sessions = groups
             .into_iter()
-            .map(|(run_id, mut events)| -> Result<ExecutionSessionSummary> {
+            .map(|(run_id, mut events)| -> Result<RunSummary> {
                 events.sort_by(|left, right| left.timestamp.cmp(&right.timestamp));
                 let root = self.resolve_root_run_context(
                     &run_id,
@@ -223,7 +221,7 @@ impl ExecutionConsoleService {
                 Ok(self.build_run_summary(
                     &run_id,
                     &root.container_id,
-                    ExecutionSessionKind::SubagentRun,
+                    RunKind::SubagentRun,
                     &events,
                     RunSummaryMeta {
                         title: Some("Subagent run".to_string()),
@@ -241,6 +239,10 @@ impl ExecutionConsoleService {
                 .then_with(|| left.id.cmp(&right.id))
         });
         Ok(sessions)
+    }
+
+    pub fn list_child_execution_sessions(&self, parent_run_id: &str) -> Result<Vec<RunSummary>> {
+        self.list_child_runs(parent_run_id)
     }
 
     fn build_workspace_container(
@@ -333,7 +335,7 @@ impl ExecutionConsoleService {
         Ok(contexts)
     }
 
-    fn list_workspace_runs(&self, session_id: &str) -> Result<Vec<ExecutionSessionSummary>> {
+    fn list_workspace_runs(&self, session_id: &str) -> Result<Vec<RunSummary>> {
         let session = self
             .storage
             .chat_sessions
@@ -349,14 +351,14 @@ impl ExecutionConsoleService {
         self.list_session_runs(
             &session,
             &session.id,
-            ExecutionSessionKind::WorkspaceRun,
+            RunKind::WorkspaceRun,
             Some(source.source),
             None,
             Some(session.name.clone()),
         )
     }
 
-    fn list_background_task_sessions(&self, task_id: &str) -> Result<Vec<ExecutionSessionSummary>> {
+    fn list_background_task_sessions(&self, task_id: &str) -> Result<Vec<RunSummary>> {
         let task = self
             .storage
             .background_agents
@@ -367,8 +369,8 @@ impl ExecutionConsoleService {
 
     fn list_background_task_runs(
         &self,
-        task: &BackgroundAgent,
-    ) -> Result<Vec<ExecutionSessionSummary>> {
+        task: &Task,
+    ) -> Result<Vec<RunSummary>> {
         let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
             task_id: Some(task.id.clone()),
             limit: Some(usize::MAX),
@@ -393,7 +395,7 @@ impl ExecutionConsoleService {
                 self.build_run_summary(
                     &run_id,
                     &task.id,
-                    ExecutionSessionKind::BackgroundRun,
+                    RunKind::BackgroundRun,
                     &run_events,
                     RunSummaryMeta {
                         title: Some(format_run_title(
@@ -422,7 +424,7 @@ impl ExecutionConsoleService {
     fn list_external_channel_runs(
         &self,
         container_id: &str,
-    ) -> Result<Vec<ExecutionSessionSummary>> {
+    ) -> Result<Vec<RunSummary>> {
         let contexts = self.load_session_contexts()?;
         let mut runs = contexts
             .into_iter()
@@ -440,7 +442,7 @@ impl ExecutionConsoleService {
                 self.list_session_runs(
                     &ctx.session,
                     container_id,
-                    ExecutionSessionKind::ExternalRun,
+                    RunKind::ExternalRun,
                     Some(ctx.source.source),
                     ctx.source.conversation_id.clone(),
                     Some(ctx.session.name.clone()),
@@ -463,11 +465,11 @@ impl ExecutionConsoleService {
         &self,
         session: &ChatSession,
         container_id: &str,
-        kind: ExecutionSessionKind,
+        kind: RunKind,
         source_channel: Option<ChatSessionSource>,
         source_conversation_id: Option<String>,
         subtitle: Option<String>,
-    ) -> Result<Vec<ExecutionSessionSummary>> {
+    ) -> Result<Vec<RunSummary>> {
         let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
             session_id: Some(session.id.clone()),
             limit: Some(usize::MAX),
@@ -523,11 +525,11 @@ impl ExecutionConsoleService {
         &self,
         run_id: &str,
         container_id: &str,
-        kind: ExecutionSessionKind,
+        kind: RunKind,
         events: &[ExecutionTraceEvent],
         meta: RunSummaryMeta,
         root_run_id: Option<String>,
-    ) -> ExecutionSessionSummary {
+    ) -> RunSummary {
         let first = events.first();
         let last = events.last();
         let started_at = first.map(|event| event.timestamp);
@@ -540,7 +542,7 @@ impl ExecutionConsoleService {
         let effective_model = latest_effective_model(events);
         let provider = latest_provider(events);
 
-        ExecutionSessionSummary {
+        RunSummary {
             id: run_id.to_string(),
             kind,
             container_id: container_id.to_string(),
@@ -679,7 +681,7 @@ impl ExecutionConsoleService {
         &self,
         run_id: &str,
         events: &[ExecutionTraceEvent],
-    ) -> Result<ExecutionSessionSummary> {
+    ) -> Result<RunSummary> {
         let latest = events
             .last()
             .ok_or_else(|| anyhow!("run '{}' has no events", run_id))?;
@@ -689,7 +691,7 @@ impl ExecutionConsoleService {
             return Ok(self.build_run_summary(
                 run_id,
                 &task.id,
-                ExecutionSessionKind::BackgroundRun,
+                RunKind::BackgroundRun,
                 events,
                 RunSummaryMeta {
                     title: Some(format_run_title(
@@ -710,7 +712,7 @@ impl ExecutionConsoleService {
             return Ok(self.build_run_summary(
                 run_id,
                 &root.container_id,
-                ExecutionSessionKind::SubagentRun,
+                RunKind::SubagentRun,
                 events,
                 RunSummaryMeta {
                     title: Some(format_run_title(
@@ -735,7 +737,7 @@ impl ExecutionConsoleService {
                 return Ok(self.build_run_summary(
                     run_id,
                     &task.id,
-                    ExecutionSessionKind::BackgroundRun,
+                    RunKind::BackgroundRun,
                     events,
                     RunSummaryMeta {
                         title: Some(format_run_title(
@@ -760,9 +762,9 @@ impl ExecutionConsoleService {
                 )
             };
             let kind = if source.source == ChatSessionSource::Workspace {
-                ExecutionSessionKind::WorkspaceRun
+                RunKind::WorkspaceRun
             } else {
-                ExecutionSessionKind::ExternalRun
+                RunKind::ExternalRun
             };
 
             return Ok(self.build_run_summary(
@@ -788,7 +790,7 @@ impl ExecutionConsoleService {
         Ok(self.build_run_summary(
             run_id,
             run_id,
-            ExecutionSessionKind::SubagentRun,
+            RunKind::SubagentRun,
             events,
             RunSummaryMeta {
                 title: Some(format_run_title(
@@ -1139,7 +1141,7 @@ mod tests {
         );
 
         let runs = service
-            .list_execution_sessions(&ExecutionSessionListQuery {
+            .list_runs(&RunListQuery {
                 container: ExecutionContainerRef {
                     kind: ExecutionContainerKind::BackgroundTask,
                     id: task.id.clone(),

@@ -31,7 +31,8 @@ pub struct ExecutionContext {
     pub agent_id: String,
     pub chat_session_id: Option<String>,
     pub background_task_id: Option<String>,
-    pub parent_execution_id: Option<String>,
+    #[serde(rename = "parent_run_id", alias = "parent_execution_id")]
+    pub parent_run_id: Option<String>,
 }
 
 impl ExecutionContext {
@@ -41,7 +42,7 @@ impl ExecutionContext {
             agent_id: agent_id.into(),
             chat_session_id: Some(chat_session_id.into()),
             background_task_id: None,
-            parent_execution_id: None,
+            parent_run_id: None,
         }
     }
 
@@ -55,17 +56,17 @@ impl ExecutionContext {
             agent_id: agent_id.into(),
             chat_session_id: Some(chat_session_id.into()),
             background_task_id: Some(background_task_id.into()),
-            parent_execution_id: None,
+            parent_run_id: None,
         }
     }
 
-    pub fn subagent(agent_id: impl Into<String>, parent_execution_id: impl Into<String>) -> Self {
+    pub fn subagent(agent_id: impl Into<String>, parent_run_id: impl Into<String>) -> Self {
         Self {
             role: ExecutionRole::Subagent,
             agent_id: agent_id.into(),
             chat_session_id: None,
             background_task_id: None,
-            parent_execution_id: Some(parent_execution_id.into()),
+            parent_run_id: Some(parent_run_id.into()),
         }
     }
 
@@ -95,12 +96,20 @@ mod tests {
     }
 
     #[test]
-    fn subagent_context_sets_parent_execution() {
+    fn subagent_context_sets_parent_run() {
         let context = ExecutionContext::subagent("agent-2", "exec-1");
         assert_eq!(context.role, ExecutionRole::Subagent);
-        assert_eq!(context.parent_execution_id.as_deref(), Some("exec-1"));
+        assert_eq!(context.parent_run_id.as_deref(), Some("exec-1"));
         assert!(context.chat_session_id.is_none());
         assert!(context.background_task_id.is_none());
+    }
+
+    #[test]
+    fn subagent_context_serializes_parent_run_id() {
+        let context = ExecutionContext::subagent("agent-2", "exec-1");
+        let value = context.to_value();
+        assert_eq!(value["parent_run_id"], "exec-1");
+        assert!(value.get("parent_execution_id").is_none());
     }
 
     #[test]

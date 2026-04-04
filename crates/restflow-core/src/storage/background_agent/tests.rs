@@ -1759,7 +1759,7 @@ fn test_create_background_agent_with_template_and_memory_scope() {
                 max_messages: 120,
                 enable_file_memory: true,
                 persist_on_complete: true,
-                memory_scope: MemoryScope::PerBackgroundAgent,
+                memory_scope: MemoryScope::PerTask,
                 enable_compaction: true,
                 compaction_threshold_ratio: 0.80,
                 max_summary_tokens: 2_000,
@@ -1775,7 +1775,7 @@ fn test_create_background_agent_with_template_and_memory_scope() {
         created.input_template.as_deref(),
         Some("Run task {{task.id}}")
     );
-    assert_eq!(created.memory.memory_scope, MemoryScope::PerBackgroundAgent);
+    assert_eq!(created.memory.memory_scope, MemoryScope::PerTask);
 }
 
 #[test]
@@ -1978,7 +1978,7 @@ fn test_update_background_agent_updates_template_and_memory_scope() {
                     max_messages: 80,
                     enable_file_memory: false,
                     persist_on_complete: true,
-                    memory_scope: MemoryScope::PerBackgroundAgent,
+                    memory_scope: MemoryScope::PerTask,
                     enable_compaction: true,
                     compaction_threshold_ratio: 0.80,
                     max_summary_tokens: 2_000,
@@ -1992,7 +1992,7 @@ fn test_update_background_agent_updates_template_and_memory_scope() {
         updated.input_template.as_deref(),
         Some("Template {{task.name}}")
     );
-    assert_eq!(updated.memory.memory_scope, MemoryScope::PerBackgroundAgent);
+    assert_eq!(updated.memory.memory_scope, MemoryScope::PerTask);
 }
 
 #[test]

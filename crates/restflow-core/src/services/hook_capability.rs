@@ -1,4 +1,4 @@
-use crate::hooks::{BackgroundAgentHookScheduler, HookExecutor};
+use crate::hooks::{HookExecutor, TaskHookScheduler};
 use crate::models::{Hook, HookContext, HookEvent};
 use crate::storage::{BackgroundAgentStorage, HookStorage, Storage};
 use anyhow::{Result, anyhow};
@@ -45,9 +45,7 @@ impl HookCapabilityService {
             .hooks
             .get(id)?
             .ok_or_else(|| anyhow!("Hook not found: {id}"))?;
-        let scheduler = Arc::new(BackgroundAgentHookScheduler::new(
-            self.background_agents.clone(),
-        ));
+        let scheduler = Arc::new(TaskHookScheduler::new(self.background_agents.clone()));
         let executor =
             HookExecutor::with_storage(self.hooks.clone()).with_task_scheduler(scheduler);
         executor

@@ -16,8 +16,8 @@ use restflow_ai::llm::{
 };
 use restflow_contracts::request::{
     AgentNode as ContractAgentNode, DurabilityMode as ContractDurabilityMode,
-    InlineSubagentConfig as ContractInlineSubagentConfig,
-    SubagentSpawnRequest as ContractSubagentSpawnRequest,
+    InlineAgentRunConfig as ContractInlineAgentRunConfig,
+    RunSpawnRequest as ContractRunSpawnRequest,
 };
 use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
@@ -148,7 +148,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
     async fn assess_subagent_spawn(
         &self,
         operation: &str,
-        _request: ContractSubagentSpawnRequest,
+        _request: ContractRunSpawnRequest,
         _template_mode: bool,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
@@ -160,7 +160,7 @@ impl AgentOperationAssessor for BackgroundMutationAssessor {
     async fn assess_subagent_batch(
         &self,
         operation: &str,
-        _requests: Vec<ContractSubagentSpawnRequest>,
+        _requests: Vec<ContractRunSpawnRequest>,
         _template_mode: bool,
     ) -> std::result::Result<OperationAssessment, restflow_traits::ToolError> {
         Ok(OperationAssessment::ok(
@@ -450,6 +450,7 @@ fn test_create_tool_registry() {
     assert!(registry.has("manage_secrets"));
     assert!(registry.has("manage_config"));
     assert!(registry.has("manage_agents"));
+    assert!(registry.has("manage_tasks"));
     assert!(registry.has("manage_background_agents"));
     assert!(registry.has("manage_marketplace"));
     assert!(registry.has("manage_triggers"));
@@ -747,6 +748,7 @@ async fn test_manage_agents_accepts_tools_registered_after_snapshot_point() {
                 "name": "Late Tool Validation Agent",
                 "agent": {
                     "tools": [
+                        "manage_tasks",
                         "manage_background_agents",
                         "manage_terminal",
                         "security_query"
@@ -883,6 +885,7 @@ fn test_agent_store_adapter_crud_flow() {
 
     let known_tools = Arc::new(RwLock::new(
         [
+            "manage_tasks".to_string(),
             "manage_background_agents".to_string(),
             "manage_agents".to_string(),
         ]
@@ -906,7 +909,10 @@ fn test_agent_store_adapter_crud_flow() {
         codex_cli_reasoning_effort: None,
         codex_cli_execution_mode: None,
         api_key_config: Some(crate::models::ApiKeyConfig::Direct("test-key".to_string())),
-        tools: Some(vec!["manage_background_agents".to_string()]),
+        tools: Some(vec![
+            "manage_tasks".to_string(),
+            "manage_background_agents".to_string(),
+        ]),
         skills: Some(vec!["ops-skill".to_string()]),
         skill_variables: None,
         skill_preflight_policy_mode: None,
@@ -945,6 +951,7 @@ fn test_agent_store_adapter_crud_flow() {
                 model: Some("gpt-5-mini".to_string()),
                 prompt: Some("Updated prompt".to_string()),
                 tools: Some(vec![
+                    "manage_tasks".to_string(),
                     "manage_background_agents".to_string(),
                     "manage_agents".to_string(),
                 ]),
@@ -1006,9 +1013,12 @@ fn test_agent_store_adapter_rejects_unknown_tool() {
     ) = setup_storage();
 
     let known_tools = Arc::new(RwLock::new(
-        ["manage_background_agents".to_string()]
-            .into_iter()
-            .collect::<HashSet<_>>(),
+        [
+            "manage_tasks".to_string(),
+            "manage_background_agents".to_string(),
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage,
@@ -1065,9 +1075,12 @@ fn test_agent_store_adapter_blocks_delete_with_active_task() {
     ) = setup_storage();
 
     let known_tools = Arc::new(RwLock::new(
-        ["manage_background_agents".to_string()]
-            .into_iter()
-            .collect::<HashSet<_>>(),
+        [
+            "manage_tasks".to_string(),
+            "manage_background_agents".to_string(),
+        ]
+        .into_iter()
+        .collect::<HashSet<_>>(),
     ));
     let adapter = AgentStoreAdapter::new(
         agent_storage.clone(),
@@ -1175,7 +1188,7 @@ fn test_task_store_adapter_background_agent_flow() {
             timeout_secs: Some(1800),
             durability_mode: Some(ContractDurabilityMode::Async),
             memory: None,
-            memory_scope: Some("per_background_agent".to_string()),
+            memory_scope: Some("per_task".to_string()),
             resource_limits: None,
             preview: false,
             approval_id: None,
@@ -1195,7 +1208,7 @@ fn test_task_store_adapter_background_agent_flow() {
             .and_then(|value| value.get("memory"))
             .and_then(|value| value.get("memory_scope"))
             .and_then(|value| value.as_str()),
-        Some("per_background_agent")
+        Some("per_task")
     );
     let task_id = created
         .get("result")
@@ -1847,6 +1860,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "file".to_string(),
         "run_python".to_string(),
         "manage_agents".to_string(),
+        "manage_tasks".to_string(),
         "manage_background_agents".to_string(),
         "spawn_subagent".to_string(),
         "wait_subagents".to_string(),
@@ -1871,6 +1885,7 @@ fn test_runtime_allowlist_assembly_matches_service_registry_for_core_tools() {
         "run_python",
         "python",
         "manage_agents",
+        "manage_tasks",
         "manage_background_agents",
         "spawn_subagent",
         "wait_subagents",
@@ -2067,9 +2082,9 @@ async fn test_create_subagent_manager_persists_execution_traces() {
     );
 
     let handle = subagent_manager
-        .spawn(ContractSubagentSpawnRequest {
+        .spawn(ContractRunSpawnRequest {
             agent_id: None,
-            inline: Some(ContractInlineSubagentConfig {
+            inline: Some(ContractInlineAgentRunConfig {
                 name: Some("trace-test".to_string()),
                 system_prompt: Some("Return a short answer.".to_string()),
                 allowed_tools: Some(vec!["__no_such_tool__".to_string()]),
@@ -2081,7 +2096,7 @@ async fn test_create_subagent_manager_persists_execution_traces() {
             priority: None,
             model: Some("mock-model".to_string()),
             model_provider: Some("openai".to_string()),
-            parent_execution_id: Some("parent-run-1".to_string()),
+            parent_run_id: Some("parent-run-1".to_string()),
             trace_session_id: Some("session-trace-1".to_string()),
             trace_scope_id: Some("scope-trace-1".to_string()),
         })
@@ -2219,7 +2234,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
     );
 
     let handle = subagent_manager
-        .spawn(ContractSubagentSpawnRequest {
+        .spawn(ContractRunSpawnRequest {
             agent_id: None,
             inline: None,
             task: "Say done".to_string(),
@@ -2228,7 +2243,7 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
             priority: None,
             model: Some("mock-model".to_string()),
             model_provider: Some("openai".to_string()),
-            parent_execution_id: None,
+            parent_run_id: None,
             trace_session_id: None,
             trace_scope_id: None,
         })

@@ -32,13 +32,13 @@
 //!                     │
 //!                     ▼
 //! ┌─────────────────────────────────────────┐
-//! │          BackgroundAgentTrigger Trait              │
+//! │             TaskTrigger Trait              │
 //! │   (trigger.rs - task operations)        │
 //! └─────────────────────────────────────────┘
 //!                     │
 //!                     ▼
 //! ┌─────────────────────────────────────────┐
-//! │        BackgroundAgentRunner / AppState       │
+//! │            Task Runner / AppState            │
 //! └─────────────────────────────────────────┘
 //! ```
 //!
@@ -52,7 +52,7 @@
 //!
 //! // Basic setup (commands only):
 //! let router: Arc<ChannelRouter> = /* from state */;
-//! let task_trigger: Arc<dyn BackgroundAgentTrigger> = /* your implementation */;
+//! let task_trigger: Arc<dyn TaskTrigger> = /* your implementation */;
 //! start_message_handler(router, task_trigger, MessageHandlerConfig::default());
 //!
 //! // With AI chat support:
@@ -78,7 +78,7 @@ pub use handler::{
     start_message_handler_with_chat, start_message_handler_with_pairing,
 };
 pub use router::{MessageRouter, RouteDecision};
-pub use trigger::{BackgroundAgentTrigger, SystemStatus};
+pub use trigger::{SystemStatus, TaskTrigger};
 pub(crate) use turn_persistence::build_turn_persistence_payload;
 pub(crate) use voice_preprocess::{
     detect_voice_message, preprocess_voice_message, transcribe_media_file,

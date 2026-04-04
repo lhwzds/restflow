@@ -27,7 +27,7 @@
 //!
 //! ```ignore
 //! use restflow_core::runtime::background_agent::{
-//!     BackgroundAgentRunner, AgentRuntimeExecutor, RunnerConfig,
+//!     TaskRunner, AgentRuntimeExecutor, TaskRunnerConfig,
 //!     TelegramNotifier, TaskStreamEvent, NoopHeartbeatEmitter,
 //!     RetryConfig, FailoverConfig, FailoverManager
 //! };
@@ -44,11 +44,11 @@
 //! let notifier = Arc::new(TelegramNotifier::new(storage.secrets.clone()));
 //! let heartbeat_emitter = Arc::new(NoopHeartbeatEmitter);
 //!
-//! let runner = Arc::new(BackgroundAgentRunner::with_heartbeat_emitter(
+//! let runner = Arc::new(TaskRunner::with_heartbeat_emitter(
 //!     task_storage,
 //!     executor,
 //!     notifier,
-//!     RunnerConfig::default(),
+//!     TaskRunnerConfig::default(),
 //!     heartbeat_emitter,
 //! ));
 //!
@@ -177,8 +177,8 @@ pub use persist::{MemoryPersister, PersistConfig, PersistResult};
 pub use reply_sender::BackgroundReplySenderFactory;
 pub use retry::{ErrorCategory, RetryConfig, RetryState, is_transient_error};
 pub use runner::{
-    AgentExecutor, BackgroundAgentRunner, ExecutionResult, NoopNotificationSender,
-    NotificationSender, RunnerConfig, RunnerHandle,
+    AgentExecutor, ExecutionResult, NoopNotificationSender, NotificationSender, TaskRunner,
+    TaskRunnerConfig, TaskRunnerHandle,
 };
 pub use transactional_checkpoint::{
     CheckpointMeta, UncommittedCheckpoint, commit_if_success, prepare,

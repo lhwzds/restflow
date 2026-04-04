@@ -127,7 +127,7 @@ impl ReplySender for BackgroundTaskReplySender {
 mod tests {
     use super::*;
     use crate::channel::{Channel, ChannelType, InboundMessage};
-    use crate::models::{BackgroundAgentSchedule, BackgroundMessageSource};
+    use crate::models::{BackgroundAgentSchedule, TaskMessageSource, TaskMessageStatus};
     use crate::runtime::background_agent::StreamEventKind;
     use anyhow::Result;
     use async_trait::async_trait;
@@ -240,10 +240,10 @@ mod tests {
             .list_background_agent_messages(&task.id, 10)
             .expect("list messages");
         assert_eq!(messages.len(), 1);
-        assert_eq!(messages[0].source, BackgroundMessageSource::Agent);
+        assert_eq!(messages[0].source, TaskMessageSource::Agent);
         assert_eq!(
             messages[0].status,
-            crate::models::BackgroundMessageStatus::Consumed
+            TaskMessageStatus::Consumed
         );
         assert_eq!(messages[0].message, "Received, starting now.");
 

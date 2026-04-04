@@ -15,14 +15,15 @@ pub use agent::{
     secret_resolver_from_storage,
 };
 pub use background_agent::{
-    AgentExecutor, AgentRuntimeExecutor, BackgroundAgentRunner, ExecutionResult,
-    NoopHeartbeatEmitter, NoopNotificationSender, NotificationSender, RunnerConfig, RunnerHandle,
-    SessionExecutionResult, SessionInputMode, TaskEventEmitter, TaskStreamEvent, TelegramNotifier,
+    AgentExecutor, AgentRuntimeExecutor, ExecutionResult, NoopHeartbeatEmitter,
+    NoopNotificationSender, NotificationSender, SessionExecutionResult, SessionInputMode,
+    TaskEventEmitter, TaskRunner, TaskRunnerConfig, TaskRunnerHandle, TaskStreamEvent,
+    TelegramNotifier,
 };
 pub use channel::{
-    BackgroundAgentTrigger, ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager,
-    MessageDebouncer, MessageHandlerConfig, MessageHandlerHandle, MessageRouter, RouteDecision,
-    SystemStatus, start_message_handler, start_message_handler_with_chat,
+    ChatDispatcher, ChatDispatcherConfig, ChatError, ChatSessionManager, MessageDebouncer,
+    MessageHandlerConfig, MessageHandlerHandle, MessageRouter, RouteDecision, SystemStatus,
+    TaskTrigger, start_message_handler, start_message_handler_with_chat,
 };
 pub use execution_context::{ExecutionContext, ExecutionRole};
 pub use orchestrator::{AgentOrchestratorImpl, OrchestratingAgentExecutor};
