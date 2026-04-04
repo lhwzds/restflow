@@ -8,9 +8,9 @@ import type { ResourceLimits } from "./ResourceLimits";
 import type { TaskSchedule } from "./TaskSchedule";
 
 /**
- * Partial update payload for background agents.
+ * Partial update payload for scheduled tasks.
  */
-export type BackgroundAgentPatch = { 
+export type TaskPatch = { 
 /**
  * New display name
  */

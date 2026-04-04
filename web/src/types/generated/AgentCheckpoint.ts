@@ -17,7 +17,7 @@ id: string,
  */
 execution_id: string, 
 /**
- * Links to `BackgroundAgent.id` (if running as a background task).
+ * Links to `Task.id` (if running as a scheduled task).
  */
 task_id: string | null, 
 /**

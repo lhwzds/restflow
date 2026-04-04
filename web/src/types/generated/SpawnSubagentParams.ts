@@ -45,9 +45,9 @@ model?: string,
  */
 provider?: string, 
 /**
- * Optional parent execution ID (runtime-injected, internal use).
+ * Optional parent run ID (runtime-injected, internal use).
  */
-parent_execution_id?: string, 
+parent_run_id?: string, 
 /**
  * Optional trace session ID (runtime-injected, internal use).
  */

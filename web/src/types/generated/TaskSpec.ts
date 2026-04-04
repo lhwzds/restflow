@@ -8,9 +8,9 @@ import type { ResourceLimits } from "./ResourceLimits";
 import type { TaskSchedule } from "./TaskSchedule";
 
 /**
- * Creation payload for background agents.
+ * Creation payload for scheduled tasks.
  */
-export type BackgroundAgentSpec = { 
+export type TaskSpec = { 
 /**
  * Display name of the background agent
  */

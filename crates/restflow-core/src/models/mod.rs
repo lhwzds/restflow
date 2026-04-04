@@ -36,22 +36,25 @@ pub use agent::{
 };
 pub use agent_execution::{AgentExecuteResponse, ExecutionDetails, ExecutionStep, ToolCallInfo};
 pub use agent_meta::{AgentMeta, AgentType};
-pub use background_agent::{
+pub(crate) use background_agent::{
     BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentConversionResult,
     BackgroundAgentEvent, BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentRun,
     BackgroundAgentRunMetrics, BackgroundAgentRunStatus, BackgroundAgentSchedule,
-    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource,
-    BackgroundMessageStatus, BackgroundProgress, CliExecutionConfig, ContinuationConfig,
-    DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, ResourceLimits,
-    TaskEvent, TaskEventType, TaskSchedule,
+    BackgroundAgentSpec, BackgroundAgentStatus, BackgroundMessage, BackgroundProgress,
+};
+pub use background_agent::{
+    CliExecutionConfig, ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig,
+    MemoryScope, NotificationConfig, ResourceLimits, Task, TaskControlAction,
+    TaskConversionResult, TaskEvent, TaskEventType, TaskMessage, TaskMessageSource,
+    TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus,
+    TaskSchedule, TaskSpec, TaskStatus,
 };
 pub use channel_session_binding::ChannelSessionBinding;
 pub use checkpoint::{AgentCheckpoint, ResumePayload};
 pub use deliverable::{Deliverable, DeliverableType};
 pub use execution_console::{
-    ChildExecutionSessionQuery, ExecutionContainerKind, ExecutionContainerRef,
-    ExecutionContainerSummary, ExecutionSessionKind, ExecutionSessionListQuery,
-    ExecutionSessionSummary, ExecutionThread,
+    ChildRunListQuery, ExecutionContainerKind, ExecutionContainerRef, ExecutionContainerSummary,
+    ExecutionThread, RunKind, RunListQuery, RunSummary,
 };
 pub use hook::{Hook, HookAction, HookContext, HookEvent, HookFilter};
 pub use memory::{

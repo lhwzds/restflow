@@ -557,6 +557,11 @@ impl AgentExecutor {
             }
 
             let request_messages = sanitize_tool_call_history(state.messages.clone());
+            // TODO(ToolSearch): Currently sends ALL tool schemas to the LLM every turn.
+            // With 58+ tools this costs ~46K tokens per request. Instead:
+            //   let loaded_tools = self.tools.partition_for_deferred_loading();
+            //   let request = CompletionRequest::new(request_messages).with_tools(loaded_tools.schemas());
+            // See restflow-traits/src/tool.rs Tool trait TODO for the full plan.
             let mut request =
                 CompletionRequest::new(request_messages).with_tools(self.tools.schemas());
 
