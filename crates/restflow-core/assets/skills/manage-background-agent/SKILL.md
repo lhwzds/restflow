@@ -1,19 +1,19 @@
 ---
-name: Manage Background Agent
-description: Manage background agent lifecycle, execution, progress inspection, and operator messaging.
+name: Manage Tasks
+description: Manage task lifecycle, execution, progress inspection, and operator messaging.
 tags:
   - default
   - agent
   - background
   - operations
 suggested_tools:
-  - manage_background_agents
+  - manage_tasks
   - reply
 ---
 
-# Manage Background Agent
+# Manage Tasks
 
-Use this skill for long-running or scheduled work executed by background agents.
+Use this skill for long-running or scheduled work executed by tasks.
 
 ## Inputs
 
@@ -22,14 +22,14 @@ Use this skill for long-running or scheduled work executed by background agents.
 
 ## Procedure
 
-1. Inspect existing background agents.
-- Use `manage_background_agents` with `operation: list` first.
-- Reuse an existing agent when possible.
+1. Inspect existing tasks.
+- Use `manage_tasks` with `operation: list` first.
+- Reuse an existing task when possible.
 
 2. Create or run as needed.
-- For new work, create an agent definition.
+- For new work, create a task definition.
 - Trigger execution with `operation: run`.
-- Before `create`, `convert_session`, `promote_to_background`, `run`, `run_batch`, or `control` with `run_now`, call `manage_background_agents` with `preview: true`.
+- Before `create`, `convert_session`, `promote_to_background`, `run`, `run_batch`, or `control` with `run_now`, call `manage_tasks` with `preview: true`.
 - If preview returns warnings, summarize them and wait for user confirmation before retrying with `approval_id`.
 - If preview returns blockers, stop and report the blockers.
 
@@ -46,4 +46,4 @@ Use this skill for long-running or scheduled work executed by background agents.
 
 - Prefer `run` on an existing definition over creating duplicates.
 - Keep lifecycle transitions explicit and auditable.
-- Do not delete agents unless explicitly requested.
+- Do not delete tasks unless explicitly requested.

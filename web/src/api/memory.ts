@@ -283,13 +283,13 @@ export function isUnsupportedMemoryOperationError(error: unknown): boolean {
   return error instanceof UnsupportedMemoryOperationError
 }
 
-export function getBackgroundAgentMemoryTag(taskId: string): string {
+export function getTaskMemoryTag(taskId: string): string {
   return `task:${taskId}`
 }
 
-export async function listBackgroundAgentMemory(
+export async function listTaskMemory(
   taskId: string,
   limit?: number,
 ): Promise<MemoryListResponse<MemoryChunk>> {
-  return listMemoryChunksByTag(getBackgroundAgentMemoryTag(taskId), limit)
+  return listMemoryChunksByTag(getTaskMemoryTag(taskId), limit)
 }

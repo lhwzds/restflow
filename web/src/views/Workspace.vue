@@ -27,10 +27,10 @@ import AgentEditorPanel from '@/components/workspace/AgentEditorPanel.vue'
 import SettingsPanel from '@/components/settings/SettingsPanel.vue'
 import ChatPanel from '@/components/chat/ChatPanel.vue'
 import ToolPanel from '@/components/tool-panel/ToolPanel.vue'
-import ConvertToBackgroundAgentDialog from '@/components/workspace/ConvertToBackgroundAgentDialog.vue'
+import ConvertToTaskDialog from '@/components/workspace/ConvertToTaskDialog.vue'
 import CreateAgentDialog from '@/components/workspace/CreateAgentDialog.vue'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
-import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { useToolPanel } from '@/composables/workspace/useToolPanel'
 import { useTheme } from '@/composables/useTheme'
 import { confirmDelete, useConfirm } from '@/composables/useConfirm'
@@ -38,9 +38,9 @@ import { useCommandPalette } from '@/composables/useCommandPalette'
 import { deleteAgent as deleteAgentApi, listAgents } from '@/api/agents'
 import {
   getExecutionRunThread,
-  listChildExecutionSessions,
+  listChildRuns,
   listExecutionContainers,
-  listExecutionSessions,
+  listRuns,
 } from '@/api/execution-console'
 import { rebuildExternalChatSession } from '@/api/chat-session'
 import { useToast } from '@/composables/useToast'
@@ -55,9 +55,9 @@ import type {
 } from '@/types/workspace'
 import type { StreamStep } from '@/composables/workspace/useChatStream'
 import type { ExecutionContainerSummary } from '@/types/generated/ExecutionContainerSummary'
-import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ThreadSelection } from '@/components/chat/threadItems'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
+import type { RunSummary } from '@/types/generated/RunSummary'
 
 const toast = useToast()
 const { t } = useI18n()
@@ -66,7 +66,7 @@ const commandPalette = useCommandPalette()
 const route = useRoute()
 const router = useRouter()
 const chatSessionStore = useChatSessionStore()
-const backgroundAgentStore = useBackgroundAgentStore()
+const taskStore = useTaskStore()
 const { isDark, toggleDark } = useTheme()
 
 const showSettings = ref(false)
@@ -83,12 +83,12 @@ const activeExecutionThread = ref<ExecutionThread | null>(null)
 const runThreadByRunId = ref<Record<string, ExecutionThread>>({})
 const executionContainers = ref<ExecutionContainerSummary[]>([])
 const expandedWorkspaceContainerIds = ref<Set<string>>(new Set())
-const workspaceRunsByContainerId = ref<Record<string, ExecutionSessionSummary[]>>({})
+const workspaceRunsByContainerId = ref<Record<string, RunSummary[]>>({})
 const expandedBackgroundTaskIds = ref<Set<string>>(new Set())
-const backgroundRunsByTaskId = ref<Record<string, ExecutionSessionSummary[]>>({})
+const backgroundRunsByTaskId = ref<Record<string, RunSummary[]>>({})
 const expandedExternalContainerIds = ref<Set<string>>(new Set())
-const externalRunsByContainerId = ref<Record<string, ExecutionSessionSummary[]>>({})
-const childRunsByParentRunId = ref<Record<string, ExecutionSessionSummary[]>>({})
+const externalRunsByContainerId = ref<Record<string, RunSummary[]>>({})
+const childRunsByParentRunId = ref<Record<string, RunSummary[]>>({})
 const childRunStateByParentRunId = ref<Record<string, ChildRunLoadState>>({})
 const childRunErrorByParentRunId = ref<Record<string, string | null>>({})
 const toolPanel = useToolPanel()
@@ -197,7 +197,7 @@ function agentNameForId(agentId: string | null | undefined): string | undefined 
   return availableAgents.value.find((agent) => agent.id === agentId)?.name ?? agentId
 }
 
-function toRunListItem(summary: ExecutionSessionSummary, path = new Set<string>()): RunListItem {
+function toRunListItem(summary: RunSummary, path = new Set<string>()): RunListItem {
   const runId = summary.run_id ?? null
   const nextPath = new Set(path)
   if (runId) {
@@ -321,7 +321,7 @@ const containerEmptyStateTitle = computed(() => activeContainer.value?.title ?? 
 const containerEmptyStateDescription = computed(() => {
   switch (activeContainer.value?.kind) {
     case 'background_task':
-      return 'No runs have been created for this background agent yet.'
+      return 'No runs have been created for this task yet.'
     case 'external_channel':
       return 'No runs have been created for this external channel yet.'
     default:
@@ -605,7 +605,7 @@ async function ensureRunThreadLoaded(
 async function ensureChildRunsLoaded(
   parentRunId: string,
   forceRefresh = false,
-): Promise<ExecutionSessionSummary[]> {
+): Promise<RunSummary[]> {
   if (!forceRefresh && childRunStateByParentRunId.value[parentRunId] === 'loaded') {
     return childRunsByParentRunId.value[parentRunId] ?? []
   }
@@ -620,7 +620,7 @@ async function ensureChildRunsLoaded(
   }
 
   try {
-    const runs = await listChildExecutionSessions({
+    const runs = await listChildRuns({
       parent_run_id: parentRunId,
     })
 
@@ -651,7 +651,7 @@ async function ensureChildRunsLoaded(
   }
 }
 
-async function ensureRunAncestorChildrenLoaded(focus: ExecutionSessionSummary): Promise<void> {
+async function ensureRunAncestorChildrenLoaded(focus: RunSummary): Promise<void> {
   const ancestors: string[] = []
   let currentParentRunId = focus.parent_run_id ?? null
 
@@ -667,12 +667,12 @@ async function ensureRunAncestorChildrenLoaded(focus: ExecutionSessionSummary): 
 async function ensureWorkspaceRunsLoaded(
   containerId: string,
   forceRefresh = false,
-): Promise<ExecutionSessionSummary[]> {
+): Promise<RunSummary[]> {
   if (!forceRefresh && workspaceRunsByContainerId.value[containerId]) {
     return workspaceRunsByContainerId.value[containerId]
   }
 
-  const runs = await listExecutionSessions({
+  const runs = await listRuns({
     container: {
       kind: 'workspace',
       id: containerId,
@@ -689,12 +689,12 @@ async function ensureWorkspaceRunsLoaded(
 async function ensureBackgroundRunsLoaded(
   taskId: string,
   forceRefresh = false,
-): Promise<ExecutionSessionSummary[]> {
+): Promise<RunSummary[]> {
   if (!forceRefresh && backgroundRunsByTaskId.value[taskId]) {
     return backgroundRunsByTaskId.value[taskId]
   }
 
-  const runs = await listExecutionSessions({
+  const runs = await listRuns({
     container: {
       kind: 'background_task',
       id: taskId,
@@ -711,12 +711,12 @@ async function ensureBackgroundRunsLoaded(
 async function ensureExternalRunsLoaded(
   containerId: string,
   forceRefresh = false,
-): Promise<ExecutionSessionSummary[]> {
+): Promise<RunSummary[]> {
   if (!forceRefresh && externalRunsByContainerId.value[containerId]) {
     return externalRunsByContainerId.value[containerId]
   }
 
-  const runs = await listExecutionSessions({
+  const runs = await listRuns({
     container: {
       kind: 'external_channel',
       id: containerId,
@@ -818,7 +818,7 @@ async function onSelectRun(containerId: string, runId: string) {
   await router.push(canonicalContainerRunRoute(containerId, runId))
 }
 
-async function expandContainerForFocus(focus: ExecutionSessionSummary, forceRefreshRuns = false) {
+async function expandContainerForFocus(focus: RunSummary, forceRefreshRuns = false) {
   if (focus.kind === 'background_run' && focus.task_id) {
     activeBackgroundTaskId.value = focus.task_id
     const next = new Set(expandedBackgroundTaskIds.value)
@@ -1019,7 +1019,7 @@ async function submitRename() {
   renameDialogOpen.value = false
 }
 
-function onConvertToBackgroundAgent(id: string, name: string) {
+function onConvertSessionToTask(id: string, name: string) {
   if (isExternallyManagedSession(id)) {
     toast.error(t('workspace.session.managedExternally'))
     return
@@ -1035,12 +1035,12 @@ async function onConvertToWorkspaceSession(id: string, _name: string) {
     return
   }
 
-  const success = await backgroundAgentStore.convertSessionToWorkspace(id)
+  const success = await taskStore.convertTaskToWorkspace(id)
   if (!success) {
-    if (!backgroundAgentStore.error) {
+    if (!taskStore.error) {
       return
     }
-    toast.error(backgroundAgentStore.error || t('workspace.session.convertToWorkspaceFailed'))
+    toast.error(taskStore.error || t('workspace.session.convertToWorkspaceFailed'))
     return
   }
 
@@ -1288,7 +1288,7 @@ onMounted(() => {
   window.addEventListener('mouseup', stopSidebarResize)
   window.addEventListener('keydown', handleGlobalKeydown)
   void loadAgents()
-  void backgroundAgentStore.fetchAgents()
+  void taskStore.fetchTasks()
   void chatSessionStore.fetchSummaries()
   void refreshNavigationProjection()
 })
@@ -1368,7 +1368,7 @@ onUnmounted(() => {
           @rename="onRenameSession"
           @archive="onArchiveSession"
           @delete="onDeleteSession"
-          @convert-to-background-agent="onConvertToBackgroundAgent"
+          @convert-to-task="onConvertSessionToTask"
           @convert-to-workspace-session="onConvertToWorkspaceSession"
           @rebuild="onRebuildSession"
           @toggle-workspace-folder="onToggleWorkspaceFolder"
@@ -1502,7 +1502,7 @@ onUnmounted(() => {
       </DialogContent>
     </Dialog>
 
-    <ConvertToBackgroundAgentDialog
+    <ConvertToTaskDialog
       v-model:open="convertDialogOpen"
       :session-id="convertSessionId"
       :session-name="convertSessionName"

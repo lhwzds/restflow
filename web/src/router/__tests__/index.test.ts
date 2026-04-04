@@ -2,28 +2,28 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { BackendError } from '@/api/http-client'
 import {
-  resolveLegacyRunIdRoute,
-  resolveLegacySessionRoute,
-  resolveLegacyTaskRoute,
+  resolveRunAliasRoute,
+  resolveSessionAliasRoute,
+  resolveTaskAliasRoute,
 } from '../index'
 import {
   getExecutionRunThread,
   listExecutionContainers,
-  listExecutionSessions,
+  listRuns,
 } from '@/api/execution-console'
 
 vi.mock('@/api/execution-console', () => ({
   getExecutionRunThread: vi.fn(),
   listExecutionContainers: vi.fn(),
-  listExecutionSessions: vi.fn(),
+  listRuns: vi.fn(),
 }))
 
-describe('router legacy route normalization', () => {
+describe('router alias route normalization', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })
 
-  it('maps legacy session routes to the canonical container run route when a latest run exists', async () => {
+  it('maps session alias routes to the canonical container run route when a latest run exists', async () => {
     vi.mocked(listExecutionContainers).mockResolvedValue([
       {
         id: 'session-1',
@@ -41,29 +41,29 @@ describe('router legacy route normalization', () => {
       },
     ] as any)
 
-    await expect(resolveLegacySessionRoute('session-1')).resolves.toEqual({
+    await expect(resolveSessionAliasRoute('session-1')).resolves.toEqual({
       name: 'workspace-container-run',
       params: { containerId: 'session-1', runId: 'run-1' },
     })
   })
 
-  it('maps legacy task routes to the canonical container route when no runs exist', async () => {
-    vi.mocked(listExecutionSessions).mockResolvedValue([])
+  it('maps task alias routes to the canonical container route when no runs exist', async () => {
+    vi.mocked(listRuns).mockResolvedValue([])
 
-    await expect(resolveLegacyTaskRoute('task-1')).resolves.toEqual({
+    await expect(resolveTaskAliasRoute('task-1')).resolves.toEqual({
       name: 'workspace-container',
       params: { containerId: 'task-1' },
     })
   })
 
-  it('prefers the explicit run id on legacy task routes', async () => {
-    await expect(resolveLegacyTaskRoute('task-1', 'run-9')).resolves.toEqual({
+  it('prefers the explicit run id on task alias routes', async () => {
+    await expect(resolveTaskAliasRoute('task-1', 'run-9')).resolves.toEqual({
       name: 'workspace-container-run',
       params: { containerId: 'task-1', runId: 'run-9' },
     })
   })
 
-  it('maps legacy run-id routes to the canonical container run route', async () => {
+  it('maps run-id alias routes to the canonical container run route', async () => {
     vi.mocked(getExecutionRunThread).mockResolvedValue({
       focus: {
         container_id: 'session-1',
@@ -72,13 +72,13 @@ describe('router legacy route normalization', () => {
       timeline: { events: [], stats: {} },
     } as any)
 
-    await expect(resolveLegacyRunIdRoute('run-1')).resolves.toEqual({
+    await expect(resolveRunAliasRoute('run-1')).resolves.toEqual({
       name: 'workspace-container-run',
       params: { containerId: 'session-1', runId: 'run-1' },
     })
   })
 
-  it('maps legacy child run-id routes to the canonical root container run route', async () => {
+  it('maps child run-id alias routes to the canonical root container run route', async () => {
     vi.mocked(getExecutionRunThread).mockResolvedValue({
       focus: {
         container_id: 'session-1',
@@ -89,13 +89,13 @@ describe('router legacy route normalization', () => {
       timeline: { events: [], stats: {} },
     } as any)
 
-    await expect(resolveLegacyRunIdRoute('run-2')).resolves.toEqual({
+    await expect(resolveRunAliasRoute('run-2')).resolves.toEqual({
       name: 'workspace-container-run',
       params: { containerId: 'session-1', runId: 'run-2' },
     })
   })
 
-  it('falls back to workspace root when a legacy run-id route cannot be resolved', async () => {
+  it('falls back to workspace root when a run-id alias route cannot be resolved', async () => {
     vi.mocked(getExecutionRunThread).mockRejectedValue(
       new BackendError({
         code: 404,
@@ -104,7 +104,7 @@ describe('router legacy route normalization', () => {
       } as any),
     )
 
-    await expect(resolveLegacyRunIdRoute('run-missing')).resolves.toEqual({
+    await expect(resolveRunAliasRoute('run-missing')).resolves.toEqual({
       name: 'workspace',
     })
   })

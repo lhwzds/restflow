@@ -43,14 +43,15 @@
       "deleteFailed": "删除会话失败",
       "renameSuccess": "会话已重命名",
       "convertToBackground": "转为后台 Agent",
+      "convertToTask": "转为任务",
       "convertToWorkspace": "转为工作区会话",
-      "convertDescription": "将此聊天会话转为定时后台 Agent 任务。",
-      "convertSuccess": "会话已转为后台 Agent",
+      "convertDescription": "将此聊天会话转为定时任务。",
+      "convertSuccess": "会话已转为任务",
       "convertFailed": "转换会话失败",
-      "convertToWorkspaceDescription": "确定将“{name}”改为普通工作区会话并取消后台运行吗？",
-      "convertToWorkspaceConfirm": "取消后台",
-      "convertToWorkspaceSuccess": "已取消后台运行，保留工作区会话",
-      "convertToWorkspaceFailed": "取消后台运行失败",
+      "convertToWorkspaceDescription": "确定将“{name}”改为普通工作区会话并取消定时任务运行吗？",
+      "convertToWorkspaceConfirm": "停用任务",
+      "convertToWorkspaceSuccess": "已停用任务模式，保留工作区会话",
+      "convertToWorkspaceFailed": "停用任务模式失败",
       "managedExternally": "该会话由外部频道托管，无法在工作区修改",
       "rebuild": "重建会话",
       "rebuildDescription": "确定重建外部会话“{name}”吗？会保留频道绑定并清空历史上下文。",
@@ -58,6 +59,7 @@
       "rebuildSuccess": "外部会话已重建",
       "rebuildFailed": "重建外部会话失败",
       "backgroundName": "后台 Agent 名称",
+      "taskName": "任务名称",
       "inputOverride": "输入覆盖（可选）",
       "inputOverridePlaceholder": "覆盖从最后一条消息推导的输入...",
       "runImmediately": "创建后立即运行",
@@ -438,5 +440,12 @@
     "passed": "{count} 成功",
     "failed": "{count} 失败",
     "steerPlaceholder": "向 Agent 发送指令..."
+  },
+  "task": {
+    "openRunTrace": "查看运行 Trace",
+    "pause": "暂停",
+    "resume": "恢复",
+    "runNow": "立即运行",
+    "stop": "停止"
   }
 }

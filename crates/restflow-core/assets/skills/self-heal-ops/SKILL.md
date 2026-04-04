@@ -6,7 +6,7 @@ tags:
   - ops
   - self-heal
 suggested_tools:
-  - manage_background_agents
+  - manage_tasks
   - manage_agents
   - manage_sessions
   - bash

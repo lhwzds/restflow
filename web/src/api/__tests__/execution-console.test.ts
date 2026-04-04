@@ -2,10 +2,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
   getExecutionRunThread,
-  listChildExecutionSessions,
+  listChildRuns,
   listExecutionContainers,
-  listExecutionSessions,
+  listRuns,
 } from '../execution-console'
+import {
+  listChildExecutionSessions,
+  listExecutionSessions,
+} from '../execution-sessions'
 import { requestTyped } from '../http-client'
 
 vi.mock('../http-client', () => ({
@@ -17,10 +21,10 @@ describe('execution-console api', () => {
     vi.resetAllMocks()
   })
 
-  it('lists execution sessions for a background task container', async () => {
+  it('lists runs for a background task container', async () => {
     vi.mocked(requestTyped).mockResolvedValue([])
 
-    await listExecutionSessions({
+    await listRuns({
       container: {
         kind: 'background_task',
         id: 'task-1',
@@ -28,7 +32,7 @@ describe('execution-console api', () => {
     })
 
     expect(requestTyped).toHaveBeenCalledWith({
-      type: 'ListExecutionSessions',
+      type: 'ListRuns',
       data: {
         query: {
           container: {
@@ -63,16 +67,48 @@ describe('execution-console api', () => {
     })
   })
 
-  it('lists child execution sessions by parent run id', async () => {
+  it('lists child runs by parent run id', async () => {
     vi.mocked(requestTyped).mockResolvedValue([])
 
-    await listChildExecutionSessions({ parent_run_id: 'run-parent-1' })
+    await listChildRuns({ parent_run_id: 'run-parent-1' })
 
     expect(requestTyped).toHaveBeenCalledWith({
-      type: 'ListChildExecutionSessions',
+      type: 'ListChildRuns',
       data: {
         query: {
           parent_run_id: 'run-parent-1',
+        },
+      },
+    })
+  })
+
+  it('keeps legacy execution-session aliases routed to canonical run requests', async () => {
+    vi.mocked(requestTyped).mockResolvedValue([])
+
+    await listExecutionSessions({
+      container: {
+        kind: 'background_task',
+        id: 'task-legacy',
+      },
+    })
+    await listChildExecutionSessions({ parent_run_id: 'run-legacy' })
+
+    expect(requestTyped).toHaveBeenNthCalledWith(1, {
+      type: 'ListRuns',
+      data: {
+        query: {
+          container: {
+            kind: 'background_task',
+            id: 'task-legacy',
+          },
+        },
+      },
+    })
+    expect(requestTyped).toHaveBeenNthCalledWith(2, {
+      type: 'ListChildRuns',
+      data: {
+        query: {
+          parent_run_id: 'run-legacy',
         },
       },
     })

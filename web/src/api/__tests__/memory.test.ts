@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import * as legacyMemoryApi from '../background-agent-memory'
 import * as memoryApi from '../memory'
 import { requestOptional, requestTyped } from '../http-client'
 import type { MemorySearchQuery } from '@/types/generated'
@@ -243,11 +244,11 @@ describe('Memory API', () => {
     expect(advanced).toEqual(expect.objectContaining({ markdown: '# Advanced Export' }))
   })
 
-  it('builds background memory tag and fetches task memory', async () => {
+  it('builds task memory tag and fetches task memory', async () => {
     mockedRequestTyped.mockResolvedValueOnce([{ id: 'chunk-1' }])
 
-    const tag = memoryApi.getBackgroundAgentMemoryTag('task-1')
-    const result = await memoryApi.listBackgroundAgentMemory('task-1', 5)
+    const tag = memoryApi.getTaskMemoryTag('task-1')
+    const result = await memoryApi.listTaskMemory('task-1', 5)
 
     expect(tag).toBe('task:task-1')
     expect(mockedRequestTyped).toHaveBeenCalledWith({
@@ -255,5 +256,19 @@ describe('Memory API', () => {
       data: { agent_id: null, tag: 'task:task-1' },
     })
     expect(result.total).toBe(1)
+  })
+
+  it('keeps background memory helpers as compatibility aliases', async () => {
+    mockedRequestTyped.mockResolvedValueOnce([{ id: 'chunk-1' }])
+
+    const tag = legacyMemoryApi.getBackgroundAgentMemoryTag('task-2')
+    const result = await legacyMemoryApi.listBackgroundAgentMemory('task-2', 3)
+
+    expect(tag).toBe('task:task-2')
+    expect(mockedRequestTyped).toHaveBeenCalledWith({
+      type: 'ListMemory',
+      data: { agent_id: null, tag: 'task:task-2' },
+    })
+    expect(result).toEqual({ items: [{ id: 'chunk-1' }], total: 1 })
   })
 })

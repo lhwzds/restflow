@@ -8,7 +8,11 @@ export * from './useTheme'
 export * from './useToast'
 
 // Workspace composables
-export { useBackgroundAgentStream, type StreamState as BackgroundAgentStreamState } from './workspace/useBackgroundAgentStream'
+export {
+  useTaskStream,
+  type StreamState as TaskStreamState,
+  type UseTaskStreamReturn,
+} from './workspace/useTaskStream'
 export * from './workspace/useChatSession'
 export { useChatStream, type StreamState } from './workspace/useChatStream'
 export * from './workspace/useToolPanel'
