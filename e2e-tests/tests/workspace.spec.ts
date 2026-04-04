@@ -703,7 +703,7 @@ test.describe('Workspace Layout', () => {
         | undefined
 
       if (
-        payload?.type === 'ListExecutionSessions' &&
+        payload?.type === 'ListRuns' &&
         payload.data?.query?.container?.kind === 'workspace' &&
         payload.data?.query?.container?.id === sessionId
       ) {
@@ -742,7 +742,7 @@ test.describe('Workspace Layout', () => {
       }
 
       if (
-        payload?.type === 'ListChildExecutionSessions' &&
+        payload?.type === 'ListChildRuns' &&
         payload.data?.query?.parent_run_id === parentRunId
       ) {
         await route.fulfill({
@@ -780,7 +780,7 @@ test.describe('Workspace Layout', () => {
       }
 
       if (
-        payload?.type === 'ListChildExecutionSessions' &&
+        payload?.type === 'ListChildRuns' &&
         payload.data?.query?.parent_run_id === childRunId
       ) {
         await route.fulfill({
@@ -818,7 +818,7 @@ test.describe('Workspace Layout', () => {
       }
 
       if (
-        payload?.type === 'ListChildExecutionSessions' &&
+        payload?.type === 'ListChildRuns' &&
         payload.data?.query?.parent_run_id === grandchildRunId
       ) {
         await route.fulfill({

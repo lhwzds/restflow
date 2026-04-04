@@ -24,7 +24,7 @@ async function openSessionMenu(page: Page, sessionRow: Locator) {
     await menuTrigger.click({ force: true })
 
     const convertItem = page.getByRole('menuitem', {
-      name: 'Convert to Background Agent',
+      name: 'Convert to Task',
       exact: true,
     })
     if (await convertItem.isVisible().catch(() => false)) {
@@ -88,12 +88,20 @@ test.describe('Agent capability confirmation', () => {
     page,
   }) => {
     let convertRequestCount = 0
-    await page.route('**/api/background-agents/convert-session', async (route) => {
+    await page.route('**/api/request', async (route) => {
+      const payload = route.request().postDataJSON()
+      if (payload?.type !== 'CreateTaskFromSession') {
+        await route.continue()
+        return
+      }
       convertRequestCount += 1
       await route.fulfill({
-        status: 400,
+        status: 200,
         contentType: 'application/json',
-        body: JSON.stringify(backendError('Background agent provider needs confirmation.')),
+        body: JSON.stringify({
+          response_type: 'Error',
+          data: backendError('Background agent provider needs confirmation.'),
+        }),
       })
     })
 
@@ -110,9 +118,13 @@ test.describe('Agent capability confirmation', () => {
     await expect(dialog).toBeVisible()
     await dialog.locator('input').first().fill('Confirmed Background Agent')
     await dialog.locator('textarea').fill('Convert after confirmation')
-    const convertResponse = page.waitForResponse((response) =>
-      response.url().includes('/api/background-agents/convert-session'),
-    )
+    const convertResponse = page.waitForResponse((response) => {
+      if (!response.url().includes('/api/request')) {
+        return false
+      }
+      const request = response.request().postDataJSON()
+      return request?.type === 'CreateTaskFromSession'
+    })
     await dialog.getByRole('button', { name: 'Convert' }).click()
     await convertResponse
 
