@@ -26,7 +26,7 @@ mod tests {
 
     #[test]
     fn test_ipc_request_reexport_roundtrip() {
-        let request = IpcRequest::HandleBackgroundAgentApproval {
+        let request = IpcRequest::HandleTaskApproval {
             id: "task-1".to_string(),
             approved: true,
         };

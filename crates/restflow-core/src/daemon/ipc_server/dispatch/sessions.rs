@@ -18,12 +18,12 @@ impl IpcServer {
         }
     }
 
-    pub(super) async fn handle_list_execution_sessions(
+    pub(super) async fn handle_list_runs(
         core: &Arc<AppCore>,
-        query: crate::models::ExecutionSessionListQuery,
+        query: crate::models::RunListQuery,
     ) -> IpcResponse {
         let service = ExecutionConsoleService::from_storage(&core.storage);
-        match service.list_execution_sessions(&query) {
+        match service.list_runs(&query) {
             Ok(sessions) => IpcResponse::success(sessions),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }
@@ -42,9 +42,9 @@ impl IpcServer {
         map_execution_thread_response(service.get_execution_run_thread(&run_id))
     }
 
-    pub(super) async fn handle_list_child_execution_sessions(
+    pub(super) async fn handle_list_child_runs(
         core: &Arc<AppCore>,
-        query: crate::models::ChildExecutionSessionQuery,
+        query: crate::models::ChildRunListQuery,
     ) -> IpcResponse {
         let parent_run_id = query.parent_run_id.trim().to_string();
         if parent_run_id.is_empty() {
@@ -52,7 +52,7 @@ impl IpcServer {
         }
 
         let service = ExecutionConsoleService::from_storage(&core.storage);
-        match service.list_child_execution_sessions(&parent_run_id) {
+        match service.list_child_runs(&parent_run_id) {
             Ok(sessions) => IpcResponse::success(sessions),
             Err(err) => IpcResponse::error(500, err.to_string()),
         }

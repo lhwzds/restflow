@@ -4,7 +4,7 @@ use crate::storage::Storage;
 use crate::{
     ExecutionTraceCategory, ExecutionTraceSource, LifecycleTrace, LogRecordTrace, MetricSampleTrace,
 };
-use restflow_contracts::request::ChildExecutionSessionQuery;
+use restflow_contracts::request::ChildRunListQuery;
 use restflow_storage::SimpleStorage;
 
 fn assert_execution_thread_error(
@@ -210,8 +210,8 @@ async fn list_child_execution_sessions_returns_bad_request_for_blank_parent_run_
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::ListChildExecutionSessions {
-            query: ChildExecutionSessionQuery {
+        IpcRequest::ListChildRuns {
+            query: ChildRunListQuery {
                 parent_run_id: "   ".to_string(),
             },
         },
@@ -234,8 +234,8 @@ async fn list_child_execution_sessions_returns_empty_for_leaf_runs() {
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::ListChildExecutionSessions {
-            query: ChildExecutionSessionQuery {
+        IpcRequest::ListChildRuns {
+            query: ChildRunListQuery {
                 parent_run_id: "run-1".to_string(),
             },
         },
@@ -244,7 +244,7 @@ async fn list_child_execution_sessions_returns_empty_for_leaf_runs() {
 
     match response {
         IpcResponse::Success(value) => {
-            let runs: Vec<crate::ExecutionSessionSummary> =
+            let runs: Vec<crate::RunSummary> =
                 serde_json::from_value(value).expect("child runs");
             assert!(runs.is_empty());
         }
@@ -272,8 +272,8 @@ async fn list_child_execution_sessions_returns_direct_children_for_parent_runs()
     let response = IpcServer::process(
         &core,
         &runtime_tool_registry,
-        IpcRequest::ListChildExecutionSessions {
-            query: ChildExecutionSessionQuery {
+        IpcRequest::ListChildRuns {
+            query: ChildRunListQuery {
                 parent_run_id: "run-parent".to_string(),
             },
         },
@@ -282,7 +282,7 @@ async fn list_child_execution_sessions_returns_direct_children_for_parent_runs()
 
     match response {
         IpcResponse::Success(value) => {
-            let runs: Vec<crate::ExecutionSessionSummary> =
+            let runs: Vec<crate::RunSummary> =
                 serde_json::from_value(value).expect("child runs");
             assert_eq!(runs.len(), 1);
             assert_eq!(runs[0].run_id.as_deref(), Some("run-child"));
