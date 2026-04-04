@@ -1,4 +1,5 @@
 use super::*;
+use crate::Tool;
 use async_trait::async_trait;
 use restflow_traits::assessment::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
@@ -9,7 +10,7 @@ use restflow_traits::store::{
     BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
     BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
     BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest, BackgroundAgentUpdateRequest,
-    KvStore, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
+    KvStore, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV, TaskStore,
 };
 use serde_json::json;
 use std::collections::HashMap;
@@ -109,7 +110,7 @@ impl AgentOperationAssessor for MockAssessor {
     async fn assess_subagent_spawn(
         &self,
         operation: &str,
-        _request: restflow_contracts::request::SubagentSpawnRequest,
+        _request: restflow_contracts::request::RunSpawnRequest,
         _template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
@@ -121,7 +122,7 @@ impl AgentOperationAssessor for MockAssessor {
     async fn assess_subagent_batch(
         &self,
         operation: &str,
-        _requests: Vec<restflow_contracts::request::SubagentSpawnRequest>,
+        _requests: Vec<restflow_contracts::request::RunSpawnRequest>,
         _template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
         Ok(OperationAssessment::ok(
@@ -131,17 +132,44 @@ impl AgentOperationAssessor for MockAssessor {
     }
 }
 
-fn writable_tool() -> BackgroundAgentTool {
-    BackgroundAgentTool::new(Arc::new(MockStore))
+fn writable_tool() -> TaskTool {
+    TaskTool::new(Arc::new(MockStore))
         .with_write(true)
         .with_assessor(Arc::new(MockAssessor))
 }
 
-fn writable_team_tool(kv_store: Arc<dyn KvStore>) -> BackgroundAgentTool {
-    BackgroundAgentTool::new(Arc::new(MockStore))
+fn writable_team_tool(kv_store: Arc<dyn KvStore>) -> TaskTool {
+    TaskTool::new(Arc::new(MockStore))
         .with_kv_store(kv_store)
         .with_write(true)
         .with_assessor(Arc::new(MockAssessor))
+}
+
+#[test]
+fn task_tool_from_task_store_keeps_background_agent_compat() {
+    let task_store: Arc<dyn TaskStore> = Arc::new(MockStore);
+    let tool = TaskTool::from_task_store(task_store);
+
+    let _: Arc<dyn BackgroundAgentStore> = tool.store.clone();
+}
+
+#[test]
+fn background_agent_constructor_preserves_status_through_bridge() {
+    let tool = TaskTool::new(Arc::new(MockStore));
+
+    let _: Arc<dyn BackgroundAgentStore> = tool.store.clone();
+}
+
+#[test]
+fn task_tool_uses_manage_tasks_name() {
+    let tool = TaskTool::new(Arc::new(MockStore));
+    assert_eq!(Tool::name(&tool), "manage_tasks");
+}
+
+#[test]
+fn background_agent_tool_keeps_legacy_name() {
+    let tool = BackgroundAgentTool::new(Arc::new(MockStore));
+    assert_eq!(Tool::name(&tool), "manage_background_agents");
 }
 
 impl KvStore for MockKvStore {

@@ -11,17 +11,17 @@ use serde_json::json;
 use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::OperationAssessmentIntent;
 use restflow_traits::store::{
-    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentDeleteRequest, BackgroundAgentMessageRequest, BackgroundAgentUpdateRequest,
+    TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskMessageRequest, TaskStore,
+    TaskUpdateRequest,
 };
 use restflow_traits::{OperationAssessment, OperationAssessmentIssue};
 
-use super::BackgroundAgentTool;
+use super::TaskTool;
 use super::team::{delete_team, save_team_workers};
 use super::types::BackgroundBatchWorkerSpec;
 
 pub(super) async fn execute_save_team(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     team: String,
     workers: Vec<BackgroundBatchWorkerSpec>,
     preview: bool,
@@ -55,7 +55,7 @@ pub(super) async fn execute_save_team(
 }
 
 pub(super) async fn execute_delete_team(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     team: String,
     preview: bool,
     approval_id: Option<String>,
@@ -92,7 +92,7 @@ pub(super) async fn execute_delete_team(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_create(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     name: String,
     agent_id: String,
     chat_session_id: Option<String>,
@@ -108,7 +108,7 @@ pub(super) async fn execute_create(
     approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
-    let request = BackgroundAgentCreateRequest {
+    let request = TaskCreateRequest {
         name,
         agent_id,
         chat_session_id,
@@ -123,9 +123,7 @@ pub(super) async fn execute_create(
         preview,
         approval_id,
     };
-    let result = tool
-        .store
-        .create_background_agent(request)
+    let result = TaskStore::create_task(tool.store.as_ref(), request)
         .map_err(|e| ToolError::Tool(format!("Failed to create background agent: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
@@ -135,7 +133,7 @@ pub(super) async fn execute_create(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_convert_session(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     session_id: String,
     name: Option<String>,
     schedule: Option<ContractTaskSchedule>,
@@ -150,7 +148,7 @@ pub(super) async fn execute_convert_session(
     approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
-    let request = BackgroundAgentConvertSessionRequest {
+    let request = TaskConvertSessionRequest {
         session_id,
         name,
         schedule,
@@ -164,14 +162,11 @@ pub(super) async fn execute_convert_session(
         preview,
         approval_id,
     };
-    let result = tool
-        .store
-        .convert_session_to_background_agent(request)
-        .map_err(|e| {
-            ToolError::Tool(format!(
-                "Failed to convert session into background agent: {e}."
-            ))
-        })?;
+    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request).map_err(|e| {
+        ToolError::Tool(format!(
+            "Failed to convert session into background agent: {e}."
+        ))
+    })?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -180,7 +175,7 @@ pub(super) async fn execute_convert_session(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_promote_to_background(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     session_id: Option<String>,
     name: Option<String>,
     schedule: Option<ContractTaskSchedule>,
@@ -201,7 +196,7 @@ pub(super) async fn execute_promote_to_background(
                 .to_string(),
         )
     })?;
-    let request = BackgroundAgentConvertSessionRequest {
+    let request = TaskConvertSessionRequest {
         session_id,
         name,
         schedule,
@@ -215,14 +210,11 @@ pub(super) async fn execute_promote_to_background(
         preview,
         approval_id,
     };
-    let result = tool
-        .store
-        .convert_session_to_background_agent(request)
-        .map_err(|e| {
-            ToolError::Tool(format!(
-                "Failed to promote session into background agent: {e}."
-            ))
-        })?;
+    let result = TaskStore::convert_session_to_task(tool.store.as_ref(), request).map_err(|e| {
+        ToolError::Tool(format!(
+            "Failed to promote session into background agent: {e}."
+        ))
+    })?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
     }
@@ -231,7 +223,7 @@ pub(super) async fn execute_promote_to_background(
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_update(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     id: String,
     name: Option<String>,
     description: Option<String>,
@@ -251,7 +243,7 @@ pub(super) async fn execute_update(
     approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
-    let request = BackgroundAgentUpdateRequest {
+    let request = TaskUpdateRequest {
         id,
         name,
         description,
@@ -270,9 +262,7 @@ pub(super) async fn execute_update(
         preview,
         approval_id,
     };
-    let result = tool
-        .store
-        .update_background_agent(request)
+    let result = TaskStore::update_task(tool.store.as_ref(), request)
         .map_err(|e| ToolError::Tool(format!("Failed to update background agent: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
@@ -281,20 +271,18 @@ pub(super) async fn execute_update(
 }
 
 pub(super) async fn execute_delete(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     id: String,
     preview: bool,
     approval_id: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
-    let request = BackgroundAgentDeleteRequest {
+    let request = TaskDeleteRequest {
         id,
         preview,
         approval_id,
     };
-    let result = tool
-        .store
-        .delete_background_agent(request)
+    let result = TaskStore::delete_task(tool.store.as_ref(), request)
         .map_err(|e| ToolError::Tool(format!("Failed to delete background agent: {e}.")))?;
     if let Some(output) = guarded_confirmation_required_output(&result) {
         return Ok(output);
@@ -303,19 +291,20 @@ pub(super) async fn execute_delete(
 }
 
 pub(super) fn execute_send_message(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     id: String,
     message: String,
     source: Option<String>,
 ) -> Result<ToolOutput> {
     tool.write_guard()?;
-    let result = tool
-        .store
-        .send_background_agent_message(BackgroundAgentMessageRequest {
+    let result = TaskStore::send_task_message(
+        tool.store.as_ref(),
+        TaskMessageRequest {
             id,
             message,
             source,
-        })
-        .map_err(|e| ToolError::Tool(format!("Failed to send message background agent: {e}.")))?;
+        },
+    )
+    .map_err(|e| ToolError::Tool(format!("Failed to send message background agent: {e}.")))?;
     Ok(ToolOutput::success(result))
 }

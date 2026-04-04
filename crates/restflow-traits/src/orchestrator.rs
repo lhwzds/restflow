@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::error::ToolError;
-use crate::subagent::InlineSubagentConfig;
+use crate::subagent::InlineRunConfig;
 
 /// Lifecycle mode for one agent execution plan.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -24,9 +24,9 @@ pub struct ExecutionPlan {
     /// Optional stored agent identifier.
     #[serde(default)]
     pub agent_id: Option<String>,
-    /// Optional inline temporary-subagent configuration.
+    /// Optional inline temporary child-run configuration.
     #[serde(default)]
-    pub inline_subagent: Option<InlineSubagentConfig>,
+    pub inline_subagent: Option<InlineRunConfig>,
     /// Runtime input for the execution.
     #[serde(default)]
     pub input: Option<String>,
@@ -48,8 +48,11 @@ pub struct ExecutionPlan {
     /// Optional max iterations override.
     #[serde(default)]
     pub max_iterations: Option<u32>,
-    /// Optional parent execution ID.
-    #[serde(default)]
+    /// Optional parent run ID.
+    ///
+    /// The serialized field name is canonicalized to `parent_run_id` while
+    /// still accepting legacy `parent_execution_id` input for compatibility.
+    #[serde(default, rename = "parent_run_id", alias = "parent_execution_id")]
     pub parent_execution_id: Option<String>,
     /// Optional trace session ID.
     #[serde(default)]
@@ -70,6 +73,16 @@ pub struct ExecutionPlan {
 }
 
 impl ExecutionPlan {
+    /// Returns the canonical parent run identifier for this execution plan.
+    pub fn parent_run_id(&self) -> Option<&str> {
+        self.parent_execution_id.as_deref()
+    }
+
+    /// Sets the canonical parent run identifier while preserving legacy storage.
+    pub fn set_parent_run_id(&mut self, parent_run_id: Option<String>) {
+        self.parent_execution_id = parent_run_id;
+    }
+
     /// Validate that the plan contains the minimum fields required for its mode.
     pub fn validate(&self) -> Result<(), ToolError> {
         let mode = self
@@ -202,7 +215,7 @@ mod tests {
         let plan = ExecutionPlan {
             mode: Some(ExecutionMode::Subagent),
             input: Some("task".to_string()),
-            inline_subagent: Some(InlineSubagentConfig::default()),
+            inline_subagent: Some(InlineRunConfig::default()),
             model: Some("gpt-5.3-codex".to_string()),
             ..ExecutionPlan::default()
         };
@@ -223,10 +236,44 @@ mod tests {
         let valid = ExecutionPlan {
             mode: Some(ExecutionMode::Subagent),
             input: Some("task".to_string()),
-            inline_subagent: Some(InlineSubagentConfig::default()),
+            inline_subagent: Some(InlineRunConfig::default()),
             ..ExecutionPlan::default()
         };
         assert!(valid.validate().is_ok());
+    }
+
+    #[test]
+    fn test_execution_plan_parent_run_id_accessors_round_trip() {
+        let mut plan = ExecutionPlan::default();
+        assert_eq!(plan.parent_run_id(), None);
+
+        plan.set_parent_run_id(Some("parent-1".to_string()));
+        assert_eq!(plan.parent_run_id(), Some("parent-1"));
+        assert_eq!(plan.parent_execution_id.as_deref(), Some("parent-1"));
+    }
+
+    #[test]
+    fn test_execution_plan_serializes_parent_run_id_canonically() {
+        let mut plan = ExecutionPlan::default();
+        plan.set_parent_run_id(Some("parent-1".to_string()));
+
+        let serialized = serde_json::to_value(plan).expect("serialize execution plan");
+        assert_eq!(serialized["parent_run_id"], "parent-1");
+        assert!(serialized.get("parent_execution_id").is_none());
+    }
+
+    #[test]
+    fn test_execution_plan_accepts_legacy_parent_execution_id_alias() {
+        let plan: ExecutionPlan = serde_json::from_value(serde_json::json!({
+            "mode": "subagent",
+            "input": "task",
+            "inline_subagent": {},
+            "parent_execution_id": "legacy-parent"
+        }))
+        .expect("deserialize execution plan");
+
+        assert_eq!(plan.parent_run_id(), Some("legacy-parent"));
+        assert_eq!(plan.parent_execution_id.as_deref(), Some("legacy-parent"));
     }
 
     #[test]

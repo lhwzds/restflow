@@ -83,7 +83,7 @@ pub(super) fn workers_schema() -> Value {
                 "timeout_secs": { "type": "integer", "minimum": 1, "description": "Optional per-worker timeout override." },
                 "durability_mode": { "type": "string", "enum": ["sync", "async", "exit"], "description": "Optional per-worker durability mode." },
                 "memory": { "type": "object", "description": "Optional per-worker memory payload." },
-                "memory_scope": { "type": "string", "enum": ["shared_agent", "per_background_agent"], "description": "Optional per-worker memory scope override." },
+                "memory_scope": { "type": "string", "enum": ["shared_agent", "per_task"], "description": "Optional per-worker memory scope override." },
                 "resource_limits": { "type": "object", "description": "Optional per-worker resource limits payload." }
             }
         }
@@ -92,7 +92,7 @@ pub(super) fn workers_schema() -> Value {
 
 #[derive(Debug, Deserialize)]
 #[serde(tag = "operation", rename_all = "snake_case")]
-pub(super) enum BackgroundAgentAction {
+pub(super) enum TaskAction {
     Create {
         name: String,
         agent_id: String,

@@ -7,10 +7,10 @@ use serde_json::{Value, json};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::{Result, ToolError, ToolOutput};
-use restflow_traits::store::{BackgroundAgentControlRequest, BackgroundAgentCreateRequest};
+use restflow_traits::store::{TaskControlRequest, TaskCreateRequest, TaskStore};
 use restflow_traits::{OperationAssessmentIntent, RuntimeTaskPayload};
 
-use super::BackgroundAgentTool;
+use super::TaskTool;
 use super::team::{load_team_workers, save_team_workers};
 use super::types::BackgroundBatchWorkerSpec;
 
@@ -184,7 +184,7 @@ fn extract_task_id(value: &Value) -> Option<String> {
 
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_run_batch(
-    tool: &BackgroundAgentTool,
+    tool: &TaskTool,
     agent_id: Option<String>,
     name: Option<String>,
     input: Option<String>,
@@ -286,9 +286,9 @@ pub(super) async fn execute_run_batch(
             .name
             .clone()
             .unwrap_or_else(|| format!("{} - {}", default_name_prefix, worker_index + 1));
-        let created = tool
-            .store
-            .create_background_agent(BackgroundAgentCreateRequest {
+        let created = TaskStore::create_task(
+            tool.store.as_ref(),
+            TaskCreateRequest {
                 name: worker_name,
                 agent_id: resolved_agent_id,
                 chat_session_id: worker_spec
@@ -318,13 +318,14 @@ pub(super) async fn execute_run_batch(
                     .or_else(|| resource_limits.clone()),
                 preview: false,
                 approval_id: None,
-            })
-            .map_err(|e| {
-                ToolError::Tool(format!(
-                    "Failed to create background agent for worker {}: {e}.",
-                    worker_index + 1
-                ))
-            })?;
+            },
+        )
+        .map_err(|e| {
+            ToolError::Tool(format!(
+                "Failed to create background agent for worker {}: {e}.",
+                worker_index + 1
+            ))
+        })?;
 
         let task_id = extract_task_id(&created).ok_or_else(|| {
             ToolError::Tool(format!(
@@ -338,16 +339,18 @@ pub(super) async fn execute_run_batch(
             .unwrap_or_else(|| created.clone());
 
         if should_run_now {
-            tool.store
-                .control_background_agent(BackgroundAgentControlRequest {
+            TaskStore::control_task(
+                tool.store.as_ref(),
+                TaskControlRequest {
                     id: task_id.clone(),
                     action: "run_now".to_string(),
                     preview: false,
                     approval_id: None,
-                })
-                .map_err(|e| {
-                    ToolError::Tool(format!("Failed to run background agent {}: {e}.", task_id))
-                })?;
+                },
+            )
+            .map_err(|e| {
+                ToolError::Tool(format!("Failed to run background agent {}: {e}.", task_id))
+            })?;
         }
 
         tasks.push(json!({

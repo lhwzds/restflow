@@ -24,6 +24,35 @@ pub mod multiedit;
 pub mod agent_crud;
 pub mod auth_profile;
 pub mod background_agent;
+pub mod task {
+    pub use super::background_agent::{
+        TaskTool, legacy_tool_description, tool_description, tool_parameters_schema,
+    };
+
+    pub mod legacy {
+        pub use super::super::background_agent::BackgroundAgentTool;
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn task_tool_schema_matches_background_agent_schema() {
+            assert_eq!(
+                tool_parameters_schema(),
+                super::super::background_agent::tool_parameters_schema()
+            );
+        }
+
+        #[test]
+        fn task_module_exposes_legacy_background_agent_tool_through_legacy_namespace() {
+            let _: fn(
+                std::sync::Arc<dyn restflow_traits::store::BackgroundAgentStore>,
+            ) -> legacy::BackgroundAgentTool = legacy::BackgroundAgentTool::new;
+        }
+    }
+}
 pub mod config;
 pub mod diagnostics;
 pub mod file_tracker;
@@ -89,7 +118,7 @@ pub use telegram::{TelegramTool, send_telegram_notification};
 // Re-export migrated tools
 pub use agent_crud::AgentCrudTool;
 pub use auth_profile::AuthProfileTool;
-pub use background_agent::BackgroundAgentTool;
+pub use background_agent::TaskTool;
 pub use config::ConfigTool;
 pub use diagnostics::DiagnosticsTool;
 pub use jina_reader::JinaReaderTool;
@@ -137,3 +166,6 @@ pub use spawn::SpawnTool;
 pub use spawn_subagent::SpawnSubagentTool;
 pub use use_skill::UseSkillTool;
 pub use wait_subagents::WaitSubagentsTool;
+
+// Legacy compatibility exports.
+pub use background_agent::BackgroundAgentTool;

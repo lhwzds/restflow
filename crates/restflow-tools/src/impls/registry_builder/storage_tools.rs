@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use crate::impls::TaskTool;
 use crate::impls::agent_crud::AgentCrudTool;
 use crate::impls::auth_profile::AuthProfileTool;
 use crate::impls::background_agent::BackgroundAgentTool;
@@ -25,14 +26,36 @@ use crate::security::SecurityGate;
 use restflow_traits::AgentOperationAssessor;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
-    AgentStore, AuthProfileStore, BackgroundAgentStore, ConfigStore, DeliverableStore,
-    DiagnosticsProvider, KvStore, MarketplaceStore, MemoryManager, MemoryStore, OpsProvider,
-    SecretStore, SecurityQueryProvider, SessionStore, TerminalStore, TriggerStore,
-    UnifiedMemorySearch, WorkItemProvider,
+    AgentStore, AuthProfileStore, ConfigStore, DeliverableStore, DiagnosticsProvider, KvStore,
+    MarketplaceStore, MemoryManager, MemoryStore, OpsProvider, SecretStore, SecurityQueryProvider,
+    SessionStore, TaskStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
 };
 
 use super::ToolRegistryBuilder;
 use super::configs::SecretsConfig;
+
+fn build_task_tool(
+    store: Arc<dyn TaskStore>,
+    kv_store: Option<Arc<dyn KvStore>>,
+    assessor: Option<Arc<dyn AgentOperationAssessor>>,
+) -> TaskTool {
+    let mut tool = TaskTool::from_task_store(store);
+    if let Some(kv_store) = kv_store {
+        tool = tool.with_kv_store(kv_store);
+    }
+    if let Some(assessor) = assessor {
+        tool = tool.with_assessor(assessor);
+    }
+    tool.with_write(true)
+}
+
+fn build_legacy_task_alias_tool(
+    store: Arc<dyn TaskStore>,
+    kv_store: Option<Arc<dyn KvStore>>,
+    assessor: Option<Arc<dyn AgentOperationAssessor>>,
+) -> BackgroundAgentTool {
+    BackgroundAgentTool::from_task_tool(build_task_tool(store, kv_store, assessor))
+}
 
 impl ToolRegistryBuilder {
     pub fn with_diagnostics(mut self, provider: Arc<dyn DiagnosticsProvider>) -> Self {
@@ -161,37 +184,59 @@ impl ToolRegistryBuilder {
         self
     }
 
-    pub fn with_background_agent(mut self, store: Arc<dyn BackgroundAgentStore>) -> Self {
-        self.registry
-            .register(BackgroundAgentTool::new(store).with_write(true));
+    pub fn with_task(mut self, store: Arc<dyn TaskStore>) -> Self {
+        self.registry.register(build_task_tool(store, None, None));
         self
     }
 
-    pub fn with_background_agent_and_kv(
+    pub fn with_legacy_task_alias(mut self, store: Arc<dyn TaskStore>) -> Self {
+        self.registry
+            .register(build_legacy_task_alias_tool(store, None, None));
+        self
+    }
+
+    pub fn with_task_and_kv(
         mut self,
-        store: Arc<dyn BackgroundAgentStore>,
+        store: Arc<dyn TaskStore>,
         kv_store: Arc<dyn KvStore>,
     ) -> Self {
-        self.registry.register(
-            BackgroundAgentTool::new(store)
-                .with_kv_store(kv_store)
-                .with_write(true),
-        );
+        self.registry
+            .register(build_task_tool(store, Some(kv_store), None));
         self
     }
 
-    pub fn with_background_agent_and_kv_and_assessor(
+    pub fn with_legacy_task_alias_and_kv(
         mut self,
-        store: Arc<dyn BackgroundAgentStore>,
+        store: Arc<dyn TaskStore>,
+        kv_store: Arc<dyn KvStore>,
+    ) -> Self {
+        self.registry
+            .register(build_legacy_task_alias_tool(store, Some(kv_store), None));
+        self
+    }
+
+    pub fn with_task_and_kv_and_assessor(
+        mut self,
+        store: Arc<dyn TaskStore>,
         kv_store: Arc<dyn KvStore>,
         assessor: Arc<dyn AgentOperationAssessor>,
     ) -> Self {
-        self.registry.register(
-            BackgroundAgentTool::new(store)
-                .with_kv_store(kv_store)
-                .with_assessor(assessor)
-                .with_write(true),
-        );
+        self.registry
+            .register(build_task_tool(store, Some(kv_store), Some(assessor)));
+        self
+    }
+
+    pub fn with_legacy_task_alias_and_kv_and_assessor(
+        mut self,
+        store: Arc<dyn TaskStore>,
+        kv_store: Arc<dyn KvStore>,
+        assessor: Arc<dyn AgentOperationAssessor>,
+    ) -> Self {
+        self.registry.register(build_legacy_task_alias_tool(
+            store,
+            Some(kv_store),
+            Some(assessor),
+        ));
         self
     }
 

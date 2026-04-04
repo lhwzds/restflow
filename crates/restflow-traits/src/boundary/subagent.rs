@@ -1,9 +1,10 @@
 use restflow_contracts::request::{
-    InlineSubagentConfig as ContractInlineSubagentConfig, SpawnPriority as ContractSpawnPriority,
-    SubagentSpawnRequest as ContractSubagentSpawnRequest,
+    InlineAgentRunConfig as ContractInlineAgentRunConfig,
+    RunSpawnRequest as ContractRunSpawnRequest, SpawnPriority as ContractSpawnPriority,
 };
 
-use crate::{InlineSubagentConfig, SpawnPriority, SpawnRequest, SubagentDefSummary, ToolError};
+use crate::subagent::InlineChildRunConfig;
+use crate::{SpawnPriority, SpawnRequest, SubagentDefSummary, ToolError};
 
 fn normalize_identifier(value: &str) -> String {
     let mut normalized = String::with_capacity(value.len());
@@ -45,10 +46,10 @@ fn normalize_model_provider_pair(
 }
 
 fn normalize_inline_config(
-    inline: Option<ContractInlineSubagentConfig>,
-) -> Option<InlineSubagentConfig> {
+    inline: Option<ContractInlineAgentRunConfig>,
+) -> Option<InlineChildRunConfig> {
     let inline = inline?;
-    let config = InlineSubagentConfig {
+    let config = InlineChildRunConfig {
         name: inline.name,
         system_prompt: inline.system_prompt,
         allowed_tools: inline.allowed_tools,
@@ -148,7 +149,7 @@ pub fn resolve_agent_id(
 
 pub fn spawn_request_from_contract(
     available_agents: &[SubagentDefSummary],
-    request: ContractSubagentSpawnRequest,
+    request: ContractRunSpawnRequest,
 ) -> Result<SpawnRequest, ToolError> {
     let task = request.task.trim();
     if task.is_empty() {
@@ -171,7 +172,7 @@ pub fn spawn_request_from_contract(
     let (model, model_provider) =
         normalize_model_provider_pair(request.model, request.model_provider)?;
 
-    Ok(SpawnRequest {
+    let mut spawn_request = SpawnRequest {
         agent_id,
         inline,
         task: task.to_string(),
@@ -180,11 +181,13 @@ pub fn spawn_request_from_contract(
         priority: request.priority.map(Into::into),
         model,
         model_provider,
-        parent_execution_id: request.parent_execution_id,
+        parent_execution_id: None,
         trace_session_id: request.trace_session_id,
         trace_scope_id: request.trace_scope_id,
         run_id: None,
-    })
+    };
+    spawn_request.set_parent_run_id(request.parent_run_id);
+    Ok(spawn_request)
 }
 
 impl From<ContractSpawnPriority> for SpawnPriority {
@@ -229,11 +232,11 @@ mod tests {
     fn spawn_request_from_contract_rejects_model_provider_mismatch() {
         let error = spawn_request_from_contract(
             &available_agents(),
-            ContractSubagentSpawnRequest {
+            ContractRunSpawnRequest {
                 task: "write code".to_string(),
                 model: Some("gpt-5.4-codex".to_string()),
                 model_provider: None,
-                ..ContractSubagentSpawnRequest::default()
+                ..ContractRunSpawnRequest::default()
             },
         )
         .expect_err("model/provider mismatch should fail");
@@ -249,14 +252,14 @@ mod tests {
     fn spawn_request_from_contract_rejects_agent_and_inline_combo() {
         let error = spawn_request_from_contract(
             &available_agents(),
-            ContractSubagentSpawnRequest {
+            ContractRunSpawnRequest {
                 agent_id: Some("coder".to_string()),
-                inline: Some(ContractInlineSubagentConfig {
+                inline: Some(ContractInlineAgentRunConfig {
                     name: Some("Temp".to_string()),
-                    ..ContractInlineSubagentConfig::default()
+                    ..ContractInlineAgentRunConfig::default()
                 }),
                 task: "write code".to_string(),
-                ..ContractSubagentSpawnRequest::default()
+                ..ContractRunSpawnRequest::default()
             },
         )
         .expect_err("agent plus inline should fail");
@@ -272,15 +275,31 @@ mod tests {
     fn spawn_request_from_contract_keeps_run_id_empty_for_external_callers() {
         let request = spawn_request_from_contract(
             &available_agents(),
-            ContractSubagentSpawnRequest {
+            ContractRunSpawnRequest {
                 agent_id: Some("coder".to_string()),
                 task: "write code".to_string(),
-                ..ContractSubagentSpawnRequest::default()
+                ..ContractRunSpawnRequest::default()
             },
         )
         .expect("request should build");
 
         assert_eq!(request.agent_id.as_deref(), Some("coder"));
         assert!(request.run_id.is_none());
+    }
+
+    #[test]
+    fn spawn_request_from_contract_maps_parent_run_id_to_spawn_request() {
+        let request = spawn_request_from_contract(
+            &available_agents(),
+            ContractRunSpawnRequest {
+                agent_id: Some("coder".to_string()),
+                task: "write code".to_string(),
+                parent_run_id: Some("run-parent-1".to_string()),
+                ..ContractRunSpawnRequest::default()
+            },
+        )
+        .expect("request should build");
+
+        assert_eq!(request.parent_run_id(), Some("run-parent-1"));
     }
 }

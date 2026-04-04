@@ -6,10 +6,12 @@ use restflow_ai::agent::{
 };
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
+use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 use restflow_traits::store::KvStore;
 use restflow_traits::{
     AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
-    OperationAssessmentIssue, normalize_legacy_approval_replay,
+    OperationAssessmentIssue, SpawnHandle, SubagentCompletion, SubagentState,
+    normalize_legacy_approval_replay,
 };
 use restflow_traits::{DEFAULT_SUBAGENT_TIMEOUT_SECS, SubagentManager};
 use serde_json::{Value, json};
@@ -131,6 +133,71 @@ impl KvStore for MockKvStore {
             "count": list.len(),
             "entries": list
         }))
+    }
+}
+
+struct RecordingSubagentManager {
+    inner: Arc<dyn SubagentManager>,
+    last_request: Mutex<Option<ContractRunSpawnRequest>>,
+}
+
+impl RecordingSubagentManager {
+    fn new(inner: Arc<dyn SubagentManager>) -> Self {
+        Self {
+            inner,
+            last_request: Mutex::new(None),
+        }
+    }
+
+    fn last_request(&self) -> Option<ContractRunSpawnRequest> {
+        self.last_request
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl SubagentManager for RecordingSubagentManager {
+    fn spawn(
+        &self,
+        request: ContractRunSpawnRequest,
+    ) -> std::result::Result<SpawnHandle, crate::ToolError> {
+        *self
+            .last_request
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(request.clone());
+        self.inner.spawn(request)
+    }
+
+    fn list_callable(&self) -> Vec<SubagentDefSummary> {
+        self.inner.list_callable()
+    }
+
+    fn list_running(&self) -> Vec<SubagentState> {
+        self.inner.list_running()
+    }
+
+    fn running_count(&self) -> usize {
+        self.inner.running_count()
+    }
+
+    async fn wait(&self, task_id: &str) -> Option<SubagentCompletion> {
+        self.inner.wait(task_id).await
+    }
+
+    async fn wait_for_parent_owned_task(
+        &self,
+        task_id: &str,
+        parent_run_id: &str,
+    ) -> Option<SubagentCompletion> {
+        self.inner
+            .wait_for_parent_owned_task(task_id, parent_run_id)
+            .await
+    }
+
+    fn config(&self) -> &SubagentConfig {
+        self.inner.config()
     }
 }
 
@@ -277,6 +344,79 @@ fn test_params_with_model_and_provider() {
     let params: SpawnSubagentParams = serde_json::from_str(json).unwrap();
     assert_eq!(params.model.as_deref(), Some("gpt-5.3-codex"));
     assert_eq!(params.provider.as_deref(), Some("openai-codex"));
+}
+
+#[test]
+fn test_params_accept_legacy_parent_execution_id_alias() {
+    let params: SpawnSubagentParams = serde_json::from_value(json!({
+        "task": "Research topic X",
+        "parent_execution_id": "run-123"
+    }))
+    .unwrap();
+
+    assert_eq!(params.parent_run_id.as_deref(), Some("run-123"));
+
+    let serialized = serde_json::to_value(&params).unwrap();
+    assert_eq!(serialized["parent_run_id"], "run-123");
+    assert!(serialized.get("parent_execution_id").is_none());
+}
+
+#[test]
+fn test_params_serialize_canonical_parent_run_id() {
+    let params = SpawnSubagentParams {
+        operation: SpawnSubagentBatchOperation::Spawn,
+        agent: None,
+        task: Some("Research topic X".to_string()),
+        tasks: None,
+        wait: false,
+        timeout_secs: None,
+        model: None,
+        provider: None,
+        parent_run_id: Some("run-456".to_string()),
+        trace_session_id: None,
+        trace_scope_id: None,
+        inline_name: None,
+        inline_system_prompt: None,
+        inline_allowed_tools: None,
+        inline_max_iterations: None,
+        workers: None,
+        team: None,
+        save_as_team: None,
+        preview: false,
+        approval_id: None,
+    };
+
+    let serialized = serde_json::to_value(&params).unwrap();
+    assert_eq!(serialized["parent_run_id"], "run-456");
+    assert!(serialized.get("parent_execution_id").is_none());
+}
+
+#[tokio::test]
+async fn test_spawn_subagent_preserves_parent_run_id() {
+    let manager = Arc::new(RecordingSubagentManager::new(make_test_deps(
+        vec![("researcher", "Researcher")],
+        vec![MockStep::text("research done")],
+    )));
+    let tool = SpawnSubagentTool::new(manager.clone());
+
+    let result = tool
+        .execute(json!({
+            "agent": "researcher",
+            "task": "Find info",
+            "parent_run_id": "run-789"
+        }))
+        .await
+        .unwrap();
+
+    assert!(result.success);
+    assert_eq!(
+        manager
+            .last_request()
+            .expect("request should be recorded")
+            .parent_run_id
+            .as_deref(),
+        Some("run-789")
+    );
 }
 
 #[test]

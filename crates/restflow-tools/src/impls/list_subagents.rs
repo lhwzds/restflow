@@ -134,7 +134,7 @@ mod tests {
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
-    use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
+    use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
     use restflow_traits::SubagentManager;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
@@ -267,12 +267,12 @@ mod tests {
 
         // Spawn an agent that will be slow.
         let _handle = manager
-            .spawn(ContractSubagentSpawnRequest {
+            .spawn(ContractRunSpawnRequest {
                 agent_id: Some("coder".to_string()),
                 task: "write code".to_string(),
                 timeout_secs: Some(30),
-                parent_execution_id: Some("parent-1".to_string()),
-                ..ContractSubagentSpawnRequest::default()
+                parent_run_id: Some("parent-1".to_string()),
+                ..ContractRunSpawnRequest::default()
             })
             .expect("spawn should succeed");
 
@@ -297,12 +297,12 @@ mod tests {
         let manager = as_manager(&deps);
 
         let _handle = manager
-            .spawn(ContractSubagentSpawnRequest {
+            .spawn(ContractRunSpawnRequest {
                 agent_id: Some("coder".to_string()),
                 task: "write code".to_string(),
                 timeout_secs: Some(30),
-                parent_execution_id: Some("parent-1".to_string()),
-                ..ContractSubagentSpawnRequest::default()
+                parent_run_id: Some("parent-1".to_string()),
+                ..ContractRunSpawnRequest::default()
             })
             .expect("spawn should succeed");
 
@@ -324,12 +324,12 @@ mod tests {
         let manager = as_manager(&deps);
 
         let _handle = manager
-            .spawn(ContractSubagentSpawnRequest {
+            .spawn(ContractRunSpawnRequest {
                 agent_id: Some("coder".to_string()),
                 task: "write code".to_string(),
                 timeout_secs: Some(30),
-                parent_execution_id: Some("parent-1".to_string()),
-                ..ContractSubagentSpawnRequest::default()
+                parent_run_id: Some("parent-1".to_string()),
+                ..ContractRunSpawnRequest::default()
             })
             .expect("spawn should succeed");
 

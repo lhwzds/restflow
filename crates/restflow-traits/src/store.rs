@@ -22,7 +22,7 @@ use serde_json::Value;
 use crate::config_types::ConfigDocument;
 use crate::error::Result;
 
-pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = &[
+pub const MANAGE_TASK_OPERATIONS: &[&str] = &[
     "create",
     "convert_session",
     "promote_to_background",
@@ -47,9 +47,15 @@ pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = &[
     "run",
 ];
 
-pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, stop, run";
+pub const MANAGE_BACKGROUND_AGENT_OPERATIONS: &[&str] = MANAGE_TASK_OPERATIONS;
 
-pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = "Manage background agents. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new agent, does NOT run), convert_session (convert an existing chat session into a background agent), promote_to_background (promote current interactive session into a background agent), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse agents), progress (execution history), send_message/list_messages (interact with running agents), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
+pub const MANAGE_TASK_OPERATIONS_CSV: &str = "create, convert_session, promote_to_background, run_batch, save_team, list_teams, get_team, delete_team, update, delete, list, control, progress, send_message, list_messages, list_deliverables, list_traces, read_trace, pause, resume, stop, run";
+
+pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = MANAGE_TASK_OPERATIONS_CSV;
+
+pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
+
+pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = MANAGE_TASKS_TOOL_DESCRIPTION;
 
 // ── MemoryStore ──────────────────────────────────────────────────────
 
@@ -128,10 +134,10 @@ pub trait AgentStore: Send + Sync {
     fn delete_agent(&self, id: &str) -> Result<Value>;
 }
 
-// ── BackgroundAgentStore ─────────────────────────────────────────────
+// ── TaskStore ────────────────────────────────────────────────────────
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentCreateRequest {
+pub struct TaskCreateRequest {
     pub name: String,
     pub agent_id: String,
     #[serde(default)]
@@ -158,7 +164,7 @@ pub struct BackgroundAgentCreateRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentConvertSessionRequest {
+pub struct TaskConvertSessionRequest {
     pub session_id: String,
     #[serde(default)]
     pub name: Option<String>,
@@ -185,7 +191,7 @@ pub struct BackgroundAgentConvertSessionRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentUpdateRequest {
+pub struct TaskUpdateRequest {
     pub id: String,
     #[serde(default)]
     pub name: Option<String>,
@@ -222,7 +228,7 @@ pub struct BackgroundAgentUpdateRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentControlRequest {
+pub struct TaskControlRequest {
     pub id: String,
     pub action: String,
     #[serde(default)]
@@ -232,7 +238,7 @@ pub struct BackgroundAgentControlRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentDeleteRequest {
+pub struct TaskDeleteRequest {
     pub id: String,
     #[serde(default)]
     pub preview: bool,
@@ -241,14 +247,14 @@ pub struct BackgroundAgentDeleteRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentProgressRequest {
+pub struct TaskProgressRequest {
     pub id: String,
     #[serde(default)]
     pub event_limit: Option<usize>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentMessageRequest {
+pub struct TaskMessageRequest {
     pub id: String,
     pub message: String,
     #[serde(default)]
@@ -256,20 +262,30 @@ pub struct BackgroundAgentMessageRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentMessageListRequest {
+pub struct TaskMessageListRequest {
     pub id: String,
     #[serde(default)]
     pub limit: Option<usize>,
 }
 
+pub type BackgroundAgentCreateRequest = TaskCreateRequest;
+pub type BackgroundAgentConvertSessionRequest = TaskConvertSessionRequest;
+pub type BackgroundAgentUpdateRequest = TaskUpdateRequest;
+pub type BackgroundAgentControlRequest = TaskControlRequest;
+pub type BackgroundAgentDeleteRequest = TaskDeleteRequest;
+pub type BackgroundAgentProgressRequest = TaskProgressRequest;
+pub type BackgroundAgentMessageRequest = TaskMessageRequest;
+pub type BackgroundAgentMessageListRequest = TaskMessageListRequest;
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn background_agent_requests_round_trip_with_approval_id() {
-        let create: BackgroundAgentCreateRequest = serde_json::from_value(json!({
+        let create: TaskCreateRequest = serde_json::from_value(json!({
             "name": "Task",
             "agent_id": "agent-1",
             "schedule": {
@@ -282,7 +298,7 @@ mod tests {
         .expect("create request should deserialize");
         assert_eq!(create.approval_id.as_deref(), Some("approval-1"));
 
-        let convert: BackgroundAgentConvertSessionRequest = serde_json::from_value(json!({
+        let convert: TaskConvertSessionRequest = serde_json::from_value(json!({
             "session_id": "session-1",
             "preview": true,
             "approval_id": "approval-2"
@@ -290,7 +306,7 @@ mod tests {
         .expect("convert request should deserialize");
         assert_eq!(convert.approval_id.as_deref(), Some("approval-2"));
 
-        let update: BackgroundAgentUpdateRequest = serde_json::from_value(json!({
+        let update: TaskUpdateRequest = serde_json::from_value(json!({
             "id": "task-1",
             "preview": true,
             "approval_id": "approval-3"
@@ -298,7 +314,7 @@ mod tests {
         .expect("update request should deserialize");
         assert_eq!(update.approval_id.as_deref(), Some("approval-3"));
 
-        let control: BackgroundAgentControlRequest = serde_json::from_value(json!({
+        let control: TaskControlRequest = serde_json::from_value(json!({
             "id": "task-1",
             "action": "run_now",
             "approval_id": "approval-4"
@@ -306,22 +322,187 @@ mod tests {
         .expect("control request should deserialize");
         assert_eq!(control.approval_id.as_deref(), Some("approval-4"));
 
-        let delete: BackgroundAgentDeleteRequest = serde_json::from_value(json!({
+        let delete: TaskDeleteRequest = serde_json::from_value(json!({
             "id": "task-1",
             "approval_id": "approval-5"
         }))
         .expect("delete request should deserialize");
         assert_eq!(delete.approval_id.as_deref(), Some("approval-5"));
     }
+
+    #[test]
+    fn task_request_aliases_round_trip_with_approval_id() {
+        let create: TaskCreateRequest = serde_json::from_value(json!({
+            "name": "Task",
+            "agent_id": "agent-1",
+            "schedule": {
+                "type": "interval",
+                "interval_ms": 1000
+            },
+            "preview": true,
+            "approval_id": "approval-1"
+        }))
+        .expect("task create request should deserialize");
+        assert_eq!(create.approval_id.as_deref(), Some("approval-1"));
+
+        let delete: TaskDeleteRequest = serde_json::from_value(json!({
+            "id": "task-1",
+            "approval_id": "approval-5"
+        }))
+        .expect("task delete request should deserialize");
+        assert_eq!(delete.approval_id.as_deref(), Some("approval-5"));
+    }
+
+    #[derive(Default)]
+    struct MockBackgroundAgentStore {
+        calls: Arc<Mutex<Vec<&'static str>>>,
+    }
+
+    impl MockBackgroundAgentStore {
+        fn calls(&self) -> Vec<&'static str> {
+            self.calls.lock().expect("calls lock").clone()
+        }
+    }
+
+    impl BackgroundAgentStore for MockBackgroundAgentStore {
+        fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("create_background_agent");
+            assert_eq!(request.name, "Task");
+            Ok(json!({"ok": true}))
+        }
+
+        fn convert_session_to_background_agent(
+            &self,
+            _request: BackgroundAgentConvertSessionRequest,
+        ) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn delete_background_agent(&self, _request: BackgroundAgentDeleteRequest) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn list_background_agents(&self, status: Option<String>) -> Result<Value> {
+            self.calls
+                .lock()
+                .expect("calls lock")
+                .push("list_background_agents");
+            assert_eq!(status.as_deref(), Some("active"));
+            Ok(json!([{"id": "task-1"}]))
+        }
+
+        fn control_background_agent(
+            &self,
+            _request: BackgroundAgentControlRequest,
+        ) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn get_background_agent_progress(
+            &self,
+            _request: BackgroundAgentProgressRequest,
+        ) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn send_background_agent_message(
+            &self,
+            _request: BackgroundAgentMessageRequest,
+        ) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn list_background_agent_messages(
+            &self,
+            _request: BackgroundAgentMessageListRequest,
+        ) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn list_background_agent_deliverables(
+            &self,
+            _request: BackgroundAgentDeliverableListRequest,
+        ) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn list_background_agent_traces(
+            &self,
+            _request: BackgroundAgentTraceListRequest,
+        ) -> Result<Value> {
+            panic!("not expected")
+        }
+
+        fn read_background_agent_trace(
+            &self,
+            _request: BackgroundAgentTraceReadRequest,
+        ) -> Result<Value> {
+            panic!("not expected")
+        }
+    }
+
+    #[test]
+    fn task_store_forwards_to_background_agent_store() {
+        let store = MockBackgroundAgentStore::default();
+
+        let create_result = TaskStore::create_task(
+            &store,
+            TaskCreateRequest {
+                name: "Task".to_string(),
+                agent_id: "agent-1".to_string(),
+                chat_session_id: None,
+                schedule: ContractTaskSchedule::Interval {
+                    interval_ms: 1_000,
+                    start_at: None,
+                },
+                input: None,
+                input_template: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                preview: false,
+                approval_id: None,
+            },
+        )
+        .expect("create_task should forward");
+        assert_eq!(create_result["ok"], true);
+
+        let list_result = TaskStore::list_tasks(&store, Some("active".to_string()))
+            .expect("list_tasks should forward");
+        assert_eq!(list_result.as_array().map(|items| items.len()), Some(1));
+        assert_eq!(
+            store.calls(),
+            vec!["create_background_agent", "list_background_agents"]
+        );
+    }
+
+    #[test]
+    fn task_store_trait_object_forwards_to_background_agent_store() {
+        let store: Arc<dyn BackgroundAgentStore> = Arc::new(MockBackgroundAgentStore::default());
+
+        let result = TaskStore::list_tasks(store.as_ref(), Some("active".to_string()))
+            .expect("list_tasks should forward through trait object");
+
+        assert_eq!(result.as_array().map(|items| items.len()), Some(1));
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentDeliverableListRequest {
+pub struct TaskDeliverableListRequest {
     pub id: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentTraceListRequest {
+pub struct TaskTraceListRequest {
     #[serde(default)]
     pub id: Option<String>,
     #[serde(default)]
@@ -329,11 +510,15 @@ pub struct BackgroundAgentTraceListRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct BackgroundAgentTraceReadRequest {
+pub struct TaskTraceReadRequest {
     pub trace_id: String,
     #[serde(default)]
     pub line_limit: Option<usize>,
 }
+
+pub type BackgroundAgentDeliverableListRequest = TaskDeliverableListRequest;
+pub type BackgroundAgentTraceListRequest = TaskTraceListRequest;
+pub type BackgroundAgentTraceReadRequest = TaskTraceReadRequest;
 
 pub trait BackgroundAgentStore: Send + Sync {
     fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value>;
@@ -370,6 +555,58 @@ pub trait BackgroundAgentStore: Send + Sync {
         request: BackgroundAgentTraceReadRequest,
     ) -> Result<Value>;
 }
+
+pub trait TaskStore: BackgroundAgentStore + Send + Sync {
+    fn create_task(&self, request: TaskCreateRequest) -> Result<Value> {
+        self.create_background_agent(request)
+    }
+
+    fn convert_session_to_task(&self, request: TaskConvertSessionRequest) -> Result<Value> {
+        self.convert_session_to_background_agent(request)
+    }
+
+    fn update_task(&self, request: TaskUpdateRequest) -> Result<Value> {
+        self.update_background_agent(request)
+    }
+
+    fn delete_task(&self, request: TaskDeleteRequest) -> Result<Value> {
+        self.delete_background_agent(request)
+    }
+
+    fn list_tasks(&self, status: Option<String>) -> Result<Value> {
+        self.list_background_agents(status)
+    }
+
+    fn control_task(&self, request: TaskControlRequest) -> Result<Value> {
+        self.control_background_agent(request)
+    }
+
+    fn get_task_progress(&self, request: TaskProgressRequest) -> Result<Value> {
+        self.get_background_agent_progress(request)
+    }
+
+    fn send_task_message(&self, request: TaskMessageRequest) -> Result<Value> {
+        self.send_background_agent_message(request)
+    }
+
+    fn list_task_messages(&self, request: TaskMessageListRequest) -> Result<Value> {
+        self.list_background_agent_messages(request)
+    }
+
+    fn list_task_deliverables(&self, request: TaskDeliverableListRequest) -> Result<Value> {
+        self.list_background_agent_deliverables(request)
+    }
+
+    fn list_task_traces(&self, request: TaskTraceListRequest) -> Result<Value> {
+        self.list_background_agent_traces(request)
+    }
+
+    fn read_task_trace(&self, request: TaskTraceReadRequest) -> Result<Value> {
+        self.read_background_agent_trace(request)
+    }
+}
+
+impl<T: ?Sized> TaskStore for T where T: BackgroundAgentStore + Send + Sync {}
 
 // ── SessionStore ─────────────────────────────────────────────────────
 

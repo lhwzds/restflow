@@ -180,7 +180,7 @@ mod tests {
     };
     use restflow_ai::llm::{MockLlmClient, MockStep};
     use restflow_ai::tools::ToolRegistry;
-    use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
+    use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
     use restflow_traits::SubagentManager;
     use std::collections::HashMap;
     use tokio::sync::mpsc;
@@ -248,12 +248,12 @@ mod tests {
     /// Spawn a subagent that immediately completes (via MockLlmClient) and return its task_id.
     fn spawn_test_agent(manager: &Arc<dyn SubagentManager>) -> String {
         let handle = manager
-            .spawn(ContractSubagentSpawnRequest {
+            .spawn(ContractRunSpawnRequest {
                 agent_id: Some("tester".to_string()),
                 task: "test task".to_string(),
                 timeout_secs: Some(10),
-                parent_execution_id: Some("parent-1".to_string()),
-                ..ContractSubagentSpawnRequest::default()
+                parent_run_id: Some("parent-1".to_string()),
+                ..ContractRunSpawnRequest::default()
             })
             .expect("spawn should succeed");
         handle.id
@@ -410,12 +410,12 @@ mod tests {
     async fn test_wait_rejects_foreign_parent_scope() {
         let (_deps, manager) = make_deps(vec![MockStep::text("done")]);
         let task_id = manager
-            .spawn(ContractSubagentSpawnRequest {
+            .spawn(ContractRunSpawnRequest {
                 agent_id: Some("tester".to_string()),
                 task: "test task".to_string(),
                 timeout_secs: Some(10),
-                parent_execution_id: Some("parent-1".to_string()),
-                ..ContractSubagentSpawnRequest::default()
+                parent_run_id: Some("parent-1".to_string()),
+                ..ContractRunSpawnRequest::default()
             })
             .expect("spawn should succeed")
             .id;

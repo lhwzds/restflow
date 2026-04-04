@@ -1,13 +1,17 @@
 use serde_json::{Value, json};
 
-use restflow_traits::store::{
-    MANAGE_BACKGROUND_AGENT_OPERATIONS, MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION,
-};
+use restflow_traits::store::{MANAGE_TASK_OPERATIONS, MANAGE_TASKS_TOOL_DESCRIPTION};
 
 use super::types::workers_schema;
 
+const LEGACY_BACKGROUND_AGENT_TOOL_DESCRIPTION: &str = "Compatibility alias for manage_tasks. Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
+
 pub(super) fn tool_description() -> &'static str {
-    MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION
+    MANAGE_TASKS_TOOL_DESCRIPTION
+}
+
+pub(super) fn legacy_tool_description() -> &'static str {
+    LEGACY_BACKGROUND_AGENT_TOOL_DESCRIPTION
 }
 
 pub(super) fn parameters_schema() -> Value {
@@ -16,15 +20,15 @@ pub(super) fn parameters_schema() -> Value {
         "properties": {
             "operation": {
                 "type": "string",
-                "enum": MANAGE_BACKGROUND_AGENT_OPERATIONS,
-                "description": "Background agent operation to perform"
+                "enum": MANAGE_TASK_OPERATIONS,
+                "description": "Task operation to perform"
             },
             "id": {
                 "type": "string"
             },
             "name": {
                 "type": "string",
-                "description": "Background agent name (for create/update)"
+                "description": "Task name (for create/update)"
             },
             "agent_id": {
                 "type": "string",
@@ -36,7 +40,7 @@ pub(super) fn parameters_schema() -> Value {
             },
             "description": {
                 "type": "string",
-                "description": "Background agent description (for update)"
+                "description": "Task description (for update)"
             },
             "chat_session_id": {
                 "type": "string",
@@ -44,7 +48,7 @@ pub(super) fn parameters_schema() -> Value {
             },
             "schedule": {
                 "type": "object",
-                "description": "Background agent schedule object (required for create, optional for update/convert_session/promote_to_background)"
+                "description": "Task schedule object (required for create, optional for update/convert_session/promote_to_background)"
             },
             "notification": {
                 "type": "object",
@@ -70,7 +74,7 @@ pub(super) fn parameters_schema() -> Value {
             },
             "input": {
                 "type": "string",
-                "description": "Optional input for the background agent (for create/update)"
+                "description": "Optional input for the task (for create/update)"
             },
             "inputs": {
                 "type": "array",
@@ -79,11 +83,11 @@ pub(super) fn parameters_schema() -> Value {
             },
             "input_template": {
                 "type": "string",
-                "description": "Optional runtime template for background agent input (for create/update)"
+                "description": "Optional runtime template for task input (for create/update)"
             },
             "memory_scope": {
                 "type": "string",
-                "enum": ["shared_agent", "per_background_agent"],
+                "enum": ["shared_agent", "per_task"],
                 "description": "Memory namespace scope (for create/update)"
             },
             "resource_limits": {
