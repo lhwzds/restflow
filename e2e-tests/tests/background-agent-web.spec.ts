@@ -19,7 +19,7 @@ async function waitForBackgroundAgentBySession(
   await expect
     .poll(async () => {
       const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
-        type: "ListBackgroundAgents",
+        type: "ListTasks",
         data: { status: null },
       });
 
@@ -32,7 +32,7 @@ async function waitForBackgroundAgentBySession(
     .not.toBeNull();
 
   const agents = await requestIpc<BackgroundAgentSummary[]>(page, {
-    type: "ListBackgroundAgents",
+    type: "ListTasks",
     data: { status: null },
   });
   const agent = agents.find((item) => item.chat_session_id === sessionId);
@@ -62,7 +62,7 @@ test.describe("Background Agent Web Flow", () => {
       await menuTrigger.click({ force: true });
 
       const convertItem = page.getByRole("menuitem", {
-        name: "Convert to Background Agent",
+        name: "Convert to Task",
         exact: true,
       });
       try {
