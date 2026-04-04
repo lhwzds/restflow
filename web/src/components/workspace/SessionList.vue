@@ -64,7 +64,7 @@ const emit = defineEmits<{
   rename: [id: string, currentName: string]
   archive: [id: string, name: string]
   delete: [id: string, name: string]
-  convertToBackgroundAgent: [id: string, name: string]
+  convertToTask: [id: string, name: string]
   convertToWorkspaceSession: [id: string, name: string]
   rebuild: [id: string, name: string]
   toggleWorkspaceFolder: [containerId: string]
@@ -369,10 +369,10 @@ function runTitleClass(run: FlattenedRunRow): string {
                   {{ t('workspace.session.rename') }}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  @click="emit('convertToBackgroundAgent', folder.sessionId, displayLabel(folder.name))"
+                  @click="emit('convertToTask', folder.sessionId, displayLabel(folder.name))"
                 >
                   <ArrowRightFromLine :size="14" class="mr-2" />
-                  {{ t('workspace.session.convertToBackground') }}
+                  {{ t('workspace.session.convertToTask') }}
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   @click="emit('archive', folder.sessionId, displayLabel(folder.name))"

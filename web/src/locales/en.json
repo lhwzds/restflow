@@ -43,14 +43,15 @@
       "deleteFailed": "Failed to delete session",
       "renameSuccess": "Session renamed",
       "convertToBackground": "Convert to Background Agent",
+      "convertToTask": "Convert to Task",
       "convertToWorkspace": "Convert to Workspace Session",
-      "convertDescription": "Convert this chat session into a scheduled background agent task.",
-      "convertSuccess": "Session converted to background agent",
+      "convertDescription": "Convert this chat session into a scheduled task.",
+      "convertSuccess": "Session converted to task",
       "convertFailed": "Failed to convert session",
-      "convertToWorkspaceDescription": "Convert \"{name}\" back to a normal workspace session and disable background runs?",
-      "convertToWorkspaceConfirm": "Disable Background",
-      "convertToWorkspaceSuccess": "Background mode disabled and workspace session preserved",
-      "convertToWorkspaceFailed": "Failed to disable background mode",
+      "convertToWorkspaceDescription": "Convert \"{name}\" back to a normal workspace session and disable scheduled task runs?",
+      "convertToWorkspaceConfirm": "Disable Task",
+      "convertToWorkspaceSuccess": "Task mode disabled and workspace session preserved",
+      "convertToWorkspaceFailed": "Failed to disable task mode",
       "managedExternally": "This session is managed by an external channel",
       "rebuild": "Rebuild Session",
       "rebuildDescription": "Rebuild external session \"{name}\" with a fresh history? Channel binding will be preserved.",
@@ -58,6 +59,7 @@
       "rebuildSuccess": "External session rebuilt",
       "rebuildFailed": "Failed to rebuild external session",
       "backgroundName": "Background Agent Name",
+      "taskName": "Task Name",
       "inputOverride": "Input Override (optional)",
       "inputOverridePlaceholder": "Override the input derived from the last message...",
       "runImmediately": "Run immediately after creation",
@@ -438,5 +440,12 @@
     "passed": "{count} passed",
     "failed": "{count} failed",
     "steerPlaceholder": "Send instruction to agent..."
+  },
+  "task": {
+    "openRunTrace": "Open Run Trace",
+    "pause": "Pause",
+    "resume": "Resume",
+    "runNow": "Run now",
+    "stop": "Stop"
   }
 }

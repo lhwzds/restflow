@@ -14,11 +14,11 @@ import { Button } from '@/components/ui/button'
 import MessageList from './MessageList.vue'
 import ExecutionStatusBar from './ExecutionStatusBar.vue'
 import ChatBox from '@/components/workspace/ChatBox.vue'
-import AgentStatusBadge from '@/components/background-agent/AgentStatusBadge.vue'
+import TaskStatusBadge from '@/components/task/TaskStatusBadge.vue'
 import { useChatSession } from '@/composables/workspace/useChatSession'
 import { useChatStream, type StreamStep } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
-import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { BackendError } from '@/api/http-client'
@@ -31,7 +31,7 @@ import {
 import {
   getExecutionRunThread,
   listExecutionContainers,
-  listExecutionSessions,
+  listRuns,
 } from '@/api/execution-console'
 import { useToast } from '@/composables/useToast'
 import type { AgentFile, ModelOption } from '@/types/workspace'
@@ -39,8 +39,8 @@ import type { ModelId } from '@/types/generated/ModelId'
 import type { VoiceMessageInfo } from '@/composables/workspace/useVoiceRecorder'
 import type { ChatMessage } from '@/types/generated/ChatMessage'
 import type { ExecutionContainerKind } from '@/types/generated/ExecutionContainerKind'
-import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
+import type { RunSummary } from '@/types/generated/RunSummary'
 import type { ThreadSelection } from './threadItems'
 import {
   buildRunThreadItems,
@@ -76,7 +76,7 @@ const toast = useToast()
 const { t } = useI18n()
 const router = useRouter()
 const chatSessionStore = useChatSessionStore()
-const backgroundAgentStore = useBackgroundAgentStore()
+const taskStore = useTaskStore()
 const modelsStore = useModelsStore()
 
 // Track last user message content for regeneration
@@ -118,7 +118,7 @@ const pendingRunId = ref<string | null>(null)
 const pendingStreamResetRunId = ref<string | null>(null)
 let persistedRunRetryTimer: number | null = null
 let persistedRunRetryDeadline = 0
-const containerRunSummaries = ref<ExecutionSessionSummary[]>([])
+const containerRunSummaries = ref<RunSummary[]>([])
 let containerRunSummariesLoadVersion = 0
 
 // Stream state
@@ -163,7 +163,7 @@ interface RunMessageBoundary {
   endedAt: number
 }
 
-function summaryToRunMessageBoundary(summary: ExecutionSessionSummary): RunMessageBoundary | null {
+function summaryToRunMessageBoundary(summary: RunSummary): RunMessageBoundary | null {
   if (!summary.run_id) return null
 
   return {
@@ -251,7 +251,7 @@ function deriveThreadHeuristicMessageWindow(
 async function loadContainerRunSummaries(
   containerId: string | null,
   kind: ExecutionContainerKind | null,
-): Promise<ExecutionSessionSummary[]> {
+): Promise<RunSummary[]> {
   const version = ++containerRunSummariesLoadVersion
 
   if (!containerId || !kind) {
@@ -260,7 +260,7 @@ async function loadContainerRunSummaries(
   }
 
   try {
-    const runs = await listExecutionSessions({
+    const runs = await listRuns({
       container: {
         kind,
         id: containerId,
@@ -282,7 +282,7 @@ function buildRunScopedMessages(
   thread: ExecutionThread | null,
   runId: string | null,
   includeOptimisticMessages: boolean,
-  runSummaries: ExecutionSessionSummary[],
+  runSummaries: RunSummary[],
 ): ChatMessage[] {
   if (!runId) return allMessages
 
@@ -362,14 +362,14 @@ const totalTokens = computed(() => chatStream.state.value.tokenCount)
 const tokensPerSecond = computed(() => chatStream.tokensPerSecond.value)
 const durationMs = computed(() => chatStream.duration.value)
 
-// Background agent linked to current session (if any)
-const linkedBgAgent = computed(() => {
+// Task linked to current session (if any)
+const linkedTask = computed(() => {
   if (props.backgroundTaskId) {
-    return backgroundAgentStore.agents.find((agent) => agent.id === props.backgroundTaskId) ?? null
+    return taskStore?.tasks?.find((task) => task.id === props.backgroundTaskId) ?? null
   }
   const sessionId = chatSessionStore.currentSessionId
   if (!sessionId) return null
-  return backgroundAgentStore.agentBySessionId(sessionId)
+  return taskStore?.taskBySessionId?.(sessionId) ?? null
 })
 interface RunBreadcrumbNode {
   key: 'root' | 'parent' | 'current'
@@ -397,31 +397,31 @@ const activeContainerKind = computed<ExecutionContainerKind | null>(() => {
   if (isExternalSessionManaged.value) return 'external_channel'
   return resolvedContainerId.value ? 'workspace' : null
 })
-const bgCanPause = computed(() => linkedBgAgent.value?.status === 'active')
-const bgCanResume = computed(() => linkedBgAgent.value?.status === 'paused')
-const bgCanRun = computed(
-  () => linkedBgAgent.value?.status === 'active' || linkedBgAgent.value?.status === 'paused',
+const taskCanPause = computed(() => linkedTask.value?.status === 'active')
+const taskCanResume = computed(() => linkedTask.value?.status === 'paused')
+const taskCanRun = computed(
+  () => linkedTask.value?.status === 'active' || linkedTask.value?.status === 'paused',
 )
-const bgCanStop = computed(() => linkedBgAgent.value?.status === 'running')
+const taskCanStop = computed(() => linkedTask.value?.status === 'running')
 
-async function handleBgPause() {
-  if (!linkedBgAgent.value) return
-  await backgroundAgentStore.pauseAgent(linkedBgAgent.value.id)
+async function handleTaskPause() {
+  if (!linkedTask.value) return
+  await taskStore?.pauseTask?.(linkedTask.value.id)
 }
 
-async function handleBgResume() {
-  if (!linkedBgAgent.value) return
-  await backgroundAgentStore.resumeAgent(linkedBgAgent.value.id)
+async function handleTaskResume() {
+  if (!linkedTask.value) return
+  await taskStore?.resumeTask?.(linkedTask.value.id)
 }
 
-async function handleBgRun() {
-  if (!linkedBgAgent.value) return
-  await backgroundAgentStore.runAgentNow(linkedBgAgent.value.id)
+async function handleTaskRun() {
+  if (!linkedTask.value) return
+  await taskStore?.runTaskNow?.(linkedTask.value.id)
 }
 
-async function handleBgStop() {
-  if (!linkedBgAgent.value) return
-  await backgroundAgentStore.stopAgent(linkedBgAgent.value.id)
+async function handleTaskStop() {
+  if (!linkedTask.value) return
+  await taskStore?.stopTask?.(linkedTask.value.id)
 }
 
 async function handleOpenRunTrace() {
@@ -429,7 +429,7 @@ async function handleOpenRunTrace() {
   const containerId =
     executionThread.value?.focus.container_id ||
     props.backgroundTaskId ||
-    linkedBgAgent.value?.id ||
+    linkedTask.value?.id ||
     chatSessionStore.currentSessionId ||
     null
   if (runId) {
@@ -440,18 +440,18 @@ async function handleOpenRunTrace() {
     return
   }
 
-  if (!linkedBgAgent.value) return
+  if (!linkedTask.value) return
 
   try {
-    const runs = await listExecutionSessions({
+    const runs = await listRuns({
       container: {
         kind: 'background_task',
-        id: linkedBgAgent.value.id,
+        id: linkedTask.value.id,
       },
     })
     const latestRunId = runs.find((entry) => !!entry.run_id)?.run_id ?? null
     const latestRunContainerId =
-      runs.find((entry) => !!entry.run_id)?.container_id ?? linkedBgAgent.value.id
+      runs.find((entry) => !!entry.run_id)?.container_id ?? linkedTask.value.id
     if (latestRunId) {
       await router.push({
         name: 'workspace-container-run',
@@ -465,7 +465,7 @@ async function handleOpenRunTrace() {
 
   await router.push({
     name: 'workspace-container',
-    params: { containerId: linkedBgAgent.value.id },
+    params: { containerId: linkedTask.value.id },
   })
 }
 
@@ -748,7 +748,7 @@ async function navigateToLatestContainerRun(sessionId: string) {
       return
     }
 
-    const runs = await listExecutionSessions({
+    const runs = await listRuns({
       container: {
         kind: container.kind,
         id: container.id,
@@ -1074,7 +1074,7 @@ let unlistenSessionEvents: UnlistenFn | null = null
 onMounted(async () => {
   loadAgents()
   loadModels()
-  backgroundAgentStore.fetchAgents()
+  await taskStore?.fetchTasks?.()
 
   try {
     unlistenSessionEvents = await subscribeSessionEvents((event) => {
@@ -1118,61 +1118,61 @@ defineExpose({
 
 <template>
   <div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-    <!-- Header: Background agent control bar or plain drag region -->
+    <!-- Header: Task control bar or plain drag region -->
     <div
-      v-if="linkedBgAgent"
+      v-if="linkedTask"
       class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0 text-xs text-muted-foreground"
     >
-      <AgentStatusBadge :status="linkedBgAgent.status" />
+      <TaskStatusBadge :status="linkedTask.status" />
       <Button
         variant="ghost"
         size="sm"
         class="h-6 gap-1 px-2 text-xs"
         data-testid="open-run-trace"
-        :title="t('backgroundAgent.openRunTrace')"
+        :title="t('task.openRunTrace')"
         @click="handleOpenRunTrace"
       >
         <Activity :size="12" />
-        <span>{{ t('backgroundAgent.openRunTrace') }}</span>
+        <span>{{ t('task.openRunTrace') }}</span>
       </Button>
       <div class="flex-1" />
       <Button
-        v-if="bgCanPause"
+        v-if="taskCanPause"
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        :title="t('backgroundAgent.pause')"
-        @click="handleBgPause"
+        :title="t('task.pause')"
+        @click="handleTaskPause"
       >
         <Pause :size="12" />
       </Button>
       <Button
-        v-if="bgCanResume"
+        v-if="taskCanResume"
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        :title="t('backgroundAgent.resume')"
-        @click="handleBgResume"
+        :title="t('task.resume')"
+        @click="handleTaskResume"
       >
         <RotateCcw :size="12" />
       </Button>
       <Button
-        v-if="bgCanRun"
+        v-if="taskCanRun"
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        :title="t('backgroundAgent.runNow')"
-        @click="handleBgRun"
+        :title="t('task.runNow')"
+        @click="handleTaskRun"
       >
         <Play :size="12" />
       </Button>
       <Button
-        v-if="bgCanStop"
+        v-if="taskCanStop"
         variant="ghost"
         size="icon"
         class="h-6 w-6"
-        :title="t('backgroundAgent.stop')"
-        @click="handleBgStop"
+        :title="t('task.stop')"
+        @click="handleTaskStop"
       >
         <XCircle :size="12" />
       </Button>

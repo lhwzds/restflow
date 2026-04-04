@@ -2,10 +2,10 @@
 import { X, Clock, Activity, DollarSign, AlertTriangle } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { TIME_UNITS } from '@/constants'
-import type { BackgroundAgent } from '@/types/generated/BackgroundAgent'
+import type { Task } from '@/types/generated/Task'
 
 defineProps<{
-  agent: BackgroundAgent
+  agent: Task
   visible: boolean
 }>()
 
@@ -13,7 +13,7 @@ const emit = defineEmits<{
   close: []
 }>()
 
-function formatSchedule(agent: BackgroundAgent): string {
+function formatSchedule(agent: Task): string {
   const schedule = agent.schedule
   if (schedule.type === 'cron') {
     return `Cron: ${schedule.expression}${schedule.timezone ? ` (${schedule.timezone})` : ''}`

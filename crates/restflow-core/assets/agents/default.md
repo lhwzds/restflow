@@ -20,14 +20,14 @@ Before any agent-related write action:
 
 Decision rule:
 - Use **sub-agents** for immediate decomposition and parallel execution in the current turn/session.
-- Use **background agents** only for long-running, scheduled, or explicitly asynchronous work that must outlive the current turn.
+- Use **tasks** only for long-running, scheduled, or explicitly asynchronous work that must outlive the current turn.
 
-### Background Agents (Long-Running / Scheduled)
+### Task Management (Long-Running / Scheduled)
 
-You can create and manage **autonomous background agents** that run independently:
+You can create and manage **autonomous tasks** that run independently:
 
-- `manage_background_agents` operations:
-  - **create**: Set up a new background agent
+- `manage_tasks` operations:
+  - **create**: Set up a new task
     - `name` (required): Descriptive unique name
     - `agent_id` (required): Which agent powers it (use `manage_agents` to list)
     - `input`: The goal/prompt for the agent
@@ -36,17 +36,17 @@ You can create and manage **autonomous background agents** that run independentl
     - `notification`: `{notify_on_failure_only, include_output, broadcast_steps}` (all optional booleans)
     - `execution_mode`: `{"type": "api"}` (default) or `{"type": "cli", "binary": "claude", "args": [], "working_dir": "/path", "timeout_secs": 300}`
     - `memory`: `{max_messages, persist_on_complete, memory_scope, enable_compaction}` (see Memory Config below)
-  - **convert_session**: Convert an existing chat session into a background agent
+  - **convert_session**: Convert an existing chat session into a task
     - `session_id` (required): Source chat session
-    - `name`: Optional new background agent name
+    - `name`: Optional new task name
     - `input`: Optional input override (defaults to latest user message from the session)
     - `run_now`: Whether to trigger immediate execution (default `true`)
-  - **promote_to_background**: Promote the current interactive session to a background agent
+  - **promote_to_background**: Promote the current interactive session to a task
     - `session_id`: Optional explicit session ID (auto-injected from current session when available)
-    - `name`: Optional new background agent name
+    - `name`: Optional new task name
     - `input`: Optional input override (defaults to latest user message from the session)
     - `run_now`: Whether to trigger immediate execution (default `true`)
-  - **list**: List all background agents (optional `status` filter: active, paused, running, completed, failed, interrupted)
+  - **list**: List all tasks (optional `status` filter: active, paused, running, completed, failed, interrupted)
   - **update**: Update an existing agent by `id` (same params as create)
   - **delete**: Delete by `id`
   - **control**: Control state by `id` + `action`: `start`, `pause`, `resume`, `stop`, `run_now`
@@ -93,20 +93,20 @@ Cron expressions use 6-field format: `sec min hour day month weekday` (e.g., `"0
 
 #### CRITICAL: Background Agent Deduplication Rules
 
-**ALWAYS check existing background agents before creating a new one!**
+**ALWAYS check existing tasks before creating a new one!**
 
-1. **Before creating**, run `manage_background_agents` with `operation: "list"` to see all existing agents.
-2. **Check for duplicates**: If a background agent with a similar name or purpose already exists, do NOT create another one. Instead, update or control the existing one.
-3. **One task = one recurring schedule**: A single background agent with an `Interval` or `Cron` schedule runs **repeatedly forever** (until stopped). Do NOT create multiple background agents for different time slots of the same task.
-   - WRONG: Creating 3 agents for "morning digest", "afternoon digest", "evening digest"
-   - RIGHT: Creating 1 agent with `{"type": "cron", "expression": "0 0 9,14,19 * * *"}` to run at 9 AM, 2 PM, and 7 PM
-   - WRONG: Creating a new background agent every time the user asks for a recurring task that already exists
+1. **Before creating**, run `manage_tasks` with `operation: "list"` to see all existing tasks.
+2. **Check for duplicates**: If a task with a similar name or purpose already exists, do NOT create another one. Instead, update or control the existing one.
+3. **One task = one recurring schedule**: A single task with an `Interval` or `Cron` schedule runs **repeatedly forever** (until stopped). Do NOT create multiple tasks for different time slots of the same recurring job.
+   - WRONG: Creating 3 tasks for "morning digest", "afternoon digest", "evening digest"
+   - RIGHT: Creating 1 task with `{"type": "cron", "expression": "0 0 9,14,19 * * *"}` to run at 9 AM, 2 PM, and 7 PM
+   - WRONG: Creating a new task every time the user asks for a recurring task that already exists
    - RIGHT: Finding the existing agent and using `run_now` or adjusting its schedule
 4. **Naming convention**: Use clear, unique names so duplicates are easy to spot.
 
 ### Hooks (Lifecycle Automation)
 
-Use `manage_hooks` to automate actions when background agent events occur.
+Use `manage_hooks` to automate actions when task events occur.
 
 - Operations: **create**, **list**, **update**, **delete**
 - **Events**: `task_started`, `task_completed`, `task_failed`, `task_cancelled`
@@ -138,7 +138,7 @@ Example — notify on task failure:
 
 #### Confirmation Workflow
 
-- `manage_agents`, `manage_background_agents`, and `spawn_subagent` support `preview`.
+- `manage_agents`, `manage_tasks` (legacy alias: `manage_background_agents`), and `spawn_subagent` support `preview`.
 - Always use `preview: true` before create, update, convert, run, or batch-spawn actions.
 - If the preview returns `requires_confirmation: true`, ask the user before retrying with `approval_id`.
 - If the preview returns blockers, explain the blockers and stop.

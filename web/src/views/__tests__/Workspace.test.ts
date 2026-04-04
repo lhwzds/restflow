@@ -11,10 +11,10 @@ const mockRouterReplace = vi.fn()
 const mockCreateSession = vi.fn()
 const mockSelectSession = vi.fn()
 const mockFetchSummaries = vi.fn()
-const mockFetchBackgroundAgents = vi.fn()
+const mockFetchTasks = vi.fn()
 const mockListExecutionContainers = vi.fn()
-const mockListExecutionSessions = vi.fn()
-const mockListChildExecutionSessions = vi.fn()
+const mockListRuns = vi.fn()
+const mockListChildRuns = vi.fn()
 const mockGetExecutionRunThread = vi.fn()
 const mockConfirm = vi.fn()
 const mockRoute = reactive<{ name: string; params: Record<string, string>; query: Record<string, string> }>({
@@ -24,7 +24,7 @@ const mockRoute = reactive<{ name: string; params: Record<string, string>; query
 })
 
 let mockStore: any
-let mockBackgroundStore: any
+let mockTaskStore: any
 let mockToolPanel: any
 
 vi.mock('vue-i18n', () => ({
@@ -48,8 +48,8 @@ vi.mock('@/api/agents', () => ({
 
 vi.mock('@/api/execution-console', () => ({
   listExecutionContainers: (...args: unknown[]) => mockListExecutionContainers(...args),
-  listExecutionSessions: (...args: unknown[]) => mockListExecutionSessions(...args),
-  listChildExecutionSessions: (...args: unknown[]) => mockListChildExecutionSessions(...args),
+  listRuns: (...args: unknown[]) => mockListRuns(...args),
+  listChildRuns: (...args: unknown[]) => mockListChildRuns(...args),
   getExecutionRunThread: (...args: unknown[]) => mockGetExecutionRunThread(...args),
 }))
 
@@ -57,8 +57,8 @@ vi.mock('@/stores/chatSessionStore', () => ({
   useChatSessionStore: () => mockStore,
 }))
 
-vi.mock('@/stores/backgroundAgentStore', () => ({
-  useBackgroundAgentStore: () => mockBackgroundStore,
+vi.mock('@/stores/taskStore', () => ({
+  useTaskStore: () => mockTaskStore,
 }))
 
 vi.mock('@/composables/useTheme', () => ({
@@ -192,9 +192,9 @@ vi.mock('@/components/settings/SettingsPanel.vue', () => ({
   }),
 }))
 
-vi.mock('@/components/workspace/ConvertToBackgroundAgentDialog.vue', () => ({
+vi.mock('@/components/workspace/ConvertToTaskDialog.vue', () => ({
   default: defineComponent({
-    name: 'ConvertToBackgroundAgentDialog',
+    name: 'ConvertToTaskDialog',
     template: '<div data-testid="convert-dialog" />',
   }),
 }))
@@ -299,8 +299,8 @@ describe('Workspace', () => {
         source_conversation_id: null,
       },
     ])
-    mockListExecutionSessions.mockResolvedValue([])
-    mockListChildExecutionSessions.mockResolvedValue([])
+    mockListRuns.mockResolvedValue([])
+    mockListChildRuns.mockResolvedValue([])
     mockGetExecutionRunThread.mockResolvedValue({
       focus: {
         id: 'run-1',
@@ -338,10 +338,13 @@ describe('Workspace', () => {
       renameSession: vi.fn().mockResolvedValue(null),
       fetchSummaries: mockFetchSummaries,
     }
-    mockBackgroundStore = {
+    mockTaskStore = {
       agents: [],
-      fetchAgents: mockFetchBackgroundAgents,
+      fetchTasks: mockFetchTasks,
+      fetchAgents: mockFetchTasks,
+      taskBySessionId: vi.fn(() => null),
       agentBySessionId: vi.fn(() => null),
+      convertTaskToWorkspace: vi.fn().mockResolvedValue(true),
       convertSessionToWorkspace: vi.fn().mockResolvedValue(true),
     }
     mockToolPanel = {
@@ -369,7 +372,7 @@ describe('Workspace', () => {
     mockCreateSession.mockResolvedValue(createSession('session-new'))
     mockSelectSession.mockResolvedValue(undefined)
     mockFetchSummaries.mockResolvedValue(undefined)
-    mockFetchBackgroundAgents.mockResolvedValue(undefined)
+    mockFetchTasks.mockResolvedValue(undefined)
   })
 
   it('creates and selects a new session immediately when clicking new session', async () => {
@@ -446,7 +449,7 @@ describe('Workspace', () => {
   it('redirects canonical background container routes to their latest run', async () => {
     mockRoute.name = 'workspace-container'
     mockRoute.params = { containerId: 'task-1' }
-    mockBackgroundStore.agents = [
+    mockTaskStore.agents = [
       {
         id: 'task-1',
         chat_session_id: 'session-1',
@@ -468,7 +471,7 @@ describe('Workspace', () => {
         source_conversation_id: null,
       },
     ])
-    mockListExecutionSessions.mockResolvedValue([
+    mockListRuns.mockResolvedValue([
       {
         id: 'run-summary-1',
         kind: 'background_run',
@@ -529,7 +532,7 @@ describe('Workspace', () => {
       },
       timeline: { events: [], stats: {} },
     })
-    mockListExecutionSessions.mockResolvedValueOnce([
+    mockListRuns.mockResolvedValueOnce([
       {
         id: 'run-summary-1',
         kind: 'workspace_run',
@@ -557,7 +560,7 @@ describe('Workspace', () => {
     mountWorkspace()
     await flushPromises()
 
-    expect(mockListExecutionSessions).toHaveBeenCalledWith({
+    expect(mockListRuns).toHaveBeenCalledWith({
       container: {
         kind: 'workspace',
         id: 'session-1',
@@ -661,7 +664,7 @@ describe('Workspace', () => {
       },
       timeline: { events: [], stats: {} },
     })
-    mockListExecutionSessions.mockResolvedValue([
+    mockListRuns.mockResolvedValue([
       {
         id: 'run-summary-1',
         kind: 'workspace_run',
@@ -685,7 +688,7 @@ describe('Workspace', () => {
         event_count: 2,
       },
     ])
-    mockListChildExecutionSessions.mockResolvedValue([
+    mockListChildRuns.mockResolvedValue([
       {
         id: 'run-child',
         kind: 'subagent_run',
@@ -714,7 +717,7 @@ describe('Workspace', () => {
     await flushPromises()
 
     expect(wrapper.find('[data-testid="mock-workspace-run-session-1-run-child"]').exists()).toBe(true)
-    expect(mockListChildExecutionSessions).toHaveBeenCalledWith({
+    expect(mockListChildRuns).toHaveBeenCalledWith({
       parent_run_id: 'run-1',
     })
   })
@@ -726,7 +729,7 @@ describe('Workspace', () => {
     await wrapper.get('[data-testid="toggle-run-children"]').trigger('click')
     await flushPromises()
 
-    expect(mockListChildExecutionSessions).toHaveBeenCalledWith({
+    expect(mockListChildRuns).toHaveBeenCalledWith({
       parent_run_id: 'run-1',
     })
   })
@@ -819,7 +822,7 @@ describe('Workspace', () => {
       }
     })
 
-    mockListExecutionSessions.mockResolvedValueOnce([
+    mockListRuns.mockResolvedValueOnce([
       {
         id: 'run-root',
         kind: 'workspace_run',
@@ -844,7 +847,7 @@ describe('Workspace', () => {
       },
     ])
 
-    mockListChildExecutionSessions.mockImplementation(async ({ parent_run_id }: { parent_run_id: string }) => {
+    mockListChildRuns.mockImplementation(async ({ parent_run_id }: { parent_run_id: string }) => {
       if (parent_run_id === 'run-root') {
         return [
           {
@@ -905,10 +908,10 @@ describe('Workspace', () => {
     mountWorkspace()
     await flushPromises()
 
-    expect(mockListChildExecutionSessions).toHaveBeenCalledWith({
+    expect(mockListChildRuns).toHaveBeenCalledWith({
       parent_run_id: 'run-child',
     })
-    expect(mockListChildExecutionSessions).toHaveBeenCalledWith({
+    expect(mockListChildRuns).toHaveBeenCalledWith({
       parent_run_id: 'run-root',
     })
   })
@@ -1042,7 +1045,7 @@ describe('Workspace', () => {
   })
 
   it('converts a background session back to workspace without assessment confirmation callbacks', async () => {
-    mockBackgroundStore.convertSessionToWorkspace.mockResolvedValue(true)
+    mockTaskStore.convertTaskToWorkspace.mockResolvedValue(true)
 
     const wrapper = mountWorkspace()
     await flushPromises()
@@ -1050,7 +1053,7 @@ describe('Workspace', () => {
     await wrapper.get('[data-testid="convert-to-workspace"]').trigger('click')
     await flushPromises()
 
-    expect(mockBackgroundStore.convertSessionToWorkspace).toHaveBeenCalledWith('session-1')
+    expect(mockTaskStore.convertTaskToWorkspace).toHaveBeenCalledWith('session-1')
     expect(mockConfirm).not.toHaveBeenCalled()
   })
 })

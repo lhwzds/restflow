@@ -12,17 +12,34 @@ export * from './skills'
 export * from './execution-traces'
 export * from './voice'
 export {
-  listBackgroundAgents,
-  pauseBackgroundAgent,
-  resumeBackgroundAgent,
-  stopBackgroundAgent,
-  runBackgroundAgentStreaming,
+  listTasks,
+  getTask,
+  pauseTask,
+  resumeTask,
+  stopTask,
+  runTaskNow,
   steerTask,
-  getBackgroundAgentEvents,
-  getBackgroundAgentStreamEventName,
+  getTaskEvents,
+  getTaskStreamEventName,
   getHeartbeatEventName,
-  deleteBackgroundAgent,
-  convertSessionToBackgroundAgent,
-  updateBackgroundAgent,
-} from './background-agents'
+  deleteTask,
+  createTaskFromSession,
+  updateTask,
+} from './task'
+export {
+  getExecutionRunThread,
+  listChildRuns,
+  listExecutionContainers,
+  listRuns,
+} from './execution-console'
+export type {
+  CreateTaskFromSessionRequest,
+  Task,
+  TaskConversionResult,
+  TaskEvent,
+  TaskMessage,
+  TaskProgress,
+  UpdateTaskRequest,
+} from './task'
+export type { ChildRunListQuery, RunListQuery, RunSummary } from './execution-console'
 export * from './memory'

@@ -3,7 +3,7 @@ import { BackendError } from '@/api/http-client'
 import {
   getExecutionRunThread,
   listExecutionContainers,
-  listExecutionSessions,
+  listRuns,
 } from '@/api/execution-console'
 
 function canonicalContainerRoute(containerId: string): RouteLocationRaw {
@@ -24,7 +24,7 @@ function isNotFoundError(error: unknown): boolean {
   return error instanceof BackendError && error.code === 404
 }
 
-export async function resolveLegacySessionRoute(sessionId: string): Promise<RouteLocationRaw> {
+export async function resolveSessionAliasRoute(sessionId: string): Promise<RouteLocationRaw> {
   try {
     const containers = await listExecutionContainers()
     const container =
@@ -44,13 +44,13 @@ export async function resolveLegacySessionRoute(sessionId: string): Promise<Rout
   }
 }
 
-export async function resolveLegacyTaskRoute(taskId: string, preferredRunId?: string | null): Promise<RouteLocationRaw> {
+export async function resolveTaskAliasRoute(taskId: string, preferredRunId?: string | null): Promise<RouteLocationRaw> {
   if (preferredRunId) {
     return canonicalContainerRunRoute(taskId, preferredRunId)
   }
 
   try {
-    const runs = await listExecutionSessions({
+    const runs = await listRuns({
       container: {
         kind: 'background_task',
         id: taskId,
@@ -67,13 +67,13 @@ export async function resolveLegacyTaskRoute(taskId: string, preferredRunId?: st
   return canonicalContainerRoute(taskId)
 }
 
-export async function resolveLegacyRunIdRoute(runId: string): Promise<RouteLocationRaw> {
+export async function resolveRunAliasRoute(runId: string): Promise<RouteLocationRaw> {
   try {
     const thread = await getExecutionRunThread(runId)
     return canonicalContainerRunRoute(thread.focus.container_id, thread.focus.run_id ?? runId)
   } catch (error) {
     if (!isNotFoundError(error)) {
-      console.warn('Failed to normalize legacy run route:', error)
+      console.warn('Failed to normalize run alias route:', error)
     }
     return { name: 'workspace' }
   }
@@ -107,7 +107,7 @@ const router = createRouter({
     {
       path: '/workspace/sessions/:sessionId',
       name: 'workspace-session',
-      beforeEnter: async (to) => resolveLegacySessionRoute(String(to.params.sessionId ?? '').trim()),
+      beforeEnter: async (to) => resolveSessionAliasRoute(String(to.params.sessionId ?? '').trim()),
       component: () => import('../views/Workspace.vue'),
       meta: { titleKey: 'common.brandName' },
     },
@@ -115,7 +115,7 @@ const router = createRouter({
       path: '/workspace/runs/:taskId',
       name: 'workspace-run',
       beforeEnter: async (to) =>
-        resolveLegacyTaskRoute(
+        resolveTaskAliasRoute(
           String(to.params.taskId ?? '').trim(),
           typeof to.query.runId === 'string' ? to.query.runId.trim() : null,
         ),
@@ -125,7 +125,7 @@ const router = createRouter({
     {
       path: '/workspace/run/:runId',
       name: 'workspace-run-id',
-      beforeEnter: async (to) => resolveLegacyRunIdRoute(String(to.params.runId ?? '').trim()),
+      beforeEnter: async (to) => resolveRunAliasRoute(String(to.params.runId ?? '').trim()),
       component: () => import('../views/Workspace.vue'),
       meta: { titleKey: 'common.brandName' },
     },

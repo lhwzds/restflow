@@ -1,15 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { mount } from '@vue/test-utils'
-import ConvertToBackgroundAgentDialog from '../ConvertToBackgroundAgentDialog.vue'
+import ConvertToTaskDialog from '../ConvertToTaskDialog.vue'
 
 const mockSuccess = vi.fn()
 const mockError = vi.fn()
 const mockConfirm = vi.fn()
-const mockConvertSessionToAgent = vi.fn()
+const mockConvertSessionToTask = vi.fn()
 
 const mockStore = {
   error: null as string | null,
-  convertSessionToAgent: (...args: unknown[]) => mockConvertSessionToAgent(...args),
+  convertSessionToTask: (...args: unknown[]) => mockConvertSessionToTask(...args),
+  convertSessionToAgent: (...args: unknown[]) => mockConvertSessionToTask(...args),
 }
 
 vi.mock('vue-i18n', () => ({
@@ -31,20 +32,20 @@ vi.mock('@/composables/useConfirm', () => ({
   }),
 }))
 
-vi.mock('@/stores/backgroundAgentStore', () => ({
-  useBackgroundAgentStore: () => mockStore,
+vi.mock('@/stores/taskStore', () => ({
+  useTaskStore: () => mockStore,
 }))
 
-describe('ConvertToBackgroundAgentDialog', () => {
+describe('ConvertToTaskDialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockStore.error = null
     mockConfirm.mockResolvedValue(false)
-    mockConvertSessionToAgent.mockResolvedValue(null)
+    mockConvertSessionToTask.mockResolvedValue(null)
   })
 
   it('does not show an error toast when confirmation is cancelled', async () => {
-    const wrapper = mount(ConvertToBackgroundAgentDialog, {
+    const wrapper = mount(ConvertToTaskDialog, {
       props: {
         open: false,
         sessionId: 'session-1',
@@ -79,7 +80,7 @@ describe('ConvertToBackgroundAgentDialog', () => {
 
     await submitButton!.trigger('click')
 
-    expect(mockConvertSessionToAgent).toHaveBeenCalledOnce()
+    expect(mockConvertSessionToTask).toHaveBeenCalledOnce()
     expect(mockSuccess).not.toHaveBeenCalled()
     expect(mockError).not.toHaveBeenCalled()
     expect(wrapper.emitted('update:open')).toBeUndefined()

@@ -1,35 +1,53 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
-  convertSessionToBackgroundAgent,
-  deleteBackgroundAgent,
-  getBackgroundAgent,
+  createTaskFromSession,
+  deleteTask,
+  getTask,
+  getTaskEvents,
+  getTaskStreamEventName,
   listMemoryChunksByTag,
   listMemoryChunksForSession,
   listMemorySessions,
+  listTasks,
+  pauseTask,
+  runTaskNow,
+  resumeTask,
+  stopTask,
+  updateTask,
+} from '../task'
+import {
+  convertSessionToBackgroundAgent,
+  deleteBackgroundAgent,
+  getBackgroundAgent,
+  getBackgroundAgentEvents,
+  getBackgroundAgentStreamEventName,
+  listBackgroundAgents,
+  pauseBackgroundAgent,
   runBackgroundAgentStreaming,
+  resumeBackgroundAgent,
+  stopBackgroundAgent,
+  updateBackgroundAgent,
 } from '../background-agents'
-import { fetchJson, requestOptional, requestTyped } from '../http-client'
+import { requestOptional, requestTyped } from '../http-client'
 
 vi.mock('../http-client', () => ({
-  fetchJson: vi.fn(),
   requestOptional: vi.fn(),
   requestTyped: vi.fn(),
 }))
 
-describe('background-agents memory API', () => {
+describe('task api memory endpoints', () => {
   beforeEach(() => {
-    vi.mocked(fetchJson).mockReset()
     vi.mocked(requestTyped).mockReset()
     vi.mocked(requestOptional).mockReset()
   })
 
-  it('calls get background agent through optional daemon request', async () => {
+  it('calls get task through optional daemon request', async () => {
     vi.mocked(requestOptional).mockResolvedValueOnce(null)
 
-    const result = await getBackgroundAgent('task-1')
+    const result = await getTask('task-1')
 
     expect(requestOptional).toHaveBeenCalledWith({
-      type: 'GetBackgroundAgent',
+      type: 'GetTask',
       data: { id: 'task-1' },
     })
     expect(result).toBeNull()
@@ -76,34 +94,35 @@ describe('background-agents memory API', () => {
       source_session_agent_id: 'default',
       run_now: false,
     }
-    vi.mocked(fetchJson).mockResolvedValueOnce(payload)
+    vi.mocked(requestTyped).mockResolvedValueOnce(payload)
 
-    const result = await convertSessionToBackgroundAgent({
+    const result = await createTaskFromSession({
       session_id: 'session-1',
       name: 'Background Session',
       run_now: false,
     })
 
-    expect(fetchJson).toHaveBeenCalledWith('/api/background-agents/convert-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        session_id: 'session-1',
-        name: 'Background Session',
-        run_now: false,
-      }),
+    expect(requestTyped).toHaveBeenCalledWith({
+      type: 'CreateTaskFromSession',
+      data: {
+        request: {
+          session_id: 'session-1',
+          name: 'Background Session',
+          run_now: false,
+        },
+      },
     })
     expect(result).toEqual(payload)
   })
 
-  it('returns the canonical run-now agent payload', async () => {
+  it('returns the canonical run-now task payload', async () => {
     const payload = { id: 'bg-1', status: 'running' }
     vi.mocked(requestTyped).mockResolvedValueOnce(payload)
 
-    const result = await runBackgroundAgentStreaming('bg-1')
+    const result = await runTaskNow('bg-1')
 
     expect(requestTyped).toHaveBeenCalledWith({
-      type: 'ControlBackgroundAgent',
+      type: 'ControlTask',
       data: { id: 'bg-1', action: 'run_now' },
     })
     expect(result).toEqual(payload)
@@ -116,12 +135,26 @@ describe('background-agents memory API', () => {
     }
     vi.mocked(requestTyped).mockResolvedValueOnce(payload)
 
-    const result = await deleteBackgroundAgent('bg-1')
+    const result = await deleteTask('bg-1')
 
     expect(requestTyped).toHaveBeenCalledWith({
-      type: 'DeleteBackgroundAgent',
+      type: 'DeleteTask',
       data: { id: 'bg-1' },
     })
     expect(result).toEqual(payload)
+  })
+
+  it('keeps legacy background-agent aliases wired to canonical task exports', () => {
+    expect(listBackgroundAgents).toBe(listTasks)
+    expect(getBackgroundAgent).toBe(getTask)
+    expect(getBackgroundAgentEvents).toBe(getTaskEvents)
+    expect(runBackgroundAgentStreaming).toBe(runTaskNow)
+    expect(pauseBackgroundAgent).toBe(pauseTask)
+    expect(resumeBackgroundAgent).toBe(resumeTask)
+    expect(stopBackgroundAgent).toBe(stopTask)
+    expect(deleteBackgroundAgent).toBe(deleteTask)
+    expect(convertSessionToBackgroundAgent).toBe(createTaskFromSession)
+    expect(getBackgroundAgentStreamEventName).toBe(getTaskStreamEventName)
+    expect(updateBackgroundAgent).toBe(updateTask)
   })
 })

@@ -5,12 +5,12 @@ import ChatPanel from '../ChatPanel.vue'
 import { useChatSession } from '@/composables/workspace/useChatSession'
 import { useChatStream } from '@/composables/workspace/useChatStream'
 import { useChatSessionStore } from '@/stores/chatSessionStore'
-import { useBackgroundAgentStore } from '@/stores/backgroundAgentStore'
+import { useTaskStore } from '@/stores/taskStore'
 import { useModelsStore } from '@/stores/modelsStore'
 import { listAgents, getAgent, updateAgent } from '@/api/agents'
 import { steerChatStream } from '@/api/chat-stream'
 import { sendChatMessage } from '@/api/chat-session'
-import { getExecutionRunThread, listExecutionContainers, listExecutionSessions } from '@/api/execution-console'
+import { getExecutionRunThread, listExecutionContainers, listRuns } from '@/api/execution-console'
 
 type SessionLike = {
   id: string
@@ -86,7 +86,7 @@ const mockRouterPush = vi.fn()
 const mockRouterReplace = vi.fn()
 const mockGetExecutionRunThread = vi.fn()
 const mockListExecutionContainers = vi.fn()
-const mockListExecutionSessions = vi.fn()
+const mockListRuns = vi.fn()
 let lastMessageListProps: Record<string, unknown> | null = null
 let lastExecutionStatusBarProps: Record<string, unknown> | null = null
 
@@ -183,10 +183,10 @@ vi.mock('@/components/chat/ExecutionStatusBar.vue', () => ({
   }),
 }))
 
-vi.mock('@/components/background-agent/AgentStatusBadge.vue', () => ({
+vi.mock('@/components/task/TaskStatusBadge.vue', () => ({
   default: {
-    name: 'AgentStatusBadge',
-    template: '<span data-testid="agent-status-badge" />',
+    name: 'TaskStatusBadge',
+    template: '<span data-testid="task-status-badge" />',
   },
 }))
 
@@ -258,8 +258,8 @@ vi.mock('@/stores/chatSessionStore', () => ({
   useChatSessionStore: vi.fn(),
 }))
 
-vi.mock('@/stores/backgroundAgentStore', () => ({
-  useBackgroundAgentStore: vi.fn(),
+vi.mock('@/stores/taskStore', () => ({
+  useTaskStore: vi.fn(),
 }))
 
 vi.mock('@/stores/modelsStore', () => ({
@@ -283,7 +283,7 @@ vi.mock('@/api/chat-stream', () => ({
 vi.mock('@/api/execution-console', () => ({
   getExecutionRunThread: vi.fn(),
   listExecutionContainers: vi.fn(),
-  listExecutionSessions: vi.fn(),
+  listRuns: vi.fn(),
 }))
 
 vi.mock('@/composables/useToast', () => ({
@@ -387,10 +387,17 @@ describe('ChatPanel', () => {
       currentSession: mockCurrentSession.value,
     } as any)
 
-    vi.mocked(useBackgroundAgentStore).mockReturnValue({
+    vi.mocked(useTaskStore).mockReturnValue({
       agents: [],
+      tasks: [],
+      fetchTasks: vi.fn(),
       fetchAgents: vi.fn(),
+      taskBySessionId: () => null,
       agentBySessionId: () => null,
+      pauseTask: vi.fn(),
+      resumeTask: vi.fn(),
+      runTaskNow: vi.fn(),
+      stopTask: vi.fn(),
     } as any)
 
     vi.mocked(useModelsStore).mockReturnValue({
@@ -468,10 +475,10 @@ describe('ChatPanel', () => {
         source_conversation_id: null,
       },
     ])
-    mockListExecutionSessions.mockResolvedValue([])
+    mockListRuns.mockResolvedValue([])
     vi.mocked(getExecutionRunThread).mockImplementation(mockGetExecutionRunThread)
     vi.mocked(listExecutionContainers).mockImplementation(mockListExecutionContainers)
-    vi.mocked(listExecutionSessions).mockImplementation(mockListExecutionSessions)
+    vi.mocked(listRuns).mockImplementation(mockListRuns)
   })
 
   it('syncs selected model when current session model changes with same id', async () => {
@@ -690,16 +697,27 @@ describe('ChatPanel', () => {
   })
 
   it('shows a run trace entry for linked background sessions', async () => {
-    vi.mocked(useBackgroundAgentStore).mockReturnValue({
+    vi.mocked(useTaskStore).mockReturnValue({
       agents: [],
+      tasks: [],
+      fetchTasks: vi.fn(),
       fetchAgents: vi.fn(),
+      taskBySessionId: () => ({
+        id: 'task-1',
+        status: 'running',
+        chat_session_id: 'session-1',
+      }),
       agentBySessionId: () => ({
         id: 'task-1',
         status: 'running',
         chat_session_id: 'session-1',
       }),
+      pauseTask: vi.fn(),
+      resumeTask: vi.fn(),
+      runTaskNow: vi.fn(),
+      stopTask: vi.fn(),
     } as any)
-    mockListExecutionSessions.mockResolvedValue([
+    mockListRuns.mockResolvedValue([
       {
         id: 'run-summary-1',
         container_id: 'task-1',
@@ -723,16 +741,27 @@ describe('ChatPanel', () => {
   })
 
   it('falls back to task route when linked background session has no runs yet', async () => {
-    vi.mocked(useBackgroundAgentStore).mockReturnValue({
+    vi.mocked(useTaskStore).mockReturnValue({
       agents: [],
+      tasks: [],
+      fetchTasks: vi.fn(),
       fetchAgents: vi.fn(),
+      taskBySessionId: () => ({
+        id: 'task-1',
+        status: 'running',
+        chat_session_id: 'session-1',
+      }),
       agentBySessionId: () => ({
         id: 'task-1',
         status: 'running',
         chat_session_id: 'session-1',
       }),
+      pauseTask: vi.fn(),
+      resumeTask: vi.fn(),
+      runTaskNow: vi.fn(),
+      stopTask: vi.fn(),
     } as any)
-    mockListExecutionSessions.mockResolvedValue([])
+    mockListRuns.mockResolvedValue([])
 
     const wrapper = mount(ChatPanel)
     await flushPromises()
@@ -1007,7 +1036,7 @@ describe('ChatPanel', () => {
         execution: null,
       },
     ]
-    mockListExecutionSessions.mockResolvedValue([
+    mockListRuns.mockResolvedValue([
       {
         id: 'run-summary-0',
         kind: 'workspace_run',
@@ -1105,7 +1134,7 @@ describe('ChatPanel', () => {
     })
     await flushPromises()
 
-    expect(mockListExecutionSessions).toHaveBeenCalledWith({
+    expect(mockListRuns).toHaveBeenCalledWith({
       container: {
         kind: 'workspace',
         id: 'session-1',
@@ -1284,7 +1313,7 @@ describe('ChatPanel', () => {
         source_conversation_id: null,
       },
     ])
-    mockListExecutionSessions.mockResolvedValue([
+    mockListRuns.mockResolvedValue([
       {
         id: 'run-summary-1',
         container_id: 'task-1',
@@ -1303,7 +1332,7 @@ describe('ChatPanel', () => {
     mockIsStreaming.value = false
     await flushPromises()
 
-    expect(mockListExecutionSessions).toHaveBeenCalledWith({
+    expect(mockListRuns).toHaveBeenCalledWith({
       container: {
         kind: 'background_task',
         id: 'task-1',

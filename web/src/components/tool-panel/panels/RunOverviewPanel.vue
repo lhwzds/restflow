@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { GitBranch, ChevronDown, ChevronRight } from 'lucide-vue-next'
-import type { ExecutionSessionSummary } from '@/types/generated/ExecutionSessionSummary'
 import type { ExecutionThread } from '@/types/generated/ExecutionThread'
+import type { RunSummary } from '@/types/generated/RunSummary'
 
 const props = defineProps<{
   thread: ExecutionThread
-  childRuns?: ExecutionSessionSummary[]
+  childRuns?: RunSummary[]
 }>()
 
 const emit = defineEmits<{

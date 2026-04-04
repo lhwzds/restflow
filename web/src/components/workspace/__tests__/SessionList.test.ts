@@ -110,7 +110,7 @@ describe('SessionList', () => {
     await triggerRunSelection('[data-testid="workspace-run-session-1-run-1"]')
     await triggerRunSelection('[data-testid="workspace-run-session-1-run-1-child"]')
     await findButton('workspace.session.rename').trigger('click')
-    await findButton('workspace.session.convertToBackground').trigger('click')
+    await findButton('workspace.session.convertToTask').trigger('click')
     await findButton('workspace.session.archive').trigger('click')
     await findButton('workspace.session.delete').trigger('click')
 
@@ -121,7 +121,7 @@ describe('SessionList', () => {
       ['session-1', 'run-1-child'],
     ])
     expect(wrapper.emitted('rename')).toEqual([['session-1', 'Workspace Session']])
-    expect(wrapper.emitted('convertToBackgroundAgent')).toEqual([['session-1', 'Workspace Session']])
+    expect(wrapper.emitted('convertToTask')).toEqual([['session-1', 'Workspace Session']])
     expect(wrapper.emitted('archive')).toEqual([['session-1', 'Workspace Session']])
     expect(wrapper.emitted('delete')).toEqual([['session-1', 'Workspace Session']])
   })
