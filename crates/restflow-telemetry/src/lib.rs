@@ -5,6 +5,7 @@ use chrono::Utc;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::sync::LazyLock;
+use uuid::Uuid;
 
 mod run_lifecycle;
 
@@ -245,7 +246,7 @@ impl ExecutionEventEnvelope {
     pub fn new(trace: RestflowTrace, event: ExecutionEvent) -> Self {
         let occurred_at_ms = Utc::now().timestamp_millis();
         Self {
-            event_id: format!("{}-{occurred_at_ms}", trace.run_id),
+            event_id: generate_event_id(&trace, occurred_at_ms),
             occurred_at_ms,
             trace,
             requested_model: None,
@@ -336,6 +337,10 @@ impl ExecutionEventEnvelope {
             }),
         )
     }
+}
+
+fn generate_event_id(trace: &RestflowTrace, occurred_at_ms: i64) -> String {
+    format!("{}-{occurred_at_ms}-{}", trace.run_id, Uuid::new_v4())
 }
 
 /// Source storage for a timeline event returned by backend trace queries.
@@ -509,7 +514,7 @@ mod tests {
         ExecutionEvent, ExecutionEventEnvelope, LlmCallPayload, MessagePayload, RestflowTrace,
         RunTraceContext, RunTraceOutcome, RunTraceSummary, RunTraceTimeline,
         ToolCallCompletedPayload, TraceArtifactPreview, TraceTimelineEvent, TraceTimelineSource,
-        normalize_telemetry_preview, sanitize_telemetry_secrets,
+        generate_event_id, normalize_telemetry_preview, sanitize_telemetry_secrets,
     };
 
     #[test]
@@ -642,6 +647,17 @@ mod tests {
                 ai_duration_ms: Some(321)
             }
         );
+    }
+
+    #[test]
+    fn event_ids_remain_unique_with_same_run_id_and_timestamp() {
+        let trace = RestflowTrace::new("run-1", "session-1", "task-1", "agent-1");
+        let first = generate_event_id(&trace, 123);
+        let second = generate_event_id(&trace, 123);
+
+        assert_ne!(first, second);
+        assert!(first.starts_with("run-1-123-"));
+        assert!(second.starts_with("run-1-123-"));
     }
 
     #[test]
