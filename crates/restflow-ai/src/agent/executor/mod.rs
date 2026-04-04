@@ -1,5 +1,26 @@
 //! Agent executor with ReAct loop
 //!
+//! # Refactoring Notes (TODO)
+//!
+//! This module is large (~900 lines) and should be split into focused submodules:
+//!
+//! ```ignore
+//! executor/
+//! ├── mod.rs              # AgentExecutor + entry methods + maybe_checkpoint
+//! ├── builder.rs          # new(), with_workspace_root(), with_steer_channel(), with_subagent_tracker()
+//! ├── llm.rs              # execute_llm_completion(), build_system_prompt(), workspace instructions
+//! ├── loop.rs             # execute_with_mode() — the ~450 line main ReAct loop
+//! ├── telemetry.rs        # emit_execution_event(), resolve_telemetry_model()
+//! ├── tool_output.rs      # save_tool_output(), truncate_tool_output(), sanitize_tool_call_history()
+//! ├── config.rs           # already split ✓
+//! ├── prompt.rs           # already split ✓
+//! ├── steer.rs            # keep as-is (steering interaction)
+//! └── streaming.rs        # already split ✓
+//! ```
+//!
+//! Priority: tool_output.rs and builder.rs are easiest (stateless helpers).
+//! loop.rs is the hardest due to tight state coupling.
+//!
 //! # Timeout Architecture
 //!
 //! The executor applies a **wrapper timeout** around all tool executions. When a tool
