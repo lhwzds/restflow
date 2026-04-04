@@ -113,7 +113,7 @@ pub fn create_tool_registry_with_assessor(
         background_agent_storage.clone(),
     );
     let kv_store = build_kv_store(kv_store_storage, accessor_id);
-    let background_agent_components = build_background_agent_components(
+    let task_store_components = build_task_store_components(
         background_agent_storage.clone(),
         agent_storage.clone(),
         deliverable_storage,
@@ -202,9 +202,10 @@ pub fn create_tool_registry_with_assessor(
     let builder = register_management_tools(
         builder,
         Some(agent_crud_components.store.clone()),
-        Some(background_agent_components.store.clone()),
-        Some(background_agent_components.kv_store.clone()),
+        Some(task_store_components.store.clone()),
+        Some(task_store_components.kv_store.clone()),
         assessor.clone(),
+        true,
     );
 
     let mut registry = builder

@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::sync::{Arc, RwLock};
 
-use crate::services::adapters::{AgentStoreAdapter, BackgroundAgentStoreAdapter, KvStoreAdapter};
+use crate::services::adapters::{AgentStoreAdapter, KvStoreAdapter, TaskStoreAdapter};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use crate::services::session::SessionService;
 use crate::storage::Storage;
@@ -17,9 +17,9 @@ use restflow_traits::AgentOperationAssessor;
 use restflow_traits::SubagentManager;
 use restflow_traits::registry::ToolRegistry;
 use restflow_traits::security::SecurityGate;
-use restflow_traits::store::{AgentStore, BackgroundAgentStore, KvStore};
+use restflow_traits::store::{AgentStore, KvStore, TaskStore};
 
-pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 7] = [
+pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 8] = [
     ("http", "http_request"),
     ("email", "send_email"),
     ("telegram", "telegram_send"),
@@ -27,6 +27,7 @@ pub(crate) const KNOWN_TOOL_ALIASES: [(&str, &str); 7] = [
     ("slack", "slack_send"),
     ("use_skill", "skill"),
     ("python", "run_python"),
+    ("manage_background_agents", "manage_tasks"),
 ];
 
 pub(crate) struct AgentCrudComponents {
@@ -34,8 +35,8 @@ pub(crate) struct AgentCrudComponents {
     pub store: Arc<dyn AgentStore>,
 }
 
-pub(crate) struct BackgroundAgentComponents {
-    pub store: Arc<dyn BackgroundAgentStore>,
+pub(crate) struct TaskStoreComponents {
+    pub store: Arc<dyn TaskStore>,
     pub kv_store: Arc<dyn KvStore>,
 }
 
@@ -178,15 +179,15 @@ pub(crate) fn build_agent_crud_components(
     AgentCrudComponents { known_tools, store }
 }
 
-pub(crate) fn build_background_agent_components(
+pub(crate) fn build_task_store_components(
     background_agent_storage: BackgroundAgentStorage,
     agent_storage: AgentStorage,
     deliverable_storage: DeliverableStorage,
     session_service: SessionService,
     kv_store: Arc<dyn KvStore>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
-) -> BackgroundAgentComponents {
-    let mut store = BackgroundAgentStoreAdapter::new(
+) -> TaskStoreComponents {
+    let mut store = TaskStoreAdapter::new(
         background_agent_storage,
         agent_storage,
         deliverable_storage,
@@ -196,7 +197,7 @@ pub(crate) fn build_background_agent_components(
         store = store.with_assessor(assessor);
     }
 
-    BackgroundAgentComponents {
+    TaskStoreComponents {
         store: Arc::new(store),
         kv_store,
     }
@@ -205,9 +206,10 @@ pub(crate) fn build_background_agent_components(
 pub(crate) fn register_management_tools(
     mut builder: ToolRegistryBuilder,
     agent_store: Option<Arc<dyn AgentStore>>,
-    background_agent_store: Option<Arc<dyn BackgroundAgentStore>>,
+    task_store: Option<Arc<dyn TaskStore>>,
     kv_store: Option<Arc<dyn KvStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
+    register_legacy_alias: bool,
 ) -> ToolRegistryBuilder {
     if let Some(agent_store) = agent_store {
         builder = if let Some(assessor) = assessor.clone() {
@@ -217,15 +219,19 @@ pub(crate) fn register_management_tools(
         };
     }
 
-    if let (Some(background_agent_store), Some(kv_store)) = (background_agent_store, kv_store) {
-        builder = if let Some(assessor) = assessor {
-            builder.with_background_agent_and_kv_and_assessor(
-                background_agent_store,
-                kv_store,
-                assessor,
-            )
+    if let (Some(task_store), Some(kv_store)) = (task_store, kv_store) {
+        builder = if let Some(assessor) = assessor.clone() {
+            builder.with_task_and_kv_and_assessor(task_store.clone(), kv_store.clone(), assessor)
         } else {
-            builder.with_background_agent_and_kv(background_agent_store, kv_store)
+            builder.with_task_and_kv(task_store.clone(), kv_store.clone())
+        };
+
+        if register_legacy_alias {
+            builder = if let Some(assessor) = assessor {
+                builder.with_legacy_task_alias_and_kv_and_assessor(task_store, kv_store, assessor)
+            } else {
+                builder.with_legacy_task_alias_and_kv(task_store, kv_store)
+            };
         };
     }
 
@@ -251,12 +257,12 @@ pub(crate) fn register_subagent_management_tools(
     registry.register(ListSubagentsTool::new(manager));
 }
 
-pub(crate) fn build_background_agent_runtime_components(
+pub(crate) fn build_task_store_runtime_components(
     storage: &Storage,
     kv_store: Arc<dyn KvStore>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
-) -> BackgroundAgentComponents {
-    build_background_agent_components(
+) -> TaskStoreComponents {
+    build_task_store_components(
         storage.background_agents.clone(),
         storage.agents.clone(),
         storage.deliverables.clone(),
@@ -264,4 +270,17 @@ pub(crate) fn build_background_agent_runtime_components(
         kv_store,
         assessor,
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_store_shell_exports_canonical_name() {
+        let _canonical_components: Option<TaskStoreComponents> = None;
+
+        let _canonical_builder = build_task_store_components;
+        let _canonical_runtime_builder = build_task_store_runtime_components;
+    }
 }

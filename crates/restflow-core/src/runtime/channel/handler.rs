@@ -17,7 +17,7 @@ use crate::channel::{ChannelRouter, InboundMessage, OutboundMessage, PairingMana
 use super::chat_dispatcher::ChatDispatcher;
 use super::commands::{handle_command, send_help};
 use super::router::{MessageRouter, RouteDecision};
-use super::trigger::BackgroundAgentTrigger;
+use super::trigger::TaskTrigger;
 
 #[cfg(test)]
 const STREAM_RECONNECT_DELAY: Duration = Duration::from_millis(20);
@@ -68,7 +68,7 @@ impl MessageHandlerHandle {
 ///
 /// This spawns background tasks to listen for messages on all interactive channels
 /// and routes them appropriately. Natural language messages will show a help message.
-pub fn start_message_handler<T: BackgroundAgentTrigger + 'static>(
+pub fn start_message_handler<T: TaskTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     config: MessageHandlerConfig,
@@ -81,7 +81,7 @@ pub fn start_message_handler<T: BackgroundAgentTrigger + 'static>(
 /// This spawns background tasks to listen for messages on all interactive channels
 /// and routes them appropriately. Natural language messages are dispatched to
 /// the AI chat dispatcher.
-pub fn start_message_handler_with_chat<T: BackgroundAgentTrigger + 'static>(
+pub fn start_message_handler_with_chat<T: TaskTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     chat_dispatcher: Arc<ChatDispatcher>,
@@ -91,7 +91,7 @@ pub fn start_message_handler_with_chat<T: BackgroundAgentTrigger + 'static>(
 }
 
 /// Start the message handler loop with AI chat support and pairing access control
-pub fn start_message_handler_with_pairing<T: BackgroundAgentTrigger + 'static>(
+pub fn start_message_handler_with_pairing<T: TaskTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     chat_dispatcher: Option<Arc<ChatDispatcher>>,
@@ -108,7 +108,7 @@ pub fn start_message_handler_with_pairing<T: BackgroundAgentTrigger + 'static>(
 }
 
 /// Internal implementation of message handler startup
-fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
+fn start_message_handler_internal<T: TaskTrigger + 'static>(
     router: Arc<ChannelRouter>,
     task_trigger: Arc<T>,
     chat_dispatcher: Option<Arc<ChatDispatcher>>,
@@ -235,7 +235,7 @@ fn start_message_handler_internal<T: BackgroundAgentTrigger + 'static>(
 async fn handle_message_routed(
     router: &ChannelRouter,
     msg_router: &MessageRouter,
-    trigger: &dyn BackgroundAgentTrigger,
+    trigger: &dyn TaskTrigger,
     chat_dispatcher: Option<&ChatDispatcher>,
     pairing_manager: Option<&PairingManager>,
     message: &InboundMessage,
@@ -322,7 +322,7 @@ async fn handle_message_routed(
 mod tests {
     use super::*;
     use crate::channel::{Channel, ChannelType, OutboundMessage};
-    use crate::runtime::channel::trigger::mock::MockBackgroundAgentTrigger;
+    use crate::runtime::channel::trigger::mock::MockTaskTrigger;
     use anyhow::Result as AnyhowResult;
     use async_trait::async_trait;
     use std::collections::VecDeque;
@@ -430,7 +430,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_mock_trigger_forwarding() {
-        let trigger = MockBackgroundAgentTrigger::new();
+        let trigger = MockTaskTrigger::new();
 
         // Simulate forwarding a message
         trigger
@@ -499,7 +499,7 @@ mod tests {
         let mut router = ChannelRouter::new();
         router.register(test_channel);
         let router = Arc::new(router);
-        let trigger = Arc::new(MockBackgroundAgentTrigger::new());
+        let trigger = Arc::new(MockTaskTrigger::new());
 
         start_message_handler(router, trigger, MessageHandlerConfig::default());
 

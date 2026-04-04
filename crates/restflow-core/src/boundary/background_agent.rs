@@ -1,17 +1,15 @@
 use crate::boundary::codec::{from_contract, to_contract};
 use crate::models::{
-    BackgroundAgentControlAction, BackgroundAgentPatch, BackgroundAgentSchedule,
-    BackgroundAgentSpec, DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope,
-    NotificationConfig, ResourceLimits,
+    DurabilityMode, ExecutionMode, MemoryConfig, MemoryScope, NotificationConfig, ResourceLimits,
+    TaskControlAction, TaskPatch, TaskSchedule, TaskSpec,
 };
 use crate::services::background_agent_conversion::default_conversion_schedule;
 use restflow_contracts::request::{
-    BackgroundAgentConvertSessionRequest as ContractBackgroundAgentConvertSessionRequest,
-    BackgroundAgentPatch as ContractBackgroundAgentPatch,
-    BackgroundAgentSpec as ContractBackgroundAgentSpec, DurabilityMode as ContractDurabilityMode,
-    ExecutionMode as ContractExecutionMode, MemoryConfig as ContractMemoryConfig,
-    NotificationConfig as ContractNotificationConfig, ResourceLimits as ContractResourceLimits,
-    TaskSchedule as ContractTaskSchedule,
+    DurabilityMode as ContractDurabilityMode, ExecutionMode as ContractExecutionMode,
+    MemoryConfig as ContractMemoryConfig, NotificationConfig as ContractNotificationConfig,
+    ResourceLimits as ContractResourceLimits,
+    TaskFromSessionRequest as ContractTaskFromSessionRequest, TaskPatch as ContractTaskPatch,
+    TaskSchedule as ContractTaskSchedule, TaskSpec as ContractTaskSpec,
 };
 use restflow_tools::ToolError;
 use restflow_traits::store::{
@@ -21,9 +19,19 @@ use restflow_traits::store::{
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 
-pub(crate) struct ConvertSessionRequestOptions {
+// Phase 2 boundary owner shift: expose task-oriented names as canonical in this file
+// while keeping legacy wrappers for unchanged callers.
+type CoreTaskControlAction = TaskControlAction;
+type CoreTaskPatch = TaskPatch;
+type CoreTaskSchedule = TaskSchedule;
+type CoreTaskSpec = TaskSpec;
+type StoreTaskCreateRequest = BackgroundAgentCreateRequest;
+type StoreTaskFromSessionRequest = StoreBackgroundAgentConvertSessionRequest;
+type StoreTaskUpdateRequest = BackgroundAgentUpdateRequest;
+
+pub(crate) struct ConvertSessionToTaskOptions {
     pub(crate) name: Option<String>,
-    pub(crate) schedule: BackgroundAgentSchedule,
+    pub(crate) schedule: CoreTaskSchedule,
     pub(crate) input: Option<String>,
     pub(crate) timeout_secs: Option<u64>,
     pub(crate) memory: Option<MemoryConfig>,
@@ -32,22 +40,36 @@ pub(crate) struct ConvertSessionRequestOptions {
     pub(crate) run_now: bool,
 }
 
-pub(crate) fn contract_spec_to_core(
-    spec: ContractBackgroundAgentSpec,
-) -> anyhow::Result<BackgroundAgentSpec> {
+pub(crate) type ConvertSessionRequestOptions = ConvertSessionToTaskOptions;
+
+pub(crate) fn contract_task_spec_to_core_task_spec(
+    spec: ContractTaskSpec,
+) -> anyhow::Result<CoreTaskSpec> {
     from_contract(spec)
 }
 
-pub(crate) fn core_spec_to_contract(
-    spec: BackgroundAgentSpec,
-) -> anyhow::Result<ContractBackgroundAgentSpec> {
+pub(crate) fn contract_spec_to_core(spec: ContractTaskSpec) -> anyhow::Result<CoreTaskSpec> {
+    contract_task_spec_to_core_task_spec(spec)
+}
+
+pub(crate) fn core_task_spec_to_contract_task_spec(
+    spec: CoreTaskSpec,
+) -> anyhow::Result<ContractTaskSpec> {
     to_contract(spec)
 }
 
-pub(crate) fn contract_patch_to_core(
-    patch: ContractBackgroundAgentPatch,
-) -> anyhow::Result<BackgroundAgentPatch> {
+pub(crate) fn core_spec_to_contract(spec: CoreTaskSpec) -> anyhow::Result<ContractTaskSpec> {
+    core_task_spec_to_contract_task_spec(spec)
+}
+
+pub(crate) fn contract_task_patch_to_core_task_patch(
+    patch: ContractTaskPatch,
+) -> anyhow::Result<CoreTaskPatch> {
     from_contract(patch)
+}
+
+pub(crate) fn contract_patch_to_core(patch: ContractTaskPatch) -> anyhow::Result<CoreTaskPatch> {
+    contract_task_patch_to_core_task_patch(patch)
 }
 
 pub(crate) fn resolve_agent_id_alias<E, ResolveDefault, ResolveExisting>(
@@ -69,9 +91,9 @@ where
 
 #[allow(dead_code)]
 pub(crate) fn resolve_spec_agent_id<E, ResolveAgentId>(
-    mut spec: BackgroundAgentSpec,
+    mut spec: CoreTaskSpec,
     mut resolve_agent_id: ResolveAgentId,
-) -> Result<BackgroundAgentSpec, E>
+) -> Result<CoreTaskSpec, E>
 where
     ResolveAgentId: FnMut(&str) -> Result<String, E>,
 {
@@ -81,9 +103,9 @@ where
 
 #[allow(dead_code)]
 pub(crate) fn resolve_patch_agent_id<E, ResolveAgentId>(
-    mut patch: BackgroundAgentPatch,
+    mut patch: CoreTaskPatch,
     mut resolve_agent_id: ResolveAgentId,
-) -> Result<BackgroundAgentPatch, E>
+) -> Result<CoreTaskPatch, E>
 where
     ResolveAgentId: FnMut(&str) -> Result<String, E>,
 {
@@ -93,16 +115,20 @@ where
     Ok(patch)
 }
 
-pub(crate) fn core_patch_to_contract(
-    patch: BackgroundAgentPatch,
-) -> anyhow::Result<ContractBackgroundAgentPatch> {
+pub(crate) fn core_task_patch_to_contract_task_patch(
+    patch: CoreTaskPatch,
+) -> anyhow::Result<ContractTaskPatch> {
     to_contract(patch)
 }
 
-pub(crate) fn core_spec_to_create_request(
-    spec: &BackgroundAgentSpec,
-) -> anyhow::Result<BackgroundAgentCreateRequest> {
-    Ok(BackgroundAgentCreateRequest {
+pub(crate) fn core_patch_to_contract(patch: CoreTaskPatch) -> anyhow::Result<ContractTaskPatch> {
+    core_task_patch_to_contract_task_patch(patch)
+}
+
+pub(crate) fn core_task_spec_to_store_create_request(
+    spec: &CoreTaskSpec,
+) -> anyhow::Result<StoreTaskCreateRequest> {
+    Ok(StoreTaskCreateRequest {
         name: spec.name.clone(),
         agent_id: spec.agent_id.clone(),
         chat_session_id: spec.chat_session_id.clone(),
@@ -119,11 +145,17 @@ pub(crate) fn core_spec_to_create_request(
     })
 }
 
+pub(crate) fn core_spec_to_create_request(
+    spec: &CoreTaskSpec,
+) -> anyhow::Result<StoreTaskCreateRequest> {
+    core_task_spec_to_store_create_request(spec)
+}
+
 pub(crate) fn core_patch_to_update_request(
     id: String,
-    patch: &BackgroundAgentPatch,
-) -> anyhow::Result<BackgroundAgentUpdateRequest> {
-    Ok(BackgroundAgentUpdateRequest {
+    patch: &CoreTaskPatch,
+) -> anyhow::Result<StoreTaskUpdateRequest> {
+    Ok(StoreTaskUpdateRequest {
         id,
         name: patch.name.clone(),
         description: patch.description.clone(),
@@ -144,15 +176,13 @@ pub(crate) fn core_patch_to_update_request(
     })
 }
 
-pub(crate) fn create_request_to_spec(
-    request: BackgroundAgentCreateRequest,
-) -> Result<BackgroundAgentSpec, ToolError> {
-    let schedule = decode_contract::<ContractTaskSchedule, BackgroundAgentSchedule>(
-        "schedule",
-        request.schedule,
-    )?;
+pub(crate) fn store_create_request_to_core_task_spec(
+    request: StoreTaskCreateRequest,
+) -> Result<CoreTaskSpec, ToolError> {
+    let schedule =
+        decode_contract::<ContractTaskSchedule, CoreTaskSchedule>("schedule", request.schedule)?;
 
-    Ok(BackgroundAgentSpec {
+    Ok(CoreTaskSpec {
         name: request.name,
         agent_id: request.agent_id,
         chat_session_id: request.chat_session_id,
@@ -183,17 +213,23 @@ pub(crate) fn create_request_to_spec(
     })
 }
 
+pub(crate) fn create_request_to_spec(
+    request: StoreTaskCreateRequest,
+) -> Result<CoreTaskSpec, ToolError> {
+    store_create_request_to_core_task_spec(request)
+}
+
 pub(crate) fn update_request_to_patch(
-    request: BackgroundAgentUpdateRequest,
-) -> Result<BackgroundAgentPatch, ToolError> {
-    Ok(BackgroundAgentPatch {
+    request: StoreTaskUpdateRequest,
+) -> Result<CoreTaskPatch, ToolError> {
+    Ok(CoreTaskPatch {
         name: request.name,
         description: request.description,
         agent_id: request.agent_id,
         chat_session_id: request.chat_session_id,
         input: request.input,
         input_template: request.input_template,
-        schedule: decode_optional_contract::<ContractTaskSchedule, BackgroundAgentSchedule>(
+        schedule: decode_optional_contract::<ContractTaskSchedule, TaskSchedule>(
             "schedule",
             request.schedule,
         )?,
@@ -226,15 +262,13 @@ pub(crate) fn update_request_to_patch(
     })
 }
 
-pub(crate) fn parse_control_action(
-    action: &str,
-) -> Result<BackgroundAgentControlAction, ToolError> {
+pub(crate) fn parse_task_control_action(action: &str) -> Result<CoreTaskControlAction, ToolError> {
     match action.trim().to_lowercase().as_str() {
-        "start" => Ok(BackgroundAgentControlAction::Start),
-        "pause" => Ok(BackgroundAgentControlAction::Pause),
-        "resume" => Ok(BackgroundAgentControlAction::Resume),
-        "stop" => Ok(BackgroundAgentControlAction::Stop),
-        "run_now" | "run-now" | "runnow" => Ok(BackgroundAgentControlAction::RunNow),
+        "start" => Ok(CoreTaskControlAction::Start),
+        "pause" => Ok(CoreTaskControlAction::Pause),
+        "resume" => Ok(CoreTaskControlAction::Resume),
+        "stop" => Ok(CoreTaskControlAction::Stop),
+        "run_now" | "run-now" | "runnow" => Ok(CoreTaskControlAction::RunNow),
         value => Err(ToolError::Tool(format!(
             "Unknown control action: {}",
             value
@@ -242,12 +276,16 @@ pub(crate) fn parse_control_action(
     }
 }
 
-pub(crate) fn convert_session_request_to_options(
-    request: StoreBackgroundAgentConvertSessionRequest,
-) -> Result<ConvertSessionRequestOptions, ToolError> {
-    Ok(ConvertSessionRequestOptions {
+pub(crate) fn parse_control_action(action: &str) -> Result<CoreTaskControlAction, ToolError> {
+    parse_task_control_action(action)
+}
+
+pub(crate) fn task_from_session_request_to_options(
+    request: StoreTaskFromSessionRequest,
+) -> Result<ConvertSessionToTaskOptions, ToolError> {
+    Ok(ConvertSessionToTaskOptions {
         name: request.name,
-        schedule: decode_optional_contract::<ContractTaskSchedule, BackgroundAgentSchedule>(
+        schedule: decode_optional_contract::<ContractTaskSchedule, CoreTaskSchedule>(
             "schedule",
             request.schedule,
         )?
@@ -273,10 +311,16 @@ pub(crate) fn convert_session_request_to_options(
     })
 }
 
-pub(crate) fn contract_convert_request_to_store(
-    request: ContractBackgroundAgentConvertSessionRequest,
-) -> anyhow::Result<StoreBackgroundAgentConvertSessionRequest> {
-    Ok(StoreBackgroundAgentConvertSessionRequest {
+pub(crate) fn convert_session_request_to_options(
+    request: StoreTaskFromSessionRequest,
+) -> Result<ConvertSessionRequestOptions, ToolError> {
+    task_from_session_request_to_options(request)
+}
+
+pub(crate) fn contract_task_from_session_request_to_store(
+    request: ContractTaskFromSessionRequest,
+) -> anyhow::Result<StoreTaskFromSessionRequest> {
+    Ok(StoreTaskFromSessionRequest {
         session_id: request.session_id,
         name: request.name,
         schedule: request.schedule,
@@ -290,6 +334,12 @@ pub(crate) fn contract_convert_request_to_store(
         preview: false,
         approval_id: None,
     })
+}
+
+pub(crate) fn contract_convert_request_to_store(
+    request: ContractTaskFromSessionRequest,
+) -> anyhow::Result<StoreTaskFromSessionRequest> {
+    contract_task_from_session_request_to_store(request)
 }
 
 fn decode_contract<T: Serialize, U: DeserializeOwned>(
@@ -314,7 +364,9 @@ fn parse_memory_scope(value: Option<&str>) -> Result<Option<MemoryScope>, ToolEr
         None => Ok(None),
         Some(scope) if scope.is_empty() => Ok(None),
         Some(scope) if scope == "shared_agent" => Ok(Some(MemoryScope::SharedAgent)),
-        Some(scope) if scope == "per_background_agent" => Ok(Some(MemoryScope::PerBackgroundAgent)),
+        Some(scope) if scope == "per_task" || scope == "per_background_agent" => {
+            Ok(Some(MemoryScope::PerTask))
+        }
         Some(scope) => Err(ToolError::Tool(format!("Unknown memory_scope: {}", scope))),
     }
 }
@@ -345,7 +397,7 @@ mod tests {
 
     #[test]
     fn contract_spec_to_core_preserves_background_agent_defaults() {
-        let contract: ContractBackgroundAgentSpec = serde_json::from_value(serde_json::json!({
+        let contract: ContractTaskSpec = serde_json::from_value(serde_json::json!({
             "name": "nightly",
             "agent_id": "agent-1",
             "schedule": {
@@ -401,7 +453,7 @@ mod tests {
             timeout_secs: None,
             durability_mode: None,
             memory: None,
-            memory_scope: Some("per_background_agent".to_string()),
+            memory_scope: Some("per_task".to_string()),
             resource_limits: None,
             preview: false,
             approval_id: None,
@@ -410,7 +462,35 @@ mod tests {
 
         assert_eq!(
             spec.memory.expect("memory").memory_scope,
-            MemoryScope::PerBackgroundAgent
+            MemoryScope::PerTask
+        );
+    }
+
+    #[test]
+    fn create_request_to_spec_accepts_legacy_memory_scope_alias() {
+        let spec = create_request_to_spec(BackgroundAgentCreateRequest {
+            name: "nightly".to_string(),
+            agent_id: "agent-1".to_string(),
+            chat_session_id: None,
+            schedule: ContractTaskSchedule::Interval {
+                interval_ms: 60_000,
+                start_at: None,
+            },
+            input: None,
+            input_template: None,
+            timeout_secs: None,
+            durability_mode: None,
+            memory: None,
+            memory_scope: Some("per_background_agent".to_string()),
+            resource_limits: None,
+            preview: false,
+            approval_id: None,
+        })
+        .expect("legacy value should decode through raw ingress compatibility");
+
+        assert_eq!(
+            spec.memory.expect("memory").memory_scope,
+            MemoryScope::PerTask
         );
     }
 
@@ -429,9 +509,9 @@ mod tests {
     #[test]
     fn resolve_patch_agent_id_resolves_present_alias() {
         let patch = resolve_patch_agent_id(
-            BackgroundAgentPatch {
+            TaskPatch {
                 agent_id: Some("default".to_string()),
-                ..BackgroundAgentPatch::default()
+                ..TaskPatch::default()
             },
             |value| Ok::<_, &'static str>(format!("resolved:{value}")),
         )

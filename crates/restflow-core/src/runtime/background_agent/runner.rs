@@ -1,6 +1,6 @@
 //! Agent Task Runner - Background scheduler for agent tasks.
 //!
-//! The BackgroundAgentRunner is responsible for:
+//! The TaskRunner is responsible for:
 //! - Polling storage for runnable tasks
 //! - Executing agents on schedule
 //! - Handling task lifecycle (start, complete, fail)
@@ -10,9 +10,8 @@
 use crate::channel::{ChannelRouter, MessageLevel, OutboundMessage};
 use crate::hooks::HookExecutor;
 use crate::models::{
-    BackgroundAgent, BackgroundAgentRun, BackgroundAgentStatus, BackgroundMessageSource,
     ExecutionMode, HookContext, MemoryConfig, MemoryScope, NotificationConfig, SteerMessage,
-    SteerSource,
+    SteerSource, Task, TaskMessageSource, TaskRun, TaskStatus,
 };
 use crate::performance::{
     TaskExecutor, TaskPriority, TaskQueue, TaskQueueConfig, WorkerPool, WorkerPoolConfig,
@@ -79,7 +78,7 @@ impl StreamEmitter for NoopStreamEmitter {
 
 /// Message types for controlling the runner
 #[derive(Debug)]
-pub enum RunnerCommand {
+pub enum TaskRunnerCommand {
     /// Stop the runner
     Stop,
     /// Trigger immediate check for runnable tasks
@@ -95,9 +94,9 @@ pub enum RunnerCommand {
     },
 }
 
-/// Configuration for the BackgroundAgentRunner
+/// Configuration for the task runner.
 #[derive(Debug, Clone)]
-pub struct RunnerConfig {
+pub struct TaskRunnerConfig {
     /// How often to poll for runnable tasks (in milliseconds)
     pub poll_interval_ms: u64,
     /// Maximum concurrent task executions
@@ -114,7 +113,7 @@ pub struct RunnerConfig {
     pub stall_timeout_secs: Option<u64>,
 }
 
-impl Default for RunnerConfig {
+impl Default for TaskRunnerConfig {
     fn default() -> Self {
         Self {
             poll_interval_ms: DEFAULT_BACKGROUND_RUNNER_POLL_INTERVAL_MS,
@@ -126,16 +125,16 @@ impl Default for RunnerConfig {
     }
 }
 
-/// Handle to control a running BackgroundAgentRunner
-pub struct RunnerHandle {
-    command_tx: mpsc::Sender<RunnerCommand>,
+/// Handle to control a running task runner.
+pub struct TaskRunnerHandle {
+    command_tx: mpsc::Sender<TaskRunnerCommand>,
 }
 
-impl RunnerHandle {
+impl TaskRunnerHandle {
     /// Stop the runner
     pub async fn stop(&self) -> Result<()> {
         self.command_tx
-            .send(RunnerCommand::Stop)
+            .send(TaskRunnerCommand::Stop)
             .await
             .map_err(|e| anyhow!("Failed to send stop command: {}", e))
     }
@@ -143,7 +142,7 @@ impl RunnerHandle {
     /// Trigger an immediate check for runnable tasks
     pub async fn check_now(&self) -> Result<()> {
         self.command_tx
-            .send(RunnerCommand::CheckNow)
+            .send(TaskRunnerCommand::CheckNow)
             .await
             .map_err(|e| anyhow!("Failed to send check command: {}", e))
     }
@@ -151,7 +150,7 @@ impl RunnerHandle {
     /// Run a specific task immediately
     pub async fn run_task_now(&self, task_id: String) -> Result<()> {
         self.command_tx
-            .send(RunnerCommand::RunTaskNow(task_id))
+            .send(TaskRunnerCommand::RunTaskNow(task_id))
             .await
             .map_err(|e| anyhow!("Failed to send run task command: {}", e))
     }
@@ -159,7 +158,7 @@ impl RunnerHandle {
     /// Stop a running task
     pub async fn stop_task(&self, task_id: String) -> Result<()> {
         self.command_tx
-            .send(RunnerCommand::StopTask(task_id))
+            .send(TaskRunnerCommand::StopTask(task_id))
             .await
             .map_err(|e| anyhow!("Failed to send stop task command: {}", e))
     }
@@ -171,7 +170,7 @@ impl RunnerHandle {
         payload: crate::models::ResumePayload,
     ) -> Result<()> {
         self.command_tx
-            .send(RunnerCommand::ResumeTask { task_id, payload })
+            .send(TaskRunnerCommand::ResumeTask { task_id, payload })
             .await
             .map_err(|e| anyhow!("Failed to send resume task command: {}", e))
     }
@@ -296,7 +295,7 @@ pub trait NotificationSender: Send + Sync {
     async fn send(
         &self,
         config: &NotificationConfig,
-        task: &BackgroundAgent,
+        task: &Task,
         success: bool,
         message: &str,
     ) -> Result<()>;
@@ -317,7 +316,7 @@ trait NotificationSink: Send + Sync {
 
     async fn send(
         &self,
-        task: &BackgroundAgent,
+        task: &Task,
         level: MessageLevel,
         message: &str,
     ) -> Result<NotificationDispatchStatus>;
@@ -335,7 +334,7 @@ impl NotificationSink for ChannelRouterNotificationSink {
 
     async fn send(
         &self,
-        task: &BackgroundAgent,
+        task: &Task,
         level: MessageLevel,
         message: &str,
     ) -> Result<NotificationDispatchStatus> {
@@ -431,7 +430,7 @@ impl NotificationSink for TelegramNotificationSink {
 
     async fn send(
         &self,
-        _task: &BackgroundAgent,
+        _task: &Task,
         _level: MessageLevel,
         message: &str,
     ) -> Result<NotificationDispatchStatus> {
@@ -440,12 +439,12 @@ impl NotificationSink for TelegramNotificationSink {
     }
 }
 
-/// The main BackgroundAgentRunner that schedules and executes agent tasks
-pub struct BackgroundAgentRunner {
+/// The main task runner that schedules and executes agent tasks.
+pub struct TaskRunner {
     storage: Arc<BackgroundAgentStorage>,
     executor: Arc<dyn AgentExecutor>,
     notifier: Arc<dyn NotificationSender>,
-    config: RunnerConfig,
+    config: TaskRunnerConfig,
     running_tasks: Arc<RwLock<HashSet<String>>>,
     stop_senders: Arc<RwLock<HashMap<String, oneshot::Sender<()>>>>,
     pending_stop_receivers: Arc<RwLock<HashMap<String, oneshot::Receiver<()>>>>,
@@ -467,13 +466,18 @@ pub struct BackgroundAgentRunner {
     fail_start_task_run_once: Arc<AtomicBool>,
 }
 
-impl BackgroundAgentRunner {
-    /// Create a new BackgroundAgentRunner
+#[cfg(test)]
+pub(crate) type BackgroundAgentRunner = TaskRunner;
+#[cfg(test)]
+pub(crate) type RunnerConfig = TaskRunnerConfig;
+
+impl TaskRunner {
+    /// Create a new task runner.
     pub fn new(
         storage: Arc<BackgroundAgentStorage>,
         executor: Arc<dyn AgentExecutor>,
         notifier: Arc<dyn NotificationSender>,
-        config: RunnerConfig,
+        config: TaskRunnerConfig,
         steer_registry: Arc<SteerRegistry>,
     ) -> Self {
         let queue_config = TaskQueueConfig {
@@ -506,12 +510,12 @@ impl BackgroundAgentRunner {
         }
     }
 
-    /// Create a new BackgroundAgentRunner with a heartbeat emitter for status updates
+    /// Create a new task runner with a heartbeat emitter for status updates.
     pub fn with_heartbeat_emitter(
         storage: Arc<BackgroundAgentStorage>,
         executor: Arc<dyn AgentExecutor>,
         notifier: Arc<dyn NotificationSender>,
-        config: RunnerConfig,
+        config: TaskRunnerConfig,
         heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
         steer_registry: Arc<SteerRegistry>,
     ) -> Self {
@@ -545,7 +549,7 @@ impl BackgroundAgentRunner {
         }
     }
 
-    /// Create a new BackgroundAgentRunner with memory persistence enabled.
+    /// Create a new task runner with memory persistence enabled.
     ///
     /// When memory persistence is enabled, conversation messages from task
     /// executions are stored in long-term memory for later retrieval and search.
@@ -553,7 +557,7 @@ impl BackgroundAgentRunner {
         storage: Arc<BackgroundAgentStorage>,
         executor: Arc<dyn AgentExecutor>,
         notifier: Arc<dyn NotificationSender>,
-        config: RunnerConfig,
+        config: TaskRunnerConfig,
         heartbeat_emitter: Arc<dyn HeartbeatEmitter>,
         memory_storage: MemoryStorage,
         steer_registry: Arc<SteerRegistry>,
@@ -662,8 +666,8 @@ impl BackgroundAgentRunner {
 
     fn build_run_handle_for_task_run(
         &self,
-        task: &BackgroundAgent,
-        run: &BackgroundAgentRun,
+        task: &Task,
+        run: &TaskRun,
     ) -> restflow_telemetry::RunHandle {
         let trace_session_id = {
             let session_id = task.chat_session_id.trim();
@@ -691,10 +695,10 @@ impl BackgroundAgentRunner {
         let Some(mut task) = self.storage.get_task(task_id)? else {
             return Err(anyhow!("Task {} not found", task_id));
         };
-        if task.status != BackgroundAgentStatus::Paused {
+        if task.status != TaskStatus::Paused {
             return Ok(false);
         }
-        task.status = BackgroundAgentStatus::Active;
+        task.status = TaskStatus::Active;
         task.updated_at = chrono::Utc::now().timestamp_millis();
         self.storage.save_task(&task)?;
         Ok(true)
@@ -733,7 +737,7 @@ impl BackgroundAgentRunner {
     async fn rollback_precommit_launch(
         &self,
         task_id: &str,
-        original_task: &BackgroundAgent,
+        original_task: &Task,
         resume_launch: bool,
         run_id: Option<&str>,
         reason: &str,
@@ -788,8 +792,8 @@ impl BackgroundAgentRunner {
 
     async fn recover_active_run_with_finalizer(
         &self,
-        task: &BackgroundAgent,
-        run: &BackgroundAgentRun,
+        task: &Task,
+        run: &TaskRun,
         reason: &str,
         ended_at: i64,
     ) {
@@ -827,7 +831,7 @@ impl BackgroundAgentRunner {
     }
 
     /// Start the runner and return a handle for controlling it
-    pub fn start(self: Arc<Self>) -> RunnerHandle {
+    pub fn start(self: Arc<Self>) -> TaskRunnerHandle {
         let (command_tx, command_rx) = mpsc::channel(32);
         let runner = self.clone();
 
@@ -835,15 +839,15 @@ impl BackgroundAgentRunner {
             runner.run_loop(command_rx).await;
         });
 
-        RunnerHandle { command_tx }
+        TaskRunnerHandle { command_tx }
     }
 
     /// Main run loop
-    async fn run_loop(self: Arc<Self>, mut command_rx: mpsc::Receiver<RunnerCommand>) {
+    async fn run_loop(self: Arc<Self>, mut command_rx: mpsc::Receiver<TaskRunnerCommand>) {
         let mut poll_interval = interval(Duration::from_millis(self.config.poll_interval_ms));
 
         info!(
-            "BackgroundAgentRunner started (poll_interval={}ms, max_concurrent={})",
+            "TaskRunner started (poll_interval={}ms, max_concurrent={})",
             self.config.poll_interval_ms, self.config.max_concurrent_tasks
         );
 
@@ -878,25 +882,25 @@ impl BackgroundAgentRunner {
                 }
                 cmd = command_rx.recv() => {
                     match cmd {
-                        Some(RunnerCommand::Stop) => {
-                            info!("BackgroundAgentRunner stopping...");
+                        Some(TaskRunnerCommand::Stop) => {
+                            info!("TaskRunner stopping...");
                             self.emit_status(RunnerStatus::Stopping, Some("Runner stopping".to_string())).await;
                             worker_pool.stop().await;
                             break;
                         }
-                        Some(RunnerCommand::CheckNow) => {
+                        Some(TaskRunnerCommand::CheckNow) => {
                             debug!("Manual check triggered");
                             self.check_and_run_tasks().await;
                         }
-                        Some(RunnerCommand::RunTaskNow(task_id)) => {
+                        Some(TaskRunnerCommand::RunTaskNow(task_id)) => {
                             debug!("Manual run triggered for task: {}", task_id);
                             self.run_task_immediate(&task_id).await;
                         }
-                        Some(RunnerCommand::StopTask(task_id)) => {
+                        Some(TaskRunnerCommand::StopTask(task_id)) => {
                             debug!("Stop requested for task: {}", task_id);
                             self.stop_task_execution(&task_id).await;
                         }
-                        Some(RunnerCommand::ResumeTask { task_id, payload }) => {
+                        Some(TaskRunnerCommand::ResumeTask { task_id, payload }) => {
                             info!(task_id = %task_id, "Resume from checkpoint requested");
                             self.resume_from_checkpoint(&task_id, payload).await;
                         }
@@ -912,7 +916,7 @@ impl BackgroundAgentRunner {
 
         self.emit_status(RunnerStatus::Stopped, Some("Runner stopped".to_string()))
             .await;
-        info!("BackgroundAgentRunner stopped");
+        info!("TaskRunner stopped");
     }
 
     /// Emit a heartbeat pulse with current status
@@ -990,7 +994,7 @@ impl BackgroundAgentRunner {
                         now,
                     ));
                     recovered_task_ids.insert(run.task_id.clone());
-                    if task.status == BackgroundAgentStatus::Running
+                    if task.status == TaskStatus::Running
                         && let Err(err) = self.storage.resume_task(&task.id)
                     {
                         error!(
@@ -1018,7 +1022,7 @@ impl BackgroundAgentRunner {
 
         let mut recovered = 0;
         for task in tasks {
-            if task.status == BackgroundAgentStatus::Running {
+            if task.status == TaskStatus::Running {
                 if recovered_task_ids.contains(&task.id) {
                     recovered += 1;
                     continue;
@@ -1154,7 +1158,7 @@ impl BackgroundAgentRunner {
                     )
                     .await;
                     recovered_task_ids.insert(run.task_id.clone());
-                    if task.status == BackgroundAgentStatus::Running
+                    if task.status == TaskStatus::Running
                         && let Err(error) = self.storage.resume_task(&task.id)
                     {
                         warn!(
@@ -1182,7 +1186,7 @@ impl BackgroundAgentRunner {
 
         let mut recovered = 0;
         for task in tasks {
-            if task.status != BackgroundAgentStatus::Running {
+            if task.status != TaskStatus::Running {
                 continue;
             }
             if recovered_task_ids.contains(&task.id) {
@@ -1270,12 +1274,12 @@ impl BackgroundAgentRunner {
                 return;
             }
         };
-        if original_task.status == BackgroundAgentStatus::Paused && !resume_launch {
+        if original_task.status == TaskStatus::Paused && !resume_launch {
             warn!("Cannot run paused task {}", task_id);
             self.cleanup_runtime_tracking(&task_id_owned).await;
             return;
         }
-        if original_task.status == BackgroundAgentStatus::Completed {
+        if original_task.status == TaskStatus::Completed {
             warn!("Cannot run completed task {}", task_id);
             self.cleanup_runtime_tracking(&task_id_owned).await;
             return;
@@ -1364,7 +1368,7 @@ impl BackgroundAgentRunner {
 
         // No stop channel found; if the task is still marked running, persist the stop state.
         if let Ok(Some(task)) = self.storage.get_task(task_id)
-            && task.status == BackgroundAgentStatus::Running
+            && task.status == TaskStatus::Running
             && let Err(e) = self.storage.control_background_agent(
                 task_id,
                 crate::models::BackgroundAgentControlAction::Stop,
@@ -1443,7 +1447,7 @@ impl BackgroundAgentRunner {
             }
 
             if let Ok(Some(mut task)) = self.storage.get_task(task_id) {
-                task.status = BackgroundAgentStatus::Paused;
+                task.status = TaskStatus::Paused;
                 task.updated_at = chrono::Utc::now().timestamp_millis();
                 if let Err(e) = self.storage.save_task(&task) {
                     error!(
@@ -1505,11 +1509,11 @@ impl BackgroundAgentRunner {
         );
     }
 
-    fn to_steer_source(source: &BackgroundMessageSource) -> SteerSource {
+    fn to_steer_source(source: &TaskMessageSource) -> SteerSource {
         match source {
-            BackgroundMessageSource::User => SteerSource::User,
-            BackgroundMessageSource::Agent => SteerSource::Api,
-            BackgroundMessageSource::System => SteerSource::Hook,
+            TaskMessageSource::User => SteerSource::User,
+            TaskMessageSource::Agent => SteerSource::Api,
+            TaskMessageSource::System => SteerSource::Hook,
         }
     }
 
@@ -1664,9 +1668,9 @@ impl BackgroundAgentRunner {
 
                     for queued in pending_messages {
                         let source = match &queued.source {
-                            BackgroundMessageSource::User => SteerSource::User,
-                            BackgroundMessageSource::Agent => SteerSource::Api,
-                            BackgroundMessageSource::System => SteerSource::Hook,
+                            TaskMessageSource::User => SteerSource::User,
+                            TaskMessageSource::Agent => SteerSource::Api,
+                            TaskMessageSource::System => SteerSource::Hook,
                         };
                         let steer_message = SteerMessage::message(queued.message.clone(), source);
 
@@ -1999,10 +2003,10 @@ impl BackgroundAgentRunner {
                 loop {
                     tokio::time::sleep(poll_interval).await;
                     match self.storage.get_task(task_id) {
-                        Ok(Some(stored_task)) if stored_task.status == BackgroundAgentStatus::Paused => {
+                        Ok(Some(stored_task)) if stored_task.status == TaskStatus::Paused => {
                             return PauseSignal::Paused;
                         }
-                        Ok(Some(stored_task)) if stored_task.status == BackgroundAgentStatus::Interrupted => {
+                        Ok(Some(stored_task)) if stored_task.status == TaskStatus::Interrupted => {
                             return PauseSignal::Interrupted;
                         }
                         Ok(Some(_)) => {
@@ -2132,7 +2136,7 @@ impl NotificationSender for NoopNotificationSender {
     async fn send(
         &self,
         _config: &NotificationConfig,
-        _task: &BackgroundAgent,
+        _task: &Task,
         _success: bool,
         _message: &str,
     ) -> Result<()> {
@@ -2146,12 +2150,12 @@ impl NotificationSender for NoopNotificationSender {
 }
 
 struct RunnerTaskExecutor {
-    runner: Arc<BackgroundAgentRunner>,
+    runner: Arc<TaskRunner>,
 }
 
 #[async_trait::async_trait]
 impl TaskExecutor for RunnerTaskExecutor {
-    async fn execute(&self, task: &BackgroundAgent) -> Result<bool> {
+    async fn execute(&self, task: &Task) -> Result<bool> {
         let stop_rx = self.runner.take_stop_receiver(&task.id).await;
         self.runner.execute_task(&task.id, stop_rx).await
     }

@@ -24,7 +24,7 @@ pub mod work_item;
 
 pub use agent::AgentStoreAdapter;
 pub use auth_profile::AuthProfileStorageAdapter;
-pub use background_agent::BackgroundAgentStoreAdapter;
+pub use background_agent::{BackgroundAgentStoreAdapter, TaskStoreAdapter};
 pub use config::ConfigStoreAdapter;
 pub use deliverable::DeliverableStoreAdapter;
 pub use kv_store::KvStoreAdapter;

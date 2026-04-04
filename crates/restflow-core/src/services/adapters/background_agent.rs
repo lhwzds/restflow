@@ -1,13 +1,11 @@
-//! BackgroundAgentStore adapter backed by BackgroundAgentStorage.
+//! TaskStore adapter backed by legacy BackgroundAgentStorage persistence.
 
 use crate::boundary::background_agent::parse_control_action;
 use crate::models::{
-    BackgroundAgentStatus, BackgroundMessageSource, ExecutionTraceCategory, ExecutionTraceEvent,
-    ExecutionTraceQuery,
+    ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, Task, TaskMessageSource,
+    TaskStatus,
 };
-use crate::services::background_agent_command::{
-    BackgroundAgentCommandService, BackgroundAgentExecutionMode,
-};
+use crate::services::background_agent_command::{TaskCommandService, TaskExecutionMode};
 use crate::services::session::SessionService;
 use crate::storage::{AgentStorage, BackgroundAgentStorage, DeliverableStorage};
 use crate::telemetry::get_execution_timeline;
@@ -29,22 +27,24 @@ use std::collections::{BTreeMap, HashSet};
 use std::future::Future;
 
 #[derive(Clone)]
-pub struct BackgroundAgentStoreAdapter {
+pub struct TaskStoreAdapter {
     storage: BackgroundAgentStorage,
     #[allow(dead_code)]
     agent_storage: AgentStorage,
     deliverable_storage: DeliverableStorage,
-    command_service: BackgroundAgentCommandService,
+    command_service: TaskCommandService,
 }
 
-impl BackgroundAgentStoreAdapter {
+pub type BackgroundAgentStoreAdapter = TaskStoreAdapter;
+
+impl TaskStoreAdapter {
     pub fn new(
         storage: BackgroundAgentStorage,
         agent_storage: AgentStorage,
         deliverable_storage: DeliverableStorage,
         session_service: SessionService,
     ) -> Self {
-        let command_service = BackgroundAgentCommandService::new(
+        let command_service = TaskCommandService::new(
             storage.clone(),
             agent_storage.clone(),
             session_service,
@@ -63,14 +63,14 @@ impl BackgroundAgentStoreAdapter {
         self
     }
 
-    fn parse_status(status: &str) -> Result<BackgroundAgentStatus, ToolError> {
+    fn parse_status(status: &str) -> Result<TaskStatus, ToolError> {
         match status.trim().to_lowercase().as_str() {
-            "active" => Ok(BackgroundAgentStatus::Active),
-            "paused" => Ok(BackgroundAgentStatus::Paused),
-            "running" => Ok(BackgroundAgentStatus::Running),
-            "completed" => Ok(BackgroundAgentStatus::Completed),
-            "failed" => Ok(BackgroundAgentStatus::Failed),
-            "interrupted" => Ok(BackgroundAgentStatus::Interrupted),
+            "active" => Ok(TaskStatus::Active),
+            "paused" => Ok(TaskStatus::Paused),
+            "running" => Ok(TaskStatus::Running),
+            "completed" => Ok(TaskStatus::Completed),
+            "failed" => Ok(TaskStatus::Failed),
+            "interrupted" => Ok(TaskStatus::Interrupted),
             _ => Err(ToolError::Tool(format!("Unknown status: {}", status))),
         }
     }
@@ -99,16 +99,16 @@ impl BackgroundAgentStoreAdapter {
                 .map_err(Into::into)
         })
         .join()
-        .map_err(|_| ToolError::Tool("background-agent async bridge thread panicked".to_string()))?
+        .map_err(|_| ToolError::Tool("task async bridge thread panicked".to_string()))?
     }
 
-    fn parse_message_source(source: Option<&str>) -> Result<BackgroundMessageSource, ToolError> {
+    fn parse_message_source(source: Option<&str>) -> Result<TaskMessageSource, ToolError> {
         match source.map(|value| value.trim().to_lowercase()) {
-            None => Ok(BackgroundMessageSource::User),
-            Some(value) if value.is_empty() => Ok(BackgroundMessageSource::User),
-            Some(value) if value == "user" => Ok(BackgroundMessageSource::User),
-            Some(value) if value == "agent" => Ok(BackgroundMessageSource::Agent),
-            Some(value) if value == "system" => Ok(BackgroundMessageSource::System),
+            None => Ok(TaskMessageSource::User),
+            Some(value) if value.is_empty() => Ok(TaskMessageSource::User),
+            Some(value) if value == "user" => Ok(TaskMessageSource::User),
+            Some(value) if value == "agent" => Ok(TaskMessageSource::Agent),
+            Some(value) if value == "system" => Ok(TaskMessageSource::System),
             Some(value) => Err(ToolError::Tool(format!(
                 "Unknown message source: {}",
                 value
@@ -120,14 +120,11 @@ impl BackgroundAgentStoreAdapter {
         Ok(self.storage.resolve_existing_task_id(id_or_prefix)?)
     }
 
-    fn resolve_task(
-        &self,
-        id_or_prefix: &str,
-    ) -> Result<crate::models::BackgroundAgent, ToolError> {
+    fn resolve_task(&self, id_or_prefix: &str) -> Result<Task, ToolError> {
         let resolved_id = self.resolve_task_id(id_or_prefix)?;
         self.storage
             .get_task(&resolved_id)?
-            .ok_or_else(|| ToolError::Tool(format!("background agent {} not found", resolved_id)))
+            .ok_or_else(|| ToolError::Tool(format!("task {} not found", resolved_id)))
     }
 
     fn task_trace_target(&self, task_id_or_prefix: &str) -> Result<(String, String), ToolError> {
@@ -278,7 +275,7 @@ impl BackgroundAgentStoreAdapter {
     }
 }
 
-impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
+impl BackgroundAgentStore for TaskStoreAdapter {
     fn create_background_agent(
         &self,
         request: BackgroundAgentCreateRequest,
@@ -286,7 +283,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
             command_service
-                .create_from_request(request, BackgroundAgentExecutionMode::Guarded)
+                .create_from_request(request, TaskExecutionMode::Guarded)
                 .await
         })?;
         Ok(serde_json::to_value(outcome)?)
@@ -299,7 +296,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
             command_service
-                .convert_session(request, BackgroundAgentExecutionMode::Guarded)
+                .convert_session(request, TaskExecutionMode::Guarded)
                 .await
         })?;
         Ok(serde_json::to_value(outcome)?)
@@ -312,7 +309,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
             command_service
-                .update_from_request(request, BackgroundAgentExecutionMode::Guarded)
+                .update_from_request(request, TaskExecutionMode::Guarded)
                 .await
         })?;
         Ok(serde_json::to_value(outcome)?)
@@ -325,7 +322,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
             command_service
-                .delete_from_request(request, BackgroundAgentExecutionMode::Guarded)
+                .delete_from_request(request, TaskExecutionMode::Guarded)
                 .await
         })?;
         Ok(serde_json::to_value(outcome)?)
@@ -350,7 +347,7 @@ impl BackgroundAgentStore for BackgroundAgentStoreAdapter {
         let command_service = self.command_service.clone();
         let outcome = self.run_async(async move {
             command_service
-                .control_from_request(request, BackgroundAgentExecutionMode::Guarded)
+                .control_from_request(request, TaskExecutionMode::Guarded)
                 .await
         })?;
         Ok(serde_json::to_value(outcome)?)
@@ -750,7 +747,7 @@ mod tests {
     }
 
     fn setup() -> (
-        BackgroundAgentStoreAdapter,
+        TaskStoreAdapter,
         tempfile::TempDir,
         std::sync::MutexGuard<'static, ()>,
     ) {
@@ -760,7 +757,7 @@ mod tests {
     fn setup_with_assessor(
         assessor: Arc<dyn AgentOperationAssessor>,
     ) -> (
-        BackgroundAgentStoreAdapter,
+        TaskStoreAdapter,
         tempfile::TempDir,
         std::sync::MutexGuard<'static, ()>,
     ) {
@@ -803,7 +800,7 @@ mod tests {
         }
 
         (
-            BackgroundAgentStoreAdapter::new(
+            TaskStoreAdapter::new(
                 bg_storage,
                 agent_storage,
                 deliverable_storage,
@@ -815,9 +812,16 @@ mod tests {
         )
     }
 
-    fn get_agent_id(adapter: &BackgroundAgentStoreAdapter) -> String {
+    fn get_agent_id(adapter: &TaskStoreAdapter) -> String {
         let agents = adapter.agent_storage.list_agents().unwrap();
         agents[0].id.clone()
+    }
+
+    #[test]
+    fn task_store_adapter_aliases_background_agent_store_adapter() {
+        let (adapter, _dir, _guard) = setup();
+        let _: &TaskStoreAdapter = &adapter;
+        let _: &BackgroundAgentStoreAdapter = &adapter;
     }
 
     #[test]
@@ -1325,9 +1329,9 @@ mod tests {
 
     #[test]
     fn test_parse_status() {
-        assert!(BackgroundAgentStoreAdapter::parse_status("active").is_ok());
-        assert!(BackgroundAgentStoreAdapter::parse_status("PAUSED").is_ok());
-        assert!(BackgroundAgentStoreAdapter::parse_status("invalid").is_err());
+        assert!(TaskStoreAdapter::parse_status("active").is_ok());
+        assert!(TaskStoreAdapter::parse_status("PAUSED").is_ok());
+        assert!(TaskStoreAdapter::parse_status("invalid").is_err());
     }
 
     #[test]

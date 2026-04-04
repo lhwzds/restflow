@@ -6,8 +6,8 @@
 use crate::models::{
     AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentEvent,
     BackgroundAgentEventType, BackgroundAgentPatch, BackgroundAgentSchedule, BackgroundAgentSpec,
-    BackgroundAgentStatus, BackgroundMessage, BackgroundMessageSource, BackgroundMessageStatus,
-    BackgroundProgress, ChatSession, ModelId,
+    BackgroundAgentStatus, BackgroundMessage, BackgroundProgress, ChatSession, ModelId,
+    TaskMessageSource, TaskMessageStatus,
 };
 use anyhow::Result;
 use redb::Database;
@@ -17,6 +17,9 @@ use tracing::warn;
 use uuid::Uuid;
 
 use super::{AgentStorage, ChatSessionStorage, CheckpointStorage, ExecutionTraceStorage};
+
+type BackgroundMessageSource = TaskMessageSource;
+type BackgroundMessageStatus = TaskMessageStatus;
 
 /// Typed agent task storage wrapper around restflow-storage::BackgroundAgentStorage.
 #[derive(Clone)]

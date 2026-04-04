@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use anyhow::{Result, anyhow};
 use restflow_contracts::request::{
-    AgentNode as ContractAgentNode, SubagentSpawnRequest as ContractSubagentSpawnRequest,
+    AgentNode as ContractAgentNode, RunSpawnRequest as ContractRunSpawnRequest,
 };
 use restflow_storage::AuthProfileStorage;
 use restflow_traits::ModelProvider as SharedModelProvider;
@@ -14,7 +14,7 @@ use crate::auth::{
     resolve_model_from_credentials, secret_or_env_exists,
 };
 use crate::models::{AgentNode, ApiKeyConfig, ModelId, ModelRef, Provider, ValidationError};
-use crate::runtime::subagent::StorageBackedSubagentLookup;
+use crate::runtime::subagent::StorageBackedSubagentLookup as StorageBackedRunDefinitionLookup;
 use crate::services::background_agent_conversion::derive_conversion_input;
 use crate::storage::agent::StoredAgent;
 use crate::storage::{
@@ -27,13 +27,14 @@ use restflow_traits::assessment::{
     AgentOperationAssessor, AssessmentModelRef, OperationAssessment, OperationAssessmentIntent,
     OperationAssessmentIssue, OperationAssessmentStatus,
 };
-use restflow_traits::boundary::subagent::spawn_request_from_contract;
+use restflow_traits::boundary::subagent::spawn_request_from_contract as run_spawn_request_from_contract;
 use restflow_traits::store::{
-    AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
-    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
+    AgentCreateRequest, AgentUpdateRequest, TaskControlRequest, TaskConvertSessionRequest,
+    TaskCreateRequest, TaskDeleteRequest, TaskUpdateRequest,
 };
-use restflow_traits::subagent::{SpawnRequest, SubagentDefLookup};
+use restflow_traits::subagent::{
+    SpawnRequest as RunSpawnRequest, SubagentDefLookup as RunDefinitionLookup,
+};
 
 #[derive(Clone)]
 pub struct OperationAssessorAdapter {
@@ -121,45 +122,90 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
 
     async fn assess_background_agent_create(
         &self,
-        request: BackgroundAgentCreateRequest,
+        request: restflow_traits::store::BackgroundAgentCreateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_create_with_context(&self.context, request)
+        assess_task_create_with_context(&self.context, request)
+            .await
+            .map_err(|error| ToolError::Tool(error.to_string()))
+    }
+
+    async fn assess_task_create(
+        &self,
+        request: TaskCreateRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        assess_task_create_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     async fn assess_background_agent_convert_session(
         &self,
-        request: BackgroundAgentConvertSessionRequest,
+        request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_convert_session_with_context(&self.context, request)
+        assess_task_convert_session_with_context(&self.context, request)
+            .await
+            .map_err(|error| ToolError::Tool(error.to_string()))
+    }
+
+    async fn assess_task_convert_session(
+        &self,
+        request: TaskConvertSessionRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        assess_task_convert_session_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     async fn assess_background_agent_update(
         &self,
-        request: BackgroundAgentUpdateRequest,
+        request: restflow_traits::store::BackgroundAgentUpdateRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_update_with_context(&self.context, request)
+        assess_task_update_with_context(&self.context, request)
+            .await
+            .map_err(|error| ToolError::Tool(error.to_string()))
+    }
+
+    async fn assess_task_update(
+        &self,
+        request: TaskUpdateRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        assess_task_update_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     async fn assess_background_agent_delete(
         &self,
-        request: BackgroundAgentDeleteRequest,
+        request: restflow_traits::store::BackgroundAgentDeleteRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_delete_with_context(&self.context, request)
+        assess_task_delete_with_context(&self.context, request)
+            .await
+            .map_err(|error| ToolError::Tool(error.to_string()))
+    }
+
+    async fn assess_task_delete(
+        &self,
+        request: TaskDeleteRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        assess_task_delete_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
 
     async fn assess_background_agent_control(
         &self,
-        request: BackgroundAgentControlRequest,
+        request: restflow_traits::store::BackgroundAgentControlRequest,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_control_with_context(&self.context, request)
+        assess_task_control_with_context(&self.context, request)
+            .await
+            .map_err(|error| ToolError::Tool(error.to_string()))
+    }
+
+    async fn assess_task_control(
+        &self,
+        request: TaskControlRequest,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        assess_task_control_with_context(&self.context, request)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -171,7 +217,25 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
         agent_ids: Vec<String>,
         template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_background_agent_template_with_context(
+        assess_task_template_with_context(
+            &self.context,
+            operation,
+            intent,
+            agent_ids,
+            template_mode,
+        )
+        .await
+        .map_err(|error| ToolError::Tool(error.to_string()))
+    }
+
+    async fn assess_task_template(
+        &self,
+        operation: &str,
+        intent: OperationAssessmentIntent,
+        agent_ids: Vec<String>,
+        template_mode: bool,
+    ) -> std::result::Result<OperationAssessment, ToolError> {
+        assess_task_template_with_context(
             &self.context,
             operation,
             intent,
@@ -185,10 +249,10 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
     async fn assess_subagent_spawn(
         &self,
         operation: &str,
-        request: ContractSubagentSpawnRequest,
+        request: ContractRunSpawnRequest,
         template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_subagent_spawn_with_context(&self.context, operation, request, template_mode)
+        assess_run_spawn_with_context(&self.context, operation, request, template_mode)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -196,10 +260,10 @@ impl AgentOperationAssessor for OperationAssessorAdapter {
     async fn assess_subagent_batch(
         &self,
         operation: &str,
-        requests: Vec<ContractSubagentSpawnRequest>,
+        requests: Vec<ContractRunSpawnRequest>,
         template_mode: bool,
     ) -> std::result::Result<OperationAssessment, ToolError> {
-        assess_subagent_batch_with_context(&self.context, operation, requests, template_mode)
+        assess_run_batch_with_context(&self.context, operation, requests, template_mode)
             .await
             .map_err(|error| ToolError::Tool(error.to_string()))
     }
@@ -390,13 +454,13 @@ async fn load_agent(context: &AssessmentContext, id_or_prefix: &str) -> Result<S
         .ok_or_else(|| anyhow!("Agent not found: {resolved_id}"))
 }
 
-fn normalize_subagent_request(
+fn normalize_run_spawn_request(
     context: &AssessmentContext,
-    request: ContractSubagentSpawnRequest,
-) -> Result<SpawnRequest> {
-    let definitions = StorageBackedSubagentLookup::new(context.agents.clone());
+    request: ContractRunSpawnRequest,
+) -> Result<RunSpawnRequest> {
+    let definitions = StorageBackedRunDefinitionLookup::new(context.agents.clone());
     let available_agents = definitions.list_callable();
-    spawn_request_from_contract(&available_agents, request)
+    run_spawn_request_from_contract(&available_agents, request)
         .map_err(|error| anyhow!(error.to_string()))
 }
 
@@ -502,7 +566,7 @@ async fn assess_agent_node(
     operation: &str,
     intent: OperationAssessmentIntent,
     agent: &AgentNode,
-    subagent_parent_fallback: bool,
+    child_run_parent_fallback: bool,
 ) -> Result<OperationAssessment> {
     let mut assessment = OperationAssessment::ok(operation.to_string(), intent.clone());
 
@@ -539,10 +603,10 @@ async fn assess_agent_node(
         return Ok(finalize_assessment(assessment));
     }
 
-    if subagent_parent_fallback {
+    if child_run_parent_fallback {
         assessment.warnings.push(issue(
             "inherits_parent_model",
-            "No explicit model is configured. This sub-agent will inherit the parent runtime model.",
+            "No explicit model is configured. This child run will inherit the parent runtime model.",
             Some("model"),
             Some("Set model/model_ref when you need deterministic provider behavior."),
         ));
@@ -658,24 +722,31 @@ async fn assess_agent_update_with_context(
     .await
 }
 
-pub async fn assess_background_agent_create(
+pub async fn assess_task_create(
     core: &Arc<AppCore>,
-    request: BackgroundAgentCreateRequest,
+    request: TaskCreateRequest,
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
-    assess_background_agent_create_with_context(&context, request).await
+    assess_task_create_with_context(&context, request).await
 }
 
-async fn assess_background_agent_create_with_context(
+pub async fn assess_background_agent_create(
+    core: &Arc<AppCore>,
+    request: restflow_traits::store::BackgroundAgentCreateRequest,
+) -> Result<OperationAssessment> {
+    assess_task_create(core, request).await
+}
+
+async fn assess_task_create_with_context(
     context: &AssessmentContext,
-    request: BackgroundAgentCreateRequest,
+    request: TaskCreateRequest,
 ) -> Result<OperationAssessment> {
     let auth_manager = build_auth(context).await?;
     let stored_agent = load_agent(context, &request.agent_id).await?;
     assess_agent_node(
         context,
         &auth_manager,
-        "create_background_agent",
+        "create_task",
         OperationAssessmentIntent::Save,
         &stored_agent.agent,
         false,
@@ -683,17 +754,24 @@ async fn assess_background_agent_create_with_context(
     .await
 }
 
-pub async fn assess_background_agent_convert_session(
+pub async fn assess_task_convert_session(
     core: &Arc<AppCore>,
-    request: BackgroundAgentConvertSessionRequest,
+    request: TaskConvertSessionRequest,
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
-    assess_background_agent_convert_session_with_context(&context, request).await
+    assess_task_convert_session_with_context(&context, request).await
 }
 
-async fn assess_background_agent_convert_session_with_context(
+pub async fn assess_background_agent_convert_session(
+    core: &Arc<AppCore>,
+    request: restflow_traits::store::BackgroundAgentConvertSessionRequest,
+) -> Result<OperationAssessment> {
+    assess_task_convert_session(core, request).await
+}
+
+async fn assess_task_convert_session_with_context(
     context: &AssessmentContext,
-    request: BackgroundAgentConvertSessionRequest,
+    request: TaskConvertSessionRequest,
 ) -> Result<OperationAssessment> {
     let auth_manager = build_auth(context).await?;
     let session = context
@@ -706,7 +784,7 @@ async fn assess_background_agent_convert_session_with_context(
         OperationAssessmentIntent::Save
     };
     if derive_conversion_input(request.input.clone(), &session.messages).is_none() {
-        let mut assessment = OperationAssessment::ok("convert_session_to_background_agent", intent);
+        let mut assessment = OperationAssessment::ok("convert_session_to_task", intent);
         assessment.blockers.push(issue(
             "missing_conversion_input",
             "Cannot convert session: no non-empty user message found; please provide input.",
@@ -719,7 +797,7 @@ async fn assess_background_agent_convert_session_with_context(
     let assessment = assess_agent_node(
         context,
         &auth_manager,
-        "convert_session_to_background_agent",
+        "convert_session_to_task",
         intent,
         &stored_agent.agent,
         false,
@@ -734,17 +812,24 @@ async fn assess_background_agent_convert_session_with_context(
     ))
 }
 
-pub async fn assess_background_agent_update(
+pub async fn assess_task_update(
     core: &Arc<AppCore>,
-    request: BackgroundAgentUpdateRequest,
+    request: TaskUpdateRequest,
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
-    assess_background_agent_update_with_context(&context, request).await
+    assess_task_update_with_context(&context, request).await
 }
 
-async fn assess_background_agent_update_with_context(
+pub async fn assess_background_agent_update(
+    core: &Arc<AppCore>,
+    request: restflow_traits::store::BackgroundAgentUpdateRequest,
+) -> Result<OperationAssessment> {
+    assess_task_update(core, request).await
+}
+
+async fn assess_task_update_with_context(
     context: &AssessmentContext,
-    request: BackgroundAgentUpdateRequest,
+    request: TaskUpdateRequest,
 ) -> Result<OperationAssessment> {
     let auth_manager = build_auth(context).await?;
     let task_id = context
@@ -753,7 +838,7 @@ async fn assess_background_agent_update_with_context(
     let task = context
         .background_agents
         .get_task(&task_id)?
-        .ok_or_else(|| anyhow!("Background agent not found: {task_id}"))?;
+        .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
     let next_agent_id = request
         .agent_id
         .as_deref()
@@ -762,7 +847,7 @@ async fn assess_background_agent_update_with_context(
     assess_agent_node(
         context,
         &auth_manager,
-        "update_background_agent",
+        "update_task",
         OperationAssessmentIntent::Save,
         &stored_agent.agent,
         false,
@@ -770,17 +855,24 @@ async fn assess_background_agent_update_with_context(
     .await
 }
 
-pub async fn assess_background_agent_delete(
+pub async fn assess_task_delete(
     core: &Arc<AppCore>,
-    request: BackgroundAgentDeleteRequest,
+    request: TaskDeleteRequest,
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
-    assess_background_agent_delete_with_context(&context, request).await
+    assess_task_delete_with_context(&context, request).await
 }
 
-async fn assess_background_agent_delete_with_context(
+pub async fn assess_background_agent_delete(
+    core: &Arc<AppCore>,
+    request: restflow_traits::store::BackgroundAgentDeleteRequest,
+) -> Result<OperationAssessment> {
+    assess_task_delete(core, request).await
+}
+
+async fn assess_task_delete_with_context(
     context: &AssessmentContext,
-    request: BackgroundAgentDeleteRequest,
+    request: TaskDeleteRequest,
 ) -> Result<OperationAssessment> {
     let task_id = context
         .background_agents
@@ -788,46 +880,47 @@ async fn assess_background_agent_delete_with_context(
     let task = context
         .background_agents
         .get_task(&task_id)?
-        .ok_or_else(|| anyhow!("Background agent not found: {task_id}"))?;
-    let mut assessment =
-        OperationAssessment::ok("delete_background_agent", OperationAssessmentIntent::Save);
+        .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
+    let mut assessment = OperationAssessment::ok("delete_task", OperationAssessmentIntent::Save);
     assessment.warnings.push(issue(
         "destructive_delete",
         format!(
-            "Deleting background agent '{}' removes its persisted definition and run history.",
+            "Deleting task '{}' removes its persisted definition and run history.",
             task.name
         ),
         Some("id"),
-        Some(
-            "Confirm the deletion only if you intend to permanently remove this background agent.",
-        ),
+        Some("Confirm the deletion only if you intend to permanently remove this task."),
     ));
     Ok(finalize_assessment_with_seed(
         assessment,
         Some(serde_json::json!({
-            "background_agent_id": task.id,
+            "task_id": task.id,
         })),
     ))
 }
 
-pub async fn assess_background_agent_control(
+pub async fn assess_task_control(
     core: &Arc<AppCore>,
-    request: BackgroundAgentControlRequest,
+    request: TaskControlRequest,
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
-    assess_background_agent_control_with_context(&context, request).await
+    assess_task_control_with_context(&context, request).await
 }
 
-async fn assess_background_agent_control_with_context(
+pub async fn assess_background_agent_control(
+    core: &Arc<AppCore>,
+    request: restflow_traits::store::BackgroundAgentControlRequest,
+) -> Result<OperationAssessment> {
+    assess_task_control(core, request).await
+}
+
+async fn assess_task_control_with_context(
     context: &AssessmentContext,
-    request: BackgroundAgentControlRequest,
+    request: TaskControlRequest,
 ) -> Result<OperationAssessment> {
     let action = request.action.trim().to_lowercase();
     if action != "run_now" && action != "run-now" && action != "runnow" {
-        return Ok(OperationAssessment::ok(
-            "control_background_agent",
-            OperationAssessmentIntent::Run,
-        ));
+        return Ok(OperationAssessment::ok("control_task", OperationAssessmentIntent::Run));
     }
 
     let auth_manager = build_auth(context).await?;
@@ -837,17 +930,28 @@ async fn assess_background_agent_control_with_context(
     let task = context
         .background_agents
         .get_task(&task_id)?
-        .ok_or_else(|| anyhow!("Background agent not found: {task_id}"))?;
+        .ok_or_else(|| anyhow!("Task not found: {task_id}"))?;
     let stored_agent = load_agent(context, &task.agent_id).await?;
     assess_agent_node(
         context,
         &auth_manager,
-        "run_background_agent",
+        "run_task",
         OperationAssessmentIntent::Run,
         &stored_agent.agent,
         false,
     )
     .await
+}
+
+pub async fn assess_task_template(
+    core: &Arc<AppCore>,
+    operation: &str,
+    intent: OperationAssessmentIntent,
+    agent_ids: Vec<String>,
+    template_mode: bool,
+) -> Result<OperationAssessment> {
+    let context = AssessmentContext::from_core(core);
+    assess_task_template_with_context(&context, operation, intent, agent_ids, template_mode).await
 }
 
 pub async fn assess_background_agent_template(
@@ -857,18 +961,10 @@ pub async fn assess_background_agent_template(
     agent_ids: Vec<String>,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
-    let context = AssessmentContext::from_core(core);
-    assess_background_agent_template_with_context(
-        &context,
-        operation,
-        intent,
-        agent_ids,
-        template_mode,
-    )
-    .await
+    assess_task_template(core, operation, intent, agent_ids, template_mode).await
 }
 
-async fn assess_background_agent_template_with_context(
+async fn assess_task_template_with_context(
     context: &AssessmentContext,
     operation: &str,
     intent: OperationAssessmentIntent,
@@ -913,20 +1009,20 @@ async fn assess_background_agent_template_with_context(
 pub async fn assess_subagent_spawn(
     core: &Arc<AppCore>,
     operation: &str,
-    request: ContractSubagentSpawnRequest,
+    request: ContractRunSpawnRequest,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
-    assess_subagent_spawn_with_context(&context, operation, request, template_mode).await
+    assess_run_spawn_with_context(&context, operation, request, template_mode).await
 }
 
-async fn assess_subagent_spawn_with_context(
+async fn assess_run_spawn_with_context(
     context: &AssessmentContext,
     operation: &str,
-    request: ContractSubagentSpawnRequest,
+    request: ContractRunSpawnRequest,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
-    let request = normalize_subagent_request(context, request)?;
+    let request = normalize_run_spawn_request(context, request)?;
     let auth_manager = build_auth(context).await?;
     let intent = if template_mode {
         OperationAssessmentIntent::Save
@@ -1006,9 +1102,9 @@ async fn assess_subagent_spawn_with_context(
     let mut assessment = OperationAssessment::ok(operation.to_string(), intent);
     assessment.warnings.push(issue(
         "inherits_parent_model",
-        "This temporary sub-agent has no explicit model and will inherit the parent runtime model.",
+        "This temporary child run has no explicit model and will inherit the parent runtime model.",
         Some("model"),
-        Some("Set model/provider to make this sub-agent deterministic."),
+        Some("Set model/provider to make this child run deterministic."),
     ));
     Ok(finalize_assessment(assessment))
 }
@@ -1016,17 +1112,17 @@ async fn assess_subagent_spawn_with_context(
 pub async fn assess_subagent_batch(
     core: &Arc<AppCore>,
     operation: &str,
-    requests: Vec<ContractSubagentSpawnRequest>,
+    requests: Vec<ContractRunSpawnRequest>,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
     let context = AssessmentContext::from_core(core);
-    assess_subagent_batch_with_context(&context, operation, requests, template_mode).await
+    assess_run_batch_with_context(&context, operation, requests, template_mode).await
 }
 
-async fn assess_subagent_batch_with_context(
+async fn assess_run_batch_with_context(
     context: &AssessmentContext,
     operation: &str,
-    requests: Vec<ContractSubagentSpawnRequest>,
+    requests: Vec<ContractRunSpawnRequest>,
     template_mode: bool,
 ) -> Result<OperationAssessment> {
     let intent = if template_mode {
@@ -1038,7 +1134,7 @@ async fn assess_subagent_batch_with_context(
 
     for (index, request) in requests.into_iter().enumerate() {
         let child =
-            assess_subagent_spawn_with_context(context, operation, request, template_mode).await?;
+            assess_run_spawn_with_context(context, operation, request, template_mode).await?;
         merge_assessment(&mut assessment, child, &format!("Worker {}", index + 1));
     }
 
@@ -1052,6 +1148,9 @@ mod tests {
     use crate::prompt_files;
     use crate::services::agent::create_agent;
     use restflow_contracts::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
+    use restflow_traits::{
+        BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest,
+    };
     use tempfile::tempdir;
 
     struct AgentsDirEnvGuard {
@@ -1196,11 +1295,11 @@ mod tests {
         let assessment = assess_subagent_spawn(
             &core,
             "spawn_subagent",
-            ContractSubagentSpawnRequest {
+            ContractRunSpawnRequest {
                 task: "Summarize the workspace".to_string(),
                 model: Some("gpt-5-mini".to_string()),
                 model_provider: Some("openai".to_string()),
-                ..ContractSubagentSpawnRequest::default()
+                ..ContractRunSpawnRequest::default()
             },
             true,
         )
@@ -1233,11 +1332,11 @@ mod tests {
         let error = assess_subagent_spawn(
             &core,
             "spawn_subagent",
-            ContractSubagentSpawnRequest {
+            ContractRunSpawnRequest {
                 task: "Summarize the workspace".to_string(),
                 model: Some("gpt-5-mini".to_string()),
                 model_provider: None,
-                ..ContractSubagentSpawnRequest::default()
+                ..ContractRunSpawnRequest::default()
             },
             false,
         )
@@ -1257,11 +1356,11 @@ mod tests {
         let error = assess_subagent_batch(
             &core,
             "spawn_subagent_batch",
-            vec![ContractSubagentSpawnRequest {
+            vec![ContractRunSpawnRequest {
                 task: "Summarize the workspace".to_string(),
                 model: Some("gpt-5-mini".to_string()),
                 model_provider: None,
-                ..ContractSubagentSpawnRequest::default()
+                ..ContractRunSpawnRequest::default()
             }],
             false,
         )
@@ -1541,5 +1640,49 @@ mod tests {
         assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
         assert_eq!(assessment.warnings[0].code, "destructive_delete");
         assert!(assessment.approval_id.is_some());
+    }
+
+    #[tokio::test]
+    async fn assess_task_convert_session_matches_background_behavior() {
+        let (core, _db, _agents, _guard) = create_test_core_isolated().await;
+        let created = create_agent(
+            &core,
+            "Task Assessment Agent".to_string(),
+            create_test_agent_node("Assess task conversions"),
+        )
+        .await
+        .expect("agent");
+
+        let mut session = crate::models::ChatSession::new(
+            created.id.clone(),
+            ModelId::ClaudeSonnet4_5.as_serialized_str().to_string(),
+        );
+        session.add_message(ChatMessage::user("Summarize this task"));
+        core.storage
+            .chat_sessions
+            .create(&session)
+            .expect("session");
+
+        let assessor = OperationAssessorAdapter::from_storage(core.storage.as_ref());
+        let assessment = assessor
+            .assess_task_convert_session(TaskConvertSessionRequest {
+                session_id: session.id.clone(),
+                name: None,
+                schedule: None,
+                input: None,
+                timeout_secs: None,
+                durability_mode: None,
+                memory: None,
+                memory_scope: None,
+                resource_limits: None,
+                run_now: None,
+                preview: false,
+                approval_id: None,
+            })
+            .await
+            .expect("task assessment");
+
+        assert_eq!(assessment.intent, OperationAssessmentIntent::Save);
+        assert_eq!(assessment.operation, "convert_session_to_task");
     }
 }

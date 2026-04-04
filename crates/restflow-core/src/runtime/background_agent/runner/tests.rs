@@ -2,8 +2,8 @@ use super::*;
 use crate::channel::{Channel, ChannelType, InboundMessage, OutboundMessage};
 use crate::hooks::{HookExecutor, HookTaskScheduler};
 use crate::models::{
-    AgentCheckpoint, BackgroundAgentControlAction, Hook, HookAction, HookEvent, MemoryScope,
-    ResumePayload, TaskEventType, TaskSchedule,
+    AgentCheckpoint, BackgroundAgent, BackgroundAgentControlAction, BackgroundAgentStatus, Hook,
+    HookAction, HookEvent, MemoryScope, ResumePayload, TaskEventType, TaskSchedule,
 };
 use crate::runtime::background_agent::{ChannelEventEmitter, StreamEventKind};
 use async_trait::async_trait;
@@ -1828,7 +1828,7 @@ fn test_resolve_memory_agent_id_respects_scope() {
         "agent-456"
     );
 
-    task.memory.memory_scope = MemoryScope::PerBackgroundAgent;
+    task.memory.memory_scope = MemoryScope::PerTask;
     assert_eq!(
         BackgroundAgentRunner::resolve_memory_agent_id(&task),
         "agent-456::task::task-123"

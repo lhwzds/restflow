@@ -1,7 +1,7 @@
 //! Hook executor implementation.
 
 use crate::channel::{ChannelRouter, ChannelType};
-use crate::models::{BackgroundAgentSpec, Hook, HookAction, HookContext, HookFilter, TaskSchedule};
+use crate::models::{Hook, HookAction, HookContext, HookFilter, TaskSchedule, TaskSpec};
 use crate::storage::{BackgroundAgentStorage, HookStorage};
 use anyhow::Result;
 use async_trait::async_trait;
@@ -36,22 +36,22 @@ pub trait HookTaskScheduler: Send + Sync {
 
 /// Default task scheduler backed by `BackgroundAgentStorage`.
 #[derive(Clone)]
-pub struct BackgroundAgentHookScheduler {
+pub struct TaskHookScheduler {
     storage: BackgroundAgentStorage,
 }
 
-impl BackgroundAgentHookScheduler {
+impl TaskHookScheduler {
     pub fn new(storage: BackgroundAgentStorage) -> Self {
         Self { storage }
     }
 }
 
 #[async_trait]
-impl HookTaskScheduler for BackgroundAgentHookScheduler {
+impl HookTaskScheduler for TaskHookScheduler {
     async fn schedule_task(&self, agent_id: &str, input: &str) -> Result<()> {
         let now = chrono::Utc::now().timestamp_millis();
         let task_name = format!("Hook follow-up: {}", agent_id);
-        self.storage.create_background_agent(BackgroundAgentSpec {
+        self.storage.create_background_agent(TaskSpec {
             name: task_name,
             agent_id: agent_id.to_string(),
             chat_session_id: None,
@@ -75,6 +75,8 @@ impl HookTaskScheduler for BackgroundAgentHookScheduler {
         Ok(())
     }
 }
+
+pub type BackgroundAgentHookScheduler = TaskHookScheduler;
 
 /// Executes hooks against lifecycle events.
 #[derive(Clone)]
