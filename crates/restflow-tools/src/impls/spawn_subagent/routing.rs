@@ -5,8 +5,8 @@ use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_
 use crate::impls::spawn_subagent_batch::{SpawnSubagentBatchOperation, SpawnSubagentBatchTool};
 use crate::{Result, Tool, ToolError, ToolOutput};
 use restflow_contracts::request::{
-    InlineSubagentConfig as ContractInlineSubagentConfig,
-    SubagentSpawnRequest as ContractSubagentSpawnRequest,
+    InlineAgentRunConfig as ContractInlineAgentRunConfig,
+    RunSpawnRequest as ContractRunSpawnRequest,
 };
 use restflow_traits::{SubagentCompletion, SubagentStatus};
 
@@ -49,8 +49,8 @@ fn completion_output(
     output
 }
 
-fn build_inline_config(params: &SpawnSubagentParams) -> Option<ContractInlineSubagentConfig> {
-    let config = ContractInlineSubagentConfig {
+fn build_inline_config(params: &SpawnSubagentParams) -> Option<ContractInlineAgentRunConfig> {
+    let config = ContractInlineAgentRunConfig {
         name: params.inline_name.clone(),
         system_prompt: params.inline_system_prompt.clone(),
         allowed_tools: params.inline_allowed_tools.clone(),
@@ -86,11 +86,8 @@ fn normalize_optional_text(value: Option<&str>) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
-fn build_contract_request(
-    params: &SpawnSubagentParams,
-    task: String,
-) -> ContractSubagentSpawnRequest {
-    ContractSubagentSpawnRequest {
+fn build_contract_request(params: &SpawnSubagentParams, task: String) -> ContractRunSpawnRequest {
+    ContractRunSpawnRequest {
         agent_id: params.agent.clone(),
         inline: build_inline_config(params),
         task,
@@ -99,7 +96,7 @@ fn build_contract_request(
         priority: None,
         model: params.model.clone(),
         model_provider: params.provider.clone(),
-        parent_execution_id: params.parent_execution_id.clone(),
+        parent_run_id: params.parent_run_id.clone(),
         trace_session_id: params.trace_session_id.clone(),
         trace_scope_id: params.trace_scope_id.clone(),
     }
@@ -175,7 +172,7 @@ pub(super) async fn execute(
                 "wait": params.wait,
                 "timeout_secs": params.timeout_secs,
                 "save_as_team": save_as_team,
-                "parent_execution_id": params.parent_execution_id,
+                "parent_run_id": params.parent_run_id,
                 "trace_session_id": params.trace_session_id,
                 "trace_scope_id": params.trace_scope_id,
                 "preview": params.preview,

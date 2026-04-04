@@ -9,7 +9,11 @@ use crate::{
     DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
     DEFAULT_SUBAGENT_TIMEOUT_SECS,
 };
-pub use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
+pub use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
+/// Canonical contract request alias for child run spawning.
+pub type ContractChildRunSpawnRequest = ContractRunSpawnRequest;
+/// Legacy alias kept for compatibility with existing callers.
+pub type ContractSubagentSpawnRequest = ContractRunSpawnRequest;
 
 /// Snapshot of a sub-agent definition with all fields needed for execution.
 ///
@@ -82,7 +86,7 @@ impl Default for SubagentConfig {
 }
 
 /// Request to spawn a sub-agent.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SpawnRequest {
     /// Agent type ID (e.g., "researcher", "coder").
     ///
@@ -90,11 +94,11 @@ pub struct SpawnRequest {
     #[serde(default)]
     pub agent_id: Option<String>,
 
-    /// Optional inline configuration for temporary sub-agent creation.
+    /// Optional inline configuration for temporary child-run creation.
     ///
     /// This is used when `agent_id` is omitted.
     #[serde(default)]
-    pub inline: Option<InlineSubagentConfig>,
+    pub inline: Option<InlineRunConfig>,
 
     /// Task description for the agent.
     pub task: String,
@@ -119,11 +123,11 @@ pub struct SpawnRequest {
     #[serde(default)]
     pub model_provider: Option<String>,
 
-    /// Optional parent execution ID used for context propagation.
+    /// Optional parent run ID used for context propagation.
     ///
-    /// This is injected by runtime when sub-agents are spawned from another
-    /// agent execution loop.
-    #[serde(default)]
+    /// The serialized field name is canonicalized to `parent_run_id` while
+    /// still accepting legacy `parent_execution_id` input for compatibility.
+    #[serde(default, rename = "parent_run_id", alias = "parent_execution_id")]
     pub parent_execution_id: Option<String>,
 
     /// Optional trace session identifier used to keep child runs in the same trace session.
@@ -143,6 +147,18 @@ pub struct SpawnRequest {
     /// When provided, runtime must use this as the canonical child run ID.
     #[serde(default)]
     pub run_id: Option<String>,
+}
+
+impl SpawnRequest {
+    /// Returns the canonical parent run identifier for this child spawn.
+    pub fn parent_run_id(&self) -> Option<&str> {
+        self.parent_execution_id.as_deref()
+    }
+
+    /// Sets the canonical parent run identifier while preserving legacy storage.
+    pub fn set_parent_run_id(&mut self, parent_run_id: Option<String>) {
+        self.parent_execution_id = parent_run_id;
+    }
 }
 
 /// Inline configuration for temporary sub-agent creation.
@@ -166,6 +182,12 @@ pub struct InlineSubagentConfig {
     #[serde(default)]
     pub max_iterations: Option<u32>,
 }
+
+/// Canonical inline run configuration alias.
+pub type InlineRunConfig = InlineSubagentConfig;
+
+/// Canonical child-run inline configuration alias.
+pub type InlineChildRunConfig = InlineRunConfig;
 
 /// Priority level for sub-agent spawning.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -304,7 +326,7 @@ pub trait SubagentManager: Send + Sync {
     /// Spawn a new sub-agent from a contract request payload.
     fn spawn(
         &self,
-        request: ContractSubagentSpawnRequest,
+        request: ContractRunSpawnRequest,
     ) -> std::result::Result<SpawnHandle, ToolError>;
 
     /// List all callable sub-agent definitions.
@@ -364,7 +386,7 @@ mod tests {
     impl SubagentManager for MockSubagentManager {
         fn spawn(
             &self,
-            _request: ContractSubagentSpawnRequest,
+            _request: ContractRunSpawnRequest,
         ) -> std::result::Result<SpawnHandle, ToolError> {
             Err(ToolError::Tool("not implemented".to_string()))
         }
@@ -456,5 +478,43 @@ mod tests {
         };
 
         assert!(manager.list_running_for_parent("   ").is_empty());
+    }
+
+    #[test]
+    fn test_spawn_request_serializes_parent_run_id_canonically() {
+        let mut request = SpawnRequest {
+            agent_id: Some("coder".to_string()),
+            inline: None,
+            task: "Investigate".to_string(),
+            timeout_secs: None,
+            max_iterations: None,
+            priority: None,
+            model: None,
+            model_provider: None,
+            parent_execution_id: None,
+            trace_session_id: None,
+            trace_scope_id: None,
+            run_id: None,
+        };
+        request.set_parent_run_id(Some("parent-1".to_string()));
+
+        let serialized = serde_json::to_value(request).expect("serialize spawn request");
+        assert_eq!(serialized["parent_run_id"], "parent-1");
+        assert!(serialized.get("parent_execution_id").is_none());
+    }
+
+    #[test]
+    fn test_spawn_request_accepts_legacy_parent_execution_id_alias() {
+        let request: SpawnRequest = serde_json::from_value(serde_json::json!({
+            "task": "Investigate",
+            "parent_execution_id": "legacy-parent"
+        }))
+        .expect("deserialize spawn request");
+
+        assert_eq!(request.parent_run_id(), Some("legacy-parent"));
+        assert_eq!(
+            request.parent_execution_id.as_deref(),
+            Some("legacy-parent")
+        );
     }
 }

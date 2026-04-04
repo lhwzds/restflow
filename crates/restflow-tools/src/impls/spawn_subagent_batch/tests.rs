@@ -7,7 +7,7 @@ use restflow_ai::agent::{
 };
 use restflow_ai::llm::{MockLlmClient, MockStep};
 use restflow_ai::tools::ToolRegistry;
-use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
+use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 use restflow_traits::store::KvStore;
 use restflow_traits::{
     SpawnHandle, SubagentCompletion, SubagentManager, SubagentState,
@@ -177,7 +177,7 @@ impl FailingSpawnManager {
 impl SubagentManager for FailingSpawnManager {
     fn spawn(
         &self,
-        request: ContractSubagentSpawnRequest,
+        request: ContractRunSpawnRequest,
     ) -> std::result::Result<SpawnHandle, ToolError> {
         let mut attempts = self
             .attempts
@@ -652,4 +652,40 @@ fn test_batch_params_accept_legacy_confirmation_token_alias() {
     let params: SpawnSubagentBatchParams =
         serde_json::from_value(value).expect("params should deserialize");
     assert_eq!(params.approval_id.as_deref(), Some("approval-1"));
+}
+
+#[test]
+fn test_batch_schema_exposes_parent_run_id() {
+    let schema = super::schema::parameters_schema();
+    let properties = schema["properties"]
+        .as_object()
+        .expect("schema properties should be an object");
+    assert!(properties.contains_key("parent_run_id"));
+    assert!(!properties.contains_key("parent_execution_id"));
+}
+
+#[test]
+fn test_batch_params_use_canonical_parent_run_id() {
+    let params: SpawnSubagentBatchParams = serde_json::from_value(json!({
+        "team": "reviewers",
+        "parent_run_id": "run-123"
+    }))
+    .expect("params should deserialize");
+
+    assert_eq!(params.parent_run_id.as_deref(), Some("run-123"));
+
+    let serialized = serde_json::to_value(&params).expect("params should serialize");
+    assert_eq!(serialized["parent_run_id"], "run-123");
+    assert!(serialized.get("parent_execution_id").is_none());
+}
+
+#[test]
+fn test_batch_params_accept_legacy_parent_execution_id_alias() {
+    let params: SpawnSubagentBatchParams = serde_json::from_value(json!({
+        "team": "reviewers",
+        "parent_execution_id": "run-123"
+    }))
+    .expect("params should deserialize");
+
+    assert_eq!(params.parent_run_id.as_deref(), Some("run-123"));
 }

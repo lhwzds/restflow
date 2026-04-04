@@ -22,13 +22,13 @@ pub(super) fn parameters_schema() -> Value {
                     "properties": {
                         "agent": {
                             "type": "string",
-                            "description": "Optional agent ID or name. Omit for temporary sub-agent."
+                            "description": "Optional agent ID or name. Omit for a temporary child run."
                         },
                         "count": {
                             "type": "integer",
                             "minimum": 1,
                             "default": 1,
-                            "description": "How many sub-agents to spawn for this spec."
+                            "description": "How many child runs to spawn for this spec."
                         },
                         "task": {
                             "type": "string",
@@ -54,21 +54,21 @@ pub(super) fn parameters_schema() -> Value {
                         },
                         "inline_name": {
                             "type": "string",
-                            "description": "Optional temporary sub-agent name."
+                            "description": "Optional temporary child-run name."
                         },
                         "inline_system_prompt": {
                             "type": "string",
-                            "description": "Optional temporary sub-agent system prompt."
+                            "description": "Optional temporary child-run system prompt."
                         },
                         "inline_allowed_tools": {
                             "type": "array",
                             "items": { "type": "string" },
-                            "description": "Optional temporary sub-agent tool allowlist."
+                            "description": "Optional temporary child-run tool allowlist."
                         },
                         "inline_max_iterations": {
                             "type": "integer",
                             "minimum": 1,
-                            "description": "Optional temporary sub-agent max iterations."
+                            "description": "Optional temporary child-run max iterations."
                         }
                     }
                 }
@@ -90,15 +90,15 @@ pub(super) fn parameters_schema() -> Value {
             "timeout_secs": {
                 "type": "integer",
                 "minimum": 0,
-                "description": "Wait timeout and fallback sub-agent timeout (seconds). Use 0 for no wait timeout."
+                "description": "Wait timeout and fallback child-run timeout (seconds). Use 0 for no wait timeout."
             },
             "save_as_team": {
                 "type": "string",
                 "description": "Optionally save provided specs as a structural team during spawn. Prompt fields are not persisted."
             },
-            "parent_execution_id": {
+            "parent_run_id": {
                 "type": "string",
-                "description": "Optional parent execution ID for context propagation (runtime-injected)."
+                "description": "Optional parent run ID for context propagation (runtime-injected). Legacy 'parent_execution_id' is accepted by the raw decoder."
             },
             "trace_session_id": {
                 "type": "string",

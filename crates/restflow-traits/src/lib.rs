@@ -42,7 +42,7 @@ pub use error::{Result as ToolResult, ToolError};
 pub use assessment::{
     AgentOperationAssessor, AssessmentModelRef, BackgroundAgentCommandOutcome, OperationAssessment,
     OperationAssessmentIntent, OperationAssessmentIssue, OperationAssessmentStatus,
-    normalize_legacy_approval_replay,
+    TaskCommandOutcome, normalize_legacy_approval_replay,
 };
 
 // Tool trait and core types
@@ -79,8 +79,11 @@ pub use store::{
     MemoryClearRequest, MemoryCompactRequest, MemoryExportRequest, MemoryManager, MemoryStore,
     OpsProvider, ProcessLog, ProcessManager, ProcessPollResult, ProcessSessionInfo, ReplySender,
     SecretStore, SecurityQueryProvider, SessionCreateRequest, SessionListFilter,
-    SessionSearchQuery, SessionStore, TerminalStore, TriggerStore, UnifiedMemorySearch,
-    WorkItemPatch, WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
+    SessionSearchQuery, SessionStore, TaskControlRequest, TaskConvertSessionRequest,
+    TaskCreateRequest, TaskDeleteRequest, TaskDeliverableListRequest, TaskMessageListRequest,
+    TaskMessageRequest, TaskProgressRequest, TaskStore, TaskTraceListRequest, TaskTraceReadRequest,
+    TaskUpdateRequest, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemPatch,
+    WorkItemProvider, WorkItemQuery, WorkItemRecord, WorkItemSpec, WorkItemStatus,
 };
 
 // Shared orchestration contracts
@@ -89,10 +92,11 @@ pub use orchestrator::{AgentOrchestrator, ExecutionMode, ExecutionOutcome, Execu
 
 // Sub-agent types
 pub use subagent::{
-    ContractSubagentSpawnRequest, InlineSubagentConfig, SpawnHandle, SpawnPriority, SpawnRequest,
-    SubagentCompletion, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot, SubagentDefSummary,
-    SubagentEffectiveLimits, SubagentLimitSource, SubagentManager, SubagentResult, SubagentSpawner,
-    SubagentState, SubagentStatus,
+    ContractChildRunSpawnRequest, ContractRunSpawnRequest, ContractSubagentSpawnRequest,
+    InlineChildRunConfig, InlineRunConfig, InlineSubagentConfig, SpawnHandle, SpawnPriority,
+    SpawnRequest, SubagentCompletion, SubagentConfig, SubagentDefLookup, SubagentDefSnapshot,
+    SubagentDefSummary, SubagentEffectiveLimits, SubagentLimitSource, SubagentManager,
+    SubagentResult, SubagentSpawner, SubagentState, SubagentStatus,
 };
 
 // LLM switching

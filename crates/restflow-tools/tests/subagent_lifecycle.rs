@@ -104,7 +104,7 @@ async fn test_spawn_then_wait_lifecycle() {
             "agent": "researcher",
             "task": "Find info",
             "wait": false,
-            "parent_execution_id": TEST_PARENT_RUN_ID
+            "parent_run_id": TEST_PARENT_RUN_ID
         }))
         .await
         .unwrap();
@@ -143,7 +143,7 @@ async fn test_spawn_then_list_shows_running() {
             "agent": "coder",
             "task": "Write code",
             "wait": false,
-            "parent_execution_id": TEST_PARENT_RUN_ID
+            "parent_run_id": TEST_PARENT_RUN_ID
         }))
         .await
         .unwrap();
@@ -187,7 +187,7 @@ async fn test_spawn_multiple_then_wait_all() {
                 "agent": agent,
                 "task": task_desc,
                 "wait": false,
-                "parent_execution_id": TEST_PARENT_RUN_ID
+                "parent_run_id": TEST_PARENT_RUN_ID
             }))
             .await
             .unwrap();
@@ -246,7 +246,7 @@ async fn test_spawn_wait_timeout_then_list() {
             "agent": "coder",
             "task": "infinite task",
             "wait": false,
-            "parent_execution_id": TEST_PARENT_RUN_ID
+            "parent_run_id": TEST_PARENT_RUN_ID
         }))
         .await
         .unwrap();

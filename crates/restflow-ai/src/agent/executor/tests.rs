@@ -1576,8 +1576,31 @@ impl Tool for SpawnSubagentBatchCaptureTool {
     }
 }
 
-/// A manage_background_agents-shaped tool that returns input as output so tests
-/// can verify session_id injection for promote_to_background.
+/// A task-management-shaped tool that returns input as output so tests can
+/// verify session_id injection for promote_to_background.
+struct PromoteTaskCaptureTool;
+
+#[async_trait]
+impl Tool for PromoteTaskCaptureTool {
+    fn name(&self) -> &str {
+        "manage_tasks"
+    }
+
+    fn description(&self) -> &str {
+        "Capture manage_tasks input payload"
+    }
+
+    fn parameters_schema(&self) -> Value {
+        serde_json::json!({"type": "object"})
+    }
+
+    async fn execute(&self, input: Value) -> ToolResult<ToolOutput> {
+        Ok(ToolOutput::success(input))
+    }
+}
+
+/// A legacy background-agent-shaped tool that returns input as output so tests
+/// can verify the alias still receives runtime injection.
 struct PromoteBackgroundCaptureTool;
 
 #[async_trait]
@@ -1912,7 +1935,7 @@ async fn test_parallel_tools_timeout_in_spawned_task() {
 }
 
 #[tokio::test]
-async fn test_spawn_subagent_tool_call_injects_parent_execution_id() {
+async fn test_spawn_subagent_tool_call_injects_parent_run_id() {
     let mut tools = ToolRegistry::new();
     tools.register(SpawnSubagentCaptureTool);
 
@@ -1954,20 +1977,22 @@ async fn test_spawn_subagent_tool_call_injects_parent_execution_id() {
     let output = result
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
-    assert_eq!(output.result["parent_execution_id"], "exec-parent-1");
+    assert_eq!(output.result["parent_run_id"], "exec-parent-1");
+    assert!(output.result.get("parent_execution_id").is_none());
     assert_eq!(output.result["trace_session_id"], "session-main-1");
     assert_eq!(output.result["trace_scope_id"], "scope-main-1");
 
     let start_arguments = emitter.start_arguments.lock().await;
     assert_eq!(start_arguments.len(), 1);
     let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
-    assert_eq!(start_payload["parent_execution_id"], "exec-parent-1");
+    assert_eq!(start_payload["parent_run_id"], "exec-parent-1");
+    assert!(start_payload.get("parent_execution_id").is_none());
     assert_eq!(start_payload["trace_session_id"], "session-main-1");
     assert_eq!(start_payload["trace_scope_id"], "scope-main-1");
 }
 
 #[tokio::test]
-async fn test_spawn_subagent_tool_call_overrides_explicit_parent_execution_id() {
+async fn test_spawn_subagent_tool_call_overrides_explicit_parent_run_id() {
     let mut tools = ToolRegistry::new();
     tools.register(SpawnSubagentCaptureTool);
 
@@ -2010,7 +2035,8 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_parent_execution_id() 
     let output = result
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
-    assert_eq!(output.result["parent_execution_id"], "runtime-parent");
+    assert_eq!(output.result["parent_run_id"], "runtime-parent");
+    assert!(output.result.get("parent_execution_id").is_none());
     assert_eq!(output.result["trace_session_id"], "runtime-session");
     assert_eq!(output.result["trace_scope_id"], "runtime-scope");
 }
@@ -2061,7 +2087,8 @@ async fn test_spawn_subagent_tool_call_overrides_explicit_trace_context() {
     let output = result
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_call should succeed: {e}"));
-    assert_eq!(output.result["parent_execution_id"], "runtime-parent");
+    assert_eq!(output.result["parent_run_id"], "runtime-parent");
+    assert!(output.result.get("parent_execution_id").is_none());
     assert_eq!(output.result["trace_session_id"], "runtime-session");
     assert_eq!(output.result["trace_scope_id"], "runtime-scope");
 }
@@ -2116,13 +2143,15 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_trace_context()
     let output = result
         .as_ref()
         .unwrap_or_else(|e| panic!("spawn_batch_call should succeed: {e}"));
-    assert_eq!(output.result["parent_execution_id"], "runtime-parent");
+    assert_eq!(output.result["parent_run_id"], "runtime-parent");
+    assert!(output.result.get("parent_execution_id").is_none());
     assert_eq!(output.result["trace_session_id"], "runtime-session");
     assert_eq!(output.result["trace_scope_id"], "runtime-scope");
 
     let start_arguments = emitter.start_arguments.lock().await;
     let start_payload: Value = serde_json::from_str(&start_arguments[0]).expect("valid json");
-    assert_eq!(start_payload["parent_execution_id"], "runtime-parent");
+    assert_eq!(start_payload["parent_run_id"], "runtime-parent");
+    assert!(start_payload.get("parent_execution_id").is_none());
     assert_eq!(start_payload["trace_session_id"], "runtime-session");
     assert_eq!(start_payload["trace_scope_id"], "runtime-scope");
 }
@@ -2130,14 +2159,14 @@ async fn test_spawn_subagent_batch_overrides_explicit_parent_and_trace_context()
 #[tokio::test]
 async fn test_promote_to_background_injects_chat_session_id() {
     let mut tools = ToolRegistry::new();
-    tools.register(PromoteBackgroundCaptureTool);
+    tools.register(PromoteTaskCaptureTool);
 
     let llm = Arc::new(MockLlmClient::new(vec![]));
     let executor = AgentExecutor::new(llm, Arc::new(tools));
 
     let calls = vec![ToolCall {
         id: "promote_call".to_string(),
-        name: "manage_background_agents".to_string(),
+        name: "manage_tasks".to_string(),
         arguments: serde_json::json!({
             "operation": "promote_to_background",
             "name": "Promoted Task"

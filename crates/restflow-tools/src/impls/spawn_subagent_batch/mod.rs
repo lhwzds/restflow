@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use crate::impls::operation_assessment::{enforce_confirmation_or_defer, preview_output};
 use crate::{Result, Tool, ToolError, ToolOutput};
-use restflow_contracts::request::SubagentSpawnRequest as ContractSubagentSpawnRequest;
+use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 use restflow_traits::store::KvStore;
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use restflow_traits::{SubagentManager, subagent::SubagentDefSummary};
@@ -59,7 +59,7 @@ impl SpawnSubagentBatchTool {
 fn assessment_requests_for_specs(
     _tool: &SpawnSubagentBatchTool,
     specs: &[BatchSubagentSpec],
-) -> Result<Vec<ContractSubagentSpawnRequest>> {
+) -> Result<Vec<ContractRunSpawnRequest>> {
     Ok(specs.iter().map(preview_request_from_spec).collect())
 }
 

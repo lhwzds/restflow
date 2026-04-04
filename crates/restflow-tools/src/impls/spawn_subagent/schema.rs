@@ -62,9 +62,9 @@ pub(super) fn parameters_schema(available: &[SubagentDefSummary]) -> Value {
                 "type": "string",
                 "description": "Provider selector paired with model override (e.g., 'openai-codex'). Required when model is set."
             },
-            "parent_execution_id": {
+            "parent_run_id": {
                 "type": "string",
-                "description": "Optional parent execution ID for context propagation (runtime-injected)"
+                "description": "Optional parent run ID for context propagation (runtime-injected)"
             },
             "trace_session_id": {
                 "type": "string",

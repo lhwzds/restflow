@@ -1,4 +1,4 @@
-//! Background agent management tool.
+//! Task management tool with a legacy background-agent alias.
 
 mod batch;
 mod control;
@@ -18,21 +18,35 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
-    BackgroundAgentStore, KvStore, MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV,
+    BackgroundAgentStore, KvStore, MANAGE_TASK_OPERATIONS_CSV, TaskStore,
 };
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
-use types::BackgroundAgentAction;
+use types::TaskAction;
 
 #[derive(Clone)]
-pub struct BackgroundAgentTool {
+pub struct TaskTool {
     store: Arc<dyn BackgroundAgentStore>,
     kv_store: Option<Arc<dyn KvStore>>,
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
     allow_write: bool,
 }
 
-impl BackgroundAgentTool {
+#[derive(Clone)]
+/// Legacy compatibility wrapper that preserves the historical
+/// `manage_background_agents` tool surface while delegating to `TaskTool`.
+pub struct BackgroundAgentTool(TaskTool);
+
+impl TaskTool {
     pub fn new(store: Arc<dyn BackgroundAgentStore>) -> Self {
+        Self {
+            store,
+            kv_store: None,
+            assessor: None,
+            allow_write: false,
+        }
+    }
+
+    pub fn from_task_store(store: Arc<dyn TaskStore>) -> Self {
         Self {
             store,
             kv_store: None,
@@ -61,7 +75,7 @@ impl BackgroundAgentTool {
             Ok(())
         } else {
             Err(crate::ToolError::Tool(
-                "Write access to background agents is disabled. Available read-only operations: list, progress, list_messages, list_deliverables, list_traces, read_trace, list_teams, get_team. To modify background agents, the user must grant write permissions.".to_string(),
+                "Write access to tasks is disabled. Available read-only operations: list, progress, list_messages, list_deliverables, list_traces, read_trace, list_teams, get_team. To modify tasks, the user must grant write permissions.".to_string(),
             ))
         }
     }
@@ -77,10 +91,38 @@ impl BackgroundAgentTool {
     fn assessor(&self) -> Result<Arc<dyn AgentOperationAssessor>> {
         self.assessor.clone().ok_or_else(|| {
             ToolError::Tool(
-                "Background-agent capability assessment is unavailable in this runtime."
-                    .to_string(),
+                "Task capability assessment is unavailable in this runtime.".to_string(),
             )
         })
+    }
+}
+
+impl BackgroundAgentTool {
+    pub fn new(store: Arc<dyn BackgroundAgentStore>) -> Self {
+        Self(TaskTool::new(store))
+    }
+
+    pub fn from_task_store(store: Arc<dyn TaskStore>) -> Self {
+        Self(TaskTool::from_task_store(store))
+    }
+
+    pub fn from_task_tool(tool: TaskTool) -> Self {
+        Self(tool)
+    }
+
+    pub fn with_assessor(mut self, assessor: Arc<dyn AgentOperationAssessor>) -> Self {
+        self.0 = self.0.with_assessor(assessor);
+        self
+    }
+
+    pub fn with_write(mut self, allow_write: bool) -> Self {
+        self.0 = self.0.with_write(allow_write);
+        self
+    }
+
+    pub fn with_kv_store(mut self, kv_store: Arc<dyn KvStore>) -> Self {
+        self.0 = self.0.with_kv_store(kv_store);
+        self
     }
 }
 
@@ -88,14 +130,22 @@ pub fn tool_parameters_schema() -> Value {
     schema::parameters_schema()
 }
 
+pub fn tool_description() -> &'static str {
+    schema::tool_description()
+}
+
+pub fn legacy_tool_description() -> &'static str {
+    schema::legacy_tool_description()
+}
+
 #[async_trait]
-impl Tool for BackgroundAgentTool {
+impl Tool for TaskTool {
     fn name(&self) -> &str {
-        "manage_background_agents"
+        "manage_tasks"
     }
 
     fn description(&self) -> &str {
-        schema::tool_description()
+        tool_description()
     }
 
     fn parameters_schema(&self) -> Value {
@@ -104,19 +154,19 @@ impl Tool for BackgroundAgentTool {
 
     async fn execute(&self, mut input: Value) -> Result<ToolOutput> {
         normalize_legacy_approval_replay(&mut input);
-        let action: BackgroundAgentAction = match serde_json::from_value(input) {
+        let action: TaskAction = match serde_json::from_value(input) {
             Ok(action) => action,
             Err(e) => {
                 return Ok(ToolOutput::error(format!(
                     "Invalid input: {e}. Supported operations: {}.",
-                    MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV
+                    MANAGE_TASK_OPERATIONS_CSV
                 )));
             }
         };
 
         match action {
-            BackgroundAgentAction::List { status } => handlers_read::execute_list(self, status),
-            BackgroundAgentAction::RunBatch {
+            TaskAction::List { status } => handlers_read::execute_list(self, status),
+            TaskAction::RunBatch {
                 agent_id,
                 name,
                 input,
@@ -159,20 +209,20 @@ impl Tool for BackgroundAgentTool {
                 )
                 .await
             }
-            BackgroundAgentAction::SaveTeam {
+            TaskAction::SaveTeam {
                 team,
                 workers,
                 preview,
                 approval_id,
             } => handlers_write::execute_save_team(self, team, workers, preview, approval_id).await,
-            BackgroundAgentAction::ListTeams => handlers_read::execute_list_teams(self),
-            BackgroundAgentAction::GetTeam { team } => handlers_read::execute_get_team(self, team),
-            BackgroundAgentAction::DeleteTeam {
+            TaskAction::ListTeams => handlers_read::execute_list_teams(self),
+            TaskAction::GetTeam { team } => handlers_read::execute_get_team(self, team),
+            TaskAction::DeleteTeam {
                 team,
                 preview,
                 approval_id,
             } => handlers_write::execute_delete_team(self, team, preview, approval_id).await,
-            BackgroundAgentAction::Create {
+            TaskAction::Create {
                 name,
                 agent_id,
                 chat_session_id,
@@ -205,7 +255,7 @@ impl Tool for BackgroundAgentTool {
                 )
                 .await
             }
-            BackgroundAgentAction::ConvertSession {
+            TaskAction::ConvertSession {
                 session_id,
                 name,
                 schedule,
@@ -236,7 +286,7 @@ impl Tool for BackgroundAgentTool {
                 )
                 .await
             }
-            BackgroundAgentAction::PromoteToBackground {
+            TaskAction::PromoteToBackground {
                 session_id,
                 name,
                 schedule,
@@ -267,7 +317,7 @@ impl Tool for BackgroundAgentTool {
                 )
                 .await
             }
-            BackgroundAgentAction::Update {
+            TaskAction::Update {
                 id,
                 name,
                 description,
@@ -308,47 +358,66 @@ impl Tool for BackgroundAgentTool {
                 )
                 .await
             }
-            BackgroundAgentAction::Delete {
+            TaskAction::Delete {
                 id,
                 preview,
                 approval_id,
             } => handlers_write::execute_delete(self, id, preview, approval_id).await,
-            BackgroundAgentAction::Pause { id } => control::execute_pause(self, id).await,
-            BackgroundAgentAction::Start { id } => control::execute_start(self, id).await,
-            BackgroundAgentAction::Resume { id } => control::execute_resume(self, id).await,
-            BackgroundAgentAction::Stop { id } => control::execute_stop(self, id).await,
-            BackgroundAgentAction::Run {
+            TaskAction::Pause { id } => control::execute_pause(self, id).await,
+            TaskAction::Start { id } => control::execute_start(self, id).await,
+            TaskAction::Resume { id } => control::execute_resume(self, id).await,
+            TaskAction::Stop { id } => control::execute_stop(self, id).await,
+            TaskAction::Run {
                 id,
                 preview,
                 approval_id,
             } => control::execute_run(self, id, preview, approval_id).await,
-            BackgroundAgentAction::Control {
+            TaskAction::Control {
                 id,
                 action,
                 preview,
                 approval_id,
             } => control::execute_control(self, id, action, preview, approval_id).await,
-            BackgroundAgentAction::Progress { id, event_limit } => {
+            TaskAction::Progress { id, event_limit } => {
                 handlers_read::execute_progress(self, id, event_limit)
             }
-            BackgroundAgentAction::SendMessage {
+            TaskAction::SendMessage {
                 id,
                 message,
                 source,
             } => handlers_write::execute_send_message(self, id, message, source),
-            BackgroundAgentAction::ListMessages { id, limit } => {
+            TaskAction::ListMessages { id, limit } => {
                 handlers_read::execute_list_messages(self, id, limit)
             }
-            BackgroundAgentAction::ListDeliverables { id } => {
+            TaskAction::ListDeliverables { id } => {
                 handlers_read::execute_list_deliverables(self, id)
             }
-            BackgroundAgentAction::ListTraces { id, limit } => {
+            TaskAction::ListTraces { id, limit } => {
                 handlers_read::execute_list_traces(self, id, limit)
             }
-            BackgroundAgentAction::ReadTrace {
+            TaskAction::ReadTrace {
                 trace_id,
                 line_limit,
             } => handlers_read::execute_read_trace(self, trace_id, line_limit),
         }
+    }
+}
+
+#[async_trait]
+impl Tool for BackgroundAgentTool {
+    fn name(&self) -> &str {
+        "manage_background_agents"
+    }
+
+    fn description(&self) -> &str {
+        legacy_tool_description()
+    }
+
+    fn parameters_schema(&self) -> Value {
+        schema::parameters_schema()
+    }
+
+    async fn execute(&self, input: Value) -> Result<ToolOutput> {
+        self.0.execute(input).await
     }
 }

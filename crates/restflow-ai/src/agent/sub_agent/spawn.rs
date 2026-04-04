@@ -137,14 +137,14 @@ fn resolve_effective_limits(
 }
 
 fn build_trace_context(task_id: &str, agent_name: &str, request: &SpawnRequest) -> RunTraceContext {
-    let parent_execution_id = request.parent_execution_id.clone();
+    let parent_run_id = request.parent_run_id().map(ToOwned::to_owned);
     let trace_session_id = normalize_trace_identity(request.trace_session_id.as_deref())
         .or_else(|| normalize_trace_identity(request.trace_scope_id.as_deref()))
-        .or_else(|| normalize_trace_identity(parent_execution_id.as_deref()))
+        .or_else(|| normalize_trace_identity(parent_run_id.as_deref()))
         .unwrap_or_else(|| task_id.to_string());
     let trace_scope_id = normalize_trace_identity(request.trace_scope_id.as_deref())
         .or_else(|| normalize_trace_identity(request.trace_session_id.as_deref()))
-        .or_else(|| normalize_trace_identity(parent_execution_id.as_deref()))
+        .or_else(|| normalize_trace_identity(parent_run_id.as_deref()))
         .unwrap_or_else(|| task_id.to_string());
 
     RunTraceContext {
@@ -156,7 +156,7 @@ fn build_trace_context(task_id: &str, agent_name: &str, request: &SpawnRequest) 
             .unwrap_or(task_id)
             .to_string(),
         actor_id: agent_name.to_string(),
-        parent_run_id: parent_execution_id,
+        parent_run_id,
         session_id: trace_session_id,
         scope_id: trace_scope_id,
     }
@@ -250,8 +250,12 @@ fn spawn_request_from_plan(
         ..plan.clone()
     };
     normalized_plan.validate().map_err(AiError::from)?;
+    let parent_run_id = normalized_plan.parent_run_id().map(ToOwned::to_owned);
+    let trace_session_id = normalized_plan.trace_session_id.clone();
+    let trace_scope_id = normalized_plan.trace_scope_id.clone();
+    let run_id = normalized_plan.run_id.clone();
 
-    Ok(SpawnRequest {
+    let mut spawn_request = SpawnRequest {
         agent_id: normalized_plan
             .agent_id
             .as_deref()
@@ -283,11 +287,13 @@ fn spawn_request_from_plan(
             .map(str::trim)
             .filter(|value| !value.is_empty())
             .map(ToOwned::to_owned),
-        parent_execution_id: normalized_plan.parent_execution_id,
-        trace_session_id: normalized_plan.trace_session_id,
-        trace_scope_id: normalized_plan.trace_scope_id,
-        run_id: normalized_plan.run_id,
-    })
+        parent_execution_id: None,
+        trace_session_id,
+        trace_scope_id,
+        run_id,
+    };
+    spawn_request.set_parent_run_id(parent_run_id);
+    Ok(spawn_request)
 }
 
 pub(crate) async fn execute_subagent_once(
@@ -882,7 +888,7 @@ fn build_subagent_agent_config(
     system_prompt: String,
     max_iterations: usize,
     effective_limits: &SubagentEffectiveLimits,
-    parent_execution_id: Option<&str>,
+    parent_run_id: Option<&str>,
     trace_session_id: Option<&str>,
     trace_scope_id: Option<&str>,
 ) -> AgentConfig {
@@ -895,7 +901,7 @@ fn build_subagent_agent_config(
         "execution_context",
         json!({
             "role": "subagent",
-            "parent_execution_id": parent_execution_id,
+            "parent_run_id": parent_run_id,
             "trace_session_id": trace_session_id,
             "trace_scope_id": trace_scope_id,
             "effective_limits": effective_limits,
@@ -993,7 +999,7 @@ mod tests {
     }
 
     #[test]
-    fn build_subagent_agent_config_sets_parent_execution_id_when_provided() {
+    fn build_subagent_agent_config_sets_parent_run_id_when_provided() {
         let config = build_subagent_agent_config(
             "Sub-task".to_string(),
             "System prompt".to_string(),
@@ -1005,7 +1011,7 @@ mod tests {
         );
 
         assert_eq!(
-            config.context["execution_context"]["parent_execution_id"],
+            config.context["execution_context"]["parent_run_id"],
             "exec-parent-1"
         );
         assert_eq!(
