@@ -190,10 +190,14 @@ export function trackCreatedBackgroundTask(page: Page, taskId: string) {
 }
 
 export async function createSessionForTest(page: Page): Promise<string> {
-  await Promise.all([
-    page.waitForURL(/\/workspace\/c\/[^/?#]+$/, { timeout: 15000 }),
-    page.getByTestId('session-list-new-session').click(),
-  ])
+  await page.getByTestId('session-list-new-session').click()
+
+  await expect
+    .poll(() => page.url(), {
+      timeout: 15000,
+      message: 'Timed out waiting for new workspace session route',
+    })
+    .toMatch(/\/workspace\/c\/[^/?#]+$/)
 
   await expect(page.locator('textarea[placeholder*="Ask the agent"]')).toBeVisible({
     timeout: 15000,
