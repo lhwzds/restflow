@@ -172,7 +172,7 @@ async function requestIpcDirect<T>(request: Record<string, unknown>): Promise<T>
 
 async function deleteBackgroundTaskDirect(taskId: string): Promise<void> {
   const result = await requestIpcDirect<BackgroundAgentDeleteResult>({
-    type: 'DeleteBackgroundAgent',
+    type: 'DeleteTask',
     data: { id: taskId },
   })
 

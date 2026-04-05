@@ -199,6 +199,10 @@ mod tests {
             Err(err) => err,
         };
         assert!(err.to_string().contains("daemon is not running"));
+        assert!(
+            err.to_string()
+                .contains("Start it with 'restflow daemon start'")
+        );
 
         match prev {
             Some(value) => unsafe { std::env::set_var("RESTFLOW_DIR", value) },

@@ -13,8 +13,8 @@ use restflow_contracts::request::{
 };
 use restflow_tools::ToolError;
 use restflow_traits::store::{
-    BackgroundAgentConvertSessionRequest as StoreBackgroundAgentConvertSessionRequest,
-    BackgroundAgentCreateRequest, BackgroundAgentUpdateRequest,
+    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
+    BackgroundAgentUpdateRequest,
 };
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -25,9 +25,9 @@ type CoreTaskControlAction = TaskControlAction;
 type CoreTaskPatch = TaskPatch;
 type CoreTaskSchedule = TaskSchedule;
 type CoreTaskSpec = TaskSpec;
-type StoreTaskCreateRequest = BackgroundAgentCreateRequest;
-type StoreTaskFromSessionRequest = StoreBackgroundAgentConvertSessionRequest;
-type StoreTaskUpdateRequest = BackgroundAgentUpdateRequest;
+type LegacyStoreTaskCreateRequest = BackgroundAgentCreateRequest;
+type LegacyStoreTaskFromSessionRequest = BackgroundAgentConvertSessionRequest;
+type LegacyStoreTaskUpdateRequest = BackgroundAgentUpdateRequest;
 
 pub(crate) struct ConvertSessionToTaskOptions {
     pub(crate) name: Option<String>,
@@ -127,8 +127,8 @@ pub(crate) fn core_patch_to_contract(patch: CoreTaskPatch) -> anyhow::Result<Con
 
 pub(crate) fn core_task_spec_to_store_create_request(
     spec: &CoreTaskSpec,
-) -> anyhow::Result<StoreTaskCreateRequest> {
-    Ok(StoreTaskCreateRequest {
+) -> anyhow::Result<LegacyStoreTaskCreateRequest> {
+    Ok(LegacyStoreTaskCreateRequest {
         name: spec.name.clone(),
         agent_id: spec.agent_id.clone(),
         chat_session_id: spec.chat_session_id.clone(),
@@ -147,15 +147,15 @@ pub(crate) fn core_task_spec_to_store_create_request(
 
 pub(crate) fn core_spec_to_create_request(
     spec: &CoreTaskSpec,
-) -> anyhow::Result<StoreTaskCreateRequest> {
+) -> anyhow::Result<LegacyStoreTaskCreateRequest> {
     core_task_spec_to_store_create_request(spec)
 }
 
 pub(crate) fn core_patch_to_update_request(
     id: String,
     patch: &CoreTaskPatch,
-) -> anyhow::Result<StoreTaskUpdateRequest> {
-    Ok(StoreTaskUpdateRequest {
+) -> anyhow::Result<LegacyStoreTaskUpdateRequest> {
+    Ok(LegacyStoreTaskUpdateRequest {
         id,
         name: patch.name.clone(),
         description: patch.description.clone(),
@@ -177,7 +177,7 @@ pub(crate) fn core_patch_to_update_request(
 }
 
 pub(crate) fn store_create_request_to_core_task_spec(
-    request: StoreTaskCreateRequest,
+    request: LegacyStoreTaskCreateRequest,
 ) -> Result<CoreTaskSpec, ToolError> {
     let schedule =
         decode_contract::<ContractTaskSchedule, CoreTaskSchedule>("schedule", request.schedule)?;
@@ -214,13 +214,13 @@ pub(crate) fn store_create_request_to_core_task_spec(
 }
 
 pub(crate) fn create_request_to_spec(
-    request: StoreTaskCreateRequest,
+    request: LegacyStoreTaskCreateRequest,
 ) -> Result<CoreTaskSpec, ToolError> {
     store_create_request_to_core_task_spec(request)
 }
 
 pub(crate) fn update_request_to_patch(
-    request: StoreTaskUpdateRequest,
+    request: LegacyStoreTaskUpdateRequest,
 ) -> Result<CoreTaskPatch, ToolError> {
     Ok(CoreTaskPatch {
         name: request.name,
@@ -281,7 +281,7 @@ pub(crate) fn parse_control_action(action: &str) -> Result<CoreTaskControlAction
 }
 
 pub(crate) fn task_from_session_request_to_options(
-    request: StoreTaskFromSessionRequest,
+    request: LegacyStoreTaskFromSessionRequest,
 ) -> Result<ConvertSessionToTaskOptions, ToolError> {
     Ok(ConvertSessionToTaskOptions {
         name: request.name,
@@ -312,15 +312,15 @@ pub(crate) fn task_from_session_request_to_options(
 }
 
 pub(crate) fn convert_session_request_to_options(
-    request: StoreTaskFromSessionRequest,
+    request: LegacyStoreTaskFromSessionRequest,
 ) -> Result<ConvertSessionRequestOptions, ToolError> {
     task_from_session_request_to_options(request)
 }
 
 pub(crate) fn contract_task_from_session_request_to_store(
     request: ContractTaskFromSessionRequest,
-) -> anyhow::Result<StoreTaskFromSessionRequest> {
-    Ok(StoreTaskFromSessionRequest {
+) -> anyhow::Result<LegacyStoreTaskFromSessionRequest> {
+    Ok(LegacyStoreTaskFromSessionRequest {
         session_id: request.session_id,
         name: request.name,
         schedule: request.schedule,
@@ -338,7 +338,7 @@ pub(crate) fn contract_task_from_session_request_to_store(
 
 pub(crate) fn contract_convert_request_to_store(
     request: ContractTaskFromSessionRequest,
-) -> anyhow::Result<StoreTaskFromSessionRequest> {
+) -> anyhow::Result<LegacyStoreTaskFromSessionRequest> {
     contract_task_from_session_request_to_store(request)
 }
 

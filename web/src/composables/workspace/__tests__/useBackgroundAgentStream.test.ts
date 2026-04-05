@@ -1,11 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import {
-  useBackgroundAgentStream,
-  useTaskStream,
-} from '../useBackgroundAgentStream'
+import * as legacyStreamModule from '../useBackgroundAgentStream'
+import { useTaskStream } from '../useTaskStream'
 
 describe('useBackgroundAgentStream', () => {
-  it('is a thin alias for the canonical task stream composable', () => {
-    expect(useBackgroundAgentStream).toBe(useTaskStream)
+  it('aliases the legacy composable name without re-exporting the canonical symbol', () => {
+    expect(legacyStreamModule.useBackgroundAgentStream).toBe(useTaskStream)
+    expect('useTaskStream' in legacyStreamModule).toBe(false)
   })
 })

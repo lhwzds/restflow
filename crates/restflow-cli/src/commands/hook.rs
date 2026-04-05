@@ -6,6 +6,8 @@ use crate::executor::CommandExecutor;
 use crate::output::{OutputFormat, json::print_json};
 use restflow_core::models::{Hook, HookAction, HookEvent};
 
+// Hook lifecycle is daemon-owned runtime state. CLI hook commands are transport
+// delegates only and must route all mutations through CommandExecutor.
 pub async fn run(
     executor: Arc<dyn CommandExecutor>,
     command: HookCommands,
@@ -1016,6 +1018,44 @@ mod tests {
             }
             other => panic!("unexpected call: {other:?}"),
         }
+    }
+
+    #[tokio::test]
+    async fn hook_update_missing_id_never_dispatches_update() {
+        let executor = Arc::new(RecordingExecutor::new(
+            Vec::new(),
+            Hook::new(
+                "unused".to_string(),
+                HookEvent::TaskStarted,
+                HookAction::RunTask {
+                    agent_id: "agent-1".to_string(),
+                    input_template: String::new(),
+                },
+            ),
+            true,
+        ));
+
+        let err = run(
+            executor.clone(),
+            HookCommands::Update {
+                id: "missing-hook".to_string(),
+                name: "updated".to_string(),
+                event: "task_failed".to_string(),
+                action: "script".to_string(),
+                url: None,
+                script: Some("/tmp/update-hook.sh".to_string()),
+                channel: None,
+                message: None,
+                agent: None,
+                input: None,
+            },
+            OutputFormat::Json,
+        )
+        .await
+        .expect_err("missing hook update should fail");
+
+        assert!(err.to_string().contains("Hook not found: missing-hook"));
+        assert_eq!(executor.calls(), vec![HookCall::List]);
     }
 
     #[tokio::test]

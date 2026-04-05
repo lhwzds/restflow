@@ -1,5 +1,5 @@
 /**
- * Legacy compatibility wrapper for background-agent memory API imports.
+ * @deprecated Deep-import compatibility shim. Prefer importing task memory APIs from `./memory`.
  */
 
 export {

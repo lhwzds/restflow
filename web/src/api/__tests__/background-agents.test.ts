@@ -15,6 +15,7 @@ import {
   stopTask,
   updateTask,
 } from '../task'
+import * as legacyApi from '../background-agents'
 import {
   convertSessionToBackgroundAgent,
   deleteBackgroundAgent,
@@ -156,5 +157,10 @@ describe('task api memory endpoints', () => {
     expect(convertSessionToBackgroundAgent).toBe(createTaskFromSession)
     expect(getBackgroundAgentStreamEventName).toBe(getTaskStreamEventName)
     expect(updateBackgroundAgent).toBe(updateTask)
+  })
+
+  it('does not re-export canonical task helpers from the deprecated path', () => {
+    expect('getHeartbeatEventName' in legacyApi).toBe(false)
+    expect('steerTask' in legacyApi).toBe(false)
   })
 })

@@ -18,7 +18,8 @@ use std::sync::Arc;
 use crate::Result;
 use crate::{Tool, ToolError, ToolOutput};
 use restflow_traits::store::{
-    BackgroundAgentStore, KvStore, MANAGE_TASK_OPERATIONS_CSV, TaskStore,
+    BackgroundAgentStore, KvStore, MANAGE_BACKGROUND_AGENTS_TOOL_NAME, MANAGE_TASK_OPERATIONS_CSV,
+    MANAGE_TASKS_TOOL_NAME, TaskStore,
 };
 use restflow_traits::{AgentOperationAssessor, normalize_legacy_approval_replay};
 use types::TaskAction;
@@ -141,7 +142,7 @@ pub fn legacy_tool_description() -> &'static str {
 #[async_trait]
 impl Tool for TaskTool {
     fn name(&self) -> &str {
-        "manage_tasks"
+        MANAGE_TASKS_TOOL_NAME
     }
 
     fn description(&self) -> &str {
@@ -406,7 +407,7 @@ impl Tool for TaskTool {
 #[async_trait]
 impl Tool for BackgroundAgentTool {
     fn name(&self) -> &str {
-        "manage_background_agents"
+        MANAGE_BACKGROUND_AGENTS_TOOL_NAME
     }
 
     fn description(&self) -> &str {

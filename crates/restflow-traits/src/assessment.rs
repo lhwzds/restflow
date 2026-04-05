@@ -3,10 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::ToolError;
 use crate::store::{
-    AgentCreateRequest, AgentUpdateRequest, BackgroundAgentControlRequest,
-    BackgroundAgentConvertSessionRequest, BackgroundAgentCreateRequest,
-    BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest, TaskControlRequest,
-    TaskConvertSessionRequest, TaskCreateRequest, TaskDeleteRequest, TaskUpdateRequest,
+    AgentCreateRequest, AgentUpdateRequest, TaskControlRequest, TaskConvertSessionRequest,
+    TaskCreateRequest, TaskDeleteRequest, TaskUpdateRequest,
 };
 use crate::subagent::ContractRunSpawnRequest;
 
@@ -135,7 +133,12 @@ pub enum TaskCommandOutcome<T> {
     Executed { result: T },
 }
 
+#[doc(hidden)]
 pub type BackgroundAgentCommandOutcome<T> = TaskCommandOutcome<T>;
+
+pub mod compat {
+    pub use super::BackgroundAgentCommandOutcome;
+}
 
 #[async_trait]
 pub trait AgentOperationAssessor: Send + Sync {
@@ -197,27 +200,27 @@ pub trait AgentOperationAssessor: Send + Sync {
 
     async fn assess_background_agent_create(
         &self,
-        request: BackgroundAgentCreateRequest,
+        request: crate::store::BackgroundAgentCreateRequest,
     ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_background_agent_convert_session(
         &self,
-        request: BackgroundAgentConvertSessionRequest,
+        request: crate::store::BackgroundAgentConvertSessionRequest,
     ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_background_agent_update(
         &self,
-        request: BackgroundAgentUpdateRequest,
+        request: crate::store::BackgroundAgentUpdateRequest,
     ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_background_agent_delete(
         &self,
-        request: BackgroundAgentDeleteRequest,
+        request: crate::store::BackgroundAgentDeleteRequest,
     ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_background_agent_control(
         &self,
-        request: BackgroundAgentControlRequest,
+        request: crate::store::BackgroundAgentControlRequest,
     ) -> Result<OperationAssessment, ToolError>;
 
     async fn assess_background_agent_template(
@@ -246,6 +249,10 @@ pub trait AgentOperationAssessor: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::store::compat::{
+        BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
+        BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest, BackgroundAgentUpdateRequest,
+    };
     use serde_json::json;
     use std::sync::{Arc, Mutex};
 

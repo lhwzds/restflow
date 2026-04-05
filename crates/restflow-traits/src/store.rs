@@ -56,6 +56,23 @@ pub const MANAGE_BACKGROUND_AGENT_OPERATIONS_CSV: &str = MANAGE_TASK_OPERATIONS_
 pub const MANAGE_TASKS_TOOL_DESCRIPTION: &str = "Manage tasks. CRITICAL: create only defines the task, to immediately execute use 'run' operation. Operations: create (define new task, does NOT run), convert_session (convert an existing chat session into a task), promote_to_background (promote current interactive session into a task), run_batch (create multiple tasks from workers/team and optionally trigger run_now), save_team/list_teams/get_team/delete_team (manage reusable batch templates), run (trigger now), pause/resume (toggle schedule), stop (interrupt current/future execution without deleting the definition), delete (remove definition; auto-created bound chat session is archived when safe), list (browse tasks), progress (execution history), send_message/list_messages (interact with running tasks), list_deliverables (read typed outputs), list_traces/read_trace (diagnose execution traces).";
 
 pub const MANAGE_BACKGROUND_AGENTS_TOOL_DESCRIPTION: &str = MANAGE_TASKS_TOOL_DESCRIPTION;
+pub const MANAGE_TASKS_TOOL_NAME: &str = "manage_tasks";
+pub const MANAGE_BACKGROUND_AGENTS_TOOL_NAME: &str = "manage_background_agents";
+
+pub fn canonical_task_tool_name(tool_name: &str) -> Option<&'static str> {
+    match tool_name {
+        MANAGE_TASKS_TOOL_NAME | MANAGE_BACKGROUND_AGENTS_TOOL_NAME => Some(MANAGE_TASKS_TOOL_NAME),
+        _ => None,
+    }
+}
+
+pub fn is_task_management_tool_name(tool_name: &str) -> bool {
+    canonical_task_tool_name(tool_name).is_some()
+}
+
+pub fn is_legacy_task_tool_name(tool_name: &str) -> bool {
+    tool_name == MANAGE_BACKGROUND_AGENTS_TOOL_NAME
+}
 
 // ── MemoryStore ──────────────────────────────────────────────────────
 
@@ -268,13 +285,21 @@ pub struct TaskMessageListRequest {
     pub limit: Option<usize>,
 }
 
+#[doc(hidden)]
 pub type BackgroundAgentCreateRequest = TaskCreateRequest;
+#[doc(hidden)]
 pub type BackgroundAgentConvertSessionRequest = TaskConvertSessionRequest;
+#[doc(hidden)]
 pub type BackgroundAgentUpdateRequest = TaskUpdateRequest;
+#[doc(hidden)]
 pub type BackgroundAgentControlRequest = TaskControlRequest;
+#[doc(hidden)]
 pub type BackgroundAgentDeleteRequest = TaskDeleteRequest;
+#[doc(hidden)]
 pub type BackgroundAgentProgressRequest = TaskProgressRequest;
+#[doc(hidden)]
 pub type BackgroundAgentMessageRequest = TaskMessageRequest;
+#[doc(hidden)]
 pub type BackgroundAgentMessageListRequest = TaskMessageListRequest;
 
 #[cfg(test)]
@@ -351,6 +376,25 @@ mod tests {
         }))
         .expect("task delete request should deserialize");
         assert_eq!(delete.approval_id.as_deref(), Some("approval-5"));
+    }
+
+    #[test]
+    fn task_management_tool_names_resolve_to_canonical_name() {
+        assert_eq!(
+            canonical_task_tool_name(MANAGE_TASKS_TOOL_NAME),
+            Some(MANAGE_TASKS_TOOL_NAME)
+        );
+        assert_eq!(
+            canonical_task_tool_name(MANAGE_BACKGROUND_AGENTS_TOOL_NAME),
+            Some(MANAGE_TASKS_TOOL_NAME)
+        );
+        assert!(is_task_management_tool_name(MANAGE_TASKS_TOOL_NAME));
+        assert!(is_task_management_tool_name(
+            MANAGE_BACKGROUND_AGENTS_TOOL_NAME
+        ));
+        assert!(is_legacy_task_tool_name(MANAGE_BACKGROUND_AGENTS_TOOL_NAME));
+        assert!(!is_legacy_task_tool_name(MANAGE_TASKS_TOOL_NAME));
+        assert!(!is_task_management_tool_name("manage_agents"));
     }
 
     #[derive(Default)]
@@ -516,8 +560,11 @@ pub struct TaskTraceReadRequest {
     pub line_limit: Option<usize>,
 }
 
+#[doc(hidden)]
 pub type BackgroundAgentDeliverableListRequest = TaskDeliverableListRequest;
+#[doc(hidden)]
 pub type BackgroundAgentTraceListRequest = TaskTraceListRequest;
+#[doc(hidden)]
 pub type BackgroundAgentTraceReadRequest = TaskTraceReadRequest;
 
 pub trait BackgroundAgentStore: Send + Sync {
@@ -607,6 +654,17 @@ pub trait TaskStore: BackgroundAgentStore + Send + Sync {
 }
 
 impl<T: ?Sized> TaskStore for T where T: BackgroundAgentStore + Send + Sync {}
+
+pub mod compat {
+    pub use super::{
+        BackgroundAgentControlRequest, BackgroundAgentConvertSessionRequest,
+        BackgroundAgentCreateRequest, BackgroundAgentDeleteRequest,
+        BackgroundAgentDeliverableListRequest, BackgroundAgentMessageListRequest,
+        BackgroundAgentMessageRequest, BackgroundAgentProgressRequest, BackgroundAgentStore,
+        BackgroundAgentTraceListRequest, BackgroundAgentTraceReadRequest,
+        BackgroundAgentUpdateRequest, MANAGE_BACKGROUND_AGENTS_TOOL_NAME,
+    };
+}
 
 // ── SessionStore ─────────────────────────────────────────────────────
 

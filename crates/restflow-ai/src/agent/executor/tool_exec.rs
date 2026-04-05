@@ -12,6 +12,8 @@ use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
+use restflow_traits::store::is_task_management_tool_name;
+
 use crate::agent::stream::StreamEmitter;
 use crate::error::{AiError, Result};
 use crate::llm::ToolCall;
@@ -92,7 +94,7 @@ impl AgentExecutor {
     }
 
     fn inject_promote_session_id(tool_name: &str, args: &mut Value, chat_session_id: Option<&str>) {
-        if tool_name != "manage_background_agents" && tool_name != "manage_tasks" {
+        if !is_task_management_tool_name(tool_name) {
             return;
         }
         let Some(chat_session_id) = chat_session_id else {
