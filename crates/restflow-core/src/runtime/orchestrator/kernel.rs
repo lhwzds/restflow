@@ -6,8 +6,8 @@ use tokio::sync::mpsc;
 
 use crate::models::{ChatSession, MemoryConfig, SteerMessage};
 use crate::runtime::background_agent::{
-    AgentExecutor as BackgroundAgentExecutor, AgentRuntimeExecutor, ExecutionResult,
-    SessionExecutionResult, SessionInputMode, SessionTurnRuntimeOptions,
+    AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionExecutionResult,
+    SessionInputMode, SessionTurnRuntimeOptions,
 };
 use restflow_ai::AgentState;
 use restflow_ai::agent::StreamEmitter;
@@ -109,8 +109,7 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        BackgroundAgentExecutor::execute_with_emitter(
-            self,
+        self.execute_with_emitter(
             agent_id,
             background_task_id,
             input,
@@ -130,8 +129,7 @@ impl ExecutionBackend for AgentRuntimeExecutor {
         steer_rx: Option<mpsc::Receiver<SteerMessage>>,
         emitter: Option<Box<dyn StreamEmitter>>,
     ) -> Result<ExecutionResult> {
-        BackgroundAgentExecutor::execute_from_state(
-            self,
+        self.execute_from_state(
             agent_id,
             background_task_id,
             state,

@@ -25,7 +25,10 @@ use crate::storage::Storage;
 use restflow_storage::{AgentSettings, ApiSettings};
 use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
-use restflow_traits::store::DiagnosticsProvider;
+use restflow_traits::store::{
+    DiagnosticsProvider, MANAGE_BACKGROUND_AGENTS_TOOL_NAME, MANAGE_TASKS_TOOL_NAME,
+    is_legacy_task_tool_name, is_task_management_tool_name,
+};
 
 // Re-export tool types from restflow-tools
 pub use restflow_tools::impls::{
@@ -47,6 +50,10 @@ const DEFAULT_SECURITY_TASK_ID: &str = "tool-registry";
 pub fn secret_resolver_from_storage(storage: &Storage) -> SecretResolver {
     let secrets = storage.secrets.clone();
     Arc::new(move |key| secrets.get_secret(key).ok().flatten())
+}
+
+fn wants_named_tool(tool_names: &[String], tool_name: &str) -> bool {
+    tool_names.iter().any(|name| name == tool_name)
 }
 
 /// Default tools for main agents.
@@ -165,20 +172,17 @@ pub fn registry_from_allowlist_with_security_gate(
         return Ok(ToolRegistry::new());
     }
 
-    let wants_manage_agents = tool_names.iter().any(|name| name == "manage_agents");
-    let wants_manage_tasks = tool_names.iter().any(|name| name == "manage_tasks");
-    let wants_manage_tasks_alias = tool_names
-        .iter()
-        .any(|name| name == "manage_background_agents");
+    let wants_manage_agents = wants_named_tool(tool_names, "manage_agents");
+    let wants_manage_tasks = wants_named_tool(tool_names, MANAGE_TASKS_TOOL_NAME);
+    let wants_manage_tasks_alias = tool_names.iter().any(|name| is_legacy_task_tool_name(name));
     let wants_manage_task_tools = wants_manage_tasks || wants_manage_tasks_alias;
     let wants_spawn_subagent = tool_names.iter().any(|name| name == "spawn_subagent");
     let wants_wait_subagents = tool_names.iter().any(|name| name == "wait_subagents");
     let wants_list_subagents = tool_names.iter().any(|name| name == "list_subagents");
     let wants_guarded_assessor =
         wants_manage_agents || wants_manage_task_tools || wants_spawn_subagent;
-    let wants_shared_kv_store = wants_manage_task_tools
-        || wants_spawn_subagent
-        || tool_names.iter().any(|name| name == "kv_store");
+    let wants_shared_kv_store =
+        wants_manage_task_tools || wants_spawn_subagent || wants_named_tool(tool_names, "kv_store");
 
     let shared_assessor =
         storage.and_then(|value| wants_guarded_assessor.then(|| build_runtime_assessor(value)));
@@ -399,7 +403,8 @@ pub fn registry_from_allowlist_with_security_gate(
             }
 
             // --- Storage-backed tools ---
-            "manage_tasks" | "manage_background_agents" | "manage_agents" => {}
+            tool_name
+                if is_task_management_tool_name(tool_name) || tool_name == "manage_agents" => {}
             "manage_marketplace" => {
                 with_storage!(storage, "manage_marketplace", builder, |s| {
                     let registry_defaults = effective_config
@@ -633,7 +638,7 @@ pub fn registry_from_allowlist_with_security_gate(
             }
             if wants_manage_tasks_alias {
                 debug!(
-                    tool_name = "manage_background_agents",
+                    tool_name = MANAGE_BACKGROUND_AGENTS_TOOL_NAME,
                     "Storage missing, skipping"
                 );
             }

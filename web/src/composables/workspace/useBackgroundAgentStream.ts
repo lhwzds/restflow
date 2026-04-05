@@ -1,9 +1,6 @@
-export {
-  useTaskStream as useBackgroundAgentStream,
-  useTaskStream,
-  type StreamState as BackgroundAgentStreamState,
-  type HeartbeatState,
-  type StreamState,
-  type UseTaskStreamReturn,
-  type UseTaskStreamReturn as UseBackgroundAgentStreamReturn,
+/** @deprecated Deep-import compatibility shim. Prefer `useTaskStream`. */
+export { useTaskStream as useBackgroundAgentStream } from './useTaskStream'
+export type {
+  StreamState as BackgroundAgentStreamState,
+  UseTaskStreamReturn as UseBackgroundAgentStreamReturn,
 } from './useTaskStream'

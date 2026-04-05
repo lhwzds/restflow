@@ -1,5 +1,5 @@
 /**
- * Legacy compatibility wrapper for execution-session API imports.
+ * @deprecated Deep-import compatibility shim. Prefer importing run APIs from `./execution-console`.
  */
 
 export {

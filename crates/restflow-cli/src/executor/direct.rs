@@ -33,6 +33,8 @@ use restflow_storage::PairingStorage;
 
 const TELEGRAM_CHAT_ID_SECRET: &str = "TELEGRAM_CHAT_ID";
 const TELEGRAM_DEFAULT_CHAT_ID_SECRET: &str = "TELEGRAM_DEFAULT_CHAT_ID";
+const HOOK_DAEMON_MODE_MESSAGE: &str =
+    "Hook operations require daemon mode. Use 'restflow daemon start' first.";
 
 /// Test-only executor used by command unit tests.
 ///
@@ -279,23 +281,23 @@ impl CommandExecutor for DirectExecutor {
     }
 
     async fn list_hooks(&self) -> Result<Vec<Hook>> {
-        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
+        bail!(HOOK_DAEMON_MODE_MESSAGE)
     }
 
     async fn create_hook(&self, _hook: Hook) -> Result<Hook> {
-        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
+        bail!(HOOK_DAEMON_MODE_MESSAGE)
     }
 
     async fn update_hook(&self, _id: &str, _hook: Hook) -> Result<Hook> {
-        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
+        bail!(HOOK_DAEMON_MODE_MESSAGE)
     }
 
     async fn delete_hook(&self, _id: &str) -> Result<bool> {
-        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
+        bail!(HOOK_DAEMON_MODE_MESSAGE)
     }
 
     async fn test_hook(&self, _id: &str) -> Result<()> {
-        bail!("Hook operations require daemon mode. Use 'restflow daemon start' first.")
+        bail!(HOOK_DAEMON_MODE_MESSAGE)
     }
 
     async fn list_pairing_state(&self) -> Result<PairingStateResponse> {
@@ -599,7 +601,7 @@ fn route_binding_response(
 
 #[cfg(test)]
 mod tests {
-    use super::DirectExecutor;
+    use super::{DirectExecutor, HOOK_DAEMON_MODE_MESSAGE};
     use crate::executor::CommandExecutor;
     use restflow_core::models::{Hook, HookAction, HookEvent};
     use tempfile::tempdir;
@@ -630,51 +632,31 @@ mod tests {
         );
 
         let list_err = executor.list_hooks().await.expect_err("list should fail");
-        assert!(
-            list_err
-                .to_string()
-                .contains("Hook operations require daemon mode")
-        );
+        assert_eq!(list_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
 
         let create_err = executor
             .create_hook(hook.clone())
             .await
             .expect_err("create should fail");
-        assert!(
-            create_err
-                .to_string()
-                .contains("Hook operations require daemon mode")
-        );
+        assert_eq!(create_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
 
         let update_err = executor
             .update_hook("hook-1", hook)
             .await
             .expect_err("update should fail");
-        assert!(
-            update_err
-                .to_string()
-                .contains("Hook operations require daemon mode")
-        );
+        assert_eq!(update_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
 
         let delete_err = executor
             .delete_hook("hook-1")
             .await
             .expect_err("delete should fail");
-        assert!(
-            delete_err
-                .to_string()
-                .contains("Hook operations require daemon mode")
-        );
+        assert_eq!(delete_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
 
         let test_err = executor
             .test_hook("hook-1")
             .await
             .expect_err("test should fail");
-        assert!(
-            test_err
-                .to_string()
-                .contains("Hook operations require daemon mode")
-        );
+        assert_eq!(test_err.to_string(), HOOK_DAEMON_MODE_MESSAGE);
 
         match prev {
             Some(value) => unsafe { std::env::set_var("RESTFLOW_DIR", value) },

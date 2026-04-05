@@ -54,6 +54,7 @@ pub enum TaskExecutionMode {
     Direct,
 }
 
+#[doc(hidden)]
 pub type BackgroundAgentExecutionMode = TaskExecutionMode;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -64,6 +65,7 @@ pub enum TaskCommandError {
     Internal(String),
 }
 
+#[doc(hidden)]
 pub type BackgroundAgentCommandError = TaskCommandError;
 
 impl std::fmt::Display for TaskCommandError {
@@ -162,6 +164,7 @@ pub struct TaskCommandService {
     assessor: Option<Arc<dyn AgentOperationAssessor>>,
 }
 
+#[doc(hidden)]
 pub type BackgroundAgentCommandService = TaskCommandService;
 
 impl TaskCommandService {
@@ -303,9 +306,7 @@ impl TaskCommandService {
 
     fn assessor(&self) -> CommandResult<Arc<dyn AgentOperationAssessor>> {
         self.assessor.clone().ok_or_else(|| {
-            TaskCommandError::internal(
-                "Task capability assessment is unavailable in this runtime.",
-            )
+            TaskCommandError::internal("Task capability assessment is unavailable in this runtime.")
         })
     }
 
@@ -314,9 +315,7 @@ impl TaskCommandService {
         mut request: TaskCreateRequest,
     ) -> CommandResult<TaskCreateRequest> {
         if request.agent_id.trim().is_empty() {
-            return Err(TaskCommandError::validation(
-                "agent_id must not be empty",
-            ));
+            return Err(TaskCommandError::validation("agent_id must not be empty"));
         }
         request.agent_id = self.resolve_default_or_existing_agent_id(&request.agent_id)?;
         Ok(request)
@@ -327,9 +326,7 @@ impl TaskCommandService {
         mut request: TaskUpdateRequest,
     ) -> CommandResult<TaskUpdateRequest> {
         if request.id.trim().is_empty() {
-            return Err(TaskCommandError::validation(
-                "id must not be empty",
-            ));
+            return Err(TaskCommandError::validation("id must not be empty"));
         }
         request.id = self
             .storage
@@ -337,9 +334,7 @@ impl TaskCommandService {
             .map_err(TaskCommandError::from_anyhow)?;
         if let Some(agent_id) = request.agent_id.clone() {
             if agent_id.trim().is_empty() {
-                return Err(TaskCommandError::validation(
-                    "agent_id must not be empty",
-                ));
+                return Err(TaskCommandError::validation("agent_id must not be empty"));
             }
             request.agent_id = Some(self.resolve_default_or_existing_agent_id(&agent_id)?);
         }
@@ -351,18 +346,15 @@ impl TaskCommandService {
         mut request: TaskControlRequest,
     ) -> CommandResult<(TaskControlRequest, TaskControlAction)> {
         if request.id.trim().is_empty() {
-            return Err(TaskCommandError::validation(
-                "id must not be empty",
-            ));
+            return Err(TaskCommandError::validation("id must not be empty"));
         }
         request.id = self
             .storage
             .resolve_existing_task_id(&request.id)
             .map_err(TaskCommandError::from_anyhow)?;
-        let action = parse_control_action(&request.action)
-            .map_err(TaskCommandError::from_tool_error)?;
-        request.action =
-            to_contract(action.clone()).map_err(TaskCommandError::from_anyhow)?;
+        let action =
+            parse_control_action(&request.action).map_err(TaskCommandError::from_tool_error)?;
+        request.action = to_contract(action.clone()).map_err(TaskCommandError::from_anyhow)?;
         Ok((request, action))
     }
 
@@ -371,9 +363,7 @@ impl TaskCommandService {
         mut request: TaskDeleteRequest,
     ) -> CommandResult<TaskDeleteRequest> {
         if request.id.trim().is_empty() {
-            return Err(TaskCommandError::validation(
-                "id must not be empty",
-            ));
+            return Err(TaskCommandError::validation("id must not be empty"));
         }
         request.id = self
             .storage
@@ -393,9 +383,7 @@ impl TaskCommandService {
 
     fn validate_create_request(&self, request: &TaskCreateRequest) -> CommandResult<()> {
         if request.name.trim().is_empty() {
-            return Err(TaskCommandError::validation(
-                "name must not be empty",
-            ));
+            return Err(TaskCommandError::validation("name must not be empty"));
         }
         Ok(())
     }
@@ -404,27 +392,21 @@ impl TaskCommandService {
         if let Some(name) = request.name.as_deref()
             && name.trim().is_empty()
         {
-            return Err(TaskCommandError::validation(
-                "name must not be empty",
-            ));
+            return Err(TaskCommandError::validation("name must not be empty"));
         }
         Ok(())
     }
 
     fn validate_control_request(&self, request: &TaskControlRequest) -> CommandResult<()> {
         if request.action.trim().is_empty() {
-            return Err(TaskCommandError::validation(
-                "action must not be empty",
-            ));
+            return Err(TaskCommandError::validation("action must not be empty"));
         }
         Ok(())
     }
 
     fn validate_delete_request(&self, request: &TaskDeleteRequest) -> CommandResult<()> {
         if request.id.trim().is_empty() {
-            return Err(TaskCommandError::validation(
-                "id must not be empty",
-            ));
+            return Err(TaskCommandError::validation("id must not be empty"));
         }
         Ok(())
     }
@@ -434,16 +416,12 @@ impl TaskCommandService {
         request: &TaskConvertSessionRequest,
     ) -> CommandResult<()> {
         if request.session_id.is_empty() {
-            return Err(TaskCommandError::validation(
-                "session_id must not be empty",
-            ));
+            return Err(TaskCommandError::validation("session_id must not be empty"));
         }
         if let Some(name) = request.name.as_deref()
             && name.trim().is_empty()
         {
-            return Err(TaskCommandError::validation(
-                "name must not be empty",
-            ));
+            return Err(TaskCommandError::validation("name must not be empty"));
         }
         Ok(())
     }
@@ -475,9 +453,7 @@ impl TaskCommandService {
         execute: impl FnOnce() -> CommandResult<T>,
     ) -> CommandResult<T> {
         if !assessment.blockers.is_empty() {
-            return Err(TaskCommandError::classify(assessment_summary(
-                &assessment,
-            )));
+            return Err(TaskCommandError::classify(assessment_summary(&assessment)));
         }
         execute()
     }
@@ -506,15 +482,13 @@ impl TaskCommandService {
     pub fn into_direct_result<T>(outcome: TaskCommandOutcome<T>) -> CommandResult<T> {
         match outcome {
             TaskCommandOutcome::Executed { result } => Ok(result),
-            TaskCommandOutcome::Blocked { assessment } => Err(
-                TaskCommandError::classify(assessment_summary(&assessment)),
-            ),
-            TaskCommandOutcome::Preview { .. }
-            | TaskCommandOutcome::ConfirmationRequired { .. } => {
-                Err(TaskCommandError::internal(
-                    "Direct task execution returned a guarded outcome.",
-                ))
+            TaskCommandOutcome::Blocked { assessment } => {
+                Err(TaskCommandError::classify(assessment_summary(&assessment)))
             }
+            TaskCommandOutcome::Preview { .. }
+            | TaskCommandOutcome::ConfirmationRequired { .. } => Err(TaskCommandError::internal(
+                "Direct task execution returned a guarded outcome.",
+            )),
         }
     }
 
@@ -530,8 +504,7 @@ impl TaskCommandService {
             .assess_task_create(request.clone())
             .await
             .map_err(TaskCommandError::from_tool_error)?;
-        let spec = create_request_to_spec(request)
-            .map_err(TaskCommandError::from_tool_error)?;
+        let spec = create_request_to_spec(request).map_err(TaskCommandError::from_tool_error)?;
         Ok((guard, assessment, spec))
     }
 
@@ -548,8 +521,7 @@ impl TaskCommandService {
             .assess_task_update(request.clone())
             .await
             .map_err(TaskCommandError::from_tool_error)?;
-        let patch = update_request_to_patch(request)
-            .map_err(TaskCommandError::from_tool_error)?;
+        let patch = update_request_to_patch(request).map_err(TaskCommandError::from_tool_error)?;
         Ok((guard, assessment, resolved_id, patch))
     }
 
@@ -673,8 +645,8 @@ mod tests {
         ExecutionTraceStorage, MemoryStorage, SessionStorage,
     };
     use async_trait::async_trait;
-    use restflow_traits::TaskCommandOutcome;
     use restflow_traits::ContractSubagentSpawnRequest;
+    use restflow_traits::TaskCommandOutcome;
     use restflow_traits::ToolError;
     use restflow_traits::assessment::{
         AgentOperationAssessor, OperationAssessment, OperationAssessmentIntent,
@@ -1122,21 +1094,13 @@ mod tests {
         }
     }
 
-    fn setup() -> (
-        TaskCommandService,
-        ChatSession,
-        tempfile::TempDir,
-    ) {
+    fn setup() -> (TaskCommandService, ChatSession, tempfile::TempDir) {
         setup_with_assessor(Arc::new(MockAssessor))
     }
 
     fn setup_with_assessor(
         assessor: Arc<dyn AgentOperationAssessor>,
-    ) -> (
-        TaskCommandService,
-        ChatSession,
-        tempfile::TempDir,
-    ) {
+    ) -> (TaskCommandService, ChatSession, tempfile::TempDir) {
         let _guard = prompt_files::agents_dir_env_lock();
         let temp_dir = tempdir().expect("tempdir");
         let db_path = temp_dir.path().join("background-command.db");
