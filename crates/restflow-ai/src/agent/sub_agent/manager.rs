@@ -13,7 +13,11 @@ use restflow_traits::subagent::{
 use super::spawn::{SubagentExecutionBridge, spawn_subagent};
 use super::tracker::SubagentTracker;
 
-/// Dependencies needed for sub-agent tools.
+/// Convenience dependency bundle for tests and local wiring.
+///
+/// The canonical runtime owner remains [`SubagentManagerImpl`]. Production
+/// callers should prefer the builder-style constructor on the manager instead
+/// of assembling this bundle in downstream crates.
 #[derive(Clone)]
 pub struct SubagentDeps {
     pub tracker: Arc<SubagentTracker>,
@@ -63,6 +67,15 @@ impl SubagentManagerImpl {
     /// Attach a shared orchestrator bridge for future spawns.
     pub fn with_orchestrator(mut self, orchestrator: Arc<dyn AgentOrchestrator>) -> Self {
         self.orchestrator = Some(orchestrator);
+        self
+    }
+
+    /// Attach an LLM client factory for per-spawn model overrides.
+    pub fn with_llm_client_factory(
+        mut self,
+        llm_client_factory: Arc<dyn LlmClientFactory>,
+    ) -> Self {
+        self.llm_client_factory = Some(llm_client_factory);
         self
     }
 
@@ -130,5 +143,83 @@ impl SubagentManager for SubagentManagerImpl {
 
     fn config(&self) -> &SubagentConfig {
         &self.config
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm::MockLlmClient;
+    use crate::tools::ToolRegistry;
+    use restflow_models::ClientKind;
+    use restflow_models::LlmProvider;
+    use restflow_traits::{SubagentDefSnapshot, SubagentDefSummary};
+    use tokio::sync::mpsc;
+
+    struct MockLookup;
+    struct MockFactory;
+
+    impl SubagentDefLookup for MockLookup {
+        fn lookup(&self, _id: &str) -> Option<SubagentDefSnapshot> {
+            None
+        }
+
+        fn list_callable(&self) -> Vec<SubagentDefSummary> {
+            Vec::new()
+        }
+    }
+
+    impl LlmClientFactory for MockFactory {
+        fn create_client(
+            &self,
+            model: &str,
+            _api_key: Option<&str>,
+        ) -> crate::Result<Arc<dyn LlmClient>> {
+            Ok(Arc::new(MockLlmClient::new(model)))
+        }
+
+        fn available_models(&self) -> Vec<String> {
+            vec!["mock-model".to_string()]
+        }
+
+        fn resolve_api_key(&self, _provider: LlmProvider) -> Option<String> {
+            None
+        }
+
+        fn provider_for_model(&self, _model: &str) -> Option<LlmProvider> {
+            Some(LlmProvider::OpenAI)
+        }
+
+        fn client_kind_for_model(&self, _model: &str) -> Option<ClientKind> {
+            Some(ClientKind::Http)
+        }
+    }
+
+    #[test]
+    fn builder_attaches_llm_client_factory() {
+        let (tx, rx) = mpsc::channel(8);
+        let tracker = Arc::new(SubagentTracker::new(tx, rx));
+        let definitions: Arc<dyn SubagentDefLookup> = Arc::new(MockLookup);
+        let llm_client: Arc<dyn LlmClient> = Arc::new(MockLlmClient::new("primary"));
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let factory: Arc<dyn LlmClientFactory> = Arc::new(MockFactory);
+
+        let manager = SubagentManagerImpl::new(
+            tracker,
+            definitions,
+            llm_client,
+            tool_registry,
+            SubagentConfig::default(),
+        )
+        .with_llm_client_factory(factory.clone());
+
+        assert!(manager.llm_client_factory.is_some());
+        assert!(Arc::ptr_eq(
+            manager
+                .llm_client_factory
+                .as_ref()
+                .expect("factory should be attached"),
+            &factory
+        ));
     }
 }

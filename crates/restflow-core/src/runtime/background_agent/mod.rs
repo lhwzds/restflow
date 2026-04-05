@@ -2,6 +2,9 @@
 //!
 //! This module provides the infrastructure for scheduling and executing agent
 //! tasks on a recurring or one-time basis, with optional notification support.
+//! It is the durable task runtime owner in `restflow-core`, while delegated
+//! sub-agent execution remains an `restflow-ai` capability injected into this
+//! runtime when needed.
 //!
 //! # Architecture
 //!

@@ -1,4 +1,6 @@
 use super::*;
+use restflow_ai::agent::SubagentManagerImpl;
+use restflow_traits::SubagentManager;
 
 impl AgentRuntimeExecutor {
     pub(super) fn to_agent_resource_limits(
@@ -85,23 +87,23 @@ impl AgentRuntimeExecutor {
         requested.min(context_cap)
     }
 
-    pub(super) fn build_subagent_deps(
+    pub(super) fn build_subagent_manager(
         &self,
         llm_client: Arc<dyn LlmClient>,
         tool_registry: Arc<ToolRegistry>,
-        llm_client_factory: Option<Arc<dyn LlmClientFactory>>,
-    ) -> SubagentDeps {
-        SubagentDeps {
-            tracker: self.subagent_tracker.clone(),
-            definitions: self.subagent_definitions.clone(),
+        llm_client_factory: Arc<dyn LlmClientFactory>,
+    ) -> SubagentManagerImpl {
+        SubagentManagerImpl::new(
+            self.subagent_tracker.clone(),
+            self.subagent_definitions.clone(),
             llm_client,
             tool_registry,
-            config: self.subagent_config.clone(),
-            llm_client_factory,
-            orchestrator: Some(Arc::new(AgentOrchestratorImpl::from_runtime_executor(
-                self.clone(),
-            ))),
-        }
+            self.subagent_config.clone(),
+        )
+        .with_llm_client_factory(llm_client_factory)
+        .with_orchestrator(Arc::new(AgentOrchestratorImpl::from_runtime_executor(
+            self.clone(),
+        )))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -129,10 +131,11 @@ impl AgentRuntimeExecutor {
             bash_config.clone(),
             workspace_root,
         )?);
-        let subagent_deps =
-            self.build_subagent_deps(llm_client, subagent_tool_registry, Some(factory.clone()));
-        let subagent_manager: Arc<dyn SubagentManager> =
-            Arc::new(SubagentManagerImpl::from_deps(&subagent_deps));
+        let subagent_manager: Arc<dyn SubagentManager> = Arc::new(self.build_subagent_manager(
+            llm_client,
+            subagent_tool_registry,
+            factory.clone(),
+        ));
         let mut registry = registry_from_allowlist(
             filtered_tool_names_ref,
             Some(subagent_manager),

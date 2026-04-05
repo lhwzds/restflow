@@ -133,16 +133,15 @@ pub(super) fn build_service_subagent_manager(
             telemetry_sink,
         },
     )));
-    let subagent_deps = SubagentDeps {
+    SubagentManagerImpl::new(
         tracker,
         definitions,
         llm_client,
         tool_registry,
-        config: subagent_config,
-        llm_client_factory: Some(llm_client_factory),
-        orchestrator: Some(orchestrator),
-    };
-    SubagentManagerImpl::from_deps(&subagent_deps)
+        subagent_config,
+    )
+    .with_llm_client_factory(llm_client_factory)
+    .with_orchestrator(orchestrator)
 }
 
 pub(super) fn create_subagent_manager(

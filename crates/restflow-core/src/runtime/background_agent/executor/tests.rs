@@ -84,16 +84,17 @@ fn test_executor_creation() {
 }
 
 #[test]
-fn test_build_subagent_deps_attaches_shared_orchestrator() {
+fn test_build_subagent_manager_attaches_shared_orchestrator() {
     let (storage, _temp_dir) = create_test_storage();
     let executor = create_test_executor(storage);
-    let deps = executor.build_subagent_deps(
+    let manager = executor.build_subagent_manager(
         Arc::new(CodexClient::new()),
         Arc::new(ToolRegistry::new()),
-        None,
+        Arc::new(DefaultLlmClientFactory::new(Default::default(), Vec::new())),
     );
 
-    assert!(deps.orchestrator.is_some());
+    assert!(manager.orchestrator.is_some());
+    assert!(manager.llm_client_factory.is_some());
 }
 
 #[test]

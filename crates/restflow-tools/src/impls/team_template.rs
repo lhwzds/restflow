@@ -11,6 +11,33 @@ use restflow_traits::store::KvStore;
 const TEAM_CONTENT_TYPE: &str = "application/json";
 const TEAM_VISIBILITY: &str = "shared";
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct TeamTemplateScope {
+    pub namespace: &'static str,
+    pub type_hint: &'static str,
+    pub version: u32,
+}
+
+impl TeamTemplateScope {
+    pub const fn new(namespace: &'static str, type_hint: &'static str, version: u32) -> Self {
+        Self {
+            namespace,
+            type_hint,
+            version,
+        }
+    }
+
+    pub fn key_prefix(self) -> String {
+        format!("{}:", self.namespace)
+    }
+
+    pub fn team_name_from_entry(self, entry: &Value) -> Option<String> {
+        let key = entry.get("key")?.as_str()?;
+        let prefix = self.key_prefix();
+        key.strip_prefix(&prefix).map(str::to_string)
+    }
+}
+
 pub(crate) struct TeamWriteResult<TMember> {
     pub document: TeamTemplateDocument<TMember>,
     pub storage: Value,
@@ -78,6 +105,17 @@ where
         .map_err(|error| ToolError::Tool(format!("Failed to decode team '{team_name}': {error}")))
 }
 
+pub(crate) fn load_scoped_team_document<TMember>(
+    store: &dyn KvStore,
+    scope: TeamTemplateScope,
+    team_name: &str,
+) -> Result<TeamTemplateDocument<TMember>>
+where
+    TMember: DeserializeOwned,
+{
+    load_team_document(store, scope.namespace, team_name)
+}
+
 pub(crate) fn save_team_document<TMember>(
     store: &dyn KvStore,
     namespace: &str,
@@ -126,6 +164,27 @@ where
     Ok(TeamWriteResult { document, storage })
 }
 
+pub(crate) fn save_scoped_team_document<TMember>(
+    store: &dyn KvStore,
+    scope: TeamTemplateScope,
+    team_name: &str,
+    members: Vec<TMember>,
+    tags: Option<Vec<String>>,
+) -> Result<TeamWriteResult<TMember>>
+where
+    TMember: Serialize + DeserializeOwned + Clone,
+{
+    save_team_document(
+        store,
+        scope.namespace,
+        scope.type_hint,
+        scope.version,
+        team_name,
+        members,
+        tags,
+    )
+}
+
 pub(crate) fn list_team_entries(store: &dyn KvStore, namespace: &str) -> Result<Vec<Value>> {
     let payload = store.list_entries(Some(namespace))?;
     Ok(payload
@@ -133,6 +192,13 @@ pub(crate) fn list_team_entries(store: &dyn KvStore, namespace: &str) -> Result<
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default())
+}
+
+pub(crate) fn list_scoped_team_entries(
+    store: &dyn KvStore,
+    scope: TeamTemplateScope,
+) -> Result<Vec<Value>> {
+    list_team_entries(store, scope.namespace)
 }
 
 pub(crate) fn delete_team_document(
@@ -146,6 +212,14 @@ pub(crate) fn delete_team_document(
         "team": validate_team_name(team_name)?,
         "result": deleted
     }))
+}
+
+pub(crate) fn delete_scoped_team_document(
+    store: &dyn KvStore,
+    scope: TeamTemplateScope,
+    team_name: &str,
+) -> Result<Value> {
+    delete_team_document(store, scope.namespace, team_name)
 }
 
 #[cfg(test)]
@@ -243,5 +317,38 @@ mod tests {
         let loaded: TeamTemplateDocument<Value> =
             load_team_document(&store, "demo_team", "TeamA").unwrap();
         assert_eq!(loaded.members.len(), 1);
+    }
+
+    #[test]
+    fn scoped_helpers_round_trip_document() {
+        let store = MockKvStore::default();
+        let scope = TeamTemplateScope::new("subagent_team", "subagent_team", 3);
+
+        let saved = save_scoped_team_document(
+            &store,
+            scope,
+            "Analysts",
+            vec![json!({"count": 2})],
+            Some(vec!["team".to_string()]),
+        )
+        .unwrap();
+
+        assert_eq!(saved.document.version, 3);
+
+        let loaded: TeamTemplateDocument<Value> =
+            load_scoped_team_document(&store, scope, "Analysts").unwrap();
+        assert_eq!(loaded.name, "Analysts");
+        assert_eq!(loaded.members.len(), 1);
+    }
+
+    #[test]
+    fn scope_extracts_team_name_from_storage_entry() {
+        let scope = TeamTemplateScope::new("background_agent_team", "background_agent_team", 2);
+        let entry = json!({"key": "background_agent_team:nightly"});
+
+        assert_eq!(
+            scope.team_name_from_entry(&entry),
+            Some("nightly".to_string())
+        );
     }
 }

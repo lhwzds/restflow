@@ -1,6 +1,8 @@
-//! Sub-agent definitions.
+//! Storage-backed sub-agent definition adapters.
 //!
-//! Runtime implementations (SubagentTracker, spawn_subagent) live in restflow-ai.
+//! This module is intentionally limited to definition lookup and registry
+//! plumbing. Runtime execution primitives such as `SubagentTracker`,
+//! `SubagentManagerImpl`, and `spawn_subagent` are owned by `restflow-ai`.
 
 pub mod definition;
 

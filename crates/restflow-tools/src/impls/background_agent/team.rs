@@ -3,16 +3,16 @@ use serde_json::{Value, json};
 use crate::Result;
 use crate::ToolError;
 use crate::impls::team_template::{
-    delete_team_document, list_team_entries, load_team_document, save_team_document,
+    TeamTemplateScope, delete_scoped_team_document, list_scoped_team_entries,
+    load_scoped_team_document, save_scoped_team_document,
 };
 use restflow_traits::TeamTemplateDocument;
 use restflow_traits::store::KvStore;
 
 use super::types::{BackgroundBatchWorkerSpec, StoredBackgroundBatchWorkerSpec};
 
-const BACKGROUND_AGENT_TEAM_NAMESPACE: &str = "background_agent_team";
-const BACKGROUND_AGENT_TEAM_TYPE_HINT: &str = "background_agent_team";
-const BACKGROUND_AGENT_TEAM_VERSION: u32 = 2;
+const BACKGROUND_AGENT_TEAM_SCOPE: TeamTemplateScope =
+    TeamTemplateScope::new("background_agent_team", "background_agent_team", 2);
 
 fn normalize_structural_worker(
     worker: &BackgroundBatchWorkerSpec,
@@ -86,11 +86,9 @@ pub(super) fn save_team_workers(
             normalize_structural_worker(worker, worker_index, strict_runtime_inputs)
         })
         .collect::<Result<Vec<_>>>()?;
-    let persisted = save_team_document(
+    let persisted = save_scoped_team_document(
         store,
-        BACKGROUND_AGENT_TEAM_NAMESPACE,
-        BACKGROUND_AGENT_TEAM_TYPE_HINT,
-        BACKGROUND_AGENT_TEAM_VERSION,
+        BACKGROUND_AGENT_TEAM_SCOPE,
         team_name,
         members,
         Some(vec!["background_agent".to_string(), "team".to_string()]),
@@ -109,7 +107,7 @@ pub(super) fn load_team_workers(
     team_name: &str,
 ) -> Result<Vec<BackgroundBatchWorkerSpec>> {
     let team: TeamTemplateDocument<StoredBackgroundBatchWorkerSpec> =
-        load_team_document(store, BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)?;
+        load_scoped_team_document(store, BACKGROUND_AGENT_TEAM_SCOPE, team_name)?;
     Ok(team
         .members
         .into_iter()
@@ -118,12 +116,12 @@ pub(super) fn load_team_workers(
 }
 
 pub(super) fn delete_team(store: &dyn KvStore, team_name: &str) -> Result<Value> {
-    delete_team_document(store, BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)
+    delete_scoped_team_document(store, BACKGROUND_AGENT_TEAM_SCOPE, team_name)
 }
 
 pub(super) fn get_team(store: &dyn KvStore, team_name: &str) -> Result<Value> {
     let document: TeamTemplateDocument<StoredBackgroundBatchWorkerSpec> =
-        load_team_document(store, BACKGROUND_AGENT_TEAM_NAMESPACE, team_name)?;
+        load_scoped_team_document(store, BACKGROUND_AGENT_TEAM_SCOPE, team_name)?;
     let members = document
         .members
         .clone()
@@ -143,18 +141,14 @@ pub(super) fn get_team(store: &dyn KvStore, team_name: &str) -> Result<Value> {
 
 pub(super) fn list_teams(store: &dyn KvStore) -> Result<Value> {
     let mut teams = Vec::new();
-    for item in list_team_entries(store, BACKGROUND_AGENT_TEAM_NAMESPACE)? {
-        let Some(key) = item.get("key").and_then(Value::as_str) else {
+    for item in list_scoped_team_entries(store, BACKGROUND_AGENT_TEAM_SCOPE)? {
+        let Some(team_name) = BACKGROUND_AGENT_TEAM_SCOPE.team_name_from_entry(&item) else {
             continue;
         };
-        let team_name = key
-            .strip_prefix(&format!("{BACKGROUND_AGENT_TEAM_NAMESPACE}:"))
-            .unwrap_or(key)
-            .to_string();
         let (member_groups, total_instances, updated_at) =
-            load_team_document::<StoredBackgroundBatchWorkerSpec>(
+            load_scoped_team_document::<StoredBackgroundBatchWorkerSpec>(
                 store,
-                BACKGROUND_AGENT_TEAM_NAMESPACE,
+                BACKGROUND_AGENT_TEAM_SCOPE,
                 &team_name,
             )
             .ok()
