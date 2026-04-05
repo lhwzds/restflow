@@ -2,7 +2,8 @@ use serde_json::{Value, json};
 use std::sync::Arc;
 
 use crate::impls::team_template::{
-    delete_team_document, list_team_entries, load_team_document, save_team_document,
+    TeamTemplateScope, delete_scoped_team_document, list_scoped_team_entries,
+    load_scoped_team_document, save_scoped_team_document,
 };
 use crate::{Result, ToolError, ToolOutput};
 use restflow_traits::TeamTemplateDocument;
@@ -12,9 +13,8 @@ use super::SpawnSubagentBatchTool;
 use super::types::{BatchSubagentSpec, StoredBatchSubagentSpec};
 use super::validate::total_instances;
 
-const SUBAGENT_TEAM_NAMESPACE: &str = "subagent_team";
-const SUBAGENT_TEAM_TYPE_HINT: &str = "subagent_team";
-const SUBAGENT_TEAM_VERSION: u32 = 1;
+const SUBAGENT_TEAM_SCOPE: TeamTemplateScope =
+    TeamTemplateScope::new("subagent_team", "subagent_team", 1);
 
 pub(super) fn team_store(tool: &SpawnSubagentBatchTool) -> Result<Arc<dyn KvStore>> {
     tool.kv_store.clone().ok_or_else(|| {
@@ -85,7 +85,7 @@ pub(super) fn load_team_specs(
 ) -> Result<Vec<BatchSubagentSpec>> {
     let store = team_store(tool)?;
     let team: TeamTemplateDocument<StoredBatchSubagentSpec> =
-        load_team_document(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?;
+        load_scoped_team_document(store.as_ref(), SUBAGENT_TEAM_SCOPE, team_name)?;
     if team.members.is_empty() {
         return Err(ToolError::Tool(format!(
             "Team '{}' has no member specs.",
@@ -124,11 +124,9 @@ pub(super) fn save_team_specs(
         .enumerate()
         .map(|(spec_index, spec)| stored_spec_from_batch(spec, spec_index))
         .collect::<Result<Vec<_>>>()?;
-    let persisted = save_team_document(
+    let persisted = save_scoped_team_document(
         store.as_ref(),
-        SUBAGENT_TEAM_NAMESPACE,
-        SUBAGENT_TEAM_TYPE_HINT,
-        SUBAGENT_TEAM_VERSION,
+        SUBAGENT_TEAM_SCOPE,
         team_name,
         stored_specs,
         Some(vec!["subagent".to_string(), "team".to_string()]),
@@ -146,14 +144,12 @@ pub(super) fn save_team_specs(
 
 pub(super) fn list_teams(tool: &SpawnSubagentBatchTool) -> Result<ToolOutput> {
     let store = team_store(tool)?;
-    let entries = list_team_entries(store.as_ref(), SUBAGENT_TEAM_NAMESPACE)?;
+    let entries = list_scoped_team_entries(store.as_ref(), SUBAGENT_TEAM_SCOPE)?;
 
-    let prefix = format!("{SUBAGENT_TEAM_NAMESPACE}:");
     let teams = entries
         .iter()
         .filter_map(|entry| {
-            let key = entry.get("key")?.as_str()?;
-            let team = key.strip_prefix(&prefix)?.to_string();
+            let team = SUBAGENT_TEAM_SCOPE.team_name_from_entry(entry)?;
             Some(json!({
                 "team": team,
                 "updated_at": entry.get("updated_at").cloned().unwrap_or(Value::Null),
@@ -172,7 +168,7 @@ pub(super) fn list_teams(tool: &SpawnSubagentBatchTool) -> Result<ToolOutput> {
 pub(super) fn get_team(tool: &SpawnSubagentBatchTool, team_name: &str) -> Result<ToolOutput> {
     let store = team_store(tool)?;
     let team: TeamTemplateDocument<StoredBatchSubagentSpec> =
-        load_team_document(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?;
+        load_scoped_team_document(store.as_ref(), SUBAGENT_TEAM_SCOPE, team_name)?;
     let specs = team
         .members
         .into_iter()
@@ -197,7 +193,7 @@ pub(super) fn get_team(tool: &SpawnSubagentBatchTool, team_name: &str) -> Result
 
 pub(super) fn delete_team(tool: &SpawnSubagentBatchTool, team_name: &str) -> Result<ToolOutput> {
     let store = team_store(tool)?;
-    let deleted = delete_team_document(store.as_ref(), SUBAGENT_TEAM_NAMESPACE, team_name)?;
+    let deleted = delete_scoped_team_document(store.as_ref(), SUBAGENT_TEAM_SCOPE, team_name)?;
     Ok(ToolOutput::success(json!({
         "operation": "delete_team",
         "team": team_name,

@@ -53,9 +53,8 @@ use super::skill_snapshot::{
     build_skill_version_hash, build_trigger_context_signature,
 };
 use crate::runtime::agent::{
-    BashConfig, SubagentDeps, SubagentManager, SubagentManagerImpl, ToolRegistry,
-    build_agent_system_prompt, effective_main_agent_tool_names, main_agent_default_tool_names,
-    registry_from_allowlist, secret_resolver_from_storage,
+    BashConfig, ToolRegistry, build_agent_system_prompt, effective_main_agent_tool_names,
+    main_agent_default_tool_names, registry_from_allowlist, secret_resolver_from_storage,
 };
 use restflow_ai::agent::SubagentDefLookup;
 use restflow_ai::agent::{

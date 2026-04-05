@@ -23,6 +23,7 @@ use crate::memory::UnifiedSearchEngine;
 use crate::services::adapters::*;
 use crate::storage::Storage;
 use restflow_storage::{AgentSettings, ApiSettings};
+use restflow_traits::SubagentManager;
 use restflow_traits::security::SecurityGate;
 use restflow_traits::skill::SkillProvider;
 use restflow_traits::store::{
@@ -38,10 +39,7 @@ pub use restflow_tools::impls::{
 };
 pub use restflow_tools::{PythonTool, RunPythonTool, TranscribeConfig, TranscribeTool, VisionTool};
 
-// Re-export core types from restflow-ai
-pub use restflow_ai::agent::{SubagentDeps, SubagentManagerImpl, SubagentSpawner};
 pub use restflow_ai::tools::{SecretResolver, Tool, ToolOutput, ToolRegistry};
-pub use restflow_traits::SubagentManager;
 
 pub type ToolResult = ToolOutput;
 const DEFAULT_SECURITY_AGENT_ID: &str = "unknown-agent";

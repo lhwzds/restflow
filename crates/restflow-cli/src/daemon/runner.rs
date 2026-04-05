@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use restflow_ai::agent::{SubagentConfig, SubagentTracker};
 use restflow_core::AppCore;
 use restflow_core::auth::{AuthManagerConfig, AuthProfileManager};
 use restflow_core::channel::{ChannelRouter, PairingManager};
@@ -13,8 +14,8 @@ use restflow_core::runtime::channel::start_message_handler_with_pairing;
 use restflow_core::runtime::{
     AgentRuntimeExecutor, ChatDispatcher, ChatDispatcherConfig, ChatSessionManager,
     MessageDebouncer, MessageHandlerConfig, MessageHandlerHandle, NoopHeartbeatEmitter,
-    OrchestratingAgentExecutor, StorageBackedSubagentLookup, SubagentConfig, SubagentTracker,
-    SystemStatus, TaskRunner, TaskRunnerConfig, TaskRunnerHandle, TaskTrigger, TelegramNotifier,
+    OrchestratingAgentExecutor, StorageBackedSubagentLookup, SystemStatus, TaskRunner,
+    TaskRunnerConfig, TaskRunnerHandle, TaskTrigger, TelegramNotifier,
 };
 use restflow_core::runtime::{TaskEventEmitter, TaskStreamEvent};
 use restflow_core::steer::SteerRegistry;
@@ -450,11 +451,7 @@ impl TaskTrigger for CliTaskTrigger {
         self.core
             .storage
             .background_agents
-            .send_background_agent_message(
-                task_id,
-                input.to_string(),
-                TaskMessageSource::User,
-            )?;
+            .send_background_agent_message(task_id, input.to_string(), TaskMessageSource::User)?;
         Ok(())
     }
 
