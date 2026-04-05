@@ -234,6 +234,9 @@ impl RestFlowMcpServer {
             .await
             .map_err(|e| Self::wrap_backend_error("Failed to execute runtime tool", e))?;
         if !tool_result.success {
+            if !tool_result.result.is_null() {
+                return Ok(tool_result.result);
+            }
             return Err(tool_result
                 .error
                 .unwrap_or_else(|| "manage_tasks tool failed".to_string()));

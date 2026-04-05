@@ -140,7 +140,7 @@ test.describe("Background Agent Web Flow", () => {
     await page.route("**/api/request", async (route) => {
       const payload = route.request().postDataJSON();
       if (
-        payload?.type === "ListExecutionSessions" &&
+        payload?.type === "ListRuns" &&
         payload?.data?.query?.container?.kind === "background_task" &&
         payload?.data?.query?.container?.id === taskId
       ) {
@@ -257,7 +257,7 @@ test.describe("Background Agent Web Flow", () => {
     await page.route("**/api/request", async (route) => {
       const payload = route.request().postDataJSON();
       if (
-        payload?.type === "ListExecutionSessions" &&
+        payload?.type === "ListRuns" &&
         payload?.data?.query?.container?.kind === "background_task" &&
         payload?.data?.query?.container?.id === taskId
       ) {
