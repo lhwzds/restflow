@@ -258,6 +258,13 @@ fn parse_tool_text_json(text: &str) -> Result<Value> {
     serde_json::from_str(&text[start..]).with_context(|| format!("parse tool text json: {text}"))
 }
 
+fn looks_like_plain_success(text: &str) -> bool {
+    let normalized = text.trim().to_ascii_lowercase();
+    normalized.contains("saved")
+        || normalized.contains("created")
+        || normalized.contains("success")
+}
+
 #[test]
 fn tool_call_text_prefers_structured_content_payload() {
     let response = json!({
@@ -404,8 +411,9 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
         assert_eq!(save_value["operation"], "save_team");
     } else {
         assert!(
-            save_team_initial["result"]["isError"].as_bool() != Some(true),
-            "save_team returned non-JSON error payload: {}",
+            save_team_initial["result"]["isError"].as_bool() != Some(true)
+                && looks_like_plain_success(&save_initial_text),
+            "save_team returned unsupported non-JSON payload: {}",
             save_initial_text
         );
     }
