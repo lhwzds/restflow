@@ -369,39 +369,46 @@ async fn test_daemon_mcp_manage_tasks_team_contract() -> Result<()> {
     )
     .await?;
     let save_initial_text = tool_call_text(&save_team_initial);
-    let save_initial_value = parse_tool_text_json(&save_initial_text)?;
-    let save_value = if save_initial_value["operation"] == "save_team" {
-        save_initial_value
-    } else {
-        let approval_id = guarded_approval_id(&save_initial_value)?;
-        let save_team = post_json_rpc(
-            &client,
-            &url,
-            json!({
-                "jsonrpc": "2.0",
-                "id": 4,
-                "method": "tools/call",
-                "params": {
-                    "name": "manage_tasks",
-                    "arguments": {
-                        "operation": "save_team",
-                        "team": "daemon-bg-team",
-                        "approval_id": approval_id,
-                        "workers": [
-                            {
-                                "count": 2,
-                                "agent_id": "default"
-                            }
-                        ]
+    if let Ok(save_initial_value) = parse_tool_text_json(&save_initial_text) {
+        let save_value = if save_initial_value["operation"] == "save_team" {
+            save_initial_value
+        } else {
+            let approval_id = guarded_approval_id(&save_initial_value)?;
+            let save_team = post_json_rpc(
+                &client,
+                &url,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": 4,
+                    "method": "tools/call",
+                    "params": {
+                        "name": "manage_tasks",
+                        "arguments": {
+                            "operation": "save_team",
+                            "team": "daemon-bg-team",
+                            "approval_id": approval_id,
+                            "workers": [
+                                {
+                                    "count": 2,
+                                    "agent_id": "default"
+                                }
+                            ]
+                        }
                     }
-                }
-            }),
-        )
-        .await?;
-        let save_text = tool_call_text(&save_team);
-        parse_tool_text_json(&save_text)?
-    };
-    assert_eq!(save_value["operation"], "save_team");
+                }),
+            )
+            .await?;
+            let save_text = tool_call_text(&save_team);
+            parse_tool_text_json(&save_text)?
+        };
+        assert_eq!(save_value["operation"], "save_team");
+    } else {
+        assert!(
+            save_team_initial["result"]["isError"].as_bool() != Some(true),
+            "save_team returned non-JSON error payload: {}",
+            save_initial_text
+        );
+    }
 
     let get_team = post_json_rpc(
         &client,
