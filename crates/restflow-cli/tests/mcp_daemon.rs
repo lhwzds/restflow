@@ -223,6 +223,10 @@ fn tool_call_text(response: &Value) -> String {
         return response["result"]["structuredContent"].to_string();
     }
 
+    if !response["result"]["structured_content"].is_null() {
+        return response["result"]["structured_content"].to_string();
+    }
+
     let items = response["result"]["content"]
         .as_array()
         .expect("tool response should contain content array");
