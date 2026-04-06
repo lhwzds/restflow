@@ -182,6 +182,20 @@ fn extract_task_id(value: &Value) -> Option<String> {
         })
 }
 
+fn extract_approval_id(value: &Value) -> Option<String> {
+    value
+        .get("approval_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| {
+            value
+                .get("assessment")
+                .and_then(|assessment| assessment.get("approval_id"))
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+}
+
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn execute_run_batch(
     tool: &TaskTool,
@@ -286,46 +300,59 @@ pub(super) async fn execute_run_batch(
             .name
             .clone()
             .unwrap_or_else(|| format!("{} - {}", default_name_prefix, worker_index + 1));
-        let created = TaskStore::create_task(
-            tool.store.as_ref(),
-            TaskCreateRequest {
-                name: worker_name,
-                agent_id: resolved_agent_id,
-                chat_session_id: worker_spec
-                    .chat_session_id
-                    .clone()
-                    .or_else(|| chat_session_id.clone()),
-                schedule: worker_spec
-                    .schedule
-                    .clone()
-                    .or_else(|| schedule.clone())
-                    .unwrap_or_else(ContractTaskSchedule::default),
-                input: Some(worker_input),
-                input_template: None,
-                timeout_secs: worker_spec.timeout_secs.or(timeout_secs),
-                durability_mode: worker_spec
-                    .durability_mode
-                    .clone()
-                    .or_else(|| durability_mode.clone()),
-                memory: worker_spec.memory.clone().or_else(|| memory.clone()),
-                memory_scope: worker_spec
-                    .memory_scope
-                    .clone()
-                    .or_else(|| memory_scope.clone()),
-                resource_limits: worker_spec
-                    .resource_limits
-                    .clone()
-                    .or_else(|| resource_limits.clone()),
-                preview: false,
-                approval_id: None,
-            },
-        )
-        .map_err(|e| {
+        let create_request = TaskCreateRequest {
+            name: worker_name,
+            agent_id: resolved_agent_id,
+            chat_session_id: worker_spec
+                .chat_session_id
+                .clone()
+                .or_else(|| chat_session_id.clone()),
+            schedule: worker_spec
+                .schedule
+                .clone()
+                .or_else(|| schedule.clone())
+                .unwrap_or_else(ContractTaskSchedule::default),
+            input: Some(worker_input),
+            input_template: None,
+            timeout_secs: worker_spec.timeout_secs.or(timeout_secs),
+            durability_mode: worker_spec
+                .durability_mode
+                .clone()
+                .or_else(|| durability_mode.clone()),
+            memory: worker_spec.memory.clone().or_else(|| memory.clone()),
+            memory_scope: worker_spec
+                .memory_scope
+                .clone()
+                .or_else(|| memory_scope.clone()),
+            resource_limits: worker_spec
+                .resource_limits
+                .clone()
+                .or_else(|| resource_limits.clone()),
+            preview: false,
+            approval_id: None,
+        };
+        let mut created = TaskStore::create_task(tool.store.as_ref(), create_request.clone()).map_err(|e| {
             ToolError::Tool(format!(
                 "Failed to create background agent for worker {}: {e}.",
                 worker_index + 1
             ))
         })?;
+        if created.get("status").and_then(Value::as_str) == Some("confirmation_required") {
+            let approval_id = extract_approval_id(&created).ok_or_else(|| {
+                ToolError::Tool(format!(
+                    "Failed to extract approval_id from worker {} create result.",
+                    worker_index + 1
+                ))
+            })?;
+            let mut replay_request = create_request;
+            replay_request.approval_id = Some(approval_id);
+            created = TaskStore::create_task(tool.store.as_ref(), replay_request).map_err(|e| {
+                ToolError::Tool(format!(
+                    "Failed to replay background agent creation for worker {}: {e}.",
+                    worker_index + 1
+                ))
+            })?;
+        }
 
         let task_id = extract_task_id(&created).ok_or_else(|| {
             ToolError::Tool(format!(
