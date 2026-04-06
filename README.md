@@ -3,7 +3,7 @@
 
 # RestFlow
 
-**Background AI agent workers**
+**Daemon-centric AI runtime for background tasks and agent execution**
 
 [![Site](https://img.shields.io/badge/site-restflow.ai-black)](https://restflow.ai)
 [![Docs](https://img.shields.io/badge/docs-restflow.ai%2Fdocs-blue)](https://restflow.ai/docs/)
@@ -66,6 +66,28 @@ restflow mcp claude sync
 # Claude Code OAuth token
 restflow auth add --provider claude-code --key <your-token>
 ```
+
+## Architecture at a Glance
+
+RestFlow is not a split frontend/backend app with duplicated execution logic.
+It is a daemon-centric runtime:
+
+- `restflow-core` owns daemon execution, persistence, background task runtime, and chat routing
+- `restflow-ai` owns the agent loop, model execution, and subagent runtime capability
+- `restflow-tools` owns tool implementations and registry assembly helpers
+- Browser and CLI are client facades over daemon HTTP/MCP/IPC surfaces
+
+Execution naming follows one canonical model:
+
+- `Agent`: capability and identity
+- `Task`: schedulable unit of work assigned to an agent
+- `Run`: one execution of a task
+- `Sub-agent`: delegated execution spawned within a run
+
+See the local architecture references for the current design:
+
+- [SYSTEM_ARCHITECTURE.md](./SYSTEM_ARCHITECTURE.md)
+- [docs/TASK_RUN_DOMAIN_MODEL.md](./docs/TASK_RUN_DOMAIN_MODEL.md)
 
 ## Links
 

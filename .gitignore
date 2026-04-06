@@ -9,11 +9,12 @@
 
 # Internal development documentation
 /doc/
-/docs
+/docs/*
+!/docs/TASK_RUN_DOMAIN_MODEL.md
 
 # Agent and Claude documentation
-CLAUDE.md
-AGENTS.md
+!CLAUDE.md
+!AGENTS.md
 
 # Python environment
 /python/.venv/

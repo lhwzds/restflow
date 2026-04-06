@@ -2,7 +2,7 @@
 
 ## Status
 
-- Updated: 2026-03-28
+- Updated: 2026-04-05
 - Scope: Runtime architecture, deployment model, and migration baseline
 - Audience: Core contributors working on browser, CLI, daemon, and runtime channels
 
@@ -53,23 +53,28 @@ flowchart TD
 
 ```mermaid
 flowchart LR
-    Traits["restflow-traits"] --> Contracts["restflow-contracts"]
+    Contracts["restflow-contracts"] --> Traits["restflow-traits"]
     Traits --> Models["restflow-models"]
     Traits --> Storage["restflow-storage"]
+    Traits --> Ai["restflow-ai"]
+    Traits --> Tools["restflow-tools"]
 
+    Models --> Ai
+    Models --> Tools
     Contracts --> Core["restflow-core"]
-    Models --> Ai["restflow-ai"]
     Models --> Core
     Storage --> Core
     Telemetry["restflow-telemetry"] --> Core
-    Browser["restflow-browser"] --> Core
-
-    Ai --> Tools["restflow-tools"]
     Ai --> Core
     Tools --> Core
 
     Core --> Cli["restflow-cli"]
 ```
+
+Notes:
+
+- `restflow-tools` only depends on `restflow-ai` in `dev-dependencies`; there is no production `tools -> ai` dependency.
+- `restflow-browser` is a standalone runtime crate and is not part of the main daemon execution stack.
 
 ## 4. Main Execution Flows
 
@@ -131,6 +136,13 @@ flowchart TD
 - Owns chat routing, background execution, and event emission.
 - Owns all persistence updates.
 - Owns channel/session binding and policy enforcement.
+
+### Execution Ownership Split
+
+- `restflow-ai` owns the agent loop, LLM runtime, and subagent execution runtime.
+- `restflow-core` owns the daemon, durable background/task runtime, and client-facing execution services.
+- `restflow-core::runtime::subagent` is adapter-only and must stay limited to definition lookup and storage-backed registry wiring.
+- `restflow-tools` owns tool implementations and template/payload adapters, not daemon runtime ownership.
 
 ### Model and Provider Ownership
 
