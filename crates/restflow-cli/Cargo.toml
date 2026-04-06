@@ -38,7 +38,7 @@ dirs = "6"
 reqwest = { version = "0.13", features = ["json"] }
 flate2 = "1.1"
 tar = "0.4"
-zip = "6.0.0"
+zip = "8.5.0"
 walkdir = "2"
 
 # Database
