@@ -72,7 +72,7 @@ tokio-util = "0.7"
 toml = "1.0"
 tokio-cron-scheduler = "0.15.1"
 tokio-stream = "0.1"
-tokio-tungstenite = { version = "0.28", features = ["connect", "rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.29", features = ["connect", "rustls-tls-webpki-roots"] }
 tower = { version = "0.5.2", features = ["util"] }
 tower-http = { version = "0.6.6", features = ["fs"] }
 tracing = "0.1"
