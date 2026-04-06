@@ -38,7 +38,14 @@ impl IpcClient {
         Self::unsupported()
     }
 
-    async fn request_typed<T: DeserializeOwned>(&mut self, _req: IpcRequest) -> Result<T> {
+    pub async fn request_typed<T: DeserializeOwned>(&mut self, _req: IpcRequest) -> Result<T> {
+        Self::unsupported()
+    }
+
+    pub async fn request_optional<T: DeserializeOwned>(
+        &mut self,
+        _req: IpcRequest,
+    ) -> Result<Option<T>> {
         Self::unsupported()
     }
 
@@ -90,9 +97,9 @@ impl IpcClient {
         fn list_execution_sessions(&mut self, _query: RunListQuery) -> Vec<RunSummary>;
         fn query_execution_traces(&mut self, _query: ExecutionTraceQuery) -> Vec<ExecutionTraceEvent>;
         fn get_execution_trace_stats(&mut self, _run_id: Option<String>) -> ExecutionTraceStats;
-        fn get_execution_run_timeline(&mut self, _run_id: String) -> ExecutionTimeline;
-        fn get_execution_run_metrics(&mut self, _run_id: String) -> ExecutionMetricsResponse;
-        fn query_execution_run_logs(&mut self, _run_id: String) -> ExecutionLogResponse;
+        fn get_execution_run_timeline(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionTimeline;
+        fn get_execution_run_metrics(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionMetricsResponse;
+        fn query_execution_run_logs(&mut self, _run_id: String) -> restflow_contracts::request::ExecutionLogResponse;
         fn get_execution_trace_by_id(&mut self, _id: String) -> Option<ExecutionTraceEvent>;
         fn list_terminal_sessions(&mut self) -> Vec<TerminalSession>;
         fn get_terminal_session(&mut self, _id: String) -> TerminalSession;
@@ -119,7 +126,7 @@ impl IpcClient {
         fn list_background_agents(&mut self, _status: Option<String>) -> Vec<BackgroundAgent>;
         fn get_background_agent(&mut self, _id: String) -> Option<BackgroundAgent>;
         fn create_background_agent(&mut self, _spec: BackgroundAgentSpec) -> BackgroundAgent;
-        fn convert_session_to_background_agent(&mut self, _request: restflow_contracts::request::BackgroundAgentConvertSessionRequest) -> crate::models::BackgroundAgentConversionResult;
+        fn convert_session_to_background_agent(&mut self, _request: restflow_traits::store::BackgroundAgentConvertSessionRequest) -> crate::models::BackgroundAgentConversionResult;
         fn update_background_agent(&mut self, _id: String, _patch: BackgroundAgentPatch) -> BackgroundAgent;
         fn delete_background_agent(&mut self, _id: String) -> restflow_contracts::DeleteWithIdResponse;
         fn control_background_agent(&mut self, _id: String, _action: BackgroundAgentControlAction) -> BackgroundAgent;
