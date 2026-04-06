@@ -20,6 +20,10 @@ struct MockStore;
 struct FailingListStore;
 struct MockAssessor;
 #[derive(Default)]
+struct ConfirmationCreateStore {
+    create_calls: Mutex<usize>,
+}
+#[derive(Default)]
 struct MockKvStore {
     entries: Mutex<HashMap<String, String>>,
 }
@@ -419,6 +423,103 @@ impl BackgroundAgentStore for MockStore {
                 {"event_type": "turn_completed"}
             ]
         }))
+    }
+}
+
+impl BackgroundAgentStore for ConfirmationCreateStore {
+    fn create_background_agent(&self, request: BackgroundAgentCreateRequest) -> Result<Value> {
+        let mut create_calls = self
+            .create_calls
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *create_calls += 1;
+        let sequence = *create_calls;
+        if request.approval_id.as_deref() != Some("confirm-create") {
+            return Ok(json!({
+                "status": "confirmation_required",
+                "assessment": {
+                    "operation": "create_background_agent",
+                    "approval_id": "confirm-create"
+                }
+            }));
+        }
+        Ok(json!({
+            "status": "executed",
+            "result": {
+                "id": format!("task-{sequence}")
+            }
+        }))
+    }
+
+    fn convert_session_to_background_agent(
+        &self,
+        _request: BackgroundAgentConvertSessionRequest,
+    ) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn update_background_agent(&self, _request: BackgroundAgentUpdateRequest) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn delete_background_agent(&self, _request: BackgroundAgentDeleteRequest) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn list_background_agents(&self, _status: Option<String>) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn control_background_agent(&self, request: BackgroundAgentControlRequest) -> Result<Value> {
+        Ok(json!({
+            "status": "executed",
+            "result": {
+                "id": request.id,
+                "action": request.action
+            }
+        }))
+    }
+
+    fn get_background_agent_progress(
+        &self,
+        _request: BackgroundAgentProgressRequest,
+    ) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn send_background_agent_message(
+        &self,
+        _request: BackgroundAgentMessageRequest,
+    ) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn list_background_agent_messages(
+        &self,
+        _request: BackgroundAgentMessageListRequest,
+    ) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn list_background_agent_deliverables(
+        &self,
+        _request: BackgroundAgentDeliverableListRequest,
+    ) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn list_background_agent_traces(
+        &self,
+        _request: BackgroundAgentTraceListRequest,
+    ) -> Result<Value> {
+        panic!("not expected")
+    }
+
+    fn read_background_agent_trace(
+        &self,
+        _request: BackgroundAgentTraceReadRequest,
+    ) -> Result<Value> {
+        panic!("not expected")
     }
 }
 
@@ -963,6 +1064,29 @@ async fn test_run_batch_defaults_run_now_to_false() {
     assert!(output.success);
     assert_eq!(output.result["run_now"], false);
     assert_eq!(output.result["tasks"][0]["run_now"], false);
+}
+
+#[tokio::test]
+async fn test_run_batch_replays_per_task_confirmation() {
+    let tool = TaskTool::new(Arc::new(ConfirmationCreateStore::default()))
+        .with_write(true)
+        .with_assessor(Arc::new(MockAssessor));
+    let output = tool
+        .execute(json!({
+            "operation": "run_batch",
+            "agent_id": "agent-1",
+            "input": "confirmed input",
+            "workers": [
+                { "count": 2 }
+            ]
+        }))
+        .await
+        .unwrap();
+    assert!(output.success);
+    assert_eq!(output.result["operation"], "run_batch");
+    assert_eq!(output.result["total"], 2);
+    assert_eq!(output.result["tasks"][0]["task_id"], "task-2");
+    assert_eq!(output.result["tasks"][1]["task_id"], "task-4");
 }
 
 #[tokio::test]
