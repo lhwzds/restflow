@@ -49,6 +49,49 @@ impl IpcClient {
         Self::unsupported()
     }
 
+    pub async fn list_tasks(&mut self, _status: Option<String>) -> Result<Vec<BackgroundAgent>> {
+        Self::unsupported()
+    }
+
+    pub async fn get_task(&mut self, _id: String) -> Result<Option<BackgroundAgent>> {
+        Self::unsupported()
+    }
+
+    pub async fn create_task(&mut self, _spec: BackgroundAgentSpec) -> Result<BackgroundAgent> {
+        Self::unsupported()
+    }
+
+    pub async fn create_task_from_session(
+        &mut self,
+        _request: restflow_contracts::request::TaskFromSessionRequest,
+    ) -> Result<crate::models::BackgroundAgentConversionResult> {
+        Self::unsupported()
+    }
+
+    pub async fn update_task(
+        &mut self,
+        _id: String,
+        _patch: BackgroundAgentPatch,
+    ) -> Result<BackgroundAgent> {
+        Self::unsupported()
+    }
+
+    pub async fn delete_task(&mut self, _id: String) -> Result<restflow_contracts::DeleteWithIdResponse> {
+        Self::unsupported()
+    }
+
+    pub async fn control_task(
+        &mut self,
+        _id: String,
+        _action: BackgroundAgentControlAction,
+    ) -> Result<BackgroundAgent> {
+        Self::unsupported()
+    }
+
+    pub async fn get_task_history(&mut self, _id: String) -> Result<Vec<BackgroundAgentEvent>> {
+        Self::unsupported()
+    }
+
     unsupported_result_methods! {
         fn search_memory(&mut self, _query: String, _agent_id: Option<String>, _limit: Option<u32>) -> MemorySearchResult;
         fn list_skills(&mut self) -> Vec<Skill>;
