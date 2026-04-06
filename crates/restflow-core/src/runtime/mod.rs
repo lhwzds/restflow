@@ -6,6 +6,10 @@ pub mod orchestrator;
 mod output;
 pub mod subagent;
 
+// Public surface rule:
+// - `restflow-core::runtime` re-exports durable runtime and core-owned adapters.
+// - AI-owned subagent runtime state stays exported from `restflow-ai` /
+//   `restflow-traits` so ownership remains unambiguous.
 pub use agent::{
     BashConfig, BashTool, EmailTool, FileConfig, FileTool, HttpTool, ListSubagentsTool,
     SpawnSubagentTool, SpawnTool, TelegramTool, Tool, ToolRegistry, ToolRegistryBuilder,

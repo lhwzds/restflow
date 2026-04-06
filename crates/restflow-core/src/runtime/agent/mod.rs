@@ -1,4 +1,10 @@
 //! Agent execution engine components.
+//!
+//! Ownership rule:
+//! - `restflow-core::runtime::agent` exposes tool assembly and prompt helpers.
+//! - AI-owned subagent runtime types stay in `restflow-ai` / `restflow-traits`.
+//! - Do not re-export `SubagentManagerImpl`, `SubagentDeps`, `SubagentSpawner`,
+//!   or related runtime state from this module.
 
 pub mod tools;
 
