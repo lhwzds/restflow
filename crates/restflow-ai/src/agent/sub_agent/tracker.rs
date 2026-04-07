@@ -7,6 +7,7 @@ use tokio::time::Duration;
 
 use crate::Result;
 use crate::error::AiError;
+use crate::steer::SteerMessage;
 use restflow_telemetry::TelemetrySink;
 
 pub use restflow_traits::subagent::{
@@ -26,6 +27,9 @@ pub struct SubagentTracker {
 
     /// Completion waiters for sub-agent results.
     completion_waiters: DashMap<String, oneshot::Receiver<SubagentResult>>,
+
+    /// Live steer senders for running sub-agents.
+    steer_senders: DashMap<String, mpsc::Sender<SteerMessage>>,
 
     /// Completion notification sender.
     completion_tx: mpsc::Sender<SubagentCompletion>,
@@ -97,6 +101,7 @@ impl SubagentTracker {
             if Self::is_terminal_status(&state.status) {
                 self.abort_handles.remove(id);
                 self.completion_waiters.remove(id);
+                self.steer_senders.remove(id);
                 return false;
             }
 
@@ -106,6 +111,7 @@ impl SubagentTracker {
 
             self.abort_handles.remove(id);
             self.completion_waiters.remove(id);
+            self.steer_senders.remove(id);
 
             let completion = SubagentCompletion {
                 id: id.to_string(),
@@ -131,6 +137,7 @@ impl SubagentTracker {
             parent_scopes: DashMap::new(),
             abort_handles: DashMap::new(),
             completion_waiters: DashMap::new(),
+            steer_senders: DashMap::new(),
             completion_tx,
             completion_rx: Mutex::new(completion_rx),
             spawn_lock: std::sync::Mutex::new(()),
@@ -223,6 +230,24 @@ impl SubagentTracker {
         self.completion_waiters.insert(id.clone(), completion_rx);
         self.spawn_join_monitor(id, handle);
         Ok(())
+    }
+
+    pub fn register_steer_sender(&self, id: impl Into<String>, sender: mpsc::Sender<SteerMessage>) {
+        self.steer_senders.insert(id.into(), sender);
+    }
+
+    pub async fn steer(&self, id: &str, message: SteerMessage) -> bool {
+        let Some(sender) = self.steer_senders.get(id).map(|entry| entry.clone()) else {
+            return false;
+        };
+
+        match sender.send(message).await {
+            Ok(()) => true,
+            Err(_) => {
+                self.steer_senders.remove(id);
+                false
+            }
+        }
     }
 
     /// Register a new sub-agent.
@@ -408,6 +433,7 @@ impl SubagentTracker {
         if let Some((_, handle)) = self.abort_handles.remove(id) {
             handle.abort();
             self.completion_waiters.remove(id);
+            self.steer_senders.remove(id);
             let _ = self.try_mark_terminal(
                 id,
                 SubagentStatus::Interrupted,

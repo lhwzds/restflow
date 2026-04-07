@@ -1,5 +1,6 @@
 use super::*;
 use crate::services::session::SessionService;
+use crate::services::team_runtime::TeamRuntimeService;
 use restflow_tools::FileConfig;
 use restflow_traits::AgentOperationAssessor;
 
@@ -259,19 +260,27 @@ pub fn create_tool_registry_with_assessor(
     registry.register(process_tool);
     registry.register(ReplyTool::new(reply_sender));
     registry.register(switch_model_tool);
-    let subagent_manager = create_subagent_manager(
+    let subagent_runtime_bundle = build_service_subagent_runtime_bundle(
         agent_storage,
         &registry,
         llm_client_factory.clone(),
         config_storage,
         execution_trace_storage,
     );
+    let subagent_manager: Arc<dyn restflow_traits::SubagentManager> =
+        Arc::new(build_service_subagent_manager(&subagent_runtime_bundle));
+    let team_runtime = Arc::new(TeamRuntimeService::new(
+        kv_store.clone(),
+        Arc::new(build_direct_service_subagent_manager(&subagent_runtime_bundle)),
+        subagent_runtime_bundle.tracker.clone(),
+    ));
     register_subagent_management_tools(
         &mut registry,
         subagent_manager,
-        Some(kv_store),
+        Some(kv_store.clone()),
         assessor.clone(),
     );
+    registry.register(restflow_tools::ManageTeamsTool::new(team_runtime, kv_store.clone()));
 
     // Populate known_tools for AgentStoreAdapter validation
     populate_known_tools_from_registry(

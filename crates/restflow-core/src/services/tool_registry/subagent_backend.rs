@@ -1,5 +1,15 @@
 use super::*;
 
+pub(super) struct ServiceSubagentRuntimeBundle {
+    pub tracker: Arc<SubagentTracker>,
+    pub definitions: Arc<dyn SubagentDefLookup>,
+    pub llm_client: Arc<dyn LlmClient>,
+    pub tool_registry: Arc<ToolRegistry>,
+    pub config: SubagentConfig,
+    pub llm_client_factory: Arc<dyn LlmClientFactory>,
+    pub telemetry_sink: Option<Arc<dyn restflow_telemetry::TelemetrySink>>,
+}
+
 pub(super) fn build_service_subagent_tool_registry(source: &ToolRegistry) -> ToolRegistry {
     let mut cloned = ToolRegistry::new();
     for name in main_agent_default_tool_names() {
@@ -81,13 +91,13 @@ impl ExecutionBackend for ToolRegistrySubagentBackend {
     }
 }
 
-pub(super) fn build_service_subagent_manager(
+pub(super) fn build_service_subagent_runtime_bundle(
     agent_storage: AgentStorage,
     base_registry: &ToolRegistry,
     llm_client_factory: Arc<dyn LlmClientFactory>,
     config_storage: Arc<ConfigStorage>,
     execution_trace_storage: ExecutionTraceStorage,
-) -> SubagentManagerImpl {
+) -> ServiceSubagentRuntimeBundle {
     let (completion_tx, completion_rx) = mpsc::channel(128);
     let tracker = Arc::new(SubagentTracker::new(completion_tx, completion_rx));
     let db = execution_trace_storage.db();
@@ -123,27 +133,55 @@ pub(super) fn build_service_subagent_manager(
     let llm_client: Arc<dyn LlmClient> = Arc::new(CodexClient::new());
     let subagent_config = load_subagent_config(&config_storage);
     let tool_registry = Arc::new(build_service_subagent_tool_registry(base_registry));
-    let orchestrator = Arc::new(AgentOrchestratorImpl::new(Arc::new(
-        ToolRegistrySubagentBackend {
-            definitions: definitions.clone(),
-            llm_client: llm_client.clone(),
-            tool_registry: tool_registry.clone(),
-            config: subagent_config.clone(),
-            llm_client_factory: llm_client_factory.clone(),
-            telemetry_sink,
-        },
-    )));
-    SubagentManagerImpl::new(
+    ServiceSubagentRuntimeBundle {
         tracker,
         definitions,
         llm_client,
         tool_registry,
-        subagent_config,
+        config: subagent_config,
+        llm_client_factory,
+        telemetry_sink,
+    }
+}
+
+pub(super) fn build_service_subagent_manager(
+    bundle: &ServiceSubagentRuntimeBundle,
+) -> SubagentManagerImpl {
+    let orchestrator = Arc::new(AgentOrchestratorImpl::new(Arc::new(
+        ToolRegistrySubagentBackend {
+            definitions: bundle.definitions.clone(),
+            llm_client: bundle.llm_client.clone(),
+            tool_registry: bundle.tool_registry.clone(),
+            config: bundle.config.clone(),
+            llm_client_factory: bundle.llm_client_factory.clone(),
+            telemetry_sink: bundle.telemetry_sink.clone(),
+        },
+    )));
+    SubagentManagerImpl::new(
+        bundle.tracker.clone(),
+        bundle.definitions.clone(),
+        bundle.llm_client.clone(),
+        bundle.tool_registry.clone(),
+        bundle.config.clone(),
     )
-    .with_llm_client_factory(llm_client_factory)
+    .with_llm_client_factory(bundle.llm_client_factory.clone())
     .with_orchestrator(orchestrator)
 }
 
+pub(super) fn build_direct_service_subagent_manager(
+    bundle: &ServiceSubagentRuntimeBundle,
+) -> SubagentManagerImpl {
+    SubagentManagerImpl::new(
+        bundle.tracker.clone(),
+        bundle.definitions.clone(),
+        bundle.llm_client.clone(),
+        bundle.tool_registry.clone(),
+        bundle.config.clone(),
+    )
+    .with_llm_client_factory(bundle.llm_client_factory.clone())
+}
+
+#[cfg(test)]
 pub(super) fn create_subagent_manager(
     agent_storage: AgentStorage,
     base_registry: &ToolRegistry,
@@ -151,11 +189,12 @@ pub(super) fn create_subagent_manager(
     config_storage: Arc<ConfigStorage>,
     execution_trace_storage: ExecutionTraceStorage,
 ) -> Arc<dyn restflow_traits::SubagentManager> {
-    Arc::new(build_service_subagent_manager(
+    let bundle = build_service_subagent_runtime_bundle(
         agent_storage,
         base_registry,
         llm_client_factory,
         config_storage,
         execution_trace_storage,
-    ))
+    );
+    Arc::new(build_service_subagent_manager(&bundle))
 }

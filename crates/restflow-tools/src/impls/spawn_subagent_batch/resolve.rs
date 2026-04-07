@@ -36,6 +36,10 @@ pub(super) fn preview_request_from_spec(spec: &BatchSubagentSpec) -> ContractRun
         parent_run_id: None,
         trace_session_id: None,
         trace_scope_id: None,
+        team_run_id: None,
+        team_member_id: None,
+        leader_member_id: None,
+        team_role: None,
     }
 }
 
@@ -56,5 +60,9 @@ pub(super) fn spawn_request_from_spec(
         parent_run_id: params.parent_run_id.clone(),
         trace_session_id: params.trace_session_id.clone(),
         trace_scope_id: params.trace_scope_id.clone(),
+        team_run_id: None,
+        team_member_id: None,
+        leader_member_id: None,
+        team_role: None,
     }
 }

@@ -171,6 +171,12 @@ pub enum Commands {
         command: TaskCommands,
     },
 
+    /// Team runtime management
+    Team {
+        #[command(subcommand)]
+        command: TeamCommands,
+    },
+
     /// Shared space key-value store
     Shared {
         #[command(subcommand)]
@@ -316,6 +322,26 @@ mod tests {
             cli.command,
             Some(super::Commands::Hook {
                 command: super::HookCommands::List
+            })
+        ));
+    }
+
+    #[test]
+    fn parses_team_start_command() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "team",
+            "start",
+            "--team",
+            "demo",
+            "--assignment",
+            "investigate",
+        ])
+        .expect("parse team start");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Team {
+                command: super::TeamCommands::Start { .. }
             })
         ));
     }
@@ -665,6 +691,77 @@ pub enum HookCommands {
 
     /// Execute a hook with synthetic context
     Test { id: String },
+}
+
+#[derive(Subcommand)]
+pub enum TeamCommands {
+    /// Start one runtime team from a saved template or explicit members
+    Start {
+        /// Saved subagent team template name
+        #[arg(long)]
+        team: Option<String>,
+
+        /// Explicit worker agent IDs (repeatable)
+        #[arg(long = "member")]
+        member: Vec<String>,
+
+        /// Initial assignment (repeatable)
+        #[arg(long = "assignment")]
+        assignment: Vec<String>,
+
+        /// Single initial assignment convenience alias
+        #[arg(long)]
+        task: Option<String>,
+    },
+
+    /// Inspect team runtime state
+    State {
+        team_run_id: String,
+    },
+
+    /// List durable team mailbox messages
+    Messages {
+        team_run_id: String,
+    },
+
+    /// Send one team mailbox message
+    Send {
+        team_run_id: String,
+        #[arg(long, default_value = "leader")]
+        from: String,
+        #[arg(long)]
+        to: Option<String>,
+        #[arg(long)]
+        message: String,
+    },
+
+    /// List runtime assignments
+    Assignments {
+        team_run_id: String,
+    },
+
+    /// Assign one task to one team member
+    Assign {
+        team_run_id: String,
+        #[arg(long)]
+        member: String,
+        #[arg(long)]
+        task: String,
+    },
+
+    /// Approve one pending team approval
+    Approve {
+        team_run_id: String,
+        approval_id: String,
+    },
+
+    /// Reject one pending team approval
+    Reject {
+        team_run_id: String,
+        approval_id: String,
+        #[arg(long)]
+        reason: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

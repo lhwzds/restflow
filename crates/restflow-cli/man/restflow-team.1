@@ -1,0 +1,41 @@
+.ie \n(.g .ds Aq \(aq
+.el .ds Aq '
+.TH team 1  "team "
+.SH NAME
+team \- Team runtime management
+.SH SYNOPSIS
+\fBteam\fR [\fB\-h\fR|\fB\-\-help\fR] <\fIsubcommands\fR>
+.SH DESCRIPTION
+Team runtime management
+.SH OPTIONS
+.TP
+\fB\-h\fR, \fB\-\-help\fR
+Print help
+.SH SUBCOMMANDS
+.TP
+team\-start(1)
+Start one runtime team from a saved template or explicit members
+.TP
+team\-state(1)
+Inspect team runtime state
+.TP
+team\-messages(1)
+List durable team mailbox messages
+.TP
+team\-send(1)
+Send one team mailbox message
+.TP
+team\-assignments(1)
+List runtime assignments
+.TP
+team\-assign(1)
+Assign one task to one team member
+.TP
+team\-approve(1)
+Approve one pending team approval
+.TP
+team\-reject(1)
+Reject one pending team approval
+.TP
+team\-help(1)
+Print this message or the help of the given subcommand(s)

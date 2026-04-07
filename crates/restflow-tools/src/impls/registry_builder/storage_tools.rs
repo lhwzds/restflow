@@ -8,6 +8,7 @@ use crate::impls::config::ConfigTool;
 use crate::impls::diagnostics::DiagnosticsTool;
 use crate::impls::kv_store::KvStoreTool;
 use crate::impls::manage_ops::ManageOpsTool;
+use crate::impls::manage_teams::ManageTeamsTool;
 use crate::impls::marketplace::MarketplaceTool;
 use crate::impls::memory_mgmt::MemoryManagementTool;
 use crate::impls::memory_store::{
@@ -30,6 +31,7 @@ use restflow_traits::store::{
     MarketplaceStore, MemoryManager, MemoryStore, OpsProvider, SecretStore, SecurityQueryProvider,
     SessionStore, TaskStore, TerminalStore, TriggerStore, UnifiedMemorySearch, WorkItemProvider,
 };
+use restflow_traits::TeamCoordinator;
 
 use super::ToolRegistryBuilder;
 use super::configs::SecretsConfig;
@@ -122,6 +124,16 @@ impl ToolRegistryBuilder {
 
     pub fn with_ops(mut self, provider: Arc<dyn OpsProvider>) -> Self {
         self.registry.register(ManageOpsTool::new(provider));
+        self
+    }
+
+    pub fn with_manage_teams(
+        mut self,
+        coordinator: Arc<dyn TeamCoordinator>,
+        kv_store: Arc<dyn KvStore>,
+    ) -> Self {
+        self.registry
+            .register(ManageTeamsTool::new(coordinator, kv_store));
         self
     }
 

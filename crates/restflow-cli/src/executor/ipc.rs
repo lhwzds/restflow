@@ -511,6 +511,15 @@ impl CommandExecutor for IpcExecutor {
         client.get_execution_run_timeline(run_id.to_string()).await
     }
 
+    async fn execute_runtime_tool(
+        &self,
+        name: &str,
+        input: serde_json::Value,
+    ) -> Result<restflow_contracts::ToolExecutionResult> {
+        let mut client = self.client.lock().await;
+        client.execute_tool(name.to_string(), input).await
+    }
+
     // Shared Space operations - not yet in IPC protocol
     async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")

@@ -13,4 +13,5 @@ pub mod session_policy;
 pub mod skill_sync;
 pub mod skill_triggers;
 pub mod skills;
+pub mod team_runtime;
 pub mod tool_registry;

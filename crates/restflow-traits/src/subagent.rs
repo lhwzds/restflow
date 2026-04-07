@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::error::ToolError;
 use crate::{
     DEFAULT_AGENT_MAX_ITERATIONS, DEFAULT_MAX_PARALLEL_SUBAGENTS, DEFAULT_SUBAGENT_MAX_DEPTH,
-    DEFAULT_SUBAGENT_TIMEOUT_SECS,
+    DEFAULT_SUBAGENT_TIMEOUT_SECS, TeamExecutionContext,
 };
 pub use restflow_contracts::request::RunSpawnRequest as ContractRunSpawnRequest;
 /// Canonical contract request alias for child run spawning.
@@ -147,6 +147,10 @@ pub struct SpawnRequest {
     /// When provided, runtime must use this as the canonical child run ID.
     #[serde(default)]
     pub run_id: Option<String>,
+
+    /// Optional team execution context for teammate-managed child runs.
+    #[serde(default)]
+    pub team_context: Option<TeamExecutionContext>,
 }
 
 impl SpawnRequest {
@@ -495,6 +499,7 @@ mod tests {
             trace_session_id: None,
             trace_scope_id: None,
             run_id: None,
+            team_context: None,
         };
         request.set_parent_run_id(Some("parent-1".to_string()));
 

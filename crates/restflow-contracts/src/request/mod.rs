@@ -564,6 +564,14 @@ pub struct RunSpawnRequest {
     pub trace_session_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub trace_scope_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_run_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_member_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub leader_member_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub team_role: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

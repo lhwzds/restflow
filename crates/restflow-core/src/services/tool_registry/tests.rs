@@ -1,6 +1,7 @@
 use super::config::build_subagent_config;
 use super::subagent_backend::{
-    build_service_subagent_manager, build_service_subagent_tool_registry,
+    build_service_subagent_manager, build_service_subagent_runtime_bundle,
+    build_service_subagent_tool_registry, create_subagent_manager,
 };
 use super::*;
 use crate::models::{ExecutionTraceCategory, ExecutionTraceQuery, Skill};
@@ -2099,6 +2100,10 @@ async fn test_create_subagent_manager_persists_execution_traces() {
             parent_run_id: Some("parent-run-1".to_string()),
             trace_session_id: Some("session-trace-1".to_string()),
             trace_scope_id: Some("scope-trace-1".to_string()),
+            team_run_id: None,
+            team_member_id: None,
+            leader_member_id: None,
+            team_role: None,
         })
         .expect("spawn subagent");
 
@@ -2246,6 +2251,10 @@ async fn test_service_subagent_manager_supports_temporary_model_provider_only() 
             parent_run_id: None,
             trace_session_id: None,
             trace_scope_id: None,
+            team_run_id: None,
+            team_member_id: None,
+            leader_member_id: None,
+            team_role: None,
         })
         .expect("spawn temporary subagent");
 
@@ -2302,13 +2311,14 @@ fn test_build_service_subagent_manager_attaches_shared_orchestrator() {
     )
     .expect("service registry");
 
-    let manager = build_service_subagent_manager(
+    let bundle = build_service_subagent_runtime_bundle(
         agent_storage,
         &service_registry,
         build_llm_factory(Some(&secret_storage)),
         Arc::new(config_storage),
         execution_trace_storage,
     );
+    let manager = build_service_subagent_manager(&bundle);
 
     assert!(manager.orchestrator.is_some());
 }

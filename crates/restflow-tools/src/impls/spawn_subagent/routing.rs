@@ -99,6 +99,10 @@ fn build_contract_request(params: &SpawnSubagentParams, task: String) -> Contrac
         parent_run_id: params.parent_run_id.clone(),
         trace_session_id: params.trace_session_id.clone(),
         trace_scope_id: params.trace_scope_id.clone(),
+        team_run_id: None,
+        team_member_id: None,
+        leader_member_id: None,
+        team_role: None,
     }
 }
 
