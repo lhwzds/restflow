@@ -657,11 +657,7 @@ impl<'de> Deserialize<'de> for TaskMessage {
 
 impl TaskMessage {
     /// Create a new queued background message.
-    pub fn new(
-        background_agent_id: String,
-        source: TaskMessageSource,
-        message: String,
-    ) -> Self {
+    pub fn new(background_agent_id: String, source: TaskMessageSource, message: String) -> Self {
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             background_agent_id,
@@ -2087,11 +2083,8 @@ mod tests {
         );
         assert_eq!(task.id, "task-1");
 
-        let message: TaskMessage = BackgroundMessage::new(
-            task.id.clone(),
-            TaskMessageSource::User,
-            "ping".to_string(),
-        );
+        let message: TaskMessage =
+            BackgroundMessage::new(task.id.clone(), TaskMessageSource::User, "ping".to_string());
         assert_eq!(message.task_id(), "task-1");
 
         let progress = TaskProgress {

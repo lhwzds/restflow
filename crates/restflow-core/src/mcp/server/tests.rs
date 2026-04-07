@@ -2,9 +2,9 @@ use super::*;
 use crate::daemon::{IpcClient, IpcServer};
 use crate::models::{
     AgentNode, ApiKeyConfig, BackgroundAgentSchedule, BackgroundAgentSpec, BackgroundAgentStatus,
-    ChannelSessionBinding, ChatSession, ChatSessionSource, ModelId, RunKind,
-    RunListQuery, RunSummary, Skill, SkillReference, Task, TaskControlAction, TaskMessage,
-    TaskMessageSource, TaskPatch, TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
+    ChannelSessionBinding, ChatSession, ChatSessionSource, ModelId, RunKind, RunListQuery,
+    RunSummary, Skill, SkillReference, Task, TaskControlAction, TaskMessage, TaskMessageSource,
+    TaskPatch, TaskProgress, TaskSchedule, TaskSpec, TaskStatus,
 };
 use crate::prompt_files;
 use crate::storage::agent::StoredAgent;
@@ -1156,10 +1156,7 @@ impl McpBackend for MockBackend {
         Ok(Vec::new())
     }
 
-    async fn create_background_agent(
-        &self,
-        spec: TaskSpec,
-    ) -> Result<Task, String> {
+    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
         let mut task = Task::new(
             "mock-task".to_string(),
             spec.name,
@@ -1193,11 +1190,7 @@ impl McpBackend for MockBackend {
         Ok(task)
     }
 
-    async fn update_background_agent(
-        &self,
-        _id: &str,
-        _patch: TaskPatch,
-    ) -> Result<Task, String> {
+    async fn update_background_agent(&self, _id: &str, _patch: TaskPatch) -> Result<Task, String> {
         Err("not implemented in mock backend".to_string())
     }
 
@@ -1555,18 +1548,11 @@ impl McpBackend for LegacyBackgroundAgentBackend {
         self.inner.list_background_agents(status).await
     }
 
-    async fn create_background_agent(
-        &self,
-        spec: TaskSpec,
-    ) -> Result<Task, String> {
+    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
         self.inner.create_background_agent(spec).await
     }
 
-    async fn update_background_agent(
-        &self,
-        id: &str,
-        patch: TaskPatch,
-    ) -> Result<Task, String> {
+    async fn update_background_agent(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
         self.inner.update_background_agent(id, patch).await
     }
 

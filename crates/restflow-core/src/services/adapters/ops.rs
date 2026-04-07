@@ -35,9 +35,7 @@ impl OpsProviderAdapter {
         }
     }
 
-    fn parse_status_filter(
-        status: Option<&str>,
-    ) -> restflow_tools::Result<Option<TaskStatus>> {
+    fn parse_status_filter(status: Option<&str>) -> restflow_tools::Result<Option<TaskStatus>> {
         let Some(status) = status else {
             return Ok(None);
         };

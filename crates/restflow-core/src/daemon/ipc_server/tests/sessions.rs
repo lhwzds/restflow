@@ -244,8 +244,7 @@ async fn list_child_execution_sessions_returns_empty_for_leaf_runs() {
 
     match response {
         IpcResponse::Success(value) => {
-            let runs: Vec<crate::RunSummary> =
-                serde_json::from_value(value).expect("child runs");
+            let runs: Vec<crate::RunSummary> = serde_json::from_value(value).expect("child runs");
             assert!(runs.is_empty());
         }
         other => panic!("expected success response, got {other:?}"),
@@ -282,8 +281,7 @@ async fn list_child_execution_sessions_returns_direct_children_for_parent_runs()
 
     match response {
         IpcResponse::Success(value) => {
-            let runs: Vec<crate::RunSummary> =
-                serde_json::from_value(value).expect("child runs");
+            let runs: Vec<crate::RunSummary> = serde_json::from_value(value).expect("child runs");
             assert_eq!(runs.len(), 1);
             assert_eq!(runs[0].run_id.as_deref(), Some("run-child"));
             assert_eq!(runs[0].parent_run_id.as_deref(), Some("run-parent"));

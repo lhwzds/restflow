@@ -241,10 +241,7 @@ mod tests {
             .expect("list messages");
         assert_eq!(messages.len(), 1);
         assert_eq!(messages[0].source, TaskMessageSource::Agent);
-        assert_eq!(
-            messages[0].status,
-            TaskMessageStatus::Consumed
-        );
+        assert_eq!(messages[0].status, TaskMessageStatus::Consumed);
         assert_eq!(messages[0].message, "Received, starting now.");
 
         let pending = storage

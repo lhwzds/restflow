@@ -920,7 +920,10 @@ async fn assess_task_control_with_context(
 ) -> Result<OperationAssessment> {
     let action = request.action.trim().to_lowercase();
     if action != "run_now" && action != "run-now" && action != "runnow" {
-        return Ok(OperationAssessment::ok("control_task", OperationAssessmentIntent::Run));
+        return Ok(OperationAssessment::ok(
+            "control_task",
+            OperationAssessmentIntent::Run,
+        ));
     }
 
     let auth_manager = build_auth(context).await?;
@@ -1148,9 +1151,7 @@ mod tests {
     use crate::prompt_files;
     use crate::services::agent::create_agent;
     use restflow_contracts::request::{ApiKeyConfig as ContractApiKeyConfig, WireModelRef};
-    use restflow_traits::{
-        BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest,
-    };
+    use restflow_traits::{BackgroundAgentConvertSessionRequest, BackgroundAgentDeleteRequest};
     use tempfile::tempdir;
 
     struct AgentsDirEnvGuard {

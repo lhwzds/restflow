@@ -10,9 +10,7 @@ use crate::registry::{
     SkillSearchResult, SkillSortOrder,
 };
 use crate::runtime::channel::transcribe_media_file;
-use crate::services::background_agent_command::{
-    TaskCommandService, TaskExecutionMode,
-};
+use crate::services::background_agent_command::{TaskCommandService, TaskExecutionMode};
 use crate::services::operation_assessment::OperationAssessorAdapter;
 use anyhow::Result;
 use axum::Json;

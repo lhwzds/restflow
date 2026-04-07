@@ -10,9 +10,9 @@ use crate::models::{
     ChatSession, ChatSessionSummary, Deliverable, ExecutionContainerKind, ExecutionContainerRef,
     ExecutionTraceCategory, ExecutionTraceEvent, ExecutionTraceQuery, ExecutionTraceSource, Hook,
     HookAction, HookEvent, HookFilter, MemoryChunk, MemorySearchQuery, MemorySearchResult,
-    MemorySource, MemoryStats, ModelId, RunListQuery, RunSummary, SearchMode, Skill,
-    SkillStatus, Task, TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress,
-    TaskSpec, TaskStatus, ValidationError,
+    MemorySource, MemoryStats, ModelId, RunListQuery, RunSummary, SearchMode, Skill, SkillStatus,
+    Task, TaskControlAction, TaskMessage, TaskMessageSource, TaskPatch, TaskProgress, TaskSpec,
+    TaskStatus, ValidationError,
 };
 use crate::services::{
     operation_assessment::OperationAssessorAdapter,
@@ -117,20 +117,13 @@ pub trait McpBackend: Send + Sync {
     // Implement either the canonical task methods or the legacy
     // background-agent aliases. The defaults bridge both directions so
     // task-only and background-agent-only backends remain source-compatible.
-    async fn list_tasks(
-        &self,
-        status: Option<TaskStatus>,
-    ) -> Result<Vec<Task>, String> {
+    async fn list_tasks(&self, status: Option<TaskStatus>) -> Result<Vec<Task>, String> {
         self.list_background_agents(status).await
     }
     async fn create_task(&self, spec: TaskSpec) -> Result<Task, String> {
         self.create_background_agent(spec).await
     }
-    async fn update_task(
-        &self,
-        id: &str,
-        patch: TaskPatch,
-    ) -> Result<Task, String> {
+    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
         self.update_background_agent(id, patch).await
     }
     async fn delete_task(
@@ -139,11 +132,7 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<TaskCommandOutcome<DeleteWithIdResponse>, String> {
         self.delete_background_agent(request).await
     }
-    async fn control_task(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-    ) -> Result<Task, String> {
+    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task, String> {
         self.control_background_agent(id, action).await
     }
     async fn get_task_progress(
@@ -162,18 +151,12 @@ pub trait McpBackend: Send + Sync {
         self.send_background_agent_message(id, message, source)
             .await
     }
-    async fn list_task_messages(
-        &self,
-        id: &str,
-        limit: usize,
-    ) -> Result<Vec<TaskMessage>, String> {
+    async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String> {
         self.list_background_agent_messages(id, limit).await
     }
     async fn list_deliverables(&self, task_id: &str) -> Result<Vec<Deliverable>, String>;
-    async fn list_execution_sessions(
-        &self,
-        query: RunListQuery,
-    ) -> Result<Vec<RunSummary>, String>;
+    async fn list_execution_sessions(&self, query: RunListQuery)
+    -> Result<Vec<RunSummary>, String>;
 
     async fn query_execution_traces(
         &self,
@@ -194,17 +177,10 @@ pub trait McpBackend: Send + Sync {
     ) -> Result<Vec<Task>, String> {
         self.list_tasks(status).await
     }
-    async fn create_background_agent(
-        &self,
-        spec: TaskSpec,
-    ) -> Result<Task, String> {
+    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
         self.create_task(spec).await
     }
-    async fn update_background_agent(
-        &self,
-        id: &str,
-        patch: TaskPatch,
-    ) -> Result<Task, String> {
+    async fn update_background_agent(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
         self.update_task(id, patch).await
     }
     async fn delete_background_agent(
