@@ -78,6 +78,7 @@ pub mod work_item;
 // Migrated from restflow-core (tool_registry inline tools)
 pub mod kv_store;
 pub mod manage_ops;
+pub mod manage_teams;
 pub mod marketplace;
 pub mod security_query;
 pub mod terminal;
@@ -143,6 +144,7 @@ pub use work_item::WorkItemTool;
 // Re-export tool_registry inline migrated tools
 pub use kv_store::KvStoreTool;
 pub use manage_ops::ManageOpsTool;
+pub use manage_teams::ManageTeamsTool;
 pub use marketplace::MarketplaceTool;
 pub use security_query::SecurityQueryTool;
 pub use terminal::TerminalTool;

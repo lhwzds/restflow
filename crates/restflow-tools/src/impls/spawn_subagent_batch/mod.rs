@@ -4,7 +4,7 @@ mod resolve;
 mod schema;
 mod spawn_exec;
 mod team;
-mod types;
+pub(crate) mod types;
 mod validate;
 
 #[cfg(test)]

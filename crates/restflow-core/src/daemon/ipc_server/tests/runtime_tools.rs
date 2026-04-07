@@ -117,6 +117,37 @@ async fn execute_tool_failure_includes_structured_error_metadata() {
 }
 
 #[tokio::test]
+async fn execute_tool_manage_teams_start_team_is_available() {
+    let (core, _temp) = create_test_core().await;
+    let runtime_tool_registry = OnceLock::new();
+
+    let response = IpcServer::process(
+        &core,
+        &runtime_tool_registry,
+        IpcRequest::ExecuteTool {
+            name: "manage_teams".to_string(),
+            input: serde_json::json!({
+                "operation": "start_team",
+                "members": [
+                    { "agent_id": "default" }
+                ]
+            }),
+        },
+    )
+    .await;
+
+    match response {
+        IpcResponse::Success(value) => {
+            let result: ToolExecutionResult =
+                serde_json::from_value(value).expect("tool result should deserialize");
+            assert!(result.success, "manage_teams should succeed");
+            assert_eq!(result.result["operation"], "start_team");
+        }
+        other => panic!("expected success response, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 /// Skills are now registered as callable tools, not injected into the system prompt.
 async fn build_agent_system_prompt_does_not_inject_skills() {
     let (core, _temp) = create_test_core().await;

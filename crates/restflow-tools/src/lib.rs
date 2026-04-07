@@ -55,8 +55,8 @@ pub use impls::{
 
 // Re-export tool_registry inline migrated tools
 pub use impls::{
-    KvStoreTool, ManageOpsTool, MarketplaceTool, SecurityQueryTool, TerminalTool, TriggerTool,
-    UnifiedMemorySearchTool,
+    KvStoreTool, ManageOpsTool, ManageTeamsTool, MarketplaceTool, SecurityQueryTool,
+    TerminalTool, TriggerTool, UnifiedMemorySearchTool,
 };
 
 // Re-export search tools

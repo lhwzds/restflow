@@ -2,7 +2,8 @@ use anyhow::Result;
 use async_trait::async_trait;
 use restflow_contracts::{
     CleanupReportResponse, PairingApprovalResponse, PairingOwnerResponse, PairingStateResponse,
-    RouteBindingResponse, SessionSourceMigrationResponse, request::TaskFromSessionRequest,
+    RouteBindingResponse, SessionSourceMigrationResponse, ToolExecutionResult,
+    request::TaskFromSessionRequest,
 };
 use restflow_core::daemon::is_daemon_available;
 use restflow_core::memory::ExportResult;
@@ -148,6 +149,11 @@ pub trait CommandExecutor: Send + Sync {
     async fn send_task_message(&self, id: &str, message: &str) -> Result<()>;
     async fn list_execution_sessions(&self, query: RunListQuery) -> Result<Vec<RunSummary>>;
     async fn get_execution_run_timeline(&self, run_id: &str) -> Result<ExecutionTimeline>;
+    async fn execute_runtime_tool(
+        &self,
+        name: &str,
+        input: serde_json::Value,
+    ) -> Result<ToolExecutionResult>;
 
     // Shared Space operations
     async fn list_kv_store(&self, namespace: Option<&str>) -> Result<Vec<SharedEntry>>;

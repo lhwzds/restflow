@@ -496,6 +496,14 @@ impl CommandExecutor for DirectExecutor {
         )
     }
 
+    async fn execute_runtime_tool(
+        &self,
+        _name: &str,
+        _input: serde_json::Value,
+    ) -> Result<restflow_contracts::ToolExecutionResult> {
+        bail!("Runtime tool execution requires daemon mode. Use 'restflow daemon start' first.")
+    }
+
     async fn list_kv_store(&self, _namespace: Option<&str>) -> Result<Vec<SharedEntry>> {
         bail!("Shared space operations require daemon mode. Use 'restflow daemon start' first.")
     }

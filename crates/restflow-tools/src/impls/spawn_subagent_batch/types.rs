@@ -232,16 +232,16 @@ impl<'de> Deserialize<'de> for SpawnSubagentBatchParams {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub(super) struct StoredBatchSubagentSpec {
-    pub(super) agent: Option<String>,
-    pub(super) count: u32,
-    pub(super) timeout_secs: Option<u64>,
-    pub(super) model: Option<String>,
-    pub(super) provider: Option<String>,
-    pub(super) inline_name: Option<String>,
-    pub(super) inline_system_prompt: Option<String>,
-    pub(super) inline_allowed_tools: Option<Vec<String>>,
-    pub(super) inline_max_iterations: Option<u32>,
+pub(crate) struct StoredBatchSubagentSpec {
+    pub(crate) agent: Option<String>,
+    pub(crate) count: u32,
+    pub(crate) timeout_secs: Option<u64>,
+    pub(crate) model: Option<String>,
+    pub(crate) provider: Option<String>,
+    pub(crate) inline_name: Option<String>,
+    pub(crate) inline_system_prompt: Option<String>,
+    pub(crate) inline_allowed_tools: Option<Vec<String>>,
+    pub(crate) inline_max_iterations: Option<u32>,
 }
 
 #[derive(Debug, Clone)]

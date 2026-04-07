@@ -193,6 +193,9 @@ async fn run() -> Result<()> {
                 commands::security::run(command, cli.format).await
             }
             Some(Commands::Task { command }) => task_commands::run(exec, command, cli.format).await,
+            Some(Commands::Team { command }) => {
+                commands::team::run(exec, command, cli.format).await
+            }
             Some(Commands::Shared { command }) => {
                 commands::shared::run(exec, command, cli.format).await
             }

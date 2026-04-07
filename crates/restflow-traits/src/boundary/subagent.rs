@@ -4,7 +4,7 @@ use restflow_contracts::request::{
 };
 
 use crate::subagent::InlineChildRunConfig;
-use crate::{SpawnPriority, SpawnRequest, SubagentDefSummary, ToolError};
+use crate::{SpawnPriority, SpawnRequest, SubagentDefSummary, TeamExecutionContext, TeamRole, ToolError};
 
 fn normalize_identifier(value: &str) -> String {
     let mut normalized = String::with_capacity(value.len());
@@ -172,6 +172,28 @@ pub fn spawn_request_from_contract(
     let (model, model_provider) =
         normalize_model_provider_pair(request.model, request.model_provider)?;
 
+    let team_context = match (
+        request.team_run_id.as_deref(),
+        request.team_member_id.as_deref(),
+        request.leader_member_id.as_deref(),
+        request.team_role.as_deref(),
+    ) {
+        (None, None, None, None) => None,
+        (Some(team_run_id), Some(team_member_id), Some(leader_member_id), Some(team_role)) => {
+            Some(TeamExecutionContext {
+                team_run_id: team_run_id.to_string(),
+                team_member_id: team_member_id.to_string(),
+                leader_member_id: leader_member_id.to_string(),
+                team_role: parse_team_role(team_role)?,
+            })
+        }
+        _ => {
+            return Err(ToolError::Tool(
+                "team_run_id, team_member_id, leader_member_id, and team_role must be provided together.".to_string(),
+            ));
+        }
+    };
+
     let mut spawn_request = SpawnRequest {
         agent_id,
         inline,
@@ -185,9 +207,20 @@ pub fn spawn_request_from_contract(
         trace_session_id: request.trace_session_id,
         trace_scope_id: request.trace_scope_id,
         run_id: None,
+        team_context,
     };
     spawn_request.set_parent_run_id(request.parent_run_id);
     Ok(spawn_request)
+}
+
+fn parse_team_role(value: &str) -> Result<TeamRole, ToolError> {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "leader" => Ok(TeamRole::Leader),
+        "member" => Ok(TeamRole::Member),
+        _ => Err(ToolError::Tool(format!(
+            "Unsupported team_role '{value}'. Expected 'leader' or 'member'."
+        ))),
+    }
 }
 
 impl From<ContractSpawnPriority> for SpawnPriority {

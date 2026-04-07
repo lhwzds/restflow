@@ -76,6 +76,7 @@ use crate::agent::stream::{NullEmitter, StreamEmitter};
 use crate::agent::streaming_buffer::StreamingBuffer;
 use crate::agent::stuck::{StuckAction, StuckDetector};
 use crate::agent::sub_agent::SubagentTracker;
+use crate::agent::team::{extract_team_execution_context, record_pending_team_approval};
 use crate::error::{AiError, Result};
 use crate::llm::{
     CompletionRequest, CompletionResponse, FinishReason, LlmClient, Message, Role, ToolCall,
@@ -749,6 +750,28 @@ impl AgentExecutor {
                                         approval_id.clone(),
                                     )
                                     .await;
+                                if let (Some(coordinator), Some(team_context), Some(approval_id)) = (
+                                    config.team_coordinator.as_ref(),
+                                    extract_team_execution_context(&config.context),
+                                    approval_id.as_deref(),
+                                ) && let Err(error) = record_pending_team_approval(
+                                    coordinator,
+                                    &team_context,
+                                    approval_id,
+                                    &tool_call.name,
+                                    serde_json::to_string(&tool_call.arguments)
+                                        .unwrap_or_else(|_| "{}".to_string()),
+                                )
+                                .await
+                                {
+                                    tracing::warn!(
+                                        error = %error,
+                                        team_run_id = %team_context.team_run_id,
+                                        team_member_id = %team_context.team_member_id,
+                                        approval_id = %approval_id,
+                                        "Failed to bridge deferred approval into team runtime"
+                                    );
+                                }
                                 format!(
                                     "Deferred execution for tool '{}' (approval_id: {}). Continuing with other work.",
                                     tool_call.name,

@@ -639,6 +639,14 @@ mod tests {
             panic!("unexpected executor call")
         }
 
+        async fn execute_runtime_tool(
+            &self,
+            _name: &str,
+            _input: serde_json::Value,
+        ) -> anyhow::Result<restflow_contracts::ToolExecutionResult> {
+            panic!("unexpected executor call")
+        }
+
         async fn list_kv_store(
             &self,
             _namespace: Option<&str>,

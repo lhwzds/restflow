@@ -69,7 +69,10 @@ use self::config::{
     build_llm_factory, build_switch_model_tool, load_agent_defaults, load_api_defaults,
     load_registry_defaults, load_subagent_config,
 };
-use self::subagent_backend::create_subagent_manager;
+use self::subagent_backend::{
+    build_direct_service_subagent_manager, build_service_subagent_manager,
+    build_service_subagent_runtime_bundle,
+};
 
 pub use self::assembly::{create_tool_registry, create_tool_registry_with_assessor};
 
