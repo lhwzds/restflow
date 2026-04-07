@@ -176,6 +176,59 @@ Before completing a feature:
 | Rust service | `crates/restflow-core/src/services/*.rs` |
 | UI workflow | `e2e-tests/tests/*.spec.ts` |
 
+### CI Parity And Local Preflight
+
+**CRITICAL: When fixing CI regressions, run the same entrypoint as CI before concluding the fix is complete.**
+**CRITICAL: 修 CI 问题时，必须优先运行与 CI 完全一致的本地入口命令！**
+
+Rules:
+
+1. **Use the CI entrypoint, not a near-equivalent shortcut**
+   - E2E: run `cd e2e-tests && npm test`
+   - Frontend: run `cd web && npm run test`
+   - Backend/clippy: run the same package-targeted `cargo test` / `cargo clippy` command used by CI
+   - Do not substitute `npx playwright test` for `npm test` unless you are intentionally debugging below the CI wrapper
+
+2. **Reproduce CI-only guarded flows by removing local provider credentials**
+   - If a test or tool behavior depends on provider availability, rerun the minimal test with provider env vars unset
+   - Example pattern:
+     ```bash
+     env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY -u GEMINI_API_KEY \
+       cargo test -p restflow-cli --test mcp_daemon <test_name> -- --nocapture
+     ```
+   - This catches confirmation-required / preview / blocked flows that may be skipped on a fully configured local machine
+
+3. **Prefer a focused regression test before broad reruns**
+   - When CI exposes a bug, first add or tighten the smallest package-level test that reproduces it
+   - For task/run guard behavior, prefer Rust package tests in the affected crate before relying on full GitHub Actions reruns
+
+4. **Exercise non-Unix compilation paths when touching IPC or daemon boundary code**
+   - If you change code under `crates/restflow-core/src/daemon/`, `ipc_client/`, `mcp/`, or platform-gated modules, run:
+     ```bash
+     cargo check -p restflow-core --target x86_64-pc-windows-msvc
+     ```
+   - On macOS/Linux hosts this may still be blocked by third-party native dependencies, but it can catch our own Windows-only Rust API drift before CI does
+
+5. **Mirror browser contract renames in E2E mocks immediately**
+   - If UI copy, IPC request names, or route contracts change, update E2E stubs and assertions in the same change
+   - Typical drift hotspots:
+     - menu labels
+     - IPC request names
+     - run/session/task route patterns
+     - cleanup helpers that still use legacy request types
+
+6. **Do not treat CI as the first structured debugger**
+   - Before pushing, prefer a short preflight sequence for touched areas
+   - Suggested pattern:
+     ```bash
+     cargo test -p restflow-tools <focused_test> -- --nocapture
+     env -u OPENAI_API_KEY -u ANTHROPIC_API_KEY -u GEMINI_API_KEY \
+       cargo test -p restflow-cli --test mcp_daemon <focused_test> -- --nocapture
+     cd e2e-tests && node ./scripts/run-isolated-e2e.mjs --grep "<affected workflow>"
+     ```
+
+These checks do not replace full CI, but they should eliminate a large class of "passes locally, fails only on CI" regressions.
+
 ---
 
 ## Table of Contents
