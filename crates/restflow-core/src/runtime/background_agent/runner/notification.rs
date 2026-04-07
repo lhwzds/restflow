@@ -12,12 +12,7 @@ impl TaskRunner {
     /// Prefers broadcasting through ChannelRouter when available. Falls
     /// back to the dedicated Telegram sender only when router delivery
     /// does not succeed, avoiding duplicate notifications.
-    pub(super) async fn send_notification(
-        &self,
-        task: &Task,
-        success: bool,
-        message: &str,
-    ) {
+    pub(super) async fn send_notification(&self, task: &Task, success: bool, message: &str) {
         // Check if we should only notify on failure
         if success && task.notification.notify_on_failure_only {
             return;

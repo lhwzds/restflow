@@ -367,10 +367,7 @@ impl ExecutionConsoleService {
         self.list_background_task_runs(&task)
     }
 
-    fn list_background_task_runs(
-        &self,
-        task: &Task,
-    ) -> Result<Vec<RunSummary>> {
+    fn list_background_task_runs(&self, task: &Task) -> Result<Vec<RunSummary>> {
         let events = self.storage.execution_traces.query(&ExecutionTraceQuery {
             task_id: Some(task.id.clone()),
             limit: Some(usize::MAX),
@@ -421,10 +418,7 @@ impl ExecutionConsoleService {
         Ok(runs)
     }
 
-    fn list_external_channel_runs(
-        &self,
-        container_id: &str,
-    ) -> Result<Vec<RunSummary>> {
+    fn list_external_channel_runs(&self, container_id: &str) -> Result<Vec<RunSummary>> {
         let contexts = self.load_session_contexts()?;
         let mut runs = contexts
             .into_iter()

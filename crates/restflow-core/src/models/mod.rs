@@ -44,10 +44,9 @@ pub(crate) use background_agent::{
 };
 pub use background_agent::{
     CliExecutionConfig, ContinuationConfig, DurabilityMode, ExecutionMode, MemoryConfig,
-    MemoryScope, NotificationConfig, ResourceLimits, Task, TaskControlAction,
-    TaskConversionResult, TaskEvent, TaskEventType, TaskMessage, TaskMessageSource,
-    TaskMessageStatus, TaskPatch, TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus,
-    TaskSchedule, TaskSpec, TaskStatus,
+    MemoryScope, NotificationConfig, ResourceLimits, Task, TaskControlAction, TaskConversionResult,
+    TaskEvent, TaskEventType, TaskMessage, TaskMessageSource, TaskMessageStatus, TaskPatch,
+    TaskProgress, TaskRun, TaskRunMetrics, TaskRunStatus, TaskSchedule, TaskSpec, TaskStatus,
 };
 pub use channel_session_binding::ChannelSessionBinding;
 pub use checkpoint::{AgentCheckpoint, ResumePayload};

@@ -6,8 +6,8 @@ use tokio::sync::mpsc;
 
 use crate::models::{ChatSession, MemoryConfig, SteerMessage};
 use crate::runtime::background_agent::{
-    AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionExecutionResult,
-    SessionInputMode, SessionTurnRuntimeOptions,
+    AgentExecutor, AgentRuntimeExecutor, ExecutionResult, SessionExecutionResult, SessionInputMode,
+    SessionTurnRuntimeOptions,
 };
 use restflow_ai::AgentState;
 use restflow_ai::agent::StreamEmitter;

@@ -165,10 +165,7 @@ impl McpBackend for CoreBackend {
         Ok(session)
     }
 
-    async fn list_tasks(
-        &self,
-        status: Option<TaskStatus>,
-    ) -> Result<Vec<Task>, String> {
+    async fn list_tasks(&self, status: Option<TaskStatus>) -> Result<Vec<Task>, String> {
         match status {
             Some(status) => self
                 .core
@@ -193,11 +190,7 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn update_task(
-        &self,
-        id: &str,
-        patch: TaskPatch,
-    ) -> Result<Task, String> {
+    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
         self.core
             .storage
             .background_agents
@@ -216,11 +209,7 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn control_task(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-    ) -> Result<Task, String> {
+    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task, String> {
         self.core
             .storage
             .background_agents
@@ -253,11 +242,7 @@ impl McpBackend for CoreBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn list_task_messages(
-        &self,
-        id: &str,
-        limit: usize,
-    ) -> Result<Vec<TaskMessage>, String> {
+    async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String> {
         self.core
             .storage
             .background_agents
@@ -338,18 +323,11 @@ impl McpBackend for CoreBackend {
         self.list_tasks(status).await
     }
 
-    async fn create_background_agent(
-        &self,
-        spec: TaskSpec,
-    ) -> Result<Task, String> {
+    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
         self.create_task(spec).await
     }
 
-    async fn update_background_agent(
-        &self,
-        id: &str,
-        patch: TaskPatch,
-    ) -> Result<Task, String> {
+    async fn update_background_agent(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
         self.update_task(id, patch).await
     }
 
@@ -598,10 +576,7 @@ impl McpBackend for IpcBackend {
             .map_err(|e| e.to_string())
     }
 
-    async fn list_tasks(
-        &self,
-        status: Option<TaskStatus>,
-    ) -> Result<Vec<Task>, String> {
+    async fn list_tasks(&self, status: Option<TaskStatus>) -> Result<Vec<Task>, String> {
         let mut client = self.client.lock().await;
         client
             .list_background_agents(status.map(|value| value.as_str().to_string()))
@@ -614,11 +589,7 @@ impl McpBackend for IpcBackend {
         self.request_typed(IpcRequest::CreateTask { spec }).await
     }
 
-    async fn update_task(
-        &self,
-        id: &str,
-        patch: TaskPatch,
-    ) -> Result<Task, String> {
+    async fn update_task(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
         let patch = core_patch_to_contract(patch).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::UpdateTask {
             id: id.to_string(),
@@ -643,11 +614,7 @@ impl McpBackend for IpcBackend {
         Ok(TaskCommandOutcome::Executed { result })
     }
 
-    async fn control_task(
-        &self,
-        id: &str,
-        action: TaskControlAction,
-    ) -> Result<Task, String> {
+    async fn control_task(&self, id: &str, action: TaskControlAction) -> Result<Task, String> {
         let action = to_contract(action).map_err(|e| e.to_string())?;
         self.request_typed(IpcRequest::ControlTask {
             id: id.to_string(),
@@ -683,11 +650,7 @@ impl McpBackend for IpcBackend {
         .await
     }
 
-    async fn list_task_messages(
-        &self,
-        id: &str,
-        limit: usize,
-    ) -> Result<Vec<TaskMessage>, String> {
+    async fn list_task_messages(&self, id: &str, limit: usize) -> Result<Vec<TaskMessage>, String> {
         self.request_typed(IpcRequest::ListTaskMessages {
             id: id.to_string(),
             limit: Some(limit),
@@ -770,18 +733,11 @@ impl McpBackend for IpcBackend {
         self.list_tasks(status).await
     }
 
-    async fn create_background_agent(
-        &self,
-        spec: TaskSpec,
-    ) -> Result<Task, String> {
+    async fn create_background_agent(&self, spec: TaskSpec) -> Result<Task, String> {
         self.create_task(spec).await
     }
 
-    async fn update_background_agent(
-        &self,
-        id: &str,
-        patch: TaskPatch,
-    ) -> Result<Task, String> {
+    async fn update_background_agent(&self, id: &str, patch: TaskPatch) -> Result<Task, String> {
         self.update_task(id, patch).await
     }
 
