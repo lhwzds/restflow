@@ -1,22 +1,22 @@
 .ie \n(.g .ds Aq \(aq
 .el .ds Aq '
-.TH chat 1  "chat " 
+.TH chat 1  "chat "
 .SH NAME
-chat \- Start interactive TUI chat
+chat \- Start interactive terminal chat
 .SH SYNOPSIS
-\fBchat\fR [\fB\-a\fR|\fB\-\-agent\fR] [\fB\-s\fR|\fB\-\-session\fR] [\fB\-m\fR|\fB\-\-message\fR] [\fB\-h\fR|\fB\-\-help\fR] 
+\fBchat\fR [\fB\-\-agent\fR] [\fB\-\-session\fR] [\fB\-\-message\fR] [\fB\-h\fR|\fB\-\-help\fR]
 .SH DESCRIPTION
-Start interactive TUI chat
+Start interactive terminal chat
 .SH OPTIONS
 .TP
-\fB\-a\fR, \fB\-\-agent\fR \fI<AGENT>\fR
-Agent ID to use
+\fB\-\-agent\fR \fI<AGENT>\fR
+Agent ID to use instead of the resolved default agent
 .TP
-\fB\-s\fR, \fB\-\-session\fR \fI<SESSION>\fR
-Session ID to continue
+\fB\-\-session\fR \fI<SESSION>\fR
+Existing session ID to resume
 .TP
-\fB\-m\fR, \fB\-\-message\fR \fI<MESSAGE>\fR
-Initial message to send
+\fB\-\-message\fR \fI<MESSAGE>\fR
+Initial message to send immediately after startup
 .TP
 \fB\-h\fR, \fB\-\-help\fR
 Print help
