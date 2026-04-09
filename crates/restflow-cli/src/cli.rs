@@ -77,6 +77,9 @@ pub enum Commands {
         command: HookCommands,
     },
 
+    /// Start interactive terminal chat
+    Chat(ChatArgs),
+
     /// Daemon management
     Daemon {
         #[command(subcommand)]
@@ -202,6 +205,21 @@ pub struct StartArgs {}
 #[derive(Args, Default, Clone, Copy)]
 pub struct RestartArgs {}
 
+#[derive(Args, Debug, Clone, Default)]
+pub struct ChatArgs {
+    /// Agent ID to use instead of the resolved default agent
+    #[arg(long)]
+    pub agent: Option<String>,
+
+    /// Existing session ID to resume
+    #[arg(long)]
+    pub session: Option<String>,
+
+    /// Initial message to send immediately after startup
+    #[arg(long)]
+    pub message: Option<String>,
+}
+
 #[derive(Args, Clone, Copy, Default)]
 pub struct UpgradeArgs {
     /// Reinstall even if the current version is already the latest
@@ -323,6 +341,27 @@ mod tests {
             Some(super::Commands::Hook {
                 command: super::HookCommands::List
             })
+        ));
+    }
+
+    #[test]
+    fn parses_chat_command() {
+        let cli = Cli::try_parse_from([
+            "restflow",
+            "chat",
+            "--agent",
+            "default",
+            "--message",
+            "hello",
+        ])
+        .expect("parse chat");
+        assert!(matches!(
+            cli.command,
+            Some(super::Commands::Chat(super::ChatArgs {
+                agent: Some(_),
+                message: Some(_),
+                ..
+            }))
         ));
     }
 

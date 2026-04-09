@@ -6,13 +6,14 @@ mod error;
 mod executor;
 mod output;
 mod setup;
+mod tui;
 #[cfg(test)]
 mod test_support;
 
 use anyhow::Result;
 use clap::{CommandFactory, Parser};
 use clap_complete::generate;
-use cli::{Cli, Commands};
+use cli::{ChatArgs, Cli, Commands};
 use commands::task as task_commands;
 use restflow_core::paths;
 use std::io;
@@ -132,6 +133,20 @@ async fn run() -> Result<()> {
 
     if let Some(Commands::Mcp { command }) = &cli.command {
         return commands::mcp::run(command.clone(), cli.format).await;
+    }
+
+    if let Some(Commands::Chat(args)) = &cli.command {
+        if cli.db_path.is_some() {
+            anyhow::bail!(
+                "The --db-path flag is not supported for 'restflow chat'. Start the daemon against the desired database first."
+            );
+        }
+        return commands::chat::run(ChatArgs {
+            agent: args.agent.clone(),
+            session: args.session.clone(),
+            message: args.message.clone(),
+        })
+        .await;
     }
 
     // Commands that need direct core access.

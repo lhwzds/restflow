@@ -1,6 +1,7 @@
 pub mod agent;
 pub mod auth;
 pub mod background_agent;
+pub mod chat;
 pub mod claude_mcp;
 pub mod codex_mcp;
 pub mod config;
