@@ -33,3 +33,12 @@ fn test_cli_status() {
         .success()
         .stdout(contains("RestFlow Status"));
 }
+
+#[test]
+fn test_cli_chat_help() {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!("restflow"));
+    cmd.args(["chat", "--help"])
+        .assert()
+        .success()
+        .stdout(contains("Start interactive terminal chat"));
+}
