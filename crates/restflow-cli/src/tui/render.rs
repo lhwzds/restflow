@@ -4,7 +4,9 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, Paragraph, Wrap};
 
-use super::state::{AppState, OverlayState, RunPickerItem, TeamOverlayTab, TranscriptKind};
+use super::composer::ComposerMode;
+use super::state::{AppState, OverlayState, TeamOverlayTab};
+use super::transcript::ShellMessage;
 
 pub fn render(frame: &mut Frame<'_>, state: &AppState) {
     let layout = Layout::default()
@@ -31,8 +33,7 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .clone()
         .unwrap_or_else(|| "No default agent".to_string());
     let session = state
-        .current_session
-        .as_ref()
+        .current_session()
         .map(|session| session.name.clone())
         .unwrap_or_else(|| "No session".to_string());
     let overlay = match state.overlay.as_ref() {
@@ -44,9 +45,16 @@ fn render_header(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         None => "none",
     };
     let status = if state.is_streaming { "streaming" } else { "idle" };
+    let mode = match state.composer.mode() {
+        ComposerMode::Compose => "compose",
+        ComposerMode::Command => "command",
+    };
     let line = Line::from(vec![
         Span::styled("RestFlow ", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
-        Span::raw(format!("agent={agent}  session={session}  overlay={overlay}  state={status}")),
+        Span::raw(format!(
+            "agent={agent}  session={session}  focus={}  overlay={overlay}  state={status}  mode={mode}",
+            state.focus_label()
+        )),
     ]);
     frame.render_widget(Paragraph::new(vec![line]), area);
 }
@@ -58,7 +66,7 @@ fn render_transcript(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         state
             .transcript
             .iter()
-            .map(|entry| render_transcript_line(entry.kind, &entry.text))
+            .flat_map(render_transcript_lines)
             .collect::<Vec<_>>()
     };
 
@@ -71,24 +79,80 @@ fn render_transcript(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
     );
 }
 
-fn render_transcript_line(kind: TranscriptKind, text: &str) -> Line<'_> {
-    let (label, color) = match kind {
-        TranscriptKind::User => ("user", Color::Yellow),
-        TranscriptKind::Assistant => ("assistant", Color::Green),
-        TranscriptKind::System => ("system", Color::Blue),
-        TranscriptKind::Ack => ("ack", Color::Gray),
-        TranscriptKind::Data => ("stream", Color::White),
-        TranscriptKind::ToolCall => ("tool", Color::Magenta),
-        TranscriptKind::ToolResult => ("result", Color::Magenta),
-        TranscriptKind::SessionEvent => ("session", Color::Cyan),
-        TranscriptKind::TaskEvent => ("task", Color::LightBlue),
-        TranscriptKind::Info => ("info", Color::Gray),
-        TranscriptKind::Error => ("error", Color::Red),
+fn render_transcript_lines(message: &ShellMessage) -> Vec<Line<'static>> {
+    let (label, color, content) = match message {
+        ShellMessage::UserMessage { content } => ("user", Color::Yellow, content.as_str()),
+        ShellMessage::AssistantMessage { content } => {
+            ("assistant", Color::Green, content.as_str())
+        }
+        ShellMessage::SystemMessage { content } => ("system", Color::Blue, content.as_str()),
+        ShellMessage::AssistantStream { content } => {
+            ("assistant...", Color::Green, content.as_str())
+        }
+        ShellMessage::StreamAck { content } => ("ack", Color::Gray, content.as_str()),
+        ShellMessage::ToolCall {
+            call_id,
+            name,
+            arguments,
+        } => {
+            return vec![Line::from(vec![
+                Span::styled("[tool] ", Style::default().fg(Color::Magenta)),
+                Span::raw(format!("{name}#{call_id} {arguments}")),
+            ])];
+        }
+        ShellMessage::ToolResult {
+            call_id,
+            success,
+            result,
+        } => {
+            return vec![Line::from(vec![
+                Span::styled("[result] ", Style::default().fg(Color::Magenta)),
+                Span::raw(format!("#{call_id} success={success} {result}")),
+            ])];
+        }
+        ShellMessage::SessionNotice { content } => ("session", Color::Cyan, content.as_str()),
+        ShellMessage::TaskNotice { content } => ("task", Color::LightBlue, content.as_str()),
+        ShellMessage::ApprovalNotice {
+            approval_id,
+            content,
+        } => {
+            let suffix = approval_id
+                .as_ref()
+                .map(|approval_id| format!(" ({approval_id})"))
+                .unwrap_or_default();
+            return vec![Line::from(vec![
+                Span::styled("[approval] ", Style::default().fg(Color::Yellow)),
+                Span::raw(format!("{content}{suffix}")),
+            ])];
+        }
+        ShellMessage::TeamNotice { content } => ("team", Color::Cyan, content.as_str()),
+        ShellMessage::InfoNotice { content } => ("info", Color::Gray, content.as_str()),
+        ShellMessage::ErrorNotice { content } => ("error", Color::Red, content.as_str()),
     };
-    Line::from(vec![
-        Span::styled(format!("[{label}] "), Style::default().fg(color)),
-        Span::raw(text.to_string()),
-    ])
+
+    let mut lines = Vec::new();
+    for (index, line) in content.lines().enumerate() {
+        if index == 0 {
+            lines.push(Line::from(vec![
+                Span::styled(format!("[{label}] "), Style::default().fg(color)),
+                Span::raw(line.to_string()),
+            ]));
+        } else {
+            lines.push(Line::from(vec![
+                Span::raw("          "),
+                Span::raw(line.to_string()),
+            ]));
+        }
+    }
+
+    if lines.is_empty() {
+        lines.push(Line::from(vec![
+            Span::styled(format!("[{label}] "), Style::default().fg(color)),
+            Span::raw(String::new()),
+        ]));
+    }
+
+    lines
 }
 
 fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
@@ -98,24 +162,39 @@ fn render_composer(frame: &mut Frame<'_>, area: Rect, state: &AppState) {
         .split(area);
 
     frame.render_widget(
-        Paragraph::new(state.input.text.as_str())
-            .block(Block::default().borders(Borders::ALL).title("Compose"))
+        Paragraph::new(state.composer.draft())
+            .block(
+                Block::default().borders(Borders::ALL).title(match state.composer.mode() {
+                    ComposerMode::Compose => "Compose",
+                    ComposerMode::Command => "Command",
+                }),
+            )
             .wrap(Wrap { trim: false }),
         chunks[0],
     );
 
+    let helper = match state.composer.mode() {
+        ComposerMode::Compose => {
+            "Enter send  Ctrl+J newline  Ctrl+P sessions  Ctrl+R runs  Ctrl+A approvals  Ctrl+G team  ? help"
+        }
+        ComposerMode::Command => "Slash command mode: /help /task /run /team /approve /reject",
+    };
     frame.render_widget(
         Paragraph::new(vec![
             Line::from(state.status.clone()),
-            Line::from("Enter send  Ctrl+J newline  Ctrl+P sessions  Ctrl+R runs  Ctrl+A approvals  Ctrl+G team  ? help"),
+            Line::from(helper),
         ])
         .block(Block::default().borders(Borders::TOP).title("Status")),
         chunks[1],
     );
 
-    let cursor_x = chunks[0].x + 1 + state.input.cursor as u16;
-    let cursor_y = chunks[0].y + 1;
-    frame.set_cursor_position((cursor_x.min(chunks[0].right().saturating_sub(2)), cursor_y));
+    let (cursor_column, cursor_row) = state.composer.cursor_position();
+    let cursor_x = chunks[0].x + 1 + cursor_column;
+    let cursor_y = chunks[0].y + 1 + cursor_row;
+    frame.set_cursor_position((
+        cursor_x.min(chunks[0].right().saturating_sub(2)),
+        cursor_y.min(chunks[0].bottom().saturating_sub(2)),
+    ));
 }
 
 fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState, overlay: &OverlayState) {
@@ -143,20 +222,16 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState, overlay: 
                 .enumerate()
                 .map(|(index, item)| {
                     let prefix = if index == *selected { "▸ " } else { "  " };
-                    match item {
-                        RunPickerItem::Task { id, title, status } => {
-                            ListItem::new(format!("{prefix}[task] {title} ({status}) {id}"))
-                        }
-                        RunPickerItem::Run {
-                            run_id,
-                            title,
-                            status,
-                        } => ListItem::new(format!("{prefix}[run] {title} ({status}) {run_id}")),
-                    }
+                    let super::state::RunPickerItem::Run {
+                        run_id,
+                        title,
+                        status,
+                    } = item;
+                    ListItem::new(format!("{prefix}[run] {title} ({status}) {run_id}"))
                 })
                 .collect::<Vec<_>>();
             frame.render_widget(
-                List::new(items).block(Block::default().borders(Borders::ALL).title("Runs & Tasks")),
+                List::new(items).block(Block::default().borders(Borders::ALL).title("Session Runs")),
                 area,
             );
         }
@@ -257,7 +332,7 @@ fn render_overlay(frame: &mut Frame<'_>, area: Rect, state: &AppState, overlay: 
                 Paragraph::new(vec![
                     Line::from("RestFlow Agent Shell"),
                     Line::from("Ctrl+P sessions"),
-                    Line::from("Ctrl+R runs/tasks"),
+                    Line::from("Ctrl+R runs"),
                     Line::from("Ctrl+A approvals"),
                     Line::from("Ctrl+G team"),
                     Line::from("Enter send, Ctrl+J newline, Esc close overlay"),

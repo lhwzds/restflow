@@ -8,9 +8,10 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use std::io::{self, Stdout};
 
+use crate::tui::controller::ShellController;
 use crate::tui::daemon_client::TuiDaemonClient;
 use crate::tui::event_loop::run_event_loop;
-use crate::tui::state::{AppState, TranscriptKind};
+use crate::tui::state::AppState;
 
 use super::ChatLaunchOptions;
 
@@ -38,14 +39,16 @@ impl Drop for TerminalGuard {
 }
 
 pub async fn run_chat_tui(options: ChatLaunchOptions) -> Result<()> {
-    let client = TuiDaemonClient::new()?;
-    client.ensure_daemon().await?;
+    let controller = ShellController::new(TuiDaemonClient::new()?);
+    controller.ensure_daemon().await?;
 
     let mut state = AppState::empty();
-    let agent = client.resolve_default_agent(options.agent.as_deref()).await?;
+    let agent = controller
+        .resolve_default_agent(options.agent.as_deref())
+        .await?;
     if let Some(agent) = agent {
         state.set_default_agent(Some(agent.id.clone()), Some(agent.name.clone()));
-        if let Some(session) = client
+        if let Some(session) = controller
             .resolve_or_create_session(&agent, options.session.as_deref())
             .await?
         {
@@ -55,12 +58,9 @@ pub async fn run_chat_tui(options: ChatLaunchOptions) -> Result<()> {
     } else {
         state.status =
             "No default agent configured. Create one or pass --agent to restflow chat.".to_string();
-        state.push_transcript(
-            TranscriptKind::Info,
-            "No default agent configured. Create one from the standard CLI before using the TUI.",
-        );
+        state.push_info("No default agent configured. Create one from the standard CLI before using the TUI.");
     }
 
     let mut terminal = TerminalGuard::new()?;
-    run_event_loop(&mut terminal.terminal, client, state, options.message).await
+    run_event_loop(&mut terminal.terminal, controller, state, options.message).await
 }

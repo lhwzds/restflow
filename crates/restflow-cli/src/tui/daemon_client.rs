@@ -120,12 +120,6 @@ impl TuiDaemonClient {
         client.get_session(session_id.to_string()).await
     }
 
-    pub async fn list_tasks(&self) -> Result<Vec<Task>> {
-        let mut client = self.connect().await?;
-        let tasks: Vec<Task> = client.list_tasks(None).await?;
-        Ok(tasks)
-    }
-
     pub async fn list_runs_for_session(&self, session_id: &str) -> Result<Vec<RunSummary>> {
         let mut client = self.connect().await?;
         client
@@ -133,18 +127,6 @@ impl TuiDaemonClient {
                 container: ExecutionContainerRef {
                     kind: ExecutionContainerKind::Workspace,
                     id: session_id.to_string(),
-                },
-            })
-            .await
-    }
-
-    pub async fn list_runs_for_task(&self, task_id: &str) -> Result<Vec<RunSummary>> {
-        let mut client = self.connect().await?;
-        client
-            .list_runs(RunListQuery {
-                container: ExecutionContainerRef {
-                    kind: ExecutionContainerKind::BackgroundTask,
-                    id: task_id.to_string(),
                 },
             })
             .await
