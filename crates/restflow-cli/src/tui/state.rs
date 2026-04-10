@@ -1,91 +1,85 @@
+use std::collections::HashSet;
+
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
-use restflow_core::models::{ChatRole, ChatSession, ChatSessionSummary, ExecutionThread, RunSummary, Task};
+use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
 use restflow_core::runtime::TaskStreamEvent;
-use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamState};
+use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamMessageKind, TeamState};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TranscriptKind {
-    User,
-    Assistant,
-    System,
-    Ack,
-    Data,
-    ToolCall,
-    ToolResult,
-    SessionEvent,
-    TaskEvent,
-    Info,
-    Error,
-}
-
-#[derive(Debug, Clone)]
-pub struct TranscriptEntry {
-    pub kind: TranscriptKind,
-    pub text: String,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct InputState {
-    pub text: String,
-    pub cursor: usize,
-}
-
-impl InputState {
-    pub fn insert_char(&mut self, ch: char) {
-        self.text.insert(self.cursor, ch);
-        self.cursor += ch.len_utf8();
-    }
-
-    pub fn insert_newline(&mut self) {
-        self.insert_char('\n');
-    }
-
-    pub fn backspace(&mut self) {
-        if self.cursor == 0 {
-            return;
-        }
-        let prev = self.text[..self.cursor]
-            .char_indices()
-            .last()
-            .map(|(idx, _)| idx)
-            .unwrap_or(0);
-        self.text.replace_range(prev..self.cursor, "");
-        self.cursor = prev;
-    }
-
-    pub fn move_left(&mut self) {
-        if self.cursor == 0 {
-            return;
-        }
-        self.cursor = self.text[..self.cursor]
-            .char_indices()
-            .last()
-            .map(|(idx, _)| idx)
-            .unwrap_or(0);
-    }
-
-    pub fn move_right(&mut self) {
-        if self.cursor >= self.text.len() {
-            return;
-        }
-        let next = self.text[self.cursor..]
-            .char_indices()
-            .nth(1)
-            .map(|(idx, _)| self.cursor + idx)
-            .unwrap_or(self.text.len());
-        self.cursor = next;
-    }
-
-    pub fn take(&mut self) -> String {
-        self.cursor = 0;
-        std::mem::take(&mut self.text)
-    }
-}
+use super::composer::ComposerState;
+use super::transcript::{
+    ShellMessage, message_from_session_event, message_from_stream_frame, message_from_task_event,
+    message_from_team_message, messages_from_session,
+};
 
 #[derive(Debug, Clone)]
 pub enum RunPickerItem {
-    Task { id: String, title: String, status: String },
     Run { run_id: String, title: String, status: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ThreadFocus {
+    #[default]
+    Session,
+    Run { run_id: String },
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SessionThreadState {
+    pub session: Option<ChatSession>,
+    pub focus: ThreadFocus,
+    pub runs: Vec<RunSummary>,
+    pub child_runs: Vec<RunSummary>,
+    pub execution_thread: Option<ExecutionThread>,
+}
+
+impl SessionThreadState {
+    pub fn session_id(&self) -> Option<&str> {
+        self.session.as_ref().map(|session| session.id.as_str())
+    }
+
+    pub fn set_session(&mut self, session: ChatSession) {
+        self.session = Some(session);
+        self.focus = ThreadFocus::Session;
+        self.runs.clear();
+        self.child_runs.clear();
+        self.execution_thread = None;
+    }
+
+    pub fn clear_session(&mut self) {
+        self.session = None;
+        self.focus = ThreadFocus::Session;
+        self.runs.clear();
+        self.child_runs.clear();
+        self.execution_thread = None;
+    }
+
+    pub fn set_session_runs(&mut self, runs: Vec<RunSummary>) {
+        self.runs = runs;
+    }
+
+    pub fn set_run_focus(
+        &mut self,
+        run_id: String,
+        thread: ExecutionThread,
+        child_runs: Vec<RunSummary>,
+    ) {
+        self.focus = ThreadFocus::Run { run_id };
+        self.execution_thread = Some(thread);
+        self.child_runs = child_runs;
+    }
+
+    pub fn task_stream_id(&self) -> Option<&str> {
+        self.execution_thread
+            .as_ref()
+            .and_then(|thread| thread.focus.task_id.as_deref())
+    }
+
+    pub fn focus_label(&self) -> String {
+        match &self.focus {
+            ThreadFocus::Session => "session".to_string(),
+            ThreadFocus::Run { run_id } => format!("run:{run_id}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,26 +103,19 @@ pub enum OverlayState {
 pub struct AppState {
     pub default_agent_name: Option<String>,
     pub default_agent_id: Option<String>,
-    pub current_session: Option<ChatSession>,
-    pub current_task_id: Option<String>,
-    pub current_run_id: Option<String>,
-    pub current_thread: Option<ExecutionThread>,
+    pub thread: SessionThreadState,
     pub current_team_state: Option<TeamState>,
     pub current_team_messages: Vec<TeamMessage>,
     pub current_team_assignments: Vec<TeamAssignment>,
     pub current_team_approvals: Vec<PendingTeamApproval>,
     pub sessions: Vec<ChatSessionSummary>,
-    pub tasks: Vec<Task>,
-    pub runs: Vec<RunSummary>,
-    pub child_runs: Vec<RunSummary>,
-    pub transcript: Vec<TranscriptEntry>,
+    pub transcript: Vec<ShellMessage>,
     pub overlay: Option<OverlayState>,
     pub transcript_scroll: u16,
-    pub input: InputState,
-    pub input_history: Vec<String>,
-    pub history_cursor: Option<usize>,
+    pub composer: ComposerState,
     pub status: String,
     pub is_streaming: bool,
+    seen_team_message_ids: HashSet<String>,
 }
 
 impl AppState {
@@ -136,27 +123,36 @@ impl AppState {
         Self {
             default_agent_name: None,
             default_agent_id: None,
-            current_session: None,
-            current_task_id: None,
-            current_run_id: None,
-            current_thread: None,
+            thread: SessionThreadState::default(),
             current_team_state: None,
             current_team_messages: Vec::new(),
             current_team_assignments: Vec::new(),
             current_team_approvals: Vec::new(),
             sessions: Vec::new(),
-            tasks: Vec::new(),
-            runs: Vec::new(),
-            child_runs: Vec::new(),
             transcript: Vec::new(),
             overlay: None,
             transcript_scroll: 0,
-            input: InputState::default(),
-            input_history: Vec::new(),
-            history_cursor: None,
+            composer: ComposerState::default(),
             status: "Connecting to daemon...".to_string(),
             is_streaming: false,
+            seen_team_message_ids: HashSet::new(),
         }
+    }
+
+    pub fn current_session(&self) -> Option<&ChatSession> {
+        self.thread.session.as_ref()
+    }
+
+    pub fn current_session_id(&self) -> Option<&str> {
+        self.thread.session_id()
+    }
+
+    pub fn focused_task_stream_id(&self) -> Option<&str> {
+        self.thread.task_stream_id()
+    }
+
+    pub fn focus_label(&self) -> String {
+        self.thread.focus_label()
     }
 
     pub fn set_default_agent(&mut self, id: Option<String>, name: Option<String>) {
@@ -165,23 +161,34 @@ impl AppState {
     }
 
     pub fn set_current_session(&mut self, session: ChatSession) {
-        self.current_session = Some(session.clone());
-        self.current_task_id = None;
-        self.current_run_id = None;
-        self.current_thread = None;
-        self.transcript = transcript_from_session(&session);
-        self.transcript_scroll_to_bottom();
+        self.thread.set_session(session.clone());
+        self.seen_team_message_ids.clear();
+        self.replace_session_projection(messages_from_session(&session));
     }
 
-    pub fn set_current_task(&mut self, task_id: String) {
-        self.current_task_id = Some(task_id);
-        self.current_run_id = None;
-        self.current_thread = None;
+    pub fn refresh_current_session(&mut self, session: ChatSession) {
+        self.thread.session = Some(session.clone());
+        self.replace_session_projection(messages_from_session(&session));
     }
 
-    pub fn set_current_run(&mut self, run_id: String, thread: ExecutionThread) {
-        self.current_run_id = Some(run_id);
-        self.current_thread = Some(thread);
+    pub fn clear_current_session(&mut self, notice: impl Into<String>) {
+        self.thread.clear_session();
+        self.seen_team_message_ids.clear();
+        self.replace_session_projection(Vec::new());
+        self.push_info(notice);
+    }
+
+    pub fn set_session_runs(&mut self, runs: Vec<RunSummary>) {
+        self.thread.set_session_runs(runs);
+    }
+
+    pub fn set_run_focus(
+        &mut self,
+        run_id: String,
+        thread: ExecutionThread,
+        child_runs: Vec<RunSummary>,
+    ) {
+        self.thread.set_run_focus(run_id, thread, child_runs);
     }
 
     pub fn clear_overlay(&mut self) {
@@ -266,51 +273,105 @@ impl AppState {
 
     pub fn selected_run_picker_item(&self) -> Option<RunPickerItem> {
         match self.overlay.as_ref() {
-            Some(OverlayState::RunPicker { selected }) => self.run_picker_items().get(*selected).cloned(),
+            Some(OverlayState::RunPicker { selected }) => {
+                self.run_picker_items().get(*selected).cloned()
+            }
             _ => None,
         }
     }
 
     pub fn selected_approval(&self) -> Option<&PendingTeamApproval> {
         match self.overlay.as_ref() {
-            Some(OverlayState::ApprovalPicker { selected }) => self.current_team_approvals.get(*selected),
+            Some(OverlayState::ApprovalPicker { selected }) => {
+                self.current_team_approvals.get(*selected)
+            }
             _ => None,
         }
     }
 
     pub fn run_picker_items(&self) -> Vec<RunPickerItem> {
-        let mut items = self
-            .tasks
-            .iter()
-            .map(|task| RunPickerItem::Task {
-                id: task.id.clone(),
-                title: task.name.clone(),
-                status: format!("{:?}", task.status),
-            })
-            .collect::<Vec<_>>();
-        items.extend(self.runs.iter().filter_map(|run| {
+        let mut items = Vec::new();
+        items.extend(self.thread.runs.iter().filter_map(|run| {
             run.run_id.as_ref().map(|run_id| RunPickerItem::Run {
                 run_id: run_id.clone(),
                 title: run.title.clone(),
                 status: run.status.clone(),
             })
         }));
-        items.extend(self.child_runs.iter().filter_map(|run| {
+        items.extend(self.thread.child_runs.iter().filter_map(|run| {
             run.run_id.as_ref().map(|run_id| RunPickerItem::Run {
                 run_id: run_id.clone(),
-                title: format!("↳ {}", run.title),
+                title: format!("-> {}", run.title),
                 status: run.status.clone(),
             })
         }));
         items
     }
 
-    pub fn push_transcript(&mut self, kind: TranscriptKind, text: impl Into<String>) {
-        self.transcript.push(TranscriptEntry {
-            kind,
-            text: text.into(),
-        });
+    pub fn push_message(&mut self, message: ShellMessage) {
+        if message.is_session_projection() {
+            let insert_at = self
+                .transcript
+                .iter()
+                .position(|entry| !entry.is_session_projection())
+                .unwrap_or(self.transcript.len());
+            self.transcript.insert(insert_at, message);
+        } else {
+            self.transcript.push(message);
+        }
         self.transcript_scroll_to_bottom();
+    }
+
+    pub fn replace_session_projection(&mut self, messages: Vec<ShellMessage>) {
+        let notices = self
+            .transcript
+            .iter()
+            .filter(|message| !message.is_session_projection())
+            .cloned()
+            .collect::<Vec<_>>();
+        self.transcript = messages;
+        self.transcript.extend(notices);
+        self.transcript_scroll_to_bottom();
+    }
+
+    pub fn push_info(&mut self, content: impl Into<String>) {
+        self.push_message(ShellMessage::InfoNotice {
+            content: content.into(),
+        });
+    }
+
+    pub fn push_error(&mut self, content: impl Into<String>) {
+        self.push_message(ShellMessage::ErrorNotice {
+            content: content.into(),
+        });
+    }
+
+    pub fn record_team_message(&mut self, message: &TeamMessage) {
+        if self.seen_team_message_ids.insert(message.message_id.clone()) {
+            self.push_message(message_from_team_message(message));
+        }
+    }
+
+    pub fn apply_team_snapshot(
+        &mut self,
+        team_state: Option<TeamState>,
+        messages: Vec<TeamMessage>,
+        assignments: Vec<TeamAssignment>,
+        status: impl Into<String>,
+        open_overlay: bool,
+    ) {
+        self.current_team_state = team_state;
+        self.current_team_messages = messages;
+        self.current_team_assignments = assignments;
+        let team_messages = self.current_team_messages.clone();
+        for message in &team_messages {
+            self.record_team_message(message);
+        }
+        self.rebuild_pending_approvals();
+        self.status = status.into();
+        if open_overlay {
+            self.open_team_overlay();
+        }
     }
 
     pub fn transcript_scroll_to_bottom(&mut self) {
@@ -322,118 +383,86 @@ impl AppState {
         self.transcript_scroll = next;
     }
 
-    pub fn push_history(&mut self, entry: String) {
-        if entry.trim().is_empty() {
-            return;
-        }
-        if self.input_history.last() != Some(&entry) {
-            self.input_history.push(entry);
-        }
-        self.history_cursor = None;
-    }
-
-    pub fn history_previous(&mut self) {
-        if self.input_history.is_empty() {
-            return;
-        }
-        let next = match self.history_cursor {
-            Some(index) if index > 0 => index - 1,
-            Some(index) => index,
-            None => self.input_history.len() - 1,
-        };
-        self.history_cursor = Some(next);
-        self.input.text = self.input_history[next].clone();
-        self.input.cursor = self.input.text.len();
-    }
-
-    pub fn history_next(&mut self) {
-        let Some(index) = self.history_cursor else {
-            return;
-        };
-        if index + 1 >= self.input_history.len() {
-            self.history_cursor = None;
-            self.input.text.clear();
-            self.input.cursor = 0;
-            return;
-        }
-        let next = index + 1;
-        self.history_cursor = Some(next);
-        self.input.text = self.input_history[next].clone();
-        self.input.cursor = self.input.text.len();
-    }
-
     pub fn apply_stream_frame(&mut self, frame: StreamFrame) {
         match frame {
             StreamFrame::Start { stream_id } => {
                 self.is_streaming = true;
                 self.status = format!("Streaming response ({stream_id})");
             }
-            StreamFrame::Ack { content } => self.push_transcript(TranscriptKind::Ack, content),
-            StreamFrame::Data { content } => self.push_transcript(TranscriptKind::Data, content),
-            StreamFrame::ToolCall { id, name, arguments } => self.push_transcript(
-                TranscriptKind::ToolCall,
-                format!("{name}#{id} {}", arguments),
-            ),
-            StreamFrame::ToolResult { id, result, success } => self.push_transcript(
-                TranscriptKind::ToolResult,
-                format!("#{id} success={success} {result}"),
-            ),
-            StreamFrame::Event { .. } => {}
+            StreamFrame::Data { content } => {
+                self.is_streaming = true;
+                if self
+                    .transcript
+                    .last_mut()
+                    .is_some_and(|message| message.append_assistant_chunk(&content))
+                {
+                    self.transcript_scroll_to_bottom();
+                } else {
+                    self.push_message(ShellMessage::AssistantStream { content });
+                }
+            }
             StreamFrame::Done { total_tokens } => {
                 self.is_streaming = false;
+                if let Some(last_message) = self.transcript.last_mut() {
+                    let _ = last_message.finalize_stream();
+                }
                 self.status = match total_tokens {
                     Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),
                     None => "Stream finished".to_string(),
                 };
             }
-            StreamFrame::Error(error) => {
-                self.is_streaming = false;
-                self.push_transcript(
-                    TranscriptKind::Error,
-                    format!("Stream error {}: {}", error.code, error.message),
-                );
-                self.status = "Stream failed".to_string();
+            other => {
+                if let Some(message) = message_from_stream_frame(&other) {
+                    if matches!(message, ShellMessage::ErrorNotice { .. }) {
+                        self.is_streaming = false;
+                        self.status = "Stream failed".to_string();
+                    }
+                    self.push_message(message);
+                }
             }
         }
     }
 
     pub fn apply_session_event(&mut self, event: ChatSessionEvent) {
-        self.push_transcript(TranscriptKind::SessionEvent, format!("session_event {event:?}"));
+        self.push_message(message_from_session_event(&event));
     }
 
     pub fn apply_task_event(&mut self, event: TaskStreamEvent) {
-        self.push_transcript(TranscriptKind::TaskEvent, format!("task_event {}", event.task_id));
+        self.push_message(message_from_task_event(&event));
     }
-}
 
-pub fn transcript_from_session(session: &ChatSession) -> Vec<TranscriptEntry> {
-    session
-        .messages
-        .iter()
-        .map(|message| TranscriptEntry {
-            kind: match message.role {
-                ChatRole::User => TranscriptKind::User,
-                ChatRole::Assistant => TranscriptKind::Assistant,
-                ChatRole::System => TranscriptKind::System,
-            },
-            text: message.content.clone(),
-        })
-        .collect()
+    pub fn rebuild_pending_approvals(&mut self) {
+        self.current_team_approvals = self
+            .current_team_messages
+            .iter()
+            .filter(|message| message.kind == TeamMessageKind::ApprovalRequest)
+            .map(|message| PendingTeamApproval {
+                team_run_id: message.team_run_id.clone(),
+                approval_id: message
+                    .content
+                    .split_whitespace()
+                    .last()
+                    .unwrap_or_default()
+                    .trim_matches(|ch| ch == '(' || ch == ')')
+                    .to_string(),
+                member_id: message.from_member_id.clone(),
+                tool_name: "unknown".to_string(),
+                content: message.content.clone(),
+                status: restflow_traits::TeamApprovalStatus::Pending,
+                requested_at: message.created_at,
+                resolved_at: None,
+                resolution_reason: None,
+            })
+            .collect();
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-
-    #[test]
-    fn input_state_insert_and_backspace_round_trip() {
-        let mut input = InputState::default();
-        input.insert_char('h');
-        input.insert_char('i');
-        assert_eq!(input.text, "hi");
-        input.backspace();
-        assert_eq!(input.text, "h");
-    }
+    use super::{AppState, OverlayState};
+    use crate::tui::transcript::ShellMessage;
+    use restflow_core::daemon::StreamFrame;
+    use restflow_traits::{TeamMessage, TeamMessageKind};
 
     #[test]
     fn app_state_session_picker_uses_overlay() {
@@ -443,15 +472,105 @@ mod tests {
     }
 
     #[test]
-    fn input_history_round_trip() {
+    fn stream_frames_merge_into_one_assistant_message() {
         let mut state = AppState::empty();
-        state.push_history("first".to_string());
-        state.push_history("second".to_string());
-        state.history_previous();
-        assert_eq!(state.input.text, "second");
-        state.history_previous();
-        assert_eq!(state.input.text, "first");
-        state.history_next();
-        assert_eq!(state.input.text, "second");
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "hel".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: "lo".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        assert_eq!(state.transcript.len(), 1);
+        assert_eq!(
+            state.transcript[0],
+            ShellMessage::AssistantMessage {
+                content: "hello".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    fn team_messages_are_deduped_in_transcript() {
+        let mut state = AppState::empty();
+        let message = TeamMessage {
+            team_run_id: "team-1".to_string(),
+            message_id: "message-1".to_string(),
+            from_member_id: "leader".to_string(),
+            to_member_id: None,
+            kind: TeamMessageKind::Note,
+            content: "hello".to_string(),
+            created_at: 1,
+        };
+
+        state.record_team_message(&message);
+        state.record_team_message(&message);
+
+        assert_eq!(state.transcript.len(), 1);
+    }
+
+    #[test]
+    fn run_picker_uses_only_thread_runs() {
+        let mut state = AppState::empty();
+        state.thread.runs.push(restflow_core::models::RunSummary {
+            id: "run-local".to_string(),
+            kind: restflow_core::models::RunKind::WorkspaceRun,
+            container_id: "session-1".to_string(),
+            root_run_id: Some("run-local".to_string()),
+            title: "Run One".to_string(),
+            subtitle: None,
+            status: "running".to_string(),
+            updated_at: 1,
+            started_at: Some(1),
+            ended_at: None,
+            session_id: Some("session-1".to_string()),
+            run_id: Some("run-local".to_string()),
+            task_id: None,
+            parent_run_id: None,
+            agent_id: Some("agent-1".to_string()),
+            source_channel: None,
+            source_conversation_id: None,
+            effective_model: None,
+            provider: None,
+            event_count: 0,
+        });
+
+        let items = state.run_picker_items();
+        assert_eq!(items.len(), 1);
+        assert!(matches!(items[0], super::RunPickerItem::Run { .. }));
+    }
+
+    #[test]
+    fn refresh_current_session_preserves_notice_messages() {
+        let mut state = AppState::empty();
+        let mut session = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(restflow_core::models::ChatMessage::user("hello"));
+        state.set_current_session(session.clone());
+        state.push_info("notice");
+
+        let mut updated = session.clone();
+        updated
+            .messages
+            .push(restflow_core::models::ChatMessage::assistant("hi"));
+        state.refresh_current_session(updated);
+
+        assert_eq!(state.transcript.len(), 3);
+        assert!(matches!(state.transcript[2], ShellMessage::InfoNotice { .. }));
+    }
+
+    #[test]
+    fn clear_current_session_keeps_notices() {
+        let mut state = AppState::empty();
+        let mut session = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(restflow_core::models::ChatMessage::user("hello"));
+        state.set_current_session(session);
+        state.push_info("notice");
+
+        state.clear_current_session("session missing");
+
+        assert_eq!(state.transcript.len(), 2);
+        assert!(matches!(state.transcript[0], ShellMessage::InfoNotice { .. }));
+        assert!(matches!(state.transcript[1], ShellMessage::InfoNotice { .. }));
     }
 }
