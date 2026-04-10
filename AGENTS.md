@@ -22,6 +22,39 @@ Use [docs/TASK_RUN_DOMAIN_MODEL.md](./docs/TASK_RUN_DOMAIN_MODEL.md) for canonic
 
 Keep summaries in this file short and update the architecture document first when the two diverge.
 
+## Behavioral Engineering Guidelines
+
+These rules exist to reduce common implementation mistakes. They bias toward correctness and clarity over raw speed.
+
+### 1. Think Before Coding
+
+- State important assumptions explicitly before implementing.
+- Surface ambiguity instead of silently picking one interpretation.
+- Prefer clarifying tradeoffs over hiding uncertainty.
+- If a simpler approach exists, call it out before adding complexity.
+
+### 2. Simplicity First
+
+- Implement the minimum code that solves the requested problem.
+- Do not add speculative features, abstraction layers, or configurability that were not requested.
+- Avoid impossible-scenario error handling and single-use abstractions.
+- If a solution feels noticeably larger than necessary, simplify it before finalizing.
+
+### 3. Surgical Changes
+
+- Touch only the files and lines required for the request.
+- Do not refactor or clean adjacent code unless the request requires it.
+- Match existing style and local patterns unless there is a correctness reason not to.
+- Remove only the unused code or imports created by your own changes.
+- If unrelated dead code is noticed, mention it separately instead of deleting it.
+
+### 4. Goal-Driven Execution
+
+- Turn every task into explicit, verifiable success criteria.
+- Prefer tests or focused checks that prove the requested behavior changed.
+- For multi-step work, define a short plan where each step has a verification method.
+- Do not conclude implementation on vague criteria like "looks right" or "should work."
+
 ## Code and Comment Language Standard
 
 **IMPORTANT**: All code, comments, and documentation in the codebase MUST be written in English.
