@@ -1,7 +1,9 @@
+use super::composer::ComposerMode;
 use super::keymap::Action;
 use super::slash_command::{SlashCommand, parse_slash_command};
 use super::state::{AppState, OverlayState};
 use super::transcript::ShellMessage;
+use restflow_core::storage::agent::StoredAgent;
 use restflow_core::models::{ChatSession, ChatSessionSummary, ExecutionThread, RunSummary};
 use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
 use restflow_core::runtime::TaskStreamEvent;
@@ -46,9 +48,14 @@ pub enum ShellAction {
     },
     MessageAppended(ShellMessage),
     StatusUpdated(String),
+    DaemonStarted {
+        agent: Option<Box<StoredAgent>>,
+        session: Option<Box<ChatSession>>,
+        status: String,
+    },
+    DaemonStartFailed(String),
     SubmitText { text: String },
     RefreshTick,
-    ReloadCurrentSession,
     Error(String),
 }
 
@@ -57,6 +64,10 @@ pub enum ShellEffect {
     ClearScreen,
     RefreshState,
     ReloadCurrentSession,
+    StartDaemon {
+        agent_override: Option<String>,
+        session_override: Option<String>,
+    },
     ActivateOverlaySelection,
     SubmitMessage { message: String },
     ExecuteSlashCommand(SlashCommand),
@@ -77,12 +88,15 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         ShellAction::StreamFrame(frame) => state.apply_stream_frame(frame),
         ShellAction::SessionEvent(event) => {
             let refresh_current = state.current_session_id() == Some(session_id_of(&event));
+            let is_message_added = matches!(event, ChatSessionEvent::MessageAdded { .. });
             state.apply_session_event(event);
-            output.effects.push(if refresh_current {
-                ShellEffect::ReloadCurrentSession
-            } else {
-                ShellEffect::RefreshState
-            });
+            if !is_message_added {
+                output.effects.push(if refresh_current {
+                    ShellEffect::ReloadCurrentSession
+                } else {
+                    ShellEffect::RefreshState
+                });
+            }
         }
         ShellAction::TaskEvent(event) => {
             state.apply_task_event(event);
@@ -145,12 +159,42 @@ pub fn reduce(state: &mut AppState, action: ShellAction) -> ReducerOutput {
         } => state.apply_team_snapshot(team_state, messages, assignments, status, open_overlay),
         ShellAction::MessageAppended(message) => state.push_message(message),
         ShellAction::StatusUpdated(status) => state.status = status,
+        ShellAction::DaemonStarted {
+            agent,
+            session,
+            status,
+        } => {
+            state.exit_startup();
+            if let Some(agent) = agent {
+                state.set_default_agent(Some(agent.id.clone()), Some(agent.name.clone()));
+            } else {
+                state.set_default_agent(None, None);
+            }
+            if let Some(session) = session {
+                state.set_current_session(*session);
+            }
+            state.status = status;
+            if let Some(message) = state.take_pending_initial_message()
+                && !message.trim().is_empty()
+                && state.current_session_id().is_some()
+            {
+                output.actions.push(ShellAction::SubmitText { text: message });
+            }
+        }
+        ShellAction::DaemonStartFailed(message) => state.set_startup_error(message),
         ShellAction::SubmitText { text } => reduce_submit_text(state, text, &mut output),
-        ShellAction::RefreshTick => output.effects.push(ShellEffect::RefreshState),
-        ShellAction::ReloadCurrentSession => output.effects.push(ShellEffect::ReloadCurrentSession),
+        ShellAction::RefreshTick => {
+            if !state.is_startup_mode() {
+                output.effects.push(ShellEffect::RefreshState);
+            }
+        }
         ShellAction::Error(message) => {
-            state.status = message.clone();
-            state.push_error(message);
+            if state.is_startup_mode() {
+                state.set_startup_error(message);
+            } else {
+                state.status = message.clone();
+                state.push_error(message);
+            }
         }
     }
     output
@@ -166,11 +210,19 @@ fn session_id_of(event: &ChatSessionEvent) -> &str {
 }
 
 fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
+    if state.is_startup_mode() {
+        reduce_startup_ui(state, action, output);
+        return;
+    }
+
     match action {
         Action::Quit => output.should_quit = true,
         Action::CloseOverlay => {
             if state.overlay.is_some() {
                 state.clear_overlay();
+            } else if matches!(state.composer.mode(), ComposerMode::Command) && !state.composer.is_blank() {
+                state.composer.clear();
+                state.status = "Returned to message mode".to_string();
             } else {
                 output.should_quit = true;
             }
@@ -260,6 +312,42 @@ fn reduce_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
     }
 }
 
+fn reduce_startup_ui(state: &mut AppState, action: Action, output: &mut ReducerOutput) {
+    match action {
+        Action::Quit | Action::CloseOverlay => output.should_quit = true,
+        Action::Submit | Action::OverlaySelect => {
+            let Some(startup) = state.startup_state() else {
+                return;
+            };
+            if startup.starting_daemon {
+                return;
+            }
+            output.effects.push(ShellEffect::StartDaemon {
+                agent_override: startup.agent_override.clone(),
+                session_override: startup.session_override.clone(),
+            });
+            state.mark_starting_daemon();
+        }
+        Action::Redraw => output.effects.push(ShellEffect::ClearScreen),
+        Action::Noop
+        | Action::OpenSessions
+        | Action::OpenRuns
+        | Action::OpenApprovals
+        | Action::OpenTeam
+        | Action::OpenHelp
+        | Action::NavUp
+        | Action::NavDown
+        | Action::MoveLeft
+        | Action::MoveRight
+        | Action::ScrollUp
+        | Action::ScrollDown
+        | Action::InputChar(_)
+        | Action::InputBackspace
+        | Action::Newline
+        | Action::RejectSelected => {}
+    }
+}
+
 fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOutput) {
     if super::composer::ComposerState::is_command_text(&text) {
         match parse_slash_command(&text) {
@@ -281,9 +369,11 @@ fn reduce_submit_text(state: &mut AppState, text: String, output: &mut ReducerOu
 #[cfg(test)]
 mod tests {
     use super::{ShellAction, ShellEffect, reduce};
-    use crate::tui::keymap::Action;
-    use crate::tui::slash_command::SlashCommand;
-    use crate::tui::state::AppState;
+    use crate::keymap::Action;
+    use crate::slash_command::SlashCommand;
+    use crate::state::AppState;
+    use restflow_core::daemon::ChatSessionEvent;
+    use restflow_core::models::ChatSession;
 
     #[test]
     fn submit_plain_message_creates_send_effect() {
@@ -293,7 +383,9 @@ mod tests {
 
         let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
 
-        assert!(state.transcript.is_empty());
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.active_cell.is_none());
         assert!(matches!(
             output.actions.as_slice(),
             [ShellAction::SubmitText { text }] if text == "hi"
@@ -330,7 +422,9 @@ mod tests {
             [ShellAction::SubmitText { text }] if text == "/run nope"
         ));
         assert!(output.effects.is_empty());
-        assert!(state.transcript.is_empty());
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.active_cell.is_none());
     }
 
     #[test]
@@ -359,10 +453,81 @@ mod tests {
             },
         );
 
-        assert_eq!(state.transcript.len(), 1);
+        assert_eq!(state.conversation_cells.len(), 1);
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.active_cell.is_none());
         assert!(matches!(
             output.effects.as_slice(),
             [ShellEffect::SubmitMessage { message }] if message == "hi"
         ));
+    }
+
+    #[test]
+    fn esc_in_command_mode_clears_draft_instead_of_quitting() {
+        let mut state = AppState::empty();
+        for ch in "/help".chars() {
+            state.composer.insert_char(ch);
+        }
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::CloseOverlay));
+
+        assert!(!output.should_quit);
+        assert!(state.composer.draft().is_empty());
+        assert_eq!(state.status, "Returned to message mode");
+    }
+
+    #[test]
+    fn message_added_event_does_not_reload_current_session() {
+        let mut state = AppState::empty();
+        let session = ChatSession::new("agent-1".to_string(), "model".to_string());
+        let session_id = session.id.clone();
+        state.set_current_session(session);
+
+        let output = reduce(
+            &mut state,
+            ShellAction::SessionEvent(ChatSessionEvent::MessageAdded {
+                session_id,
+                source: "ipc".to_string(),
+            }),
+        );
+
+        assert!(output.effects.is_empty());
+    }
+
+    #[test]
+    fn startup_submit_triggers_start_daemon_effect() {
+        let mut state = AppState::empty();
+        state.enter_startup(Some("agent-1".to_string()), Some("session-1".to_string()));
+
+        let output = reduce(&mut state, ShellAction::Ui(Action::Submit));
+
+        assert!(matches!(
+            output.effects.as_slice(),
+            [ShellEffect::StartDaemon {
+                agent_override: Some(agent_id),
+                session_override: Some(session_id),
+            }] if agent_id == "agent-1" && session_id == "session-1"
+        ));
+        assert!(
+            state
+                .startup_state()
+                .expect("startup state")
+                .starting_daemon
+        );
+    }
+
+    #[test]
+    fn startup_failure_stays_in_startup_mode() {
+        let mut state = AppState::empty();
+        state.enter_startup(None, None);
+
+        let output = reduce(
+            &mut state,
+            ShellAction::DaemonStartFailed("failed".to_string()),
+        );
+
+        assert!(!output.should_quit);
+        assert!(state.is_startup_mode());
+        assert_eq!(state.status, "failed");
     }
 }
