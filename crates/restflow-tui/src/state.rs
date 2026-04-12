@@ -7,8 +7,9 @@ use restflow_traits::{PendingTeamApproval, TeamAssignment, TeamMessage, TeamMess
 
 use super::composer::ComposerState;
 use super::transcript::{
-    ShellMessage, message_from_session_event, message_from_stream_frame, message_from_task_event,
-    message_from_team_message, messages_from_session,
+    ShellMessage, TranscriptCell, cell_from_message, message_from_session_event,
+    message_from_stream_frame, message_from_task_event, message_from_team_message,
+    messages_from_session, transcript_cells,
 };
 
 #[derive(Debug, Clone)]
@@ -99,6 +100,14 @@ pub enum OverlayState {
     Help,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct StartupState {
+    pub starting_daemon: bool,
+    pub error: Option<String>,
+    pub agent_override: Option<String>,
+    pub session_override: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct AppState {
     pub default_agent_name: Option<String>,
@@ -109,12 +118,19 @@ pub struct AppState {
     pub current_team_assignments: Vec<TeamAssignment>,
     pub current_team_approvals: Vec<PendingTeamApproval>,
     pub sessions: Vec<ChatSessionSummary>,
-    pub transcript: Vec<ShellMessage>,
+    // Conversation cells are rebuilt from persisted session messages and should stay stable.
+    pub conversation_cells: Vec<TranscriptCell>,
+    // Runtime cells are ephemeral UI feedback for the current turn only.
+    pub runtime_cells: Vec<TranscriptCell>,
+    // Active cell is the single in-flight assistant response while streaming.
+    pub active_cell: Option<TranscriptCell>,
     pub overlay: Option<OverlayState>,
     pub transcript_scroll: u16,
     pub composer: ComposerState,
     pub status: String,
     pub is_streaming: bool,
+    pub startup: Option<StartupState>,
+    pending_initial_message: Option<String>,
     seen_team_message_ids: HashSet<String>,
 }
 
@@ -129,12 +145,16 @@ impl AppState {
             current_team_assignments: Vec::new(),
             current_team_approvals: Vec::new(),
             sessions: Vec::new(),
-            transcript: Vec::new(),
+            conversation_cells: Vec::new(),
+            runtime_cells: Vec::new(),
+            active_cell: None,
             overlay: None,
             transcript_scroll: 0,
             composer: ComposerState::default(),
             status: "Connecting to daemon...".to_string(),
             is_streaming: false,
+            startup: None,
+            pending_initial_message: None,
             seen_team_message_ids: HashSet::new(),
         }
     }
@@ -155,15 +175,73 @@ impl AppState {
         self.thread.focus_label()
     }
 
+    pub fn is_startup_mode(&self) -> bool {
+        self.startup.is_some()
+    }
+
+    pub fn startup_state(&self) -> Option<&StartupState> {
+        self.startup.as_ref()
+    }
+
     pub fn set_default_agent(&mut self, id: Option<String>, name: Option<String>) {
         self.default_agent_id = id;
         self.default_agent_name = name;
     }
 
+    pub fn set_pending_initial_message(&mut self, message: Option<String>) {
+        self.pending_initial_message = message;
+    }
+
+    pub fn take_pending_initial_message(&mut self) -> Option<String> {
+        self.pending_initial_message.take()
+    }
+
+    pub fn enter_startup(
+        &mut self,
+        agent_override: Option<String>,
+        session_override: Option<String>,
+    ) {
+        self.startup = Some(StartupState {
+            starting_daemon: false,
+            error: None,
+            agent_override,
+            session_override,
+        });
+        self.status = "RestFlow daemon is not running".to_string();
+    }
+
+    pub fn mark_starting_daemon(&mut self) {
+        if let Some(startup) = self.startup.as_mut() {
+            startup.starting_daemon = true;
+            startup.error = None;
+            self.status = "Starting daemon...".to_string();
+        }
+    }
+
+    pub fn set_startup_error(&mut self, message: String) {
+        if let Some(startup) = self.startup.as_mut() {
+            startup.starting_daemon = false;
+            startup.error = Some(message.clone());
+        }
+        self.status = message;
+    }
+
+    pub fn exit_startup(&mut self) {
+        self.startup = None;
+    }
+
     pub fn set_current_session(&mut self, session: ChatSession) {
+        let session_changed = self.current_session_id() != Some(session.id.as_str());
         self.thread.set_session(session.clone());
+        if session_changed {
+            self.clear_team_context();
+        }
         self.seen_team_message_ids.clear();
-        self.replace_session_projection(messages_from_session(&session));
+        self.runtime_cells.clear();
+        self.active_cell = None;
+        self.conversation_cells =
+            transcript_cells(&messages_from_session(&session), self.assistant_name());
+        self.transcript_scroll_to_bottom();
     }
 
     pub fn refresh_current_session(&mut self, session: ChatSession) {
@@ -173,8 +251,10 @@ impl AppState {
 
     pub fn clear_current_session(&mut self, notice: impl Into<String>) {
         self.thread.clear_session();
-        self.seen_team_message_ids.clear();
+        self.clear_team_context();
         self.replace_session_projection(Vec::new());
+        self.runtime_cells.clear();
+        self.active_cell = None;
         self.push_info(notice);
     }
 
@@ -193,6 +273,20 @@ impl AppState {
 
     pub fn clear_overlay(&mut self) {
         self.overlay = None;
+    }
+
+    fn clear_team_context(&mut self) {
+        self.current_team_state = None;
+        self.current_team_messages.clear();
+        self.current_team_assignments.clear();
+        self.current_team_approvals.clear();
+        self.seen_team_message_ids.clear();
+        if matches!(
+            self.overlay,
+            Some(OverlayState::TeamView { .. }) | Some(OverlayState::ApprovalPicker { .. })
+        ) {
+            self.overlay = None;
+        }
     }
 
     pub fn open_session_picker(&mut self) {
@@ -309,28 +403,17 @@ impl AppState {
     }
 
     pub fn push_message(&mut self, message: ShellMessage) {
-        if message.is_session_projection() {
-            let insert_at = self
-                .transcript
-                .iter()
-                .position(|entry| !entry.is_session_projection())
-                .unwrap_or(self.transcript.len());
-            self.transcript.insert(insert_at, message);
+        let cell = cell_from_message(&message, self.assistant_name());
+        if cell.is_conversation_cell() {
+            self.conversation_cells.push(cell);
         } else {
-            self.transcript.push(message);
+            self.runtime_cells.push(cell);
         }
         self.transcript_scroll_to_bottom();
     }
 
     pub fn replace_session_projection(&mut self, messages: Vec<ShellMessage>) {
-        let notices = self
-            .transcript
-            .iter()
-            .filter(|message| !message.is_session_projection())
-            .cloned()
-            .collect::<Vec<_>>();
-        self.transcript = messages;
-        self.transcript.extend(notices);
+        self.conversation_cells = transcript_cells(&messages, self.assistant_name());
         self.transcript_scroll_to_bottom();
     }
 
@@ -375,12 +458,40 @@ impl AppState {
     }
 
     pub fn transcript_scroll_to_bottom(&mut self) {
-        self.transcript_scroll = self.transcript.len().saturating_sub(1) as u16;
+        self.transcript_scroll = 0;
     }
 
     pub fn scroll_transcript(&mut self, delta: i16) {
-        let next = (self.transcript_scroll as i16 + delta).max(0) as u16;
+        let next = (self.transcript_scroll as i16 - delta).max(0) as u16;
         self.transcript_scroll = next;
+    }
+
+    fn append_assistant_stream_chunk(&mut self, chunk: &str) {
+        if chunk.is_empty() {
+            return;
+        }
+
+        if self
+            .active_cell
+            .as_mut()
+            .is_some_and(|cell| cell.append_chunk(chunk))
+        {
+            self.transcript_scroll_to_bottom();
+            return;
+        }
+
+        if chunk.trim().is_empty() {
+            return;
+        }
+
+        self.runtime_cells.clear();
+        self.active_cell = Some(cell_from_message(
+            &ShellMessage::AssistantStream {
+                content: chunk.to_string(),
+            },
+            self.assistant_name(),
+        ));
+        self.transcript_scroll_to_bottom();
     }
 
     pub fn apply_stream_frame(&mut self, frame: StreamFrame) {
@@ -389,22 +500,22 @@ impl AppState {
                 self.is_streaming = true;
                 self.status = format!("Streaming response ({stream_id})");
             }
+            StreamFrame::Ack { content } => {
+                self.is_streaming = true;
+                self.append_assistant_stream_chunk(&content);
+            }
             StreamFrame::Data { content } => {
                 self.is_streaming = true;
-                if self
-                    .transcript
-                    .last_mut()
-                    .is_some_and(|message| message.append_assistant_chunk(&content))
-                {
-                    self.transcript_scroll_to_bottom();
-                } else {
-                    self.push_message(ShellMessage::AssistantStream { content });
-                }
+                self.append_assistant_stream_chunk(&content);
             }
             StreamFrame::Done { total_tokens } => {
                 self.is_streaming = false;
-                if let Some(last_message) = self.transcript.last_mut() {
-                    let _ = last_message.finalize_stream();
+                if let Some(mut active_cell) = self.active_cell.take()
+                    && !active_cell.body.trim().is_empty()
+                {
+                    let _ = active_cell.finalize();
+                    self.conversation_cells.push(active_cell);
+                    self.transcript_scroll_to_bottom();
                 }
                 self.status = match total_tokens {
                     Some(total_tokens) => format!("Stream finished ({total_tokens} tokens)"),
@@ -416,6 +527,7 @@ impl AppState {
                     if matches!(message, ShellMessage::ErrorNotice { .. }) {
                         self.is_streaming = false;
                         self.status = "Stream failed".to_string();
+                        self.active_cell = None;
                     }
                     self.push_message(message);
                 }
@@ -424,7 +536,9 @@ impl AppState {
     }
 
     pub fn apply_session_event(&mut self, event: ChatSessionEvent) {
-        self.push_message(message_from_session_event(&event));
+        if let Some(message) = message_from_session_event(&event) {
+            self.push_message(message);
+        }
     }
 
     pub fn apply_task_event(&mut self, event: TaskStreamEvent) {
@@ -455,13 +569,26 @@ impl AppState {
             })
             .collect();
     }
+
+    pub fn transcript_cells_for_render(&self) -> Vec<TranscriptCell> {
+        let mut cells = self.conversation_cells.clone();
+        cells.extend(self.runtime_cells.clone());
+        if let Some(active_cell) = self.active_cell.clone() {
+            cells.push(active_cell);
+        }
+        cells
+    }
+
+    fn assistant_name(&self) -> &str {
+        self.default_agent_name.as_deref().unwrap_or("Agent")
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{AppState, OverlayState};
-    use crate::tui::transcript::ShellMessage;
-    use restflow_core::daemon::StreamFrame;
+    use crate::transcript::{TranscriptCellKind, transcript_cells};
+    use restflow_core::daemon::{ChatSessionEvent, StreamFrame};
     use restflow_traits::{TeamMessage, TeamMessageKind};
 
     #[test]
@@ -474,21 +601,38 @@ mod tests {
     #[test]
     fn stream_frames_merge_into_one_assistant_message() {
         let mut state = AppState::empty();
-        state.apply_stream_frame(StreamFrame::Data {
+        state.apply_stream_frame(StreamFrame::Ack {
             content: "hel".to_string(),
         });
         state.apply_stream_frame(StreamFrame::Data {
             content: "lo".to_string(),
         });
+        assert!(state.active_cell.is_some());
         state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
 
-        assert_eq!(state.transcript.len(), 1);
+        assert_eq!(state.conversation_cells.len(), 1);
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.active_cell.is_none());
         assert_eq!(
-            state.transcript[0],
-            ShellMessage::AssistantMessage {
-                content: "hello".to_string(),
-            }
+            state.conversation_cells[0].kind,
+            TranscriptCellKind::Assistant
         );
+        assert_eq!(state.conversation_cells[0].body, "hello");
+    }
+
+    #[test]
+    fn blank_stream_chunks_do_not_create_empty_assistant_cells() {
+        let mut state = AppState::empty();
+        state.apply_stream_frame(StreamFrame::Ack {
+            content: "   ".to_string(),
+        });
+        state.apply_stream_frame(StreamFrame::Data {
+            content: String::new(),
+        });
+        state.apply_stream_frame(StreamFrame::Done { total_tokens: None });
+
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.active_cell.is_none());
     }
 
     #[test]
@@ -507,7 +651,7 @@ mod tests {
         state.record_team_message(&message);
         state.record_team_message(&message);
 
-        assert_eq!(state.transcript.len(), 1);
+        assert_eq!(state.runtime_cells.len(), 1);
     }
 
     #[test]
@@ -555,8 +699,9 @@ mod tests {
             .push(restflow_core::models::ChatMessage::assistant("hi"));
         state.refresh_current_session(updated);
 
-        assert_eq!(state.transcript.len(), 3);
-        assert!(matches!(state.transcript[2], ShellMessage::InfoNotice { .. }));
+        assert_eq!(state.conversation_cells.len(), 2);
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert_eq!(state.runtime_cells[0].title, "Info");
     }
 
     #[test]
@@ -569,8 +714,132 @@ mod tests {
 
         state.clear_current_session("session missing");
 
-        assert_eq!(state.transcript.len(), 2);
-        assert!(matches!(state.transcript[0], ShellMessage::InfoNotice { .. }));
-        assert!(matches!(state.transcript[1], ShellMessage::InfoNotice { .. }));
+        assert_eq!(state.conversation_cells.len(), 0);
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert_eq!(state.runtime_cells[0].title, "Info");
+    }
+
+    #[test]
+    fn switching_session_clears_team_context() {
+        let mut state = AppState::empty();
+        let first = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        let second = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        state.set_current_session(first);
+        state.current_team_state = Some(restflow_traits::TeamState {
+            team_run_id: "team-1".to_string(),
+            leader_member_id: "leader".to_string(),
+            members: Vec::new(),
+            status: restflow_traits::TeamStatus::Running,
+            pending_message_count: 1,
+            pending_assignment_count: 0,
+            updated_at: 1,
+        });
+        state.open_team_overlay();
+
+        state.set_current_session(second);
+
+        assert!(state.current_team_state.is_none());
+        assert!(state.current_team_messages.is_empty());
+        assert!(state.current_team_assignments.is_empty());
+        assert!(state.current_team_approvals.is_empty());
+        assert!(state.overlay.is_none());
+    }
+
+    #[test]
+    fn transcript_scroll_uses_bottom_anchored_offsets() {
+        let mut state = AppState::empty();
+        state.scroll_transcript(-3);
+        assert_eq!(state.transcript_scroll, 3);
+        state.scroll_transcript(2);
+        assert_eq!(state.transcript_scroll, 1);
+        state.transcript_scroll_to_bottom();
+        assert_eq!(state.transcript_scroll, 0);
+    }
+
+    #[test]
+    fn session_events_do_not_append_debug_notices() {
+        let mut state = AppState::empty();
+        state.apply_session_event(ChatSessionEvent::MessageAdded {
+            session_id: "session-1".to_string(),
+            source: "ipc".to_string(),
+        });
+        assert!(state.conversation_cells.is_empty());
+        assert!(state.runtime_cells.is_empty());
+        assert!(state.active_cell.is_none());
+    }
+
+    #[test]
+    fn set_current_session_resets_runtime_cells_for_new_session() {
+        let mut state = AppState::empty();
+        state.push_info("notice");
+        let mut session = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(restflow_core::models::ChatMessage::user("hello"));
+
+        state.set_current_session(session);
+
+        assert_eq!(state.conversation_cells.len(), 1);
+        assert_eq!(state.conversation_cells[0].kind, TranscriptCellKind::User);
+        assert!(state.runtime_cells.is_empty());
+    }
+
+    #[test]
+    fn refresh_current_session_preserves_runtime_cells_and_active_cell() {
+        let mut state = AppState::empty();
+        let mut session = restflow_core::models::ChatSession::new("agent-1".to_string(), "model".to_string());
+        session.messages.push(restflow_core::models::ChatMessage::user("hello"));
+        state.set_current_session(session.clone());
+        state.push_info("notice");
+        state.active_cell = transcript_cells(
+            &[crate::transcript::ShellMessage::AssistantStream {
+                content: "chunk".to_string(),
+            }],
+            "Agent",
+        )
+        .into_iter()
+        .next();
+
+        let mut updated = session.clone();
+        updated
+            .messages
+            .push(restflow_core::models::ChatMessage::assistant("reply"));
+        state.refresh_current_session(updated);
+
+        assert_eq!(state.conversation_cells.len(), 2);
+        assert_eq!(state.runtime_cells.len(), 1);
+        assert_eq!(state.runtime_cells[0].title, "Info");
+        assert!(state.active_cell.is_some());
+    }
+
+    #[test]
+    fn startup_state_tracks_daemon_bootstrap_flow() {
+        let mut state = AppState::empty();
+        state.enter_startup(Some("agent-1".to_string()), Some("session-1".to_string()));
+
+        assert!(state.is_startup_mode());
+        assert_eq!(
+            state
+                .startup_state()
+                .and_then(|startup| startup.agent_override.as_deref()),
+            Some("agent-1")
+        );
+
+        state.mark_starting_daemon();
+        assert!(
+            state
+                .startup_state()
+                .expect("startup state")
+                .starting_daemon
+        );
+
+        state.set_startup_error("boom".to_string());
+        assert_eq!(
+            state
+                .startup_state()
+                .and_then(|startup| startup.error.as_deref()),
+            Some("boom")
+        );
+
+        state.exit_startup();
+        assert!(!state.is_startup_mode());
     }
 }
