@@ -15,6 +15,14 @@
 # Local agent guidance files
 CLAUDE.md
 AGENTS.md
+CODEX.md
+COPILOT.md
+GEMINI.md
+.agents/
+.codex/
+.opencode/
+.cursor/
+.windsurf/
 
 # Python environment
 /python/.venv/
